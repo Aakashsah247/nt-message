@@ -1,0 +1,36 @@
+# Dependencies
+node_modules/
+
+# Build output
+dist/
+build/
+coverage/
+
+# Environment secrets
+.env
+.env.*
+!.env.example
+
+# Logs
+*.log
+logs/
+
+# Temporary files and uploads
+uploads/
+tmp/
+temp/
+
+# Testing output
+playwright-report/
+test-results/
+
+# Editors
+.vscode/
+.idea/
+
+# macOS
+.DS_Store
+
+# Generated files
+generated/
+apps/api/src/generated/
