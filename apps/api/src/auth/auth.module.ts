@@ -1,15 +1,16 @@
-import { Module } from '@nestjs/common';
-import { JwtModule } from '@nestjs/jwt';
-import { PassportModule } from '@nestjs/passport';
-import { AuthController } from './auth.controller';
-import { AuthService } from './auth.service';
-import { AccessTokenGuard } from './guards/access-token.guard';
-import { AccessTokenStrategy } from './strategies/access-token.strategy';
+import { Module } from "@nestjs/common";
+import { JwtModule } from "@nestjs/jwt";
+import { PassportModule } from "@nestjs/passport";
+import { AuthController } from "./auth.controller";
+import { AuthService } from "./auth.service";
+import { AccessTokenGuard } from "./guards/access-token.guard";
+import { RolesGuard } from "./guards/roles.guard";
+import { AccessTokenStrategy } from "./strategies/access-token.strategy";
 
 @Module({
   imports: [
     PassportModule.register({
-      defaultStrategy: 'jwt',
+      defaultStrategy: "jwt",
       session: false,
     }),
 
@@ -18,8 +19,20 @@ import { AccessTokenStrategy } from './strategies/access-token.strategy';
 
   controllers: [AuthController],
 
-  providers: [AuthService, AccessTokenStrategy, AccessTokenGuard],
+  providers: [
+    AuthService,
+    AccessTokenStrategy,
+    AccessTokenGuard,
+    RolesGuard,
+  ],
 
-  exports: [AuthService, AccessTokenGuard],
+  /*
+   * Other modules can now use both authentication guards.
+   */
+  exports: [
+    AuthService,
+    AccessTokenGuard,
+    RolesGuard,
+  ],
 })
 export class AuthModule {}
