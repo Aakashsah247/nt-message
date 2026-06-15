@@ -1,18 +1,25 @@
-import { Module } from "@nestjs/common";
-import { JwtModule } from "@nestjs/jwt";
-import { AuthController } from "./auth.controller";
-import { AuthService } from "./auth.service";
+import { Module } from '@nestjs/common';
+import { JwtModule } from '@nestjs/jwt';
+import { PassportModule } from '@nestjs/passport';
+import { AuthController } from './auth.controller';
+import { AuthService } from './auth.service';
+import { AccessTokenGuard } from './guards/access-token.guard';
+import { AccessTokenStrategy } from './strategies/access-token.strategy';
 
 @Module({
   imports: [
-    /*
-     * Secrets are provided separately when each
-     * access or refresh token is signed.
-     */
+    PassportModule.register({
+      defaultStrategy: 'jwt',
+      session: false,
+    }),
+
     JwtModule.register({}),
   ],
+
   controllers: [AuthController],
-  providers: [AuthService],
-  exports: [AuthService],
+
+  providers: [AuthService, AccessTokenStrategy, AccessTokenGuard],
+
+  exports: [AuthService, AccessTokenGuard],
 })
 export class AuthModule {}

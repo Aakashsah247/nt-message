@@ -10,35 +10,37 @@ import * as argon2 from "argon2";
 import {
   createHash,
   randomUUID,
+  timingSafeEqual,
 } from "node:crypto";
-import {
-  AccountRole,
-} from "../generated/prisma/client";
 import { PrismaService } from "../database/prisma.service";
+import { AccountRole } from "../generated/prisma/client";
 import { AdminLoginDto } from "./dto/admin-login.dto";
+import type { RefreshTokenPayload } from "./types/auth.types";
 
 interface LoginMetadata {
   ipAddress: string | null;
   userAgent: string | null;
 }
 
-interface TokenPayload {
-  sub: string;
-  role: AccountRole;
-  type: "access" | "refresh";
-  sid?: string;
-}
-
-interface LoginResult {
+export interface TokenResult {
   accessToken: string;
   accessTokenExpiresIn: number;
   refreshToken: string;
   refreshTokenExpiresAt: Date;
-  account: {
-    id: string;
-    username: string | null;
-    role: AccountRole;
-  };
+}
+
+export interface AccountResult {
+  id: string;
+  username: string | null;
+  role: AccountRole;
+}
+
+export interface LoginResult extends TokenResult {
+  account: AccountResult;
+}
+
+export interface RefreshResult extends TokenResult {
+  account: AccountResult;
 }
 
 @Injectable()
@@ -52,12 +54,6 @@ export class AuthService {
   private readonly maxLoginAttempts: number;
   private readonly lockMinutes: number;
 
-  /*
-   * Used when an account does not exist.
-   *
-   * It helps make missing-account requests perform password-hash
-   * work instead of returning immediately.
-   */
   private readonly dummyHashPromise = argon2.hash(
     "nt-message-invalid-password",
     {
@@ -116,10 +112,6 @@ export class AuthService {
         },
       });
 
-    /*
-     * Use the same response when the account does not exist.
-     * This prevents exposing whether a username is registered.
-     */
     if (!account) {
       const dummyHash =
         await this.dummyHashPromise;
@@ -175,51 +167,14 @@ export class AuthService {
           this.refreshTtlSeconds * 1000,
       );
 
-    const accessPayload: TokenPayload = {
-      sub: account.id,
-      role: account.role,
-      type: "access",
-    };
+    const tokens =
+      await this.createTokenPair(
+        account.id,
+        account.role,
+        sessionId,
+        refreshTokenExpiresAt,
+      );
 
-    const refreshPayload: TokenPayload = {
-      sub: account.id,
-      role: account.role,
-      type: "refresh",
-      sid: sessionId,
-    };
-
-    const [accessToken, refreshToken] =
-      await Promise.all([
-        this.jwtService.signAsync(
-          accessPayload,
-          {
-            secret: this.accessSecret,
-            expiresIn:
-              this.accessTtlSeconds,
-          },
-        ),
-
-        this.jwtService.signAsync(
-          refreshPayload,
-          {
-            secret: this.refreshSecret,
-            expiresIn:
-              this.refreshTtlSeconds,
-          },
-        ),
-      ]);
-
-    const refreshTokenHash =
-      createHash("sha256")
-        .update(refreshToken)
-        .digest("hex");
-
-    /*
-     * Both operations succeed together.
-     *
-     * If session creation fails, the account update is also
-     * cancelled by the database transaction.
-     */
     await this.prisma.$transaction([
       this.prisma.account.update({
         where: {
@@ -236,13 +191,290 @@ export class AuthService {
         data: {
           id: sessionId,
           accountId: account.id,
-          refreshTokenHash,
-          ipAddress: metadata.ipAddress,
-          userAgent: metadata.userAgent,
+
+          refreshTokenHash:
+            this.hashToken(
+              tokens.refreshToken,
+            ),
+
+          ipAddress:
+            metadata.ipAddress,
+
+          userAgent:
+            metadata.userAgent,
+
           expiresAt:
             refreshTokenExpiresAt,
         },
       }),
+    ]);
+
+    return {
+      ...tokens,
+
+      account: {
+        id: account.id,
+        username: account.username,
+        role: account.role,
+      },
+    };
+  }
+
+  async refreshSession(
+    refreshToken:
+      | string
+      | undefined,
+  ): Promise<RefreshResult> {
+    if (!refreshToken) {
+      throw new UnauthorizedException(
+        "Refresh token is missing.",
+      );
+    }
+
+    const payload =
+      await this.verifyRefreshToken(
+        refreshToken,
+      );
+
+    if (
+      payload.type !== "refresh" ||
+      !payload.sub ||
+      !payload.sid
+    ) {
+      throw new UnauthorizedException(
+        "Invalid refresh token.",
+      );
+    }
+
+    const session =
+      await this.prisma.authSession.findUnique({
+        where: {
+          id: payload.sid,
+        },
+
+        include: {
+          account: {
+            select: {
+              id: true,
+              username: true,
+              role: true,
+              isEnabled: true,
+            },
+          },
+        },
+      });
+
+    const now = new Date();
+
+    const sessionIsInvalid =
+      !session ||
+      session.accountId !==
+        payload.sub ||
+      session.revokedAt !== null ||
+      session.expiresAt <= now ||
+      !session.account.isEnabled ||
+      session.account.role !==
+        payload.role;
+
+    if (sessionIsInvalid) {
+      throw new UnauthorizedException(
+        "Authentication session is invalid or expired.",
+      );
+    }
+
+    const incomingTokenHash =
+      this.hashToken(refreshToken);
+
+    const tokenHashMatches =
+      this.tokenHashesMatch(
+        session.refreshTokenHash,
+        incomingTokenHash,
+      );
+
+    if (!tokenHashMatches) {
+      throw new UnauthorizedException(
+        "Refresh token is invalid or has already been used.",
+      );
+    }
+
+    const tokens =
+      await this.createTokenPair(
+        session.account.id,
+        session.account.role,
+        session.id,
+        session.expiresAt,
+      );
+
+    const newRefreshTokenHash =
+      this.hashToken(
+        tokens.refreshToken,
+      );
+
+    /*
+     * updateMany makes rotation conditional.
+     *
+     * The update succeeds only when the old hash
+     * still exists and the session is still active.
+     */
+    const updateResult =
+      await this.prisma.authSession.updateMany({
+        where: {
+          id: session.id,
+          refreshTokenHash:
+            incomingTokenHash,
+          revokedAt: null,
+          expiresAt: {
+            gt: now,
+          },
+        },
+
+        data: {
+          refreshTokenHash:
+            newRefreshTokenHash,
+          lastUsedAt: now,
+        },
+      });
+
+    if (updateResult.count !== 1) {
+      throw new UnauthorizedException(
+        "Refresh token is invalid or has already been used.",
+      );
+    }
+
+    return {
+      ...tokens,
+
+      account: {
+        id: session.account.id,
+        username:
+          session.account.username,
+        role: session.account.role,
+      },
+    };
+  }
+
+  async logoutSession(
+    refreshToken:
+      | string
+      | undefined,
+  ): Promise<void> {
+    if (!refreshToken) {
+      return;
+    }
+
+    try {
+      const payload =
+        await this.verifyRefreshToken(
+          refreshToken,
+        );
+
+      const refreshTokenHash =
+        this.hashToken(
+          refreshToken,
+        );
+
+      await this.prisma.authSession.updateMany({
+        where: {
+          id: payload.sid,
+          accountId: payload.sub,
+          refreshTokenHash,
+          revokedAt: null,
+        },
+
+        data: {
+          revokedAt: new Date(),
+        },
+      });
+    } catch {
+      /*
+       * Logout remains safe and idempotent.
+       * The controller will still clear the cookie.
+       */
+    }
+  }
+
+  async logoutAllSessions(
+    accountId: string,
+  ): Promise<number> {
+    const result =
+      await this.prisma.authSession.updateMany({
+        where: {
+          accountId,
+          revokedAt: null,
+        },
+
+        data: {
+          revokedAt: new Date(),
+        },
+      });
+
+    return result.count;
+  }
+
+  private async createTokenPair(
+    accountId: string,
+    role: AccountRole,
+    sessionId: string,
+    refreshTokenExpiresAt: Date,
+  ): Promise<TokenResult> {
+    const remainingRefreshSeconds =
+      Math.floor(
+        (
+          refreshTokenExpiresAt.getTime() -
+          Date.now()
+        ) / 1000,
+      );
+
+    if (remainingRefreshSeconds <= 0) {
+      throw new UnauthorizedException(
+        "Authentication session has expired.",
+      );
+    }
+
+    const accessPayload = {
+      sub: accountId,
+      sid: sessionId,
+      role,
+      type: "access" as const,
+    };
+
+    const refreshPayload = {
+      sub: accountId,
+      sid: sessionId,
+      role,
+      type: "refresh" as const,
+
+      /*
+       * Makes every rotated refresh token unique.
+       */
+      jti: randomUUID(),
+    };
+
+    const [
+      accessToken,
+      refreshToken,
+    ] = await Promise.all([
+      this.jwtService.signAsync(
+        accessPayload,
+        {
+          secret:
+            this.accessSecret,
+
+          expiresIn:
+            this.accessTtlSeconds,
+        },
+      ),
+
+      this.jwtService.signAsync(
+        refreshPayload,
+        {
+          secret:
+            this.refreshSecret,
+
+          expiresIn:
+            remainingRefreshSeconds,
+        },
+      ),
     ]);
 
     return {
@@ -251,12 +483,67 @@ export class AuthService {
         this.accessTtlSeconds,
       refreshToken,
       refreshTokenExpiresAt,
-      account: {
-        id: account.id,
-        username: account.username,
-        role: account.role,
-      },
     };
+  }
+
+  private async verifyRefreshToken(
+    refreshToken: string,
+  ): Promise<RefreshTokenPayload> {
+    try {
+      return await this.jwtService
+        .verifyAsync<RefreshTokenPayload>(
+          refreshToken,
+          {
+            secret:
+              this.refreshSecret,
+
+            algorithms: [
+              "HS256",
+            ],
+          },
+        );
+    } catch {
+      throw new UnauthorizedException(
+        "Invalid or expired refresh token.",
+      );
+    }
+  }
+
+  private hashToken(
+    token: string,
+  ): string {
+    return createHash("sha256")
+      .update(token)
+      .digest("hex");
+  }
+
+  private tokenHashesMatch(
+    storedHash: string,
+    incomingHash: string,
+  ): boolean {
+    const storedBuffer =
+      Buffer.from(
+        storedHash,
+        "hex",
+      );
+
+    const incomingBuffer =
+      Buffer.from(
+        incomingHash,
+        "hex",
+      );
+
+    if (
+      storedBuffer.length !==
+      incomingBuffer.length
+    ) {
+      return false;
+    }
+
+    return timingSafeEqual(
+      storedBuffer,
+      incomingBuffer,
+    );
   }
 
   private async recordFailedLogin(
@@ -269,7 +556,9 @@ export class AuthService {
       existingLock <= new Date();
 
     const previousAttempts =
-      lockExpired ? 0 : currentAttempts;
+      lockExpired
+        ? 0
+        : currentAttempts;
 
     const nextAttempts =
       previousAttempts + 1;
@@ -278,19 +567,21 @@ export class AuthService {
       nextAttempts >=
       this.maxLoginAttempts;
 
-    const lockedUntil = shouldLock
-      ? new Date(
-          Date.now() +
-            this.lockMinutes *
-              60 *
-              1000,
-        )
-      : null;
+    const lockedUntil =
+      shouldLock
+        ? new Date(
+            Date.now() +
+              this.lockMinutes *
+                60 *
+                1000,
+          )
+        : null;
 
     await this.prisma.account.update({
       where: {
         id: accountId,
       },
+
       data: {
         failedLoginAttempts:
           nextAttempts,
@@ -310,15 +601,18 @@ export class AuthService {
     variableName: string,
   ): number {
     const rawValue =
-      this.configService.getOrThrow<string>(
-        variableName,
-      );
+      this.configService
+        .getOrThrow<string>(
+          variableName,
+        );
 
     const parsedValue =
       Number(rawValue);
 
     if (
-      !Number.isInteger(parsedValue) ||
+      !Number.isInteger(
+        parsedValue,
+      ) ||
       parsedValue <= 0
     ) {
       throw new Error(
