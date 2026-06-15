@@ -8,61 +8,192 @@ import {
   Req,
   Res,
   UseGuards,
-} from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
-import type { Request, Response } from 'express';
-import { AuthService } from './auth.service';
-import { CurrentUser } from './decorators/current-user.decorator';
-import { AdminLoginDto } from './dto/admin-login.dto';
-import { AccessTokenGuard } from './guards/access-token.guard';
+} from "@nestjs/common";
+import { ConfigService } from "@nestjs/config";
+import type {
+  Request,
+  Response,
+} from "express";
+import { AuthService } from "./auth.service";
+import { CurrentUser } from "./decorators/current-user.decorator";
+import { AdminLoginDto } from "./dto/admin-login.dto";
+import { AccessTokenGuard } from "./guards/access-token.guard";
 import type { AuthenticatedUser } from "./types/auth.types";
 
-@Controller('auth')
+@Controller("auth")
 export class AuthController {
   private readonly cookieName: string;
   private readonly isProduction: boolean;
 
   constructor(
-    private readonly authService: AuthService,
-    configService: ConfigService,
-  ) {
-    this.cookieName = configService.getOrThrow<string>('AUTH_COOKIE_NAME');
+    private readonly authService:
+      AuthService,
 
-    this.isProduction = configService.get<string>('NODE_ENV') === 'production';
+    configService:
+      ConfigService,
+  ) {
+    this.cookieName =
+      configService.getOrThrow<string>(
+        "AUTH_COOKIE_NAME",
+      );
+
+    this.isProduction =
+      configService.get<string>(
+        "NODE_ENV",
+      ) === "production";
   }
 
-  @Post('admin/login')
+  @Post("admin/login")
   @HttpCode(HttpStatus.OK)
   async adminLogin(
-    @Body() dto: AdminLoginDto,
-    @Req() request: Request,
-    @Res({ passthrough: true })
+    @Body()
+    dto: AdminLoginDto,
+
+    @Req()
+    request: Request,
+
+    @Res({
+      passthrough: true,
+    })
     response: Response,
   ) {
-    const result = await this.authService.loginAdmin(dto, {
-      ipAddress: request.ip ?? request.socket.remoteAddress ?? null,
+    const result =
+      await this.authService.loginAdmin(
+        dto,
+        {
+          ipAddress:
+            request.ip ??
+            request.socket
+              .remoteAddress ??
+            null,
 
-      userAgent: request.get('user-agent') ?? null,
-    });
+          userAgent:
+            request.get(
+              "user-agent",
+            ) ?? null,
+        },
+      );
 
-    response.cookie(this.cookieName, result.refreshToken, {
-      httpOnly: true,
-      secure: this.isProduction,
-      sameSite: 'strict',
-      path: '/api/v1/auth',
-      expires: result.refreshTokenExpiresAt,
-    });
+    this.setRefreshCookie(
+      response,
+      result.refreshToken,
+      result.refreshTokenExpiresAt,
+    );
 
     return {
-      accessToken: result.accessToken,
+      accessToken:
+        result.accessToken,
 
-      accessTokenExpiresIn: result.accessTokenExpiresIn,
+      accessTokenExpiresIn:
+        result.accessTokenExpiresIn,
 
-      account: result.account,
+      account:
+        result.account,
     };
   }
 
-  @Get('me')
+  @Post("refresh")
+  @HttpCode(HttpStatus.OK)
+  async refresh(
+    @Req()
+    request: Request,
+
+    @Res({
+      passthrough: true,
+    })
+    response: Response,
+  ) {
+    const refreshToken =
+      this.readRefreshCookie(
+        request,
+      );
+
+    const result =
+      await this.authService
+        .refreshSession(
+          refreshToken,
+        );
+
+    this.setRefreshCookie(
+      response,
+      result.refreshToken,
+      result.refreshTokenExpiresAt,
+    );
+
+    return {
+      accessToken:
+        result.accessToken,
+
+      accessTokenExpiresIn:
+        result.accessTokenExpiresIn,
+
+      account:
+        result.account,
+    };
+  }
+
+  @Post("logout")
+  @HttpCode(HttpStatus.OK)
+  async logout(
+    @Req()
+    request: Request,
+
+    @Res({
+      passthrough: true,
+    })
+    response: Response,
+  ) {
+    const refreshToken =
+      this.readRefreshCookie(
+        request,
+      );
+
+    await this.authService
+      .logoutSession(
+        refreshToken,
+      );
+
+    this.clearRefreshCookie(
+      response,
+    );
+
+    return {
+      message:
+        "Logged out successfully.",
+    };
+  }
+
+  @Post("logout-all")
+  @UseGuards(AccessTokenGuard)
+  @HttpCode(HttpStatus.OK)
+  async logoutAll(
+    @CurrentUser()
+    user: AuthenticatedUser,
+
+    @Res({
+      passthrough: true,
+    })
+    response: Response,
+  ) {
+    const revokedSessions =
+      await this.authService
+        .logoutAllSessions(
+          user.accountId,
+        );
+
+    this.clearRefreshCookie(
+      response,
+    );
+
+    return {
+      message:
+        "All sessions logged out successfully.",
+
+      revokedSessions,
+    };
+  }
+
+  @Get("me")
   @UseGuards(AccessTokenGuard)
   getCurrentUser(
     @CurrentUser()
@@ -71,7 +202,8 @@ export class AuthController {
     return {
       account: {
         id: user.accountId,
-        username: user.username,
+        username:
+          user.username,
         role: user.role,
       },
 
@@ -79,5 +211,64 @@ export class AuthController {
         id: user.sessionId,
       },
     };
+  }
+
+  private readRefreshCookie(
+    request: Request,
+  ): string | undefined {
+    const cookies =
+      request.cookies as
+        | Record<
+            string,
+            unknown
+          >
+        | undefined;
+
+    const value =
+      cookies?.[
+        this.cookieName
+      ];
+
+    return typeof value ===
+      "string"
+      ? value
+      : undefined;
+  }
+
+  private setRefreshCookie(
+    response: Response,
+    refreshToken: string,
+    expiresAt: Date,
+  ): void {
+    response.cookie(
+      this.cookieName,
+      refreshToken,
+      {
+        httpOnly: true,
+        secure:
+          this.isProduction,
+        sameSite: "strict",
+        path:
+          "/api/v1/auth",
+        expires:
+          expiresAt,
+      },
+    );
+  }
+
+  private clearRefreshCookie(
+    response: Response,
+  ): void {
+    response.clearCookie(
+      this.cookieName,
+      {
+        httpOnly: true,
+        secure:
+          this.isProduction,
+        sameSite: "strict",
+        path:
+          "/api/v1/auth",
+      },
+    );
   }
 }
