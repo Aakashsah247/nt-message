@@ -1,0 +1,106 @@
+generator client {
+  provider     = "prisma-client"
+  output       = "../src/generated/prisma"
+  moduleFormat = "cjs"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum AccountRole {
+  ADMIN
+  EMPLOYEE
+}
+
+enum EmployeeStatus {
+  ACTIVE
+  INACTIVE
+}
+
+enum OtpPurpose {
+  ACCOUNT_ACTIVATION
+  PASSWORD_RESET
+}
+
+model Employee {
+  id              String         @id @default(uuid()) @db.Uuid
+  empId           String         @unique @map("emp_id") @db.VarChar(50)
+  empName         String         @map("emp_name") @db.VarChar(150)
+  phoneNumber     String         @map("phone_number") @db.VarChar(20)
+  officialEmail   String         @unique @map("official_email") @db.VarChar(255)
+  department      String?        @db.VarChar(120)
+  designation     String?        @db.VarChar(120)
+  status          EmployeeStatus @default(ACTIVE)
+  isActivated     Boolean        @default(false) @map("is_activated")
+  profilePhotoKey String?        @map("profile_photo_key") @db.VarChar(500)
+  createdAt       DateTime       @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt       DateTime       @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  account          Account?
+  otpVerifications OtpVerification[]
+
+  @@unique([empId, phoneNumber], map: "employees_emp_id_phone_number_key")
+  @@index([empName], map: "employees_emp_name_idx")
+  @@index([department], map: "employees_department_idx")
+  @@index([status], map: "employees_status_idx")
+  @@map("employees")
+}
+
+model Account {
+  id                  String      @id @default(uuid()) @db.Uuid
+  employeeId          String?     @unique @map("employee_id") @db.Uuid
+  username            String?     @unique @db.VarChar(80)
+  role                AccountRole
+  passwordHash        String      @map("password_hash") @db.VarChar(255)
+  isEnabled           Boolean     @default(true) @map("is_enabled")
+  failedLoginAttempts Int         @default(0) @map("failed_login_attempts")
+  lockedUntil         DateTime?   @map("locked_until") @db.Timestamptz(3)
+  lastLoginAt         DateTime?   @map("last_login_at") @db.Timestamptz(3)
+  passwordChangedAt   DateTime    @default(now()) @map("password_changed_at") @db.Timestamptz(3)
+  createdAt           DateTime    @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt           DateTime    @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  employee Employee?     @relation(fields: [employeeId], references: [id], onDelete: Restrict)
+  sessions AuthSession[]
+
+  @@index([role], map: "accounts_role_idx")
+  @@index([isEnabled], map: "accounts_is_enabled_idx")
+  @@map("accounts")
+}
+
+model AuthSession {
+  id               String    @id @default(uuid()) @db.Uuid
+  accountId        String    @map("account_id") @db.Uuid
+  refreshTokenHash String    @unique @map("refresh_token_hash") @db.VarChar(64)
+  userAgent        String?   @map("user_agent") @db.VarChar(500)
+  ipAddress        String?   @map("ip_address") @db.VarChar(45)
+  expiresAt        DateTime  @map("expires_at") @db.Timestamptz(3)
+  revokedAt        DateTime? @map("revoked_at") @db.Timestamptz(3)
+  lastUsedAt       DateTime  @default(now()) @map("last_used_at") @db.Timestamptz(3)
+  createdAt        DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  account Account @relation(fields: [accountId], references: [id], onDelete: Cascade)
+
+  @@index([accountId, revokedAt], map: "auth_sessions_account_revoked_idx")
+  @@index([expiresAt], map: "auth_sessions_expires_at_idx")
+  @@map("auth_sessions")
+}
+
+model OtpVerification {
+  id           String     @id @default(uuid()) @db.Uuid
+  employeeId   String     @map("employee_id") @db.Uuid
+  purpose      OtpPurpose
+  otpHash      String     @map("otp_hash") @db.VarChar(255)
+  attemptCount Int        @default(0) @map("attempt_count")
+  maxAttempts  Int        @default(5) @map("max_attempts")
+  expiresAt    DateTime   @map("expires_at") @db.Timestamptz(3)
+  consumedAt   DateTime?  @map("consumed_at") @db.Timestamptz(3)
+  createdAt    DateTime   @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  employee Employee @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+
+  @@index([employeeId, purpose, createdAt], map: "otp_employee_purpose_created_idx")
+  @@index([expiresAt], map: "otp_expires_at_idx")
+  @@map("otp_verifications")
+}
