@@ -3,19 +3,16 @@ import {
   HttpStatus,
   Injectable,
   UnauthorizedException,
-} from "@nestjs/common";
-import { ConfigService } from "@nestjs/config";
-import { JwtService } from "@nestjs/jwt";
-import * as argon2 from "argon2";
-import {
-  createHash,
-  randomUUID,
-} from "node:crypto";
-import {
-  AccountRole,
-} from "../generated/prisma/client";
-import { PrismaService } from "../database/prisma.service";
-import { AdminLoginDto } from "./dto/admin-login.dto";
+} from '@nestjs/common';
+
+import { ConfigService } from '@nestjs/config';
+import { JwtService } from '@nestjs/jwt';
+import * as argon2 from 'argon2';
+import { createHash, randomUUID } from 'node:crypto';
+
+import { AccountRole } from '../generated/prisma/client';
+import { PrismaService } from '../database/prisma.service';
+import { AdminLoginDto } from './dto/admin-login.dto';
 
 interface LoginMetadata {
   ipAddress: string | null;
@@ -25,7 +22,7 @@ interface LoginMetadata {
 interface TokenPayload {
   sub: string;
   role: AccountRole;
-  type: "access" | "refresh";
+  type: 'access' | 'refresh';
   sid?: string;
 }
 
@@ -59,7 +56,7 @@ export class AuthService {
    * work instead of returning immediately.
    */
   private readonly dummyHashPromise = argon2.hash(
-    "nt-message-invalid-password",
+    'nt-message-invalid-password',
     {
       type: argon2.argon2id,
     },
@@ -71,84 +68,61 @@ export class AuthService {
     private readonly configService: ConfigService,
   ) {
     this.accessSecret =
-      this.configService.getOrThrow<string>(
-        "JWT_ACCESS_SECRET",
-      );
+      this.configService.getOrThrow<string>('JWT_ACCESS_SECRET');
 
     this.refreshSecret =
-      this.configService.getOrThrow<string>(
-        "JWT_REFRESH_SECRET",
-      );
+      this.configService.getOrThrow<string>('JWT_REFRESH_SECRET');
 
-    this.accessTtlSeconds =
-      this.readPositiveInteger(
-        "ACCESS_TOKEN_TTL_SECONDS",
-      );
+    this.accessTtlSeconds = this.readPositiveInteger(
+      'ACCESS_TOKEN_TTL_SECONDS',
+    );
 
-    this.refreshTtlSeconds =
-      this.readPositiveInteger(
-        "REFRESH_TOKEN_TTL_SECONDS",
-      );
+    this.refreshTtlSeconds = this.readPositiveInteger(
+      'REFRESH_TOKEN_TTL_SECONDS',
+    );
 
-    this.maxLoginAttempts =
-      this.readPositiveInteger(
-        "LOGIN_MAX_ATTEMPTS",
-      );
+    this.maxLoginAttempts = this.readPositiveInteger('LOGIN_MAX_ATTEMPTS');
 
-    this.lockMinutes =
-      this.readPositiveInteger(
-        "LOGIN_LOCK_MINUTES",
-      );
+    this.lockMinutes = this.readPositiveInteger('LOGIN_LOCK_MINUTES');
   }
 
   async loginAdmin(
     dto: AdminLoginDto,
     metadata: LoginMetadata,
   ): Promise<LoginResult> {
-    const username = dto.username
-      .trim()
-      .toLowerCase();
+    const username = dto.username.trim().toLowerCase();
 
-    const account =
-      await this.prisma.account.findUnique({
-        where: {
-          username,
-        },
-      });
+    const account = await this.prisma.account.findUnique({
+      where: {
+        username,
+      },
+    });
 
     /*
      * Use the same response when the account does not exist.
      * This prevents exposing whether a username is registered.
      */
     if (!account) {
-      const dummyHash =
-        await this.dummyHashPromise;
+      const dummyHash = await this.dummyHashPromise;
 
-      await argon2.verify(
-        dummyHash,
-        dto.password,
-      );
+      await argon2.verify(dummyHash, dto.password);
 
       throw this.invalidCredentials();
     }
 
     const now = new Date();
 
-    if (
-      account.lockedUntil &&
-      account.lockedUntil > now
-    ) {
+    if (account.lockedUntil && account.lockedUntil > now) {
       throw new HttpException(
-        "Too many failed login attempts. Try again later.",
+        'Too many failed login attempts. Try again later.',
         HttpStatus.TOO_MANY_REQUESTS,
       );
     }
 
-    const passwordIsValid =
-      await argon2.verify(
-        account.passwordHash,
-        dto.password,
-      );
+    const passwordIsValid = await argon2.verify(
+      account.passwordHash,
+      dto.password,
+    );
 
     if (!passwordIsValid) {
       await this.recordFailedLogin(
@@ -160,59 +134,45 @@ export class AuthService {
       throw this.invalidCredentials();
     }
 
-    if (
-      account.role !== AccountRole.ADMIN ||
-      !account.isEnabled
-    ) {
+    if (account.role !== AccountRole.ADMIN || !account.isEnabled) {
       throw this.invalidCredentials();
     }
 
     const sessionId = randomUUID();
 
-    const refreshTokenExpiresAt =
-      new Date(
-        Date.now() +
-          this.refreshTtlSeconds * 1000,
-      );
+    const refreshTokenExpiresAt = new Date(
+      Date.now() + this.refreshTtlSeconds * 1000,
+    );
 
     const accessPayload: TokenPayload = {
       sub: account.id,
       role: account.role,
-      type: "access",
+      type: 'access',
+      sid: sessionId,
     };
 
     const refreshPayload: TokenPayload = {
       sub: account.id,
       role: account.role,
-      type: "refresh",
+      type: 'refresh',
       sid: sessionId,
     };
 
-    const [accessToken, refreshToken] =
-      await Promise.all([
-        this.jwtService.signAsync(
-          accessPayload,
-          {
-            secret: this.accessSecret,
-            expiresIn:
-              this.accessTtlSeconds,
-          },
-        ),
+    const [accessToken, refreshToken] = await Promise.all([
+      this.jwtService.signAsync(accessPayload, {
+        secret: this.accessSecret,
+        expiresIn: this.accessTtlSeconds,
+      }),
 
-        this.jwtService.signAsync(
-          refreshPayload,
-          {
-            secret: this.refreshSecret,
-            expiresIn:
-              this.refreshTtlSeconds,
-          },
-        ),
-      ]);
+      this.jwtService.signAsync(refreshPayload, {
+        secret: this.refreshSecret,
+        expiresIn: this.refreshTtlSeconds,
+      }),
+    ]);
 
-    const refreshTokenHash =
-      createHash("sha256")
-        .update(refreshToken)
-        .digest("hex");
+    const refreshTokenHash = createHash('sha256')
+      .update(refreshToken)
+      .digest('hex');
 
     /*
      * Both operations succeed together.
@@ -239,16 +199,14 @@ export class AuthService {
           refreshTokenHash,
           ipAddress: metadata.ipAddress,
           userAgent: metadata.userAgent,
-          expiresAt:
-            refreshTokenExpiresAt,
+          expiresAt: refreshTokenExpiresAt,
         },
       }),
     ]);
 
     return {
       accessToken,
-      accessTokenExpiresIn:
-        this.accessTtlSeconds,
+      accessTokenExpiresIn: this.accessTtlSeconds,
       refreshToken,
       refreshTokenExpiresAt,
       account: {
@@ -264,27 +222,16 @@ export class AuthService {
     currentAttempts: number,
     existingLock: Date | null,
   ): Promise<void> {
-    const lockExpired =
-      existingLock !== null &&
-      existingLock <= new Date();
+    const lockExpired = existingLock !== null && existingLock <= new Date();
 
-    const previousAttempts =
-      lockExpired ? 0 : currentAttempts;
+    const previousAttempts = lockExpired ? 0 : currentAttempts;
 
-    const nextAttempts =
-      previousAttempts + 1;
+    const nextAttempts = previousAttempts + 1;
 
-    const shouldLock =
-      nextAttempts >=
-      this.maxLoginAttempts;
+    const shouldLock = nextAttempts >= this.maxLoginAttempts;
 
     const lockedUntil = shouldLock
-      ? new Date(
-          Date.now() +
-            this.lockMinutes *
-              60 *
-              1000,
-        )
+      ? new Date(Date.now() + this.lockMinutes * 60 * 1000)
       : null;
 
     await this.prisma.account.update({
@@ -292,38 +239,23 @@ export class AuthService {
         id: accountId,
       },
       data: {
-        failedLoginAttempts:
-          nextAttempts,
+        failedLoginAttempts: nextAttempts,
         lockedUntil,
       },
     });
   }
 
-  private invalidCredentials():
-    UnauthorizedException {
-    return new UnauthorizedException(
-      "Invalid username or password.",
-    );
+  private invalidCredentials(): UnauthorizedException {
+    return new UnauthorizedException('Invalid username or password.');
   }
 
-  private readPositiveInteger(
-    variableName: string,
-  ): number {
-    const rawValue =
-      this.configService.getOrThrow<string>(
-        variableName,
-      );
+  private readPositiveInteger(variableName: string): number {
+    const rawValue = this.configService.getOrThrow<string>(variableName);
 
-    const parsedValue =
-      Number(rawValue);
+    const parsedValue = Number(rawValue);
 
-    if (
-      !Number.isInteger(parsedValue) ||
-      parsedValue <= 0
-    ) {
-      throw new Error(
-        `${variableName} must be a positive integer.`,
-      );
+    if (!Number.isInteger(parsedValue) || parsedValue <= 0) {
+      throw new Error(`${variableName} must be a positive integer.`);
     }
 
     return parsedValue;

@@ -1,21 +1,23 @@
 import {
   Body,
   Controller,
+  Get,
   HttpCode,
   HttpStatus,
   Post,
   Req,
   Res,
-} from "@nestjs/common";
-import { ConfigService } from "@nestjs/config";
-import type {
-  Request,
-  Response,
-} from "express";
-import { AuthService } from "./auth.service";
-import { AdminLoginDto } from "./dto/admin-login.dto";
+  UseGuards,
+} from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
+import type { Request, Response } from 'express';
+import { AuthService } from './auth.service';
+import { CurrentUser } from './decorators/current-user.decorator';
+import { AdminLoginDto } from './dto/admin-login.dto';
+import { AccessTokenGuard } from './guards/access-token.guard';
+import type { AuthenticatedUser } from "./types/auth.types";
 
-@Controller("auth")
+@Controller('auth')
 export class AuthController {
   private readonly cookieName: string;
   private readonly isProduction: boolean;
@@ -24,18 +26,12 @@ export class AuthController {
     private readonly authService: AuthService,
     configService: ConfigService,
   ) {
-    this.cookieName =
-      configService.getOrThrow<string>(
-        "AUTH_COOKIE_NAME",
-      );
+    this.cookieName = configService.getOrThrow<string>('AUTH_COOKIE_NAME');
 
-    this.isProduction =
-      configService.get<string>(
-        "NODE_ENV",
-      ) === "production";
+    this.isProduction = configService.get<string>('NODE_ENV') === 'production';
   }
 
-  @Post("admin/login")
+  @Post('admin/login')
   @HttpCode(HttpStatus.OK)
   async adminLogin(
     @Body() dto: AdminLoginDto,
@@ -43,58 +39,45 @@ export class AuthController {
     @Res({ passthrough: true })
     response: Response,
   ) {
-    const result =
-      await this.authService.loginAdmin(
-        dto,
-        {
-          ipAddress:
-            request.ip ??
-            request.socket
-              .remoteAddress ??
-            null,
+    const result = await this.authService.loginAdmin(dto, {
+      ipAddress: request.ip ?? request.socket.remoteAddress ?? null,
 
-          userAgent:
-            request.get(
-              "user-agent",
-            ) ?? null,
-        },
-      );
+      userAgent: request.get('user-agent') ?? null,
+    });
 
-    response.cookie(
-      this.cookieName,
-      result.refreshToken,
-      {
-        httpOnly: true,
-
-        /*
-         * Secure cookies require HTTPS.
-         * It is false during local HTTP development
-         * and true in production.
-         */
-        secure: this.isProduction,
-
-        sameSite: "strict",
-
-        /*
-         * The browser sends this cookie only to
-         * authentication endpoints.
-         */
-        path: "/api/v1/auth",
-
-        expires:
-          result.refreshTokenExpiresAt,
-      },
-    );
+    response.cookie(this.cookieName, result.refreshToken, {
+      httpOnly: true,
+      secure: this.isProduction,
+      sameSite: 'strict',
+      path: '/api/v1/auth',
+      expires: result.refreshTokenExpiresAt,
+    });
 
     return {
-      accessToken:
-        result.accessToken,
+      accessToken: result.accessToken,
 
-      accessTokenExpiresIn:
-        result.accessTokenExpiresIn,
+      accessTokenExpiresIn: result.accessTokenExpiresIn,
 
-      account:
-        result.account,
+      account: result.account,
+    };
+  }
+
+  @Get('me')
+  @UseGuards(AccessTokenGuard)
+  getCurrentUser(
+    @CurrentUser()
+    user: AuthenticatedUser,
+  ) {
+    return {
+      account: {
+        id: user.accountId,
+        username: user.username,
+        role: user.role,
+      },
+
+      session: {
+        id: user.sessionId,
+      },
     };
   }
 }

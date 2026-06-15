@@ -1,33 +1,19 @@
-import {
-  ValidationPipe,
-} from "@nestjs/common";
-import { ConfigService } from "@nestjs/config";
-import { NestFactory } from "@nestjs/core";
-import cookieParser from "cookie-parser";
-import helmet from "helmet";
-import { AppModule } from "./app.module";
+import { ValidationPipe } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
+import { NestFactory } from '@nestjs/core';
+import cookieParser from 'cookie-parser';
+import helmet from 'helmet';
+import { AppModule } from './app.module';
 
-async function bootstrap():
-  Promise<void> {
-  const app =
-    await NestFactory.create(
-      AppModule,
-    );
+async function bootstrap(): Promise<void> {
+  const app = await NestFactory.create(AppModule);
 
-  const configService =
-    app.get(ConfigService);
+  const configService = app.get(ConfigService);
 
-  const port = Number(
-    configService.get<string>(
-      "API_PORT",
-    ) ?? "4000",
-  );
+  const port = Number(configService.get<string>('API_PORT') ?? '4000');
 
   const webOrigin =
-    configService.get<string>(
-      "WEB_ORIGIN",
-    ) ??
-    "http://localhost:5173";
+    configService.get<string>('WEB_ORIGIN') ?? 'http://localhost:5173';
 
   /*
    * Adds secure HTTP response headers.
@@ -46,13 +32,7 @@ async function bootstrap():
   app.enableCors({
     origin: webOrigin,
     credentials: true,
-    methods: [
-      "GET",
-      "POST",
-      "PUT",
-      "PATCH",
-      "DELETE",
-    ],
+    methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE'],
   });
 
   /*
@@ -66,16 +46,11 @@ async function bootstrap():
     }),
   );
 
-  app.setGlobalPrefix("api/v1");
+  app.setGlobalPrefix('api/v1');
 
-  await app.listen(
-    port,
-    "127.0.0.1",
-  );
+  await app.listen(port, '127.0.0.1');
 
-  console.log(
-    `NT Message API is running at http://localhost:${port}/api/v1`,
-  );
+  console.log(`NT Message API is running at http://localhost:${port}/api/v1`);
 }
 
 void bootstrap();

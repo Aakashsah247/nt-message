@@ -1,9 +1,4 @@
-import {
-  IsString,
-  Matches,
-  MaxLength,
-  MinLength,
-} from "class-validator";
+import { IsString, Matches, MaxLength, MinLength } from 'class-validator';
 
 export class AdminLoginDto {
   @IsString()
@@ -11,7 +6,7 @@ export class AdminLoginDto {
   @MaxLength(80)
   @Matches(/^[a-zA-Z0-9._-]+$/, {
     message:
-      "Username may contain letters, numbers, dots, underscores and hyphens only.",
+      'Username may contain letters, numbers, dots, underscores and hyphens only.',
   })
   username!: string;
 
