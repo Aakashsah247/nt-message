@@ -2,6 +2,9 @@ import {
   Body,
   Controller,
   Get,
+  Param,
+  ParseUUIDPipe,
+  Patch,
   Post,
   Query,
   UseGuards,
@@ -12,6 +15,8 @@ import { RolesGuard } from "../auth/guards/roles.guard";
 import { AccountRole } from "../generated/prisma/client";
 import { CreateEmployeeDto } from "./dto/create-employee.dto";
 import { ListEmployeesQueryDto } from "./dto/list-employees-query.dto";
+import { UpdateEmployeeStatusDto } from "./dto/update-employee-status.dto";
+import { UpdateEmployeeDto } from "./dto/update-employee.dto";
 import { EmployeesService } from "./employees.service";
 
 @Controller("admin/employees")
@@ -26,12 +31,6 @@ export class EmployeesController {
       EmployeesService,
   ) {}
 
-  /*
-   * Registers an employee in the official employee directory.
-   *
-   * The employee does not receive a messaging account yet.
-   * Account activation will be implemented in a later task.
-   */
   @Post()
   createEmployee(
     @Body() dto: CreateEmployeeDto,
@@ -40,10 +39,6 @@ export class EmployeesController {
       .createEmployee(dto);
   }
 
-  /*
-   * Returns a paginated list for the future
-   * admin employee-management screen.
-   */
   @Get()
   listEmployees(
     @Query()
@@ -51,5 +46,59 @@ export class EmployeesController {
   ) {
     return this.employeesService
       .listEmployees(query);
+  }
+
+  @Get(":id")
+  getEmployee(
+    @Param(
+      "id",
+      new ParseUUIDPipe({
+        version: "4",
+      }),
+    )
+    id: string,
+  ) {
+    return this.employeesService
+      .getEmployeeById(id);
+  }
+
+  @Patch(":id/status")
+  updateEmployeeStatus(
+    @Param(
+      "id",
+      new ParseUUIDPipe({
+        version: "4",
+      }),
+    )
+    id: string,
+
+    @Body()
+    dto: UpdateEmployeeStatusDto,
+  ) {
+    return this.employeesService
+      .updateEmployeeStatus(
+        id,
+        dto.status,
+      );
+  }
+
+  @Patch(":id")
+  updateEmployee(
+    @Param(
+      "id",
+      new ParseUUIDPipe({
+        version: "4",
+      }),
+    )
+    id: string,
+
+    @Body()
+    dto: UpdateEmployeeDto,
+  ) {
+    return this.employeesService
+      .updateEmployee(
+        id,
+        dto,
+      );
   }
 }

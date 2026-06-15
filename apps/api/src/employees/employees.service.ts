@@ -1,16 +1,22 @@
 import {
-  ConflictException,
-  Injectable,
+    BadRequestException,
+    ConflictException,
+    Injectable,
+    NotFoundException,
 } from "@nestjs/common";
+
 import { PrismaService } from "../database/prisma.service";
 import {
   EmployeeStatus,
 } from "../generated/prisma/client";
+
 import type {
   Prisma,
 } from "../generated/prisma/client";
+
 import { CreateEmployeeDto } from "./dto/create-employee.dto";
 import { ListEmployeesQueryDto } from "./dto/list-employees-query.dto";
+import { UpdateEmployeeDto } from "./dto/update-employee.dto";
 
 @Injectable()
 export class EmployeesService {
@@ -234,4 +240,346 @@ export class EmployeesService {
       },
     };
   }
+  async getEmployeeById(id: string) {
+  const employee =
+    await this.prisma.employee.findUnique({
+      where: {
+        id,
+      },
+
+      select: {
+        id: true,
+        empId: true,
+        empName: true,
+        phoneNumber: true,
+        officialEmail: true,
+        department: true,
+        designation: true,
+        status: true,
+        isActivated: true,
+        profilePhotoKey: true,
+        createdAt: true,
+        updatedAt: true,
+
+        account: {
+          select: {
+            id: true,
+            username: true,
+            role: true,
+            isEnabled: true,
+            lastLoginAt: true,
+            createdAt: true,
+          },
+        },
+      },
+    });
+
+  if (!employee) {
+    throw new NotFoundException(
+      "Employee was not found.",
+    );
+  }
+
+  return {
+    employee,
+  };
+}
+
+async updateEmployee(
+  id: string,
+  dto: UpdateEmployeeDto,
+) {
+  const employee =
+    await this.prisma.employee.findUnique({
+      where: {
+        id,
+      },
+
+      select: {
+        id: true,
+        empId: true,
+        empName: true,
+        phoneNumber: true,
+        officialEmail: true,
+        isActivated: true,
+      },
+    });
+
+  if (!employee) {
+    throw new NotFoundException(
+      "Employee was not found.",
+    );
+  }
+
+  const empId =
+    dto.empId !== undefined
+      ? dto.empId.trim().toUpperCase()
+      : undefined;
+
+  const empName =
+    dto.empName !== undefined
+      ? dto.empName.trim()
+      : undefined;
+
+  const phoneNumber =
+    dto.phoneNumber !== undefined
+      ? dto.phoneNumber.trim()
+      : undefined;
+
+  const officialEmail =
+    dto.officialEmail !== undefined
+      ? dto.officialEmail
+          .trim()
+          .toLowerCase()
+      : undefined;
+
+  if (
+    empName !== undefined &&
+    empName.length < 2
+  ) {
+    throw new BadRequestException(
+      "Employee name must contain at least 2 characters.",
+    );
+  }
+
+  const identityChanged =
+    employee.isActivated &&
+    (
+      (
+        empId !== undefined &&
+        empId !== employee.empId
+      ) ||
+      (
+        phoneNumber !== undefined &&
+        phoneNumber !==
+          employee.phoneNumber
+      ) ||
+      (
+        officialEmail !== undefined &&
+        officialEmail !==
+          employee.officialEmail
+      )
+    );
+
+  // Activated identity fields require re-verification.
+  if (identityChanged) {
+    throw new ConflictException(
+      "Employee ID, phone number and official email cannot be changed after account activation.",
+    );
+  }
+
+  const duplicateConditions:
+    Prisma.EmployeeWhereInput[] = [];
+
+  if (empId !== undefined) {
+    duplicateConditions.push({
+      empId,
+    });
+  }
+
+  if (officialEmail !== undefined) {
+    duplicateConditions.push({
+      officialEmail,
+    });
+  }
+
+  if (duplicateConditions.length > 0) {
+    const duplicate =
+      await this.prisma.employee.findFirst({
+        where: {
+          id: {
+            not: id,
+          },
+
+          OR: duplicateConditions,
+        },
+
+        select: {
+          empId: true,
+          officialEmail: true,
+        },
+      });
+
+    if (duplicate?.empId === empId) {
+      throw new ConflictException(
+        "An employee with this employee ID already exists.",
+      );
+    }
+
+    if (
+      duplicate?.officialEmail ===
+      officialEmail
+    ) {
+      throw new ConflictException(
+        "An employee with this official email already exists.",
+      );
+    }
+  }
+
+  const data:
+    Prisma.EmployeeUpdateInput = {};
+
+  if (empId !== undefined) {
+    data.empId = empId;
+  }
+
+  if (empName !== undefined) {
+    data.empName = empName;
+  }
+
+  if (phoneNumber !== undefined) {
+    data.phoneNumber = phoneNumber;
+  }
+
+  if (officialEmail !== undefined) {
+    data.officialEmail =
+      officialEmail;
+  }
+
+  if (dto.department !== undefined) {
+    data.department =
+      dto.department.trim() || null;
+  }
+
+  if (dto.designation !== undefined) {
+    data.designation =
+      dto.designation.trim() || null;
+  }
+
+  if (Object.keys(data).length === 0) {
+    throw new BadRequestException(
+      "Provide at least one employee field to update.",
+    );
+  }
+
+  const updatedEmployee =
+    await this.prisma.employee.update({
+      where: {
+        id,
+      },
+
+      data,
+
+      select: {
+        id: true,
+        empId: true,
+        empName: true,
+        phoneNumber: true,
+        officialEmail: true,
+        department: true,
+        designation: true,
+        status: true,
+        isActivated: true,
+        createdAt: true,
+        updatedAt: true,
+      },
+    });
+
+  return {
+    message:
+      "Employee updated successfully.",
+    employee: updatedEmployee,
+  };
+}
+
+async updateEmployeeStatus(
+  id: string,
+  status: EmployeeStatus,
+) {
+  const updatedEmployee =
+    await this.prisma.$transaction(
+      async (transaction) => {
+        const employee =
+          await transaction.employee
+            .findUnique({
+              where: {
+                id,
+              },
+
+              select: {
+                id: true,
+
+                account: {
+                  select: {
+                    id: true,
+                  },
+                },
+              },
+            });
+
+        if (!employee) {
+          throw new NotFoundException(
+            "Employee was not found.",
+          );
+        }
+
+        const updated =
+          await transaction.employee
+            .update({
+              where: {
+                id,
+              },
+
+              data: {
+                status,
+              },
+
+              select: {
+                id: true,
+                empId: true,
+                empName: true,
+                officialEmail: true,
+                status: true,
+                isActivated: true,
+                updatedAt: true,
+              },
+            });
+
+        if (employee.account) {
+          await transaction.account.update({
+            where: {
+              id: employee.account.id,
+            },
+
+            data: {
+              isEnabled:
+                status ===
+                EmployeeStatus.ACTIVE,
+            },
+          });
+
+          // Inactive employees must lose active sessions.
+          if (
+            status ===
+            EmployeeStatus.INACTIVE
+          ) {
+            await transaction.authSession
+              .updateMany({
+                where: {
+                  accountId:
+                    employee.account.id,
+                  revokedAt: null,
+                },
+
+                data: {
+                  revokedAt:
+                    new Date(),
+                },
+              });
+          }
+        }
+
+        return updated;
+      },
+    );
+
+  return {
+    message:
+      status === EmployeeStatus.ACTIVE
+        ? "Employee activated successfully."
+        : "Employee deactivated successfully.",
+
+    employee: updatedEmployee,
+  };
+}
 }
