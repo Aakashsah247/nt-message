@@ -4,6 +4,7 @@ import {
   Injectable,
   UnauthorizedException,
 } from "@nestjs/common";
+
 import { ConfigService } from "@nestjs/config";
 import { JwtService } from "@nestjs/jwt";
 import * as argon2 from "argon2";
@@ -12,10 +13,12 @@ import {
   randomUUID,
   timingSafeEqual,
 } from "node:crypto";
+
 import { PrismaService } from "../database/prisma.service";
-import { AccountRole } from "../generated/prisma/client";
+import { AccountRole , EmployeeStatus, } from "../generated/prisma/client";
 import { AdminLoginDto } from "./dto/admin-login.dto";
 import type { RefreshTokenPayload } from "./types/auth.types";
+import { EmployeeLoginDto } from "./dto/employee-login.dto";
 
 interface LoginMetadata {
   ipAddress: string | null;
@@ -219,6 +222,144 @@ export class AuthService {
       },
     };
   }
+
+  async loginEmployee(
+  dto: EmployeeLoginDto,
+  metadata: LoginMetadata,
+): Promise<LoginResult> {
+  const username =
+    dto.empId.trim().toLowerCase();
+
+  const account =
+    await this.prisma.account.findUnique({
+      where: {
+        username,
+      },
+
+      include: {
+        employee: {
+          select: {
+            status: true,
+            isActivated: true,
+          },
+        },
+      },
+    });
+
+  if (!account) {
+    const dummyHash =
+      await this.dummyHashPromise;
+
+    await argon2.verify(
+      dummyHash,
+      dto.password,
+    );
+
+    throw this.invalidCredentials();
+  }
+
+  const now = new Date();
+
+  if (
+    account.lockedUntil &&
+    account.lockedUntil > now
+  ) {
+    throw new HttpException(
+      "Too many failed login attempts. Try again later.",
+      HttpStatus.TOO_MANY_REQUESTS,
+    );
+  }
+
+  const passwordIsValid =
+    await argon2.verify(
+      account.passwordHash,
+      dto.password,
+    );
+
+  if (!passwordIsValid) {
+    await this.recordFailedLogin(
+      account.id,
+      account.failedLoginAttempts,
+      account.lockedUntil,
+    );
+
+    throw this.invalidCredentials();
+  }
+
+  const employeeCanLogin =
+    account.role ===
+      AccountRole.EMPLOYEE &&
+    account.isEnabled &&
+    account.employee !== null &&
+    account.employee.isActivated &&
+    account.employee.status ===
+      EmployeeStatus.ACTIVE;
+
+  if (!employeeCanLogin) {
+    throw this.invalidCredentials();
+  }
+
+  const sessionId = randomUUID();
+
+  const refreshTokenExpiresAt =
+    new Date(
+      Date.now() +
+        this.refreshTtlSeconds * 1000,
+    );
+
+  const tokens =
+    await this.createTokenPair(
+      account.id,
+      account.role,
+      sessionId,
+      refreshTokenExpiresAt,
+    );
+
+  await this.prisma.$transaction([
+    this.prisma.account.update({
+      where: {
+        id: account.id,
+      },
+
+      data: {
+        failedLoginAttempts: 0,
+        lockedUntil: null,
+        lastLoginAt: now,
+      },
+    }),
+
+    this.prisma.authSession.create({
+      data: {
+        id: sessionId,
+        accountId: account.id,
+
+        refreshTokenHash:
+          this.hashToken(
+            tokens.refreshToken,
+          ),
+
+        ipAddress:
+          metadata.ipAddress,
+
+        userAgent:
+          metadata.userAgent,
+
+        expiresAt:
+          refreshTokenExpiresAt,
+      },
+    }),
+  ]);
+
+  return {
+    ...tokens,
+
+    account: {
+      id: account.id,
+      username: account.username,
+      role: account.role,
+    },
+  };
+}
 
   async refreshSession(
     refreshToken:
