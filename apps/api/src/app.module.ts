@@ -3,6 +3,7 @@ import { ConfigModule } from "@nestjs/config";
 
 import { AppController } from "./app.controller";
 import { AppService } from "./app.service";
+import { ActivationModule } from "./activation/activation.module";
 
 /*
  * These imports connect the main application
@@ -25,20 +26,15 @@ import { EmployeesModule } from "./employees/employees.module";
       ],
     }),
 
-    /*
-     * Makes Prisma database access available.
-     */
+    //Makes Prisma database access available.
     PrismaModule,
 
-    /*
-     * Provides login, JWT, guards, and session management.
-     */
+    //Provides login, JWT, guards, and session management.
     AuthModule,
 
-    /*
-     * Provides employee create and list APIs.
-     */
+    // Provides employee create and list APIs.
     EmployeesModule,
+    ActivationModule,
   ],
 
   controllers: [
