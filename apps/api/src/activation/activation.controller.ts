@@ -7,8 +7,11 @@ import {
 } from "@nestjs/common";
 import {
   ActivationService,
+  type RequestOtpResult,
+  type VerifyOtpResult,
 } from "./activation.service";
 import { RequestActivationOtpDto } from "./dto/request-activation-otp.dto";
+import { VerifyActivationOtpDto } from "./dto/verify-activation-otp.dto";
 
 @Controller("activation")
 export class ActivationController {
@@ -22,8 +25,18 @@ export class ActivationController {
   requestOtp(
     @Body()
     dto: RequestActivationOtpDto,
-  ) {
+  ): Promise<RequestOtpResult> {
     return this.activationService
       .requestOtp(dto);
+  }
+
+  @Post("verify-otp")
+  @HttpCode(HttpStatus.OK)
+  verifyOtp(
+    @Body()
+    dto: VerifyActivationOtpDto,
+  ): Promise<VerifyOtpResult> {
+    return this.activationService
+      .verifyOtp(dto);
   }
 }

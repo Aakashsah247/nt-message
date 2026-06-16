@@ -4,28 +4,64 @@ import {
   HttpException,
   HttpStatus,
   Injectable,
+  UnauthorizedException,
 } from "@nestjs/common";
-
 import { ConfigService } from "@nestjs/config";
+import { JwtService } from "@nestjs/jwt";
 import {
   createHmac,
   randomInt,
+  randomUUID,
+  timingSafeEqual,
 } from "node:crypto";
-
 import { PrismaService } from "../database/prisma.service";
 import {
   EmployeeStatus,
   OtpPurpose,
 } from "../generated/prisma/client";
-
 import { MailService } from "../mail/mail.service";
 import { RequestActivationOtpDto } from "./dto/request-activation-otp.dto";
+import { VerifyActivationOtpDto } from "./dto/verify-activation-otp.dto";
 
 export interface RequestOtpResult {
   message: string;
   expiresInSeconds: number;
 }
 
+export interface VerifyOtpResult {
+  message: string;
+  activationToken: string;
+  expiresInSeconds: number;
+
+  employee: {
+    id: string;
+    empId: string;
+    empName: string;
+    officialEmail: string;
+  };
+}
+
+type VerificationOutcome =
+  | {
+      status: "invalid";
+    }
+  | {
+      status: "inactive";
+    }
+  | {
+      status: "activated";
+    }
+  | {
+      status: "verified";
+      otpVerificationId: string;
+
+      employee: {
+        id: string;
+        empId: string;
+        empName: string;
+        officialEmail: string;
+      };
+    };
 
 @Injectable()
 export class ActivationService {
@@ -34,9 +70,13 @@ export class ActivationService {
   private readonly resendCooldownSeconds: number;
   private readonly maxAttempts: number;
 
+  private readonly activationTokenSecret: string;
+  private readonly activationTokenTtlSeconds: number;
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly mailService: MailService,
+    private readonly jwtService: JwtService,
     configService: ConfigService,
   ) {
     this.otpHashSecret =
@@ -60,6 +100,17 @@ export class ActivationService {
       this.readPositiveInteger(
         configService,
         "OTP_MAX_ATTEMPTS",
+      );
+
+    this.activationTokenSecret =
+      configService.getOrThrow<string>(
+        "ACTIVATION_TOKEN_SECRET",
+      );
+
+    this.activationTokenTtlSeconds =
+      this.readPositiveInteger(
+        configService,
+        "ACTIVATION_TOKEN_TTL_SECONDS",
       );
   }
 
@@ -94,10 +145,6 @@ export class ActivationService {
         },
       });
 
-    /*
-     * Use a generic response when employee details
-     * do not match, preventing employee enumeration.
-     */
     if (!employee) {
       return this.createGenericResponse();
     }
@@ -120,27 +167,26 @@ export class ActivationService {
     const cooldownStart =
       new Date(
         Date.now() -
-          this.resendCooldownSeconds *
-            1000,
+          this.resendCooldownSeconds * 1000,
       );
 
     const recentOtp =
-      await this.prisma.otpVerification
-        .findFirst({
-          where: {
-            employeeId: employee.id,
-            purpose:
-              OtpPurpose.ACCOUNT_ACTIVATION,
-            consumedAt: null,
-            createdAt: {
-              gte: cooldownStart,
-            },
-          },
+      await this.prisma.otpVerification.findFirst({
+        where: {
+          employeeId: employee.id,
+          purpose:
+            OtpPurpose.ACCOUNT_ACTIVATION,
+          consumedAt: null,
 
-          select: {
-            id: true,
+          createdAt: {
+            gte: cooldownStart,
           },
-        });
+        },
+
+        select: {
+          id: true,
+        },
+      });
 
     if (recentOtp) {
       throw new HttpException(
@@ -156,10 +202,11 @@ export class ActivationService {
       .toString()
       .padStart(6, "0");
 
-    const otpHash = this.hashOtp(
-      employee.id,
-      otp,
-    );
+    const otpHash =
+      this.hashOtp(
+        employee.id,
+        otp,
+      );
 
     const now = new Date();
 
@@ -173,20 +220,18 @@ export class ActivationService {
 
     const [, otpRecord] =
       await this.prisma.$transaction([
-        // Invalidate previous unused activation codes.
-        this.prisma.otpVerification
-          .updateMany({
-            where: {
-              employeeId: employee.id,
-              purpose:
-                OtpPurpose.ACCOUNT_ACTIVATION,
-              consumedAt: null,
-            },
+        this.prisma.otpVerification.updateMany({
+          where: {
+            employeeId: employee.id,
+            purpose:
+              OtpPurpose.ACCOUNT_ACTIVATION,
+            consumedAt: null,
+          },
 
-            data: {
-              consumedAt: now,
-            },
-          }),
+          data: {
+            consumedAt: now,
+          },
+        }),
 
         this.prisma.otpVerification.create({
           data: {
@@ -206,32 +251,265 @@ export class ActivationService {
       ]);
 
     try {
-      await this.mailService
-        .sendActivationOtp({
-          to: employee.officialEmail,
-          employeeName:
-            employee.empName,
-          otp,
-          expiresInMinutes:
-            this.otpTtlMinutes,
-        });
+      await this.mailService.sendActivationOtp({
+        to: employee.officialEmail,
+        employeeName: employee.empName,
+        otp,
+        expiresInMinutes:
+          this.otpTtlMinutes,
+      });
     } catch (error) {
-      // An unsent OTP must not remain usable.
-      await this.prisma.otpVerification
-        .update({
-          where: {
-            id: otpRecord.id,
-          },
+      // Unsent OTP must not remain valid.
+      await this.prisma.otpVerification.update({
+        where: {
+          id: otpRecord.id,
+        },
 
-          data: {
-            consumedAt: new Date(),
-          },
-        });
+        data: {
+          consumedAt: new Date(),
+        },
+      });
 
       throw error;
     }
 
     return this.createGenericResponse();
+  }
+
+  async verifyOtp(
+    dto: VerifyActivationOtpDto,
+  ): Promise<VerifyOtpResult> {
+    const empId =
+      dto.empId.trim().toUpperCase();
+
+    const phoneNumber =
+      dto.phoneNumber.trim();
+
+    const officialEmail =
+      dto.officialEmail
+        .trim()
+        .toLowerCase();
+
+    const otp = dto.otp.trim();
+    const now = new Date();
+
+    const outcome: VerificationOutcome =
+      await this.prisma.$transaction(
+        async (transaction) => {
+          const employee =
+            await transaction.employee.findFirst({
+              where: {
+                empId,
+                phoneNumber,
+                officialEmail,
+              },
+
+              select: {
+                id: true,
+                empId: true,
+                empName: true,
+                officialEmail: true,
+                status: true,
+                isActivated: true,
+              },
+            });
+
+          if (!employee) {
+            return {
+              status: "invalid",
+            };
+          }
+
+          if (
+            employee.status ===
+            EmployeeStatus.INACTIVE
+          ) {
+            return {
+              status: "inactive",
+            };
+          }
+
+          if (employee.isActivated) {
+            return {
+              status: "activated",
+            };
+          }
+
+          const otpRecord =
+            await transaction.otpVerification
+              .findFirst({
+                where: {
+                  employeeId: employee.id,
+                  purpose:
+                    OtpPurpose.ACCOUNT_ACTIVATION,
+                  consumedAt: null,
+                },
+
+                orderBy: {
+                  createdAt: "desc",
+                },
+              });
+
+          if (!otpRecord) {
+            return {
+              status: "invalid",
+            };
+          }
+
+          const otpCannotBeUsed =
+            otpRecord.expiresAt <= now ||
+            otpRecord.attemptCount >=
+              otpRecord.maxAttempts;
+
+          if (otpCannotBeUsed) {
+            await transaction.otpVerification
+              .updateMany({
+                where: {
+                  id: otpRecord.id,
+                  consumedAt: null,
+                },
+
+                data: {
+                  consumedAt: now,
+                },
+              });
+
+            return {
+              status: "invalid",
+            };
+          }
+
+          const incomingHash =
+            this.hashOtp(
+              employee.id,
+              otp,
+            );
+
+          const otpMatches =
+            this.hashesMatch(
+              otpRecord.otpHash,
+              incomingHash,
+            );
+
+          if (!otpMatches) {
+            const nextAttempt =
+              otpRecord.attemptCount + 1;
+
+            await transaction.otpVerification
+              .updateMany({
+                where: {
+                  id: otpRecord.id,
+                  consumedAt: null,
+                },
+
+                data: {
+                  attemptCount: {
+                    increment: 1,
+                  },
+
+                  ...(nextAttempt >=
+                  otpRecord.maxAttempts
+                    ? {
+                        consumedAt: now,
+                      }
+                    : {}),
+                },
+              });
+
+            return {
+              status: "invalid",
+            };
+          }
+
+          // Consume the OTP only once.
+          const consumeResult =
+            await transaction.otpVerification
+              .updateMany({
+                where: {
+                  id: otpRecord.id,
+                  consumedAt: null,
+
+                  expiresAt: {
+                    gt: now,
+                  },
+
+                  attemptCount: {
+                    lt: otpRecord.maxAttempts,
+                  },
+                },
+
+                data: {
+                  consumedAt: now,
+                },
+              });
+
+          if (consumeResult.count !== 1) {
+            return {
+              status: "invalid",
+            };
+          }
+
+          return {
+            status: "verified",
+            otpVerificationId:
+              otpRecord.id,
+
+            employee: {
+              id: employee.id,
+              empId: employee.empId,
+              empName: employee.empName,
+              officialEmail:
+                employee.officialEmail,
+            },
+          };
+        },
+      );
+
+    if (outcome.status === "inactive") {
+      throw new ForbiddenException(
+        "This employee record is inactive.",
+      );
+    }
+
+    if (outcome.status === "activated") {
+      throw new ConflictException(
+        "This account is already activated.",
+      );
+    }
+
+    if (outcome.status === "invalid") {
+      throw new UnauthorizedException(
+        "The activation code is invalid or expired.",
+      );
+    }
+
+    const activationToken =
+      await this.jwtService.signAsync(
+        {
+          sub: outcome.employee.id,
+          otpVerificationId:
+            outcome.otpVerificationId,
+          type: "account_activation",
+          jti: randomUUID(),
+        },
+
+        {
+          secret:
+            this.activationTokenSecret,
+
+          expiresIn:
+            this.activationTokenTtlSeconds,
+        },
+      );
+
+    return {
+      message:
+        "OTP verified successfully.",
+      activationToken,
+      expiresInSeconds:
+        this.activationTokenTtlSeconds,
+      employee: outcome.employee,
+    };
   }
 
   private hashOtp(
@@ -244,6 +522,29 @@ export class ActivationService {
     )
       .update(`${employeeId}:${otp}`)
       .digest("hex");
+  }
+
+  private hashesMatch(
+    storedHash: string,
+    incomingHash: string,
+  ): boolean {
+    const storedBuffer =
+      Buffer.from(storedHash, "hex");
+
+    const incomingBuffer =
+      Buffer.from(incomingHash, "hex");
+
+    if (
+      storedBuffer.length !==
+      incomingBuffer.length
+    ) {
+      return false;
+    }
+
+    return timingSafeEqual(
+      storedBuffer,
+      incomingBuffer,
+    );
   }
 
   private createGenericResponse():
@@ -279,4 +580,3 @@ export class ActivationService {
     return value;
   }
 }
-export class ActivationModule {}
