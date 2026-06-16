@@ -9,6 +9,7 @@ import {
   Res,
   UseGuards,
 } from "@nestjs/common";
+
 import { ConfigService } from "@nestjs/config";
 import type {
   Request,
@@ -16,6 +17,7 @@ import type {
 } from "express";
 import { AuthService } from "./auth.service";
 import { CurrentUser } from "./decorators/current-user.decorator";
+import { EmployeeLoginDto } from "./dto/employee-login.dto";
 import { AdminLoginDto } from "./dto/admin-login.dto";
 import { AccessTokenGuard } from "./guards/access-token.guard";
 import type { AuthenticatedUser } from "./types/auth.types";
@@ -91,6 +93,53 @@ export class AuthController {
         result.account,
     };
   }
+
+  @Post("employee/login")
+@HttpCode(HttpStatus.OK)
+async employeeLogin(
+  @Body()
+  dto: EmployeeLoginDto,
+
+  @Req()
+  request: Request,
+
+  @Res({
+    passthrough: true,
+  })
+  response: Response,
+) {
+  const result =
+    await this.authService.loginEmployee(
+      dto,
+      {
+        ipAddress:
+          request.ip ??
+          request.socket.remoteAddress ??
+          null,
+
+        userAgent:
+          request.get("user-agent") ??
+          null,
+      },
+    );
+
+  this.setRefreshCookie(
+    response,
+    result.refreshToken,
+    result.refreshTokenExpiresAt,
+  );
+
+  return {
+    accessToken:
+      result.accessToken,
+
+    accessTokenExpiresIn:
+      result.accessTokenExpiresIn,
+
+    account:
+      result.account,
+  };
+}
 
   @Post("refresh")
   @HttpCode(HttpStatus.OK)
