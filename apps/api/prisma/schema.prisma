@@ -10,6 +10,9 @@ datasource db {
 
 enum AccountRole {
   ADMIN
+  SUPER_ADMIN
+  SENIOR_MANAGEMENT
+  TEAM_MANAGER
   EMPLOYEE
 }
 
@@ -23,19 +26,62 @@ enum OtpPurpose {
   PASSWORD_RESET
 }
 
+model Division {
+  id        String   @id @default(uuid()) @db.Uuid
+  code      String   @unique @db.VarChar(50)
+  name      String   @unique @db.VarChar(120)
+  isActive  Boolean  @default(true) @map("is_active")
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  departments Department[]
+  employees   Employee[]
+
+  @@index([isActive], map: "divisions_is_active_idx")
+  @@map("divisions")
+}
+
+model Department {
+  id         String   @id @default(uuid()) @db.Uuid
+  divisionId String   @map("division_id") @db.Uuid
+  code       String   @db.VarChar(50)
+  name       String   @db.VarChar(120)
+  isActive   Boolean  @default(true) @map("is_active")
+  createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt  DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  division  Division   @relation(fields: [divisionId], references: [id], onDelete: Restrict)
+  employees Employee[]
+
+  @@unique([divisionId, code], map: "departments_division_id_code_key")
+  @@unique([divisionId, name], map: "departments_division_id_name_key")
+  @@index([divisionId], map: "departments_division_id_idx")
+  @@index([isActive], map: "departments_is_active_idx")
+  @@map("departments")
+}
+
 model Employee {
-  id              String         @id @default(uuid()) @db.Uuid
-  empId           String         @unique @map("emp_id") @db.VarChar(50)
-  empName         String         @map("emp_name") @db.VarChar(150)
-  phoneNumber     String         @map("phone_number") @db.VarChar(20)
-  officialEmail   String         @unique @map("official_email") @db.VarChar(255)
-  department      String?        @db.VarChar(120)
-  designation     String?        @db.VarChar(120)
+  id            String @id @default(uuid()) @db.Uuid
+  empId         String @unique @map("emp_id") @db.VarChar(50)
+  empName       String @map("emp_name") @db.VarChar(150)
+  phoneNumber   String @map("phone_number") @db.VarChar(20)
+  officialEmail String @unique @map("official_email") @db.VarChar(255)
+
+  divisionId   String? @map("division_id") @db.Uuid
+  departmentId String? @map("department_id") @db.Uuid
+
+  department  String? @db.VarChar(120)
+  designation String? @db.VarChar(120)
+
   status          EmployeeStatus @default(ACTIVE)
   isActivated     Boolean        @default(false) @map("is_activated")
   profilePhotoKey String?        @map("profile_photo_key") @db.VarChar(500)
-  createdAt       DateTime       @default(now()) @map("created_at") @db.Timestamptz(3)
-  updatedAt       DateTime       @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  division       Division?   @relation(fields: [divisionId], references: [id], onDelete: Restrict)
+  departmentUnit Department? @relation(fields: [departmentId], references: [id], onDelete: Restrict)
 
   account          Account?
   otpVerifications OtpVerification[]
@@ -43,6 +89,8 @@ model Employee {
   @@unique([empId, phoneNumber], map: "employees_emp_id_phone_number_key")
   @@index([empName], map: "employees_emp_name_idx")
   @@index([department], map: "employees_department_idx")
+  @@index([divisionId], map: "employees_division_id_idx")
+  @@index([departmentId], map: "employees_department_id_idx")
   @@index([status], map: "employees_status_idx")
   @@map("employees")
 }
