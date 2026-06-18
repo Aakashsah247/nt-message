@@ -34,3 +34,5 @@ test-results/
 # Generated files
 generated/
 apps/api/src/generated/
+
+**/.env.local

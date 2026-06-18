@@ -1,24 +1,18 @@
-import {
-  HttpException,
-  HttpStatus,
-  Injectable,
-  UnauthorizedException,
-} from "@nestjs/common";
+import { HttpException, HttpStatus, Injectable, UnauthorizedException,} from "@nestjs/common";
+
+import { AccountRole , EmployeeStatus, } from "../generated/prisma/client";
+import { AdminLoginDto } from "./dto/admin-login.dto";
+import { EmployeeLoginDto } from "./dto/employee-login.dto";
+import { UnifiedLoginDto } from "./dto/unified-login.dto";
 
 import { ConfigService } from "@nestjs/config";
 import { JwtService } from "@nestjs/jwt";
 import * as argon2 from "argon2";
-import {
-  createHash,
-  randomUUID,
-  timingSafeEqual,
-} from "node:crypto";
 
+import { createHash, randomUUID, timingSafeEqual,} from "node:crypto";
 import { PrismaService } from "../database/prisma.service";
-import { AccountRole , EmployeeStatus, } from "../generated/prisma/client";
-import { AdminLoginDto } from "./dto/admin-login.dto";
 import type { RefreshTokenPayload } from "./types/auth.types";
-import { EmployeeLoginDto } from "./dto/employee-login.dto";
+
 
 interface LoginMetadata {
   ipAddress: string | null;
@@ -99,6 +93,33 @@ export class AuthService {
         "LOGIN_LOCK_MINUTES",
       );
   }
+
+  async loginUnified(
+  dto: UnifiedLoginDto,
+  metadata: LoginMetadata,
+): Promise<LoginResult> {
+  const identifier =
+    dto.identifier.trim();
+
+// Email identifies an employee account.
+  if (identifier.includes("@")) {
+    return this.loginEmployee(
+      {
+        officialEmail: identifier,
+        password: dto.password,
+      },
+      metadata,
+    );
+  }
+ // Non-email identifier is treated as admin username.
+  return this.loginAdmin(
+    {
+      username: identifier,
+      password: dto.password,
+    },
+    metadata,
+  );
+}
 
   async loginAdmin(
     dto: AdminLoginDto,
@@ -227,24 +248,26 @@ export class AuthService {
   dto: EmployeeLoginDto,
   metadata: LoginMetadata,
 ): Promise<LoginResult> {
-  const username =
-    dto.empId.trim().toLowerCase();
+  const officialEmail =
+    dto.officialEmail
+      .trim()
+      .toLowerCase();
 
-  const account =
-    await this.prisma.account.findUnique({
+  const employee =
+    await this.prisma.employee.findUnique({
       where: {
-        username,
+        officialEmail,
       },
 
-      include: {
-        employee: {
-          select: {
-            status: true,
-            isActivated: true,
-          },
-        },
+      select: {
+        status: true,
+        isActivated: true,
+
+        account: true,
       },
     });
+
+  const account = employee?.account;
 
   if (!account) {
     const dummyHash =
@@ -287,12 +310,10 @@ export class AuthService {
   }
 
   const employeeCanLogin =
-    account.role ===
-      AccountRole.EMPLOYEE &&
+    account.role === AccountRole.EMPLOYEE &&
     account.isEnabled &&
-    account.employee !== null &&
-    account.employee.isActivated &&
-    account.employee.status ===
+    employee.isActivated &&
+    employee.status ===
       EmployeeStatus.ACTIVE;
 
   if (!employeeCanLogin) {

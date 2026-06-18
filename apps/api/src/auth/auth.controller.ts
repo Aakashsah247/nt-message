@@ -10,6 +10,7 @@ import {
   UseGuards,
 } from "@nestjs/common";
 
+import { UnifiedLoginDto } from "./dto/unified-login.dto";
 import { ConfigService } from "@nestjs/config";
 import type {
   Request,
@@ -44,6 +45,56 @@ export class AuthController {
         "NODE_ENV",
       ) === "production";
   }
+
+  @Post("login")
+@HttpCode(HttpStatus.OK)
+async login(
+  @Body()
+  dto: UnifiedLoginDto,
+
+  @Req()
+  request: Request,
+
+  @Res({
+    passthrough: true,
+  })
+  response: Response,
+) {
+  const result =
+    await this.authService
+      .loginUnified(
+        dto,
+        {
+          ipAddress:
+            request.ip ??
+            request.socket
+              .remoteAddress ??
+            null,
+
+          userAgent:
+            request.get(
+              "user-agent",
+            ) ?? null,
+        },
+      );
+
+  this.setRefreshCookie(
+    response,
+    result.refreshToken,
+    result.refreshTokenExpiresAt,
+  );
+
+  return {
+    accessToken:
+      result.accessToken,
+
+    accessTokenExpiresIn:
+      result.accessTokenExpiresIn,
+
+    account:
+      result.account,
+  };
+}
 
   @Post("admin/login")
   @HttpCode(HttpStatus.OK)

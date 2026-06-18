@@ -1,22 +1,22 @@
 import {
+  IsEmail,
   IsString,
-  Matches,
   MaxLength,
   MinLength,
 } from "class-validator";
 
 export class EmployeeLoginDto {
-  @IsString()
-  @MinLength(2)
-  @MaxLength(50)
-  @Matches(/^[a-zA-Z0-9_-]+$/, {
+  @IsEmail({}, {
     message:
-      "Employee ID has an invalid format.",
+      "Enter a valid official email address.",
   })
-  empId!: string;
+  @MaxLength(255)
+  officialEmail!: string;
 
   @IsString()
-  @MinLength(1)
+  @MinLength(1, {
+    message: "Password is required.",
+  })
   @MaxLength(128)
   password!: string;
 }
