@@ -199,14 +199,22 @@ export class EmployeesService {
 
     const search = query.search?.trim();
 
-    /*
-     * Prisma where conditions are created only when
-     * the corresponding filters are provided.
-     */
     const where: Prisma.EmployeeWhereInput = {
       ...(query.status
         ? {
             status: query.status,
+          }
+        : {}),
+
+      ...(query.divisionId
+        ? {
+            divisionId: query.divisionId,
+          }
+        : {}),
+
+      ...(query.departmentId
+        ? {
+            departmentId: query.departmentId,
           }
         : {}),
 
@@ -232,15 +240,62 @@ export class EmployeesService {
                 },
               },
               {
+                designation: {
+                  contains: search,
+                  mode: 'insensitive',
+                },
+              },
+
+              /*
+               * Temporary legacy text search.
+               * This remains until old employee
+               * organization data is migrated.
+               */
+              {
                 department: {
                   contains: search,
                   mode: 'insensitive',
                 },
               },
+
               {
-                designation: {
-                  contains: search,
-                  mode: 'insensitive',
+                division: {
+                  is: {
+                    name: {
+                      contains: search,
+                      mode: 'insensitive',
+                    },
+                  },
+                },
+              },
+              {
+                division: {
+                  is: {
+                    code: {
+                      contains: search,
+                      mode: 'insensitive',
+                    },
+                  },
+                },
+              },
+              {
+                departmentUnit: {
+                  is: {
+                    name: {
+                      contains: search,
+                      mode: 'insensitive',
+                    },
+                  },
+                },
+              },
+              {
+                departmentUnit: {
+                  is: {
+                    code: {
+                      contains: search,
+                      mode: 'insensitive',
+                    },
+                  },
                 },
               },
             ],
@@ -248,10 +303,6 @@ export class EmployeesService {
         : {}),
     };
 
-    /*
-     * Retrieve the current page and total count together.
-     * Both queries use the same filtering conditions.
-     */
     const [employees, total] = await this.prisma.$transaction([
       this.prisma.employee.findMany({
         where,
@@ -268,12 +319,37 @@ export class EmployeesService {
           empName: true,
           phoneNumber: true,
           officialEmail: true,
+          divisionId: true,
+          departmentId: true,
+
+          /*
+           * Temporary compatibility field.
+           */
           department: true,
+
           designation: true,
           status: true,
           isActivated: true,
           createdAt: true,
           updatedAt: true,
+
+          division: {
+            select: {
+              id: true,
+              code: true,
+              name: true,
+              isActive: true,
+            },
+          },
+
+          departmentUnit: {
+            select: {
+              id: true,
+              code: true,
+              name: true,
+              isActive: true,
+            },
+          },
         },
       }),
 
@@ -290,14 +366,11 @@ export class EmployeesService {
         limit,
         total,
 
-        /*
-         * Math.ceil calculates how many pages are needed.
-         * A minimum of zero is returned when no records exist.
-         */
         totalPages: total === 0 ? 0 : Math.ceil(total / limit),
       },
     };
   }
+
   async getEmployeeById(id: string) {
     const employee = await this.prisma.employee.findUnique({
       where: {
@@ -310,13 +383,38 @@ export class EmployeesService {
         empName: true,
         phoneNumber: true,
         officialEmail: true,
+        divisionId: true,
+        departmentId: true,
+
+        /*
+         * Temporary compatibility field.
+         */
         department: true,
+
         designation: true,
         status: true,
         isActivated: true,
         profilePhotoKey: true,
         createdAt: true,
         updatedAt: true,
+
+        division: {
+          select: {
+            id: true,
+            code: true,
+            name: true,
+            isActive: true,
+          },
+        },
+
+        departmentUnit: {
+          select: {
+            id: true,
+            code: true,
+            name: true,
+            isActive: true,
+          },
+        },
 
         account: {
           select: {
@@ -352,6 +450,8 @@ export class EmployeesService {
         empName: true,
         phoneNumber: true,
         officialEmail: true,
+        divisionId: true,
+        departmentId: true,
         isActivated: true,
       },
     });
@@ -363,7 +463,10 @@ export class EmployeesService {
     const empId =
       dto.empId !== undefined ? dto.empId.trim().toUpperCase() : undefined;
 
-    const empName = dto.empName !== undefined ? dto.empName.trim() : undefined;
+    const empName =
+      dto.empName !== undefined
+        ? dto.empName.trim().replace(/\s+/g, ' ')
+        : undefined;
 
     const phoneNumber =
       dto.phoneNumber !== undefined ? dto.phoneNumber.trim() : undefined;
@@ -371,6 +474,11 @@ export class EmployeesService {
     const officialEmail =
       dto.officialEmail !== undefined
         ? dto.officialEmail.trim().toLowerCase()
+        : undefined;
+
+    const designation =
+      dto.designation !== undefined
+        ? dto.designation.trim() || null
         : undefined;
 
     if (empName !== undefined && empName.length < 2) {
@@ -386,7 +494,6 @@ export class EmployeesService {
         (officialEmail !== undefined &&
           officialEmail !== employee.officialEmail));
 
-    // Activated identity fields require re-verification.
     if (identityChanged) {
       throw new ConflictException(
         'Employee ID, phone number and official email cannot be changed after account activation.',
@@ -436,6 +543,39 @@ export class EmployeesService {
       }
     }
 
+    const organizationChangeRequested =
+      dto.divisionId !== undefined || dto.departmentId !== undefined;
+
+    let assignedDivisionId: string | undefined;
+
+    let assignedDepartmentId: string | undefined;
+
+    let assignedDepartmentName: string | undefined;
+
+    if (organizationChangeRequested) {
+      const targetDivisionId = dto.divisionId ?? employee.divisionId;
+
+      const targetDepartmentId = dto.departmentId ?? employee.departmentId;
+
+      if (!targetDivisionId || !targetDepartmentId) {
+        throw new BadRequestException(
+          'Both division ID and department ID are required when assigning organization details.',
+        );
+      }
+
+      const { division, department } =
+        await this.validateOrganizationAssignment(
+          targetDivisionId,
+          targetDepartmentId,
+        );
+
+      assignedDivisionId = division.id;
+
+      assignedDepartmentId = department.id;
+
+      assignedDepartmentName = department.name;
+    }
+
     const data: Prisma.EmployeeUpdateInput = {};
 
     if (empId !== undefined) {
@@ -454,12 +594,28 @@ export class EmployeesService {
       data.officialEmail = officialEmail;
     }
 
-    if (dto.department !== undefined) {
-      data.department = dto.department.trim() || null;
+    if (designation !== undefined) {
+      data.designation = designation;
     }
 
-    if (dto.designation !== undefined) {
-      data.designation = dto.designation.trim() || null;
+    if (assignedDivisionId && assignedDepartmentId && assignedDepartmentName) {
+      data.division = {
+        connect: {
+          id: assignedDivisionId,
+        },
+      };
+
+      data.departmentUnit = {
+        connect: {
+          id: assignedDepartmentId,
+        },
+      };
+
+      /*
+       * Keep the legacy text field synchronized
+       * until it is removed in a later migration.
+       */
+      data.department = assignedDepartmentName;
     }
 
     if (Object.keys(data).length === 0) {
@@ -481,12 +637,32 @@ export class EmployeesService {
         empName: true,
         phoneNumber: true,
         officialEmail: true,
+        divisionId: true,
+        departmentId: true,
         department: true,
         designation: true,
         status: true,
         isActivated: true,
         createdAt: true,
         updatedAt: true,
+
+        division: {
+          select: {
+            id: true,
+            code: true,
+            name: true,
+            isActive: true,
+          },
+        },
+
+        departmentUnit: {
+          select: {
+            id: true,
+            code: true,
+            name: true,
+            isActive: true,
+          },
+        },
       },
     });
 

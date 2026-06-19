@@ -1,20 +1,19 @@
-import { Type } from "class-transformer";
+import { Type } from 'class-transformer';
+
 import {
   IsEnum,
   IsInt,
   IsOptional,
   IsString,
+  IsUUID,
   Max,
   MaxLength,
   Min,
-} from "class-validator";
-import { EmployeeStatus } from "../../generated/prisma/client";
+} from 'class-validator';
+
+import { EmployeeStatus } from '../../generated/prisma/client';
 
 export class ListEmployeesQueryDto {
-  /*
-   * Search can match employee ID, name, email,
-   * department or designation.
-   */
   @IsOptional()
   @IsString()
   @MaxLength(100)
@@ -24,20 +23,24 @@ export class ListEmployeesQueryDto {
   @IsEnum(EmployeeStatus)
   status?: EmployeeStatus;
 
-  /*
-   * URL query parameters arrive as strings.
-   * @Type converts them into numbers.
-   */
+  @IsOptional()
+  @IsUUID('4', {
+    message: 'Division ID must be a valid UUID.',
+  })
+  divisionId?: string;
+
+  @IsOptional()
+  @IsUUID('4', {
+    message: 'Department ID must be a valid UUID.',
+  })
+  departmentId?: string;
+
   @IsOptional()
   @Type(() => Number)
   @IsInt()
   @Min(1)
   page: number = 1;
 
-  /*
-   * Limit is restricted to 100 records per request.
-   * This prevents an excessively large database response.
-   */
   @IsOptional()
   @Type(() => Number)
   @IsInt()
