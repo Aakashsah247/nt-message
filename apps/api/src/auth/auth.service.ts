@@ -176,12 +176,11 @@ export class AuthService {
       throw this.invalidCredentials();
     }
 
-    if (
-      account.role !== AccountRole.ADMIN ||
-      !account.isEnabled
-    ) {
-      throw this.invalidCredentials();
-    }
+
+    if ( account.role !== AccountRole.SUPER_ADMIN ||!account.isEnabled) 
+      {
+        throw this.invalidCredentials();
+      }  
 
     const sessionId = randomUUID();
 

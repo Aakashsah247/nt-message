@@ -24,7 +24,9 @@ import { EmployeesService } from "./employees.service";
   AccessTokenGuard,
   RolesGuard,
 )
-@Roles(AccountRole.ADMIN)
+
+@Roles(AccountRole.SUPER_ADMIN)
+
 export class EmployeesController {
   constructor(
     private readonly employeesService:

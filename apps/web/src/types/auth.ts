@@ -1,5 +1,7 @@
 export type AccountRole =
-  | "ADMIN"
+  | "SUPER_ADMIN"
+  | "SENIOR_MANAGEMENT"
+  | "TEAM_MANAGER"
   | "EMPLOYEE";
 
 export interface AuthAccount {

@@ -1,16 +1,13 @@
-import {
-  Navigate,
-  Route,
-  Routes,
-} from "react-router";
+import { Navigate, Route, Routes,} from "react-router";
 import { ProtectedRoute } from "./components/ProtectedRoute";
 import { PublicRoute } from "./components/PublicRoute";
 import { RoleHome } from "./components/RoleHome";
 import { ActivationPage } from "./pages/ActivationPage";
 import { AdminDashboardPage } from "./pages/AdminDashboardPage";
+import { DashboardPage } from "./pages/DashboardPage";
+import { ForgotPasswordPage } from "./pages/ForgotPasswordPage";
 import { LoginPage } from "./pages/LoginPage";
 import { MessageAppPage } from "./pages/MessageAppPage";
-import { ForgotPasswordPage } from "./pages/ForgotPasswordPage";
 
 export default function App() {
   return (
@@ -45,19 +42,57 @@ export default function App() {
       <Route
         path="/forgot-password"
         element={
-            <PublicRoute>
+          <PublicRoute>
             <ForgotPasswordPage />
           </PublicRoute>
         }
       />
 
       <Route
-        path="/admin"
+        path="/super-admin"
         element={
           <ProtectedRoute
-            roles={["ADMIN"]}
+            roles={[
+              "SUPER_ADMIN",
+            ]}
           >
             <AdminDashboardPage />
+          </ProtectedRoute>
+        }
+      />
+
+      <Route
+        path="/admin"
+        element={
+          <Navigate
+            to="/super-admin"
+            replace
+          />
+        }
+      />
+
+      <Route
+        path="/senior-management"
+        element={
+          <ProtectedRoute
+            roles={[
+              "SENIOR_MANAGEMENT",
+            ]}
+          >
+            <DashboardPage />
+          </ProtectedRoute>
+        }
+      />
+
+      <Route
+        path="/team-manager"
+        element={
+          <ProtectedRoute
+            roles={[
+              "TEAM_MANAGER",
+            ]}
+          >
+            <DashboardPage />
           </ProtectedRoute>
         }
       />
@@ -66,7 +101,9 @@ export default function App() {
         path="/messages"
         element={
           <ProtectedRoute
-            roles={["EMPLOYEE"]}
+            roles={[
+              "EMPLOYEE",
+            ]}
           >
             <MessageAppPage />
           </ProtectedRoute>
