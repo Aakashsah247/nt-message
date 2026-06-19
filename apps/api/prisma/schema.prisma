@@ -9,7 +9,6 @@ datasource db {
 }
 
 enum AccountRole {
-  ADMIN
   SUPER_ADMIN
   SENIOR_MANAGEMENT
   TEAM_MANAGER
