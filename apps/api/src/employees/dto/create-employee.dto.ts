@@ -2,10 +2,11 @@ import {
   IsEmail,
   IsOptional,
   IsString,
+  IsUUID,
   Matches,
   MaxLength,
   MinLength,
-} from "class-validator";
+} from 'class-validator';
 
 export class CreateEmployeeDto {
   @IsString()
@@ -13,7 +14,7 @@ export class CreateEmployeeDto {
   @MaxLength(50)
   @Matches(/^[a-zA-Z0-9_-]+$/, {
     message:
-      "Employee ID may contain letters, numbers, underscores and hyphens only.",
+      'Employee ID may contain letters, numbers, underscores and hyphens only.',
   })
   empId!: string;
 
@@ -22,14 +23,9 @@ export class CreateEmployeeDto {
   @MaxLength(150)
   empName!: string;
 
-  /*
-   * Accepts numbers with an optional leading plus sign.
-   * Example: +9779812345678
-   */
   @IsString()
   @Matches(/^\+?[0-9]{7,20}$/, {
-    message:
-      "Phone number must contain 7 to 20 digits and may start with +.",
+    message: 'Phone number must contain 7 to 20 digits and may start with +.',
   })
   phoneNumber!: string;
 
@@ -37,10 +33,15 @@ export class CreateEmployeeDto {
   @MaxLength(255)
   officialEmail!: string;
 
-  @IsOptional()
-  @IsString()
-  @MaxLength(120)
-  department?: string;
+  @IsUUID('4', {
+    message: 'Division ID must be a valid UUID.',
+  })
+  divisionId!: string;
+
+  @IsUUID('4', {
+    message: 'Department ID must be a valid UUID.',
+  })
+  departmentId!: string;
 
   @IsOptional()
   @IsString()
