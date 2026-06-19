@@ -25,6 +25,25 @@ enum OtpPurpose {
   PASSWORD_RESET
 }
 
+enum AccountRequestStatus {
+  DRAFT
+  PENDING_APPROVAL
+  APPROVED
+  REJECTED
+  ACTIVATION_PENDING
+  ACTIVATED
+}
+
+enum AccountRequestActionType {
+  CREATED
+  SUBMITTED
+  APPROVED
+  REJECTED
+  RESUBMITTED
+  ACTIVATION_STARTED
+  ACTIVATED
+}
+
 model Division {
   id        String   @id @default(uuid()) @db.Uuid
   code      String   @unique @db.VarChar(50)
@@ -33,8 +52,9 @@ model Division {
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
 
-  departments Department[]
-  employees   Employee[]
+  departments     Department[]
+  employees       Employee[]
+  accountRequests AccountRequest[]
 
   @@index([isActive], map: "divisions_is_active_idx")
   @@map("divisions")
@@ -49,8 +69,9 @@ model Department {
   createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt  DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
 
-  division  Division   @relation(fields: [divisionId], references: [id], onDelete: Restrict)
-  employees Employee[]
+  division        Division         @relation(fields: [divisionId], references: [id], onDelete: Restrict)
+  employees       Employee[]
+  accountRequests AccountRequest[]
 
   @@unique([divisionId, code], map: "departments_division_id_code_key")
   @@unique([divisionId, name], map: "departments_division_id_name_key")
@@ -84,6 +105,7 @@ model Employee {
 
   account          Account?
   otpVerifications OtpVerification[]
+  accountRequests  AccountRequest[]
 
   @@unique([empId, phoneNumber], map: "employees_emp_id_phone_number_key")
   @@index([empName], map: "employees_emp_name_idx")
@@ -108,8 +130,11 @@ model Account {
   createdAt           DateTime    @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt           DateTime    @updatedAt @map("updated_at") @db.Timestamptz(3)
 
-  employee Employee?     @relation(fields: [employeeId], references: [id], onDelete: Restrict)
-  sessions AuthSession[]
+  employee                 Employee?              @relation(fields: [employeeId], references: [id], onDelete: Restrict)
+  sessions                 AuthSession[]
+  submittedAccountRequests AccountRequest[]       @relation("AccountRequestsRequestedBy")
+  reviewedAccountRequests  AccountRequest[]       @relation("AccountRequestsReviewedBy")
+  accountRequestActions    AccountRequestAction[]
 
   @@index([role], map: "accounts_role_idx")
   @@index([isEnabled], map: "accounts_is_enabled_idx")
@@ -150,4 +175,82 @@ model OtpVerification {
   @@index([employeeId, purpose, createdAt], map: "otp_employee_purpose_created_idx")
   @@index([expiresAt], map: "otp_expires_at_idx")
   @@map("otp_verifications")
+}
+
+model AccountRequest {
+  id String @id @default(uuid()) @db.Uuid
+
+  empId         String  @map("emp_id") @db.VarChar(50)
+  empName       String  @map("emp_name") @db.VarChar(150)
+  phoneNumber   String  @map("phone_number") @db.VarChar(20)
+  officialEmail String  @map("official_email") @db.VarChar(255)
+  designation   String? @db.VarChar(120)
+
+  requestedRole AccountRole @map("requested_role")
+
+  divisionId   String? @map("division_id") @db.Uuid
+  departmentId String? @map("department_id") @db.Uuid
+  employeeId   String? @map("employee_id") @db.Uuid
+
+  requestedByAccountId String  @map("requested_by_account_id") @db.Uuid
+  reviewedByAccountId  String? @map("reviewed_by_account_id") @db.Uuid
+
+  previousRequestId String? @map("previous_request_id") @db.Uuid
+  revisionNumber    Int     @default(1) @map("revision_number")
+
+  status AccountRequestStatus @default(PENDING_APPROVAL)
+
+  rejectionReason String? @map("rejection_reason") @db.VarChar(500)
+
+  submittedAt DateTime  @default(now()) @map("submitted_at") @db.Timestamptz(3)
+  reviewedAt  DateTime? @map("reviewed_at") @db.Timestamptz(3)
+  createdAt   DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt   DateTime  @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  division   Division?   @relation(fields: [divisionId], references: [id], onDelete: Restrict)
+  department Department? @relation(fields: [departmentId], references: [id], onDelete: Restrict)
+  employee   Employee?   @relation(fields: [employeeId], references: [id], onDelete: Restrict)
+
+  requestedBy Account  @relation("AccountRequestsRequestedBy", fields: [requestedByAccountId], references: [id], onDelete: Restrict)
+  reviewedBy  Account? @relation("AccountRequestsReviewedBy", fields: [reviewedByAccountId], references: [id], onDelete: Restrict)
+
+  previousRequest AccountRequest?  @relation("AccountRequestRevisions", fields: [previousRequestId], references: [id], onDelete: Restrict)
+  revisions       AccountRequest[] @relation("AccountRequestRevisions")
+
+  actions AccountRequestAction[]
+
+  @@index([status, createdAt], map: "account_requests_status_created_idx")
+  @@index([requestedByAccountId, status], map: "account_requests_requester_status_idx")
+  @@index([reviewedByAccountId], map: "account_requests_reviewer_idx")
+  @@index([requestedRole], map: "account_requests_requested_role_idx")
+  @@index([empId], map: "account_requests_emp_id_idx")
+  @@index([officialEmail], map: "account_requests_official_email_idx")
+  @@index([divisionId, departmentId], map: "account_requests_org_scope_idx")
+  @@index([employeeId], map: "account_requests_employee_idx")
+  @@index([previousRequestId], map: "account_requests_previous_request_idx")
+  @@map("account_requests")
+}
+
+model AccountRequestAction {
+  id String @id @default(uuid()) @db.Uuid
+
+  accountRequestId String @map("account_request_id") @db.Uuid
+  actorAccountId   String @map("actor_account_id") @db.Uuid
+
+  action AccountRequestActionType
+
+  reason    String? @db.VarChar(500)
+  ipAddress String? @map("ip_address") @db.VarChar(45)
+  userAgent String? @map("user_agent") @db.VarChar(500)
+  metadata  Json?
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  accountRequest AccountRequest @relation(fields: [accountRequestId], references: [id], onDelete: Cascade)
+  actor          Account        @relation(fields: [actorAccountId], references: [id], onDelete: Restrict)
+
+  @@index([accountRequestId, createdAt], map: "account_request_actions_request_created_idx")
+  @@index([actorAccountId, createdAt], map: "account_request_actions_actor_created_idx")
+  @@index([action], map: "account_request_actions_action_idx")
+  @@map("account_request_actions")
 }
