@@ -1,18 +1,22 @@
-import { HttpException, HttpStatus, Injectable, UnauthorizedException,} from "@nestjs/common";
+import {
+  HttpException,
+  HttpStatus,
+  Injectable,
+  UnauthorizedException,
+} from '@nestjs/common';
 
-import { AccountRole , EmployeeStatus, } from "../generated/prisma/client";
-import { AdminLoginDto } from "./dto/admin-login.dto";
-import { EmployeeLoginDto } from "./dto/employee-login.dto";
-import { UnifiedLoginDto } from "./dto/unified-login.dto";
+import { AccountRole, EmployeeStatus } from '../generated/prisma/client';
+import { AdminLoginDto } from './dto/admin-login.dto';
+import { EmployeeLoginDto } from './dto/employee-login.dto';
+import { UnifiedLoginDto } from './dto/unified-login.dto';
 
-import { ConfigService } from "@nestjs/config";
-import { JwtService } from "@nestjs/jwt";
-import * as argon2 from "argon2";
+import { ConfigService } from '@nestjs/config';
+import { JwtService } from '@nestjs/jwt';
+import * as argon2 from 'argon2';
 
-import { createHash, randomUUID, timingSafeEqual,} from "node:crypto";
-import { PrismaService } from "../database/prisma.service";
-import type { RefreshTokenPayload } from "./types/auth.types";
-
+import { createHash, randomUUID, timingSafeEqual } from 'node:crypto';
+import { PrismaService } from '../database/prisma.service';
+import type { RefreshTokenPayload } from './types/auth.types';
 
 interface LoginMetadata {
   ipAddress: string | null;
@@ -52,7 +56,7 @@ export class AuthService {
   private readonly lockMinutes: number;
 
   private readonly dummyHashPromise = argon2.hash(
-    "nt-message-invalid-password",
+    'nt-message-invalid-password',
     {
       type: argon2.argon2id,
     },
@@ -64,107 +68,83 @@ export class AuthService {
     private readonly configService: ConfigService,
   ) {
     this.accessSecret =
-      this.configService.getOrThrow<string>(
-        "JWT_ACCESS_SECRET",
-      );
+      this.configService.getOrThrow<string>('JWT_ACCESS_SECRET');
 
     this.refreshSecret =
-      this.configService.getOrThrow<string>(
-        "JWT_REFRESH_SECRET",
-      );
+      this.configService.getOrThrow<string>('JWT_REFRESH_SECRET');
 
-    this.accessTtlSeconds =
-      this.readPositiveInteger(
-        "ACCESS_TOKEN_TTL_SECONDS",
-      );
+    this.accessTtlSeconds = this.readPositiveInteger(
+      'ACCESS_TOKEN_TTL_SECONDS',
+    );
 
-    this.refreshTtlSeconds =
-      this.readPositiveInteger(
-        "REFRESH_TOKEN_TTL_SECONDS",
-      );
+    this.refreshTtlSeconds = this.readPositiveInteger(
+      'REFRESH_TOKEN_TTL_SECONDS',
+    );
 
-    this.maxLoginAttempts =
-      this.readPositiveInteger(
-        "LOGIN_MAX_ATTEMPTS",
-      );
+    this.maxLoginAttempts = this.readPositiveInteger('LOGIN_MAX_ATTEMPTS');
 
-    this.lockMinutes =
-      this.readPositiveInteger(
-        "LOGIN_LOCK_MINUTES",
-      );
+    this.lockMinutes = this.readPositiveInteger('LOGIN_LOCK_MINUTES');
   }
 
   async loginUnified(
-  dto: UnifiedLoginDto,
-  metadata: LoginMetadata,
-): Promise<LoginResult> {
-  const identifier =
-    dto.identifier.trim();
+    dto: UnifiedLoginDto,
+    metadata: LoginMetadata,
+  ): Promise<LoginResult> {
+    const identifier = dto.identifier.trim();
 
-// Email identifies an employee account.
-  if (identifier.includes("@")) {
-    return this.loginEmployee(
+    // Email identifies an employee account.
+    if (identifier.includes('@')) {
+      return this.loginEmployee(
+        {
+          officialEmail: identifier,
+          password: dto.password,
+        },
+        metadata,
+      );
+    }
+    // Non-email identifier is treated as admin username.
+    return this.loginAdmin(
       {
-        officialEmail: identifier,
+        username: identifier,
         password: dto.password,
       },
       metadata,
     );
   }
- // Non-email identifier is treated as admin username.
-  return this.loginAdmin(
-    {
-      username: identifier,
-      password: dto.password,
-    },
-    metadata,
-  );
-}
 
   async loginAdmin(
     dto: AdminLoginDto,
     metadata: LoginMetadata,
   ): Promise<LoginResult> {
-    const username = dto.username
-      .trim()
-      .toLowerCase();
+    const username = dto.username.trim().toLowerCase();
 
-    const account =
-      await this.prisma.account.findUnique({
-        where: {
-          username,
-        },
-      });
+    const account = await this.prisma.account.findUnique({
+      where: {
+        username,
+      },
+    });
 
     if (!account) {
-      const dummyHash =
-        await this.dummyHashPromise;
+      const dummyHash = await this.dummyHashPromise;
 
-      await argon2.verify(
-        dummyHash,
-        dto.password,
-      );
+      await argon2.verify(dummyHash, dto.password);
 
       throw this.invalidCredentials();
     }
 
     const now = new Date();
 
-    if (
-      account.lockedUntil &&
-      account.lockedUntil > now
-    ) {
+    if (account.lockedUntil && account.lockedUntil > now) {
       throw new HttpException(
-        "Too many failed login attempts. Try again later.",
+        'Too many failed login attempts. Try again later.',
         HttpStatus.TOO_MANY_REQUESTS,
       );
     }
 
-    const passwordIsValid =
-      await argon2.verify(
-        account.passwordHash,
-        dto.password,
-      );
+    const passwordIsValid = await argon2.verify(
+      account.passwordHash,
+      dto.password,
+    );
 
     if (!passwordIsValid) {
       await this.recordFailedLogin(
@@ -176,27 +156,22 @@ export class AuthService {
       throw this.invalidCredentials();
     }
 
-
-    if ( account.role !== AccountRole.SUPER_ADMIN ||!account.isEnabled) 
-      {
-        throw this.invalidCredentials();
-      }  
+    if (account.role !== AccountRole.SUPER_ADMIN || !account.isEnabled) {
+      throw this.invalidCredentials();
+    }
 
     const sessionId = randomUUID();
 
-    const refreshTokenExpiresAt =
-      new Date(
-        Date.now() +
-          this.refreshTtlSeconds * 1000,
-      );
+    const refreshTokenExpiresAt = new Date(
+      Date.now() + this.refreshTtlSeconds * 1000,
+    );
 
-    const tokens =
-      await this.createTokenPair(
-        account.id,
-        account.role,
-        sessionId,
-        refreshTokenExpiresAt,
-      );
+    const tokens = await this.createTokenPair(
+      account.id,
+      account.role,
+      sessionId,
+      refreshTokenExpiresAt,
+    );
 
     await this.prisma.$transaction([
       this.prisma.account.update({
@@ -215,19 +190,13 @@ export class AuthService {
           id: sessionId,
           accountId: account.id,
 
-          refreshTokenHash:
-            this.hashToken(
-              tokens.refreshToken,
-            ),
+          refreshTokenHash: this.hashToken(tokens.refreshToken),
 
-          ipAddress:
-            metadata.ipAddress,
+          ipAddress: metadata.ipAddress,
 
-          userAgent:
-            metadata.userAgent,
+          userAgent: metadata.userAgent,
 
-          expiresAt:
-            refreshTokenExpiresAt,
+          expiresAt: refreshTokenExpiresAt,
         },
       }),
     ]);
@@ -244,16 +213,12 @@ export class AuthService {
   }
 
   async loginEmployee(
-  dto: EmployeeLoginDto,
-  metadata: LoginMetadata,
-): Promise<LoginResult> {
-  const officialEmail =
-    dto.officialEmail
-      .trim()
-      .toLowerCase();
+    dto: EmployeeLoginDto,
+    metadata: LoginMetadata,
+  ): Promise<LoginResult> {
+    const officialEmail = dto.officialEmail.trim().toLowerCase();
 
-  const employee =
-    await this.prisma.employee.findUnique({
+    const employee = await this.prisma.employee.findUnique({
       where: {
         officialEmail,
       },
@@ -266,210 +231,175 @@ export class AuthService {
       },
     });
 
-  const account = employee?.account;
+    const account = employee?.account;
 
-  if (!account) {
-    const dummyHash =
-      await this.dummyHashPromise;
+    if (!account) {
+      const dummyHash = await this.dummyHashPromise;
 
-    await argon2.verify(
-      dummyHash,
-      dto.password,
-    );
+      await argon2.verify(dummyHash, dto.password);
 
-    throw this.invalidCredentials();
-  }
+      throw this.invalidCredentials();
+    }
 
-  const now = new Date();
+    const now = new Date();
 
-  if (
-    account.lockedUntil &&
-    account.lockedUntil > now
-  ) {
-    throw new HttpException(
-      "Too many failed login attempts. Try again later.",
-      HttpStatus.TOO_MANY_REQUESTS,
-    );
-  }
+    if (account.lockedUntil && account.lockedUntil > now) {
+      throw new HttpException(
+        'Too many failed login attempts. Try again later.',
+        HttpStatus.TOO_MANY_REQUESTS,
+      );
+    }
 
-  const passwordIsValid =
-    await argon2.verify(
+    const passwordIsValid = await argon2.verify(
       account.passwordHash,
       dto.password,
     );
 
-  if (!passwordIsValid) {
-    await this.recordFailedLogin(
-      account.id,
-      account.failedLoginAttempts,
-      account.lockedUntil,
+    if (!passwordIsValid) {
+      await this.recordFailedLogin(
+        account.id,
+        account.failedLoginAttempts,
+        account.lockedUntil,
+      );
+
+      throw this.invalidCredentials();
+    }
+
+    const employeeRoleCanLogin =
+      account.role === AccountRole.EMPLOYEE ||
+      account.role === AccountRole.TEAM_MANAGER ||
+      account.role === AccountRole.SENIOR_MANAGEMENT;
+
+    const employeeCanLogin =
+      employeeRoleCanLogin &&
+      account.isEnabled &&
+      employee.isActivated &&
+      employee.status === EmployeeStatus.ACTIVE;
+
+    if (!employeeCanLogin) {
+      throw this.invalidCredentials();
+    }
+
+    const sessionId = randomUUID();
+
+    const refreshTokenExpiresAt = new Date(
+      Date.now() + this.refreshTtlSeconds * 1000,
     );
 
-    throw this.invalidCredentials();
-  }
-
-  const employeeCanLogin =
-    account.role === AccountRole.EMPLOYEE &&
-    account.isEnabled &&
-    employee.isActivated &&
-    employee.status ===
-      EmployeeStatus.ACTIVE;
-
-  if (!employeeCanLogin) {
-    throw this.invalidCredentials();
-  }
-
-  const sessionId = randomUUID();
-
-  const refreshTokenExpiresAt =
-    new Date(
-      Date.now() +
-        this.refreshTtlSeconds * 1000,
-    );
-
-  const tokens =
-    await this.createTokenPair(
+    const tokens = await this.createTokenPair(
       account.id,
       account.role,
       sessionId,
       refreshTokenExpiresAt,
     );
 
-  await this.prisma.$transaction([
-    this.prisma.account.update({
-      where: {
+    await this.prisma.$transaction([
+      this.prisma.account.update({
+        where: {
+          id: account.id,
+        },
+
+        data: {
+          failedLoginAttempts: 0,
+          lockedUntil: null,
+          lastLoginAt: now,
+        },
+      }),
+
+      this.prisma.authSession.create({
+        data: {
+          id: sessionId,
+          accountId: account.id,
+
+          refreshTokenHash: this.hashToken(tokens.refreshToken),
+
+          ipAddress: metadata.ipAddress,
+
+          userAgent: metadata.userAgent,
+
+          expiresAt: refreshTokenExpiresAt,
+        },
+      }),
+    ]);
+
+    return {
+      ...tokens,
+
+      account: {
         id: account.id,
+        username: account.username,
+        role: account.role,
       },
-
-      data: {
-        failedLoginAttempts: 0,
-        lockedUntil: null,
-        lastLoginAt: now,
-      },
-    }),
-
-    this.prisma.authSession.create({
-      data: {
-        id: sessionId,
-        accountId: account.id,
-
-        refreshTokenHash:
-          this.hashToken(
-            tokens.refreshToken,
-          ),
-
-        ipAddress:
-          metadata.ipAddress,
-
-        userAgent:
-          metadata.userAgent,
-
-        expiresAt:
-          refreshTokenExpiresAt,
-      },
-    }),
-  ]);
-
-  return {
-    ...tokens,
-
-    account: {
-      id: account.id,
-      username: account.username,
-      role: account.role,
-    },
-  };
-}
+    };
+  }
 
   async refreshSession(
-    refreshToken:
-      | string
-      | undefined,
+    refreshToken: string | undefined,
   ): Promise<RefreshResult> {
     if (!refreshToken) {
-      throw new UnauthorizedException(
-        "Refresh token is missing.",
-      );
+      throw new UnauthorizedException('Refresh token is missing.');
     }
 
-    const payload =
-      await this.verifyRefreshToken(
-        refreshToken,
-      );
+    const payload = await this.verifyRefreshToken(refreshToken);
 
-    if (
-      payload.type !== "refresh" ||
-      !payload.sub ||
-      !payload.sid
-    ) {
-      throw new UnauthorizedException(
-        "Invalid refresh token.",
-      );
+    if (payload.type !== 'refresh' || !payload.sub || !payload.sid) {
+      throw new UnauthorizedException('Invalid refresh token.');
     }
 
-    const session =
-      await this.prisma.authSession.findUnique({
-        where: {
-          id: payload.sid,
-        },
+    const session = await this.prisma.authSession.findUnique({
+      where: {
+        id: payload.sid,
+      },
 
-        include: {
-          account: {
-            select: {
-              id: true,
-              username: true,
-              role: true,
-              isEnabled: true,
-            },
+      include: {
+        account: {
+          select: {
+            id: true,
+            username: true,
+            role: true,
+            isEnabled: true,
           },
         },
-      });
+      },
+    });
 
     const now = new Date();
 
     const sessionIsInvalid =
       !session ||
-      session.accountId !==
-        payload.sub ||
+      session.accountId !== payload.sub ||
       session.revokedAt !== null ||
       session.expiresAt <= now ||
       !session.account.isEnabled ||
-      session.account.role !==
-        payload.role;
+      session.account.role !== payload.role;
 
     if (sessionIsInvalid) {
       throw new UnauthorizedException(
-        "Authentication session is invalid or expired.",
+        'Authentication session is invalid or expired.',
       );
     }
 
-    const incomingTokenHash =
-      this.hashToken(refreshToken);
+    const incomingTokenHash = this.hashToken(refreshToken);
 
-    const tokenHashMatches =
-      this.tokenHashesMatch(
-        session.refreshTokenHash,
-        incomingTokenHash,
-      );
+    const tokenHashMatches = this.tokenHashesMatch(
+      session.refreshTokenHash,
+      incomingTokenHash,
+    );
 
     if (!tokenHashMatches) {
       throw new UnauthorizedException(
-        "Refresh token is invalid or has already been used.",
+        'Refresh token is invalid or has already been used.',
       );
     }
 
-    const tokens =
-      await this.createTokenPair(
-        session.account.id,
-        session.account.role,
-        session.id,
-        session.expiresAt,
-      );
+    const tokens = await this.createTokenPair(
+      session.account.id,
+      session.account.role,
+      session.id,
+      session.expiresAt,
+    );
 
-    const newRefreshTokenHash =
-      this.hashToken(
-        tokens.refreshToken,
-      );
+    const newRefreshTokenHash = this.hashToken(tokens.refreshToken);
 
     /*
      * updateMany makes rotation conditional.
@@ -477,28 +407,25 @@ export class AuthService {
      * The update succeeds only when the old hash
      * still exists and the session is still active.
      */
-    const updateResult =
-      await this.prisma.authSession.updateMany({
-        where: {
-          id: session.id,
-          refreshTokenHash:
-            incomingTokenHash,
-          revokedAt: null,
-          expiresAt: {
-            gt: now,
-          },
+    const updateResult = await this.prisma.authSession.updateMany({
+      where: {
+        id: session.id,
+        refreshTokenHash: incomingTokenHash,
+        revokedAt: null,
+        expiresAt: {
+          gt: now,
         },
+      },
 
-        data: {
-          refreshTokenHash:
-            newRefreshTokenHash,
-          lastUsedAt: now,
-        },
-      });
+      data: {
+        refreshTokenHash: newRefreshTokenHash,
+        lastUsedAt: now,
+      },
+    });
 
     if (updateResult.count !== 1) {
       throw new UnauthorizedException(
-        "Refresh token is invalid or has already been used.",
+        'Refresh token is invalid or has already been used.',
       );
     }
 
@@ -507,32 +434,21 @@ export class AuthService {
 
       account: {
         id: session.account.id,
-        username:
-          session.account.username,
+        username: session.account.username,
         role: session.account.role,
       },
     };
   }
 
-  async logoutSession(
-    refreshToken:
-      | string
-      | undefined,
-  ): Promise<void> {
+  async logoutSession(refreshToken: string | undefined): Promise<void> {
     if (!refreshToken) {
       return;
     }
 
     try {
-      const payload =
-        await this.verifyRefreshToken(
-          refreshToken,
-        );
+      const payload = await this.verifyRefreshToken(refreshToken);
 
-      const refreshTokenHash =
-        this.hashToken(
-          refreshToken,
-        );
+      const refreshTokenHash = this.hashToken(refreshToken);
 
       await this.prisma.authSession.updateMany({
         where: {
@@ -554,20 +470,17 @@ export class AuthService {
     }
   }
 
-  async logoutAllSessions(
-    accountId: string,
-  ): Promise<number> {
-    const result =
-      await this.prisma.authSession.updateMany({
-        where: {
-          accountId,
-          revokedAt: null,
-        },
+  async logoutAllSessions(accountId: string): Promise<number> {
+    const result = await this.prisma.authSession.updateMany({
+      where: {
+        accountId,
+        revokedAt: null,
+      },
 
-        data: {
-          revokedAt: new Date(),
-        },
-      });
+      data: {
+        revokedAt: new Date(),
+      },
+    });
 
     return result.count;
   }
@@ -578,32 +491,26 @@ export class AuthService {
     sessionId: string,
     refreshTokenExpiresAt: Date,
   ): Promise<TokenResult> {
-    const remainingRefreshSeconds =
-      Math.floor(
-        (
-          refreshTokenExpiresAt.getTime() -
-          Date.now()
-        ) / 1000,
-      );
+    const remainingRefreshSeconds = Math.floor(
+      (refreshTokenExpiresAt.getTime() - Date.now()) / 1000,
+    );
 
     if (remainingRefreshSeconds <= 0) {
-      throw new UnauthorizedException(
-        "Authentication session has expired.",
-      );
+      throw new UnauthorizedException('Authentication session has expired.');
     }
 
     const accessPayload = {
       sub: accountId,
       sid: sessionId,
       role,
-      type: "access" as const,
+      type: 'access' as const,
     };
 
     const refreshPayload = {
       sub: accountId,
       sid: sessionId,
       role,
-      type: "refresh" as const,
+      type: 'refresh' as const,
 
       /*
        * Makes every rotated refresh token unique.
@@ -611,37 +518,23 @@ export class AuthService {
       jti: randomUUID(),
     };
 
-    const [
-      accessToken,
-      refreshToken,
-    ] = await Promise.all([
-      this.jwtService.signAsync(
-        accessPayload,
-        {
-          secret:
-            this.accessSecret,
+    const [accessToken, refreshToken] = await Promise.all([
+      this.jwtService.signAsync(accessPayload, {
+        secret: this.accessSecret,
 
-          expiresIn:
-            this.accessTtlSeconds,
-        },
-      ),
+        expiresIn: this.accessTtlSeconds,
+      }),
 
-      this.jwtService.signAsync(
-        refreshPayload,
-        {
-          secret:
-            this.refreshSecret,
+      this.jwtService.signAsync(refreshPayload, {
+        secret: this.refreshSecret,
 
-          expiresIn:
-            remainingRefreshSeconds,
-        },
-      ),
+        expiresIn: remainingRefreshSeconds,
+      }),
     ]);
 
     return {
       accessToken,
-      accessTokenExpiresIn:
-        this.accessTtlSeconds,
+      accessTokenExpiresIn: this.accessTtlSeconds,
       refreshToken,
       refreshTokenExpiresAt,
     };
@@ -651,60 +544,33 @@ export class AuthService {
     refreshToken: string,
   ): Promise<RefreshTokenPayload> {
     try {
-      return await this.jwtService
-        .verifyAsync<RefreshTokenPayload>(
-          refreshToken,
-          {
-            secret:
-              this.refreshSecret,
+      return await this.jwtService.verifyAsync<RefreshTokenPayload>(
+        refreshToken,
+        {
+          secret: this.refreshSecret,
 
-            algorithms: [
-              "HS256",
-            ],
-          },
-        );
-    } catch {
-      throw new UnauthorizedException(
-        "Invalid or expired refresh token.",
+          algorithms: ['HS256'],
+        },
       );
+    } catch {
+      throw new UnauthorizedException('Invalid or expired refresh token.');
     }
   }
 
-  private hashToken(
-    token: string,
-  ): string {
-    return createHash("sha256")
-      .update(token)
-      .digest("hex");
+  private hashToken(token: string): string {
+    return createHash('sha256').update(token).digest('hex');
   }
 
-  private tokenHashesMatch(
-    storedHash: string,
-    incomingHash: string,
-  ): boolean {
-    const storedBuffer =
-      Buffer.from(
-        storedHash,
-        "hex",
-      );
+  private tokenHashesMatch(storedHash: string, incomingHash: string): boolean {
+    const storedBuffer = Buffer.from(storedHash, 'hex');
 
-    const incomingBuffer =
-      Buffer.from(
-        incomingHash,
-        "hex",
-      );
+    const incomingBuffer = Buffer.from(incomingHash, 'hex');
 
-    if (
-      storedBuffer.length !==
-      incomingBuffer.length
-    ) {
+    if (storedBuffer.length !== incomingBuffer.length) {
       return false;
     }
 
-    return timingSafeEqual(
-      storedBuffer,
-      incomingBuffer,
-    );
+    return timingSafeEqual(storedBuffer, incomingBuffer);
   }
 
   private async recordFailedLogin(
@@ -712,31 +578,17 @@ export class AuthService {
     currentAttempts: number,
     existingLock: Date | null,
   ): Promise<void> {
-    const lockExpired =
-      existingLock !== null &&
-      existingLock <= new Date();
+    const lockExpired = existingLock !== null && existingLock <= new Date();
 
-    const previousAttempts =
-      lockExpired
-        ? 0
-        : currentAttempts;
+    const previousAttempts = lockExpired ? 0 : currentAttempts;
 
-    const nextAttempts =
-      previousAttempts + 1;
+    const nextAttempts = previousAttempts + 1;
 
-    const shouldLock =
-      nextAttempts >=
-      this.maxLoginAttempts;
+    const shouldLock = nextAttempts >= this.maxLoginAttempts;
 
-    const lockedUntil =
-      shouldLock
-        ? new Date(
-            Date.now() +
-              this.lockMinutes *
-                60 *
-                1000,
-          )
-        : null;
+    const lockedUntil = shouldLock
+      ? new Date(Date.now() + this.lockMinutes * 60 * 1000)
+      : null;
 
     await this.prisma.account.update({
       where: {
@@ -744,41 +596,23 @@ export class AuthService {
       },
 
       data: {
-        failedLoginAttempts:
-          nextAttempts,
+        failedLoginAttempts: nextAttempts,
         lockedUntil,
       },
     });
   }
 
-  private invalidCredentials():
-    UnauthorizedException {
-    return new UnauthorizedException(
-      "Invalid username or password.",
-    );
+  private invalidCredentials(): UnauthorizedException {
+    return new UnauthorizedException('Invalid username or password.');
   }
 
-  private readPositiveInteger(
-    variableName: string,
-  ): number {
-    const rawValue =
-      this.configService
-        .getOrThrow<string>(
-          variableName,
-        );
+  private readPositiveInteger(variableName: string): number {
+    const rawValue = this.configService.getOrThrow<string>(variableName);
 
-    const parsedValue =
-      Number(rawValue);
+    const parsedValue = Number(rawValue);
 
-    if (
-      !Number.isInteger(
-        parsedValue,
-      ) ||
-      parsedValue <= 0
-    ) {
-      throw new Error(
-        `${variableName} must be a positive integer.`,
-      );
+    if (!Number.isInteger(parsedValue) || parsedValue <= 0) {
+      throw new Error(`${variableName} must be a positive integer.`);
     }
 
     return parsedValue;

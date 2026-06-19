@@ -1,7 +1,7 @@
 import { Module } from '@nestjs/common';
-
 import { ConfigModule } from '@nestjs/config';
 
+import { AccountRequestsModule } from './account-requests/account-requests.module';
 import { ActivationModule } from './activation/activation.module';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
@@ -14,7 +14,6 @@ import { OrganizationModule } from './organization/organization.module';
   imports: [
     ConfigModule.forRoot({
       isGlobal: true,
-
       envFilePath: ['../../.env', '.env'],
     }),
 
@@ -23,6 +22,7 @@ import { OrganizationModule } from './organization/organization.module';
     EmployeesModule,
     OrganizationModule,
     ActivationModule,
+    AccountRequestsModule,
   ],
 
   controllers: [AppController],
