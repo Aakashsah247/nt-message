@@ -1,4 +1,6 @@
-import { useNavigate } from "react-router";
+import {
+  useNavigate,
+} from "react-router";
 import { useAuth } from "../context/AuthContext";
 
 export function AdminDashboardPage() {
@@ -9,35 +11,47 @@ export function AdminDashboardPage() {
     logout,
   } = useAuth();
 
-  async function handleLogout() {
+  async function handleLogout():
+    Promise<void> {
     await logout();
-    navigate("/login", {
-      replace: true,
-    });
+
+    navigate(
+      "/login",
+      {
+        replace: true,
+      },
+    );
   }
 
   return (
     <main className="role-page">
       <header className="role-header">
         <strong>
-          NT Message Admin
+          NT Message Super Admin
         </strong>
 
-        <button onClick={handleLogout}>
+        <button
+          type="button"
+          onClick={handleLogout}
+        >
           Sign out
         </button>
       </header>
 
       <section className="role-content">
-        <span>ADMIN</span>
+        <span>SUPER ADMIN</span>
 
         <h1>
-          Welcome, {account?.username}
+          Welcome,{" "}
+          {account?.username ??
+            "Super Admin"}
         </h1>
 
         <p>
-          Employee management and system
-          controls will appear here.
+          Account approvals, employee
+          management, organization units,
+          security controls and audit logs
+          will appear here.
         </p>
       </section>
     </main>

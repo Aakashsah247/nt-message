@@ -7,36 +7,28 @@ import {
   PrismaClient,
 } from "../src/generated/prisma/client";
 
-/*
- * Load environment variables from:
- *
- * nt-message/.env
- *
- * This script normally runs from apps/api, so ../../.env
- * points back to the root project folder.
- */
 config({
   path: resolve(process.cwd(), "../../.env"),
 });
 
-/*
- * Read a required environment variable.
- *
- * This function guarantees that the returned value is a string.
- * If the variable is missing or empty, the seed stops immediately.
- */
-function getRequiredEnvironmentVariable(name: string): string {
+function getRequiredEnvironmentVariable(
+  name: string,
+): string {
   const value = process.env[name]?.trim();
 
   if (!value) {
-    throw new Error(`${name} is missing or empty.`);
+    throw new Error(
+      `${name} is missing or empty.`,
+    );
   }
 
   return value;
 }
 
 const connectionString =
-  getRequiredEnvironmentVariable("DATABASE_URL");
+  getRequiredEnvironmentVariable(
+    "DATABASE_URL",
+  );
 
 const adminUsername =
   getRequiredEnvironmentVariable(
@@ -63,15 +55,26 @@ const prisma = new PrismaClient({
 });
 
 async function main(): Promise<void> {
-  const existingAdmin = await prisma.account.findUnique({
-    where: {
-      username: adminUsername,
-    },
-  });
+  const existingAdmin =
+    await prisma.account.findUnique({
+      where: {
+        username: adminUsername,
+      },
+    });
 
   if (existingAdmin) {
+    await prisma.account.update({
+      where: {
+        id: existingAdmin.id,
+      },
+      data: {
+        role: AccountRole.SUPER_ADMIN,
+        isEnabled: true,
+      },
+    });
+
     console.log(
-      `Admin account "${adminUsername}" already exists.`,
+      `Super Admin account "${adminUsername}" updated successfully.`,
     );
 
     return;
@@ -87,20 +90,24 @@ async function main(): Promise<void> {
   await prisma.account.create({
     data: {
       username: adminUsername,
-      role: AccountRole.ADMIN,
+      role: AccountRole.SUPER_ADMIN,
       passwordHash,
       isEnabled: true,
     },
   });
 
   console.log(
-    `Admin account "${adminUsername}" created successfully.`,
+    `Super Admin account "${adminUsername}" created successfully.`,
   );
 }
 
 main()
   .catch((error: unknown) => {
-    console.error("Database seed failed:", error);
+    console.error(
+      "Database seed failed:",
+      error,
+    );
+
     process.exitCode = 1;
   })
   .finally(async () => {

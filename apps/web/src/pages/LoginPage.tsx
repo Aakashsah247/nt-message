@@ -3,6 +3,8 @@ import type { FormEvent } from "react";
 import { Link, useNavigate } from "react-router";
 import { useAuth } from "../context/AuthContext";
 
+import { getRoleHomePath,} from "../utils/get-role-home-path";
+
 export function LoginPage() {
   const navigate = useNavigate();
   const { login } = useAuth();
@@ -25,8 +27,10 @@ export function LoginPage() {
       const account = await login(identifier, password);
 
       navigate(
-        account.role === "ADMIN" ? "/admin" : "/messages",
-        { replace: true },
+        getRoleHomePath(account.role),
+        {
+          replace: true,
+        },
       );
     } catch (requestError) {
       setPassword("");
