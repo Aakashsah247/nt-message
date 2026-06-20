@@ -234,8 +234,8 @@ model AccountRequest {
 model AccountRequestAction {
   id String @id @default(uuid()) @db.Uuid
 
-  accountRequestId String @map("account_request_id") @db.Uuid
-  actorAccountId   String @map("actor_account_id") @db.Uuid
+  accountRequestId String  @map("account_request_id") @db.Uuid
+  actorAccountId   String? @map("actor_account_id") @db.Uuid
 
   action AccountRequestActionType
 
@@ -247,7 +247,7 @@ model AccountRequestAction {
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
 
   accountRequest AccountRequest @relation(fields: [accountRequestId], references: [id], onDelete: Cascade)
-  actor          Account        @relation(fields: [actorAccountId], references: [id], onDelete: Restrict)
+  actor          Account?       @relation(fields: [actorAccountId], references: [id], onDelete: Restrict)
 
   @@index([accountRequestId, createdAt], map: "account_request_actions_request_created_idx")
   @@index([actorAccountId, createdAt], map: "account_request_actions_actor_created_idx")
