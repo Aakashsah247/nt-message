@@ -7,38 +7,46 @@ import {
   Patch,
   Post,
   Query,
+  Req,
   UseGuards,
-} from "@nestjs/common";
-import { Roles } from "../auth/decorators/roles.decorator";
-import { AccessTokenGuard } from "../auth/guards/access-token.guard";
-import { RolesGuard } from "../auth/guards/roles.guard";
-import { AccountRole } from "../generated/prisma/client";
-import { CreateEmployeeDto } from "./dto/create-employee.dto";
-import { ListEmployeesQueryDto } from "./dto/list-employees-query.dto";
-import { UpdateEmployeeStatusDto } from "./dto/update-employee-status.dto";
-import { UpdateEmployeeDto } from "./dto/update-employee.dto";
-import { EmployeesService } from "./employees.service";
+} from '@nestjs/common';
+import type { Request } from 'express';
 
-@Controller("admin/employees")
-@UseGuards(
-  AccessTokenGuard,
-  RolesGuard,
-)
+import { CurrentUser } from '../auth/decorators/current-user.decorator';
+import { Roles } from '../auth/decorators/roles.decorator';
+import { AccessTokenGuard } from '../auth/guards/access-token.guard';
+import { RolesGuard } from '../auth/guards/roles.guard';
+import type { AuthenticatedUser } from '../auth/types/auth.types';
+import { AccountRole } from '../generated/prisma/client';
 
+import { CreateEmployeeDto } from './dto/create-employee.dto';
+import { ListEmployeesQueryDto } from './dto/list-employees-query.dto';
+import { UpdateEmployeeStatusDto } from './dto/update-employee-status.dto';
+import { UpdateEmployeeDto } from './dto/update-employee.dto';
+import { EmployeesService } from './employees.service';
+
+@Controller('admin/employees')
+@UseGuards(AccessTokenGuard, RolesGuard)
 @Roles(AccountRole.SUPER_ADMIN)
-
 export class EmployeesController {
-  constructor(
-    private readonly employeesService:
-      EmployeesService,
-  ) {}
+  constructor(private readonly employeesService: EmployeesService) {}
 
   @Post()
   createEmployee(
-    @Body() dto: CreateEmployeeDto,
+    @CurrentUser()
+    user: AuthenticatedUser,
+
+    @Body()
+    dto: CreateEmployeeDto,
+
+    @Req()
+    request: Request,
   ) {
-    return this.employeesService
-      .createEmployee(dto);
+    return this.employeesService.createEmployee(user, dto, {
+      ipAddress: request.ip ?? request.socket.remoteAddress ?? null,
+
+      userAgent: request.get('user-agent') ?? null,
+    });
   }
 
   @Get()
@@ -46,30 +54,28 @@ export class EmployeesController {
     @Query()
     query: ListEmployeesQueryDto,
   ) {
-    return this.employeesService
-      .listEmployees(query);
+    return this.employeesService.listEmployees(query);
   }
 
-  @Get(":id")
+  @Get(':id')
   getEmployee(
     @Param(
-      "id",
+      'id',
       new ParseUUIDPipe({
-        version: "4",
+        version: '4',
       }),
     )
     id: string,
   ) {
-    return this.employeesService
-      .getEmployeeById(id);
+    return this.employeesService.getEmployeeById(id);
   }
 
-  @Patch(":id/status")
+  @Patch(':id/status')
   updateEmployeeStatus(
     @Param(
-      "id",
+      'id',
       new ParseUUIDPipe({
-        version: "4",
+        version: '4',
       }),
     )
     id: string,
@@ -77,19 +83,15 @@ export class EmployeesController {
     @Body()
     dto: UpdateEmployeeStatusDto,
   ) {
-    return this.employeesService
-      .updateEmployeeStatus(
-        id,
-        dto.status,
-      );
+    return this.employeesService.updateEmployeeStatus(id, dto.status);
   }
 
-  @Patch(":id")
+  @Patch(':id')
   updateEmployee(
     @Param(
-      "id",
+      'id',
       new ParseUUIDPipe({
-        version: "4",
+        version: '4',
       }),
     )
     id: string,
@@ -97,10 +99,6 @@ export class EmployeesController {
     @Body()
     dto: UpdateEmployeeDto,
   ) {
-    return this.employeesService
-      .updateEmployee(
-        id,
-        dto,
-      );
+    return this.employeesService.updateEmployee(id, dto);
   }
 }

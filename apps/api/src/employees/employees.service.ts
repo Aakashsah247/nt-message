@@ -1,18 +1,30 @@
 import {
   BadRequestException,
   ConflictException,
+  ForbiddenException,
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
 
+import type { AuthenticatedUser } from '../auth/types/auth.types';
 import { PrismaService } from '../database/prisma.service';
-import { EmployeeStatus } from '../generated/prisma/client';
+import {
+  AccountRequestActionType,
+  AccountRequestStatus,
+  AccountRole,
+  EmployeeStatus,
+} from '../generated/prisma/client';
 
 import type { Prisma } from '../generated/prisma/client';
 
 import { CreateEmployeeDto } from './dto/create-employee.dto';
 import { ListEmployeesQueryDto } from './dto/list-employees-query.dto';
 import { UpdateEmployeeDto } from './dto/update-employee.dto';
+
+interface EmployeeCreationMetadata {
+  ipAddress: string | null;
+  userAgent: string | null;
+}
 
 @Injectable()
 export class EmployeesService {
@@ -77,7 +89,17 @@ export class EmployeesService {
     };
   }
 
-  async createEmployee(dto: CreateEmployeeDto) {
+  async createEmployee(
+    user: AuthenticatedUser,
+    dto: CreateEmployeeDto,
+    metadata: EmployeeCreationMetadata,
+  ) {
+    if (user.role !== AccountRole.SUPER_ADMIN) {
+      throw new ForbiddenException(
+        'Only the Super Admin can create employee identities directly.',
+      );
+    }
+
     const empId = dto.empId.trim().toUpperCase();
 
     const officialEmail = dto.officialEmail.trim().toLowerCase();
@@ -123,75 +145,214 @@ export class EmployeesService {
       );
     }
 
-    const employee = await this.prisma.employee.create({
-      data: {
-        empId,
-        empName,
-        phoneNumber,
-        officialEmail,
-        designation,
-
-        division: {
-          connect: {
-            id: division.id,
-          },
+    const existingRequest = await this.prisma.accountRequest.findFirst({
+      where: {
+        status: {
+          not: AccountRequestStatus.REJECTED,
         },
 
-        departmentUnit: {
-          connect: {
-            id: department.id,
+        OR: [
+          {
+            empId,
           },
-        },
-
-        /*
-         * Temporary compatibility field.
-         * It will be removed after activation and
-         * all old employee records are migrated.
-         */
-        department: department.name,
-
-        status: EmployeeStatus.ACTIVE,
-
-        isActivated: false,
+          {
+            officialEmail,
+          },
+        ],
       },
 
       select: {
         id: true,
-        empId: true,
-        empName: true,
-        phoneNumber: true,
-        officialEmail: true,
-        designation: true,
         status: true,
-        isActivated: true,
-        createdAt: true,
-        updatedAt: true,
-
-        division: {
-          select: {
-            id: true,
-            code: true,
-            name: true,
-            isActive: true,
-          },
-        },
-
-        departmentUnit: {
-          select: {
-            id: true,
-            code: true,
-            name: true,
-            isActive: true,
-          },
-        },
       },
+    });
+
+    if (existingRequest) {
+      throw new ConflictException(
+        'An active account request already exists for this employee ID or official email.',
+      );
+    }
+
+    const now = new Date();
+
+    const ipAddress = metadata.ipAddress?.slice(0, 45) || null;
+
+    const userAgent = metadata.userAgent?.slice(0, 500) || null;
+
+    const result = await this.prisma.$transaction(async (transaction) => {
+      const employee = await transaction.employee.create({
+        data: {
+          empId,
+          empName,
+          phoneNumber,
+          officialEmail,
+          designation,
+
+          division: {
+            connect: {
+              id: division.id,
+            },
+          },
+
+          departmentUnit: {
+            connect: {
+              id: department.id,
+            },
+          },
+
+          /*
+           * Temporary compatibility field.
+           * This will be removed after all
+           * organization data is migrated.
+           */
+          department: department.name,
+
+          status: EmployeeStatus.ACTIVE,
+
+          isActivated: false,
+        },
+
+        select: {
+          id: true,
+          empId: true,
+          empName: true,
+          phoneNumber: true,
+          officialEmail: true,
+          designation: true,
+          status: true,
+          isActivated: true,
+          createdAt: true,
+          updatedAt: true,
+
+          division: {
+            select: {
+              id: true,
+              code: true,
+              name: true,
+              isActive: true,
+            },
+          },
+
+          departmentUnit: {
+            select: {
+              id: true,
+              code: true,
+              name: true,
+              isActive: true,
+            },
+          },
+        },
+      });
+
+      /*
+       * Direct Super Admin creation is treated
+       * as an approved account request.
+       */
+      const accountRequest = await transaction.accountRequest.create({
+        data: {
+          empId,
+          empName,
+          phoneNumber,
+          officialEmail,
+          designation,
+
+          requestedRole: AccountRole.EMPLOYEE,
+
+          divisionId: division.id,
+
+          departmentId: department.id,
+
+          employeeId: employee.id,
+
+          requestedByAccountId: user.accountId,
+
+          reviewedByAccountId: user.accountId,
+
+          status: AccountRequestStatus.APPROVED,
+
+          reviewedAt: now,
+        },
+
+        select: {
+          id: true,
+          empId: true,
+          empName: true,
+          officialEmail: true,
+          requestedRole: true,
+          divisionId: true,
+          departmentId: true,
+          employeeId: true,
+          requestedByAccountId: true,
+          reviewedByAccountId: true,
+          revisionNumber: true,
+          status: true,
+          submittedAt: true,
+          reviewedAt: true,
+          createdAt: true,
+          updatedAt: true,
+        },
+      });
+
+      await transaction.accountRequestAction.createMany({
+        data: [
+          {
+            accountRequestId: accountRequest.id,
+
+            actorAccountId: user.accountId,
+
+            action: AccountRequestActionType.CREATED,
+
+            ipAddress,
+            userAgent,
+
+            metadata: {
+              source: 'SUPER_ADMIN_DIRECT_CREATION',
+
+              employeeId: employee.id,
+
+              requestedRole: AccountRole.EMPLOYEE,
+            },
+          },
+          {
+            accountRequestId: accountRequest.id,
+
+            actorAccountId: user.accountId,
+
+            action: AccountRequestActionType.APPROVED,
+
+            ipAddress,
+            userAgent,
+
+            metadata: {
+              source: 'SUPER_ADMIN_DIRECT_CREATION',
+
+              employeeId: employee.id,
+
+              requestedRole: AccountRole.EMPLOYEE,
+
+              divisionId: division.id,
+
+              departmentId: department.id,
+            },
+          },
+        ],
+      });
+
+      return {
+        employee,
+        accountRequest,
+      };
     });
 
     return {
       message: 'Employee registered successfully.',
-      employee,
+
+      employee: result.employee,
+
+      accountRequest: result.accountRequest,
     };
   }
+
   async listEmployees(query: ListEmployeesQueryDto) {
     const page = query.page;
     const limit = query.limit;
