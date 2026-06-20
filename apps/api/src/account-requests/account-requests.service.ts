@@ -27,6 +27,14 @@ interface RequestMetadata {
 export class AccountRequestsService {
   constructor(private readonly prisma: PrismaService) {}
 
+  private assertSuperAdmin(user: AuthenticatedUser) {
+    if (user.role !== AccountRole.SUPER_ADMIN) {
+      throw new ForbiddenException(
+        'Only the Super Admin can review account requests.',
+      );
+    }
+  }
+
   private async getRequester(user: AuthenticatedUser) {
     const requester = await this.prisma.account.findUnique({
       where: {
@@ -354,6 +362,639 @@ export class AccountRequestsService {
     return {
       message: 'Account request submitted successfully.',
       accountRequest,
+    };
+  }
+
+  async listAdminRequests(
+    user: AuthenticatedUser,
+    query: ListAccountRequestsQueryDto,
+  ) {
+    this.assertSuperAdmin(user);
+
+    const page = query.page;
+    const limit = query.limit;
+    const skip = (page - 1) * limit;
+
+    /*
+     * The default Super Admin queue displays pending requests.
+     * Another status may be supplied through the query parameter.
+     */
+    const status = query.status ?? AccountRequestStatus.PENDING_APPROVAL;
+
+    const where = {
+      status,
+    };
+
+    const [accountRequests, total] = await this.prisma.$transaction([
+      this.prisma.accountRequest.findMany({
+        where,
+        skip,
+        take: limit,
+
+        orderBy: {
+          createdAt: 'asc',
+        },
+
+        select: {
+          id: true,
+          empId: true,
+          empName: true,
+          officialEmail: true,
+          designation: true,
+          requestedRole: true,
+          revisionNumber: true,
+          status: true,
+          rejectionReason: true,
+          submittedAt: true,
+          reviewedAt: true,
+          createdAt: true,
+          updatedAt: true,
+
+          division: {
+            select: {
+              id: true,
+              code: true,
+              name: true,
+              isActive: true,
+            },
+          },
+
+          department: {
+            select: {
+              id: true,
+              code: true,
+              name: true,
+              isActive: true,
+            },
+          },
+
+          requestedBy: {
+            select: {
+              id: true,
+              username: true,
+              role: true,
+
+              employee: {
+                select: {
+                  empId: true,
+                  empName: true,
+                  officialEmail: true,
+                },
+              },
+            },
+          },
+
+          reviewedBy: {
+            select: {
+              id: true,
+              username: true,
+              role: true,
+            },
+          },
+        },
+      }),
+
+      this.prisma.accountRequest.count({
+        where,
+      }),
+    ]);
+
+    return {
+      data: accountRequests,
+
+      filters: {
+        status,
+      },
+
+      pagination: {
+        page,
+        limit,
+        total,
+        totalPages: total === 0 ? 0 : Math.ceil(total / limit),
+      },
+    };
+  }
+
+  async getAdminRequest(user: AuthenticatedUser, id: string) {
+    this.assertSuperAdmin(user);
+
+    const accountRequest = await this.prisma.accountRequest.findUnique({
+      where: {
+        id,
+      },
+
+      select: {
+        id: true,
+        empId: true,
+        empName: true,
+        phoneNumber: true,
+        officialEmail: true,
+        designation: true,
+        requestedRole: true,
+        divisionId: true,
+        departmentId: true,
+        employeeId: true,
+        previousRequestId: true,
+        revisionNumber: true,
+        status: true,
+        rejectionReason: true,
+        submittedAt: true,
+        reviewedAt: true,
+        createdAt: true,
+        updatedAt: true,
+
+        division: {
+          select: {
+            id: true,
+            code: true,
+            name: true,
+            isActive: true,
+          },
+        },
+
+        department: {
+          select: {
+            id: true,
+            divisionId: true,
+            code: true,
+            name: true,
+            isActive: true,
+          },
+        },
+
+        employee: {
+          select: {
+            id: true,
+            empId: true,
+            empName: true,
+            officialEmail: true,
+            isActivated: true,
+            status: true,
+          },
+        },
+
+        requestedBy: {
+          select: {
+            id: true,
+            username: true,
+            role: true,
+
+            employee: {
+              select: {
+                empId: true,
+                empName: true,
+                officialEmail: true,
+              },
+            },
+          },
+        },
+
+        reviewedBy: {
+          select: {
+            id: true,
+            username: true,
+            role: true,
+          },
+        },
+
+        actions: {
+          orderBy: {
+            createdAt: 'asc',
+          },
+
+          select: {
+            id: true,
+            action: true,
+            reason: true,
+            ipAddress: true,
+            userAgent: true,
+            metadata: true,
+            createdAt: true,
+
+            actor: {
+              select: {
+                id: true,
+                username: true,
+                role: true,
+              },
+            },
+          },
+        },
+      },
+    });
+
+    if (!accountRequest) {
+      throw new NotFoundException('Account request was not found.');
+    }
+
+    return {
+      accountRequest,
+    };
+  }
+
+  async approveRequest(
+    user: AuthenticatedUser,
+    id: string,
+    metadata: RequestMetadata,
+  ) {
+    this.assertSuperAdmin(user);
+
+    const reviewedAt = new Date();
+    const ipAddress = metadata.ipAddress?.slice(0, 45) || null;
+    const userAgent = metadata.userAgent?.slice(0, 500) || null;
+
+    try {
+      const accountRequest = await this.prisma.$transaction(
+        async (transaction) => {
+          const request = await transaction.accountRequest.findUnique({
+            where: {
+              id,
+            },
+
+            select: {
+              id: true,
+              empId: true,
+              empName: true,
+              phoneNumber: true,
+              officialEmail: true,
+              designation: true,
+              requestedRole: true,
+              divisionId: true,
+              departmentId: true,
+              status: true,
+
+              division: {
+                select: {
+                  id: true,
+                  isActive: true,
+                },
+              },
+
+              department: {
+                select: {
+                  id: true,
+                  divisionId: true,
+                  name: true,
+                  isActive: true,
+                },
+              },
+            },
+          });
+
+          if (!request) {
+            throw new NotFoundException('Account request was not found.');
+          }
+
+          if (request.status !== AccountRequestStatus.PENDING_APPROVAL) {
+            throw new ConflictException(
+              'Only a pending account request can be approved.',
+            );
+          }
+
+          if (
+            request.requestedRole !== AccountRole.TEAM_MANAGER &&
+            request.requestedRole !== AccountRole.EMPLOYEE
+          ) {
+            throw new BadRequestException(
+              'The requested role is not supported by this approval workflow.',
+            );
+          }
+
+          if (
+            !request.divisionId ||
+            !request.departmentId ||
+            !request.division ||
+            !request.department
+          ) {
+            throw new BadRequestException(
+              'The request does not have a complete organization assignment.',
+            );
+          }
+
+          if (!request.division.isActive || !request.department.isActive) {
+            throw new ConflictException(
+              'The request organization assignment is inactive.',
+            );
+          }
+
+          if (request.department.divisionId !== request.divisionId) {
+            throw new BadRequestException(
+              'The request department does not belong to its division.',
+            );
+          }
+
+          const duplicateEmployee = await transaction.employee.findFirst({
+            where: {
+              OR: [
+                {
+                  empId: request.empId,
+                },
+                {
+                  officialEmail: request.officialEmail,
+                },
+              ],
+            },
+
+            select: {
+              id: true,
+            },
+          });
+
+          if (duplicateEmployee) {
+            throw new ConflictException(
+              'An employee with this employee ID or official email already exists.',
+            );
+          }
+
+          /*
+           * Claim the pending request before creating the employee.
+           * If another review has already changed the status,
+           * this update affects zero rows and the transaction rolls back.
+           */
+          const reviewClaim = await transaction.accountRequest.updateMany({
+            where: {
+              id: request.id,
+              status: AccountRequestStatus.PENDING_APPROVAL,
+            },
+
+            data: {
+              status: AccountRequestStatus.APPROVED,
+              reviewedByAccountId: user.accountId,
+              reviewedAt,
+              rejectionReason: null,
+            },
+          });
+
+          if (reviewClaim.count !== 1) {
+            throw new ConflictException(
+              'This account request has already been reviewed.',
+            );
+          }
+
+          const employee = await transaction.employee.create({
+            data: {
+              empId: request.empId,
+              empName: request.empName,
+              phoneNumber: request.phoneNumber,
+              officialEmail: request.officialEmail,
+              designation: request.designation,
+
+              /*
+               * Temporary legacy department text.
+               */
+              department: request.department.name,
+
+              status: EmployeeStatus.ACTIVE,
+              isActivated: false,
+
+              division: {
+                connect: {
+                  id: request.divisionId,
+                },
+              },
+
+              departmentUnit: {
+                connect: {
+                  id: request.departmentId,
+                },
+              },
+            },
+
+            select: {
+              id: true,
+              empId: true,
+              empName: true,
+              phoneNumber: true,
+              officialEmail: true,
+              divisionId: true,
+              departmentId: true,
+              department: true,
+              designation: true,
+              status: true,
+              isActivated: true,
+              createdAt: true,
+            },
+          });
+
+          const approvedRequest = await transaction.accountRequest.update({
+            where: {
+              id: request.id,
+            },
+
+            data: {
+              employeeId: employee.id,
+            },
+
+            select: {
+              id: true,
+              empId: true,
+              empName: true,
+              officialEmail: true,
+              requestedRole: true,
+              divisionId: true,
+              departmentId: true,
+              employeeId: true,
+              revisionNumber: true,
+              status: true,
+              rejectionReason: true,
+              submittedAt: true,
+              reviewedAt: true,
+              updatedAt: true,
+
+              division: {
+                select: {
+                  id: true,
+                  code: true,
+                  name: true,
+                },
+              },
+
+              department: {
+                select: {
+                  id: true,
+                  code: true,
+                  name: true,
+                },
+              },
+            },
+          });
+
+          await transaction.accountRequestAction.create({
+            data: {
+              accountRequestId: request.id,
+              actorAccountId: user.accountId,
+              action: AccountRequestActionType.APPROVED,
+              ipAddress,
+              userAgent,
+
+              metadata: {
+                employeeId: employee.id,
+                requestedRole: request.requestedRole,
+                divisionId: request.divisionId,
+                departmentId: request.departmentId,
+              },
+            },
+          });
+
+          return {
+            approvedRequest,
+            employee,
+          };
+        },
+      );
+
+      return {
+        message: 'Account request approved successfully.',
+        accountRequest: accountRequest.approvedRequest,
+        employee: accountRequest.employee,
+      };
+    } catch (error: unknown) {
+      if (
+        typeof error === 'object' &&
+        error !== null &&
+        'code' in error &&
+        error.code === 'P2002'
+      ) {
+        throw new ConflictException(
+          'An employee with this employee ID or official email already exists.',
+        );
+      }
+
+      throw error;
+    }
+  }
+
+  async rejectRequest(
+    user: AuthenticatedUser,
+    id: string,
+    rawReason: string,
+    metadata: RequestMetadata,
+  ) {
+    this.assertSuperAdmin(user);
+
+    const reason = rawReason.trim().replace(/\s+/g, ' ');
+
+    if (reason.length < 3) {
+      throw new BadRequestException(
+        'A rejection reason of at least 3 characters is required.',
+      );
+    }
+
+    const reviewedAt = new Date();
+    const ipAddress = metadata.ipAddress?.slice(0, 45) || null;
+    const userAgent = metadata.userAgent?.slice(0, 500) || null;
+
+    const rejectedRequest = await this.prisma.$transaction(
+      async (transaction) => {
+        const request = await transaction.accountRequest.findUnique({
+          where: {
+            id,
+          },
+
+          select: {
+            id: true,
+            status: true,
+          },
+        });
+
+        if (!request) {
+          throw new NotFoundException('Account request was not found.');
+        }
+
+        if (request.status !== AccountRequestStatus.PENDING_APPROVAL) {
+          throw new ConflictException(
+            'Only a pending account request can be rejected.',
+          );
+        }
+
+        const reviewClaim = await transaction.accountRequest.updateMany({
+          where: {
+            id: request.id,
+            status: AccountRequestStatus.PENDING_APPROVAL,
+          },
+
+          data: {
+            status: AccountRequestStatus.REJECTED,
+            rejectionReason: reason,
+            reviewedByAccountId: user.accountId,
+            reviewedAt,
+          },
+        });
+
+        if (reviewClaim.count !== 1) {
+          throw new ConflictException(
+            'This account request has already been reviewed.',
+          );
+        }
+
+        await transaction.accountRequestAction.create({
+          data: {
+            accountRequestId: request.id,
+            actorAccountId: user.accountId,
+            action: AccountRequestActionType.REJECTED,
+            reason,
+            ipAddress,
+            userAgent,
+
+            metadata: {
+              previousStatus: AccountRequestStatus.PENDING_APPROVAL,
+              newStatus: AccountRequestStatus.REJECTED,
+            },
+          },
+        });
+
+        return transaction.accountRequest.findUniqueOrThrow({
+          where: {
+            id: request.id,
+          },
+
+          select: {
+            id: true,
+            empId: true,
+            empName: true,
+            officialEmail: true,
+            requestedRole: true,
+            divisionId: true,
+            departmentId: true,
+            employeeId: true,
+            revisionNumber: true,
+            status: true,
+            rejectionReason: true,
+            submittedAt: true,
+            reviewedAt: true,
+            updatedAt: true,
+
+            division: {
+              select: {
+                id: true,
+                code: true,
+                name: true,
+              },
+            },
+
+            department: {
+              select: {
+                id: true,
+                code: true,
+                name: true,
+              },
+            },
+
+            reviewedBy: {
+              select: {
+                id: true,
+                username: true,
+                role: true,
+              },
+            },
+          },
+        });
+      },
+    );
+
+    return {
+      message: 'Account request rejected successfully.',
+      accountRequest: rejectedRequest,
     };
   }
 
