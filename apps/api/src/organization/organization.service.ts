@@ -449,6 +449,50 @@ export class OrganizationService {
     };
   }
 
+  async listPublicDepartments() {
+    const departments = await this.prisma.department.findMany({
+      where: {
+        isActive: true,
+
+        division: {
+          is: {
+            isActive: true,
+          },
+        },
+      },
+
+      orderBy: [
+        {
+          division: {
+            name: 'asc',
+          },
+        },
+        {
+          name: 'asc',
+        },
+      ],
+
+      select: {
+        id: true,
+        code: true,
+        name: true,
+        divisionId: true,
+
+        division: {
+          select: {
+            id: true,
+            code: true,
+            name: true,
+          },
+        },
+      },
+    });
+
+    return {
+      data: departments,
+    };
+  }
+
   async getDepartmentById(id: string) {
     const department = await this.prisma.department.findUnique({
       where: {
