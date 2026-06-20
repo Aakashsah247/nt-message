@@ -21,6 +21,7 @@ import { AccountRole } from '../generated/prisma/client';
 import { AccountRequestsService } from './account-requests.service';
 import { CreateAccountRequestDto } from './dto/create-account-request.dto';
 import { ListAccountRequestsQueryDto } from './dto/list-account-requests-query.dto';
+import { ResubmitAccountRequestDto } from './dto/resubmit-account-request.dto';
 
 @Controller('account-requests')
 @UseGuards(AccessTokenGuard, RolesGuard)
@@ -49,6 +50,31 @@ export class AccountRequestsController {
     @Query() query: ListAccountRequestsQueryDto,
   ) {
     return this.accountRequestsService.listMyRequests(user, query);
+  }
+
+  @Post('mine/:id/resubmit')
+  resubmitRequest(
+    @CurrentUser() user: AuthenticatedUser,
+
+    @Param(
+      'id',
+      new ParseUUIDPipe({
+        version: '4',
+      }),
+    )
+    id: string,
+
+    @Body()
+    dto: ResubmitAccountRequestDto,
+
+    @Req()
+    request: Request,
+  ) {
+    return this.accountRequestsService.resubmitRequest(user, id, dto, {
+      ipAddress: request.ip ?? request.socket.remoteAddress ?? null,
+
+      userAgent: request.get('user-agent') ?? null,
+    });
   }
 
   @Get('mine/:id')

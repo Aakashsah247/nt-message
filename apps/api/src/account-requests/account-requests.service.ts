@@ -17,6 +17,7 @@ import {
 
 import { CreateAccountRequestDto } from './dto/create-account-request.dto';
 import { ListAccountRequestsQueryDto } from './dto/list-account-requests-query.dto';
+import { ResubmitAccountRequestDto } from './dto/resubmit-account-request.dto';
 
 interface RequestMetadata {
   ipAddress: string | null;
@@ -362,6 +363,411 @@ export class AccountRequestsService {
     return {
       message: 'Account request submitted successfully.',
       accountRequest,
+    };
+  }
+
+  async resubmitRequest(
+    user: AuthenticatedUser,
+    id: string,
+    dto: ResubmitAccountRequestDto,
+    metadata: RequestMetadata,
+  ) {
+    const requester = await this.getRequester(user);
+
+    const requesterEmployee = requester.employee;
+
+    if (!requesterEmployee) {
+      throw new ForbiddenException(
+        'Your account does not have an active employee identity.',
+      );
+    }
+
+    const rejectedRequest = await this.prisma.accountRequest.findFirst({
+      where: {
+        id,
+        requestedByAccountId: requester.id,
+      },
+
+      select: {
+        id: true,
+        empId: true,
+        empName: true,
+        phoneNumber: true,
+        officialEmail: true,
+        designation: true,
+        requestedRole: true,
+        divisionId: true,
+        departmentId: true,
+        revisionNumber: true,
+        status: true,
+      },
+    });
+
+    if (!rejectedRequest) {
+      throw new NotFoundException('Rejected account request was not found.');
+    }
+
+    if (rejectedRequest.status !== AccountRequestStatus.REJECTED) {
+      throw new ConflictException(
+        'Only a rejected account request can be resubmitted.',
+      );
+    }
+
+    const empId =
+      dto.empId !== undefined
+        ? dto.empId.trim().toUpperCase()
+        : rejectedRequest.empId;
+
+    const empName =
+      dto.empName !== undefined
+        ? dto.empName.trim().replace(/\s+/g, ' ')
+        : rejectedRequest.empName;
+
+    const phoneNumber =
+      dto.phoneNumber !== undefined
+        ? dto.phoneNumber.trim()
+        : rejectedRequest.phoneNumber;
+
+    const officialEmail =
+      dto.officialEmail !== undefined
+        ? dto.officialEmail.trim().toLowerCase()
+        : rejectedRequest.officialEmail;
+
+    const designation =
+      dto.designation !== undefined
+        ? dto.designation.trim() || null
+        : rejectedRequest.designation;
+
+    if (empName.length < 2) {
+      throw new BadRequestException(
+        'Employee name must contain at least 2 characters.',
+      );
+    }
+
+    let requestedRole: AccountRole;
+    let divisionId: string;
+    let departmentId: string;
+
+    if (requester.role === AccountRole.SENIOR_MANAGEMENT) {
+      requestedRole = AccountRole.TEAM_MANAGER;
+
+      if (
+        !requesterEmployee.divisionId ||
+        !requesterEmployee.division ||
+        !requesterEmployee.division.isActive
+      ) {
+        throw new ForbiddenException(
+          'Your Senior Management account does not have an active division assignment.',
+        );
+      }
+
+      const targetDepartmentId =
+        dto.departmentId ?? rejectedRequest.departmentId;
+
+      if (!targetDepartmentId) {
+        throw new BadRequestException(
+          'Department ID is required when resubmitting a Team Manager request.',
+        );
+      }
+
+      const department = await this.prisma.department.findUnique({
+        where: {
+          id: targetDepartmentId,
+        },
+
+        select: {
+          id: true,
+          divisionId: true,
+          isActive: true,
+
+          division: {
+            select: {
+              id: true,
+              isActive: true,
+            },
+          },
+        },
+      });
+
+      if (!department) {
+        throw new NotFoundException('Department was not found.');
+      }
+
+      if (!department.isActive || !department.division.isActive) {
+        throw new ConflictException(
+          'The selected organization assignment is inactive.',
+        );
+      }
+
+      if (department.divisionId !== requesterEmployee.divisionId) {
+        throw new ForbiddenException(
+          'You can resubmit Team Manager requests only inside your assigned division.',
+        );
+      }
+
+      divisionId = requesterEmployee.divisionId;
+
+      departmentId = department.id;
+    } else {
+      requestedRole = AccountRole.EMPLOYEE;
+
+      if (
+        !requesterEmployee.divisionId ||
+        !requesterEmployee.departmentId ||
+        !requesterEmployee.division ||
+        !requesterEmployee.departmentUnit
+      ) {
+        throw new ForbiddenException(
+          'Your Team Manager account does not have a complete organization assignment.',
+        );
+      }
+
+      if (
+        !requesterEmployee.division.isActive ||
+        !requesterEmployee.departmentUnit.isActive
+      ) {
+        throw new ForbiddenException(
+          'Your organization assignment is inactive.',
+        );
+      }
+
+      if (
+        requesterEmployee.departmentUnit.divisionId !==
+        requesterEmployee.divisionId
+      ) {
+        throw new ForbiddenException(
+          'Your organization assignment is invalid.',
+        );
+      }
+
+      if (
+        dto.departmentId &&
+        dto.departmentId !== requesterEmployee.departmentId
+      ) {
+        throw new ForbiddenException(
+          'You can resubmit employee requests only inside your assigned department.',
+        );
+      }
+
+      divisionId = requesterEmployee.divisionId;
+
+      departmentId = requesterEmployee.departmentId;
+    }
+
+    if (rejectedRequest.requestedRole !== requestedRole) {
+      throw new ForbiddenException(
+        'Your current role cannot resubmit this account request.',
+      );
+    }
+
+    const ipAddress = metadata.ipAddress?.slice(0, 45) || null;
+
+    const userAgent = metadata.userAgent?.slice(0, 500) || null;
+
+    const resubmittedRequest = await this.prisma.$transaction(
+      async (transaction) => {
+        /*
+         * Re-read the original inside the transaction
+         * so its state is verified again before creating
+         * the next revision.
+         */
+        const previousRequest = await transaction.accountRequest.findFirst({
+          where: {
+            id: rejectedRequest.id,
+            requestedByAccountId: requester.id,
+          },
+
+          select: {
+            id: true,
+            requestedRole: true,
+            revisionNumber: true,
+            status: true,
+          },
+        });
+
+        if (!previousRequest) {
+          throw new NotFoundException(
+            'Rejected account request was not found.',
+          );
+        }
+
+        if (previousRequest.status !== AccountRequestStatus.REJECTED) {
+          throw new ConflictException(
+            'Only a rejected account request can be resubmitted.',
+          );
+        }
+
+        if (previousRequest.requestedRole !== requestedRole) {
+          throw new ForbiddenException(
+            'Your current role cannot resubmit this account request.',
+          );
+        }
+
+        /*
+         * A rejected request can have only one direct
+         * revision. A later rejection must be resubmitted
+         * from the latest rejected revision.
+         */
+        const existingRevision = await transaction.accountRequest.findFirst({
+          where: {
+            previousRequestId: previousRequest.id,
+          },
+
+          select: {
+            id: true,
+            status: true,
+          },
+        });
+
+        if (existingRevision) {
+          throw new ConflictException(
+            'This rejected request has already been resubmitted.',
+          );
+        }
+
+        const existingEmployee = await transaction.employee.findFirst({
+          where: {
+            OR: [
+              {
+                empId,
+              },
+              {
+                officialEmail,
+              },
+            ],
+          },
+
+          select: {
+            id: true,
+          },
+        });
+
+        if (existingEmployee) {
+          throw new ConflictException(
+            'An employee with this employee ID or official email already exists.',
+          );
+        }
+
+        const existingActiveRequest =
+          await transaction.accountRequest.findFirst({
+            where: {
+              status: {
+                not: AccountRequestStatus.REJECTED,
+              },
+
+              OR: [
+                {
+                  empId,
+                },
+                {
+                  officialEmail,
+                },
+              ],
+            },
+
+            select: {
+              id: true,
+              status: true,
+            },
+          });
+
+        if (existingActiveRequest) {
+          throw new ConflictException(
+            'An active account request already exists for this employee ID or official email.',
+          );
+        }
+
+        const revisionNumber = previousRequest.revisionNumber + 1;
+
+        const createdRequest = await transaction.accountRequest.create({
+          data: {
+            empId,
+            empName,
+            phoneNumber,
+            officialEmail,
+            designation,
+            requestedRole,
+            divisionId,
+            departmentId,
+
+            requestedByAccountId: requester.id,
+
+            previousRequestId: previousRequest.id,
+
+            revisionNumber,
+
+            status: AccountRequestStatus.PENDING_APPROVAL,
+          },
+
+          select: {
+            id: true,
+            empId: true,
+            empName: true,
+            phoneNumber: true,
+            officialEmail: true,
+            designation: true,
+            requestedRole: true,
+            divisionId: true,
+            departmentId: true,
+            requestedByAccountId: true,
+            previousRequestId: true,
+            revisionNumber: true,
+            status: true,
+            submittedAt: true,
+            createdAt: true,
+            updatedAt: true,
+
+            division: {
+              select: {
+                id: true,
+                code: true,
+                name: true,
+              },
+            },
+
+            department: {
+              select: {
+                id: true,
+                code: true,
+                name: true,
+              },
+            },
+          },
+        });
+
+        await transaction.accountRequestAction.create({
+          data: {
+            accountRequestId: createdRequest.id,
+
+            actorAccountId: requester.id,
+
+            action: AccountRequestActionType.RESUBMITTED,
+
+            ipAddress,
+            userAgent,
+
+            metadata: {
+              previousRequestId: previousRequest.id,
+
+              previousRevisionNumber: previousRequest.revisionNumber,
+
+              revisionNumber,
+
+              requestedRole,
+              divisionId,
+              departmentId,
+            },
+          },
+        });
+
+        return createdRequest;
+      },
+    );
+
+    return {
+      message: 'Account request resubmitted successfully.',
+
+      accountRequest: resubmittedRequest,
     };
   }
 
