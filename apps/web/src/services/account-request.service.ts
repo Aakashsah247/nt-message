@@ -5,13 +5,96 @@ import type {
   AdminAccountRequestDetailResponse,
   AdminAccountRequestListResponse,
   ApproveAccountRequestResponse,
+  CreateMyAccountRequestInput,
+  CreateMyAccountRequestResponse,
+  ManagerRequestContextResponse,
+  MyAccountRequestDetailResponse,
+  MyAccountRequestListResponse,
   RejectAccountRequestResponse,
+  ResubmitMyAccountRequestInput,
+  ResubmitMyAccountRequestResponse,
 } from "../types/account-request";
 
 function createAuthorizationHeaders(accessToken: string): HeadersInit {
   return {
     Authorization: `Bearer ${accessToken}`,
   };
+}
+
+export function getMyRequestContext(
+  accessToken: string,
+): Promise<ManagerRequestContextResponse> {
+  return apiRequest<ManagerRequestContextResponse>(
+    "/account-requests/context",
+    {
+      headers: createAuthorizationHeaders(accessToken),
+    },
+  );
+}
+
+export function createMyAccountRequest(
+  accessToken: string,
+  input: CreateMyAccountRequestInput,
+): Promise<CreateMyAccountRequestResponse> {
+  return apiRequest<CreateMyAccountRequestResponse>("/account-requests", {
+    method: "POST",
+
+    headers: createAuthorizationHeaders(accessToken),
+
+    body: JSON.stringify(input),
+  });
+}
+
+export function listMyAccountRequests(
+  accessToken: string,
+  status?: AccountRequestStatus,
+  page = 1,
+  limit = 20,
+): Promise<MyAccountRequestListResponse> {
+  const query = new URLSearchParams({
+    page: String(page),
+    limit: String(limit),
+  });
+
+  if (status) {
+    query.set("status", status);
+  }
+
+  return apiRequest<MyAccountRequestListResponse>(
+    `/account-requests/mine?${query.toString()}`,
+    {
+      headers: createAuthorizationHeaders(accessToken),
+    },
+  );
+}
+
+export function getMyAccountRequest(
+  accessToken: string,
+  requestId: string,
+): Promise<MyAccountRequestDetailResponse> {
+  return apiRequest<MyAccountRequestDetailResponse>(
+    `/account-requests/mine/${requestId}`,
+    {
+      headers: createAuthorizationHeaders(accessToken),
+    },
+  );
+}
+
+export function resubmitMyAccountRequest(
+  accessToken: string,
+  requestId: string,
+  input: ResubmitMyAccountRequestInput,
+): Promise<ResubmitMyAccountRequestResponse> {
+  return apiRequest<ResubmitMyAccountRequestResponse>(
+    `/account-requests/mine/${requestId}/resubmit`,
+    {
+      method: "POST",
+
+      headers: createAuthorizationHeaders(accessToken),
+
+      body: JSON.stringify(input),
+    },
+  );
 }
 
 export function listAdminAccountRequests(

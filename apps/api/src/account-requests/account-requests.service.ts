@@ -102,6 +102,96 @@ export class AccountRequestsService {
     return requester;
   }
 
+  async getRequestContext(user: AuthenticatedUser) {
+    const requester = await this.getRequester(user);
+
+    const employee = requester.employee;
+
+    if (!employee) {
+      throw new ForbiddenException(
+        'Your account does not have an active employee identity.',
+      );
+    }
+
+    if (requester.role === AccountRole.SENIOR_MANAGEMENT) {
+      if (
+        !employee.divisionId ||
+        !employee.division ||
+        !employee.division.isActive
+      ) {
+        throw new ForbiddenException(
+          'Your Senior Management account does not have an active division assignment.',
+        );
+      }
+
+      const departments = await this.prisma.department.findMany({
+        where: {
+          divisionId: employee.divisionId,
+          isActive: true,
+        },
+
+        orderBy: {
+          name: 'asc',
+        },
+
+        select: {
+          id: true,
+          divisionId: true,
+          code: true,
+          name: true,
+          isActive: true,
+        },
+      });
+
+      return {
+        role: requester.role,
+
+        requestedRole: AccountRole.TEAM_MANAGER,
+
+        scope: {
+          division: employee.division,
+
+          department: null,
+        },
+
+        departments,
+      };
+    }
+
+    if (
+      !employee.divisionId ||
+      !employee.departmentId ||
+      !employee.division ||
+      !employee.departmentUnit
+    ) {
+      throw new ForbiddenException(
+        'Your Team Manager account does not have a complete organization assignment.',
+      );
+    }
+
+    if (!employee.division.isActive || !employee.departmentUnit.isActive) {
+      throw new ForbiddenException('Your organization assignment is inactive.');
+    }
+
+    if (employee.departmentUnit.divisionId !== employee.divisionId) {
+      throw new ForbiddenException('Your organization assignment is invalid.');
+    }
+
+    return {
+      role: requester.role,
+
+      requestedRole: AccountRole.EMPLOYEE,
+
+      scope: {
+        division: employee.division,
+
+        department: employee.departmentUnit,
+      },
+
+      departments: [employee.departmentUnit],
+    };
+  }
+
   async createRequest(
     user: AuthenticatedUser,
     dto: CreateAccountRequestDto,
@@ -243,6 +333,9 @@ export class AccountRequestsService {
           {
             officialEmail,
           },
+          {
+            phoneNumber,
+          },
         ],
       },
 
@@ -253,7 +346,7 @@ export class AccountRequestsService {
 
     if (existingEmployee) {
       throw new ConflictException(
-        'An employee with this employee ID or official email already exists.',
+        'An employee with this employee ID, phone number, or official email already exists.',
       );
     }
 
@@ -270,6 +363,9 @@ export class AccountRequestsService {
           {
             officialEmail,
           },
+          {
+            phoneNumber,
+          },
         ],
       },
 
@@ -281,7 +377,7 @@ export class AccountRequestsService {
 
     if (existingRequest) {
       throw new ConflictException(
-        'An active account request already exists for this employee ID or official email.',
+        'An active account request already exists for this employee ID, phone number, or official email.',
       );
     }
 
@@ -634,6 +730,9 @@ export class AccountRequestsService {
               {
                 officialEmail,
               },
+              {
+                phoneNumber,
+              },
             ],
           },
 
@@ -644,7 +743,7 @@ export class AccountRequestsService {
 
         if (existingEmployee) {
           throw new ConflictException(
-            'An employee with this employee ID or official email already exists.',
+            'An employee with this employee ID, phone number, or official email already exists.',
           );
         }
 
@@ -662,6 +761,9 @@ export class AccountRequestsService {
                 {
                   officialEmail,
                 },
+                {
+                  phoneNumber,
+                },
               ],
             },
 
@@ -673,7 +775,7 @@ export class AccountRequestsService {
 
         if (existingActiveRequest) {
           throw new ConflictException(
-            'An active account request already exists for this employee ID or official email.',
+            'An active account request already exists for this employee ID, phone number, or official email.',
           );
         }
 
@@ -1108,7 +1210,7 @@ export class AccountRequestsService {
 
           if (duplicateEmployee) {
             throw new ConflictException(
-              'An employee with this employee ID or official email already exists.',
+              'An employee with this employee ID, phone number, or official email already exists.',
             );
           }
 
@@ -1262,7 +1364,7 @@ export class AccountRequestsService {
         error.code === 'P2002'
       ) {
         throw new ConflictException(
-          'An employee with this employee ID or official email already exists.',
+          'An employee with this employee ID, phone number, or official email already exists.',
         );
       }
 

@@ -84,7 +84,7 @@ model Employee {
   id            String @id @default(uuid()) @db.Uuid
   empId         String @unique @map("emp_id") @db.VarChar(50)
   empName       String @map("emp_name") @db.VarChar(150)
-  phoneNumber   String @map("phone_number") @db.VarChar(20)
+  phoneNumber   String @unique(map: "employees_phone_number_key") @map("phone_number") @db.VarChar(20)
   officialEmail String @unique @map("official_email") @db.VarChar(255)
 
   divisionId   String? @map("division_id") @db.Uuid
@@ -107,7 +107,6 @@ model Employee {
   otpVerifications OtpVerification[]
   accountRequests  AccountRequest[]
 
-  @@unique([empId, phoneNumber], map: "employees_emp_id_phone_number_key")
   @@index([empName], map: "employees_emp_name_idx")
   @@index([department], map: "employees_department_idx")
   @@index([divisionId], map: "employees_division_id_idx")
@@ -225,6 +224,7 @@ model AccountRequest {
   @@index([requestedRole], map: "account_requests_requested_role_idx")
   @@index([empId], map: "account_requests_emp_id_idx")
   @@index([officialEmail], map: "account_requests_official_email_idx")
+  @@index([phoneNumber], map: "account_requests_phone_number_idx")
   @@index([divisionId, departmentId], map: "account_requests_org_scope_idx")
   @@index([employeeId], map: "account_requests_employee_idx")
   @@index([previousRequestId], map: "account_requests_previous_request_idx")

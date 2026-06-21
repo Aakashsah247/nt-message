@@ -31,6 +31,14 @@ export class AccountRequestsController {
     private readonly accountRequestsService: AccountRequestsService,
   ) {}
 
+  @Get('context')
+  getRequestContext(
+    @CurrentUser()
+    user: AuthenticatedUser,
+  ) {
+    return this.accountRequestsService.getRequestContext(user);
+  }
+
   @Post()
   createRequest(
     @CurrentUser() user: AuthenticatedUser,

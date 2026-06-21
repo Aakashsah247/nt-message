@@ -208,3 +208,151 @@ export interface RejectAccountRequestResponse {
     reviewedBy: AccountRequestActor | null;
   };
 }
+
+/* MANAGER ACCOUNT REQUEST TYPES START */
+
+export type ManagerAccountRole = "SENIOR_MANAGEMENT" | "TEAM_MANAGER";
+
+export type ManagerRequestedRole = "TEAM_MANAGER" | "EMPLOYEE";
+
+export interface ManagerRequestContextResponse {
+  role: ManagerAccountRole;
+
+  requestedRole: ManagerRequestedRole;
+
+  scope: {
+    division: AccountRequestDivision;
+
+    department: AccountRequestDepartment | null;
+  };
+
+  departments: AccountRequestDepartment[];
+}
+
+export interface CreateMyAccountRequestInput {
+  empId: string;
+  empName: string;
+  phoneNumber: string;
+  officialEmail: string;
+  designation?: string;
+  departmentId?: string;
+}
+
+export interface ResubmitMyAccountRequestInput {
+  empId?: string;
+  empName?: string;
+  phoneNumber?: string;
+  officialEmail?: string;
+  designation?: string;
+  departmentId?: string;
+}
+
+export interface SubmittedAccountRequest {
+  id: string;
+  empId: string;
+  empName: string;
+  phoneNumber: string;
+  officialEmail: string;
+  designation: string | null;
+  requestedRole: AccountRole;
+  divisionId: string | null;
+  departmentId: string | null;
+  requestedByAccountId: string;
+  previousRequestId?: string | null;
+  revisionNumber: number;
+  status: AccountRequestStatus;
+  submittedAt: string;
+  createdAt: string;
+  updatedAt: string;
+
+  division: AccountRequestDivision | null;
+
+  department: AccountRequestDepartment | null;
+}
+
+export interface CreateMyAccountRequestResponse {
+  message: string;
+
+  accountRequest: SubmittedAccountRequest;
+}
+
+export interface ResubmitMyAccountRequestResponse {
+  message: string;
+
+  accountRequest: SubmittedAccountRequest;
+}
+
+export interface MyAccountRequestListItem {
+  id: string;
+  empId: string;
+  empName: string;
+  officialEmail: string;
+  designation: string | null;
+  requestedRole: AccountRole;
+  revisionNumber: number;
+  status: AccountRequestStatus;
+  rejectionReason: string | null;
+  submittedAt: string;
+  reviewedAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+
+  division: AccountRequestDivision | null;
+
+  department: AccountRequestDepartment | null;
+
+  reviewedBy: AccountRequestActor | null;
+}
+
+export interface MyAccountRequestAction {
+  id: string;
+  action: AccountRequestActionType;
+  reason: string | null;
+  createdAt: string;
+}
+
+export interface MyAccountRequestDetail {
+  id: string;
+  empId: string;
+  empName: string;
+  phoneNumber: string;
+  officialEmail: string;
+  designation: string | null;
+  requestedRole: AccountRole;
+  divisionId: string | null;
+  departmentId: string | null;
+  employeeId: string | null;
+  previousRequestId: string | null;
+  revisionNumber: number;
+  status: AccountRequestStatus;
+  rejectionReason: string | null;
+  submittedAt: string;
+  reviewedAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+
+  division: AccountRequestDivision | null;
+
+  department: AccountRequestDepartment | null;
+
+  reviewedBy: AccountRequestActor | null;
+
+  actions: MyAccountRequestAction[];
+}
+
+export interface MyAccountRequestListResponse {
+  data: MyAccountRequestListItem[];
+
+  pagination: {
+    page: number;
+    limit: number;
+    total: number;
+    totalPages: number;
+  };
+}
+
+export interface MyAccountRequestDetailResponse {
+  accountRequest: MyAccountRequestDetail;
+}
+
+/* MANAGER ACCOUNT REQUEST TYPES END */
