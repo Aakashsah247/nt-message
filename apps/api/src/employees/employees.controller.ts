@@ -20,6 +20,7 @@ import type { AuthenticatedUser } from '../auth/types/auth.types';
 import { AccountRole } from '../generated/prisma/client';
 
 import { CreateEmployeeDto } from './dto/create-employee.dto';
+import { EndEmployeeEmploymentDto } from './dto/end-employee-employment.dto';
 import { ListEmployeesQueryDto } from './dto/list-employees-query.dto';
 import { UpdateEmployeeStatusDto } from './dto/update-employee-status.dto';
 import { UpdateEmployeeDto } from './dto/update-employee.dto';
@@ -68,6 +69,32 @@ export class EmployeesController {
     id: string,
   ) {
     return this.employeesService.getEmployeeById(id);
+  }
+
+  @Patch(':id/employment-end')
+  endEmployeeEmployment(
+    @CurrentUser()
+    user: AuthenticatedUser,
+
+    @Param(
+      'id',
+      new ParseUUIDPipe({
+        version: '4',
+      }),
+    )
+    id: string,
+
+    @Body()
+    dto: EndEmployeeEmploymentDto,
+
+    @Req()
+    request: Request,
+  ) {
+    return this.employeesService.endEmployeeEmployment(user, id, dto, {
+      ipAddress: request.ip ?? request.socket.remoteAddress ?? null,
+
+      userAgent: request.get('user-agent') ?? null,
+    });
   }
 
   @Patch(':id/status')

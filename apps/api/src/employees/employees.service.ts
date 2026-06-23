@@ -12,16 +12,24 @@ import {
   AccountRequestActionType,
   AccountRequestStatus,
   AccountRole,
+  EmployeeLifecycleActionType,
   EmployeeStatus,
+  EmploymentStatus,
 } from '../generated/prisma/client';
 
 import type { Prisma } from '../generated/prisma/client';
 
 import { CreateEmployeeDto } from './dto/create-employee.dto';
+import { EndEmployeeEmploymentDto } from './dto/end-employee-employment.dto';
 import { ListEmployeesQueryDto } from './dto/list-employees-query.dto';
 import { UpdateEmployeeDto } from './dto/update-employee.dto';
 
 interface EmployeeCreationMetadata {
+  ipAddress: string | null;
+  userAgent: string | null;
+}
+
+interface EmployeeLifecycleMetadata {
   ipAddress: string | null;
   userAgent: string | null;
 }
@@ -833,6 +841,228 @@ export class EmployeesService {
     return {
       message: 'Employee updated successfully.',
       employee: updatedEmployee,
+    };
+  }
+
+  async endEmployeeEmployment(
+    user: AuthenticatedUser,
+    id: string,
+    dto: EndEmployeeEmploymentDto,
+    metadata: EmployeeLifecycleMetadata,
+  ) {
+    if (user.role !== AccountRole.SUPER_ADMIN) {
+      throw new ForbiddenException(
+        'Only the Super Admin can end an employee employment record.',
+      );
+    }
+
+    const reason = dto.reason.trim().replace(/\s+/g, ' ');
+
+    if (reason.length < 3) {
+      throw new BadRequestException(
+        'Employment end reason must contain at least 3 characters.',
+      );
+    }
+
+    const now = new Date();
+
+    const effectiveAt = dto.effectiveAt ? new Date(dto.effectiveAt) : now;
+
+    if (Number.isNaN(effectiveAt.getTime())) {
+      throw new BadRequestException('Employment effective date is invalid.');
+    }
+
+    if (effectiveAt.getTime() > now.getTime()) {
+      throw new BadRequestException(
+        'Employment end date cannot be in the future.',
+      );
+    }
+
+    let lifecycleAction: EmployeeLifecycleActionType;
+
+    switch (dto.employmentStatus) {
+      case EmploymentStatus.RESIGNED:
+        lifecycleAction = EmployeeLifecycleActionType.RESIGNED;
+        break;
+
+      case EmploymentStatus.RETIRED:
+        lifecycleAction = EmployeeLifecycleActionType.RETIRED;
+        break;
+
+      case EmploymentStatus.TERMINATED:
+        lifecycleAction = EmployeeLifecycleActionType.TERMINATED;
+        break;
+
+      default:
+        throw new BadRequestException(
+          'Employment status must be resigned, retired or terminated.',
+        );
+    }
+
+    const ipAddress = metadata.ipAddress?.slice(0, 45) || null;
+
+    const userAgent = metadata.userAgent?.slice(0, 500) || null;
+
+    const result = await this.prisma.$transaction(async (transaction) => {
+      const employee = await transaction.employee.findUnique({
+        where: {
+          id,
+        },
+
+        select: {
+          id: true,
+          empId: true,
+          empName: true,
+          officialEmail: true,
+          status: true,
+          employmentStatus: true,
+          archivedAt: true,
+
+          account: {
+            select: {
+              id: true,
+              role: true,
+              isEnabled: true,
+            },
+          },
+        },
+      });
+
+      if (!employee) {
+        throw new NotFoundException('Employee was not found.');
+      }
+
+      if (employee.account?.role === AccountRole.SUPER_ADMIN) {
+        throw new ForbiddenException(
+          'Super Admin employment cannot be ended through this process.',
+        );
+      }
+
+      if (employee.employmentStatus !== EmploymentStatus.ACTIVE) {
+        throw new ConflictException(
+          'This employee employment record has already ended.',
+        );
+      }
+
+      if (employee.archivedAt) {
+        throw new ConflictException(
+          'An archived employee cannot be processed again.',
+        );
+      }
+
+      const updatedEmployee = await transaction.employee.update({
+        where: {
+          id: employee.id,
+        },
+
+        data: {
+          status: EmployeeStatus.INACTIVE,
+
+          employmentStatus: dto.employmentStatus,
+
+          employmentEndedAt: effectiveAt,
+
+          employmentEndReason: reason,
+        },
+
+        select: {
+          id: true,
+          empId: true,
+          empName: true,
+          officialEmail: true,
+          status: true,
+          employmentStatus: true,
+          employmentEndedAt: true,
+          employmentEndReason: true,
+          archivedAt: true,
+          isActivated: true,
+          updatedAt: true,
+
+          account: {
+            select: {
+              id: true,
+              role: true,
+              isEnabled: true,
+            },
+          },
+        },
+      });
+
+      let revokedSessions = 0;
+
+      if (employee.account) {
+        await transaction.account.update({
+          where: {
+            id: employee.account.id,
+          },
+
+          data: {
+            isEnabled: false,
+          },
+        });
+
+        const sessionResult = await transaction.authSession.updateMany({
+          where: {
+            accountId: employee.account.id,
+
+            revokedAt: null,
+          },
+
+          data: {
+            revokedAt: now,
+          },
+        });
+
+        revokedSessions = sessionResult.count;
+      }
+
+      await transaction.employeeLifecycleAction.create({
+        data: {
+          employeeId: employee.id,
+
+          actorAccountId: user.accountId,
+
+          action: lifecycleAction,
+
+          previousEmployeeStatus: employee.status,
+
+          newEmployeeStatus: EmployeeStatus.INACTIVE,
+
+          previousEmploymentStatus: employee.employmentStatus,
+
+          newEmploymentStatus: dto.employmentStatus,
+
+          reason,
+
+          effectiveAt,
+
+          ipAddress,
+
+          userAgent,
+
+          metadata: {
+            accountId: employee.account?.id ?? null,
+
+            accountRole: employee.account?.role ?? null,
+
+            revokedSessions,
+          },
+        },
+      });
+
+      return {
+        employee: updatedEmployee,
+
+        revokedSessions,
+      };
+    });
+
+    return {
+      message: `Employee employment marked as ${dto.employmentStatus.toLowerCase()} successfully.`,
+
+      employee: result.employee,
+
+      revokedSessions: result.revokedSessions,
     };
   }
 
