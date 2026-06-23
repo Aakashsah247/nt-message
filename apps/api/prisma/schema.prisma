@@ -20,6 +20,27 @@ enum EmployeeStatus {
   INACTIVE
 }
 
+enum EmploymentStatus {
+  ACTIVE
+  RESIGNED
+  RETIRED
+  TERMINATED
+}
+
+enum EmployeeLifecycleActionType {
+  SUSPENDED
+  REACTIVATED
+  RESIGNED
+  RETIRED
+  TERMINATED
+  ARCHIVED
+  UNARCHIVED
+  TRANSFERRED
+  PROMOTED
+  DEMOTED
+  REHIRED
+}
+
 enum OtpPurpose {
   ACCOUNT_ACTIVATION
   PASSWORD_RESET
@@ -93,9 +114,15 @@ model Employee {
   department  String? @db.VarChar(120)
   designation String? @db.VarChar(120)
 
-  status          EmployeeStatus @default(ACTIVE)
-  isActivated     Boolean        @default(false) @map("is_activated")
-  profilePhotoKey String?        @map("profile_photo_key") @db.VarChar(500)
+  status           EmployeeStatus   @default(ACTIVE)
+  employmentStatus EmploymentStatus @default(ACTIVE) @map("employment_status")
+
+  employmentEndedAt   DateTime? @map("employment_ended_at") @db.Timestamptz(3)
+  employmentEndReason String?   @map("employment_end_reason") @db.VarChar(500)
+  archivedAt          DateTime? @map("archived_at") @db.Timestamptz(3)
+
+  isActivated     Boolean @default(false) @map("is_activated")
+  profilePhotoKey String? @map("profile_photo_key") @db.VarChar(500)
 
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
@@ -106,12 +133,15 @@ model Employee {
   account          Account?
   otpVerifications OtpVerification[]
   accountRequests  AccountRequest[]
+  lifecycleActions EmployeeLifecycleAction[]
 
   @@index([empName], map: "employees_emp_name_idx")
   @@index([department], map: "employees_department_idx")
   @@index([divisionId], map: "employees_division_id_idx")
   @@index([departmentId], map: "employees_department_id_idx")
   @@index([status], map: "employees_status_idx")
+  @@index([employmentStatus], map: "employees_employment_status_idx")
+  @@index([archivedAt], map: "employees_archived_at_idx")
   @@map("employees")
 }
 
@@ -129,11 +159,12 @@ model Account {
   createdAt           DateTime    @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt           DateTime    @updatedAt @map("updated_at") @db.Timestamptz(3)
 
-  employee                 Employee?              @relation(fields: [employeeId], references: [id], onDelete: Restrict)
+  employee                 Employee?                 @relation(fields: [employeeId], references: [id], onDelete: Restrict)
   sessions                 AuthSession[]
-  submittedAccountRequests AccountRequest[]       @relation("AccountRequestsRequestedBy")
-  reviewedAccountRequests  AccountRequest[]       @relation("AccountRequestsReviewedBy")
+  submittedAccountRequests AccountRequest[]          @relation("AccountRequestsRequestedBy")
+  reviewedAccountRequests  AccountRequest[]          @relation("AccountRequestsReviewedBy")
   accountRequestActions    AccountRequestAction[]
+  employeeLifecycleActions EmployeeLifecycleAction[] @relation("EmployeeLifecycleActionsByActor")
 
   @@index([role], map: "accounts_role_idx")
   @@index([isEnabled], map: "accounts_is_enabled_idx")
@@ -253,4 +284,38 @@ model AccountRequestAction {
   @@index([actorAccountId, createdAt], map: "account_request_actions_actor_created_idx")
   @@index([action], map: "account_request_actions_action_idx")
   @@map("account_request_actions")
+}
+
+model EmployeeLifecycleAction {
+  id String @id @default(uuid()) @db.Uuid
+
+  employeeId     String @map("employee_id") @db.Uuid
+  actorAccountId String @map("actor_account_id") @db.Uuid
+
+  action EmployeeLifecycleActionType
+
+  previousEmployeeStatus EmployeeStatus? @map("previous_employee_status")
+  newEmployeeStatus      EmployeeStatus? @map("new_employee_status")
+
+  previousEmploymentStatus EmploymentStatus? @map("previous_employment_status")
+  newEmploymentStatus      EmploymentStatus? @map("new_employment_status")
+
+  reason String? @db.VarChar(500)
+
+  effectiveAt DateTime? @map("effective_at") @db.Timestamptz(3)
+
+  ipAddress String? @map("ip_address") @db.VarChar(45)
+  userAgent String? @map("user_agent") @db.VarChar(500)
+
+  metadata Json?
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  employee Employee @relation(fields: [employeeId], references: [id], onDelete: Restrict)
+  actor    Account  @relation("EmployeeLifecycleActionsByActor", fields: [actorAccountId], references: [id], onDelete: Restrict)
+
+  @@index([employeeId, createdAt], map: "employee_lifecycle_actions_employee_created_idx")
+  @@index([actorAccountId, createdAt], map: "employee_lifecycle_actions_actor_created_idx")
+  @@index([action], map: "employee_lifecycle_actions_action_idx")
+  @@map("employee_lifecycle_actions")
 }
