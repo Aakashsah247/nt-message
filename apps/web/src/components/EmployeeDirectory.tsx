@@ -20,6 +20,7 @@ import type {
   DirectoryActivationStatus,
   DirectoryEmployee,
   DirectoryEmployeeStatus,
+  DirectoryEmploymentStatus,
   DirectoryListResponse,
 } from "../types/directory";
 
@@ -39,6 +40,10 @@ type RoleFilter =
 
 type EmployeeStatusFilter =
   | DirectoryEmployeeStatus
+  | "";
+
+type EmploymentStatusFilter =
+  | DirectoryEmploymentStatus
   | "";
 
 type AccountStatusFilter =
@@ -167,6 +172,12 @@ export function EmployeeDirectory({
     useState<EmployeeStatusFilter>("");
 
   const [
+    employmentStatus,
+    setEmploymentStatus,
+  ] =
+    useState<EmploymentStatusFilter>("");
+
+  const [
     accountStatus,
     setAccountStatus,
   ] =
@@ -211,6 +222,10 @@ export function EmployeeDirectory({
 
         status:
           employeeStatus ||
+          undefined,
+
+        employmentStatus:
+          employmentStatus ||
           undefined,
 
         accountStatus:
@@ -270,6 +285,7 @@ export function EmployeeDirectory({
     accountStatus,
     activationStatus,
     employeeStatus,
+    employmentStatus,
     page,
     refreshKey,
     reloadKey,
@@ -298,6 +314,7 @@ export function EmployeeDirectory({
     setSearch("");
     setRole("");
     setEmployeeStatus("");
+    setEmploymentStatus("");
     setAccountStatus("");
     setActivationStatus("");
     setPage(1);
@@ -319,6 +336,16 @@ export function EmployeeDirectory({
       EmployeeStatusFilter,
   ): void {
     setEmployeeStatus(value);
+    setPage(1);
+    setLoading(true);
+    setError("");
+  }
+
+  function changeEmploymentStatus(
+    value:
+      EmploymentStatusFilter,
+  ): void {
+    setEmploymentStatus(value);
     setPage(1);
     setLoading(true);
     setError("");
@@ -401,6 +428,7 @@ export function EmployeeDirectory({
       search ||
       role ||
       employeeStatus ||
+      employmentStatus ||
       accountStatus ||
       activationStatus,
     );
@@ -599,6 +627,51 @@ export function EmployeeDirectory({
 
         <label>
           <span>
+            Employment
+          </span>
+
+          <select
+            value={
+              employmentStatus
+            }
+            onChange={(
+              event,
+            ) =>
+              changeEmploymentStatus(
+                event.target
+                  .value as
+                  EmploymentStatusFilter,
+              )
+            }
+          >
+            <option value="">
+              All employment states
+            </option>
+
+            <option value="ACTIVE">
+              Active
+            </option>
+
+            <option value="RESIGNED">
+              Resigned
+            </option>
+
+            <option value="RETIRED">
+              Retired
+            </option>
+
+            <option value="TERMINATED">
+              Terminated
+            </option>
+
+            <option value="TRANSFERRED">
+              Transferred
+            </option>
+          </select>
+        </label>
+
+        <label>
+          <span>
             Account status
           </span>
 
@@ -758,6 +831,10 @@ export function EmployeeDirectory({
                 </th>
 
                 <th>
+                  Employment
+                </th>
+
+                <th>
                   Account
                 </th>
 
@@ -845,6 +922,18 @@ export function EmployeeDirectory({
                           ?.name ??
                           "No division"}
                       </small>
+                    </td>
+
+                    <td>
+                      <span
+                        className={`directory-badge ${getStatusClass(
+                          employee.employmentStatus,
+                        )}`}
+                      >
+                        {formatValue(
+                          employee.employmentStatus,
+                        )}
+                      </span>
                     </td>
 
                     <td>

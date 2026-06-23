@@ -10,7 +10,11 @@ import {
   Min,
 } from 'class-validator';
 
-import { AccountRole, EmployeeStatus } from '../../generated/prisma/client';
+import {
+  AccountRole,
+  EmployeeStatus,
+  EmploymentStatus,
+} from '../../generated/prisma/client';
 
 export enum DirectoryAccountStatus {
   ENABLED = 'ENABLED',
@@ -32,6 +36,10 @@ export class ListDirectoryQueryDto {
   @IsOptional()
   @IsEnum(EmployeeStatus)
   status?: EmployeeStatus;
+
+  @IsOptional()
+  @IsEnum(EmploymentStatus)
+  employmentStatus?: EmploymentStatus;
 
   @IsOptional()
   @IsEnum(AccountRole)

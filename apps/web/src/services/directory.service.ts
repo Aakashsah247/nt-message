@@ -5,6 +5,8 @@ import type {
   DirectoryEmployeeStatus,
   DirectoryListQuery,
   DirectoryListResponse,
+  EndDirectoryEmployeeEmploymentInput,
+  EndDirectoryEmployeeEmploymentResponse,
   UpdateDirectoryEmployeeStatusResponse,
 } from "../types/directory";
 
@@ -38,6 +40,13 @@ function createDirectoryQuery(
     searchParams.set(
       "status",
       query.status,
+    );
+  }
+
+  if (query.employmentStatus) {
+    searchParams.set(
+      "employmentStatus",
+      query.employmentStatus,
     );
   }
 
@@ -140,6 +149,28 @@ export function updateDirectoryEmployeeStatus(
       body: JSON.stringify({
         status,
       }),
+    },
+  );
+}
+
+
+export function endDirectoryEmployeeEmployment(
+  accessToken: string,
+  employeeId: string,
+  input: EndDirectoryEmployeeEmploymentInput,
+): Promise<EndDirectoryEmployeeEmploymentResponse> {
+  // Employment exit disables the account and revokes every session.
+  return apiRequest<EndDirectoryEmployeeEmploymentResponse>(
+    `/admin/employees/${employeeId}/employment-end`,
+    {
+      method: "PATCH",
+
+      headers:
+        createAuthorizationHeaders(
+          accessToken,
+        ),
+
+      body: JSON.stringify(input),
     },
   );
 }

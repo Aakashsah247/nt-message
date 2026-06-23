@@ -1,6 +1,11 @@
 import { useEffect, useState } from "react";
 
+import type {
+  FormEvent,
+} from "react";
+
 import {
+  endDirectoryEmployeeEmployment,
   getDirectoryEmployee,
   updateDirectoryEmployeeStatus,
 } from "../services/directory.service";
@@ -12,6 +17,7 @@ import type {
 import type {
   DirectoryEmployeeDetailResponse,
   DirectoryEmployeeStatus,
+  DirectoryEmploymentStatus,
 } from "../types/directory";
 
 interface EmployeeDirectoryDetailPanelProps {
@@ -110,6 +116,32 @@ export function EmployeeDirectoryDetailPanel({
     setActionMessage,
   ] = useState("");
 
+  const [
+    pendingEmploymentStatus,
+    setPendingEmploymentStatus,
+  ] =
+    useState<
+      Exclude<
+        DirectoryEmploymentStatus,
+        "ACTIVE"
+      > | null
+    >(null);
+
+  const [
+    employmentReason,
+    setEmploymentReason,
+  ] = useState("");
+
+  const [
+    employmentEffectiveDate,
+    setEmploymentEffectiveDate,
+  ] = useState("");
+
+  const [
+    endingEmployment,
+    setEndingEmployment,
+  ] = useState(false);
+
   useEffect(() => {
     let active = true;
 
@@ -175,10 +207,22 @@ export function EmployeeDirectoryDetailPanel({
 
   const employee = response?.employee;
 
-  const canManageStatus =
+  const canManageAccount =
     Boolean(employee) &&
     viewerRole === "SUPER_ADMIN" &&
     employee?.role !== "SUPER_ADMIN";
+
+  const employmentIsActive =
+    employee?.employmentStatus ===
+    "ACTIVE";
+
+  const canManageStatus =
+    canManageAccount &&
+    employmentIsActive;
+
+  const canEndEmployment =
+    canManageAccount &&
+    employmentIsActive;
 
   function openStatusConfirmation(
     status: DirectoryEmployeeStatus,
@@ -243,6 +287,117 @@ export function EmployeeDirectoryDetailPanel({
       );
     } finally {
       setChangingStatus(false);
+    }
+  }
+
+  function openEmploymentEnd(
+    status: Exclude<
+      DirectoryEmploymentStatus,
+      "ACTIVE"
+    >,
+  ): void {
+    setPendingEmploymentStatus(
+      status,
+    );
+
+    setEmploymentReason("");
+    setEmploymentEffectiveDate("");
+    setActionError("");
+    setActionMessage("");
+  }
+
+  function cancelEmploymentEnd():
+    void {
+    if (endingEmployment) {
+      return;
+    }
+
+    setPendingEmploymentStatus(
+      null,
+    );
+
+    setEmploymentReason("");
+    setEmploymentEffectiveDate("");
+    setActionError("");
+  }
+
+  async function submitEmploymentEnd(
+    event:
+      FormEvent<HTMLFormElement>,
+  ): Promise<void> {
+    event.preventDefault();
+
+    if (
+      !employee ||
+      !pendingEmploymentStatus ||
+      endingEmployment
+    ) {
+      return;
+    }
+
+    const reason =
+      employmentReason
+        .trim()
+        .replace(/\s+/g, " ");
+
+    if (reason.length < 3) {
+      setActionError(
+        "Enter a reason of at least 3 characters.",
+      );
+
+      return;
+    }
+
+    setEndingEmployment(true);
+    setActionError("");
+    setActionMessage("");
+
+    try {
+      const result =
+        await endDirectoryEmployeeEmployment(
+          accessToken,
+          employee.id,
+          {
+            employmentStatus:
+              pendingEmploymentStatus,
+
+            reason,
+
+            effectiveAt:
+              employmentEffectiveDate
+                ? `${employmentEffectiveDate}T00:00:00.000Z`
+                : undefined,
+          },
+        );
+
+      setActionMessage(
+        result.message,
+      );
+
+      setPendingEmploymentStatus(
+        null,
+      );
+
+      setEmploymentReason("");
+      setEmploymentEffectiveDate("");
+
+      // Reload the profile and directory after access is disabled.
+      setRetryKey(
+        (current) =>
+          current + 1,
+      );
+
+      onStatusChanged();
+    } catch (
+      requestError: unknown
+    ) {
+      setActionError(
+        getErrorMessage(
+          requestError,
+        ),
+      );
+    } finally {
+      setEndingEmployment(false);
     }
   }
 
@@ -376,6 +531,16 @@ export function EmployeeDirectoryDetailPanel({
                   employee.status,
                 )}
               </span>
+
+              <span
+                className={`directory-badge ${getStatusClass(
+                  employee.employmentStatus,
+                )}`}
+              >
+                {formatValue(
+                  employee.employmentStatus,
+                )}
+              </span>
             </section>
 
             <section className="directory-detail-section">
@@ -421,6 +586,66 @@ export function EmployeeDirectoryDetailPanel({
                     {employee.department
                       ?.code ??
                       "Not available"}
+                  </dd>
+                </div>
+              </dl>
+            </section>
+
+            <section className="directory-detail-section">
+              <h3>
+                Employment information
+              </h3>
+
+              <dl className="directory-detail-list">
+                <div>
+                  <dt>
+                    Employment status
+                  </dt>
+
+                  <dd>
+                    {formatValue(
+                      employee.employmentStatus,
+                    )}
+                  </dd>
+                </div>
+
+                <div>
+                  <dt>
+                    Employment ended
+                  </dt>
+
+                  <dd>
+                    {employee.employmentStatus ===
+                    "ACTIVE"
+                      ? "Still employed"
+                      : formatDate(
+                          employee.employmentEndedAt,
+                        )}
+                  </dd>
+                </div>
+
+                <div>
+                  <dt>
+                    End reason
+                  </dt>
+
+                  <dd>
+                    {employee.employmentEndReason ??
+                      "Not applicable"}
+                  </dd>
+                </div>
+
+                <div>
+                  <dt>
+                    Archive status
+                  </dt>
+
+                  <dd>
+                    {employee.archivedAt
+                      ? `Archived ${formatDate(
+                          employee.archivedAt,
+                        )}`
+                      : "Not archived"}
                   </dd>
                 </div>
               </dl>
@@ -540,7 +765,7 @@ export function EmployeeDirectoryDetailPanel({
                   </strong>
 
                   <p>
-                    Suspend access when a user leaves, is terminated or must temporarily lose system access.
+                    Suspend or reactivate temporary access without ending the employee's employment record.
                   </p>
                 </div>
 
@@ -645,6 +870,192 @@ export function EmployeeDirectoryDetailPanel({
                       </button>
                     </div>
                   </div>
+                )}
+              </section>
+            )}
+
+            {canEndEmployment && (
+              <section className="dir-life-box">
+                <div className="dir-life-head">
+                  <span>
+                    Employment lifecycle
+                  </span>
+
+                  <strong>
+                    End Patan Branch access
+                  </strong>
+
+                  <p>
+                    This permanently ends the current Patan Branch employment record, disables login and revokes every active session.
+                  </p>
+                </div>
+
+                {actionMessage && (
+                  <div className="dir-status-ok">
+                    {actionMessage}
+                  </div>
+                )}
+
+                {actionError && (
+                  <div
+                    className="dir-status-err"
+                    role="alert"
+                  >
+                    {actionError}
+                  </div>
+                )}
+
+                {!pendingEmploymentStatus && (
+                  <div className="dir-life-options">
+                    <button
+                      type="button"
+                      onClick={() =>
+                        openEmploymentEnd(
+                          "RESIGNED",
+                        )
+                      }
+                    >
+                      Resigned
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() =>
+                        openEmploymentEnd(
+                          "RETIRED",
+                        )
+                      }
+                    >
+                      Retired
+                    </button>
+
+                    <button
+                      type="button"
+                      className="danger"
+                      onClick={() =>
+                        openEmploymentEnd(
+                          "TERMINATED",
+                        )
+                      }
+                    >
+                      Terminated
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() =>
+                        openEmploymentEnd(
+                          "TRANSFERRED",
+                        )
+                      }
+                    >
+                      Transferred
+                    </button>
+                  </div>
+                )}
+
+                {pendingEmploymentStatus && (
+                  <form
+                    className="dir-life-form"
+                    onSubmit={
+                      submitEmploymentEnd
+                    }
+                  >
+                    <div className="dir-life-selected">
+                      <span>
+                        Selected action
+                      </span>
+
+                      <strong>
+                        {formatValue(
+                          pendingEmploymentStatus,
+                        )}
+                      </strong>
+                    </div>
+
+                    <label>
+                      <span>
+                        Effective date
+                      </span>
+
+                      <input
+                        type="date"
+                        value={
+                          employmentEffectiveDate
+                        }
+                        max={
+                          new Date()
+                            .toISOString()
+                            .slice(0, 10)
+                        }
+                        onChange={(
+                          event,
+                        ) =>
+                          setEmploymentEffectiveDate(
+                            event.target.value,
+                          )
+                        }
+                        disabled={
+                          endingEmployment
+                        }
+                      />
+                    </label>
+
+                    <label>
+                      <span>
+                        Official reason
+                      </span>
+
+                      <textarea
+                        value={
+                          employmentReason
+                        }
+                        onChange={(
+                          event,
+                        ) =>
+                          setEmploymentReason(
+                            event.target.value,
+                          )
+                        }
+                        minLength={3}
+                        maxLength={500}
+                        placeholder="Enter the approved employment-exit reason."
+                        disabled={
+                          endingEmployment
+                        }
+                        required
+                      />
+                    </label>
+
+                    <div className="dir-life-actions">
+                      <button
+                        type="submit"
+                        className="dir-life-confirm"
+                        disabled={
+                          endingEmployment
+                        }
+                      >
+                        {endingEmployment
+                          ? "Processing..."
+                          : `Confirm ${formatValue(
+                              pendingEmploymentStatus,
+                            )}`}
+                      </button>
+
+                      <button
+                        type="button"
+                        className="dir-status-cancel"
+                        onClick={
+                          cancelEmploymentEnd
+                        }
+                        disabled={
+                          endingEmployment
+                        }
+                      >
+                        Cancel
+                      </button>
+                    </div>
+                  </form>
                 )}
               </section>
             )}

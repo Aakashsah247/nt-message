@@ -1081,10 +1081,13 @@ export class EmployeesService {
 
           select: {
             id: true,
+            employmentStatus: true,
+            archivedAt: true,
 
             account: {
               select: {
                 id: true,
+                role: true,
               },
             },
           },
@@ -1092,6 +1095,31 @@ export class EmployeesService {
 
         if (!employee) {
           throw new NotFoundException('Employee was not found.');
+        }
+
+        if (employee.account?.role === AccountRole.SUPER_ADMIN) {
+          throw new ForbiddenException(
+            'Super Admin status cannot be changed through this process.',
+          );
+        }
+
+        /*
+         * Resigned, retired, terminated and transferred
+         * employees cannot be reactivated as normal accounts.
+         */
+        if (
+          status === EmployeeStatus.ACTIVE &&
+          employee.employmentStatus !== EmploymentStatus.ACTIVE
+        ) {
+          throw new ConflictException(
+            'Employment has ended. This account cannot be reactivated.',
+          );
+        }
+
+        if (status === EmployeeStatus.ACTIVE && employee.archivedAt) {
+          throw new ConflictException(
+            'An archived account cannot be reactivated.',
+          );
         }
 
         const updated = await transaction.employee.update({

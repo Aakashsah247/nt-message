@@ -46,6 +46,10 @@ const directoryEmployeeSelect = {
   departmentId: true,
   designation: true,
   status: true,
+  employmentStatus: true,
+  employmentEndedAt: true,
+  employmentEndReason: true,
+  archivedAt: true,
   isActivated: true,
   createdAt: true,
   updatedAt: true,
@@ -348,6 +352,14 @@ export class DirectoryService {
 
       status: employee.status,
 
+      employmentStatus: employee.employmentStatus,
+
+      employmentEndedAt: employee.employmentEndedAt,
+
+      employmentEndReason: employee.employmentEndReason,
+
+      archivedAt: employee.archivedAt,
+
       activationStatus: employee.isActivated
         ? 'ACTIVATED'
         : 'AWAITING_ACTIVATION',
@@ -401,6 +413,12 @@ export class DirectoryService {
     if (query.status) {
       conditions.push({
         status: query.status,
+      });
+    }
+
+    if (query.employmentStatus) {
+      conditions.push({
+        employmentStatus: query.employmentStatus,
       });
     }
 
@@ -605,6 +623,8 @@ export class DirectoryService {
         search: search ?? null,
 
         status: query.status ?? null,
+
+        employmentStatus: query.employmentStatus ?? null,
 
         role: query.role ?? null,
 

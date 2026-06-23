@@ -4271,7 +4271,7 @@
 .directory-filters {
   display: grid;
   grid-template-columns:
-    repeat(4, minmax(150px, 1fr))
+    repeat(5, minmax(145px, 1fr))
     auto;
   gap: 12px;
   align-items: end;
@@ -6992,3 +6992,200 @@
     opacity: 0.6;
   }
 }
+
+
+/* DIRECTORY EMPLOYMENT LIFECYCLE START */
+@layer components {
+  .directory-badge.resigned,
+  .directory-badge.retired,
+  .directory-badge.transferred {
+    color: #875700;
+    background: #fff3d4;
+  }
+
+  .directory-badge.terminated {
+    color: #9b2430;
+    background: #ffe4e7;
+  }
+
+  .dir-life-box {
+    display: grid;
+    gap: 14px;
+    margin-top: 18px;
+    padding: 18px;
+    border: 1px solid #ecc9a6;
+    border-radius: 16px;
+    background:
+      linear-gradient(
+        135deg,
+        #fffdf8,
+        #fff7eb
+      );
+  }
+
+  .dir-life-head {
+    display: grid;
+    gap: 5px;
+  }
+
+  .dir-life-head span,
+  .dir-life-selected span,
+  .dir-life-form label > span {
+    color: #9a5a18;
+    font-size: 10px;
+    font-weight: 900;
+    letter-spacing: 0.07em;
+    text-transform: uppercase;
+  }
+
+  .dir-life-head strong {
+    color: #633b18;
+    font-size: 14px;
+  }
+
+  .dir-life-head p {
+    margin: 0;
+    color: #7a624d;
+    font-size: 11px;
+    line-height: 1.55;
+  }
+
+  .dir-life-options {
+    display: grid;
+    grid-template-columns:
+      repeat(2, minmax(0, 1fr));
+    gap: 9px;
+  }
+
+  .dir-life-options button {
+    min-height: 40px;
+    border: 1px solid #ddba94;
+    border-radius: 10px;
+    color: #74451b;
+    background: white;
+    font-size: 11px;
+    font-weight: 900;
+    transition:
+      transform 160ms ease,
+      border-color 160ms ease,
+      box-shadow 160ms ease;
+  }
+
+  .dir-life-options button:hover {
+    transform: translateY(-1px);
+    border-color: #bb7d3d;
+    box-shadow:
+      0 8px 18px
+      rgba(130, 78, 29, 0.12);
+  }
+
+  .dir-life-options button.danger {
+    border-color: #e4a4aa;
+    color: #a12632;
+    background: #fff7f7;
+  }
+
+  .dir-life-form {
+    display: grid;
+    gap: 12px;
+    padding: 14px;
+    border: 1px solid #e2c7aa;
+    border-radius: 12px;
+    background: white;
+  }
+
+  .dir-life-selected {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 15px;
+    padding: 10px 12px;
+    border-radius: 9px;
+    background: #fff5e7;
+  }
+
+  .dir-life-selected strong {
+    color: #7d4716;
+    font-size: 12px;
+  }
+
+  .dir-life-form label {
+    display: grid;
+    gap: 7px;
+  }
+
+  .dir-life-form input,
+  .dir-life-form textarea {
+    width: 100%;
+    padding: 11px 12px;
+    border: 1px solid #d8c4af;
+    border-radius: 9px;
+    color: var(--color-nt-text);
+    background: #fffefd;
+    font: inherit;
+    font-size: 11px;
+    outline: none;
+  }
+
+  .dir-life-form input {
+    min-height: 42px;
+  }
+
+  .dir-life-form textarea {
+    min-height: 105px;
+    resize: vertical;
+    line-height: 1.55;
+  }
+
+  .dir-life-form input:focus,
+  .dir-life-form textarea:focus {
+    border-color: #b87532;
+    box-shadow:
+      0 0 0 3px
+      rgba(184, 117, 50, 0.12);
+  }
+
+  .dir-life-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 9px;
+  }
+
+  .dir-life-confirm {
+    min-height: 40px;
+    padding: 0 14px;
+    border: 0;
+    border-radius: 10px;
+    color: white;
+    background:
+      linear-gradient(
+        115deg,
+        #9d4a20,
+        #d16b2a
+      );
+    font-size: 11px;
+    font-weight: 900;
+  }
+
+  .dir-life-confirm:disabled,
+  .dir-life-options button:disabled {
+    cursor: not-allowed;
+    opacity: 0.58;
+  }
+}
+
+@media (max-width: 520px) {
+  .dir-life-options {
+    grid-template-columns: 1fr;
+  }
+
+  .dir-life-actions {
+    display: grid;
+    grid-template-columns: 1fr;
+  }
+
+  .dir-life-actions button {
+    width: 100%;
+  }
+}
+/* DIRECTORY EMPLOYMENT LIFECYCLE END */

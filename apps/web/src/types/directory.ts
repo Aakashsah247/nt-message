@@ -13,6 +13,13 @@ export type DirectoryEmployeeStatus =
   | "ACTIVE"
   | "INACTIVE";
 
+export type DirectoryEmploymentStatus =
+  | "ACTIVE"
+  | "RESIGNED"
+  | "RETIRED"
+  | "TERMINATED"
+  | "TRANSFERRED";
+
 export type DirectoryAccountStatus =
   | "ENABLED"
   | "DISABLED"
@@ -62,6 +69,18 @@ export interface DirectoryEmployee {
   status:
     DirectoryEmployeeStatus;
 
+  employmentStatus:
+    DirectoryEmploymentStatus;
+
+  employmentEndedAt:
+    string | null;
+
+  employmentEndReason:
+    string | null;
+
+  archivedAt:
+    string | null;
+
   activationStatus:
     DirectoryActivationStatus;
 
@@ -88,6 +107,10 @@ export interface DirectoryFilters {
 
   status:
     | DirectoryEmployeeStatus
+    | null;
+
+  employmentStatus:
+    | DirectoryEmploymentStatus
     | null;
 
   role:
@@ -131,6 +154,9 @@ export interface DirectoryListQuery {
   status?:
     DirectoryEmployeeStatus;
 
+  employmentStatus?:
+    DirectoryEmploymentStatus;
+
   role?: AccountRole;
 
   accountStatus?:
@@ -157,4 +183,37 @@ export interface UpdateDirectoryEmployeeStatusResponse {
     isActivated: boolean;
     updatedAt: string;
   };
+}
+
+
+export interface EndDirectoryEmployeeEmploymentInput {
+  employmentStatus:
+    Exclude<
+      DirectoryEmploymentStatus,
+      "ACTIVE"
+    >;
+
+  reason: string;
+  effectiveAt?: string;
+}
+
+export interface EndDirectoryEmployeeEmploymentResponse {
+  message: string;
+
+  employee: {
+    id: string;
+    empId: string;
+    empName: string;
+    officialEmail: string;
+    status: DirectoryEmployeeStatus;
+    employmentStatus:
+      DirectoryEmploymentStatus;
+    employmentEndedAt: string;
+    employmentEndReason: string;
+    archivedAt: string | null;
+    isActivated: boolean;
+    updatedAt: string;
+  };
+
+  revokedSessions: number;
 }
