@@ -2,6 +2,9 @@ import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router";
 
 import { AdminRequestDetailPanel } from "../components/AdminRequestDetailPanel";
+import { DirectoryButton } from "../components/DirectoryButton";
+import { AdminOrganizationPanel } from "../components/AdminOrganizationPanel";
+
 import { useAuth } from "../context/AuthContext";
 import { listAdminAccountRequests } from "../services/account-request.service";
 
@@ -9,6 +12,8 @@ import type {
   AccountRequestStatus,
   AdminAccountRequestListItem,
 } from "../types/account-request";
+
+
 
 interface StatusOption {
   status: AccountRequestStatus;
@@ -128,10 +133,18 @@ function getRequesterName(request: AdminAccountRequestListItem): string {
   );
 }
 
+type AdminView =
+  | "requests"
+  | "organization";
+
 export function AdminDashboardPage() {
   const navigate = useNavigate();
 
   const { account, accessToken, logout } = useAuth();
+
+  // Controls the main Super Admin workspace.
+  const [view, setView] =
+  useState<AdminView>("requests");
 
   const [selectedStatus, setSelectedStatus] =
     useState<AccountRequestStatus>("PENDING_APPROVAL");
@@ -156,7 +169,6 @@ export function AdminDashboardPage() {
   const [selectedRequestId, setSelectedRequestId] = useState<string | null>(
     null,
   );
-
   const selectedOption = useMemo(
     () =>
       STATUS_OPTIONS.find((option) => option.status === selectedStatus) ??
@@ -306,7 +318,7 @@ export function AdminDashboardPage() {
       setLoggingOut(false);
     }
   }
-
+// Super Admin can open the organization-wide directory from the header.
   return (
     <main className="admin-dashboard-shell">
       <header className="admin-topbar">
@@ -329,13 +341,63 @@ export function AdminDashboardPage() {
             <strong>{account?.username ?? "Super Admin"}</strong>
           </div>
 
-          <button type="button" onClick={handleLogout} disabled={loggingOut}>
-            {loggingOut ? "Signing out..." : "Sign out"}
-          </button>
+          <div className="admin-header-actions">
+<DirectoryButton />
+            <button
+
+            type="button"
+            onClick={handleLogout}
+            disabled={loggingOut}
+            >
+            {loggingOut
+            ? "Signing out..."
+            : "Sign out"}
+            </button>
+          </div>
         </div>
       </header>
 
       <section className="admin-dashboard-content">
+        <nav
+          className="admin-tabs"
+          aria-label="Super Admin sections"
+        >
+        <button
+          type="button"
+          className={
+            view === "requests" ? "active": ""
+          }
+          onClick={() =>
+            setView("requests")
+          }
+        >
+          <span>01</span>
+          Account Requests
+        </button>
+
+        <button
+          type="button"
+          className={
+            view === "organization"
+            ? "active"
+            : ""
+          }
+          onClick={() => {
+            setSelectedRequestId(null);
+
+            setView(
+              "organization",
+            );
+          }}
+        >
+          <span>02</span>
+
+          Organization Management
+        </button>
+        </nav>
+        {view === "requests" && (
+          <div className="admin-view">
+
         <div className="admin-page-heading">
           <div>
             <span className="admin-eyebrow">Account governance</span>
@@ -563,6 +625,13 @@ export function AdminDashboardPage() {
             </footer>
           )}
         </section>
+       </div>
+     )}
+     {view === "organization" &&
+     accessToken && (
+      <AdminOrganizationPanel accessToken={ accessToken } />
+     )}
+
       </section>
       {selectedRequestId && accessToken && (
         <AdminRequestDetailPanel
@@ -573,6 +642,6 @@ export function AdminDashboardPage() {
           onClose={() => setSelectedRequestId(null)}
         />
       )}
-    </main>
+</main>
   );
 }

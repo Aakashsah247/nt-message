@@ -59,6 +59,7 @@ export function ManagerAccountRequestForm({
 
   const isSeniorManagement = requestContext.role === "SENIOR_MANAGEMENT";
 
+  // Uses only departments returned by the authenticated manager scope.
   const selectedDepartment = useMemo(
     () =>
       requestContext.departments.find(
@@ -77,6 +78,7 @@ export function ManagerAccountRequestForm({
     setSuccess("");
   }
 
+  // Validates employee information before sending it to the backend.
   function validateForm(): string | null {
     const empId = form.empId.trim();
 
@@ -135,6 +137,7 @@ export function ManagerAccountRequestForm({
     setSuccess("");
 
     try {
+      // Normalizes employee data before submitting the protected request.
       const response = await createMyAccountRequest(accessToken, {
         empId: form.empId.trim().toUpperCase(),
 
@@ -162,8 +165,8 @@ export function ManagerAccountRequestForm({
   }
 
   return (
-    <article className="manager-request-form-card">
-      <header className="manager-request-form-header">
+    <article className="req-card">
+      <header className="req-head">
         <div>
           <span>New account request</span>
 
@@ -175,7 +178,7 @@ export function ManagerAccountRequestForm({
           </p>
         </div>
 
-        <div className="manager-request-role">
+        <div className="req-role">
           <span>Requested role</span>
 
           <strong>{formatRole(requestContext.requestedRole)}</strong>
@@ -183,19 +186,19 @@ export function ManagerAccountRequestForm({
       </header>
 
       {success && (
-        <div className="manager-form-success" role="status">
+        <div className="req-ok" role="status">
           {success}
         </div>
       )}
 
       {error && (
-        <div className="manager-form-error" role="alert">
+        <div className="req-err" role="alert">
           {error}
         </div>
       )}
 
-      <form className="manager-request-form" onSubmit={handleSubmit}>
-        <div className="manager-form-grid">
+      <form className="req-form" onSubmit={handleSubmit}>
+        <div className="req-grid">
           <label>
             <span>Employee full name</span>
 
@@ -300,7 +303,7 @@ export function ManagerAccountRequestForm({
               </select>
             </label>
           ) : (
-            <div className="manager-fixed-field">
+            <div className="req-fixed">
               <span>Assigned department</span>
 
               <strong>
@@ -312,7 +315,7 @@ export function ManagerAccountRequestForm({
           )}
         </div>
 
-        <section className="manager-request-review">
+        <section className="req-review">
           <div>
             <span>Division</span>
 
@@ -336,13 +339,13 @@ export function ManagerAccountRequestForm({
           </div>
         </section>
 
-        <footer className="manager-request-form-footer">
+        <footer className="req-foot">
           <p>
             Every request is reviewed by the Super Admin before account
             activation is allowed.
           </p>
 
-          <button type="submit" disabled={submitting}>
+          <button type="submit" className="req-btn" disabled={submitting}>
             {submitting ? "Submitting request..." : "Submit account request"}
           </button>
         </footer>

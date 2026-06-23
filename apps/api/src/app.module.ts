@@ -7,6 +7,7 @@ import { AppController } from './app.controller';
 import { AppService } from './app.service';
 import { AuthModule } from './auth/auth.module';
 import { PrismaModule } from './database/prisma.module';
+import { DirectoryModule } from './directory/directory.module';
 import { EmployeesModule } from './employees/employees.module';
 import { OrganizationModule } from './organization/organization.module';
 
@@ -18,6 +19,7 @@ import { OrganizationModule } from './organization/organization.module';
     }),
 
     PrismaModule,
+    DirectoryModule,
     AuthModule,
     EmployeesModule,
     OrganizationModule,

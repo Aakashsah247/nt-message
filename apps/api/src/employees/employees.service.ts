@@ -110,6 +110,9 @@ export class EmployeesService {
 
     const designation = dto.designation?.trim() || null;
 
+    // Uses the role selected by the Super Admin.
+    const requestedRole = dto.requestedRole;
+
     const { division, department } = await this.validateOrganizationAssignment(
       dto.divisionId,
       dto.departmentId,
@@ -256,7 +259,7 @@ export class EmployeesService {
           officialEmail,
           designation,
 
-          requestedRole: AccountRole.EMPLOYEE,
+          requestedRole,
 
           divisionId: division.id,
 
@@ -310,7 +313,7 @@ export class EmployeesService {
 
               employeeId: employee.id,
 
-              requestedRole: AccountRole.EMPLOYEE,
+              requestedRole,
             },
           },
           {
@@ -328,7 +331,7 @@ export class EmployeesService {
 
               employeeId: employee.id,
 
-              requestedRole: AccountRole.EMPLOYEE,
+              requestedRole,
 
               divisionId: division.id,
 
@@ -345,7 +348,7 @@ export class EmployeesService {
     });
 
     return {
-      message: 'Employee registered successfully.',
+      message: 'Account identity created successfully.',
 
       employee: result.employee,
 

@@ -837,6 +837,28 @@ export class ActivationService {
                 id: true,
               },
             },
+            accountRequests: {
+              where: {
+                status: {
+                  in: [
+                    AccountRequestStatus.APPROVED,
+                    AccountRequestStatus.ACTIVATION_PENDING,
+                  ],
+                },
+              },
+
+              orderBy: {
+                reviewedAt: 'desc',
+              },
+
+              take: 1,
+
+              select: {
+                id: true,
+                requestedRole: true,
+                status: true,
+              },
+            },
           },
         });
 
@@ -855,6 +877,14 @@ export class ActivationService {
         if (employee.isActivated || employee.account) {
           return {
             status: 'activated',
+          };
+        }
+        // The activated account role must come from the approved request.
+        const approvedRequest = employee.accountRequests[0];
+
+        if (!approvedRequest) {
+          return {
+            status: 'invalid',
           };
         }
 
@@ -1017,7 +1047,6 @@ export class ActivationService {
             isEnabled: true,
           },
         });
-
         await transaction.accountRequestAction.create({
           data: {
             accountRequestId: accountRequest.id,
@@ -1106,7 +1135,7 @@ export class ActivationService {
     }
 
     return {
-      message: 'Employee account activated successfully.',
+      message: 'Account activated successfully.',
 
       employee: outcome.employee,
 

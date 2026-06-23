@@ -1,5 +1,6 @@
 import {
   IsEmail,
+  IsIn,
   IsOptional,
   IsString,
   IsUUID,
@@ -7,6 +8,14 @@ import {
   MaxLength,
   MinLength,
 } from 'class-validator';
+
+import { AccountRole } from '../../generated/prisma/client';
+
+const adminRoles: AccountRole[] = [
+  AccountRole.SENIOR_MANAGEMENT,
+  AccountRole.TEAM_MANAGER,
+  AccountRole.EMPLOYEE,
+];
 
 export class CreateEmployeeDto {
   @IsString()
@@ -33,6 +42,14 @@ export class CreateEmployeeDto {
   @MaxLength(255)
   officialEmail!: string;
 
+  // Super Admin cannot create another Super Admin account.
+  @IsIn(adminRoles, {
+    message:
+      'Role must be Senior Management, Team Manager or Employee.',
+  })
+  requestedRole!: AccountRole;
+
+  // Organization IDs must come from the controlled database lists.
   @IsUUID('4', {
     message: 'Division ID must be a valid UUID.',
   })

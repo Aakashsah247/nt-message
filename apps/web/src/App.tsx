@@ -8,6 +8,7 @@ import { ManagerRequestDashboardPage } from "./pages/ManagerRequestDashboardPage
 import { ForgotPasswordPage } from "./pages/ForgotPasswordPage";
 import { LoginPage } from "./pages/LoginPage";
 import { MessageAppPage } from "./pages/MessageAppPage";
+import { DirectoryPage } from "./pages/DirectoryPage";
 
 export default function App() {
   return (
@@ -45,6 +46,23 @@ export default function App() {
           <PublicRoute>
             <ForgotPasswordPage />
           </PublicRoute>
+        }
+      />
+
+      {/* All authenticated organization roles can access the directory. */}
+      <Route
+        path="/directory"
+        element={
+          <ProtectedRoute
+            roles={[
+              "SUPER_ADMIN",
+              "SENIOR_MANAGEMENT",
+              "TEAM_MANAGER",
+              "EMPLOYEE",
+            ]}
+          >
+            <DirectoryPage />
+          </ProtectedRoute>
         }
       />
 
