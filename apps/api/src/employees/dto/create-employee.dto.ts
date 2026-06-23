@@ -44,8 +44,7 @@ export class CreateEmployeeDto {
 
   // Super Admin cannot create another Super Admin account.
   @IsIn(adminRoles, {
-    message:
-      'Role must be Senior Management, Team Manager or Employee.',
+    message: 'Role must be Senior Management, Team Manager or Employee.',
   })
   requestedRole!: AccountRole;
 

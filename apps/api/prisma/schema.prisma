@@ -25,6 +25,7 @@ enum EmploymentStatus {
   RESIGNED
   RETIRED
   TERMINATED
+  TRANSFERRED
 }
 
 enum EmployeeLifecycleActionType {
