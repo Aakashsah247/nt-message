@@ -8,6 +8,7 @@ import {
   archiveDirectoryEmployee,
   endDirectoryEmployeeEmployment,
   getDirectoryEmployee,
+  getDirectoryEmployeeLifecycleHistory,
   updateDirectoryEmployeeStatus,
 } from "../services/directory.service";
 
@@ -19,6 +20,7 @@ import type {
   DirectoryEmployeeDetailResponse,
   DirectoryEmployeeStatus,
   DirectoryEmploymentStatus,
+  DirectoryLifecycleHistoryResponse,
 } from "../types/directory";
 
 interface EmployeeDirectoryDetailPanelProps {
@@ -159,6 +161,25 @@ export function EmployeeDirectoryDetailPanel({
     setArchiving,
   ] = useState(false);
 
+
+  const [
+    lifecycleHistory,
+    setLifecycleHistory,
+  ] =
+    useState<DirectoryLifecycleHistoryResponse | null>(
+      null,
+    );
+
+  const [
+    lifecycleLoading,
+    setLifecycleLoading,
+  ] = useState(false);
+
+  const [
+    lifecycleError,
+    setLifecycleError,
+  ] = useState("");
+
   useEffect(() => {
     let active = true;
 
@@ -191,6 +212,66 @@ export function EmployeeDirectoryDetailPanel({
     accessToken,
     employeeId,
     retryKey,
+  ]);
+
+  useEffect(() => {
+    if (
+      viewerRole !==
+      "SUPER_ADMIN"
+    ) {
+      return;
+    }
+
+    let active = true;
+
+    setLifecycleLoading(true);
+    setLifecycleError("");
+
+    getDirectoryEmployeeLifecycleHistory(
+      accessToken,
+      employeeId,
+    )
+      .then((historyResponse) => {
+        if (!active) {
+          return;
+        }
+
+        setLifecycleHistory(
+          historyResponse,
+        );
+      })
+      .catch(
+        (
+          requestError:
+            unknown,
+        ) => {
+          if (!active) {
+            return;
+          }
+
+          setLifecycleHistory(null);
+
+          setLifecycleError(
+            getErrorMessage(
+              requestError,
+            ),
+          );
+        },
+      )
+      .finally(() => {
+        if (active) {
+          setLifecycleLoading(false);
+        }
+      });
+
+    return () => {
+      active = false;
+    };
+  }, [
+    accessToken,
+    employeeId,
+    retryKey,
+    viewerRole,
   ]);
 
   useEffect(() => {
@@ -1159,6 +1240,147 @@ export function EmployeeDirectoryDetailPanel({
                     </div>
                   </form>
                 )}
+              </section>
+            )}
+
+            {viewerRole ===
+              "SUPER_ADMIN" && (
+              <section className="dir-history-box">
+                <div className="dir-history-head">
+                  <span>
+                    Audit trail
+                  </span>
+
+                  <strong>
+                    Lifecycle history
+                  </strong>
+
+                  <p>
+                    Administrative lifecycle actions are displayed newest first.
+                  </p>
+                </div>
+
+                {lifecycleLoading && (
+                  <div className="dir-history-loading">
+                    <div className="spinner" />
+
+                    <span>
+                      Loading lifecycle history...
+                    </span>
+                  </div>
+                )}
+
+                {lifecycleError && (
+                  <div
+                    className="dir-status-err"
+                    role="alert"
+                  >
+                    {lifecycleError}
+                  </div>
+                )}
+
+                {!lifecycleLoading &&
+                  !lifecycleError &&
+                  (
+                    lifecycleHistory?.data
+                      .length ?? 0
+                  ) === 0 && (
+                    <div className="dir-history-empty">
+                      No lifecycle actions have been recorded.
+                    </div>
+                  )}
+
+                {!lifecycleLoading &&
+                  lifecycleHistory &&
+                  lifecycleHistory.data
+                    .length > 0 && (
+                    <div className="dir-history-list">
+                      {lifecycleHistory.data.map(
+                        (
+                          action,
+                        ) => {
+                          const actorName =
+                            action.actor
+                              .employee
+                              ?.empName ??
+                            action.actor
+                              .username ??
+                            formatValue(
+                              action.actor
+                                .role,
+                            );
+
+                          return (
+                            <article
+                              key={
+                                action.id
+                              }
+                            >
+                              <div className="dir-history-marker" />
+
+                              <div>
+                                <header>
+                                  <strong>
+                                    {formatValue(
+                                      action.action,
+                                    )}
+                                  </strong>
+
+                                  <time>
+                                    {formatDate(
+                                      action.effectiveAt ??
+                                        action.createdAt,
+                                    )}
+                                  </time>
+                                </header>
+
+                                <p>
+                                  Action performed by{" "}
+                                  <strong>
+                                    {actorName}
+                                  </strong>
+                                </p>
+
+                                {action.previousEmployeeStatus &&
+                                  action.newEmployeeStatus && (
+                                    <small>
+                                      Account:{" "}
+                                      {formatValue(
+                                        action.previousEmployeeStatus,
+                                      )}
+                                      {" → "}
+                                      {formatValue(
+                                        action.newEmployeeStatus,
+                                      )}
+                                    </small>
+                                  )}
+
+                                {action.previousEmploymentStatus &&
+                                  action.newEmploymentStatus && (
+                                    <small>
+                                      Employment:{" "}
+                                      {formatValue(
+                                        action.previousEmploymentStatus,
+                                      )}
+                                      {" → "}
+                                      {formatValue(
+                                        action.newEmploymentStatus,
+                                      )}
+                                    </small>
+                                  )}
+
+                                {action.reason && (
+                                  <blockquote>
+                                    {action.reason}
+                                  </blockquote>
+                                )}
+                              </div>
+                            </article>
+                          );
+                        },
+                      )}
+                    </div>
+                  )}
               </section>
             )}
 

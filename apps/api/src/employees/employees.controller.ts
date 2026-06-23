@@ -72,6 +72,19 @@ export class EmployeesController {
     return this.employeesService.getEmployeeById(id);
   }
 
+  @Get(':id/lifecycle')
+  getEmployeeLifecycleHistory(
+    @Param(
+      'id',
+      new ParseUUIDPipe({
+        version: '4',
+      }),
+    )
+    id: string,
+  ) {
+    return this.employeesService.getEmployeeLifecycleHistory(id);
+  }
+
   @Patch(':id/archive')
   archiveEmployee(
     @CurrentUser()
@@ -126,6 +139,9 @@ export class EmployeesController {
 
   @Patch(':id/status')
   updateEmployeeStatus(
+    @CurrentUser()
+    user: AuthenticatedUser,
+
     @Param(
       'id',
       new ParseUUIDPipe({
@@ -136,8 +152,15 @@ export class EmployeesController {
 
     @Body()
     dto: UpdateEmployeeStatusDto,
+
+    @Req()
+    request: Request,
   ) {
-    return this.employeesService.updateEmployeeStatus(id, dto.status);
+    return this.employeesService.updateEmployeeStatus(user, id, dto.status, {
+      ipAddress: request.ip ?? request.socket.remoteAddress ?? null,
+
+      userAgent: request.get('user-agent') ?? null,
+    });
   }
 
   @Patch(':id')

@@ -7,6 +7,7 @@ import type {
   DirectoryEmployeeStatus,
   DirectoryListQuery,
   DirectoryListResponse,
+  DirectoryLifecycleHistoryResponse,
   EndDirectoryEmployeeEmploymentInput,
   EndDirectoryEmployeeEmploymentResponse,
   UpdateDirectoryEmployeeStatusResponse,
@@ -195,6 +196,23 @@ export function archiveDirectoryEmployee(
         ),
 
       body: JSON.stringify(input),
+    },
+  );
+}
+
+
+export function getDirectoryEmployeeLifecycleHistory(
+  accessToken: string,
+  employeeId: string,
+): Promise<DirectoryLifecycleHistoryResponse> {
+  // Lifecycle history is available only through the Super Admin API.
+  return apiRequest<DirectoryLifecycleHistoryResponse>(
+    `/admin/employees/${employeeId}/lifecycle`,
+    {
+      headers:
+        createAuthorizationHeaders(
+          accessToken,
+        ),
     },
   );
 }

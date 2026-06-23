@@ -845,6 +845,74 @@ export class EmployeesService {
     };
   }
 
+  async getEmployeeLifecycleHistory(id: string) {
+    const employee = await this.prisma.employee.findUnique({
+      where: {
+        id,
+      },
+
+      select: {
+        id: true,
+        empId: true,
+        empName: true,
+      },
+    });
+
+    if (!employee) {
+      throw new NotFoundException('Employee was not found.');
+    }
+
+    const actions = await this.prisma.employeeLifecycleAction.findMany({
+      where: {
+        employeeId: id,
+      },
+
+      orderBy: {
+        createdAt: 'desc',
+      },
+
+      select: {
+        id: true,
+        action: true,
+
+        previousEmployeeStatus: true,
+
+        newEmployeeStatus: true,
+
+        previousEmploymentStatus: true,
+
+        newEmploymentStatus: true,
+
+        reason: true,
+        effectiveAt: true,
+        ipAddress: true,
+        userAgent: true,
+        metadata: true,
+        createdAt: true,
+
+        actor: {
+          select: {
+            id: true,
+            username: true,
+            role: true,
+
+            employee: {
+              select: {
+                empId: true,
+                empName: true,
+              },
+            },
+          },
+        },
+      },
+    });
+
+    return {
+      employee,
+      data: actions,
+    };
+  }
+
   async archiveEmployee(
     user: AuthenticatedUser,
     id: string,
@@ -1261,114 +1329,184 @@ export class EmployeesService {
     };
   }
 
-  async updateEmployeeStatus(id: string, status: EmployeeStatus) {
-    const updatedEmployee = await this.prisma.$transaction(
-      async (transaction) => {
-        const employee = await transaction.employee.findUnique({
-          where: {
-            id,
-          },
+  async updateEmployeeStatus(
+    user: AuthenticatedUser,
+    id: string,
+    status: EmployeeStatus,
+    metadata: EmployeeLifecycleMetadata,
+  ) {
+    if (user.role !== AccountRole.SUPER_ADMIN) {
+      throw new ForbiddenException(
+        'Only the Super Admin can change employee access status.',
+      );
+    }
 
-          select: {
-            id: true,
-            employmentStatus: true,
-            archivedAt: true,
+    const now = new Date();
 
-            account: {
-              select: {
-                id: true,
-                role: true,
-              },
+    const ipAddress = metadata.ipAddress?.slice(0, 45) || null;
+
+    const userAgent = metadata.userAgent?.slice(0, 500) || null;
+
+    const result = await this.prisma.$transaction(async (transaction) => {
+      const employee = await transaction.employee.findUnique({
+        where: {
+          id,
+        },
+
+        select: {
+          id: true,
+          empId: true,
+          empName: true,
+          status: true,
+          employmentStatus: true,
+          archivedAt: true,
+
+          account: {
+            select: {
+              id: true,
+              role: true,
+              isEnabled: true,
             },
           },
-        });
+        },
+      });
 
-        if (!employee) {
-          throw new NotFoundException('Employee was not found.');
-        }
+      if (!employee) {
+        throw new NotFoundException('Employee was not found.');
+      }
 
-        if (employee.account?.role === AccountRole.SUPER_ADMIN) {
-          throw new ForbiddenException(
-            'Super Admin status cannot be changed through this process.',
-          );
-        }
+      if (employee.account?.role === AccountRole.SUPER_ADMIN) {
+        throw new ForbiddenException(
+          'Super Admin status cannot be changed through this process.',
+        );
+      }
 
-        /*
-         * Resigned, retired, terminated and transferred
-         * employees cannot be reactivated as normal accounts.
-         */
-        if (
-          status === EmployeeStatus.ACTIVE &&
-          employee.employmentStatus !== EmploymentStatus.ACTIVE
-        ) {
-          throw new ConflictException(
-            'Employment has ended. This account cannot be reactivated.',
-          );
-        }
+      /*
+       * Temporary suspension is allowed only
+       * while employment remains active.
+       */
+      if (employee.employmentStatus !== EmploymentStatus.ACTIVE) {
+        throw new ConflictException(
+          'Employment has ended. Access status cannot be changed.',
+        );
+      }
 
-        if (status === EmployeeStatus.ACTIVE && employee.archivedAt) {
-          throw new ConflictException(
-            'An archived account cannot be reactivated.',
-          );
-        }
+      if (employee.archivedAt) {
+        throw new ConflictException('An archived account cannot be changed.');
+      }
 
-        const updated = await transaction.employee.update({
+      if (employee.status === status) {
+        throw new ConflictException(
+          status === EmployeeStatus.ACTIVE
+            ? 'The employee account is already active.'
+            : 'The employee account is already suspended.',
+        );
+      }
+
+      const updatedEmployee = await transaction.employee.update({
+        where: {
+          id,
+        },
+
+        data: {
+          status,
+        },
+
+        select: {
+          id: true,
+          empId: true,
+          empName: true,
+          officialEmail: true,
+          status: true,
+          employmentStatus: true,
+          isActivated: true,
+          updatedAt: true,
+        },
+      });
+
+      let revokedSessions = 0;
+
+      if (employee.account) {
+        await transaction.account.update({
           where: {
-            id,
+            id: employee.account.id,
           },
 
           data: {
-            status,
-          },
-
-          select: {
-            id: true,
-            empId: true,
-            empName: true,
-            officialEmail: true,
-            status: true,
-            isActivated: true,
-            updatedAt: true,
+            isEnabled: status === EmployeeStatus.ACTIVE,
           },
         });
 
-        if (employee.account) {
-          await transaction.account.update({
+        if (status === EmployeeStatus.INACTIVE) {
+          const sessionResult = await transaction.authSession.updateMany({
             where: {
-              id: employee.account.id,
+              accountId: employee.account.id,
+
+              revokedAt: null,
             },
 
             data: {
-              isEnabled: status === EmployeeStatus.ACTIVE,
+              revokedAt: now,
             },
           });
 
-          // Inactive employees must lose active sessions.
-          if (status === EmployeeStatus.INACTIVE) {
-            await transaction.authSession.updateMany({
-              where: {
-                accountId: employee.account.id,
-                revokedAt: null,
-              },
-
-              data: {
-                revokedAt: new Date(),
-              },
-            });
-          }
+          revokedSessions = sessionResult.count;
         }
+      }
 
-        return updated;
-      },
-    );
+      const lifecycleAction =
+        status === EmployeeStatus.ACTIVE
+          ? EmployeeLifecycleActionType.REACTIVATED
+          : EmployeeLifecycleActionType.SUSPENDED;
+
+      await transaction.employeeLifecycleAction.create({
+        data: {
+          employeeId: employee.id,
+
+          actorAccountId: user.accountId,
+
+          action: lifecycleAction,
+
+          previousEmployeeStatus: employee.status,
+
+          newEmployeeStatus: status,
+
+          previousEmploymentStatus: employee.employmentStatus,
+
+          newEmploymentStatus: employee.employmentStatus,
+
+          effectiveAt: now,
+
+          ipAddress,
+
+          userAgent,
+
+          metadata: {
+            accountId: employee.account?.id ?? null,
+
+            accountRole: employee.account?.role ?? null,
+
+            revokedSessions,
+          },
+        },
+      });
+
+      return {
+        employee: updatedEmployee,
+
+        revokedSessions,
+      };
+    });
 
     return {
       message:
         status === EmployeeStatus.ACTIVE
-          ? 'Employee activated successfully.'
-          : 'Employee deactivated successfully.',
+          ? 'Employee reactivated successfully.'
+          : 'Employee suspended successfully.',
 
-      employee: updatedEmployee,
+      employee: result.employee,
+
+      revokedSessions: result.revokedSessions,
     };
   }
 }

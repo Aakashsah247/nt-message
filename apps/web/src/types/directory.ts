@@ -243,3 +243,67 @@ export interface ArchiveDirectoryEmployeeResponse {
 
   revokedSessions: number;
 }
+
+
+export type DirectoryLifecycleActionType =
+  | "SUSPENDED"
+  | "REACTIVATED"
+  | "RESIGNED"
+  | "RETIRED"
+  | "TERMINATED"
+  | "ARCHIVED"
+  | "UNARCHIVED"
+  | "TRANSFERRED"
+  | "PROMOTED"
+  | "DEMOTED"
+  | "REHIRED";
+
+export interface DirectoryLifecycleActor {
+  id: string;
+  username: string | null;
+  role: AccountRole;
+
+  employee: {
+    empId: string;
+    empName: string;
+  } | null;
+}
+
+export interface DirectoryLifecycleAction {
+  id: string;
+  action:
+    DirectoryLifecycleActionType;
+
+  previousEmployeeStatus:
+    DirectoryEmployeeStatus | null;
+
+  newEmployeeStatus:
+    DirectoryEmployeeStatus | null;
+
+  previousEmploymentStatus:
+    DirectoryEmploymentStatus | null;
+
+  newEmploymentStatus:
+    DirectoryEmploymentStatus | null;
+
+  reason: string | null;
+  effectiveAt: string | null;
+  ipAddress: string | null;
+  userAgent: string | null;
+
+  metadata:
+    Record<string, unknown> | null;
+
+  createdAt: string;
+  actor: DirectoryLifecycleActor;
+}
+
+export interface DirectoryLifecycleHistoryResponse {
+  employee: {
+    id: string;
+    empId: string;
+    empName: string;
+  };
+
+  data: DirectoryLifecycleAction[];
+}
