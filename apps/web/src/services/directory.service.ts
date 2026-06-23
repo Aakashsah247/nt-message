@@ -53,6 +53,13 @@ function createDirectoryQuery(
     );
   }
 
+  if (query.recordStatus) {
+    searchParams.set(
+      "recordStatus",
+      query.recordStatus,
+    );
+  }
+
   if (query.role) {
     searchParams.set(
       "role",

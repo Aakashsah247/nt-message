@@ -27,6 +27,11 @@ export enum DirectoryActivationStatus {
   AWAITING_ACTIVATION = 'AWAITING_ACTIVATION',
 }
 
+export enum DirectoryRecordStatus {
+  CURRENT = 'CURRENT',
+  ARCHIVED = 'ARCHIVED',
+}
+
 export class ListDirectoryQueryDto {
   @IsOptional()
   @IsString()
@@ -40,6 +45,10 @@ export class ListDirectoryQueryDto {
   @IsOptional()
   @IsEnum(EmploymentStatus)
   employmentStatus?: EmploymentStatus;
+
+  @IsOptional()
+  @IsEnum(DirectoryRecordStatus)
+  recordStatus: DirectoryRecordStatus = DirectoryRecordStatus.CURRENT;
 
   @IsOptional()
   @IsEnum(AccountRole)

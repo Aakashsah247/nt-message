@@ -20,6 +20,10 @@ export type DirectoryEmploymentStatus =
   | "TERMINATED"
   | "TRANSFERRED";
 
+export type DirectoryRecordStatus =
+  | "CURRENT"
+  | "ARCHIVED";
+
 export type DirectoryAccountStatus =
   | "ENABLED"
   | "DISABLED"
@@ -113,6 +117,10 @@ export interface DirectoryFilters {
     | DirectoryEmploymentStatus
     | null;
 
+  recordStatus:
+    DirectoryRecordStatus;
+
+
   role:
     | AccountRole
     | null;
@@ -156,6 +164,10 @@ export interface DirectoryListQuery {
 
   employmentStatus?:
     DirectoryEmploymentStatus;
+
+  recordStatus?:
+    DirectoryRecordStatus;
+
 
   role?: AccountRole;
 

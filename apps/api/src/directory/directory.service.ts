@@ -14,6 +14,7 @@ import type { Prisma } from '../generated/prisma/client';
 import {
   DirectoryAccountStatus,
   DirectoryActivationStatus,
+  DirectoryRecordStatus,
   ListDirectoryQueryDto,
 } from './dto/list-directory-query.dto';
 
@@ -422,6 +423,19 @@ export class DirectoryService {
       });
     }
 
+    // Archived records are separated from current records.
+    if (query.recordStatus === DirectoryRecordStatus.ARCHIVED) {
+      conditions.push({
+        archivedAt: {
+          not: null,
+        },
+      });
+    } else {
+      conditions.push({
+        archivedAt: null,
+      });
+    }
+
     if (viewer.scopeType === 'ORGANIZATION' && query.divisionId) {
       conditions.push({
         divisionId: query.divisionId,
@@ -626,6 +640,8 @@ export class DirectoryService {
 
         employmentStatus: query.employmentStatus ?? null,
 
+        recordStatus: query.recordStatus,
+
         role: query.role ?? null,
 
         accountStatus: query.accountStatus ?? null,
@@ -667,6 +683,12 @@ export class DirectoryService {
     if (!employee) {
       throw new NotFoundException(
         'Directory employee was not found inside your authorized scope.',
+      );
+    }
+
+    if (employee.archivedAt && viewer.role !== AccountRole.SUPER_ADMIN) {
+      throw new NotFoundException(
+        'Archived employee profiles are available only to the Super Admin.',
       );
     }
 

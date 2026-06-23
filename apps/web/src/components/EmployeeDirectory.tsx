@@ -22,6 +22,7 @@ import type {
   DirectoryEmployeeStatus,
   DirectoryEmploymentStatus,
   DirectoryListResponse,
+  DirectoryRecordStatus,
 } from "../types/directory";
 
 interface EmployeeDirectoryProps {
@@ -178,6 +179,14 @@ export function EmployeeDirectory({
     useState<EmploymentStatusFilter>("");
 
   const [
+    recordStatus,
+    setRecordStatus,
+  ] =
+    useState<DirectoryRecordStatus>(
+      "CURRENT",
+    );
+
+  const [
     accountStatus,
     setAccountStatus,
   ] =
@@ -227,6 +236,8 @@ export function EmployeeDirectory({
         employmentStatus:
           employmentStatus ||
           undefined,
+
+        recordStatus,
 
         accountStatus:
           accountStatus ||
@@ -289,6 +300,7 @@ export function EmployeeDirectory({
     page,
     refreshKey,
     reloadKey,
+    recordStatus,
     role,
     search,
   ]);
@@ -310,6 +322,25 @@ export function EmployeeDirectory({
 
   function clearFilters():
     void {
+    setSearchInput("");
+    setSearch("");
+    setRole("");
+    setEmployeeStatus("");
+    setEmploymentStatus("");
+    setAccountStatus("");
+    setActivationStatus("");
+    setPage(1);
+    setLoading(true);
+    setError("");
+  }
+
+  function changeRecordStatus(
+    value:
+      DirectoryRecordStatus,
+  ): void {
+    setRecordStatus(value);
+
+    // Show all records when changing directory sections.
     setSearchInput("");
     setSearch("");
     setRole("");
@@ -446,16 +477,27 @@ export function EmployeeDirectory({
             Organization directory
           </span>
 
-          <h2>{title}</h2>
+          <h2>
+            {recordStatus ===
+            "ARCHIVED"
+              ? "Archived Employee Records"
+              : title}
+          </h2>
 
           <p>
-            {description}
+            {recordStatus ===
+            "ARCHIVED"
+              ? "Review archived Patan Branch employees and their preserved lifecycle records."
+              : description}
           </p>
         </div>
 
         <div className="directory-total">
           <span>
-            Total employees
+            {recordStatus ===
+            "ARCHIVED"
+              ? "Archived records"
+              : "Current records"}
           </span>
 
           <strong>
@@ -464,6 +506,48 @@ export function EmployeeDirectory({
           </strong>
         </div>
       </header>
+
+      {scope?.role ===
+        "SUPER_ADMIN" && (
+        <nav
+          className="directory-record-tabs"
+          aria-label="Employee record sections"
+        >
+          <button
+            type="button"
+            className={
+              recordStatus ===
+              "CURRENT"
+                ? "active"
+                : ""
+            }
+            onClick={() =>
+              changeRecordStatus(
+                "CURRENT",
+              )
+            }
+          >
+            Current records
+          </button>
+
+          <button
+            type="button"
+            className={
+              recordStatus ===
+              "ARCHIVED"
+                ? "active"
+                : ""
+            }
+            onClick={() =>
+              changeRecordStatus(
+                "ARCHIVED",
+              )
+            }
+          >
+            Archived records
+          </button>
+        </nav>
+      )}
 
       {scope && (
         <section className="directory-scope">
@@ -802,12 +886,17 @@ export function EmployeeDirectory({
             </div>
 
             <h3>
-              No employees found
+              {recordStatus ===
+              "ARCHIVED"
+                ? "No archived employees"
+                : "No employees found"}
             </h3>
 
             <p>
-              Change the search or
-              filters and try again.
+              {recordStatus ===
+              "ARCHIVED"
+                ? "Archived employee records will appear here."
+                : "Change the search or filters and try again."}
             </p>
           </div>
         )}
@@ -843,7 +932,10 @@ export function EmployeeDirectory({
                 </th>
 
                 <th>
-                  Last login
+                  {recordStatus ===
+                  "ARCHIVED"
+                    ? "Archived on"
+                    : "Last login"}
                 </th>
               </tr>
             </thead>
@@ -963,7 +1055,10 @@ export function EmployeeDirectory({
                     <td>
                       <strong>
                         {formatDate(
-                          employee.lastLoginAt,
+                          recordStatus ===
+                          "ARCHIVED"
+                            ? employee.archivedAt
+                            : employee.lastLoginAt,
                         )}
                       </strong>
                     </td>
