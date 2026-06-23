@@ -5,6 +5,7 @@ import type {
 } from "react";
 
 import {
+  archiveDirectoryEmployee,
   endDirectoryEmployeeEmployment,
   getDirectoryEmployee,
   updateDirectoryEmployeeStatus,
@@ -142,6 +143,22 @@ export function EmployeeDirectoryDetailPanel({
     setEndingEmployment,
   ] = useState(false);
 
+
+  const [
+    showArchiveForm,
+    setShowArchiveForm,
+  ] = useState(false);
+
+  const [
+    archiveReason,
+    setArchiveReason,
+  ] = useState("");
+
+  const [
+    archiving,
+    setArchiving,
+  ] = useState(false);
+
   useEffect(() => {
     let active = true;
 
@@ -223,6 +240,12 @@ export function EmployeeDirectoryDetailPanel({
   const canEndEmployment =
     canManageAccount &&
     employmentIsActive;
+
+
+  const canArchiveFormerEmployee =
+    canManageAccount &&
+    !employmentIsActive &&
+    !employee?.archivedAt;
 
   function openStatusConfirmation(
     status: DirectoryEmployeeStatus,
@@ -398,6 +421,85 @@ export function EmployeeDirectoryDetailPanel({
       );
     } finally {
       setEndingEmployment(false);
+    }
+  }
+
+
+  function cancelArchiveEmployee():
+    void {
+    if (archiving) {
+      return;
+    }
+
+    setShowArchiveForm(false);
+    setArchiveReason("");
+    setActionError("");
+  }
+
+  async function submitArchiveEmployee(
+    event:
+      FormEvent<HTMLFormElement>,
+  ): Promise<void> {
+    event.preventDefault();
+
+    if (
+      !employee ||
+      archiving
+    ) {
+      return;
+    }
+
+    const reason =
+      archiveReason
+        .trim()
+        .replace(/\s+/g, " ");
+
+    if (reason.length < 3) {
+      setActionError(
+        "Enter an archive reason of at least 3 characters.",
+      );
+
+      return;
+    }
+
+    setArchiving(true);
+    setActionError("");
+    setActionMessage("");
+
+    try {
+      const result =
+        await archiveDirectoryEmployee(
+          accessToken,
+          employee.id,
+          {
+            reason,
+          },
+        );
+
+      setActionMessage(
+        result.message,
+      );
+
+      setShowArchiveForm(false);
+      setArchiveReason("");
+
+      // Refresh both the profile and directory list.
+      setRetryKey(
+        (current) =>
+          current + 1,
+      );
+
+      onStatusChanged();
+    } catch (
+      requestError: unknown
+    ) {
+      setActionError(
+        getErrorMessage(
+          requestError,
+        ),
+      );
+    } finally {
+      setArchiving(false);
     }
   }
 
@@ -1050,6 +1152,112 @@ export function EmployeeDirectoryDetailPanel({
                         }
                         disabled={
                           endingEmployment
+                        }
+                      >
+                        Cancel
+                      </button>
+                    </div>
+                  </form>
+                )}
+              </section>
+            )}
+
+            {canArchiveFormerEmployee && (
+              <section className="dir-archive-box">
+                <div className="dir-archive-head">
+                  <span>
+                    Historical record
+                  </span>
+
+                  <strong>
+                    Archive former employee
+                  </strong>
+
+                  <p>
+                    Archiving keeps messages, audit records and employment history, but marks the profile as a historical Patan Branch record.
+                  </p>
+                </div>
+
+                {!showArchiveForm && (
+                  <button
+                    type="button"
+                    className="dir-archive-open"
+                    onClick={() => {
+                      setShowArchiveForm(
+                        true,
+                      );
+
+                      setActionError("");
+                      setActionMessage("");
+                    }}
+                  >
+                    Archive employee record
+                  </button>
+                )}
+
+                {showArchiveForm && (
+                  <form
+                    className="dir-archive-form"
+                    onSubmit={
+                      submitArchiveEmployee
+                    }
+                  >
+                    <label>
+                      <span>
+                        Archive reason
+                      </span>
+
+                      <textarea
+                        value={
+                          archiveReason
+                        }
+                        onChange={(
+                          event,
+                        ) =>
+                          setArchiveReason(
+                            event.target.value,
+                          )
+                        }
+                        minLength={3}
+                        maxLength={500}
+                        placeholder="Enter why this former employee record is being archived."
+                        disabled={
+                          archiving
+                        }
+                        required
+                      />
+                    </label>
+
+                    {actionError && (
+                      <div
+                        className="dir-status-err"
+                        role="alert"
+                      >
+                        {actionError}
+                      </div>
+                    )}
+
+                    <div className="dir-archive-actions">
+                      <button
+                        type="submit"
+                        className="dir-archive-confirm"
+                        disabled={
+                          archiving
+                        }
+                      >
+                        {archiving
+                          ? "Archiving..."
+                          : "Confirm archive"}
+                      </button>
+
+                      <button
+                        type="button"
+                        className="dir-status-cancel"
+                        onClick={
+                          cancelArchiveEmployee
+                        }
+                        disabled={
+                          archiving
                         }
                       >
                         Cancel

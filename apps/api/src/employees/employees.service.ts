@@ -19,6 +19,7 @@ import {
 
 import type { Prisma } from '../generated/prisma/client';
 
+import { ArchiveEmployeeDto } from './dto/archive-employee.dto';
 import { CreateEmployeeDto } from './dto/create-employee.dto';
 import { EndEmployeeEmploymentDto } from './dto/end-employee-employment.dto';
 import { ListEmployeesQueryDto } from './dto/list-employees-query.dto';
@@ -841,6 +842,195 @@ export class EmployeesService {
     return {
       message: 'Employee updated successfully.',
       employee: updatedEmployee,
+    };
+  }
+
+  async archiveEmployee(
+    user: AuthenticatedUser,
+    id: string,
+    dto: ArchiveEmployeeDto,
+    metadata: EmployeeLifecycleMetadata,
+  ) {
+    if (user.role !== AccountRole.SUPER_ADMIN) {
+      throw new ForbiddenException(
+        'Only the Super Admin can archive an employee record.',
+      );
+    }
+
+    const reason = dto.reason.trim().replace(/\s+/g, ' ');
+
+    if (reason.length < 3) {
+      throw new BadRequestException(
+        'Archive reason must contain at least 3 characters.',
+      );
+    }
+
+    const now = new Date();
+
+    const ipAddress = metadata.ipAddress?.slice(0, 45) || null;
+
+    const userAgent = metadata.userAgent?.slice(0, 500) || null;
+
+    const result = await this.prisma.$transaction(async (transaction) => {
+      const employee = await transaction.employee.findUnique({
+        where: {
+          id,
+        },
+
+        select: {
+          id: true,
+          empId: true,
+          empName: true,
+          officialEmail: true,
+          status: true,
+          employmentStatus: true,
+          archivedAt: true,
+
+          account: {
+            select: {
+              id: true,
+              role: true,
+              isEnabled: true,
+            },
+          },
+        },
+      });
+
+      if (!employee) {
+        throw new NotFoundException('Employee was not found.');
+      }
+
+      if (employee.account?.role === AccountRole.SUPER_ADMIN) {
+        throw new ForbiddenException(
+          'The Super Admin record cannot be archived.',
+        );
+      }
+
+      if (employee.employmentStatus === EmploymentStatus.ACTIVE) {
+        throw new ConflictException(
+          'Active employees cannot be archived. End employment first.',
+        );
+      }
+
+      if (employee.archivedAt) {
+        throw new ConflictException(
+          'This employee record is already archived.',
+        );
+      }
+
+      let revokedSessions = 0;
+
+      if (employee.account) {
+        await transaction.account.update({
+          where: {
+            id: employee.account.id,
+          },
+
+          data: {
+            isEnabled: false,
+          },
+        });
+
+        const sessionResult = await transaction.authSession.updateMany({
+          where: {
+            accountId: employee.account.id,
+
+            revokedAt: null,
+          },
+
+          data: {
+            revokedAt: now,
+          },
+        });
+
+        revokedSessions = sessionResult.count;
+      }
+
+      /*
+       * Archived records remain stored for
+       * audit, messages and historical reporting.
+       */
+      const updatedEmployee = await transaction.employee.update({
+        where: {
+          id: employee.id,
+        },
+
+        data: {
+          status: EmployeeStatus.INACTIVE,
+
+          archivedAt: now,
+        },
+
+        select: {
+          id: true,
+          empId: true,
+          empName: true,
+          officialEmail: true,
+          status: true,
+          employmentStatus: true,
+          employmentEndedAt: true,
+          employmentEndReason: true,
+          archivedAt: true,
+          isActivated: true,
+          updatedAt: true,
+
+          account: {
+            select: {
+              id: true,
+              role: true,
+              isEnabled: true,
+            },
+          },
+        },
+      });
+
+      await transaction.employeeLifecycleAction.create({
+        data: {
+          employeeId: employee.id,
+
+          actorAccountId: user.accountId,
+
+          action: EmployeeLifecycleActionType.ARCHIVED,
+
+          previousEmployeeStatus: employee.status,
+
+          newEmployeeStatus: EmployeeStatus.INACTIVE,
+
+          previousEmploymentStatus: employee.employmentStatus,
+
+          newEmploymentStatus: employee.employmentStatus,
+
+          reason,
+
+          effectiveAt: now,
+
+          ipAddress,
+
+          userAgent,
+
+          metadata: {
+            accountId: employee.account?.id ?? null,
+
+            accountRole: employee.account?.role ?? null,
+
+            revokedSessions,
+          },
+        },
+      });
+
+      return {
+        employee: updatedEmployee,
+
+        revokedSessions,
+      };
+    });
+
+    return {
+      message: 'Former employee record archived successfully.',
+
+      employee: result.employee,
+
+      revokedSessions: result.revokedSessions,
     };
   }
 

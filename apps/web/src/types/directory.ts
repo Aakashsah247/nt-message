@@ -217,3 +217,29 @@ export interface EndDirectoryEmployeeEmploymentResponse {
 
   revokedSessions: number;
 }
+
+
+export interface ArchiveDirectoryEmployeeInput {
+  reason: string;
+}
+
+export interface ArchiveDirectoryEmployeeResponse {
+  message: string;
+
+  employee: {
+    id: string;
+    empId: string;
+    empName: string;
+    officialEmail: string;
+    status: DirectoryEmployeeStatus;
+    employmentStatus:
+      DirectoryEmploymentStatus;
+    employmentEndedAt: string | null;
+    employmentEndReason: string | null;
+    archivedAt: string;
+    isActivated: boolean;
+    updatedAt: string;
+  };
+
+  revokedSessions: number;
+}

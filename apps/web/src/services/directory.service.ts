@@ -1,6 +1,8 @@
 import { apiRequest } from "../lib/api";
 
 import type {
+  ArchiveDirectoryEmployeeInput,
+  ArchiveDirectoryEmployeeResponse,
   DirectoryEmployeeDetailResponse,
   DirectoryEmployeeStatus,
   DirectoryListQuery,
@@ -162,6 +164,28 @@ export function endDirectoryEmployeeEmployment(
   // Employment exit disables the account and revokes every session.
   return apiRequest<EndDirectoryEmployeeEmploymentResponse>(
     `/admin/employees/${employeeId}/employment-end`,
+    {
+      method: "PATCH",
+
+      headers:
+        createAuthorizationHeaders(
+          accessToken,
+        ),
+
+      body: JSON.stringify(input),
+    },
+  );
+}
+
+
+export function archiveDirectoryEmployee(
+  accessToken: string,
+  employeeId: string,
+  input: ArchiveDirectoryEmployeeInput,
+): Promise<ArchiveDirectoryEmployeeResponse> {
+  // Archiving preserves history while preventing active use.
+  return apiRequest<ArchiveDirectoryEmployeeResponse>(
+    `/admin/employees/${employeeId}/archive`,
     {
       method: "PATCH",
 

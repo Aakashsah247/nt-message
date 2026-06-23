@@ -19,6 +19,7 @@ import { RolesGuard } from '../auth/guards/roles.guard';
 import type { AuthenticatedUser } from '../auth/types/auth.types';
 import { AccountRole } from '../generated/prisma/client';
 
+import { ArchiveEmployeeDto } from './dto/archive-employee.dto';
 import { CreateEmployeeDto } from './dto/create-employee.dto';
 import { EndEmployeeEmploymentDto } from './dto/end-employee-employment.dto';
 import { ListEmployeesQueryDto } from './dto/list-employees-query.dto';
@@ -69,6 +70,32 @@ export class EmployeesController {
     id: string,
   ) {
     return this.employeesService.getEmployeeById(id);
+  }
+
+  @Patch(':id/archive')
+  archiveEmployee(
+    @CurrentUser()
+    user: AuthenticatedUser,
+
+    @Param(
+      'id',
+      new ParseUUIDPipe({
+        version: '4',
+      }),
+    )
+    id: string,
+
+    @Body()
+    dto: ArchiveEmployeeDto,
+
+    @Req()
+    request: Request,
+  ) {
+    return this.employeesService.archiveEmployee(user, id, dto, {
+      ipAddress: request.ip ?? request.socket.remoteAddress ?? null,
+
+      userAgent: request.get('user-agent') ?? null,
+    });
   }
 
   @Patch(':id/employment-end')

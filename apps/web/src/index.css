@@ -7189,3 +7189,128 @@
   }
 }
 /* DIRECTORY EMPLOYMENT LIFECYCLE END */
+
+
+/* DIRECTORY ARCHIVE CONTROL START */
+@layer components {
+  .dir-archive-box {
+    display: grid;
+    gap: 14px;
+    margin-top: 18px;
+    padding: 18px;
+    border: 1px solid #cfd9e3;
+    border-radius: 16px;
+    background:
+      linear-gradient(
+        135deg,
+        #f8fafc,
+        #eef3f7
+      );
+  }
+
+  .dir-archive-head {
+    display: grid;
+    gap: 5px;
+  }
+
+  .dir-archive-head span,
+  .dir-archive-form label > span {
+    color: #5f7080;
+    font-size: 10px;
+    font-weight: 900;
+    letter-spacing: 0.07em;
+    text-transform: uppercase;
+  }
+
+  .dir-archive-head strong {
+    color: #2d4356;
+    font-size: 14px;
+  }
+
+  .dir-archive-head p {
+    margin: 0;
+    color: #697b8b;
+    font-size: 11px;
+    line-height: 1.55;
+  }
+
+  .dir-archive-open,
+  .dir-archive-confirm {
+    min-height: 40px;
+    padding: 0 14px;
+    border-radius: 10px;
+    font-size: 11px;
+    font-weight: 900;
+  }
+
+  .dir-archive-open {
+    border: 1px solid #8fa1b2;
+    color: #42586b;
+    background: white;
+  }
+
+  .dir-archive-confirm {
+    border: 0;
+    color: white;
+    background:
+      linear-gradient(
+        115deg,
+        #43596d,
+        #657b8e
+      );
+  }
+
+  .dir-archive-form {
+    display: grid;
+    gap: 12px;
+    padding: 14px;
+    border: 1px solid #d0dae3;
+    border-radius: 12px;
+    background: white;
+  }
+
+  .dir-archive-form label {
+    display: grid;
+    gap: 7px;
+  }
+
+  .dir-archive-form textarea {
+    width: 100%;
+    min-height: 105px;
+    resize: vertical;
+    padding: 11px 12px;
+    border: 1px solid #c8d3dd;
+    border-radius: 9px;
+    color: var(--color-nt-text);
+    background: #fbfcfd;
+    font: inherit;
+    font-size: 11px;
+    line-height: 1.55;
+    outline: none;
+  }
+
+  .dir-archive-form textarea:focus {
+    border-color: #667d91;
+    box-shadow:
+      0 0 0 3px
+      rgba(102, 125, 145, 0.12);
+  }
+
+  .dir-archive-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 9px;
+  }
+}
+
+@media (max-width: 520px) {
+  .dir-archive-actions {
+    display: grid;
+    grid-template-columns: 1fr;
+  }
+
+  .dir-archive-actions button {
+    width: 100%;
+  }
+}
+/* DIRECTORY ARCHIVE CONTROL END */
