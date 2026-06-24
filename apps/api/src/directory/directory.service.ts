@@ -7,7 +7,11 @@ import {
 import type { AuthenticatedUser } from '../auth/types/auth.types';
 import { PrismaService } from '../database/prisma.service';
 
-import { AccountRole, EmployeeStatus } from '../generated/prisma/client';
+import {
+  AccountRole,
+  EmployeeStatus,
+  ManagementPositionType,
+} from '../generated/prisma/client';
 
 import type { Prisma } from '../generated/prisma/client';
 
@@ -131,6 +135,38 @@ export class DirectoryService {
                 isActive: true,
               },
             },
+
+            managementAssignments: {
+              where: {
+                endedAt: null,
+
+                position: {
+                  is: {
+                    isActive: true,
+                  },
+                },
+              },
+
+              take: 1,
+
+              orderBy: {
+                startedAt: 'desc',
+              },
+
+              select: {
+                id: true,
+
+                position: {
+                  select: {
+                    id: true,
+                    positionType: true,
+                    divisionId: true,
+                    departmentId: true,
+                    isActive: true,
+                  },
+                },
+              },
+            },
           },
         },
       },
@@ -176,7 +212,22 @@ export class DirectoryService {
       );
     }
 
+    const activeManagementAssignment =
+      employee.managementAssignments[0] ?? null;
+
     if (account.role === AccountRole.SENIOR_MANAGEMENT) {
+      if (
+        !activeManagementAssignment ||
+        activeManagementAssignment.position.positionType !==
+          ManagementPositionType.SENIOR_MANAGEMENT ||
+        activeManagementAssignment.position.divisionId !==
+          employee.divisionId ||
+        activeManagementAssignment.position.departmentId !== null
+      ) {
+        throw new ForbiddenException(
+          'Your Senior Management role does not have a valid active position assignment.',
+        );
+      }
       return {
         role: account.role,
         scopeType: 'DIVISION',
@@ -200,6 +251,20 @@ export class DirectoryService {
     }
 
     if (account.role === AccountRole.TEAM_MANAGER) {
+      if (
+        !activeManagementAssignment ||
+        activeManagementAssignment.position.positionType !==
+          ManagementPositionType.TEAM_MANAGER ||
+        activeManagementAssignment.position.divisionId !==
+          employee.divisionId ||
+        activeManagementAssignment.position.departmentId !==
+          employee.departmentId
+      ) {
+        throw new ForbiddenException(
+          'Your Team Manager role does not have a valid active position assignment.',
+        );
+      }
+
       return {
         role: account.role,
         scopeType: 'DEPARTMENT',

@@ -998,6 +998,23 @@ export class EmployeesService {
 
       const previousDesignation = employee.designation;
 
+      const endedManagementAssignments =
+        await transaction.managementAssignment.updateMany({
+          where: {
+            employeeId: employee.id,
+
+            endedAt: null,
+          },
+
+          data: {
+            endedAt: now,
+
+            endedByAccountId: user.accountId,
+
+            endReason: reason,
+          },
+        });
+
       await transaction.account.update({
         where: {
           id: employee.account.id,
@@ -1129,6 +1146,8 @@ export class EmployeesService {
             accountId: employee.account.id,
 
             revokedSessions: revokedSessions.count,
+
+            endedManagementAssignments: endedManagementAssignments.count,
           },
         },
       });
@@ -1590,6 +1609,23 @@ export class EmployeesService {
         revokedSessions = sessionResult.count;
       }
 
+      const endedManagementAssignments =
+        await transaction.managementAssignment.updateMany({
+          where: {
+            employeeId: employee.id,
+
+            endedAt: null,
+          },
+
+          data: {
+            endedAt: effectiveAt,
+
+            endedByAccountId: user.accountId,
+
+            endReason: reason,
+          },
+        });
+
       await transaction.employeeLifecycleAction.create({
         data: {
           employeeId: employee.id,
@@ -1620,6 +1656,8 @@ export class EmployeesService {
             accountRole: employee.account?.role ?? null,
 
             revokedSessions,
+
+            endedManagementAssignments: endedManagementAssignments.count,
           },
         },
       });

@@ -13,6 +13,7 @@ import {
   AccountRequestStatus,
   AccountRole,
   EmployeeStatus,
+  ManagementPositionType,
 } from '../generated/prisma/client';
 
 import { CreateAccountRequestDto } from './dto/create-account-request.dto';
@@ -72,6 +73,39 @@ export class AccountRequestsService {
                 isActive: true,
               },
             },
+
+            managementAssignments: {
+              where: {
+                endedAt: null,
+
+                position: {
+                  is: {
+                    isActive: true,
+                  },
+                },
+              },
+
+              take: 1,
+
+              orderBy: {
+                startedAt: 'desc',
+              },
+
+              select: {
+                id: true,
+                startedAt: true,
+
+                position: {
+                  select: {
+                    id: true,
+                    positionType: true,
+                    divisionId: true,
+                    departmentId: true,
+                    isActive: true,
+                  },
+                },
+              },
+            },
           },
         },
       },
@@ -97,6 +131,41 @@ export class AccountRequestsService {
       throw new ForbiddenException(
         'Your account does not have an active employee identity.',
       );
+    }
+
+    const activeManagementAssignment =
+      requester.employee.managementAssignments[0] ?? null;
+
+    if (!activeManagementAssignment) {
+      throw new ForbiddenException(
+        'Your management role does not have an active position assignment.',
+      );
+    }
+
+    const position = activeManagementAssignment.position;
+
+    if (requester.role === AccountRole.SENIOR_MANAGEMENT) {
+      if (
+        position.positionType !== ManagementPositionType.SENIOR_MANAGEMENT ||
+        position.divisionId !== requester.employee.divisionId ||
+        position.departmentId !== null
+      ) {
+        throw new ForbiddenException(
+          'Your Senior Management position assignment is invalid.',
+        );
+      }
+    }
+
+    if (requester.role === AccountRole.TEAM_MANAGER) {
+      if (
+        position.positionType !== ManagementPositionType.TEAM_MANAGER ||
+        position.divisionId !== requester.employee.divisionId ||
+        position.departmentId !== requester.employee.departmentId
+      ) {
+        throw new ForbiddenException(
+          'Your Team Manager position assignment is invalid.',
+        );
+      }
     }
 
     return requester;

@@ -9,6 +9,7 @@ import { AuthModule } from './auth/auth.module';
 import { PrismaModule } from './database/prisma.module';
 import { DirectoryModule } from './directory/directory.module';
 import { EmployeesModule } from './employees/employees.module';
+import { ManagementAssignmentsModule } from './management-assignments/management-assignments.module';
 import { OrganizationModule } from './organization/organization.module';
 
 @Module({
@@ -22,6 +23,7 @@ import { OrganizationModule } from './organization/organization.module';
     DirectoryModule,
     AuthModule,
     EmployeesModule,
+    ManagementAssignmentsModule,
     OrganizationModule,
     ActivationModule,
     AccountRequestsModule,
