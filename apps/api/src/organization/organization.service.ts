@@ -26,6 +26,14 @@ export class OrganizationService {
     return value.trim().replace(/\s+/g, ' ');
   }
 
+  private isForeignKeyConstraintError(error: unknown): boolean {
+    return (
+      typeof error === 'object' &&
+      error !== null &&
+      (error as { code?: string }).code === 'P2003'
+    );
+  }
+
   async createDivision(dto: CreateDivisionDto) {
     const code = this.normalizeCode(dto.code);
 
@@ -108,6 +116,8 @@ export class OrganizationService {
           select: {
             departments: true,
             employees: true,
+            accountRequests: true,
+            managementPositions: true,
           },
         },
       },
@@ -153,6 +163,8 @@ export class OrganizationService {
             _count: {
               select: {
                 employees: true,
+                accountRequests: true,
+                managementPositions: true,
               },
             },
           },
@@ -162,6 +174,8 @@ export class OrganizationService {
           select: {
             departments: true,
             employees: true,
+            accountRequests: true,
+            managementPositions: true,
           },
         },
       },
@@ -308,6 +322,91 @@ export class OrganizationService {
     };
   }
 
+  async deleteDivision(id: string) {
+    try {
+      return await this.prisma.$transaction(async (transaction) => {
+        const division = await transaction.division.findUnique({
+          where: {
+            id,
+          },
+
+          select: {
+            id: true,
+            code: true,
+            name: true,
+
+            _count: {
+              select: {
+                departments: true,
+                employees: true,
+                accountRequests: true,
+                managementPositions: true,
+              },
+            },
+          },
+        });
+
+        if (!division) {
+          throw new NotFoundException('Division was not found.');
+        }
+
+        const blockers: string[] = [];
+
+        if (division._count.departments > 0) {
+          blockers.push(`${division._count.departments} department record(s)`);
+        }
+
+        if (division._count.employees > 0) {
+          blockers.push(`${division._count.employees} employee record(s)`);
+        }
+
+        if (division._count.accountRequests > 0) {
+          blockers.push(
+            `${division._count.accountRequests} account request record(s)`,
+          );
+        }
+
+        if (division._count.managementPositions > 0) {
+          blockers.push(
+            `${division._count.managementPositions} management position record(s)`,
+          );
+        }
+
+        // Historical references block permanent deletion.
+        if (blockers.length > 0) {
+          throw new ConflictException(
+            `This division cannot be deleted because it has ${blockers.join(', ')}. Deactivate it instead.`,
+          );
+        }
+
+        await transaction.division.delete({
+          where: {
+            id,
+          },
+        });
+
+        return {
+          message: 'Division deleted successfully.',
+
+          deletedDivision: {
+            id: division.id,
+            code: division.code,
+            name: division.name,
+          },
+        };
+      });
+    } catch (error: unknown) {
+      // Database constraints protect concurrent writes.
+      if (this.isForeignKeyConstraintError(error)) {
+        throw new ConflictException(
+          'This division cannot be deleted because another record still uses it.',
+        );
+      }
+
+      throw error;
+    }
+  }
+
   async createDepartment(dto: CreateDepartmentDto) {
     const code = this.normalizeCode(dto.code);
 
@@ -439,6 +538,8 @@ export class OrganizationService {
         _count: {
           select: {
             employees: true,
+            accountRequests: true,
+            managementPositions: true,
           },
         },
       },
@@ -519,6 +620,8 @@ export class OrganizationService {
         _count: {
           select: {
             employees: true,
+            accountRequests: true,
+            managementPositions: true,
           },
         },
       },
@@ -549,6 +652,8 @@ export class OrganizationService {
         _count: {
           select: {
             employees: true,
+            accountRequests: true,
+            managementPositions: true,
           },
         },
       },
@@ -581,9 +686,13 @@ export class OrganizationService {
       dto.divisionId !== undefined &&
       dto.divisionId !== existingDepartment.divisionId
     ) {
-      if (existingDepartment._count.employees > 0) {
+      if (
+        existingDepartment._count.employees > 0 ||
+        existingDepartment._count.accountRequests > 0 ||
+        existingDepartment._count.managementPositions > 0
+      ) {
         throw new ConflictException(
-          'A department with assigned employees cannot be moved to another division.',
+          'A department with employees, account requests, or management positions cannot be moved to another division.',
         );
       }
 
@@ -709,6 +818,8 @@ export class OrganizationService {
         _count: {
           select: {
             employees: true,
+            accountRequests: true,
+            managementPositions: true,
           },
         },
       },
@@ -718,5 +829,94 @@ export class OrganizationService {
       message: 'Department updated successfully.',
       department,
     };
+  }
+
+  async deleteDepartment(id: string) {
+    try {
+      return await this.prisma.$transaction(async (transaction) => {
+        const department = await transaction.department.findUnique({
+          where: {
+            id,
+          },
+
+          select: {
+            id: true,
+            code: true,
+            name: true,
+
+            division: {
+              select: {
+                id: true,
+                code: true,
+                name: true,
+              },
+            },
+
+            _count: {
+              select: {
+                employees: true,
+                accountRequests: true,
+                managementPositions: true,
+              },
+            },
+          },
+        });
+
+        if (!department) {
+          throw new NotFoundException('Department was not found.');
+        }
+
+        const blockers: string[] = [];
+
+        if (department._count.employees > 0) {
+          blockers.push(`${department._count.employees} employee record(s)`);
+        }
+
+        if (department._count.accountRequests > 0) {
+          blockers.push(
+            `${department._count.accountRequests} account request record(s)`,
+          );
+        }
+
+        if (department._count.managementPositions > 0) {
+          blockers.push(
+            `${department._count.managementPositions} management position record(s)`,
+          );
+        }
+
+        // Used departments must be deactivated, not deleted.
+        if (blockers.length > 0) {
+          throw new ConflictException(
+            `This department cannot be deleted because it has ${blockers.join(', ')}. Deactivate it instead.`,
+          );
+        }
+
+        await transaction.department.delete({
+          where: {
+            id,
+          },
+        });
+
+        return {
+          message: 'Department deleted successfully.',
+
+          deletedDepartment: {
+            id: department.id,
+            code: department.code,
+            name: department.name,
+            division: department.division,
+          },
+        };
+      });
+    } catch (error: unknown) {
+      // Database constraints protect concurrent writes.
+      if (this.isForeignKeyConstraintError(error)) {
+        throw new ConflictException(
+          'This department cannot be deleted because another record still uses it.',
+        );
+      }
+
+      throw error;
+    }
   }
 }

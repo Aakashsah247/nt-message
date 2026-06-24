@@ -1,6 +1,7 @@
 import {
   Body,
   Controller,
+  Delete,
   Get,
   Param,
   ParseUUIDPipe,
@@ -71,6 +72,21 @@ export class OrganizationController {
     return this.organizationService.updateDivision(id, dto);
   }
 
+  @Delete('divisions/:id')
+  @UseGuards(RolesGuard)
+  @Roles(AccountRole.SUPER_ADMIN)
+  deleteDivision(
+    @Param(
+      'id',
+      new ParseUUIDPipe({
+        version: '4',
+      }),
+    )
+    id: string,
+  ) {
+    return this.organizationService.deleteDivision(id);
+  }
+
   @Post('departments')
   @UseGuards(RolesGuard)
   @Roles(AccountRole.SUPER_ADMIN)
@@ -115,5 +131,20 @@ export class OrganizationController {
     dto: UpdateDepartmentDto,
   ) {
     return this.organizationService.updateDepartment(id, dto);
+  }
+
+  @Delete('departments/:id')
+  @UseGuards(RolesGuard)
+  @Roles(AccountRole.SUPER_ADMIN)
+  deleteDepartment(
+    @Param(
+      'id',
+      new ParseUUIDPipe({
+        version: '4',
+      }),
+    )
+    id: string,
+  ) {
+    return this.organizationService.deleteDepartment(id);
   }
 }
