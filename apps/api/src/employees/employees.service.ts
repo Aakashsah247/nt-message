@@ -20,6 +20,7 @@ import {
 import type { Prisma } from '../generated/prisma/client';
 
 import { ArchiveEmployeeDto } from './dto/archive-employee.dto';
+import { ChangeEmployeeRoleDto } from './dto/change-employee-role.dto';
 import { CreateEmployeeDto } from './dto/create-employee.dto';
 import { EndEmployeeEmploymentDto } from './dto/end-employee-employment.dto';
 import { ListEmployeesQueryDto } from './dto/list-employees-query.dto';
@@ -842,6 +843,316 @@ export class EmployeesService {
     return {
       message: 'Employee updated successfully.',
       employee: updatedEmployee,
+    };
+  }
+
+  async changeEmployeeRole(
+    user: AuthenticatedUser,
+    id: string,
+    dto: ChangeEmployeeRoleDto,
+    metadata: EmployeeLifecycleMetadata,
+  ) {
+    if (user.role !== AccountRole.SUPER_ADMIN) {
+      throw new ForbiddenException(
+        'Only the Super Admin can change an employee role.',
+      );
+    }
+
+    if (dto.targetRole === AccountRole.SUPER_ADMIN) {
+      throw new ForbiddenException(
+        'The Super Admin role cannot be assigned through this process.',
+      );
+    }
+
+    const reason = dto.reason.trim().replace(/\s+/g, ' ');
+
+    if (reason.length < 3) {
+      throw new BadRequestException(
+        'Role-change reason must contain at least 3 characters.',
+      );
+    }
+
+    const designation =
+      dto.designation !== undefined
+        ? dto.designation.trim().replace(/\s+/g, ' ')
+        : undefined;
+
+    if (designation !== undefined && designation.length < 2) {
+      throw new BadRequestException(
+        'Designation must contain at least 2 characters.',
+      );
+    }
+
+    const { division, department } = await this.validateOrganizationAssignment(
+      dto.divisionId,
+      dto.departmentId,
+    );
+
+    const roleRank: Partial<Record<AccountRole, number>> = {
+      [AccountRole.EMPLOYEE]: 1,
+      [AccountRole.TEAM_MANAGER]: 2,
+      [AccountRole.SENIOR_MANAGEMENT]: 3,
+    };
+
+    const targetRank = roleRank[dto.targetRole];
+
+    if (targetRank === undefined) {
+      throw new BadRequestException(
+        'The selected target role is not supported.',
+      );
+    }
+
+    const now = new Date();
+
+    const ipAddress = metadata.ipAddress?.slice(0, 45) || null;
+
+    const userAgent = metadata.userAgent?.slice(0, 500) || null;
+
+    const result = await this.prisma.$transaction(async (transaction) => {
+      const employee = await transaction.employee.findUnique({
+        where: {
+          id,
+        },
+
+        select: {
+          id: true,
+          empId: true,
+          empName: true,
+          officialEmail: true,
+          designation: true,
+          divisionId: true,
+          departmentId: true,
+          status: true,
+          employmentStatus: true,
+          archivedAt: true,
+          isActivated: true,
+
+          account: {
+            select: {
+              id: true,
+              role: true,
+              isEnabled: true,
+            },
+          },
+        },
+      });
+
+      if (!employee) {
+        throw new NotFoundException('Employee was not found.');
+      }
+
+      if (employee.status !== EmployeeStatus.ACTIVE) {
+        throw new ConflictException(
+          'Only an active employee can have their role changed.',
+        );
+      }
+
+      if (employee.employmentStatus !== EmploymentStatus.ACTIVE) {
+        throw new ConflictException(
+          'A former employee cannot have their role changed.',
+        );
+      }
+
+      if (employee.archivedAt) {
+        throw new ConflictException(
+          'An archived employee cannot have their role changed.',
+        );
+      }
+
+      if (!employee.isActivated || !employee.account) {
+        throw new ConflictException(
+          'The employee must activate their account before a role change.',
+        );
+      }
+
+      if (employee.account.role === AccountRole.SUPER_ADMIN) {
+        throw new ForbiddenException(
+          'The Super Admin role cannot be changed through this process.',
+        );
+      }
+
+      if (employee.account.role === dto.targetRole) {
+        throw new ConflictException(
+          'The employee already has the selected role.',
+        );
+      }
+
+      const previousRank = roleRank[employee.account.role];
+
+      if (previousRank === undefined) {
+        throw new BadRequestException(
+          'The employee current role is not supported.',
+        );
+      }
+
+      const lifecycleAction =
+        targetRank > previousRank
+          ? EmployeeLifecycleActionType.PROMOTED
+          : EmployeeLifecycleActionType.DEMOTED;
+
+      const previousRole = employee.account.role;
+
+      const previousDivisionId = employee.divisionId;
+
+      const previousDepartmentId = employee.departmentId;
+
+      const previousDesignation = employee.designation;
+
+      await transaction.account.update({
+        where: {
+          id: employee.account.id,
+        },
+
+        data: {
+          role: dto.targetRole,
+        },
+      });
+
+      const updatedEmployee = await transaction.employee.update({
+        where: {
+          id: employee.id,
+        },
+
+        data: {
+          division: {
+            connect: {
+              id: division.id,
+            },
+          },
+
+          departmentUnit: {
+            connect: {
+              id: department.id,
+            },
+          },
+
+          department: department.name,
+
+          ...(designation !== undefined
+            ? {
+                designation,
+              }
+            : {}),
+        },
+
+        select: {
+          id: true,
+          empId: true,
+          empName: true,
+          officialEmail: true,
+          designation: true,
+          divisionId: true,
+          departmentId: true,
+          status: true,
+          employmentStatus: true,
+          isActivated: true,
+          updatedAt: true,
+
+          division: {
+            select: {
+              id: true,
+              code: true,
+              name: true,
+              isActive: true,
+            },
+          },
+
+          departmentUnit: {
+            select: {
+              id: true,
+              code: true,
+              name: true,
+              isActive: true,
+            },
+          },
+
+          account: {
+            select: {
+              id: true,
+              role: true,
+              isEnabled: true,
+            },
+          },
+        },
+      });
+
+      // Role changes invalidate every existing login session.
+      const revokedSessions = await transaction.authSession.updateMany({
+        where: {
+          accountId: employee.account.id,
+
+          revokedAt: null,
+        },
+
+        data: {
+          revokedAt: now,
+        },
+      });
+
+      await transaction.employeeLifecycleAction.create({
+        data: {
+          employeeId: employee.id,
+
+          actorAccountId: user.accountId,
+
+          action: lifecycleAction,
+
+          previousEmployeeStatus: employee.status,
+
+          newEmployeeStatus: employee.status,
+
+          previousEmploymentStatus: employee.employmentStatus,
+
+          newEmploymentStatus: employee.employmentStatus,
+
+          reason,
+
+          effectiveAt: now,
+
+          ipAddress,
+
+          userAgent,
+
+          metadata: {
+            previousRole,
+            newRole: dto.targetRole,
+
+            previousDivisionId,
+            newDivisionId: division.id,
+
+            previousDepartmentId,
+            newDepartmentId: department.id,
+
+            previousDesignation,
+            newDesignation: designation ?? previousDesignation,
+
+            accountId: employee.account.id,
+
+            revokedSessions: revokedSessions.count,
+          },
+        },
+      });
+
+      return {
+        employee: updatedEmployee,
+
+        lifecycleAction,
+
+        revokedSessions: revokedSessions.count,
+      };
+    });
+
+    return {
+      message:
+        result.lifecycleAction === EmployeeLifecycleActionType.PROMOTED
+          ? 'Employee promoted successfully.'
+          : 'Employee demoted successfully.',
+
+      employee: result.employee,
+
+      action: result.lifecycleAction,
+
+      revokedSessions: result.revokedSessions,
     };
   }
 

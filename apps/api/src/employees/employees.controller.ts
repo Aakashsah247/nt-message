@@ -20,6 +20,7 @@ import type { AuthenticatedUser } from '../auth/types/auth.types';
 import { AccountRole } from '../generated/prisma/client';
 
 import { ArchiveEmployeeDto } from './dto/archive-employee.dto';
+import { ChangeEmployeeRoleDto } from './dto/change-employee-role.dto';
 import { CreateEmployeeDto } from './dto/create-employee.dto';
 import { EndEmployeeEmploymentDto } from './dto/end-employee-employment.dto';
 import { ListEmployeesQueryDto } from './dto/list-employees-query.dto';
@@ -83,6 +84,32 @@ export class EmployeesController {
     id: string,
   ) {
     return this.employeesService.getEmployeeLifecycleHistory(id);
+  }
+
+  @Patch(':id/role')
+  changeEmployeeRole(
+    @CurrentUser()
+    user: AuthenticatedUser,
+
+    @Param(
+      'id',
+      new ParseUUIDPipe({
+        version: '4',
+      }),
+    )
+    id: string,
+
+    @Body()
+    dto: ChangeEmployeeRoleDto,
+
+    @Req()
+    request: Request,
+  ) {
+    return this.employeesService.changeEmployeeRole(user, id, dto, {
+      ipAddress: request.ip ?? request.socket.remoteAddress ?? null,
+
+      userAgent: request.get('user-agent') ?? null,
+    });
   }
 
   @Patch(':id/archive')
