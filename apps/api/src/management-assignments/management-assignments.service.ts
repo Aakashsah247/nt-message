@@ -297,19 +297,21 @@ export class ManagementAssignmentsService {
               divisionId: division.id,
 
               departmentId: department?.id ?? null,
-
-              isActive: true,
             },
 
             select: {
               id: true,
+              isActive: true,
             },
           },
         );
 
+        // One official management position is allowed per scope.
         if (existingPosition) {
           throw new ConflictException(
-            'An active management position already exists for this organization scope.',
+            existingPosition.isActive
+              ? 'This management position already exists.'
+              : 'This management position already exists but is inactive. Reactivate it instead of creating a duplicate.',
           );
         }
 
@@ -365,9 +367,7 @@ export class ManagementAssignmentsService {
       };
     } catch (error: unknown) {
       if (this.isUniqueConstraintError(error)) {
-        throw new ConflictException(
-          'An active management position already exists for this organization scope.',
-        );
+        throw new ConflictException('This management position already exists.');
       }
 
       throw error;
