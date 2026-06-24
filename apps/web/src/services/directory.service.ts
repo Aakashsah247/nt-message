@@ -3,6 +3,10 @@ import { apiRequest } from "../lib/api";
 import type {
   ArchiveDirectoryEmployeeInput,
   ArchiveDirectoryEmployeeResponse,
+  ChangeDirectoryEmployeeRoleInput,
+  ChangeDirectoryEmployeeRoleResponse,
+  DirectoryOrganizationDepartmentsResponse,
+  DirectoryOrganizationDivisionsResponse,
   DirectoryEmployeeDetailResponse,
   DirectoryEmployeeStatus,
   DirectoryListQuery,
@@ -220,6 +224,57 @@ export function getDirectoryEmployeeLifecycleHistory(
         createAuthorizationHeaders(
           accessToken,
         ),
+    },
+  );
+}
+
+
+export function listDirectoryOrganizationDivisions(
+  accessToken: string,
+): Promise<DirectoryOrganizationDivisionsResponse> {
+  return apiRequest<DirectoryOrganizationDivisionsResponse>(
+    "/organization/divisions",
+    {
+      headers:
+        createAuthorizationHeaders(
+          accessToken,
+        ),
+    },
+  );
+}
+
+export function listDirectoryOrganizationDepartments(
+  accessToken: string,
+): Promise<DirectoryOrganizationDepartmentsResponse> {
+  return apiRequest<DirectoryOrganizationDepartmentsResponse>(
+    "/organization/departments",
+    {
+      headers:
+        createAuthorizationHeaders(
+          accessToken,
+        ),
+    },
+  );
+}
+
+export function changeDirectoryEmployeeRole(
+  accessToken: string,
+  employeeId: string,
+  input: ChangeDirectoryEmployeeRoleInput,
+): Promise<ChangeDirectoryEmployeeRoleResponse> {
+  // The backend validates role, organization and employee state.
+  return apiRequest<ChangeDirectoryEmployeeRoleResponse>(
+    `/admin/employees/${employeeId}/role`,
+    {
+      method: "PATCH",
+
+      headers:
+        createAuthorizationHeaders(
+          accessToken,
+        ),
+
+      body:
+        JSON.stringify(input),
     },
   );
 }

@@ -319,3 +319,89 @@ export interface DirectoryLifecycleHistoryResponse {
 
   data: DirectoryLifecycleAction[];
 }
+
+
+export type DirectoryRoleChangeTarget =
+  Exclude<
+    AccountRole,
+    "SUPER_ADMIN"
+  >;
+
+export interface DirectoryOrganizationDivision {
+  id: string;
+  code: string;
+  name: string;
+  isActive: boolean;
+}
+
+export interface DirectoryOrganizationDepartment {
+  id: string;
+  code: string;
+  name: string;
+  isActive: boolean;
+
+  division: {
+    id: string;
+    code: string;
+    name: string;
+    isActive: boolean;
+  };
+}
+
+export interface DirectoryOrganizationDivisionsResponse {
+  data:
+    DirectoryOrganizationDivision[];
+}
+
+export interface DirectoryOrganizationDepartmentsResponse {
+  data:
+    DirectoryOrganizationDepartment[];
+}
+
+export interface ChangeDirectoryEmployeeRoleInput {
+  targetRole:
+    DirectoryRoleChangeTarget;
+
+  divisionId: string;
+  departmentId: string;
+  designation?: string;
+  reason: string;
+}
+
+export interface ChangeDirectoryEmployeeRoleResponse {
+  message: string;
+
+  action:
+    | "PROMOTED"
+    | "DEMOTED";
+
+  revokedSessions: number;
+
+  employee: {
+    id: string;
+    empId: string;
+    empName: string;
+    officialEmail: string;
+    designation: string | null;
+    divisionId: string;
+    departmentId: string;
+    status:
+      DirectoryEmployeeStatus;
+    employmentStatus:
+      DirectoryEmploymentStatus;
+    isActivated: boolean;
+    updatedAt: string;
+
+    division:
+      DirectoryOrganizationUnit;
+
+    departmentUnit:
+      DirectoryOrganizationUnit;
+
+    account: {
+      id: string;
+      role: AccountRole;
+      isEnabled: boolean;
+    };
+  };
+}

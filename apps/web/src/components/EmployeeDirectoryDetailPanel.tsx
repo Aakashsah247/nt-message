@@ -6,9 +6,12 @@ import type {
 
 import {
   archiveDirectoryEmployee,
+  changeDirectoryEmployeeRole,
   endDirectoryEmployeeEmployment,
   getDirectoryEmployee,
   getDirectoryEmployeeLifecycleHistory,
+  listDirectoryOrganizationDepartments,
+  listDirectoryOrganizationDivisions,
   updateDirectoryEmployeeStatus,
 } from "../services/directory.service";
 
@@ -21,7 +24,17 @@ import type {
   DirectoryEmployeeStatus,
   DirectoryEmploymentStatus,
   DirectoryLifecycleHistoryResponse,
+  DirectoryOrganizationDepartment,
+  DirectoryOrganizationDivision,
+  DirectoryRoleChangeTarget,
 } from "../types/directory";
+
+const assignableRoles:
+  DirectoryRoleChangeTarget[] = [
+    "SENIOR_MANAGEMENT",
+    "TEAM_MANAGER",
+    "EMPLOYEE",
+  ];
 
 interface EmployeeDirectoryDetailPanelProps {
   accessToken: string;
@@ -64,6 +77,19 @@ function formatDate(value: string | null): string {
     dateStyle: "medium",
     timeStyle: "short",
   }).format(date);
+}
+
+function getMetadataString(
+  metadata:
+    Record<string, unknown> | null,
+  key: string,
+): string | null {
+  const value =
+    metadata?.[key];
+
+  return typeof value === "string"
+    ? value
+    : null;
 }
 
 function getInitials(name: string): string {
@@ -173,12 +199,81 @@ export function EmployeeDirectoryDetailPanel({
   const [
     lifecycleLoading,
     setLifecycleLoading,
-  ] = useState(false);
+  ] = useState(
+    viewerRole === "SUPER_ADMIN",
+  );
 
   const [
     lifecycleError,
     setLifecycleError,
   ] = useState("");
+
+
+  const [
+    organizationDivisions,
+    setOrganizationDivisions,
+  ] =
+    useState<
+      DirectoryOrganizationDivision[]
+    >([]);
+
+  const [
+    organizationDepartments,
+    setOrganizationDepartments,
+  ] =
+    useState<
+      DirectoryOrganizationDepartment[]
+    >([]);
+
+  const [
+    organizationLoading,
+    setOrganizationLoading,
+  ] = useState(
+    viewerRole === "SUPER_ADMIN",
+  );
+
+  const [
+    organizationError,
+    setOrganizationError,
+  ] = useState("");
+
+  const [
+    showRoleForm,
+    setShowRoleForm,
+  ] = useState(false);
+
+  const [
+    targetRole,
+    setTargetRole,
+  ] =
+    useState<
+      DirectoryRoleChangeTarget | ""
+    >("");
+
+  const [
+    roleDivisionId,
+    setRoleDivisionId,
+  ] = useState("");
+
+  const [
+    roleDepartmentId,
+    setRoleDepartmentId,
+  ] = useState("");
+
+  const [
+    roleDesignation,
+    setRoleDesignation,
+  ] = useState("");
+
+  const [
+    roleReason,
+    setRoleReason,
+  ] = useState("");
+
+  const [
+    changingRole,
+    setChangingRole,
+  ] = useState(false);
 
   useEffect(() => {
     let active = true;
@@ -224,9 +319,6 @@ export function EmployeeDirectoryDetailPanel({
 
     let active = true;
 
-    setLifecycleLoading(true);
-    setLifecycleError("");
-
     getDirectoryEmployeeLifecycleHistory(
       accessToken,
       employeeId,
@@ -239,6 +331,8 @@ export function EmployeeDirectoryDetailPanel({
         setLifecycleHistory(
           historyResponse,
         );
+
+        setLifecycleError("");
       })
       .catch(
         (
@@ -271,6 +365,73 @@ export function EmployeeDirectoryDetailPanel({
     accessToken,
     employeeId,
     retryKey,
+    viewerRole,
+  ]);
+
+  useEffect(() => {
+    if (
+      viewerRole !==
+      "SUPER_ADMIN"
+    ) {
+      return;
+    }
+
+    let active = true;
+
+    Promise.all([
+      listDirectoryOrganizationDivisions(
+        accessToken,
+      ),
+
+      listDirectoryOrganizationDepartments(
+        accessToken,
+      ),
+    ])
+      .then(([
+        divisionResponse,
+        departmentResponse,
+      ]) => {
+        if (!active) {
+          return;
+        }
+
+        setOrganizationDivisions(
+          divisionResponse.data,
+        );
+
+        setOrganizationDepartments(
+          departmentResponse.data,
+        );
+
+        setOrganizationError("");
+      })
+      .catch(
+        (
+          requestError:
+            unknown,
+        ) => {
+          if (!active) {
+            return;
+          }
+
+          setOrganizationError(
+            getErrorMessage(
+              requestError,
+            ),
+          );
+        },
+      )
+      .finally(() => {
+        if (active) {
+          setOrganizationLoading(false);
+        }
+      });
+
+    return () => {
+      active = false;
+    };
+  }, [
+    accessToken,
     viewerRole,
   ]);
 
@@ -327,6 +488,24 @@ export function EmployeeDirectoryDetailPanel({
     canManageAccount &&
     !employmentIsActive &&
     !employee?.archivedAt;
+
+
+  const canChangeRole =
+    canManageAccount &&
+    employmentIsActive &&
+    employee?.status === "ACTIVE" &&
+    employee?.activationStatus ===
+      "ACTIVATED" &&
+    Boolean(employee?.role);
+
+  const availableRoleDepartments =
+    organizationDepartments.filter(
+      (department) =>
+        department.isActive &&
+        department.division.isActive &&
+        department.division.id ===
+          roleDivisionId,
+    );
 
   function openStatusConfirmation(
     status: DirectoryEmployeeStatus,
@@ -581,6 +760,174 @@ export function EmployeeDirectoryDetailPanel({
       );
     } finally {
       setArchiving(false);
+    }
+  }
+
+
+  function openRoleChange(): void {
+    if (!employee) {
+      return;
+    }
+
+    setTargetRole("");
+    setRoleDivisionId(
+      employee.division?.id ??
+        "",
+    );
+
+    setRoleDepartmentId(
+      employee.department?.id ??
+        "",
+    );
+
+    setRoleDesignation(
+      employee.designation ??
+        "",
+    );
+
+    setRoleReason("");
+    setActionError("");
+    setActionMessage("");
+    setShowRoleForm(true);
+  }
+
+  function cancelRoleChange(): void {
+    if (changingRole) {
+      return;
+    }
+
+    setShowRoleForm(false);
+    setTargetRole("");
+    setRoleReason("");
+    setActionError("");
+  }
+
+  async function submitRoleChange(
+    event:
+      FormEvent<HTMLFormElement>,
+  ): Promise<void> {
+    event.preventDefault();
+
+    if (
+      !employee ||
+      changingRole
+    ) {
+      return;
+    }
+
+    if (!targetRole) {
+      setActionError(
+        "Select the new organizational role.",
+      );
+
+      return;
+    }
+
+    if (
+      targetRole ===
+      employee.role
+    ) {
+      setActionError(
+        "Select a role different from the current role.",
+      );
+
+      return;
+    }
+
+    if (
+      !roleDivisionId ||
+      !roleDepartmentId
+    ) {
+      setActionError(
+        "Select both division and department.",
+      );
+
+      return;
+    }
+
+    const designation =
+      roleDesignation
+        .trim()
+        .replace(/\s+/g, " ");
+
+    if (
+      designation &&
+      designation.length < 2
+    ) {
+      setActionError(
+        "Designation must contain at least 2 characters.",
+      );
+
+      return;
+    }
+
+    const reason =
+      roleReason
+        .trim()
+        .replace(/\s+/g, " ");
+
+    if (reason.length < 3) {
+      setActionError(
+        "Enter an official role-change reason of at least 3 characters.",
+      );
+
+      return;
+    }
+
+    setChangingRole(true);
+    setActionError("");
+    setActionMessage("");
+
+    try {
+      const result =
+        await changeDirectoryEmployeeRole(
+          accessToken,
+          employee.id,
+          {
+            targetRole,
+            divisionId:
+              roleDivisionId,
+            departmentId:
+              roleDepartmentId,
+
+            designation:
+              designation ||
+              undefined,
+
+            reason,
+          },
+        );
+
+      setActionMessage(
+        `${result.message} ${result.revokedSessions} active session${
+          result.revokedSessions === 1
+            ? ""
+            : "s"
+        } revoked.`,
+      );
+
+      setShowRoleForm(false);
+      setTargetRole("");
+      setRoleReason("");
+
+      // Reload the role badge, organization assignment and history.
+      setRetryKey(
+        (current) =>
+          current + 1,
+      );
+
+      onStatusChanged();
+    } catch (
+      requestError:
+        unknown
+    ) {
+      setActionError(
+        getErrorMessage(
+          requestError,
+        ),
+      );
+    } finally {
+      setChangingRole(false);
     }
   }
 
@@ -932,6 +1279,323 @@ export function EmployeeDirectoryDetailPanel({
                 </div>
               </dl>
             </section>
+
+            {canChangeRole && (
+              <section className="dir-role-box">
+                <div className="dir-role-head">
+                  <span>
+                    Organization authority
+                  </span>
+
+                  <strong>
+                    Change organizational role
+                  </strong>
+
+                  <p>
+                    Promotion or demotion keeps the same account and employee history. Existing login sessions are revoked after confirmation.
+                  </p>
+                </div>
+
+                {organizationError && (
+                  <div
+                    className="dir-status-err"
+                    role="alert"
+                  >
+                    {organizationError}
+                  </div>
+                )}
+
+                {actionMessage && (
+                  <div className="dir-status-ok">
+                    {actionMessage}
+                  </div>
+                )}
+
+                {actionError && (
+                  <div
+                    className="dir-status-err"
+                    role="alert"
+                  >
+                    {actionError}
+                  </div>
+                )}
+
+                {!showRoleForm && (
+                  <button
+                    type="button"
+                    className="dir-role-open"
+                    onClick={
+                      openRoleChange
+                    }
+                    disabled={
+                      organizationLoading ||
+                      Boolean(
+                        organizationError,
+                      )
+                    }
+                  >
+                    {organizationLoading
+                      ? "Loading organization..."
+                      : "Promote or demote employee"}
+                  </button>
+                )}
+
+                {showRoleForm && (
+                  <form
+                    className="dir-role-form"
+                    onSubmit={
+                      submitRoleChange
+                    }
+                  >
+                    <div className="dir-role-current">
+                      <span>
+                        Current role
+                      </span>
+
+                      <strong>
+                        {employee.role
+                          ? formatValue(
+                              employee.role,
+                            )
+                          : "No account"}
+                      </strong>
+                    </div>
+
+                    <label>
+                      <span>
+                        New role
+                      </span>
+
+                      <select
+                        value={
+                          targetRole
+                        }
+                        onChange={(
+                          event,
+                        ) =>
+                          setTargetRole(
+                            event.target
+                              .value as
+                              | DirectoryRoleChangeTarget
+                              | "",
+                          )
+                        }
+                        disabled={
+                          changingRole
+                        }
+                        required
+                      >
+                        <option value="">
+                          Select new role
+                        </option>
+
+                        {assignableRoles
+                          .filter(
+                            (role) =>
+                              role !==
+                              employee.role,
+                          )
+                          .map(
+                            (role) => (
+                              <option
+                                key={
+                                  role
+                                }
+                                value={
+                                  role
+                                }
+                              >
+                                {formatValue(
+                                  role,
+                                )}
+                              </option>
+                            ),
+                          )}
+                      </select>
+                    </label>
+
+                    <label>
+                      <span>
+                        Division
+                      </span>
+
+                      <select
+                        value={
+                          roleDivisionId
+                        }
+                        onChange={(
+                          event,
+                        ) => {
+                          setRoleDivisionId(
+                            event.target.value,
+                          );
+
+                          setRoleDepartmentId(
+                            "",
+                          );
+                        }}
+                        disabled={
+                          changingRole
+                        }
+                        required
+                      >
+                        <option value="">
+                          Select division
+                        </option>
+
+                        {organizationDivisions
+                          .filter(
+                            (division) =>
+                              division.isActive,
+                          )
+                          .map(
+                            (division) => (
+                              <option
+                                key={
+                                  division.id
+                                }
+                                value={
+                                  division.id
+                                }
+                              >
+                                {division.name} ({division.code})
+                              </option>
+                            ),
+                          )}
+                      </select>
+                    </label>
+
+                    <label>
+                      <span>
+                        Department
+                      </span>
+
+                      <select
+                        value={
+                          roleDepartmentId
+                        }
+                        onChange={(
+                          event,
+                        ) =>
+                          setRoleDepartmentId(
+                            event.target.value,
+                          )
+                        }
+                        disabled={
+                          changingRole ||
+                          !roleDivisionId
+                        }
+                        required
+                      >
+                        <option value="">
+                          Select department
+                        </option>
+
+                        {availableRoleDepartments.map(
+                          (
+                            department,
+                          ) => (
+                            <option
+                              key={
+                                department.id
+                              }
+                              value={
+                                department.id
+                              }
+                            >
+                              {department.name} ({department.code})
+                            </option>
+                          ),
+                        )}
+                      </select>
+                    </label>
+
+                    <label>
+                      <span>
+                        New designation
+                      </span>
+
+                      <input
+                        type="text"
+                        value={
+                          roleDesignation
+                        }
+                        onChange={(
+                          event,
+                        ) =>
+                          setRoleDesignation(
+                            event.target.value,
+                          )
+                        }
+                        minLength={2}
+                        maxLength={120}
+                        placeholder="Example: Sales Team Manager"
+                        disabled={
+                          changingRole
+                        }
+                      />
+                    </label>
+
+                    <label>
+                      <span>
+                        Official reason
+                      </span>
+
+                      <textarea
+                        value={
+                          roleReason
+                        }
+                        onChange={(
+                          event,
+                        ) =>
+                          setRoleReason(
+                            event.target.value,
+                          )
+                        }
+                        minLength={3}
+                        maxLength={500}
+                        placeholder="Enter the approved promotion or demotion reason."
+                        disabled={
+                          changingRole
+                        }
+                        required
+                      />
+                    </label>
+
+                    <div className="dir-role-warning">
+                      The employee will keep the same password, employee ID and history, but all existing login sessions will be revoked.
+                    </div>
+
+                    <div className="dir-role-actions">
+                      <button
+                        type="submit"
+                        className="dir-role-confirm"
+                        disabled={
+                          changingRole
+                        }
+                      >
+                        {changingRole
+                          ? "Changing role..."
+                          : "Confirm role change"}
+                      </button>
+
+                      <button
+                        type="button"
+                        className="dir-status-cancel"
+                        onClick={
+                          cancelRoleChange
+                        }
+                        disabled={
+                          changingRole
+                        }
+                      >
+                        Cancel
+                      </button>
+                    </div>
+                  </form>
+                )}
+              </section>
+            )}
 
             {canManageStatus && (
               <section className="dir-status-box">
@@ -1310,6 +1974,18 @@ export function EmployeeDirectoryDetailPanel({
                                 .role,
                             );
 
+                          const previousRole =
+                            getMetadataString(
+                              action.metadata,
+                              "previousRole",
+                            );
+
+                          const newRole =
+                            getMetadataString(
+                              action.metadata,
+                              "newRole",
+                            );
+
                           return (
                             <article
                               key={
@@ -1365,6 +2041,20 @@ export function EmployeeDirectoryDetailPanel({
                                       {" → "}
                                       {formatValue(
                                         action.newEmploymentStatus,
+                                      )}
+                                    </small>
+                                  )}
+
+                                {previousRole &&
+                                  newRole && (
+                                    <small>
+                                      Role:{" "}
+                                      {formatValue(
+                                        previousRole,
+                                      )}
+                                      {" → "}
+                                      {formatValue(
+                                        newRole,
                                       )}
                                     </small>
                                   )}

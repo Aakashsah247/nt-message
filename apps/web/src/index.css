@@ -7550,3 +7550,190 @@
   }
 }
 /* DIRECTORY RECORD SECTIONS END */
+
+
+/* DIRECTORY ROLE CHANGE START */
+@layer components {
+  .dir-role-box {
+    display: grid;
+    gap: 14px;
+    margin-top: 18px;
+    padding: 18px;
+    border: 1px solid #bad8ef;
+    border-radius: 16px;
+    background:
+      linear-gradient(
+        135deg,
+        #f8fcff,
+        #eaf6ff
+      );
+  }
+
+  .dir-role-head {
+    display: grid;
+    gap: 5px;
+  }
+
+  .dir-role-head span,
+  .dir-role-form label > span,
+  .dir-role-current span {
+    color: var(--color-nt-blue);
+    font-size: 10px;
+    font-weight: 900;
+    letter-spacing: 0.07em;
+    text-transform: uppercase;
+  }
+
+  .dir-role-head strong {
+    color: #174a72;
+    font-size: 14px;
+  }
+
+  .dir-role-head p {
+    margin: 0;
+    color: #657f94;
+    font-size: 11px;
+    line-height: 1.55;
+  }
+
+  .dir-role-open,
+  .dir-role-confirm {
+    min-height: 42px;
+    padding: 0 15px;
+    border-radius: 10px;
+    font-size: 11px;
+    font-weight: 900;
+  }
+
+  .dir-role-open {
+    border: 1px solid var(--color-nt-blue);
+    color: var(--color-nt-blue);
+    background: white;
+  }
+
+  .dir-role-open:hover:not(:disabled) {
+    color: white;
+    background: var(--color-nt-blue);
+  }
+
+  .dir-role-form {
+    display: grid;
+    gap: 13px;
+    padding: 15px;
+    border: 1px solid #cbddeb;
+    border-radius: 12px;
+    background: white;
+  }
+
+  .dir-role-current {
+    display: grid;
+    gap: 4px;
+    padding: 12px;
+    border-left: 4px solid var(--color-nt-blue);
+    border-radius: 9px;
+    background: #edf7ff;
+  }
+
+  .dir-role-current strong {
+    color: #183f60;
+    font-size: 13px;
+  }
+
+  .dir-role-form label {
+    display: grid;
+    gap: 7px;
+  }
+
+  .dir-role-form input,
+  .dir-role-form select,
+  .dir-role-form textarea {
+    width: 100%;
+    padding: 0 12px;
+    border: 1px solid #c8d8e5;
+    border-radius: 9px;
+    color: var(--color-nt-text);
+    background: #fbfdff;
+    font: inherit;
+    font-size: 11px;
+    outline: none;
+  }
+
+  .dir-role-form input,
+  .dir-role-form select {
+    min-height: 43px;
+  }
+
+  .dir-role-form textarea {
+    min-height: 105px;
+    resize: vertical;
+    padding-top: 11px;
+    padding-bottom: 11px;
+    line-height: 1.55;
+  }
+
+  .dir-role-form input:focus,
+  .dir-role-form select:focus,
+  .dir-role-form textarea:focus {
+    border-color: var(--color-nt-blue);
+    background: white;
+    box-shadow:
+      0 0 0 3px
+      rgba(7, 92, 168, 0.11);
+  }
+
+  .dir-role-form input:disabled,
+  .dir-role-form select:disabled,
+  .dir-role-form textarea:disabled {
+    cursor: not-allowed;
+    background: #edf2f6;
+  }
+
+  .dir-role-warning {
+    padding: 11px 12px;
+    border: 1px solid #ecd58f;
+    border-left: 4px solid var(--color-nt-gold);
+    border-radius: 9px;
+    color: #765617;
+    background: #fff9e8;
+    font-size: 10px;
+    line-height: 1.55;
+  }
+
+  .dir-role-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 9px;
+  }
+
+  .dir-role-confirm {
+    border: 0;
+    border-bottom: 3px solid var(--color-nt-gold);
+    color: white;
+    background:
+      linear-gradient(
+        115deg,
+        var(--color-nt-deep),
+        var(--color-nt-blue),
+        #16a4df
+      );
+  }
+
+  .dir-role-confirm:hover:not(:disabled) {
+    transform: translateY(-1px);
+    box-shadow:
+      0 10px 22px
+      rgba(7, 92, 168, 0.22);
+  }
+}
+
+@media (max-width: 520px) {
+  .dir-role-actions {
+    display: grid;
+    grid-template-columns: 1fr;
+  }
+
+  .dir-role-actions button {
+    width: 100%;
+  }
+}
+/* DIRECTORY ROLE CHANGE END */
