@@ -15,6 +15,11 @@ enum AccountRole {
   EMPLOYEE
 }
 
+enum ManagementPositionType {
+  SENIOR_MANAGEMENT
+  TEAM_MANAGER
+}
+
 enum EmployeeStatus {
   ACTIVE
   INACTIVE
@@ -74,9 +79,10 @@ model Division {
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
 
-  departments     Department[]
-  employees       Employee[]
-  accountRequests AccountRequest[]
+  departments         Department[]
+  employees           Employee[]
+  accountRequests     AccountRequest[]
+  managementPositions ManagementPosition[]
 
   @@index([isActive], map: "divisions_is_active_idx")
   @@map("divisions")
@@ -91,9 +97,10 @@ model Department {
   createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt  DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
 
-  division        Division         @relation(fields: [divisionId], references: [id], onDelete: Restrict)
-  employees       Employee[]
-  accountRequests AccountRequest[]
+  division            Division             @relation(fields: [divisionId], references: [id], onDelete: Restrict)
+  employees           Employee[]
+  accountRequests     AccountRequest[]
+  managementPositions ManagementPosition[]
 
   @@unique([divisionId, code], map: "departments_division_id_code_key")
   @@unique([divisionId, name], map: "departments_division_id_name_key")
@@ -131,10 +138,11 @@ model Employee {
   division       Division?   @relation(fields: [divisionId], references: [id], onDelete: Restrict)
   departmentUnit Department? @relation(fields: [departmentId], references: [id], onDelete: Restrict)
 
-  account          Account?
-  otpVerifications OtpVerification[]
-  accountRequests  AccountRequest[]
-  lifecycleActions EmployeeLifecycleAction[]
+  account               Account?
+  otpVerifications      OtpVerification[]
+  accountRequests       AccountRequest[]
+  lifecycleActions      EmployeeLifecycleAction[]
+  managementAssignments ManagementAssignment[]
 
   @@index([empName], map: "employees_emp_name_idx")
   @@index([department], map: "employees_department_idx")
@@ -160,16 +168,75 @@ model Account {
   createdAt           DateTime    @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt           DateTime    @updatedAt @map("updated_at") @db.Timestamptz(3)
 
-  employee                 Employee?                 @relation(fields: [employeeId], references: [id], onDelete: Restrict)
-  sessions                 AuthSession[]
-  submittedAccountRequests AccountRequest[]          @relation("AccountRequestsRequestedBy")
-  reviewedAccountRequests  AccountRequest[]          @relation("AccountRequestsReviewedBy")
-  accountRequestActions    AccountRequestAction[]
-  employeeLifecycleActions EmployeeLifecycleAction[] @relation("EmployeeLifecycleActionsByActor")
+  employee                      Employee?                 @relation(fields: [employeeId], references: [id], onDelete: Restrict)
+  sessions                      AuthSession[]
+  submittedAccountRequests      AccountRequest[]          @relation("AccountRequestsRequestedBy")
+  reviewedAccountRequests       AccountRequest[]          @relation("AccountRequestsReviewedBy")
+  accountRequestActions         AccountRequestAction[]
+  employeeLifecycleActions      EmployeeLifecycleAction[] @relation("EmployeeLifecycleActionsByActor")
+  assignedManagementAssignments ManagementAssignment[]    @relation("ManagementAssignmentsAssignedBy")
+  endedManagementAssignments    ManagementAssignment[]    @relation("ManagementAssignmentsEndedBy")
 
   @@index([role], map: "accounts_role_idx")
   @@index([isEnabled], map: "accounts_is_enabled_idx")
   @@map("accounts")
+}
+
+model ManagementPosition {
+  id String @id @default(uuid()) @db.Uuid
+
+  positionType ManagementPositionType @map("position_type")
+
+  divisionId   String  @map("division_id") @db.Uuid
+  departmentId String? @map("department_id") @db.Uuid
+
+  isActive Boolean @default(true) @map("is_active")
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  division   Division    @relation(fields: [divisionId], references: [id], onDelete: Restrict)
+  department Department? @relation(fields: [departmentId], references: [id], onDelete: Restrict)
+
+  assignments ManagementAssignment[]
+
+  @@index([positionType], map: "management_positions_type_idx")
+  @@index([divisionId], map: "management_positions_division_idx")
+  @@index([departmentId], map: "management_positions_department_idx")
+  @@index([isActive], map: "management_positions_is_active_idx")
+  @@map("management_positions")
+}
+
+model ManagementAssignment {
+  id String @id @default(uuid()) @db.Uuid
+
+  positionId String @map("position_id") @db.Uuid
+  employeeId String @map("employee_id") @db.Uuid
+
+  assignedByAccountId String  @map("assigned_by_account_id") @db.Uuid
+  endedByAccountId    String? @map("ended_by_account_id") @db.Uuid
+
+  startedAt DateTime  @default(now()) @map("started_at") @db.Timestamptz(3)
+  endedAt   DateTime? @map("ended_at") @db.Timestamptz(3)
+
+  assignmentReason String? @map("assignment_reason") @db.VarChar(500)
+  endReason        String? @map("end_reason") @db.VarChar(500)
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  position ManagementPosition @relation(fields: [positionId], references: [id], onDelete: Restrict)
+  employee Employee           @relation(fields: [employeeId], references: [id], onDelete: Restrict)
+
+  assignedBy Account  @relation("ManagementAssignmentsAssignedBy", fields: [assignedByAccountId], references: [id], onDelete: Restrict)
+  endedBy    Account? @relation("ManagementAssignmentsEndedBy", fields: [endedByAccountId], references: [id], onDelete: Restrict)
+
+  @@index([positionId, endedAt], map: "management_assignments_position_ended_idx")
+  @@index([employeeId, endedAt], map: "management_assignments_employee_ended_idx")
+  @@index([assignedByAccountId], map: "management_assignments_assigned_by_idx")
+  @@index([endedByAccountId], map: "management_assignments_ended_by_idx")
+  @@index([startedAt], map: "management_assignments_started_at_idx")
+  @@map("management_assignments")
 }
 
 model AuthSession {
