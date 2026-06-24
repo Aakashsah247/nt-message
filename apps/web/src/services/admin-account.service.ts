@@ -7,16 +7,22 @@ import type {
   CreateDepartmentResponse,
   CreateDivisionInput,
   CreateDivisionResponse,
+  DeleteDepartmentResponse,
+  DeleteDivisionResponse,
   DepartmentListResponse,
   DivisionListResponse,
-
+  UpdateDepartmentInput,
+  UpdateDepartmentResponse,
+  UpdateDivisionInput,
+  UpdateDivisionResponse,
 } from "../types/admin-account";
 
 function authHeader(
   accessToken: string,
 ): HeadersInit {
   return {
-    Authorization: `Bearer ${accessToken}`,
+    Authorization:
+      `Bearer ${accessToken}`,
   };
 }
 
@@ -26,7 +32,8 @@ export function getAdminDivisions(
   return apiRequest<DivisionListResponse>(
     "/organization/divisions",
     {
-      headers: authHeader(accessToken),
+      headers:
+        authHeader(accessToken),
     },
   );
 }
@@ -37,7 +44,8 @@ export function getAdminDepartments(
   return apiRequest<DepartmentListResponse>(
     "/organization/departments",
     {
-      headers: authHeader(accessToken),
+      headers:
+        authHeader(accessToken),
     },
   );
 }
@@ -50,8 +58,12 @@ export function createAdminAccount(
     "/admin/employees",
     {
       method: "POST",
-      headers: authHeader(accessToken),
-      body: JSON.stringify(input),
+
+      headers:
+        authHeader(accessToken),
+
+      body:
+        JSON.stringify(input),
     },
   );
 }
@@ -65,8 +77,48 @@ export function createAdminDivision(
     "/organization/divisions",
     {
       method: "POST",
-      headers: authHeader(accessToken),
-      body: JSON.stringify(input),
+
+      headers:
+        authHeader(accessToken),
+
+      body:
+        JSON.stringify(input),
+    },
+  );
+}
+
+// Updates a division without changing its database identity.
+export function updateAdminDivision(
+  accessToken: string,
+  divisionId: string,
+  input: UpdateDivisionInput,
+): Promise<UpdateDivisionResponse> {
+  return apiRequest<UpdateDivisionResponse>(
+    `/organization/divisions/${divisionId}`,
+    {
+      method: "PATCH",
+
+      headers:
+        authHeader(accessToken),
+
+      body:
+        JSON.stringify(input),
+    },
+  );
+}
+
+// Permanent deletion is allowed only for an unused division.
+export function deleteAdminDivision(
+  accessToken: string,
+  divisionId: string,
+): Promise<DeleteDivisionResponse> {
+  return apiRequest<DeleteDivisionResponse>(
+    `/organization/divisions/${divisionId}`,
+    {
+      method: "DELETE",
+
+      headers:
+        authHeader(accessToken),
     },
   );
 }
@@ -80,8 +132,48 @@ export function createAdminDepartment(
     "/organization/departments",
     {
       method: "POST",
-      headers: authHeader(accessToken),
-      body: JSON.stringify(input),
+
+      headers:
+        authHeader(accessToken),
+
+      body:
+        JSON.stringify(input),
+    },
+  );
+}
+
+// Updates department details while the backend checks dependencies.
+export function updateAdminDepartment(
+  accessToken: string,
+  departmentId: string,
+  input: UpdateDepartmentInput,
+): Promise<UpdateDepartmentResponse> {
+  return apiRequest<UpdateDepartmentResponse>(
+    `/organization/departments/${departmentId}`,
+    {
+      method: "PATCH",
+
+      headers:
+        authHeader(accessToken),
+
+      body:
+        JSON.stringify(input),
+    },
+  );
+}
+
+// Permanent deletion is allowed only for an unused department.
+export function deleteAdminDepartment(
+  accessToken: string,
+  departmentId: string,
+): Promise<DeleteDepartmentResponse> {
+  return apiRequest<DeleteDepartmentResponse>(
+    `/organization/departments/${departmentId}`,
+    {
+      method: "DELETE",
+
+      headers:
+        authHeader(accessToken),
     },
   );
 }
