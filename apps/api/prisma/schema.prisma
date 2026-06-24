@@ -190,6 +190,8 @@ model ManagementPosition {
   divisionId   String  @map("division_id") @db.Uuid
   departmentId String? @map("department_id") @db.Uuid
 
+  reservedByAccountRequestId String? @unique @map("reserved_by_account_request_id") @db.Uuid
+
   isActive Boolean @default(true) @map("is_active")
 
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
@@ -198,7 +200,10 @@ model ManagementPosition {
   division   Division    @relation(fields: [divisionId], references: [id], onDelete: Restrict)
   department Department? @relation(fields: [departmentId], references: [id], onDelete: Restrict)
 
-  assignments ManagementAssignment[]
+  reservedByAccountRequest AccountRequest? @relation("ManagementPositionReservation", fields: [reservedByAccountRequestId], references: [id], onDelete: Restrict)
+
+  assignments     ManagementAssignment[]
+  accountRequests AccountRequest[]       @relation("AccountRequestManagementPosition")
 
   @@index([positionType], map: "management_positions_type_idx")
   @@index([divisionId], map: "management_positions_division_idx")
@@ -290,6 +295,8 @@ model AccountRequest {
   departmentId String? @map("department_id") @db.Uuid
   employeeId   String? @map("employee_id") @db.Uuid
 
+  managementPositionId String? @map("management_position_id") @db.Uuid
+
   requestedByAccountId String  @map("requested_by_account_id") @db.Uuid
   reviewedByAccountId  String? @map("reviewed_by_account_id") @db.Uuid
 
@@ -309,6 +316,10 @@ model AccountRequest {
   department Department? @relation(fields: [departmentId], references: [id], onDelete: Restrict)
   employee   Employee?   @relation(fields: [employeeId], references: [id], onDelete: Restrict)
 
+  managementPosition ManagementPosition? @relation("AccountRequestManagementPosition", fields: [managementPositionId], references: [id], onDelete: Restrict)
+
+  reservedManagementPosition ManagementPosition? @relation("ManagementPositionReservation")
+
   requestedBy Account  @relation("AccountRequestsRequestedBy", fields: [requestedByAccountId], references: [id], onDelete: Restrict)
   reviewedBy  Account? @relation("AccountRequestsReviewedBy", fields: [reviewedByAccountId], references: [id], onDelete: Restrict)
 
@@ -326,6 +337,7 @@ model AccountRequest {
   @@index([phoneNumber], map: "account_requests_phone_number_idx")
   @@index([divisionId, departmentId], map: "account_requests_org_scope_idx")
   @@index([employeeId], map: "account_requests_employee_idx")
+  @@index([managementPositionId], map: "account_requests_management_position_idx")
   @@index([previousRequestId], map: "account_requests_previous_request_idx")
   @@map("account_requests")
 }
