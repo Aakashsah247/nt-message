@@ -1541,6 +1541,30 @@ export class AccountRequestsService {
             );
           }
 
+          let managementPositionId: string | null = null;
+
+          if (request.requestedRole === AccountRole.TEAM_MANAGER) {
+            if (!request.managementPositionId) {
+              throw new BadRequestException(
+                'The Team Manager request does not reference a management position.',
+              );
+            }
+
+            await this.validateManagementPositionVacancy(
+              transaction,
+              request.managementPositionId,
+              request.requestedRole,
+              request.divisionId,
+              request.departmentId,
+            );
+
+            managementPositionId = request.managementPositionId;
+          } else if (request.managementPositionId) {
+            throw new BadRequestException(
+              'A normal employee request must not reference a management position.',
+            );
+          }
+
           const duplicateEmployee = await transaction.employee.findFirst({
             where: {
               OR: [
@@ -1587,6 +1611,37 @@ export class AccountRequestsService {
             throw new ConflictException(
               'This account request has already been reviewed.',
             );
+          }
+
+          if (managementPositionId) {
+            /*
+             * Atomically change the official position from
+             * VACANT to RESERVED for this approved request.
+             */
+            const reservationClaim =
+              await transaction.managementPosition.updateMany({
+                where: {
+                  id: managementPositionId,
+                  isActive: true,
+                  reservedByAccountRequestId: null,
+
+                  assignments: {
+                    none: {
+                      endedAt: null,
+                    },
+                  },
+                },
+
+                data: {
+                  reservedByAccountRequestId: request.id,
+                },
+              });
+
+            if (reservationClaim.count !== 1) {
+              throw new ConflictException(
+                'The selected management position is no longer vacant.',
+              );
+            }
           }
 
           const employee = await transaction.employee.create({
@@ -1691,6 +1746,7 @@ export class AccountRequestsService {
                 requestedRole: request.requestedRole,
                 divisionId: request.divisionId,
                 departmentId: request.departmentId,
+                managementPositionId,
               },
             },
           });

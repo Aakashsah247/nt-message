@@ -15,6 +15,7 @@ import {
   EmployeeLifecycleActionType,
   EmployeeStatus,
   EmploymentStatus,
+  ManagementPositionType,
 } from '../generated/prisma/client';
 
 import type { Prisma } from '../generated/prisma/client';
@@ -193,6 +194,78 @@ export class EmployeesService {
     const userAgent = metadata.userAgent?.slice(0, 500) || null;
 
     const result = await this.prisma.$transaction(async (transaction) => {
+      let managementPositionId: string | null = null;
+
+      if (requestedRole !== AccountRole.EMPLOYEE) {
+        const positionType =
+          requestedRole === AccountRole.SENIOR_MANAGEMENT
+            ? ManagementPositionType.SENIOR_MANAGEMENT
+            : ManagementPositionType.TEAM_MANAGER;
+
+        /*
+         * There is only one official position for each
+         * division or department scope.
+         */
+        const position = await transaction.managementPosition.findFirst({
+          where: {
+            positionType,
+            divisionId: division.id,
+
+            departmentId:
+              positionType === ManagementPositionType.SENIOR_MANAGEMENT
+                ? null
+                : department.id,
+          },
+
+          select: {
+            id: true,
+            positionType: true,
+            divisionId: true,
+            departmentId: true,
+            isActive: true,
+            reservedByAccountRequestId: true,
+
+            assignments: {
+              where: {
+                endedAt: null,
+              },
+
+              take: 1,
+
+              select: {
+                id: true,
+              },
+            },
+          },
+        });
+
+        if (!position) {
+          throw new ConflictException(
+            'No official management position exists for the selected organization scope.',
+          );
+        }
+
+        if (!position.isActive) {
+          throw new ConflictException(
+            'The selected management position is inactive.',
+          );
+        }
+
+        if (position.reservedByAccountRequestId) {
+          throw new ConflictException(
+            'The selected management position is already reserved.',
+          );
+        }
+
+        if (position.assignments.length > 0) {
+          throw new ConflictException(
+            'The selected management position is not vacant.',
+          );
+        }
+
+        managementPositionId = position.id;
+      }
+
       const employee = await transaction.employee.create({
         data: {
           empId,
@@ -275,6 +348,8 @@ export class EmployeesService {
 
           departmentId: department.id,
 
+          managementPositionId,
+
           employeeId: employee.id,
 
           requestedByAccountId: user.accountId,
@@ -294,6 +369,7 @@ export class EmployeesService {
           requestedRole: true,
           divisionId: true,
           departmentId: true,
+          managementPositionId: true,
           employeeId: true,
           requestedByAccountId: true,
           reviewedByAccountId: true,
@@ -305,6 +381,37 @@ export class EmployeesService {
           updatedAt: true,
         },
       });
+
+      if (managementPositionId) {
+        /*
+         * The employee, approved request and reservation are
+         * committed together or completely rolled back.
+         */
+        const reservationClaim =
+          await transaction.managementPosition.updateMany({
+            where: {
+              id: managementPositionId,
+              isActive: true,
+              reservedByAccountRequestId: null,
+
+              assignments: {
+                none: {
+                  endedAt: null,
+                },
+              },
+            },
+
+            data: {
+              reservedByAccountRequestId: accountRequest.id,
+            },
+          });
+
+        if (reservationClaim.count !== 1) {
+          throw new ConflictException(
+            'The selected management position is no longer vacant.',
+          );
+        }
+      }
 
       await transaction.accountRequestAction.createMany({
         data: [
@@ -324,6 +431,8 @@ export class EmployeesService {
               employeeId: employee.id,
 
               requestedRole,
+
+              managementPositionId,
             },
           },
           {
@@ -342,6 +451,8 @@ export class EmployeesService {
               employeeId: employee.id,
 
               requestedRole,
+
+              managementPositionId,
 
               divisionId: division.id,
 
