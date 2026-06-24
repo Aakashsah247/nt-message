@@ -16,6 +16,8 @@ import {
   ManagementPositionType,
 } from '../generated/prisma/client';
 
+import type { Prisma } from '../generated/prisma/client';
+
 import { CreateAccountRequestDto } from './dto/create-account-request.dto';
 import { ListAccountRequestsQueryDto } from './dto/list-account-requests-query.dto';
 import { ResubmitAccountRequestDto } from './dto/resubmit-account-request.dto';
@@ -171,6 +173,184 @@ export class AccountRequestsService {
     return requester;
   }
 
+  private async validateManagementPositionVacancy(
+    transaction: Prisma.TransactionClient,
+    managementPositionId: string,
+    requestedRole: AccountRole,
+    divisionId: string,
+    departmentId: string | null,
+  ) {
+    const requiredPositionType =
+      requestedRole === AccountRole.SENIOR_MANAGEMENT
+        ? ManagementPositionType.SENIOR_MANAGEMENT
+        : requestedRole === AccountRole.TEAM_MANAGER
+          ? ManagementPositionType.TEAM_MANAGER
+          : null;
+
+    if (!requiredPositionType) {
+      throw new BadRequestException(
+        'A normal employee request must not reference a management position.',
+      );
+    }
+
+    const position = await transaction.managementPosition.findUnique({
+      where: {
+        id: managementPositionId,
+      },
+
+      select: {
+        id: true,
+        positionType: true,
+        divisionId: true,
+        departmentId: true,
+        isActive: true,
+        reservedByAccountRequestId: true,
+
+        assignments: {
+          where: {
+            endedAt: null,
+          },
+
+          take: 1,
+
+          select: {
+            id: true,
+          },
+        },
+      },
+    });
+
+    if (!position) {
+      throw new NotFoundException(
+        'No active management position exists for the selected organization scope.',
+      );
+    }
+
+    if (position.positionType !== requiredPositionType) {
+      throw new BadRequestException(
+        'The selected management position does not match the requested role.',
+      );
+    }
+
+    if (position.divisionId !== divisionId) {
+      throw new BadRequestException(
+        'The selected management position does not belong to the selected division.',
+      );
+    }
+
+    if (
+      requiredPositionType === ManagementPositionType.SENIOR_MANAGEMENT &&
+      position.departmentId !== null
+    ) {
+      throw new BadRequestException(
+        'The selected Senior Management position has an invalid organization scope.',
+      );
+    }
+
+    if (
+      requiredPositionType === ManagementPositionType.TEAM_MANAGER &&
+      position.departmentId !== departmentId
+    ) {
+      throw new BadRequestException(
+        'The selected Team Manager position does not belong to the selected department.',
+      );
+    }
+
+    if (!position.isActive) {
+      throw new ConflictException(
+        'The selected management position is inactive.',
+      );
+    }
+
+    if (position.reservedByAccountRequestId) {
+      throw new ConflictException(
+        'The selected management position is already reserved for another approved account request.',
+      );
+    }
+
+    if (position.assignments.length > 0) {
+      throw new ConflictException(
+        'The selected management position is not vacant.',
+      );
+    }
+
+    return position;
+  }
+
+  private async resolveManagementPositionId(
+    transaction: Prisma.TransactionClient,
+    suppliedManagementPositionId: string | null,
+    requestedRole: AccountRole,
+    divisionId: string,
+    departmentId: string | null,
+  ): Promise<string> {
+    const requiredPositionType =
+      requestedRole === AccountRole.SENIOR_MANAGEMENT
+        ? ManagementPositionType.SENIOR_MANAGEMENT
+        : requestedRole === AccountRole.TEAM_MANAGER
+          ? ManagementPositionType.TEAM_MANAGER
+          : null;
+
+    if (!requiredPositionType) {
+      throw new BadRequestException(
+        'A normal employee request must not reference a management position.',
+      );
+    }
+
+    if (suppliedManagementPositionId) {
+      const selectedPosition =
+        await this.validateManagementPositionVacancy(
+          transaction,
+          suppliedManagementPositionId,
+          requestedRole,
+          divisionId,
+          departmentId,
+        );
+
+      return selectedPosition.id;
+    }
+
+    /*
+     * Official positions are unique by division or department.
+     * This fallback keeps existing clients compatible while still
+     * storing the exact position ID on every management request.
+     */
+    const officialPosition =
+      await transaction.managementPosition.findFirst({
+        where: {
+          positionType: requiredPositionType,
+          divisionId,
+
+          departmentId:
+            requiredPositionType ===
+            ManagementPositionType.SENIOR_MANAGEMENT
+              ? null
+              : departmentId,
+        },
+
+        select: {
+          id: true,
+        },
+      });
+
+    if (!officialPosition) {
+      throw new NotFoundException(
+        'No active management position exists for the selected organization scope.',
+      );
+    }
+
+    const validatedPosition =
+      await this.validateManagementPositionVacancy(
+        transaction,
+        officialPosition.id,
+        requestedRole,
+        divisionId,
+        departmentId,
+      );
+
+    return validatedPosition.id;
+  }
+
   async getRequestContext(user: AuthenticatedUser) {
     const requester = await this.getRequester(user);
 
@@ -212,6 +392,48 @@ export class AccountRequestsService {
         },
       });
 
+      const availableManagementPositions =
+        await this.prisma.managementPosition.findMany({
+          where: {
+            positionType: ManagementPositionType.TEAM_MANAGER,
+            divisionId: employee.divisionId,
+            isActive: true,
+            reservedByAccountRequestId: null,
+
+            assignments: {
+              none: {
+                endedAt: null,
+              },
+            },
+
+            department: {
+              is: {
+                isActive: true,
+              },
+            },
+          },
+
+          orderBy: {
+            createdAt: 'asc',
+          },
+
+          select: {
+            id: true,
+            positionType: true,
+            divisionId: true,
+            departmentId: true,
+            isActive: true,
+
+            department: {
+              select: {
+                id: true,
+                code: true,
+                name: true,
+              },
+            },
+          },
+        });
+
       return {
         role: requester.role,
 
@@ -224,6 +446,8 @@ export class AccountRequestsService {
         },
 
         departments,
+
+        availableManagementPositions,
       };
     }
 
@@ -258,6 +482,8 @@ export class AccountRequestsService {
       },
 
       departments: [employee.departmentUnit],
+
+      availableManagementPositions: [],
     };
   }
 
@@ -291,6 +517,7 @@ export class AccountRequestsService {
     let requestedRole: AccountRole;
     let divisionId: string;
     let departmentId: string;
+    let managementPositionId: string | null = null;
 
     if (requester.role === AccountRole.SENIOR_MANAGEMENT) {
       requestedRole = AccountRole.TEAM_MANAGER;
@@ -348,6 +575,7 @@ export class AccountRequestsService {
 
       divisionId = requesterEmployee.divisionId;
       departmentId = department.id;
+      managementPositionId = dto.managementPositionId ?? null;
     } else {
       requestedRole = AccountRole.EMPLOYEE;
 
@@ -386,6 +614,12 @@ export class AccountRequestsService {
       ) {
         throw new ForbiddenException(
           'You can request employee accounts only inside your assigned department.',
+        );
+      }
+
+      if (dto.managementPositionId) {
+        throw new BadRequestException(
+          'A normal employee request must not reference a management position.',
         );
       }
 
@@ -456,6 +690,18 @@ export class AccountRequestsService {
 
     const accountRequest = await this.prisma.$transaction(
       async (transaction) => {
+        if (requestedRole !== AccountRole.EMPLOYEE) {
+          // Resolve and recheck the official vacancy inside the transaction.
+          managementPositionId =
+            await this.resolveManagementPositionId(
+              transaction,
+              managementPositionId,
+              requestedRole,
+              divisionId,
+              departmentId,
+            );
+        }
+
         const createdRequest = await transaction.accountRequest.create({
           data: {
             empId,
@@ -466,6 +712,7 @@ export class AccountRequestsService {
             requestedRole,
             divisionId,
             departmentId,
+            managementPositionId,
             requestedByAccountId: requester.id,
             status: AccountRequestStatus.PENDING_APPROVAL,
           },
@@ -480,6 +727,7 @@ export class AccountRequestsService {
             requestedRole: true,
             divisionId: true,
             departmentId: true,
+            managementPositionId: true,
             requestedByAccountId: true,
             revisionNumber: true,
             status: true,
@@ -517,6 +765,7 @@ export class AccountRequestsService {
               requestedRole,
               divisionId,
               departmentId,
+              managementPositionId,
             },
           },
         });
@@ -563,6 +812,7 @@ export class AccountRequestsService {
         requestedRole: true,
         divisionId: true,
         departmentId: true,
+        managementPositionId: true,
         revisionNumber: true,
         status: true,
       },
@@ -612,6 +862,7 @@ export class AccountRequestsService {
     let requestedRole: AccountRole;
     let divisionId: string;
     let departmentId: string;
+    let managementPositionId: string | null = null;
 
     if (requester.role === AccountRole.SENIOR_MANAGEMENT) {
       requestedRole = AccountRole.TEAM_MANAGER;
@@ -634,6 +885,9 @@ export class AccountRequestsService {
           'Department ID is required when resubmitting a Team Manager request.',
         );
       }
+
+      const targetManagementPositionId =
+        dto.managementPositionId ?? rejectedRequest.managementPositionId;
 
       const department = await this.prisma.department.findUnique({
         where: {
@@ -673,6 +927,8 @@ export class AccountRequestsService {
       divisionId = requesterEmployee.divisionId;
 
       departmentId = department.id;
+
+      managementPositionId = targetManagementPositionId;
     } else {
       requestedRole = AccountRole.EMPLOYEE;
 
@@ -714,6 +970,12 @@ export class AccountRequestsService {
         );
       }
 
+      if (dto.managementPositionId) {
+        throw new BadRequestException(
+          'A normal employee request must not reference a management position.',
+        );
+      }
+
       divisionId = requesterEmployee.divisionId;
 
       departmentId = requesterEmployee.departmentId;
@@ -745,6 +1007,7 @@ export class AccountRequestsService {
           select: {
             id: true,
             requestedRole: true,
+            managementPositionId: true,
             revisionNumber: true,
             status: true,
           },
@@ -788,6 +1051,18 @@ export class AccountRequestsService {
           throw new ConflictException(
             'This rejected request has already been resubmitted.',
           );
+        }
+
+        if (requestedRole !== AccountRole.EMPLOYEE) {
+          // Resolve and recheck the official vacancy for this revision.
+          managementPositionId =
+            await this.resolveManagementPositionId(
+              transaction,
+              managementPositionId,
+              requestedRole,
+              divisionId,
+              departmentId,
+            );
         }
 
         const existingEmployee = await transaction.employee.findFirst({
@@ -860,6 +1135,7 @@ export class AccountRequestsService {
             requestedRole,
             divisionId,
             departmentId,
+            managementPositionId,
 
             requestedByAccountId: requester.id,
 
@@ -880,6 +1156,7 @@ export class AccountRequestsService {
             requestedRole: true,
             divisionId: true,
             departmentId: true,
+            managementPositionId: true,
             requestedByAccountId: true,
             previousRequestId: true,
             revisionNumber: true,
@@ -927,6 +1204,7 @@ export class AccountRequestsService {
               requestedRole,
               divisionId,
               departmentId,
+              managementPositionId,
             },
           },
         });
@@ -979,6 +1257,7 @@ export class AccountRequestsService {
           officialEmail: true,
           designation: true,
           requestedRole: true,
+          managementPositionId: true,
           revisionNumber: true,
           status: true,
           rejectionReason: true,
@@ -1070,6 +1349,7 @@ export class AccountRequestsService {
         requestedRole: true,
         divisionId: true,
         departmentId: true,
+        managementPositionId: true,
         employeeId: true,
         previousRequestId: true,
         revisionNumber: true,
@@ -1198,6 +1478,7 @@ export class AccountRequestsService {
               requestedRole: true,
               divisionId: true,
               departmentId: true,
+              managementPositionId: true,
               status: true,
 
               division: {
@@ -1370,6 +1651,7 @@ export class AccountRequestsService {
               requestedRole: true,
               divisionId: true,
               departmentId: true,
+              managementPositionId: true,
               employeeId: true,
               revisionNumber: true,
               status: true,
@@ -1533,6 +1815,7 @@ export class AccountRequestsService {
             requestedRole: true,
             divisionId: true,
             departmentId: true,
+            managementPositionId: true,
             employeeId: true,
             revisionNumber: true,
             status: true,
@@ -1610,6 +1893,7 @@ export class AccountRequestsService {
           officialEmail: true,
           designation: true,
           requestedRole: true,
+          managementPositionId: true,
           revisionNumber: true,
           status: true,
           rejectionReason: true,
@@ -1678,6 +1962,7 @@ export class AccountRequestsService {
         requestedRole: true,
         divisionId: true,
         departmentId: true,
+        managementPositionId: true,
         employeeId: true,
         previousRequestId: true,
         revisionNumber: true,

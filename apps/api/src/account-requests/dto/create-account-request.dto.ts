@@ -46,6 +46,16 @@ export class CreateAccountRequestDto {
   })
   departmentId?: string;
 
+  /*
+   * A management client may provide the exact official position.
+   * The backend resolves the unique scoped position when omitted.
+   */
+  @IsOptional()
+  @IsUUID('4', {
+    message: 'Management position ID must be a valid UUID.',
+  })
+  managementPositionId?: string;
+
   @IsOptional()
   @IsString()
   @MaxLength(120)

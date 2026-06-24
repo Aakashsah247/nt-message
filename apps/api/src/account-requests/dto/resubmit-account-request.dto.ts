@@ -50,6 +50,16 @@ export class ResubmitAccountRequestDto {
   })
   departmentId?: string;
 
+  /*
+   * A rejected management request may select another position.
+   * The backend resolves the unique scoped position when omitted.
+   */
+  @IsOptional()
+  @IsUUID('4', {
+    message: 'Management position ID must be a valid UUID.',
+  })
+  managementPositionId?: string;
+
   @IsOptional()
   @IsString()
   @MaxLength(120)
