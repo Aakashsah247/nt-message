@@ -4,6 +4,7 @@ import {
   Get,
   Param,
   ParseUUIDPipe,
+  Patch,
   Post,
   Query,
   Req,
@@ -19,6 +20,7 @@ import type { AuthenticatedUser } from '../auth/types/auth.types';
 import { AccountRole } from '../generated/prisma/client';
 
 import { AccountRequestsService } from './account-requests.service';
+import { CloseAccountRequestDto } from './dto/close-account-request.dto';
 import { CreateAccountRequestDto } from './dto/create-account-request.dto';
 import { ListAccountRequestsQueryDto } from './dto/list-account-requests-query.dto';
 import { ResubmitAccountRequestDto } from './dto/resubmit-account-request.dto';
@@ -83,6 +85,42 @@ export class AccountRequestsController {
 
       userAgent: request.get('user-agent') ?? null,
     });
+  }
+
+  @Patch('mine/:id/cancel')
+  cancelRequest(
+    @CurrentUser()
+    user: AuthenticatedUser,
+
+    @Param(
+      'id',
+      new ParseUUIDPipe({
+        version: '4',
+      }),
+    )
+    id: string,
+
+    @Body()
+    dto: CloseAccountRequestDto,
+
+    @Req()
+    request: Request,
+  ) {
+    return this.accountRequestsService.cancelRequest(
+      user,
+      id,
+      dto.reason,
+      {
+        ipAddress:
+          request.ip ??
+          request.socket.remoteAddress ??
+          null,
+
+        userAgent:
+          request.get('user-agent') ??
+          null,
+      },
+    );
   }
 
   @Get('mine/:id')

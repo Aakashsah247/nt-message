@@ -1914,6 +1914,445 @@ export class AccountRequestsService {
     };
   }
 
+  private normalizeClosureReason(
+    rawReason: string,
+  ): string {
+    const reason = rawReason
+      .trim()
+      .replace(/\s+/g, ' ');
+
+    if (reason.length < 3) {
+      throw new BadRequestException(
+        'A reason of at least 3 characters is required.',
+      );
+    }
+
+    if (reason.length > 500) {
+      throw new BadRequestException(
+        'The reason cannot exceed 500 characters.',
+      );
+    }
+
+    return reason;
+  }
+
+  private async closeUnactivatedRequest(
+    actorAccountId: string,
+    requestId: string,
+    rawReason: string,
+    metadata: RequestMetadata,
+    options: {
+      closureType:
+        | 'CANCELLED'
+        | 'INVALIDATED';
+
+      allowedStatuses:
+        AccountRequestStatus[];
+
+      requestedByAccountId?:
+        string;
+
+      notFoundMessage:
+        string;
+    },
+  ) {
+    const reason =
+      this.normalizeClosureReason(
+        rawReason,
+      );
+
+    const ipAddress =
+      metadata.ipAddress
+        ?.slice(0, 45) ||
+      null;
+
+    const userAgent =
+      metadata.userAgent
+        ?.slice(0, 500) ||
+      null;
+
+    return this.prisma.$transaction(
+      async (transaction) => {
+        const request =
+          await transaction
+            .accountRequest
+            .findFirst({
+              where: {
+                id: requestId,
+
+                ...(options
+                  .requestedByAccountId
+                  ? {
+                      requestedByAccountId:
+                        options
+                          .requestedByAccountId,
+                    }
+                  : {}),
+              },
+
+              select: {
+                id: true,
+                empId: true,
+                empName: true,
+                officialEmail: true,
+                requestedRole: true,
+                divisionId: true,
+                departmentId: true,
+                managementPositionId: true,
+                employeeId: true,
+                revisionNumber: true,
+                status: true,
+                rejectionReason: true,
+                submittedAt: true,
+                reviewedAt: true,
+                updatedAt: true,
+
+                employee: {
+                  select: {
+                    id: true,
+                    isActivated: true,
+
+                    account: {
+                      select: {
+                        id: true,
+                      },
+                    },
+                  },
+                },
+
+                division: {
+                  select: {
+                    id: true,
+                    code: true,
+                    name: true,
+                  },
+                },
+
+                department: {
+                  select: {
+                    id: true,
+                    code: true,
+                    name: true,
+                  },
+                },
+              },
+            });
+
+        if (!request) {
+          throw new NotFoundException(
+            options.notFoundMessage,
+          );
+        }
+
+        if (
+          !options
+            .allowedStatuses
+            .includes(request.status)
+        ) {
+          throw new ConflictException(
+            options.closureType ===
+              'CANCELLED'
+              ? 'Only a pending or unactivated account request can be cancelled.'
+              : 'Only an approved or activation-pending account request can be invalidated.',
+          );
+        }
+
+        if (
+          request.employee &&
+          (
+            request.employee
+              .isActivated ||
+            request.employee.account
+          )
+        ) {
+          throw new ConflictException(
+            'This request can no longer be closed because its employee account is already active.',
+          );
+        }
+
+        /*
+         * Claim the current status before releasing anything.
+         * A simultaneous activation or review therefore causes
+         * one of the operations to fail safely.
+         */
+        const closeClaim =
+          await transaction
+            .accountRequest
+            .updateMany({
+              where: {
+                id: request.id,
+                status:
+                  request.status,
+
+                ...(options
+                  .requestedByAccountId
+                  ? {
+                      requestedByAccountId:
+                        options
+                          .requestedByAccountId,
+                    }
+                  : {}),
+              },
+
+              data: {
+                status:
+                  AccountRequestStatus
+                    .REJECTED,
+
+                rejectionReason:
+                  reason,
+
+                employeeId:
+                  null,
+              },
+            });
+
+        if (closeClaim.count !== 1) {
+          throw new ConflictException(
+            'This account request changed before it could be closed.',
+          );
+        }
+
+        /*
+         * Release only the position reserved by this exact
+         * account request. Another request cannot be affected.
+         */
+        const reservationRelease =
+          await transaction
+            .managementPosition
+            .updateMany({
+              where: {
+                reservedByAccountRequestId:
+                  request.id,
+              },
+
+              data: {
+                reservedByAccountRequestId:
+                  null,
+              },
+            });
+
+        let provisionalEmployeeDeleted =
+          false;
+
+        if (request.employee) {
+          /*
+           * Remove all unused OTP records before deleting
+           * the unactivated provisional employee identity.
+           */
+          await transaction
+            .otpVerification
+            .deleteMany({
+              where: {
+                employeeId:
+                  request.employee.id,
+              },
+            });
+
+          const deletedEmployee =
+            await transaction
+              .employee
+              .deleteMany({
+                where: {
+                  id:
+                    request.employee.id,
+
+                  isActivated:
+                    false,
+
+                  account: {
+                    is:
+                      null,
+                  },
+                },
+              });
+
+          if (
+            deletedEmployee.count !==
+            1
+          ) {
+            throw new ConflictException(
+              'The provisional employee identity could not be safely removed.',
+            );
+          }
+
+          provisionalEmployeeDeleted =
+            true;
+        }
+
+        await transaction
+          .accountRequestAction
+          .create({
+            data: {
+              accountRequestId:
+                request.id,
+
+              actorAccountId,
+
+              /*
+               * Existing enum value is used while metadata
+               * records the exact closure operation.
+               */
+              action:
+                AccountRequestActionType
+                  .REJECTED,
+
+              reason,
+              ipAddress,
+              userAgent,
+
+              metadata: {
+                closureType:
+                  options.closureType,
+
+                previousStatus:
+                  request.status,
+
+                newStatus:
+                  AccountRequestStatus
+                    .REJECTED,
+
+                releasedReservation:
+                  reservationRelease
+                    .count === 1,
+
+                provisionalEmployeeDeleted,
+              },
+            },
+          });
+
+        return transaction
+          .accountRequest
+          .findUniqueOrThrow({
+            where: {
+              id: request.id,
+            },
+
+            select: {
+              id: true,
+              empId: true,
+              empName: true,
+              officialEmail: true,
+              requestedRole: true,
+              divisionId: true,
+              departmentId: true,
+              managementPositionId: true,
+              employeeId: true,
+              revisionNumber: true,
+              status: true,
+              rejectionReason: true,
+              submittedAt: true,
+              reviewedAt: true,
+              updatedAt: true,
+
+              division: {
+                select: {
+                  id: true,
+                  code: true,
+                  name: true,
+                },
+              },
+
+              department: {
+                select: {
+                  id: true,
+                  code: true,
+                  name: true,
+                },
+              },
+            },
+          });
+      },
+    );
+  }
+
+  async cancelRequest(
+    user: AuthenticatedUser,
+    id: string,
+    reason: string,
+    metadata: RequestMetadata,
+  ) {
+    const requester =
+      await this.getRequester(user);
+
+    const accountRequest =
+      await this
+        .closeUnactivatedRequest(
+          requester.id,
+          id,
+          reason,
+          metadata,
+          {
+            closureType:
+              'CANCELLED',
+
+            allowedStatuses: [
+              AccountRequestStatus
+                .PENDING_APPROVAL,
+
+              AccountRequestStatus
+                .APPROVED,
+
+              AccountRequestStatus
+                .ACTIVATION_PENDING,
+            ],
+
+            requestedByAccountId:
+              requester.id,
+
+            notFoundMessage:
+              'Your account request was not found.',
+          },
+        );
+
+    return {
+      message:
+        'Account request cancelled successfully.',
+
+      accountRequest,
+    };
+  }
+
+  async invalidateRequest(
+    user: AuthenticatedUser,
+    id: string,
+    reason: string,
+    metadata: RequestMetadata,
+  ) {
+    this.assertSuperAdmin(user);
+
+    const accountRequest =
+      await this
+        .closeUnactivatedRequest(
+          user.accountId,
+          id,
+          reason,
+          metadata,
+          {
+            closureType:
+              'INVALIDATED',
+
+            allowedStatuses: [
+              AccountRequestStatus
+                .APPROVED,
+
+              AccountRequestStatus
+                .ACTIVATION_PENDING,
+            ],
+
+            notFoundMessage:
+              'Account request was not found.',
+          },
+        );
+
+    return {
+      message:
+        'Account request invalidated successfully.',
+
+      accountRequest,
+    };
+  }
+
   async listMyRequests(
     user: AuthenticatedUser,
     query: ListAccountRequestsQueryDto,
