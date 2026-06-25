@@ -160,19 +160,6 @@ export interface CreateManagementPositionResponse {
   position: ManagementPositionListItem;
 }
 
-export interface AssignManagementPositionInput {
-  employeeId: string;
-  reason: string;
-  startedAt?: string;
-}
-
-export interface ReplaceManagementPositionInput {
-  newEmployeeId: string;
-  reason: string;
-  assignmentReason?: string;
-  effectiveAt?: string;
-}
-
 export interface EndManagementAssignmentInput {
   reason: string;
   effectiveAt?: string;

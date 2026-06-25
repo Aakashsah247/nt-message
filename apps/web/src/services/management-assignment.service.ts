@@ -1,7 +1,6 @@
 import { apiRequest } from "../lib/api";
 
 import type {
-  AssignManagementPositionInput,
   CreateManagementPositionInput,
   CreateManagementPositionResponse,
   EndManagementAssignmentInput,
@@ -9,7 +8,6 @@ import type {
   ListManagementPositionsResponse,
   ManagementAssignmentActionResponse,
   ManagementPositionDetailResponse,
-  ReplaceManagementPositionInput,
 } from "../types/management-assignment";
 
 function authorizationHeaders(
@@ -106,50 +104,6 @@ export function createManagementPosition(
     "/admin/management-positions",
     {
       method: "POST",
-
-      headers:
-        authorizationHeaders(
-          accessToken,
-        ),
-
-      body:
-        JSON.stringify(input),
-    },
-  );
-}
-
-export function assignManagementPosition(
-  accessToken: string,
-  positionId: string,
-  input:
-    AssignManagementPositionInput,
-): Promise<ManagementAssignmentActionResponse> {
-  return apiRequest<ManagementAssignmentActionResponse>(
-    `/admin/management-positions/${positionId}/assign`,
-    {
-      method: "POST",
-
-      headers:
-        authorizationHeaders(
-          accessToken,
-        ),
-
-      body:
-        JSON.stringify(input),
-    },
-  );
-}
-
-export function replaceManagementPositionHolder(
-  accessToken: string,
-  positionId: string,
-  input:
-    ReplaceManagementPositionInput,
-): Promise<ManagementAssignmentActionResponse> {
-  return apiRequest<ManagementAssignmentActionResponse>(
-    `/admin/management-positions/${positionId}/replace`,
-    {
-      method: "PATCH",
 
       headers:
         authorizationHeaders(
