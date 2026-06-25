@@ -59,6 +59,16 @@ export class CreateEmployeeDto {
   })
   departmentId!: string;
 
+  /*
+   * Required by the service for management roles.
+   * Normal employees must not provide a position.
+   */
+  @IsOptional()
+  @IsUUID('4', {
+    message: 'Management position ID must be a valid UUID.',
+  })
+  managementPositionId?: string;
+
   @IsOptional()
   @IsString()
   @MaxLength(120)

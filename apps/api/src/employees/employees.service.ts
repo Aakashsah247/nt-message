@@ -197,51 +197,83 @@ export class EmployeesService {
       let managementPositionId: string | null = null;
 
       if (requestedRole !== AccountRole.EMPLOYEE) {
+        if (!dto.managementPositionId) {
+          throw new BadRequestException(
+            'Management position ID is required for a management account.',
+          );
+        }
+
         const positionType =
           requestedRole === AccountRole.SENIOR_MANAGEMENT
             ? ManagementPositionType.SENIOR_MANAGEMENT
             : ManagementPositionType.TEAM_MANAGER;
 
         /*
-         * There is only one official position for each
-         * division or department scope.
+         * Validate the exact official position selected
+         * by the Super Admin.
          */
-        const position = await transaction.managementPosition.findFirst({
-          where: {
-            positionType,
-            divisionId: division.id,
+        const position =
+          await transaction.managementPosition.findUnique({
+            where: {
+              id: dto.managementPositionId,
+            },
 
-            departmentId:
-              positionType === ManagementPositionType.SENIOR_MANAGEMENT
-                ? null
-                : department.id,
-          },
+            select: {
+              id: true,
+              positionType: true,
+              divisionId: true,
+              departmentId: true,
+              isActive: true,
+              reservedByAccountRequestId: true,
 
-          select: {
-            id: true,
-            positionType: true,
-            divisionId: true,
-            departmentId: true,
-            isActive: true,
-            reservedByAccountRequestId: true,
+              assignments: {
+                where: {
+                  endedAt: null,
+                },
 
-            assignments: {
-              where: {
-                endedAt: null,
-              },
+                take: 1,
 
-              take: 1,
-
-              select: {
-                id: true,
+                select: {
+                  id: true,
+                },
               },
             },
-          },
-        });
+          });
 
         if (!position) {
-          throw new ConflictException(
-            'No official management position exists for the selected organization scope.',
+          throw new NotFoundException(
+            'The selected management position was not found.',
+          );
+        }
+
+        if (position.positionType !== positionType) {
+          throw new BadRequestException(
+            'The selected management position does not match the requested role.',
+          );
+        }
+
+        if (position.divisionId !== division.id) {
+          throw new BadRequestException(
+            'The selected management position does not belong to the selected division.',
+          );
+        }
+
+        if (
+          positionType ===
+            ManagementPositionType.SENIOR_MANAGEMENT &&
+          position.departmentId !== null
+        ) {
+          throw new BadRequestException(
+            'The selected Senior Management position has an invalid organization scope.',
+          );
+        }
+
+        if (
+          positionType === ManagementPositionType.TEAM_MANAGER &&
+          position.departmentId !== department.id
+        ) {
+          throw new BadRequestException(
+            'The selected Team Manager position does not belong to the selected department.',
           );
         }
 
@@ -264,6 +296,10 @@ export class EmployeesService {
         }
 
         managementPositionId = position.id;
+      } else if (dto.managementPositionId) {
+        throw new BadRequestException(
+          'A normal employee account must not reference a management position.',
+        );
       }
 
       const employee = await transaction.employee.create({

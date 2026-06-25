@@ -57,6 +57,7 @@ export interface CreateAdminAccountInput {
   requestedRole: AdminCreatableRole;
   divisionId: string;
   departmentId: string;
+  managementPositionId?: string;
 }
 
 export interface CreateAdminAccountResponse {

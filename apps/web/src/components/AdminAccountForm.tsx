@@ -14,12 +14,20 @@ import {
   getAdminDivisions,
 } from "../services/admin-account.service";
 
+import {
+  listManagementPositions,
+} from "../services/management-assignment.service";
+
 import type {
   AdminCreatableRole,
   AdminDepartment,
   AdminDivision,
   CreateAdminAccountInput,
 } from "../types/admin-account";
+
+import type {
+  ManagementPositionListItem,
+} from "../types/management-assignment";
 
 interface AdminAccountFormProps {
   accessToken: string;
@@ -36,6 +44,7 @@ const initialForm: CreateAdminAccountInput = {
   requestedRole: "SENIOR_MANAGEMENT",
   divisionId: "",
   departmentId: "",
+  managementPositionId: "",
 };
 
 function getErrorMessage(
@@ -108,6 +117,9 @@ export function AdminAccountForm({
   const [departments, setDepartments] =
     useState<AdminDepartment[]>([]);
 
+  const [managementPositions, setManagementPositions] =
+    useState<ManagementPositionListItem[]>([]);
+
   const [loading, setLoading] =
     useState(true);
 
@@ -124,11 +136,18 @@ export function AdminAccountForm({
     Promise.all([
       getAdminDivisions(accessToken),
       getAdminDepartments(accessToken),
+      listManagementPositions(
+        accessToken,
+        {
+          occupancy: "VACANT",
+        },
+      ),
     ])
       .then(
         ([
           divisionResponse,
           departmentResponse,
+          positionResponse,
         ]) => {
           if (!active) {
             return;
@@ -146,6 +165,15 @@ export function AdminAccountForm({
               (department) =>
                 department.isActive &&
                 department.division.isActive,
+            ),
+          );
+
+          setManagementPositions(
+            positionResponse.data.filter(
+              (position) =>
+                position.isActive &&
+                position.occupancy ===
+                  "VACANT",
             ),
           );
 
@@ -216,6 +244,84 @@ export function AdminAccountForm({
       ],
     );
 
+  const isManagementRole =
+    form.requestedRole !== "EMPLOYEE";
+
+  const availableManagementPositions =
+    useMemo(
+      () =>
+        managementPositions.filter(
+          (position) => {
+            if (
+              position.positionType !==
+              form.requestedRole
+            ) {
+              return false;
+            }
+
+            if (
+              !form.divisionId ||
+              position.divisionId !==
+                form.divisionId
+            ) {
+              return false;
+            }
+
+            if (
+              form.requestedRole ===
+              "TEAM_MANAGER"
+            ) {
+              return (
+                Boolean(
+                  form.departmentId,
+                ) &&
+                position.departmentId ===
+                  form.departmentId
+              );
+            }
+
+            return (
+              position.departmentId ===
+              null
+            );
+          },
+        ),
+      [
+        form.departmentId,
+        form.divisionId,
+        form.requestedRole,
+        managementPositions,
+      ],
+    );
+
+  const selectedManagementPosition =
+    useMemo(
+      () =>
+        managementPositions.find(
+          (position) =>
+            position.id ===
+            form.managementPositionId,
+        ) ?? null,
+      [
+        form.managementPositionId,
+        managementPositions,
+      ],
+    );
+
+  function getPositionLabel(
+    position:
+      ManagementPositionListItem,
+  ): string {
+    if (
+      position.positionType ===
+      "SENIOR_MANAGEMENT"
+    ) {
+      return `${position.division.name} Senior Management`;
+    }
+
+    return `${position.department?.name ?? "Department"} Team Manager`;
+  }
+
   const departmentLabel =
     getDepartmentLabel(
       form.requestedRole,
@@ -252,6 +358,7 @@ export function AdminAccountForm({
       ...current,
       requestedRole,
       departmentId: "",
+      managementPositionId: "",
     }));
 
     setError("");
@@ -264,6 +371,7 @@ export function AdminAccountForm({
       ...current,
       divisionId,
       departmentId: "",
+      managementPositionId: "",
     }));
 
     setError("");
@@ -304,6 +412,13 @@ export function AdminAccountForm({
       !form.departmentId
     ) {
       return `Select a division and ${departmentLabel.toLowerCase()}.`;
+    }
+
+    if (
+      isManagementRole &&
+      !form.managementPositionId
+    ) {
+      return "Select a vacant management position.";
     }
 
     return null;
@@ -355,6 +470,11 @@ export function AdminAccountForm({
           designation:
             form.designation?.trim() ||
             undefined,
+
+          managementPositionId:
+            isManagementRole
+              ? form.managementPositionId
+              : undefined,
         },
       );
 
@@ -428,7 +548,7 @@ export function AdminAccountForm({
             <div className="spinner" />
 
             <p>
-              Loading organization data...
+              Loading organization and vacancy data...
             </p>
           </div>
         ) : (
@@ -618,6 +738,9 @@ export function AdminAccountForm({
 
                         departmentId:
                           event.target.value,
+
+                        managementPositionId:
+                          "",
                       }),
                     )
                   }
@@ -651,6 +774,67 @@ export function AdminAccountForm({
                   {departmentHelp}
                 </small>
               </label>
+              {isManagementRole && (
+                <label>
+                  <span>
+                    Vacant management position
+                  </span>
+
+                  <select
+                    value={
+                      form.managementPositionId ??
+                      ""
+                    }
+                    onChange={(event) => {
+                      setForm(
+                        (current) => ({
+                          ...current,
+
+                          managementPositionId:
+                            event.target.value,
+                        }),
+                      );
+
+                      setError("");
+                    }}
+                    disabled={
+                      submitting ||
+                      !form.divisionId ||
+                      (
+                        form.requestedRole ===
+                          "TEAM_MANAGER" &&
+                        !form.departmentId
+                      )
+                    }
+                    required
+                  >
+                    <option value="">
+                      {availableManagementPositions.length >
+                      0
+                        ? "Select vacant position"
+                        : "No vacant positions available"}
+                    </option>
+
+                    {availableManagementPositions.map(
+                      (position) => (
+                        <option
+                          key={position.id}
+                          value={position.id}
+                        >
+                          {getPositionLabel(
+                            position,
+                          )}
+                        </option>
+                      ),
+                    )}
+                  </select>
+
+                  <small className="acct-help">
+                    Reserved, occupied and inactive
+                    positions cannot be selected.
+                  </small>
+                </label>
+              )}
             </div>
 
             <section className="acct-review">
@@ -665,7 +849,13 @@ export function AdminAccountForm({
               </strong>
 
               <small>
-                The request becomes approved and the employee can begin OTP activation.
+                {isManagementRole
+                  ? selectedManagementPosition
+                    ? `Reserved position: ${getPositionLabel(
+                        selectedManagementPosition,
+                      )}`
+                    : "Select a vacant position before creating this management account."
+                  : "Normal employee accounts do not require a management position."}
               </small>
             </section>
 
@@ -684,7 +874,15 @@ export function AdminAccountForm({
                 className="acct-save"
                 disabled={
                   submitting ||
-                  divisions.length === 0
+                  divisions.length === 0 ||
+                  (
+                    isManagementRole &&
+                    (
+                      !form.managementPositionId ||
+                      availableManagementPositions.length ===
+                        0
+                    )
+                  )
                 }
               >
                 {submitting
