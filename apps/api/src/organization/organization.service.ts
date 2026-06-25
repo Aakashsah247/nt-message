@@ -283,6 +283,48 @@ export class OrganizationService {
           "Deactivate the division's active departments before deactivating the division.",
         );
       }
+
+      const protectedManagementPosition =
+        await this.prisma.managementPosition.findFirst({
+          where: {
+            divisionId: id,
+
+            OR: [
+              {
+                reservedByAccountRequestId: {
+                  not: null,
+                },
+              },
+              {
+                assignments: {
+                  some: {
+                    endedAt: null,
+                  },
+                },
+              },
+            ],
+          },
+
+          select: {
+            positionType: true,
+
+            department: {
+              select: {
+                name: true,
+              },
+            },
+          },
+        });
+
+      if (protectedManagementPosition) {
+        const scopeName =
+          protectedManagementPosition.department?.name ??
+          existingDivision.name;
+
+        throw new ConflictException(
+          `Deactivate or release the ${protectedManagementPosition.positionType} management position for ${scopeName} before deactivating this division.`,
+        );
+      }
     }
 
     const data: Prisma.DivisionUpdateInput = {};
@@ -299,21 +341,48 @@ export class OrganizationService {
       data.isActive = dto.isActive;
     }
 
-    const division = await this.prisma.division.update({
-      where: {
-        id,
-      },
+    const division = await this.prisma.$transaction(async (transaction) => {
+      const updatedDivision = await transaction.division.update({
+        where: {
+          id,
+        },
 
-      data,
+        data,
 
-      select: {
-        id: true,
-        code: true,
-        name: true,
-        isActive: true,
-        createdAt: true,
-        updatedAt: true,
-      },
+        select: {
+          id: true,
+          code: true,
+          name: true,
+          isActive: true,
+          createdAt: true,
+          updatedAt: true,
+        },
+      });
+
+      if (
+        dto.isActive !== undefined &&
+        dto.isActive !== existingDivision.isActive
+      ) {
+        await transaction.managementPosition.updateMany({
+          where: {
+            divisionId: id,
+
+            // Department positions remain inactive until their own
+            // departments are reactivated.
+            ...(dto.isActive
+              ? {
+                  departmentId: null,
+                }
+              : {}),
+          },
+
+          data: {
+            isActive: dto.isActive,
+          },
+        });
+      }
+
+      return updatedDivision;
     });
 
     return {
@@ -682,6 +751,62 @@ export class OrganizationService {
 
     const targetDivisionId = dto.divisionId ?? existingDepartment.divisionId;
 
+    if (dto.isActive === false && existingDepartment.isActive) {
+      const protectedManagementPosition =
+        await this.prisma.managementPosition.findFirst({
+          where: {
+            departmentId: id,
+
+            OR: [
+              {
+                reservedByAccountRequestId: {
+                  not: null,
+                },
+              },
+              {
+                assignments: {
+                  some: {
+                    endedAt: null,
+                  },
+                },
+              },
+            ],
+          },
+
+          select: {
+            positionType: true,
+          },
+        });
+
+      if (protectedManagementPosition) {
+        throw new ConflictException(
+          `Deactivate or release the ${protectedManagementPosition.positionType} management position before deactivating this department.`,
+        );
+      }
+    }
+
+    if (dto.isActive === true && !existingDepartment.isActive) {
+      const targetDivision = await this.prisma.division.findUnique({
+        where: {
+          id: targetDivisionId,
+        },
+
+        select: {
+          isActive: true,
+        },
+      });
+
+      if (!targetDivision) {
+        throw new NotFoundException('Target division was not found.');
+      }
+
+      if (!targetDivision.isActive) {
+        throw new ConflictException(
+          'A department cannot be reactivated inside an inactive division.',
+        );
+      }
+    }
+
     if (
       dto.divisionId !== undefined &&
       dto.divisionId !== existingDepartment.divisionId
@@ -791,38 +916,57 @@ export class OrganizationService {
       };
     }
 
-    const department = await this.prisma.department.update({
-      where: {
-        id,
-      },
-
-      data,
-
-      select: {
-        id: true,
-        code: true,
-        name: true,
-        isActive: true,
-        createdAt: true,
-        updatedAt: true,
-
-        division: {
-          select: {
-            id: true,
-            code: true,
-            name: true,
-            isActive: true,
-          },
+    const department = await this.prisma.$transaction(async (transaction) => {
+      const updatedDepartment = await transaction.department.update({
+        where: {
+          id,
         },
 
-        _count: {
-          select: {
-            employees: true,
-            accountRequests: true,
-            managementPositions: true,
+        data,
+
+        select: {
+          id: true,
+          code: true,
+          name: true,
+          isActive: true,
+          createdAt: true,
+          updatedAt: true,
+
+          division: {
+            select: {
+              id: true,
+              code: true,
+              name: true,
+              isActive: true,
+            },
+          },
+
+          _count: {
+            select: {
+              employees: true,
+              accountRequests: true,
+              managementPositions: true,
+            },
           },
         },
-      },
+      });
+
+      if (
+        dto.isActive !== undefined &&
+        dto.isActive !== existingDepartment.isActive
+      ) {
+        await transaction.managementPosition.updateMany({
+          where: {
+            departmentId: id,
+          },
+
+          data: {
+            isActive: dto.isActive,
+          },
+        });
+      }
+
+      return updatedDepartment;
     });
 
     return {
