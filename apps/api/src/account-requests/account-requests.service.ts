@@ -18,6 +18,10 @@ import {
 
 import type { Prisma } from '../generated/prisma/client';
 
+import {
+  resolveOrCreateVacantManagementPosition,
+} from '../management-assignments/management-position-resolver';
+
 import { CreateAccountRequestDto } from './dto/create-account-request.dto';
 import { ListAccountRequestsQueryDto } from './dto/list-account-requests-query.dto';
 import { ResubmitAccountRequestDto } from './dto/resubmit-account-request.dto';
@@ -278,77 +282,34 @@ export class AccountRequestsService {
   }
 
   private async resolveManagementPositionId(
-    transaction: Prisma.TransactionClient,
-    suppliedManagementPositionId: string | null,
-    requestedRole: AccountRole,
-    divisionId: string,
-    departmentId: string | null,
+    transaction:
+      Prisma.TransactionClient,
+
+    suppliedManagementPositionId:
+      string | null,
+
+    requestedRole:
+      AccountRole,
+
+    divisionId:
+      string,
+
+    departmentId:
+      string | null,
   ): Promise<string> {
-    const requiredPositionType =
-      requestedRole === AccountRole.SENIOR_MANAGEMENT
-        ? ManagementPositionType.SENIOR_MANAGEMENT
-        : requestedRole === AccountRole.TEAM_MANAGER
-          ? ManagementPositionType.TEAM_MANAGER
-          : null;
-
-    if (!requiredPositionType) {
-      throw new BadRequestException(
-        'A normal employee request must not reference a management position.',
-      );
-    }
-
-    if (suppliedManagementPositionId) {
-      const selectedPosition =
-        await this.validateManagementPositionVacancy(
-          transaction,
-          suppliedManagementPositionId,
+    const position =
+      await resolveOrCreateVacantManagementPosition(
+        transaction,
+        {
           requestedRole,
           divisionId,
           departmentId,
-        );
 
-      return selectedPosition.id;
-    }
-
-    /*
-     * Official positions are unique by division or department.
-     * This fallback keeps existing clients compatible while still
-     * storing the exact position ID on every management request.
-     */
-    const officialPosition =
-      await transaction.managementPosition.findFirst({
-        where: {
-          positionType: requiredPositionType,
-          divisionId,
-
-          departmentId:
-            requiredPositionType ===
-            ManagementPositionType.SENIOR_MANAGEMENT
-              ? null
-              : departmentId,
+          suppliedManagementPositionId,
         },
-
-        select: {
-          id: true,
-        },
-      });
-
-    if (!officialPosition) {
-      throw new NotFoundException(
-        'No active management position exists for the selected organization scope.',
-      );
-    }
-
-    const validatedPosition =
-      await this.validateManagementPositionVacancy(
-        transaction,
-        officialPosition.id,
-        requestedRole,
-        divisionId,
-        departmentId,
       );
 
-    return validatedPosition.id;
+    return position.id;
   }
 
   async getRequestContext(user: AuthenticatedUser) {
@@ -392,48 +353,6 @@ export class AccountRequestsService {
         },
       });
 
-      const availableManagementPositions =
-        await this.prisma.managementPosition.findMany({
-          where: {
-            positionType: ManagementPositionType.TEAM_MANAGER,
-            divisionId: employee.divisionId,
-            isActive: true,
-            reservedByAccountRequestId: null,
-
-            assignments: {
-              none: {
-                endedAt: null,
-              },
-            },
-
-            department: {
-              is: {
-                isActive: true,
-              },
-            },
-          },
-
-          orderBy: {
-            createdAt: 'asc',
-          },
-
-          select: {
-            id: true,
-            positionType: true,
-            divisionId: true,
-            departmentId: true,
-            isActive: true,
-
-            department: {
-              select: {
-                id: true,
-                code: true,
-                name: true,
-              },
-            },
-          },
-        });
-
       return {
         role: requester.role,
 
@@ -447,7 +366,7 @@ export class AccountRequestsService {
 
         departments,
 
-        availableManagementPositions,
+        availableManagementPositions: [],
       };
     }
 

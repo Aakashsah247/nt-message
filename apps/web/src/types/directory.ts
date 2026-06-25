@@ -409,7 +409,7 @@ export interface ChangeDirectoryEmployeeRoleInput {
     DirectoryRoleChangeTarget;
 
   divisionId: string;
-  departmentId: string;
+  departmentId?: string;
 
   managementPositionId?: string;
 
@@ -443,7 +443,7 @@ export interface ChangeDirectoryEmployeeRoleResponse {
     officialEmail: string;
     designation: string | null;
     divisionId: string;
-    departmentId: string;
+    departmentId: string | null;
     status:
       DirectoryEmployeeStatus;
     employmentStatus:

@@ -20,6 +20,10 @@ import {
 
 import type { Prisma } from '../generated/prisma/client';
 
+import {
+  resolveOrCreateVacantManagementPosition,
+} from '../management-assignments/management-position-resolver';
+
 import { ArchiveEmployeeDto } from './dto/archive-employee.dto';
 import { ChangeEmployeeRoleDto } from './dto/change-employee-role.dto';
 import { CreateEmployeeDto } from './dto/create-employee.dto';
@@ -41,9 +45,8 @@ interface EmployeeLifecycleMetadata {
 export class EmployeesService {
   constructor(private readonly prisma: PrismaService) {}
 
-  private async validateOrganizationAssignment(
+  private async validateDivisionAssignment(
     divisionId: string,
-    departmentId: string,
   ) {
     const division = await this.prisma.division.findUnique({
       where: {
@@ -65,6 +68,18 @@ export class EmployeesService {
     if (!division.isActive) {
       throw new ConflictException('The selected division is inactive.');
     }
+
+    return division;
+  }
+
+  private async validateOrganizationAssignment(
+    divisionId: string,
+    departmentId: string,
+  ) {
+    const division =
+      await this.validateDivisionAssignment(
+        divisionId,
+      );
 
     const department = await this.prisma.department.findUnique({
       where: {
@@ -100,6 +115,39 @@ export class EmployeesService {
     };
   }
 
+  private async validateRoleOrganizationAssignment(
+    role: AccountRole,
+    divisionId: string,
+    departmentId?: string,
+  ) {
+    if (role === AccountRole.SENIOR_MANAGEMENT) {
+      if (departmentId) {
+        throw new BadRequestException(
+          'Senior Management must be assigned to a division without a department.',
+        );
+      }
+
+      return {
+        division:
+          await this.validateDivisionAssignment(
+            divisionId,
+          ),
+        department: null,
+      };
+    }
+
+    if (!departmentId) {
+      throw new BadRequestException(
+        'Department ID is required for Team Manager and Employee accounts.',
+      );
+    }
+
+    return this.validateOrganizationAssignment(
+      divisionId,
+      departmentId,
+    );
+  }
+
   async createEmployee(
     user: AuthenticatedUser,
     dto: CreateEmployeeDto,
@@ -124,10 +172,12 @@ export class EmployeesService {
     // Uses the role selected by the Super Admin.
     const requestedRole = dto.requestedRole;
 
-    const { division, department } = await this.validateOrganizationAssignment(
-      dto.divisionId,
-      dto.departmentId,
-    );
+    const { division, department } =
+      await this.validateRoleOrganizationAssignment(
+        requestedRole,
+        dto.divisionId,
+        dto.departmentId,
+      );
 
     const existingEmployee = await this.prisma.employee.findFirst({
       where: {
@@ -196,107 +246,34 @@ export class EmployeesService {
     const result = await this.prisma.$transaction(async (transaction) => {
       let managementPositionId: string | null = null;
 
-      if (requestedRole !== AccountRole.EMPLOYEE) {
-        if (!dto.managementPositionId) {
-          throw new BadRequestException(
-            'Management position ID is required for a management account.',
-          );
-        }
-
-        const positionType =
-          requestedRole === AccountRole.SENIOR_MANAGEMENT
-            ? ManagementPositionType.SENIOR_MANAGEMENT
-            : ManagementPositionType.TEAM_MANAGER;
-
-        /*
-         * Validate the exact official position selected
-         * by the Super Admin.
-         */
+      if (
+        requestedRole !==
+        AccountRole.EMPLOYEE
+      ) {
         const position =
-          await transaction.managementPosition.findUnique({
-            where: {
-              id: dto.managementPositionId,
+          await resolveOrCreateVacantManagementPosition(
+            transaction,
+            {
+              requestedRole,
+
+              divisionId:
+                division.id,
+
+              departmentId:
+                department?.id ??
+                null,
+
+              suppliedManagementPositionId:
+                dto.managementPositionId ??
+                null,
             },
-
-            select: {
-              id: true,
-              positionType: true,
-              divisionId: true,
-              departmentId: true,
-              isActive: true,
-              reservedByAccountRequestId: true,
-
-              assignments: {
-                where: {
-                  endedAt: null,
-                },
-
-                take: 1,
-
-                select: {
-                  id: true,
-                },
-              },
-            },
-          });
-
-        if (!position) {
-          throw new NotFoundException(
-            'The selected management position was not found.',
           );
-        }
 
-        if (position.positionType !== positionType) {
-          throw new BadRequestException(
-            'The selected management position does not match the requested role.',
-          );
-        }
-
-        if (position.divisionId !== division.id) {
-          throw new BadRequestException(
-            'The selected management position does not belong to the selected division.',
-          );
-        }
-
-        if (
-          positionType ===
-            ManagementPositionType.SENIOR_MANAGEMENT &&
-          position.departmentId !== null
-        ) {
-          throw new BadRequestException(
-            'The selected Senior Management position has an invalid organization scope.',
-          );
-        }
-
-        if (
-          positionType === ManagementPositionType.TEAM_MANAGER &&
-          position.departmentId !== department.id
-        ) {
-          throw new BadRequestException(
-            'The selected Team Manager position does not belong to the selected department.',
-          );
-        }
-
-        if (!position.isActive) {
-          throw new ConflictException(
-            'The selected management position is inactive.',
-          );
-        }
-
-        if (position.reservedByAccountRequestId) {
-          throw new ConflictException(
-            'The selected management position is already reserved.',
-          );
-        }
-
-        if (position.assignments.length > 0) {
-          throw new ConflictException(
-            'The selected management position is not vacant.',
-          );
-        }
-
-        managementPositionId = position.id;
-      } else if (dto.managementPositionId) {
+        managementPositionId =
+          position.id;
+      } else if (
+        dto.managementPositionId
+      ) {
         throw new BadRequestException(
           'A normal employee account must not reference a management position.',
         );
@@ -316,18 +293,24 @@ export class EmployeesService {
             },
           },
 
-          departmentUnit: {
-            connect: {
-              id: department.id,
-            },
-          },
+          ...(department
+            ? {
+                departmentUnit: {
+                  connect: {
+                    id: department.id,
+                  },
+                },
+              }
+            : {}),
 
           /*
            * Temporary compatibility field.
            * This will be removed after all
            * organization data is migrated.
            */
-          department: department.name,
+          department:
+            department?.name ??
+            null,
 
           status: EmployeeStatus.ACTIVE,
 
@@ -382,7 +365,9 @@ export class EmployeesService {
 
           divisionId: division.id,
 
-          departmentId: department.id,
+          departmentId:
+            department?.id ??
+            null,
 
           managementPositionId,
 
@@ -492,7 +477,9 @@ export class EmployeesService {
 
               divisionId: division.id,
 
-              departmentId: department.id,
+              departmentId:
+                department?.id ??
+                null,
             },
           },
         ],
@@ -1034,7 +1021,8 @@ export class EmployeesService {
     }
 
     const { division, department } =
-      await this.validateOrganizationAssignment(
+      await this.validateRoleOrganizationAssignment(
+        dto.targetRole,
         dto.divisionId,
         dto.departmentId,
       );
@@ -1250,134 +1238,28 @@ export class EmployeesService {
                 );
               }
             } else {
-              if (
-                !dto.managementPositionId
-              ) {
-                throw new BadRequestException(
-                  'Management position ID is required for a management role.',
-                );
-              }
-
-              const requiredPositionType =
-                dto.targetRole ===
-                AccountRole
-                  .SENIOR_MANAGEMENT
-                  ? ManagementPositionType
-                      .SENIOR_MANAGEMENT
-                  : ManagementPositionType
-                      .TEAM_MANAGER;
-
               const position =
-                await transaction
-                  .managementPosition
-                  .findUnique({
-                    where: {
-                      id:
-                        dto.managementPositionId,
-                    },
+                await resolveOrCreateVacantManagementPosition(
+                  transaction,
+                  {
+                    requestedRole:
+                      dto.targetRole,
 
-                    select: {
-                      id: true,
-                      positionType: true,
-                      divisionId: true,
-                      departmentId: true,
-                      isActive: true,
+                    divisionId:
+                      division.id,
 
-                      reservedByAccountRequestId:
-                        true,
+                    departmentId:
+                      department?.id ??
+                      null,
 
-                      assignments: {
-                        where: {
-                          endedAt: null,
-                        },
+                    suppliedManagementPositionId:
+                      dto.managementPositionId ??
+                      null,
 
-                        take: 1,
-
-                        select: {
-                          id: true,
-                          employeeId: true,
-                        },
-                      },
-                    },
-                  });
-
-              if (!position) {
-                throw new NotFoundException(
-                  'The selected management position was not found.',
+                    allowEmployeeId:
+                      employee.id,
+                  },
                 );
-              }
-
-              if (
-                position.positionType !==
-                requiredPositionType
-              ) {
-                throw new BadRequestException(
-                  'The selected management position does not match the target role.',
-                );
-              }
-
-              if (
-                position.divisionId !==
-                division.id
-              ) {
-                throw new BadRequestException(
-                  'The selected management position does not belong to the selected division.',
-                );
-              }
-
-              if (
-                requiredPositionType ===
-                  ManagementPositionType
-                    .SENIOR_MANAGEMENT &&
-                position.departmentId !==
-                  null
-              ) {
-                throw new BadRequestException(
-                  'The selected Senior Management position has an invalid organization scope.',
-                );
-              }
-
-              if (
-                requiredPositionType ===
-                  ManagementPositionType
-                    .TEAM_MANAGER &&
-                position.departmentId !==
-                  department.id
-              ) {
-                throw new BadRequestException(
-                  'The selected Team Manager position does not belong to the selected department.',
-                );
-              }
-
-              if (!position.isActive) {
-                throw new ConflictException(
-                  'The selected management position is inactive.',
-                );
-              }
-
-              if (
-                position
-                  .reservedByAccountRequestId
-              ) {
-                throw new ConflictException(
-                  'The selected management position is already reserved.',
-                );
-              }
-
-              const activePositionAssignment =
-                position.assignments[0] ??
-                null;
-
-              if (
-                activePositionAssignment &&
-                activePositionAssignment
-                  .employeeId !==
-                  employee.id
-              ) {
-                throw new ConflictException(
-                  'The selected management position is not vacant.',
-                );
-              }
 
               targetManagementPosition = {
                 id: position.id,
@@ -1397,7 +1279,7 @@ export class EmployeesService {
               employee.divisionId ===
                 division.id &&
               employee.departmentId ===
-                department.id;
+                (department?.id ?? null);
 
             const samePosition =
               currentAssignment
@@ -1546,14 +1428,20 @@ export class EmployeesService {
                     },
                   },
 
-                  departmentUnit: {
-                    connect: {
-                      id: department.id,
-                    },
-                  },
+                  departmentUnit:
+                    department
+                      ? {
+                          connect: {
+                            id: department.id,
+                          },
+                        }
+                      : {
+                          disconnect: true,
+                        },
 
                   department:
-                    department.name,
+                    department?.name ??
+                    null,
 
                   ...(designation !==
                   undefined
@@ -1709,7 +1597,8 @@ export class EmployeesService {
                     previousDepartmentId,
 
                     newDepartmentId:
-                      department.id,
+                      department?.id ??
+                      null,
 
                     previousDesignation,
 

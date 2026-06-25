@@ -14,20 +14,12 @@ import {
   getAdminDivisions,
 } from "../services/admin-account.service";
 
-import {
-  listManagementPositions,
-} from "../services/management-assignment.service";
-
 import type {
   AdminCreatableRole,
   AdminDepartment,
   AdminDivision,
   CreateAdminAccountInput,
 } from "../types/admin-account";
-
-import type {
-  ManagementPositionListItem,
-} from "../types/management-assignment";
 
 interface AdminAccountFormProps {
   accessToken: string;
@@ -44,7 +36,6 @@ const initialForm: CreateAdminAccountInput = {
   requestedRole: "SENIOR_MANAGEMENT",
   divisionId: "",
   departmentId: "",
-  managementPositionId: "",
 };
 
 function getErrorMessage(
@@ -70,35 +61,6 @@ function formatRole(
 }
 
 
-function getDepartmentLabel(
-  role: AdminCreatableRole,
-): string {
-  switch (role) {
-    case "SENIOR_MANAGEMENT":
-      return "Home / Administrative Department";
-
-    case "TEAM_MANAGER":
-      return "Managed Department";
-
-    case "EMPLOYEE":
-      return "Working Department";
-  }
-}
-
-function getDepartmentHelp(
-  role: AdminCreatableRole,
-): string {
-  switch (role) {
-    case "SENIOR_MANAGEMENT":
-      return "Select the department used as this manager's administrative home.";
-
-    case "TEAM_MANAGER":
-      return "Select the department this Team Manager will manage.";
-
-    case "EMPLOYEE":
-      return "Select the department where this employee works.";
-  }
-}
 
 
 export function AdminAccountForm({
@@ -117,9 +79,6 @@ export function AdminAccountForm({
   const [departments, setDepartments] =
     useState<AdminDepartment[]>([]);
 
-  const [managementPositions, setManagementPositions] =
-    useState<ManagementPositionListItem[]>([]);
-
   const [loading, setLoading] =
     useState(true);
 
@@ -136,18 +95,11 @@ export function AdminAccountForm({
     Promise.all([
       getAdminDivisions(accessToken),
       getAdminDepartments(accessToken),
-      listManagementPositions(
-        accessToken,
-        {
-          occupancy: "VACANT",
-        },
-      ),
     ])
       .then(
         ([
           divisionResponse,
           departmentResponse,
-          positionResponse,
         ]) => {
           if (!active) {
             return;
@@ -168,14 +120,6 @@ export function AdminAccountForm({
             ),
           );
 
-          setManagementPositions(
-            positionResponse.data.filter(
-              (position) =>
-                position.isActive &&
-                position.occupancy ===
-                  "VACANT",
-            ),
-          );
 
           setError("");
         },
@@ -247,90 +191,9 @@ export function AdminAccountForm({
   const isManagementRole =
     form.requestedRole !== "EMPLOYEE";
 
-  const availableManagementPositions =
-    useMemo(
-      () =>
-        managementPositions.filter(
-          (position) => {
-            if (
-              position.positionType !==
-              form.requestedRole
-            ) {
-              return false;
-            }
-
-            if (
-              !form.divisionId ||
-              position.divisionId !==
-                form.divisionId
-            ) {
-              return false;
-            }
-
-            if (
-              form.requestedRole ===
-              "TEAM_MANAGER"
-            ) {
-              return (
-                Boolean(
-                  form.departmentId,
-                ) &&
-                position.departmentId ===
-                  form.departmentId
-              );
-            }
-
-            return (
-              position.departmentId ===
-              null
-            );
-          },
-        ),
-      [
-        form.departmentId,
-        form.divisionId,
-        form.requestedRole,
-        managementPositions,
-      ],
-    );
-
-  const selectedManagementPosition =
-    useMemo(
-      () =>
-        managementPositions.find(
-          (position) =>
-            position.id ===
-            form.managementPositionId,
-        ) ?? null,
-      [
-        form.managementPositionId,
-        managementPositions,
-      ],
-    );
-
-  function getPositionLabel(
-    position:
-      ManagementPositionListItem,
-  ): string {
-    if (
-      position.positionType ===
-      "SENIOR_MANAGEMENT"
-    ) {
-      return `${position.division.name} Senior Management`;
-    }
-
-    return `${position.department?.name ?? "Department"} Team Manager`;
-  }
-
-  const departmentLabel =
-    getDepartmentLabel(
-      form.requestedRole,
-    );
-
-  const departmentHelp =
-    getDepartmentHelp(
-      form.requestedRole,
-    );
+  const requiresDepartment =
+    form.requestedRole !==
+    "SENIOR_MANAGEMENT";
 
   function updateField(
     field:
@@ -358,7 +221,6 @@ export function AdminAccountForm({
       ...current,
       requestedRole,
       departmentId: "",
-      managementPositionId: "",
     }));
 
     setError("");
@@ -371,7 +233,6 @@ export function AdminAccountForm({
       ...current,
       divisionId,
       departmentId: "",
-      managementPositionId: "",
     }));
 
     setError("");
@@ -407,19 +268,17 @@ export function AdminAccountForm({
       return "Enter a valid official email.";
     }
 
-    if (
-      !form.divisionId ||
-      !form.departmentId
-    ) {
-      return `Select a division and ${departmentLabel.toLowerCase()}.`;
+    if (!form.divisionId) {
+      return "Select a division.";
     }
 
     if (
-      isManagementRole &&
-      !form.managementPositionId
+      requiresDepartment &&
+      !form.departmentId
     ) {
-      return "Select a vacant management position.";
+      return "Select a department.";
     }
+
 
     return null;
   }
@@ -471,9 +330,9 @@ export function AdminAccountForm({
             form.designation?.trim() ||
             undefined,
 
-          managementPositionId:
-            isManagementRole
-              ? form.managementPositionId
+          departmentId:
+            requiresDepartment
+              ? form.departmentId
               : undefined,
         },
       );
@@ -548,7 +407,7 @@ export function AdminAccountForm({
             <div className="spinner" />
 
             <p>
-              Loading organization and vacancy data...
+              Loading organization data...
             </p>
           </div>
         ) : (
@@ -722,116 +581,60 @@ export function AdminAccountForm({
                 </select>
               </label>
 
-              <label>
-                <span>
-                  {departmentLabel}
-                </span>
-
-                <select
-                  value={
-                    form.departmentId
-                  }
-                  onChange={(event) =>
-                    setForm(
-                      (current) => ({
-                        ...current,
-
-                        departmentId:
-                          event.target.value,
-
-                        managementPositionId:
-                          "",
-                      }),
-                    )
-                  }
-                  disabled={
-                    !form.divisionId ||
-                    submitting
-                  }
-                  required
-                >
-                  <option value="">
-                    Select department
-                  </option>
-
-                  {availableDepartments.map(
-                    (department) => (
-                      <option
-                        key={
-                          department.id
-                        }
-                        value={
-                          department.id
-                        }
-                      >
-                        {department.name} ({department.code})
-                      </option>
-                    ),
-                  )}
-                </select>
-
-                <small className="acct-help">
-                  {departmentHelp}
-                </small>
-              </label>
-              {isManagementRole && (
+              {requiresDepartment && (
                 <label>
                   <span>
-                    Vacant management position
+                    {form.requestedRole ===
+                    "TEAM_MANAGER"
+                      ? "Managed Department"
+                      : "Working Department"}
                   </span>
 
                   <select
                     value={
-                      form.managementPositionId ??
-                      ""
+                      form.departmentId
                     }
-                    onChange={(event) => {
+                    onChange={(event) =>
                       setForm(
                         (current) => ({
                           ...current,
 
-                          managementPositionId:
+                          departmentId:
                             event.target.value,
                         }),
-                      );
-
-                      setError("");
-                    }}
-                    disabled={
-                      submitting ||
-                      !form.divisionId ||
-                      (
-                        form.requestedRole ===
-                          "TEAM_MANAGER" &&
-                        !form.departmentId
                       )
+                    }
+                    disabled={
+                      !form.divisionId ||
+                      submitting
                     }
                     required
                   >
                     <option value="">
-                      {availableManagementPositions.length >
-                      0
-                        ? "Select vacant position"
-                        : "No vacant positions available"}
+                      Select department
                     </option>
 
-                    {availableManagementPositions.map(
-                      (position) => (
+                    {availableDepartments.map(
+                      (department) => (
                         <option
-                          key={position.id}
-                          value={position.id}
+                          key={
+                            department.id
+                          }
+                          value={
+                            department.id
+                          }
                         >
-                          {getPositionLabel(
-                            position,
-                          )}
+                          {department.name} ({department.code})
                         </option>
                       ),
                     )}
                   </select>
 
                   <small className="acct-help">
-                    Reserved, occupied and inactive
-                    positions cannot be selected.
+                    {form.requestedRole ===
+                    "TEAM_MANAGER"
+                      ? "Select the department this Team Manager will manage."
+                      : "Select the department where this employee works."}
                   </small>
                 </label>
               )}
@@ -849,13 +652,12 @@ export function AdminAccountForm({
               </strong>
 
               <small>
-                {isManagementRole
-                  ? selectedManagementPosition
-                    ? `Reserved position: ${getPositionLabel(
-                        selectedManagementPosition,
-                      )}`
-                    : "Select a vacant position before creating this management account."
-                  : "Normal employee accounts do not require a management position."}
+                {form.requestedRole ===
+                "SENIOR_MANAGEMENT"
+                  ? "One Senior Management position for the selected division will be created and reserved automatically."
+                  : isManagementRole
+                    ? "One Team Manager position for the selected department will be created and reserved automatically."
+                    : "Normal employee accounts do not require management authority."}
               </small>
             </section>
 
@@ -874,15 +676,7 @@ export function AdminAccountForm({
                 className="acct-save"
                 disabled={
                   submitting ||
-                  divisions.length === 0 ||
-                  (
-                    isManagementRole &&
-                    (
-                      !form.managementPositionId ||
-                      availableManagementPositions.length ===
-                        0
-                    )
-                  )
+                  divisions.length === 0
                 }
               >
                 {submitting

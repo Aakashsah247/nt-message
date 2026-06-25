@@ -15,10 +15,6 @@ import {
   updateDirectoryEmployeeStatus,
 } from "../services/directory.service";
 
-import {
-  listManagementPositions,
-} from "../services/management-assignment.service";
-
 import type {
   AccountRole,
 } from "../types/auth";
@@ -33,10 +29,6 @@ import type {
   DirectoryOrganizationDivision,
   DirectoryRoleChangeTarget,
 } from "../types/directory";
-
-import type {
-  ManagementPositionListItem,
-} from "../types/management-assignment";
 
 const assignableRoles:
   DirectoryRoleChangeTarget[] = [
@@ -136,21 +128,6 @@ function getCurrentPositionLabel(
 
   return `${position.department?.name ?? "Department"} Team Manager`;
 }
-
-function getRolePositionLabel(
-  position:
-    ManagementPositionListItem,
-): string {
-  if (
-    position.positionType ===
-    "SENIOR_MANAGEMENT"
-  ) {
-    return `${position.division.name} Senior Management`;
-  }
-
-  return `${position.department?.name ?? "Department"} Team Manager`;
-}
-
 
 export function EmployeeDirectoryDetailPanel({
   accessToken,
@@ -305,19 +282,6 @@ export function EmployeeDirectoryDetailPanel({
   ] = useState("");
 
   const [
-    roleManagementPositionId,
-    setRoleManagementPositionId,
-  ] = useState("");
-
-  const [
-    managementPositions,
-    setManagementPositions,
-  ] =
-    useState<
-      ManagementPositionListItem[]
-    >([]);
-
-  const [
     roleDesignation,
     setRoleDesignation,
   ] = useState("");
@@ -443,18 +407,10 @@ export function EmployeeDirectoryDetailPanel({
       listDirectoryOrganizationDepartments(
         accessToken,
       ),
-
-      listManagementPositions(
-        accessToken,
-        {
-          occupancy: "VACANT",
-        },
-      ),
     ])
       .then(([
         divisionResponse,
         departmentResponse,
-        positionResponse,
       ]) => {
         if (!active) {
           return;
@@ -468,14 +424,6 @@ export function EmployeeDirectoryDetailPanel({
           departmentResponse.data,
         );
 
-        setManagementPositions(
-          positionResponse.data.filter(
-            (position) =>
-              position.isActive &&
-              position.occupancy ===
-                "VACANT",
-          ),
-        );
 
         setOrganizationError("");
       })
@@ -572,6 +520,10 @@ export function EmployeeDirectoryDetailPanel({
       "ACTIVATED" &&
     Boolean(employee?.role);
 
+  const roleRequiresDepartment =
+    targetRole !==
+    "SENIOR_MANAGEMENT";
+
   const availableRoleDepartments =
     organizationDepartments.filter(
       (department) =>
@@ -579,51 +531,6 @@ export function EmployeeDirectoryDetailPanel({
         department.division.isActive &&
         department.division.id ===
           roleDivisionId,
-    );
-
-  const roleNeedsManagementPosition =
-    targetRole ===
-      "SENIOR_MANAGEMENT" ||
-    targetRole ===
-      "TEAM_MANAGER";
-
-  const availableRoleManagementPositions =
-    managementPositions.filter(
-      (position) => {
-        if (
-          !roleNeedsManagementPosition ||
-          position.positionType !==
-            targetRole
-        ) {
-          return false;
-        }
-
-        if (
-          !roleDivisionId ||
-          position.divisionId !==
-            roleDivisionId
-        ) {
-          return false;
-        }
-
-        if (
-          targetRole ===
-          "TEAM_MANAGER"
-        ) {
-          return (
-            Boolean(
-              roleDepartmentId,
-            ) &&
-            position.departmentId ===
-              roleDepartmentId
-          );
-        }
-
-        return (
-          position.departmentId ===
-          null
-        );
-      },
     );
 
   function openStatusConfirmation(
@@ -904,7 +811,6 @@ export function EmployeeDirectoryDetailPanel({
         "",
     );
 
-    setRoleManagementPositionId("");
     setRoleReason("");
     setActionError("");
     setActionMessage("");
@@ -918,7 +824,6 @@ export function EmployeeDirectoryDetailPanel({
 
     setShowRoleForm(false);
     setTargetRole("");
-    setRoleManagementPositionId("");
     setRoleReason("");
     setActionError("");
   }
@@ -944,27 +849,25 @@ export function EmployeeDirectoryDetailPanel({
       return;
     }
 
+    if (!roleDivisionId) {
+      setActionError(
+        "Select a division.",
+      );
+
+      return;
+    }
+
     if (
-      !roleDivisionId ||
+      roleRequiresDepartment &&
       !roleDepartmentId
     ) {
       setActionError(
-        "Select both division and department.",
+        "Select a department.",
       );
 
       return;
     }
 
-    if (
-      roleNeedsManagementPosition &&
-      !roleManagementPositionId
-    ) {
-      setActionError(
-        "Select the vacant management position.",
-      );
-
-      return;
-    }
 
     const designation =
       roleDesignation
@@ -1009,11 +912,8 @@ export function EmployeeDirectoryDetailPanel({
             divisionId:
               roleDivisionId,
             departmentId:
-              roleDepartmentId,
-
-            managementPositionId:
-              roleNeedsManagementPosition
-                ? roleManagementPositionId
+              roleRequiresDepartment
+                ? roleDepartmentId
                 : undefined,
 
             designation:
@@ -1034,7 +934,6 @@ export function EmployeeDirectoryDetailPanel({
 
       setShowRoleForm(false);
       setTargetRole("");
-      setRoleManagementPositionId("");
       setRoleReason("");
 
       // Reload the role badge, organization assignment and history.
@@ -1556,16 +1455,24 @@ export function EmployeeDirectoryDetailPanel({
                         onChange={(
                           event,
                         ) => {
-                          setTargetRole(
+                          const nextRole =
                             event.target
                               .value as
                               | DirectoryRoleChangeTarget
-                              | "",
+                              | "";
+
+                          setTargetRole(
+                            nextRole,
                           );
 
-                          setRoleManagementPositionId(
-                            "",
-                          );
+                          if (
+                            nextRole ===
+                            "SENIOR_MANAGEMENT"
+                          ) {
+                            setRoleDepartmentId(
+                              "",
+                            );
+                          }
 
                           setActionError("");
                         }}
@@ -1622,10 +1529,6 @@ export function EmployeeDirectoryDetailPanel({
                             "",
                           );
 
-                          setRoleManagementPositionId(
-                            "",
-                          );
-
                           setActionError("");
                         }}
                         disabled={
@@ -1659,71 +1562,20 @@ export function EmployeeDirectoryDetailPanel({
                       </select>
                     </label>
 
-                    <label>
-                      <span>
-                        Department
-                      </span>
-
-                      <select
-                        value={
-                          roleDepartmentId
-                        }
-                        onChange={(
-                          event,
-                        ) => {
-                          setRoleDepartmentId(
-                            event.target.value,
-                          );
-
-                          setRoleManagementPositionId(
-                            "",
-                          );
-
-                          setActionError("");
-                        }}
-                        disabled={
-                          changingRole ||
-                          !roleDivisionId
-                        }
-                        required
-                      >
-                        <option value="">
-                          Select department
-                        </option>
-
-                        {availableRoleDepartments.map(
-                          (
-                            department,
-                          ) => (
-                            <option
-                              key={
-                                department.id
-                              }
-                              value={
-                                department.id
-                              }
-                            >
-                              {department.name} ({department.code})
-                            </option>
-                          ),
-                        )}
-                      </select>
-                    </label>
-
-                    {roleNeedsManagementPosition && (
+                    {roleRequiresDepartment && (
                       <label>
                         <span>
-                          Target management position
+                          Department
                         </span>
 
                         <select
                           value={
-                            roleManagementPositionId
+                            roleDepartmentId
                           }
                           onChange={(
                             event,
                           ) => {
-                            setRoleManagementPositionId(
+                            setRoleDepartmentId(
                               event.target.value,
                             );
 
@@ -1731,47 +1583,34 @@ export function EmployeeDirectoryDetailPanel({
                           }}
                           disabled={
                             changingRole ||
-                            !roleDivisionId ||
-                            (
-                              targetRole ===
-                                "TEAM_MANAGER" &&
-                              !roleDepartmentId
-                            )
+                            !roleDivisionId
                           }
                           required
                         >
                           <option value="">
-                            {availableRoleManagementPositions.length >
-                            0
-                              ? "Select vacant position"
-                              : "No vacant positions available"}
+                            Select department
                           </option>
 
-                          {availableRoleManagementPositions.map(
+                          {availableRoleDepartments.map(
                             (
-                              position,
+                              department,
                             ) => (
                               <option
                                 key={
-                                  position.id
+                                  department.id
                                 }
                                 value={
-                                  position.id
+                                  department.id
                                 }
                               >
-                                {getRolePositionLabel(
-                                  position,
-                                )}
+                                {department.name} ({department.code})
                               </option>
                             ),
                           )}
                         </select>
-
-                        <small className="acct-help">
-                          The old position will be released and this position will be assigned in one transaction.
-                        </small>
                       </label>
                     )}
+
 
                     <label>
                       <span>
@@ -1826,7 +1665,7 @@ export function EmployeeDirectoryDetailPanel({
                     </label>
 
                     <div className="dir-role-warning">
-                      The employee keeps the same password, employee ID and history. Any current management assignment is ended, the selected vacant position is assigned, and all login sessions are revoked atomically.
+                      The employee keeps the same password, employee ID and history. The correct internal authority position is created or reused automatically, the assignment is updated atomically, and all login sessions are revoked.
                     </div>
 
                     <div className="dir-role-actions">
@@ -1834,15 +1673,7 @@ export function EmployeeDirectoryDetailPanel({
                         type="submit"
                         className="dir-role-confirm"
                         disabled={
-                          changingRole ||
-                          (
-                            roleNeedsManagementPosition &&
-                            (
-                              !roleManagementPositionId ||
-                              availableRoleManagementPositions.length ===
-                                0
-                            )
-                          )
+                          changingRole
                         }
                       >
                         {changingRole

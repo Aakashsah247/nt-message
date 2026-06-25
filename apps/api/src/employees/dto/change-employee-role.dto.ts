@@ -16,8 +16,9 @@ export class ChangeEmployeeRoleDto {
   @IsUUID('4')
   divisionId!: string;
 
+  @IsOptional()
   @IsUUID('4')
-  departmentId!: string;
+  departmentId?: string;
 
   @IsOptional()
   @IsUUID('4', {

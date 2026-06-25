@@ -54,10 +54,11 @@ export class CreateEmployeeDto {
   })
   divisionId!: string;
 
+  @IsOptional()
   @IsUUID('4', {
     message: 'Department ID must be a valid UUID.',
   })
-  departmentId!: string;
+  departmentId?: string;
 
   /*
    * Required by the service for management roles.
