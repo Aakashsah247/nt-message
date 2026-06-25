@@ -5,6 +5,7 @@ import type {
   AdminAccountRequestDetailResponse,
   AdminAccountRequestListResponse,
   ApproveAccountRequestResponse,
+  CloseAccountRequestResponse,
   CreateMyAccountRequestInput,
   CreateMyAccountRequestResponse,
   ManagerRequestContextResponse,
@@ -97,6 +98,25 @@ export function resubmitMyAccountRequest(
   );
 }
 
+export function cancelMyAccountRequest(
+  accessToken: string,
+  requestId: string,
+  reason: string,
+): Promise<CloseAccountRequestResponse> {
+  return apiRequest<CloseAccountRequestResponse>(
+    `/account-requests/mine/${requestId}/cancel`,
+    {
+      method: "PATCH",
+
+      headers: createAuthorizationHeaders(accessToken),
+
+      body: JSON.stringify({
+        reason,
+      }),
+    },
+  );
+}
+
 export function listAdminAccountRequests(
   accessToken: string,
   status: AccountRequestStatus,
@@ -139,6 +159,25 @@ export function approveAdminAccountRequest(
       method: "PATCH",
 
       headers: createAuthorizationHeaders(accessToken),
+    },
+  );
+}
+
+export function invalidateAdminAccountRequest(
+  accessToken: string,
+  requestId: string,
+  reason: string,
+): Promise<CloseAccountRequestResponse> {
+  return apiRequest<CloseAccountRequestResponse>(
+    `/admin/account-requests/${requestId}/invalidate`,
+    {
+      method: "PATCH",
+
+      headers: createAuthorizationHeaders(accessToken),
+
+      body: JSON.stringify({
+        reason,
+      }),
     },
   );
 }

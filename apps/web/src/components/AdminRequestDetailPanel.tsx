@@ -5,6 +5,7 @@ import type { FormEvent, ReactNode } from "react";
 import {
   approveAdminAccountRequest,
   getAdminAccountRequest,
+  invalidateAdminAccountRequest,
   rejectAdminAccountRequest,
 } from "../services/account-request.service";
 
@@ -26,9 +27,14 @@ interface DetailFieldProps {
   secondary?: ReactNode;
 }
 
-type ActionType = "approve" | "reject" | null;
+type ActionType =
+  | "approve"
+  | "reject"
+  | "invalidate"
+  | null;
 
 function DetailField({ label, value, secondary }: DetailFieldProps) {
+
   return (
     <div>
       <span>{label}</span>
@@ -98,7 +104,11 @@ export function AdminRequestDetailPanel({
 
   const [showRejectForm, setShowRejectForm] = useState(false);
 
+  const [showInvalidateForm, setShowInvalidateForm] = useState(false);
+
   const [rejectionReason, setRejectionReason] = useState("");
+
+  const [invalidationReason, setInvalidationReason] = useState("");
 
   const [actionLoading, setActionLoading] = useState<ActionType>(null);
 
@@ -152,13 +162,19 @@ export function AdminRequestDetailPanel({
 
     setShowRejectForm(false);
 
+    setShowInvalidateForm(false);
+
     setRejectionReason("");
+
+    setInvalidationReason("");
 
     setActionError("");
   }
 
   function openApproveConfirmation(): void {
     setShowRejectForm(false);
+
+    setShowInvalidateForm(false);
 
     setRejectionReason("");
 
@@ -172,11 +188,22 @@ export function AdminRequestDetailPanel({
   function openRejectForm(): void {
     setShowApproveConfirmation(false);
 
+    setShowInvalidateForm(false);
+
     setActionError("");
 
     setActionMessage("");
 
     setShowRejectForm(true);
+  }
+
+  function openInvalidateForm(): void {
+    setShowApproveConfirmation(false);
+    setShowRejectForm(false);
+    setRejectionReason("");
+    setActionError("");
+    setActionMessage("");
+    setShowInvalidateForm(true);
   }
 
   async function handleApprove(): Promise<void> {
@@ -259,6 +286,74 @@ export function AdminRequestDetailPanel({
       setActionLoading(null);
     }
   }
+
+  async function handleInvalidate(
+    event: FormEvent<HTMLFormElement>,
+  ): Promise<void> {
+    event.preventDefault();
+
+    if (
+      !request ||
+      actionLoading ||
+      ![
+        "APPROVED",
+        "ACTIVATION_PENDING",
+      ].includes(request.status)
+    ) {
+      return;
+    }
+
+    const reason =
+      invalidationReason
+        .trim()
+        .replace(/\s+/g, " ");
+
+    if (reason.length < 3) {
+      setActionError(
+        "Enter an invalidation reason of at least 3 characters.",
+      );
+
+      return;
+    }
+
+    if (reason.length > 500) {
+      setActionError(
+        "The invalidation reason cannot exceed 500 characters.",
+      );
+
+      return;
+    }
+
+    setActionLoading("invalidate");
+    setActionError("");
+    setActionMessage("");
+
+    try {
+      const response =
+        await invalidateAdminAccountRequest(
+          accessToken,
+          request.id,
+          reason,
+        );
+
+      setActionMessage(response.message);
+      setShowInvalidateForm(false);
+      setInvalidationReason("");
+
+      onRequestUpdated();
+
+      setRetryKey(
+        (current) => current + 1,
+      );
+    } catch (invalidateError: unknown) {
+      setActionError(
+        getErrorMessage(invalidateError),
+      );
+    } finally {
+      setActionLoading(null);
+    }
+  }
+
 
   return (
     <div
@@ -467,6 +562,87 @@ export function AdminRequestDetailPanel({
                         disabled={Boolean(actionLoading)}
                       >
                         Cancel
+                      </button>
+                    </div>
+                  </form>
+                )}
+              </section>
+            )}
+
+            {[
+              "APPROVED",
+              "ACTIVATION_PENDING",
+            ].includes(request.status) && (
+              <section className="admin-detail-actions admin-invalidate-section">
+                <div>
+                  <h4>Invalidate request</h4>
+
+                  <p>
+                    Use this when an approved request must not continue.
+                    Its reserved management position will become vacant.
+                  </p>
+                </div>
+
+                {!showInvalidateForm ? (
+                  <button
+                    className="admin-invalidate-button"
+                    type="button"
+                    onClick={openInvalidateForm}
+                    disabled={Boolean(actionLoading)}
+                  >
+                    Invalidate request
+                  </button>
+                ) : (
+                  <form
+                    className="admin-invalidate-form"
+                    onSubmit={handleInvalidate}
+                  >
+                    <label htmlFor="account-request-invalidation-reason">
+                      Invalidation reason
+                    </label>
+
+                    <textarea
+                      id="account-request-invalidation-reason"
+                      value={invalidationReason}
+                      onChange={(event) => {
+                        setInvalidationReason(event.target.value);
+                        setActionError("");
+                      }}
+                      minLength={3}
+                      maxLength={500}
+                      rows={5}
+                      placeholder="Explain why this approved request is no longer valid."
+                      disabled={Boolean(actionLoading)}
+                      required
+                    />
+
+                    <div className="admin-reject-form-meta">
+                      <span>Minimum 3 characters</span>
+
+                      <span>
+                        {invalidationReason.length}
+                        /500
+                      </span>
+                    </div>
+
+                    <div className="admin-reject-form-buttons">
+                      <button
+                        className="admin-confirm-invalidate"
+                        type="submit"
+                        disabled={Boolean(actionLoading)}
+                      >
+                        {actionLoading === "invalidate"
+                          ? "Invalidating..."
+                          : "Confirm invalidation"}
+                      </button>
+
+                      <button
+                        className="admin-cancel-decision"
+                        type="button"
+                        onClick={resetDecisionForms}
+                        disabled={Boolean(actionLoading)}
+                      >
+                        Keep request
                       </button>
                     </div>
                   </form>

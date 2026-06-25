@@ -3,6 +3,7 @@ import { useEffect, useMemo, useState } from "react";
 import type { FormEvent } from "react";
 
 import {
+  cancelMyAccountRequest,
   getMyAccountRequest,
   resubmitMyAccountRequest,
 } from "../services/account-request.service";
@@ -17,6 +18,7 @@ interface ManagerRequestDetailPanelProps {
   requestId: string;
   requestContext: ManagerRequestContextResponse;
   onClose: () => void;
+  onCancelled: () => void;
   onResubmitted: (newRequestId: string) => void;
 }
 
@@ -82,6 +84,7 @@ export function ManagerRequestDetailPanel({
   requestId,
   requestContext,
   onClose,
+  onCancelled,
   onResubmitted,
 }: ManagerRequestDetailPanelProps) {
   const [detail, setDetail] = useState<MyAccountRequestDetail | null>(null);
@@ -91,6 +94,12 @@ export function ManagerRequestDetailPanel({
   const [loading, setLoading] = useState(true);
 
   const [submitting, setSubmitting] = useState(false);
+
+  const [cancelling, setCancelling] = useState(false);
+
+  const [showCancelForm, setShowCancelForm] = useState(false);
+
+  const [cancelReason, setCancelReason] = useState("");
 
   const [error, setError] = useState("");
 
@@ -248,6 +257,75 @@ export function ManagerRequestDetailPanel({
     return null;
   }
 
+  async function handleCancel(
+    event: FormEvent<HTMLFormElement>,
+  ): Promise<void> {
+    event.preventDefault();
+
+    if (
+      !detail ||
+      cancelling ||
+      submitting ||
+      ![
+        "PENDING_APPROVAL",
+        "APPROVED",
+        "ACTIVATION_PENDING",
+      ].includes(detail.status)
+    ) {
+      return;
+    }
+
+    const reason =
+      cancelReason
+        .trim()
+        .replace(/\s+/g, " ");
+
+    if (reason.length < 3) {
+      setError(
+        "Enter a cancellation reason of at least 3 characters.",
+      );
+
+      return;
+    }
+
+    if (reason.length > 500) {
+      setError(
+        "The cancellation reason cannot exceed 500 characters.",
+      );
+
+      return;
+    }
+
+    setCancelling(true);
+    setError("");
+    setSuccess("");
+
+    try {
+      const response =
+        await cancelMyAccountRequest(
+          accessToken,
+          requestId,
+          reason,
+        );
+
+      setSuccess(response.message);
+      setShowCancelForm(false);
+      setCancelReason("");
+
+      onCancelled();
+
+      setRetryKey(
+        (current) => current + 1,
+      );
+    } catch (requestError: unknown) {
+      setError(
+        getErrorMessage(requestError),
+      );
+    } finally {
+      setCancelling(false);
+    }
+  }
+
   async function handleResubmit(
     event: FormEvent<HTMLFormElement>,
   ): Promise<void> {
@@ -304,7 +382,11 @@ export function ManagerRequestDetailPanel({
       className="manager-detail-backdrop"
       role="presentation"
       onMouseDown={(event) => {
-        if (event.target === event.currentTarget && !submitting) {
+        if (
+          event.target === event.currentTarget &&
+          !submitting &&
+          !cancelling
+        ) {
           onClose();
         }
       }}
@@ -325,7 +407,7 @@ export function ManagerRequestDetailPanel({
           <button
             type="button"
             onClick={onClose}
-            disabled={submitting}
+            disabled={submitting || cancelling}
             aria-label="Close request details"
           >
             ×
@@ -451,6 +533,99 @@ export function ManagerRequestDetailPanel({
                 ))}
               </div>
             </section>
+
+            {[
+              "PENDING_APPROVAL",
+              "APPROVED",
+              "ACTIVATION_PENDING",
+            ].includes(detail.status) && (
+              <section className="manager-close-section">
+                <header>
+                  <span>Request control</span>
+
+                  <h3>Cancel this request</h3>
+
+                  <p>
+                    Cancelling an approved management request releases its
+                    reserved position and removes the unactivated employee
+                    identity.
+                  </p>
+                </header>
+
+                {!showCancelForm ? (
+                  <button
+                    className="manager-open-cancel"
+                    type="button"
+                    onClick={() => {
+                      setShowCancelForm(true);
+                      setError("");
+                      setSuccess("");
+                    }}
+                    disabled={submitting || cancelling}
+                  >
+                    Cancel request
+                  </button>
+                ) : (
+                  <form
+                    className="manager-cancel-form"
+                    onSubmit={handleCancel}
+                  >
+                    <label htmlFor="manager-request-cancel-reason">
+                      Cancellation reason
+                    </label>
+
+                    <textarea
+                      id="manager-request-cancel-reason"
+                      value={cancelReason}
+                      onChange={(event) => {
+                        setCancelReason(event.target.value);
+                        setError("");
+                      }}
+                      minLength={3}
+                      maxLength={500}
+                      rows={4}
+                      placeholder="Explain why this request should be cancelled."
+                      disabled={cancelling}
+                      required
+                    />
+
+                    <div className="manager-cancel-meta">
+                      <span>Minimum 3 characters</span>
+
+                      <span>
+                        {cancelReason.length}
+                        /500
+                      </span>
+                    </div>
+
+                    <div className="manager-cancel-buttons">
+                      <button
+                        className="manager-confirm-cancel"
+                        type="submit"
+                        disabled={cancelling}
+                      >
+                        {cancelling
+                          ? "Cancelling..."
+                          : "Confirm cancellation"}
+                      </button>
+
+                      <button
+                        className="manager-dismiss-cancel"
+                        type="button"
+                        onClick={() => {
+                          setShowCancelForm(false);
+                          setCancelReason("");
+                          setError("");
+                        }}
+                        disabled={cancelling}
+                      >
+                        Keep request
+                      </button>
+                    </div>
+                  </form>
+                )}
+              </section>
+            )}
 
             {detail.status === "REJECTED" && (
               <form className="manager-resubmit-form" onSubmit={handleResubmit}>

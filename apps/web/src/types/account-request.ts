@@ -201,6 +201,30 @@ export interface ApproveAccountRequestResponse {
   };
 }
 
+export interface CloseAccountRequestResponse {
+  message: string;
+
+  accountRequest: {
+    id: string;
+    empId: string;
+    empName: string;
+    officialEmail: string;
+    requestedRole: AccountRole;
+    divisionId: string | null;
+    departmentId: string | null;
+    managementPositionId: string | null;
+    employeeId: string | null;
+    revisionNumber: number;
+    status: AccountRequestStatus;
+    rejectionReason: string | null;
+    submittedAt: string;
+    reviewedAt: string | null;
+    updatedAt: string;
+    division: AccountRequestDivision | null;
+    department: AccountRequestDepartment | null;
+  };
+}
+
 export interface RejectAccountRequestResponse {
   message: string;
 

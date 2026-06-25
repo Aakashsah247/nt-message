@@ -8688,3 +8688,143 @@
   }
 }
 /* MANAGEMENT POSITIONS END */
+
+/* REQUEST CLOSURE ACTIONS START */
+@layer components {
+  .manager-close-section {
+    display: grid;
+    gap: 13px;
+    padding: 16px;
+    border: 1px solid #efc7c7;
+    border-radius: 13px;
+    background: #fff8f8;
+  }
+
+  .manager-close-section header > span {
+    color: #a62f38;
+    font-size: 9px;
+    font-weight: 900;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+  }
+
+  .manager-close-section h3 {
+    margin: 5px 0;
+    font-size: 15px;
+  }
+
+  .manager-close-section p {
+    margin: 0;
+    color: #7a5558;
+    font-size: 9px;
+    line-height: 1.6;
+  }
+
+  .manager-open-cancel,
+  .manager-confirm-cancel,
+  .manager-dismiss-cancel,
+  .admin-invalidate-button,
+  .admin-confirm-invalidate {
+    min-height: 40px;
+    padding: 0 15px;
+    border-radius: 9px;
+    font-size: 10px;
+    font-weight: 900;
+  }
+
+  .manager-open-cancel,
+  .manager-confirm-cancel,
+  .admin-invalidate-button,
+  .admin-confirm-invalidate {
+    border: 1px solid #b52f3c;
+    color: white;
+    background: #b52f3c;
+  }
+
+  .manager-open-cancel:hover:not(:disabled),
+  .manager-confirm-cancel:hover:not(:disabled),
+  .admin-invalidate-button:hover:not(:disabled),
+  .admin-confirm-invalidate:hover:not(:disabled) {
+    background: #982631;
+  }
+
+  .manager-dismiss-cancel {
+    border: 1px solid #cbd8e5;
+    color: #526b82;
+    background: white;
+  }
+
+  .manager-cancel-form,
+  .admin-invalidate-form {
+    display: grid;
+    gap: 9px;
+  }
+
+  .manager-cancel-form label,
+  .admin-invalidate-form label {
+    color: #8d2630;
+    font-size: 10px;
+    font-weight: 900;
+  }
+
+  .manager-cancel-form textarea,
+  .admin-invalidate-form textarea {
+    width: 100%;
+    min-height: 105px;
+    resize: vertical;
+    padding: 11px 12px;
+    border: 1px solid #d8b4b8;
+    border-radius: 9px;
+    color: var(--color-nt-text);
+    background: white;
+    font: inherit;
+    font-size: 10px;
+    line-height: 1.6;
+    outline: none;
+  }
+
+  .manager-cancel-form textarea:focus,
+  .admin-invalidate-form textarea:focus {
+    border-color: #b52f3c;
+    box-shadow: 0 0 0 3px rgba(181, 47, 60, 0.12);
+  }
+
+  .manager-cancel-meta,
+  .manager-cancel-buttons {
+    display: flex;
+    justify-content: space-between;
+    gap: 10px;
+  }
+
+  .manager-cancel-meta {
+    color: #8d6b6e;
+    font-size: 9px;
+  }
+
+  .admin-invalidate-section {
+    border-color: #efc7c7;
+    background: #fff8f8;
+  }
+
+  .manager-close-section button:disabled,
+  .admin-invalidate-section button:disabled {
+    cursor: not-allowed;
+    opacity: 0.58;
+  }
+}
+
+@media (max-width: 480px) {
+  .manager-cancel-buttons {
+    display: grid;
+    grid-template-columns: 1fr;
+  }
+
+  .manager-open-cancel,
+  .manager-confirm-cancel,
+  .manager-dismiss-cancel,
+  .admin-invalidate-button,
+  .admin-confirm-invalidate {
+    width: 100%;
+  }
+}
+/* REQUEST CLOSURE ACTIONS END */

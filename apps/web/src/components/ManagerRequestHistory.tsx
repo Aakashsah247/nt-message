@@ -173,6 +173,14 @@ export function ManagerRequestHistory({
     setSelectedRequestId(request.id);
   }
 
+  function handleCancelled(): void {
+    setLoading(true);
+
+    setLocalRefreshKey(
+      (current) => current + 1,
+    );
+  }
+
   function handleResubmitted(newRequestId: string): void {
     setStatusFilter("PENDING_APPROVAL");
 
@@ -378,6 +386,7 @@ export function ManagerRequestHistory({
           requestId={selectedRequestId}
           requestContext={requestContext}
           onClose={() => setSelectedRequestId(null)}
+          onCancelled={handleCancelled}
           onResubmitted={handleResubmitted}
         />
       )}
