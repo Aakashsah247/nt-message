@@ -4363,7 +4363,7 @@
 .directory-table {
   width: 100%;
   border-collapse: collapse;
-  min-width: 950px;
+  min-width: 1120px;
 }
 
 .directory-table th {

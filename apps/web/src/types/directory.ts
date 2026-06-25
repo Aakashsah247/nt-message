@@ -40,6 +40,39 @@ export interface DirectoryOrganizationUnit {
   isActive: boolean;
 }
 
+export type DirectoryManagementPositionType =
+  | "SENIOR_MANAGEMENT"
+  | "TEAM_MANAGER";
+
+export type DirectoryManagementPositionStatus =
+  | "ACTIVE"
+  | "INACTIVE";
+
+export interface DirectoryCurrentPosition {
+  assignmentId: string;
+  startedAt: string;
+
+  id: string;
+
+  positionType:
+    DirectoryManagementPositionType;
+
+  divisionId: string;
+  departmentId: string | null;
+
+  isActive: boolean;
+
+  status:
+    DirectoryManagementPositionStatus;
+
+  division:
+    DirectoryOrganizationUnit;
+
+  department:
+    | DirectoryOrganizationUnit
+    | null;
+}
+
 export interface DirectoryScope {
   role: AccountRole;
   type: DirectoryScopeType;
@@ -91,7 +124,20 @@ export interface DirectoryEmployee {
   accountStatus:
     DirectoryAccountStatus;
 
+  /*
+   * role remains a compatibility alias for
+   * the stored account role.
+   */
   role: AccountRole | null;
+
+  accountRole:
+    AccountRole | null;
+
+  effectiveRole:
+    AccountRole | null;
+
+  currentPosition:
+    DirectoryCurrentPosition | null;
 
   division:
     | DirectoryOrganizationUnit

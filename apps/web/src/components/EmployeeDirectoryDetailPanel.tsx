@@ -20,6 +20,7 @@ import type {
 } from "../types/auth";
 
 import type {
+  DirectoryEmployee,
   DirectoryEmployeeDetailResponse,
   DirectoryEmployeeStatus,
   DirectoryEmploymentStatus,
@@ -106,6 +107,26 @@ function getStatusClass(value: string): string {
   return value
     .toLowerCase()
     .replaceAll("_", "-");
+}
+
+function getCurrentPositionLabel(
+  employee: DirectoryEmployee,
+): string {
+  const position =
+    employee.currentPosition;
+
+  if (!position) {
+    return "No management position";
+  }
+
+  if (
+    position.positionType ===
+    "SENIOR_MANAGEMENT"
+  ) {
+    return `${position.division.name} Senior Management`;
+  }
+
+  return `${position.department?.name ?? "Department"} Team Manager`;
 }
 
 export function EmployeeDirectoryDetailPanel({
@@ -1021,14 +1042,14 @@ export function EmployeeDirectoryDetailPanel({
             <section className="directory-detail-badges">
               <span
                 className={`directory-badge role-${getStatusClass(
-                  employee.role ??
+                  employee.effectiveRole ??
                     "NO_ACCOUNT",
                 )}`}
               >
-                {employee.role
-                  ? formatValue(
-                      employee.role,
-                    )
+                {employee.effectiveRole
+                  ? `Effective: ${formatValue(
+                      employee.effectiveRole,
+                    )}`
                   : "No account"}
               </span>
 
@@ -1116,6 +1137,46 @@ export function EmployeeDirectoryDetailPanel({
                     {employee.department
                       ?.code ??
                       "Not available"}
+                  </dd>
+                </div>
+
+                <div>
+                  <dt>
+                    Current position
+                  </dt>
+
+                  <dd>
+                    {getCurrentPositionLabel(
+                      employee,
+                    )}
+                  </dd>
+                </div>
+
+                <div>
+                  <dt>
+                    Position status
+                  </dt>
+
+                  <dd>
+                    {employee.currentPosition
+                      ? formatValue(
+                          employee.currentPosition.status,
+                        )
+                      : "No current assignment"}
+                  </dd>
+                </div>
+
+                <div>
+                  <dt>
+                    Position started
+                  </dt>
+
+                  <dd>
+                    {employee.currentPosition
+                      ? formatDate(
+                          employee.currentPosition.startedAt,
+                        )
+                      : "Not applicable"}
                   </dd>
                 </div>
               </dl>
@@ -1231,14 +1292,30 @@ export function EmployeeDirectoryDetailPanel({
 
               <dl className="directory-detail-list">
                 <div>
-                  <dt>Role</dt>
+                  <dt>
+                    Account role
+                  </dt>
 
                   <dd>
-                    {employee.role
+                    {employee.accountRole
                       ? formatValue(
-                          employee.role,
+                          employee.accountRole,
                         )
                       : "No account"}
+                  </dd>
+                </div>
+
+                <div>
+                  <dt>
+                    Effective role
+                  </dt>
+
+                  <dd>
+                    {employee.effectiveRole
+                      ? formatValue(
+                          employee.effectiveRole,
+                        )
+                      : "No authority"}
                   </dd>
                 </div>
 

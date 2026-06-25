@@ -132,6 +132,26 @@ function getStatusClass(
     );
 }
 
+function getCurrentPositionLabel(
+  employee: DirectoryEmployee,
+): string {
+  const position =
+    employee.currentPosition;
+
+  if (!position) {
+    return "No management position";
+  }
+
+  if (
+    position.positionType ===
+    "SENIOR_MANAGEMENT"
+  ) {
+    return `${position.division.name} Senior Management`;
+  }
+
+  return `${position.department?.name ?? "Department"} Team Manager`;
+}
+
 export function EmployeeDirectory({
   accessToken,
   reloadKey = 0,
@@ -912,7 +932,11 @@ export function EmployeeDirectory({
                 </th>
 
                 <th>
-                  Role
+                  Effective role
+                </th>
+
+                <th>
+                  Current position
                 </th>
 
                 <th>
@@ -990,16 +1014,32 @@ export function EmployeeDirectory({
                     <td>
                       <span
                         className={`directory-badge role-${getStatusClass(
-                          employee.role ??
+                          employee.effectiveRole ??
                             "NO_ACCOUNT",
                         )}`}
                       >
-                        {employee.role
+                        {employee.effectiveRole
                           ? formatValue(
-                              employee.role,
+                              employee.effectiveRole,
                             )
                           : "No account"}
                       </span>
+                    </td>
+
+                    <td>
+                      <strong>
+                        {getCurrentPositionLabel(
+                          employee,
+                        )}
+                      </strong>
+
+                      <small>
+                        {employee.currentPosition
+                          ? `${formatValue(
+                              employee.currentPosition.status,
+                            )} position`
+                          : "No current assignment"}
+                      </small>
                     </td>
 
                     <td>
