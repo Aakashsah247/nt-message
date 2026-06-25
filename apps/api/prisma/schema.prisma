@@ -71,6 +71,22 @@ enum AccountRequestActionType {
   ACTIVATED
 }
 
+enum ConversationType {
+  PRIVATE
+  GROUP
+  ANNOUNCEMENT
+}
+
+enum MessageContentType {
+  TEXT
+  IMAGE
+  VIDEO
+  AUDIO
+  FILE
+  LOCATION
+  SYSTEM
+}
+
 model Division {
   id        String   @id @default(uuid()) @db.Uuid
   code      String   @unique @db.VarChar(50)
@@ -176,6 +192,11 @@ model Account {
   employeeLifecycleActions      EmployeeLifecycleAction[] @relation("EmployeeLifecycleActionsByActor")
   assignedManagementAssignments ManagementAssignment[]    @relation("ManagementAssignmentsAssignedBy")
   endedManagementAssignments    ManagementAssignment[]    @relation("ManagementAssignmentsEndedBy")
+  createdConversations           Conversation[]            @relation("ConversationsCreatedBy")
+  conversationParticipants      ConversationParticipant[]
+  sentMessages                  Message[]                 @relation("MessagesSentBy")
+  deletedMessages               Message[]                 @relation("MessagesDeletedBy")
+  messageReceipts               MessageReceipt[]
 
   @@index([role], map: "accounts_role_idx")
   @@index([isEnabled], map: "accounts_is_enabled_idx")
@@ -398,4 +419,108 @@ model EmployeeLifecycleAction {
   @@index([actorAccountId, createdAt], map: "employee_lifecycle_actions_actor_created_idx")
   @@index([action], map: "employee_lifecycle_actions_action_idx")
   @@map("employee_lifecycle_actions")
+}
+
+model Conversation {
+  id String @id @default(uuid()) @db.Uuid
+
+  type ConversationType @default(PRIVATE)
+
+  title                 String? @db.VarChar(150)
+  privateParticipantKey String? @unique(map: "conversations_private_participant_key_key") @map("private_participant_key") @db.VarChar(73)
+
+  createdByAccountId String @map("created_by_account_id") @db.Uuid
+
+  lastMessageAt DateTime? @map("last_message_at") @db.Timestamptz(3)
+  createdAt     DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt     DateTime  @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  createdBy   Account                   @relation("ConversationsCreatedBy", fields: [createdByAccountId], references: [id], onDelete: Restrict)
+  participants ConversationParticipant[]
+  messages     Message[]
+
+  @@index([type, lastMessageAt], map: "conversations_type_last_message_idx")
+  @@index([createdByAccountId], map: "conversations_created_by_idx")
+  @@index([lastMessageAt], map: "conversations_last_message_idx")
+  @@map("conversations")
+}
+
+model ConversationParticipant {
+  conversationId String @map("conversation_id") @db.Uuid
+  accountId      String @map("account_id") @db.Uuid
+
+  joinedAt DateTime  @default(now()) @map("joined_at") @db.Timestamptz(3)
+  leftAt   DateTime? @map("left_at") @db.Timestamptz(3)
+
+  isMuted    Boolean @default(false) @map("is_muted")
+  isArchived Boolean @default(false) @map("is_archived")
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  conversation Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  account      Account      @relation(fields: [accountId], references: [id], onDelete: Restrict)
+
+  @@id([conversationId, accountId], map: "conversation_participants_pkey")
+  @@index([accountId, leftAt, isArchived], map: "conversation_participants_account_active_idx")
+  @@index([conversationId, leftAt], map: "conversation_participants_conversation_active_idx")
+  @@map("conversation_participants")
+}
+
+model Message {
+  id String @id @default(uuid()) @db.Uuid
+
+  conversationId  String @map("conversation_id") @db.Uuid
+  senderAccountId String @map("sender_account_id") @db.Uuid
+  clientMessageId String @map("client_message_id") @db.VarChar(100)
+
+  contentType MessageContentType @default(TEXT) @map("content_type")
+  textContent String?            @map("text_content") @db.Text
+  payload     Json?
+
+  replyToMessageId String? @map("reply_to_message_id") @db.Uuid
+
+  sentAt   DateTime  @default(now()) @map("sent_at") @db.Timestamptz(3)
+  editedAt DateTime? @map("edited_at") @db.Timestamptz(3)
+
+  deletedAt          DateTime? @map("deleted_at") @db.Timestamptz(3)
+  deletedByAccountId String?   @map("deleted_by_account_id") @db.Uuid
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  conversation Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  sender       Account      @relation("MessagesSentBy", fields: [senderAccountId], references: [id], onDelete: Restrict)
+  deletedBy    Account?     @relation("MessagesDeletedBy", fields: [deletedByAccountId], references: [id], onDelete: Restrict)
+
+  replyTo Message?  @relation("MessageReplies", fields: [replyToMessageId], references: [id], onDelete: SetNull)
+  replies Message[] @relation("MessageReplies")
+
+  receipts MessageReceipt[]
+
+  @@unique([senderAccountId, clientMessageId], map: "messages_sender_client_message_key")
+  @@index([conversationId, sentAt, id], map: "messages_conversation_sent_idx")
+  @@index([senderAccountId, sentAt], map: "messages_sender_sent_idx")
+  @@index([replyToMessageId], map: "messages_reply_to_idx")
+  @@index([deletedAt], map: "messages_deleted_at_idx")
+  @@map("messages")
+}
+
+model MessageReceipt {
+  messageId String @map("message_id") @db.Uuid
+  accountId String @map("account_id") @db.Uuid
+
+  deliveredAt DateTime? @map("delivered_at") @db.Timestamptz(3)
+  readAt      DateTime? @map("read_at") @db.Timestamptz(3)
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  message Message @relation(fields: [messageId], references: [id], onDelete: Cascade)
+  account Account @relation(fields: [accountId], references: [id], onDelete: Restrict)
+
+  @@id([messageId, accountId], map: "message_receipts_pkey")
+  @@index([accountId, readAt, messageId], map: "message_receipts_account_read_idx")
+  @@index([accountId, deliveredAt, messageId], map: "message_receipts_account_delivered_idx")
+  @@map("message_receipts")
 }
