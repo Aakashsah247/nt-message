@@ -410,6 +410,9 @@ export interface ChangeDirectoryEmployeeRoleInput {
 
   divisionId: string;
   departmentId: string;
+
+  managementPositionId?: string;
+
   designation?: string;
   reason: string;
 }
@@ -419,9 +422,19 @@ export interface ChangeDirectoryEmployeeRoleResponse {
 
   action:
     | "PROMOTED"
-    | "DEMOTED";
+    | "DEMOTED"
+    | "TRANSFERRED";
 
   revokedSessions: number;
+
+  previousManagementPositionId:
+    string | null;
+
+  newManagementPositionId:
+    string | null;
+
+  newManagementAssignmentId:
+    string | null;
 
   employee: {
     id: string;

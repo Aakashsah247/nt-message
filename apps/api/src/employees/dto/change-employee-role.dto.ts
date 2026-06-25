@@ -20,6 +20,12 @@ export class ChangeEmployeeRoleDto {
   departmentId!: string;
 
   @IsOptional()
+  @IsUUID('4', {
+    message: 'Management position ID must be a valid UUID.',
+  })
+  managementPositionId?: string;
+
+  @IsOptional()
   @IsString()
   @MinLength(2)
   @MaxLength(120)
