@@ -45,6 +45,57 @@ interface EmployeeDirectoryDetailPanelProps {
   onClose: () => void;
 }
 
+const BRANCH_TIME_ZONE = "Asia/Kathmandu";
+const BRANCH_UTC_OFFSET = "+05:45";
+
+function getBranchDateInputValue(
+  value: Date = new Date(),
+): string {
+  const parts = new Intl.DateTimeFormat(
+    "en-CA",
+    {
+      timeZone: BRANCH_TIME_ZONE,
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+    },
+  ).formatToParts(value);
+
+  const year = parts.find(
+    (part) => part.type === "year",
+  )?.value;
+
+  const month = parts.find(
+    (part) => part.type === "month",
+  )?.value;
+
+  const day = parts.find(
+    (part) => part.type === "day",
+  )?.value;
+
+  if (!year || !month || !day) {
+    return value.toISOString().slice(0, 10);
+  }
+
+  return `${year}-${month}-${day}`;
+}
+
+function getEmploymentEffectiveAt(
+  value: string,
+): string | undefined {
+  if (!value) {
+    return undefined;
+  }
+
+  if (value === getBranchDateInputValue()) {
+    return new Date().toISOString();
+  }
+
+  return new Date(
+    `${value}T23:59:59.999${BRANCH_UTC_OFFSET}`,
+  ).toISOString();
+}
+
 function getErrorMessage(error: unknown): string {
   return error instanceof Error
     ? error.message
@@ -610,7 +661,9 @@ export function EmployeeDirectoryDetailPanel({
     );
 
     setEmploymentReason("");
-    setEmploymentEffectiveDate("");
+    setEmploymentEffectiveDate(
+      getBranchDateInputValue(),
+    );
     setActionError("");
     setActionMessage("");
   }
@@ -673,9 +726,9 @@ export function EmployeeDirectoryDetailPanel({
             reason,
 
             effectiveAt:
-              employmentEffectiveDate
-                ? `${employmentEffectiveDate}T00:00:00.000Z`
-                : undefined,
+              getEmploymentEffectiveAt(
+                employmentEffectiveDate,
+              ),
           },
         );
 
@@ -1933,9 +1986,7 @@ export function EmployeeDirectoryDetailPanel({
                           employmentEffectiveDate
                         }
                         max={
-                          new Date()
-                            .toISOString()
-                            .slice(0, 10)
+                          getBranchDateInputValue()
                         }
                         onChange={(
                           event,

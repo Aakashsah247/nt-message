@@ -2070,6 +2070,31 @@ export class EmployeesService {
         );
       }
 
+      const activeManagementAssignments =
+        await transaction.managementAssignment.findMany({
+          where: {
+            employeeId: employee.id,
+            endedAt: null,
+          },
+
+          select: {
+            startedAt: true,
+          },
+        });
+
+      const assignmentStartingAfterEffectiveDate =
+        activeManagementAssignments.find(
+          (assignment) =>
+            assignment.startedAt.getTime() >
+            effectiveAt.getTime(),
+        );
+
+      if (assignmentStartingAfterEffectiveDate) {
+        throw new BadRequestException(
+          'Employment end date cannot be earlier than the active management assignment start time.',
+        );
+      }
+
       const updatedEmployee = await transaction.employee.update({
         where: {
           id: employee.id,
