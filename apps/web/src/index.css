@@ -8251,9 +8251,19 @@
   background: #fff2c9;
 }
 
+.mgmt-badge.reserved {
+  color: #744b00;
+  background: #ffe8a3;
+}
+
 .mgmt-badge.occupied {
   color: #075c35;
   background: #dff8eb;
+}
+
+.mgmt-badge.inactive {
+  color: #5d6873;
+  background: #e9eef2;
 }
 
 .mgmt-badge.ended {

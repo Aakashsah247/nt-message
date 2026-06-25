@@ -381,8 +381,6 @@ export class ManagementAssignmentsService {
     this.assertSuperAdmin(user);
 
     const where: Prisma.ManagementPositionWhereInput = {
-      isActive: true,
-
       ...(query.positionType
         ? {
             positionType: query.positionType,
@@ -403,6 +401,24 @@ export class ManagementAssignmentsService {
     };
 
     if (query.occupancy === ManagementPositionOccupancy.VACANT) {
+      where.isActive = true;
+
+      where.reservedByAccountRequestId = null;
+
+      where.assignments = {
+        none: {
+          endedAt: null,
+        },
+      };
+    }
+
+    if (query.occupancy === ManagementPositionOccupancy.RESERVED) {
+      where.isActive = true;
+
+      where.reservedByAccountRequestId = {
+        not: null,
+      };
+
       where.assignments = {
         none: {
           endedAt: null,
@@ -411,11 +427,17 @@ export class ManagementAssignmentsService {
     }
 
     if (query.occupancy === ManagementPositionOccupancy.OCCUPIED) {
+      where.isActive = true;
+
       where.assignments = {
         some: {
           endedAt: null,
         },
       };
+    }
+
+    if (query.occupancy === ManagementPositionOccupancy.INACTIVE) {
+      where.isActive = false;
     }
 
     const positions = await this.prisma.managementPosition.findMany({
@@ -436,6 +458,7 @@ export class ManagementAssignmentsService {
         divisionId: true,
         departmentId: true,
         isActive: true,
+        reservedByAccountRequestId: true,
         createdAt: true,
         updatedAt: true,
 
@@ -454,6 +477,18 @@ export class ManagementAssignmentsService {
             code: true,
             name: true,
             isActive: true,
+          },
+        },
+
+        reservedByAccountRequest: {
+          select: {
+            id: true,
+            empId: true,
+            empName: true,
+            requestedRole: true,
+            status: true,
+            submittedAt: true,
+            reviewedAt: true,
           },
         },
 
@@ -504,10 +539,18 @@ export class ManagementAssignmentsService {
       data: positions.map(({ assignments, ...position }) => {
         const currentAssignment = assignments[0] ?? null;
 
+        const occupancy = !position.isActive
+          ? 'INACTIVE'
+          : currentAssignment
+            ? 'OCCUPIED'
+            : position.reservedByAccountRequestId
+              ? 'RESERVED'
+              : 'VACANT';
+
         return {
           ...position,
 
-          occupancy: currentAssignment ? 'OCCUPIED' : 'VACANT',
+          occupancy,
 
           currentAssignment,
         };
@@ -539,6 +582,7 @@ export class ManagementAssignmentsService {
         divisionId: true,
         departmentId: true,
         isActive: true,
+        reservedByAccountRequestId: true,
         createdAt: true,
         updatedAt: true,
 
@@ -557,6 +601,18 @@ export class ManagementAssignmentsService {
             code: true,
             name: true,
             isActive: true,
+          },
+        },
+
+        reservedByAccountRequest: {
+          select: {
+            id: true,
+            empId: true,
+            empName: true,
+            requestedRole: true,
+            status: true,
+            submittedAt: true,
+            reviewedAt: true,
           },
         },
 
@@ -635,11 +691,19 @@ export class ManagementAssignmentsService {
       position.assignments.find((assignment) => assignment.endedAt === null) ??
       null;
 
+    const occupancy = !position.isActive
+      ? 'INACTIVE'
+      : currentAssignment
+        ? 'OCCUPIED'
+        : position.reservedByAccountRequestId
+          ? 'RESERVED'
+          : 'VACANT';
+
     return {
       position: {
         ...position,
 
-        occupancy: currentAssignment ? 'OCCUPIED' : 'VACANT',
+        occupancy,
 
         currentAssignment,
       },

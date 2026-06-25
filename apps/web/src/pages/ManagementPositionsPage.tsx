@@ -130,29 +130,32 @@ function getPositionState(
   className: string;
   label: string;
 } {
-  if (!position.isActive) {
-    return {
-      className: "ended",
-      label: "Inactive",
-    };
-  }
+  switch (position.occupancy) {
+    case "INACTIVE":
+      return {
+        className: "inactive",
+        label: "Inactive",
+      };
 
-  if (position.currentAssignment) {
-    return {
-      className: "occupied",
-      label: "Occupied",
-    };
-  }
+    case "OCCUPIED":
+      return {
+        className: "occupied",
+        label: "Occupied",
+      };
 
-  /*
-   * The current list endpoint does not yet return reservation
-   * details, so the UI must not falsely label every unassigned
-   * position as available for a new management account.
-   */
-  return {
-    className: "vacant",
-    label: "No current holder",
-  };
+    case "RESERVED":
+      return {
+        className: "reserved",
+        label: "Reserved",
+      };
+
+    case "VACANT":
+    default:
+      return {
+        className: "vacant",
+        label: "Vacant",
+      };
+  }
 }
 
 export function ManagementPositionsPage() {
@@ -283,35 +286,36 @@ export function ManagementPositionsPage() {
     );
 
   const summary = useMemo(() => {
-    let seniorManagement = 0;
-    let teamManagers = 0;
-    let occupied = 0;
-    let withoutHolder = 0;
+    const result = {
+      total: positions.length,
+      vacant: 0,
+      reserved: 0,
+      occupied: 0,
+      inactive: 0,
+    };
 
     positions.forEach((position) => {
-      if (
-        position.positionType ===
-        "SENIOR_MANAGEMENT"
-      ) {
-        seniorManagement += 1;
-      } else {
-        teamManagers += 1;
-      }
+      switch (position.occupancy) {
+        case "RESERVED":
+          result.reserved += 1;
+          break;
 
-      if (position.currentAssignment) {
-        occupied += 1;
-      } else {
-        withoutHolder += 1;
+        case "OCCUPIED":
+          result.occupied += 1;
+          break;
+
+        case "INACTIVE":
+          result.inactive += 1;
+          break;
+
+        case "VACANT":
+        default:
+          result.vacant += 1;
+          break;
       }
     });
 
-    return {
-      total: positions.length,
-      seniorManagement,
-      teamManagers,
-      occupied,
-      withoutHolder,
-    };
+    return result;
   }, [positions]);
 
   useEffect(() => {
@@ -787,21 +791,21 @@ export function ManagementPositionsPage() {
 
           <article>
             <span>
-              Senior Management
+              Vacant
             </span>
 
             <strong>
-              {summary.seniorManagement}
+              {summary.vacant}
             </strong>
           </article>
 
           <article>
             <span>
-              Team Managers
+              Reserved
             </span>
 
             <strong>
-              {summary.teamManagers}
+              {summary.reserved}
             </strong>
           </article>
 
@@ -817,11 +821,11 @@ export function ManagementPositionsPage() {
 
           <article>
             <span>
-              No current holder
+              Inactive
             </span>
 
             <strong>
-              {summary.withoutHolder}
+              {summary.inactive}
             </strong>
           </article>
         </section>
@@ -1136,11 +1140,19 @@ export function ManagementPositionsPage() {
                 </option>
 
                 <option value="VACANT">
-                  No current holder
+                  Vacant
+                </option>
+
+                <option value="RESERVED">
+                  Reserved
                 </option>
 
                 <option value="OCCUPIED">
                   Occupied
+                </option>
+
+                <option value="INACTIVE">
+                  Inactive
                 </option>
               </select>
             </label>
@@ -1251,40 +1263,63 @@ export function ManagementPositionsPage() {
                           </td>
 
                           <td>
-                            {position.currentAssignment
-                              ? (
-                                <>
-                                  <strong>
-                                    {
-                                      position
-                                        .currentAssignment
-                                        .employee
-                                        .empName
-                                    }
-                                  </strong>
+                            {position.currentAssignment ? (
+                              <>
+                                <strong>
+                                  {
+                                    position
+                                      .currentAssignment
+                                      .employee
+                                      .empName
+                                  }
+                                </strong>
 
-                                  <small>
-                                    {
-                                      position
-                                        .currentAssignment
-                                        .employee
-                                        .empId
-                                    }
-                                    {" · "}
-                                    {
-                                      position
-                                        .currentAssignment
-                                        .employee
-                                        .officialEmail
-                                    }
-                                  </small>
-                                </>
-                              )
-                              : (
-                                <span className="mgmt-no-holder">
-                                  No active assignment
-                                </span>
-                              )}
+                                <small>
+                                  {
+                                    position
+                                      .currentAssignment
+                                      .employee
+                                      .empId
+                                  }
+                                  {" · "}
+                                  {
+                                    position
+                                      .currentAssignment
+                                      .employee
+                                      .officialEmail
+                                  }
+                                </small>
+                              </>
+                            ) : position.reservedByAccountRequest ? (
+                              <>
+                                <strong>
+                                  Reserved for{" "}
+                                  {
+                                    position
+                                      .reservedByAccountRequest
+                                      .empName
+                                  }
+                                </strong>
+
+                                <small>
+                                  {
+                                    position
+                                      .reservedByAccountRequest
+                                      .empId
+                                  }
+                                  {" · "}
+                                  {formatLabel(
+                                    position
+                                      .reservedByAccountRequest
+                                      .status,
+                                  )}
+                                </small>
+                              </>
+                            ) : (
+                              <span className="mgmt-no-holder">
+                                No active assignment
+                              </span>
+                            )}
                           </td>
 
                           <td>
@@ -1464,7 +1499,10 @@ export function ManagementPositionsPage() {
                       {selectedPosition
                         .currentAssignment
                         ?.employee.empName ??
-                        "No active assignment"}
+                        (selectedPosition
+                          .reservedByAccountRequest
+                          ? `Reserved for ${selectedPosition.reservedByAccountRequest.empName}`
+                          : "No active assignment")}
                     </h3>
                   </div>
 

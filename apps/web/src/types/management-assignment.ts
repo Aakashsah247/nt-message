@@ -7,7 +7,9 @@ export type ManagementPositionType =
 export type ManagementPositionOccupancy =
   | "ALL"
   | "VACANT"
-  | "OCCUPIED";
+  | "RESERVED"
+  | "OCCUPIED"
+  | "INACTIVE";
 
 export interface ManagementOrganizationUnit {
   id: string;
@@ -58,6 +60,16 @@ export interface ManagementAssignmentSummary {
   endedBy?: ManagementAssignmentActor | null;
 }
 
+export interface ManagementPositionReservation {
+  id: string;
+  empId: string;
+  empName: string;
+  requestedRole: AccountRole;
+  status: string;
+  submittedAt: string;
+  reviewedAt: string | null;
+}
+
 export interface ManagementPositionListItem {
   id: string;
 
@@ -68,6 +80,12 @@ export interface ManagementPositionListItem {
   departmentId: string | null;
 
   isActive: boolean;
+
+  reservedByAccountRequestId:
+    string | null;
+
+  reservedByAccountRequest:
+    ManagementPositionReservation | null;
 
   occupancy:
     Exclude<

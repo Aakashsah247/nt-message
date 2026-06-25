@@ -5,7 +5,9 @@ import { ManagementPositionType } from '../../generated/prisma/client';
 export enum ManagementPositionOccupancy {
   ALL = 'ALL',
   VACANT = 'VACANT',
+  RESERVED = 'RESERVED',
   OCCUPIED = 'OCCUPIED',
+  INACTIVE = 'INACTIVE',
 }
 
 export class ListManagementPositionsQueryDto {
