@@ -4,6 +4,7 @@ import { PublicRoute } from "./components/PublicRoute";
 import { RoleHome } from "./components/RoleHome";
 import { ActivationPage } from "./pages/ActivationPage";
 import { AdminDashboardPage } from "./pages/AdminDashboardPage";
+import { ManagementPositionsPage } from "./pages/ManagementPositionsPage";
 import { ManagerRequestDashboardPage } from "./pages/ManagerRequestDashboardPage";
 import { ForgotPasswordPage } from "./pages/ForgotPasswordPage";
 import { LoginPage } from "./pages/LoginPage";
@@ -71,6 +72,15 @@ export default function App() {
         element={
           <ProtectedRoute roles={["SUPER_ADMIN"]}>
             <AdminDashboardPage />
+          </ProtectedRoute>
+        }
+      />
+
+      <Route
+        path="/super-admin/management-positions"
+        element={
+          <ProtectedRoute roles={["SUPER_ADMIN"]}>
+            <ManagementPositionsPage />
           </ProtectedRoute>
         }
       />

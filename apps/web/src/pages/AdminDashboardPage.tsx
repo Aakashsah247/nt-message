@@ -3,6 +3,7 @@ import { useNavigate } from "react-router";
 
 import { AdminRequestDetailPanel } from "../components/AdminRequestDetailPanel";
 import { DirectoryButton } from "../components/DirectoryButton";
+import { ManagementPositionsButton } from "../components/ManagementPositionsButton";
 import { AdminOrganizationPanel } from "../components/AdminOrganizationPanel";
 
 import { useAuth } from "../context/AuthContext";
@@ -342,6 +343,8 @@ export function AdminDashboardPage() {
           </div>
 
           <div className="admin-header-actions">
+<ManagementPositionsButton />
+
 <DirectoryButton />
             <button
 
