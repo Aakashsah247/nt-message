@@ -6,34 +6,66 @@ import {
   HttpStatus,
   Injectable,
   UnauthorizedException,
-} from "@nestjs/common";
+} from '@nestjs/common';
 
-import * as argon2 from "argon2";
-import { ConfigService } from "@nestjs/config";
-import { JwtService } from "@nestjs/jwt";
+import * as argon2 from 'argon2';
+import { ConfigService } from '@nestjs/config';
+import { JwtService } from '@nestjs/jwt';
 import {
   createHmac,
   randomInt,
   randomUUID,
   timingSafeEqual,
-} from "node:crypto";
-import { PrismaService } from "../database/prisma.service";
+} from 'node:crypto';
+import { PrismaService } from '../database/prisma.service';
 
 import {
+  AccountRequestActionType,
+  AccountRequestStatus,
   AccountRole,
   EmployeeStatus,
   OtpPurpose,
-} from "../generated/prisma/client";
+  ManagementPositionType,
+} from '../generated/prisma/client';
 
-import { MailService } from "../mail/mail.service";
-import { RequestActivationOtpDto } from "./dto/request-activation-otp.dto";
-import { VerifyActivationOtpDto } from "./dto/verify-activation-otp.dto";
-import { CompleteActivationDto } from "./dto/complete-activation.dto";
+import { MailService } from '../mail/mail.service';
+import { RequestActivationOtpDto } from './dto/request-activation-otp.dto';
+import { VerifyActivationOtpDto } from './dto/verify-activation-otp.dto';
+import { CompleteActivationDto } from './dto/complete-activation.dto';
 
 export interface RequestOtpResult {
   message: string;
   expiresInSeconds: number;
 }
+
+interface ActivationAuditMetadata {
+  ipAddress: string | null;
+  userAgent: string | null;
+}
+
+type OtpPreparationOutcome =
+  | {
+      status: 'invalid';
+    }
+  | {
+      status: 'inactive';
+    }
+  | {
+      status: 'activated';
+    }
+  | {
+      status: 'cooldown';
+    }
+  | {
+      status: 'prepared';
+      otpRecordId: string;
+      otp: string;
+
+      employee: {
+        empName: string;
+        officialEmail: string;
+      };
+    };
 export interface VerifyOtpResult {
   message: string;
   activationToken: string;
@@ -44,6 +76,11 @@ export interface VerifyOtpResult {
     empId: string;
     empName: string;
     officialEmail: string;
+  };
+
+  accountRequest: {
+    id: string;
+    requestedRole: AccountRole;
   };
 }
 
@@ -69,7 +106,9 @@ export interface CompleteActivationResult {
 interface ActivationTokenPayload {
   sub: string;
   otpVerificationId: string;
-  type: "account_activation";
+  accountRequestId: string;
+  requestedRole: AccountRole;
+  type: 'account_activation';
   jti?: string;
   iat?: number;
   exp?: number;
@@ -77,19 +116,19 @@ interface ActivationTokenPayload {
 
 type CompletionOutcome =
   | {
-      status: "invalid";
+      status: 'invalid';
     }
   | {
-      status: "inactive";
+      status: 'inactive';
     }
   | {
-      status: "activated";
+      status: 'activated';
     }
   | {
-      status: "username_conflict";
+      status: 'username_conflict';
     }
   | {
-      status: "completed";
+      status: 'completed';
 
       employee: {
         id: string;
@@ -109,16 +148,16 @@ type CompletionOutcome =
 
 type VerificationOutcome =
   | {
-      status: "invalid";
+      status: 'invalid';
     }
   | {
-      status: "inactive";
+      status: 'inactive';
     }
   | {
-      status: "activated";
+      status: 'activated';
     }
   | {
-      status: "verified";
+      status: 'verified';
       otpVerificationId: string;
 
       employee: {
@@ -126,6 +165,11 @@ type VerificationOutcome =
         empId: string;
         empName: string;
         officialEmail: string;
+      };
+
+      accountRequest: {
+        id: string;
+        requestedRole: AccountRole;
       };
     };
 
@@ -145,190 +189,312 @@ export class ActivationService {
     private readonly jwtService: JwtService,
     configService: ConfigService,
   ) {
-    this.otpHashSecret =
-      configService.getOrThrow<string>(
-        "OTP_HASH_SECRET",
-      );
+    this.otpHashSecret = configService.getOrThrow<string>('OTP_HASH_SECRET');
 
-    this.otpTtlMinutes =
-      this.readPositiveInteger(
-        configService,
-        "OTP_TTL_MINUTES",
-      );
+    this.otpTtlMinutes = this.readPositiveInteger(
+      configService,
+      'OTP_TTL_MINUTES',
+    );
 
-    this.resendCooldownSeconds =
-      this.readPositiveInteger(
-        configService,
-        "OTP_RESEND_COOLDOWN_SECONDS",
-      );
+    this.resendCooldownSeconds = this.readPositiveInteger(
+      configService,
+      'OTP_RESEND_COOLDOWN_SECONDS',
+    );
 
-    this.maxAttempts =
-      this.readPositiveInteger(
-        configService,
-        "OTP_MAX_ATTEMPTS",
-      );
+    this.maxAttempts = this.readPositiveInteger(
+      configService,
+      'OTP_MAX_ATTEMPTS',
+    );
 
-    this.activationTokenSecret =
-      configService.getOrThrow<string>(
-        "ACTIVATION_TOKEN_SECRET",
-      );
+    this.activationTokenSecret = configService.getOrThrow<string>(
+      'ACTIVATION_TOKEN_SECRET',
+    );
 
-    this.activationTokenTtlSeconds =
-      this.readPositiveInteger(
-        configService,
-        "ACTIVATION_TOKEN_TTL_SECONDS",
-      );
+    this.activationTokenTtlSeconds = this.readPositiveInteger(
+      configService,
+      'ACTIVATION_TOKEN_TTL_SECONDS',
+    );
   }
 
   async requestOtp(
     dto: RequestActivationOtpDto,
+    metadata: ActivationAuditMetadata,
   ): Promise<RequestOtpResult> {
-    const empId =
-      dto.empId.trim().toUpperCase();
+    const empName = dto.empName.trim().replace(/\s+/g, ' ');
 
-    const phoneNumber =
-      dto.phoneNumber.trim();
+    const empId = dto.empId.trim().toUpperCase();
 
-    const officialEmail =
-      dto.officialEmail
-        .trim()
-        .toLowerCase();
+    const phoneNumber = dto.phoneNumber.trim();
 
-    const employee =
-      await this.prisma.employee.findFirst({
-        where: {
-          empId,
-          phoneNumber,
-          officialEmail,
-        },
+    const officialEmail = dto.officialEmail.trim().toLowerCase();
 
-        select: {
-          id: true,
-          empName: true,
-          officialEmail: true,
-          status: true,
-          isActivated: true,
-        },
-      });
-
-    if (!employee) {
-      return this.createGenericResponse();
-    }
-
-    if (
-      employee.status ===
-      EmployeeStatus.INACTIVE
-    ) {
-      throw new ForbiddenException(
-        "This employee record is inactive.",
-      );
-    }
-
-    if (employee.isActivated) {
-      throw new ConflictException(
-        "This account is already activated.",
-      );
-    }
-
-    const cooldownStart =
-      new Date(
-        Date.now() -
-          this.resendCooldownSeconds * 1000,
-      );
-
-    const recentOtp =
-      await this.prisma.otpVerification.findFirst({
-        where: {
-          employeeId: employee.id,
-          purpose:
-            OtpPurpose.ACCOUNT_ACTIVATION,
-          consumedAt: null,
-
-          createdAt: {
-            gte: cooldownStart,
-          },
-        },
-
-        select: {
-          id: true,
-        },
-      });
-
-    if (recentOtp) {
-      throw new HttpException(
-        `Wait ${this.resendCooldownSeconds} seconds before requesting another code.`,
-        HttpStatus.TOO_MANY_REQUESTS,
-      );
-    }
-
-    const otp = randomInt(
-      0,
-      1_000_000,
-    )
-      .toString()
-      .padStart(6, "0");
-
-    const otpHash =
-      this.hashOtp(
-        employee.id,
-        otp,
-      );
+    const departmentId = dto.departmentId.trim();
 
     const now = new Date();
 
-    const expiresAt =
-      new Date(
-        Date.now() +
-          this.otpTtlMinutes *
-            60 *
-            1000,
-      );
+    const cooldownStart = new Date(
+      now.getTime() - this.resendCooldownSeconds * 1000,
+    );
 
-    const [, otpRecord] =
-      await this.prisma.$transaction([
-        this.prisma.otpVerification.updateMany({
+    const expiresAt = new Date(now.getTime() + this.otpTtlMinutes * 60 * 1000);
+
+    const ipAddress = metadata.ipAddress?.slice(0, 45) ?? null;
+
+    const userAgent = metadata.userAgent?.slice(0, 500) ?? null;
+
+    const preparation: OtpPreparationOutcome = await this.prisma.$transaction(
+      async (transaction) => {
+        const employee = await transaction.employee.findFirst({
+          where: {
+            empId,
+            phoneNumber,
+            officialEmail,
+            departmentId,
+
+            empName: {
+              equals: empName,
+              mode: 'insensitive',
+            },
+          },
+
+          select: {
+            id: true,
+            empName: true,
+            officialEmail: true,
+            divisionId: true,
+            departmentId: true,
+            status: true,
+            isActivated: true,
+          },
+        });
+
+        if (!employee) {
+          return {
+            status: 'invalid',
+          };
+        }
+
+        if (employee.status === EmployeeStatus.INACTIVE) {
+          return {
+            status: 'inactive',
+          };
+        }
+
+        if (employee.isActivated) {
+          return {
+            status: 'activated',
+          };
+        }
+
+        const accountRequest = await transaction.accountRequest.findFirst({
           where: {
             employeeId: employee.id,
-            purpose:
-              OtpPurpose.ACCOUNT_ACTIVATION,
+
+            empId,
+            phoneNumber,
+            officialEmail,
+
+            empName: {
+              equals: empName,
+              mode: 'insensitive',
+            },
+
+            divisionId: employee.divisionId,
+
+            departmentId: employee.departmentId,
+
+            status: {
+              in: [
+                AccountRequestStatus.APPROVED,
+
+                AccountRequestStatus.ACTIVATION_PENDING,
+              ],
+            },
+          },
+
+          orderBy: [
+            {
+              revisionNumber: 'desc',
+            },
+            {
+              createdAt: 'desc',
+            },
+          ],
+
+          select: {
+            id: true,
+            status: true,
+            requestedRole: true,
+            employeeId: true,
+            divisionId: true,
+            departmentId: true,
+          },
+        });
+
+        if (!accountRequest) {
+          return {
+            status: 'invalid',
+          };
+        }
+
+        const recentOtp = await transaction.otpVerification.findFirst({
+          where: {
+            employeeId: employee.id,
+
+            purpose: OtpPurpose.ACCOUNT_ACTIVATION,
+
+            consumedAt: null,
+
+            createdAt: {
+              gte: cooldownStart,
+            },
+          },
+
+          select: {
+            id: true,
+          },
+        });
+
+        if (recentOtp) {
+          return {
+            status: 'cooldown',
+          };
+        }
+
+        const otp = randomInt(0, 1_000_000).toString().padStart(6, '0');
+
+        const otpHash = this.hashOtp(employee.id, otp);
+
+        await transaction.otpVerification.updateMany({
+          where: {
+            employeeId: employee.id,
+
+            purpose: OtpPurpose.ACCOUNT_ACTIVATION,
+
             consumedAt: null,
           },
 
           data: {
             consumedAt: now,
           },
-        }),
+        });
 
-        this.prisma.otpVerification.create({
+        const otpRecord = await transaction.otpVerification.create({
           data: {
             employeeId: employee.id,
-            purpose:
-              OtpPurpose.ACCOUNT_ACTIVATION,
+
+            purpose: OtpPurpose.ACCOUNT_ACTIVATION,
+
             otpHash,
-            maxAttempts:
-              this.maxAttempts,
+
+            maxAttempts: this.maxAttempts,
+
             expiresAt,
           },
 
           select: {
             id: true,
           },
-        }),
-      ]);
+        });
+
+        if (accountRequest.status === AccountRequestStatus.APPROVED) {
+          const activationClaim = await transaction.accountRequest.updateMany({
+            where: {
+              id: accountRequest.id,
+
+              status: AccountRequestStatus.APPROVED,
+            },
+
+            data: {
+              status: AccountRequestStatus.ACTIVATION_PENDING,
+            },
+          });
+
+          if (activationClaim.count !== 1) {
+            return {
+              status: 'invalid',
+            };
+          }
+
+          await transaction.accountRequestAction.create({
+            data: {
+              accountRequestId: accountRequest.id,
+
+              actorAccountId: null,
+
+              action: AccountRequestActionType.ACTIVATION_STARTED,
+
+              ipAddress,
+              userAgent,
+
+              metadata: {
+                source: 'EMPLOYEE_ACCOUNT_ACTIVATION',
+
+                employeeId: employee.id,
+
+                requestedRole: accountRequest.requestedRole,
+
+                departmentId: accountRequest.departmentId,
+
+                otpVerificationId: otpRecord.id,
+              },
+            },
+          });
+        }
+
+        return {
+          status: 'prepared',
+          otpRecordId: otpRecord.id,
+          otp,
+
+          employee: {
+            empName: employee.empName,
+
+            officialEmail: employee.officialEmail,
+          },
+        };
+      },
+    );
+
+    if (preparation.status === 'inactive') {
+      throw new ForbiddenException('This employee record is inactive.');
+    }
+
+    if (preparation.status === 'activated') {
+      throw new ConflictException('This account is already activated.');
+    }
+
+    if (preparation.status === 'cooldown') {
+      throw new HttpException(
+        `Wait ${this.resendCooldownSeconds} seconds before requesting another code.`,
+        HttpStatus.TOO_MANY_REQUESTS,
+      );
+    }
+
+    if (preparation.status === 'invalid') {
+      return this.createGenericResponse();
+    }
 
     try {
       await this.mailService.sendActivationOtp({
-        to: employee.officialEmail,
-        employeeName: employee.empName,
-        otp,
-        expiresInMinutes:
-          this.otpTtlMinutes,
+        to: preparation.employee.officialEmail,
+
+        employeeName: preparation.employee.empName,
+
+        otp: preparation.otp,
+
+        expiresInMinutes: this.otpTtlMinutes,
       });
     } catch (error) {
-      // Unsent OTP must not remain valid.
-      await this.prisma.otpVerification.update({
+      /*
+       * An OTP that was not successfully
+       * delivered must not remain usable.
+       */
+      await this.prisma.otpVerification.updateMany({
         where: {
-          id: otpRecord.id,
+          id: preparation.otpRecordId,
+
+          consumedAt: null,
         },
 
         data: {
@@ -342,426 +508,138 @@ export class ActivationService {
     return this.createGenericResponse();
   }
 
-  async verifyOtp(
-    dto: VerifyActivationOtpDto,
-  ): Promise<VerifyOtpResult> {
-    const empId =
-      dto.empId.trim().toUpperCase();
+  async verifyOtp(dto: VerifyActivationOtpDto): Promise<VerifyOtpResult> {
+    const empName = dto.empName.trim().replace(/\s+/g, ' ');
 
-    const phoneNumber =
-      dto.phoneNumber.trim();
+    const empId = dto.empId.trim().toUpperCase();
 
-    const officialEmail =
-      dto.officialEmail
-        .trim()
-        .toLowerCase();
+    const phoneNumber = dto.phoneNumber.trim();
+
+    const officialEmail = dto.officialEmail.trim().toLowerCase();
+
+    const departmentId = dto.departmentId.trim();
 
     const otp = dto.otp.trim();
+
     const now = new Date();
 
-    const outcome: VerificationOutcome =
-      await this.prisma.$transaction(
-        async (transaction) => {
-          const employee =
-            await transaction.employee.findFirst({
-              where: {
-                empId,
-                phoneNumber,
-                officialEmail,
-              },
-
-              select: {
-                id: true,
-                empId: true,
-                empName: true,
-                officialEmail: true,
-                status: true,
-                isActivated: true,
-              },
-            });
-
-          if (!employee) {
-            return {
-              status: "invalid",
-            };
-          }
-
-          if (
-            employee.status ===
-            EmployeeStatus.INACTIVE
-          ) {
-            return {
-              status: "inactive",
-            };
-          }
-
-          if (employee.isActivated) {
-            return {
-              status: "activated",
-            };
-          }
-
-          const otpRecord =
-            await transaction.otpVerification
-              .findFirst({
-                where: {
-                  employeeId: employee.id,
-                  purpose:
-                    OtpPurpose.ACCOUNT_ACTIVATION,
-                  consumedAt: null,
-                },
-
-                orderBy: {
-                  createdAt: "desc",
-                },
-              });
-
-          if (!otpRecord) {
-            return {
-              status: "invalid",
-            };
-          }
-
-          const otpCannotBeUsed =
-            otpRecord.expiresAt <= now ||
-            otpRecord.attemptCount >=
-              otpRecord.maxAttempts;
-
-          if (otpCannotBeUsed) {
-            await transaction.otpVerification
-              .updateMany({
-                where: {
-                  id: otpRecord.id,
-                  consumedAt: null,
-                },
-
-                data: {
-                  consumedAt: now,
-                },
-              });
-
-            return {
-              status: "invalid",
-            };
-          }
-
-          const incomingHash =
-            this.hashOtp(
-              employee.id,
-              otp,
-            );
-
-          const otpMatches =
-            this.hashesMatch(
-              otpRecord.otpHash,
-              incomingHash,
-            );
-
-          if (!otpMatches) {
-            const nextAttempt =
-              otpRecord.attemptCount + 1;
-
-            await transaction.otpVerification
-              .updateMany({
-                where: {
-                  id: otpRecord.id,
-                  consumedAt: null,
-                },
-
-                data: {
-                  attemptCount: {
-                    increment: 1,
-                  },
-
-                  ...(nextAttempt >=
-                  otpRecord.maxAttempts
-                    ? {
-                        consumedAt: now,
-                      }
-                    : {}),
-                },
-              });
-
-            return {
-              status: "invalid",
-            };
-          }
-
-          // Consume the OTP only once.
-          const consumeResult =
-            await transaction.otpVerification
-              .updateMany({
-                where: {
-                  id: otpRecord.id,
-                  consumedAt: null,
-
-                  expiresAt: {
-                    gt: now,
-                  },
-
-                  attemptCount: {
-                    lt: otpRecord.maxAttempts,
-                  },
-                },
-
-                data: {
-                  consumedAt: now,
-                },
-              });
-
-          if (consumeResult.count !== 1) {
-            return {
-              status: "invalid",
-            };
-          }
-
-          return {
-            status: "verified",
-            otpVerificationId:
-              otpRecord.id,
-
-            employee: {
-              id: employee.id,
-              empId: employee.empId,
-              empName: employee.empName,
-              officialEmail:
-                employee.officialEmail,
-            },
-          };
-        },
-      );
-
-    if (outcome.status === "inactive") {
-      throw new ForbiddenException(
-        "This employee record is inactive.",
-      );
-    }
-
-    if (outcome.status === "activated") {
-      throw new ConflictException(
-        "This account is already activated.",
-      );
-    }
-
-    if (outcome.status === "invalid") {
-      throw new UnauthorizedException(
-        "The activation code is invalid or expired.",
-      );
-    }
-
-    const activationToken =
-      await this.jwtService.signAsync(
-        {
-          sub: outcome.employee.id,
-          otpVerificationId:
-            outcome.otpVerificationId,
-          type: "account_activation",
-          jti: randomUUID(),
-        },
-
-        {
-          secret:
-            this.activationTokenSecret,
-
-          expiresIn:
-            this.activationTokenTtlSeconds,
-        },
-      );
-
-    return {
-      message:
-        "OTP verified successfully.",
-      activationToken,
-      expiresInSeconds:
-        this.activationTokenTtlSeconds,
-      employee: outcome.employee,
-    };
-  }
-
-  async completeActivation(
-  dto: CompleteActivationDto,
-): Promise<CompleteActivationResult> {
-  if (
-    dto.password !==
-    dto.confirmPassword
-  ) {
-    throw new BadRequestException(
-      "Password confirmation does not match.",
-    );
-  }
-
-  const payload =
-    await this.verifyActivationToken(
-      dto.activationToken,
-    );
-
-  // Hash before opening the database transaction.
-  const passwordHash =
-    await argon2.hash(dto.password, {
-      type: argon2.argon2id,
-    });
-
-  const now = new Date();
-
-  const outcome: CompletionOutcome =
-    await this.prisma.$transaction(
+    const outcome: VerificationOutcome = await this.prisma.$transaction(
       async (transaction) => {
-        const employee =
-          await transaction.employee.findUnique({
-            where: {
-              id: payload.sub,
-            },
+        const employee = await transaction.employee.findFirst({
+          where: {
+            empId,
+            phoneNumber,
+            officialEmail,
+            departmentId,
 
-            select: {
-              id: true,
-              empId: true,
-              empName: true,
-              officialEmail: true,
-              status: true,
-              isActivated: true,
-
-              account: {
-                select: {
-                  id: true,
-                },
-              },
+            empName: {
+              equals: empName,
+              mode: 'insensitive',
             },
-          });
+          },
+
+          select: {
+            id: true,
+            empId: true,
+            empName: true,
+            officialEmail: true,
+            divisionId: true,
+            departmentId: true,
+            status: true,
+            isActivated: true,
+          },
+        });
 
         if (!employee) {
           return {
-            status: "invalid",
+            status: 'invalid',
           };
         }
+
+        if (employee.status === EmployeeStatus.INACTIVE) {
+          return {
+            status: 'inactive',
+          };
+        }
+
+        if (employee.isActivated) {
+          return {
+            status: 'activated',
+          };
+        }
+
+        const accountRequest = await transaction.accountRequest.findFirst({
+          where: {
+            employeeId: employee.id,
+
+            empId,
+            phoneNumber,
+            officialEmail,
+
+            empName: {
+              equals: empName,
+              mode: 'insensitive',
+            },
+
+            divisionId: employee.divisionId,
+
+            departmentId: employee.departmentId,
+
+            status: AccountRequestStatus.ACTIVATION_PENDING,
+          },
+
+          orderBy: [
+            {
+              revisionNumber: 'desc',
+            },
+            {
+              createdAt: 'desc',
+            },
+          ],
+
+          select: {
+            id: true,
+            requestedRole: true,
+          },
+        });
 
         if (
-          employee.status ===
-          EmployeeStatus.INACTIVE
+          !accountRequest ||
+          accountRequest.requestedRole === AccountRole.SUPER_ADMIN
         ) {
           return {
-            status: "inactive",
+            status: 'invalid',
           };
         }
 
-        if (
-          employee.isActivated ||
-          employee.account
-        ) {
+        const otpRecord = await transaction.otpVerification.findFirst({
+          where: {
+            employeeId: employee.id,
+
+            purpose: OtpPurpose.ACCOUNT_ACTIVATION,
+
+            consumedAt: null,
+          },
+
+          orderBy: {
+            createdAt: 'desc',
+          },
+        });
+
+        if (!otpRecord) {
           return {
-            status: "activated",
+            status: 'invalid',
           };
         }
 
-        const otpVerification =
-          await transaction.otpVerification
-            .findFirst({
-              where: {
-                id:
-                  payload.otpVerificationId,
+        const otpCannotBeUsed =
+          otpRecord.expiresAt <= now ||
+          otpRecord.attemptCount >= otpRecord.maxAttempts;
 
-                employeeId:
-                  employee.id,
-
-                purpose:
-                  OtpPurpose
-                    .ACCOUNT_ACTIVATION,
-
-                consumedAt: {
-                  not: null,
-                },
-              },
-
-              select: {
-                id: true,
-              },
-            });
-
-        if (!otpVerification) {
-          return {
-            status: "invalid",
-          };
-        }
-
-        const username =
-          employee.empId.toLowerCase();
-
-        const existingUsername =
-          await transaction.account.findUnique({
+        if (otpCannotBeUsed) {
+          await transaction.otpVerification.updateMany({
             where: {
-              username,
-            },
-
-            select: {
-              id: true,
-            },
-          });
-
-        if (existingUsername) {
-          return {
-            status: "username_conflict",
-          };
-        }
-
-        // Only one activation request can claim the employee.
-        const activationClaim =
-          await transaction.employee.updateMany({
-            where: {
-              id: employee.id,
-              isActivated: false,
-              status:
-                EmployeeStatus.ACTIVE,
-            },
-
-            data: {
-              isActivated: true,
-            },
-          });
-
-        if (
-          activationClaim.count !== 1
-        ) {
-          return {
-            status: "activated",
-          };
-        }
-
-        const account =
-          await transaction.account.create({
-            data: {
-              employeeId:
-                employee.id,
-
-              username,
-
-              role:
-                AccountRole.EMPLOYEE,
-
-              passwordHash,
-
-              isEnabled: true,
-
-              passwordChangedAt:
-                now,
-            },
-
-            select: {
-              id: true,
-              username: true,
-              role: true,
-              isEnabled: true,
-            },
-          });
-
-        // Invalidate other unused activation OTPs.
-        await transaction.otpVerification
-          .updateMany({
-            where: {
-              employeeId:
-                employee.id,
-
-              purpose:
-                OtpPurpose
-                  .ACCOUNT_ACTIVATION,
+              id: otpRecord.id,
 
               consumedAt: null,
             },
@@ -771,16 +649,652 @@ export class ActivationService {
             },
           });
 
+          return {
+            status: 'invalid',
+          };
+        }
+
+        const incomingHash = this.hashOtp(employee.id, otp);
+
+        const otpMatches = this.hashesMatch(otpRecord.otpHash, incomingHash);
+
+        if (!otpMatches) {
+          const nextAttempt = otpRecord.attemptCount + 1;
+
+          await transaction.otpVerification.updateMany({
+            where: {
+              id: otpRecord.id,
+
+              consumedAt: null,
+            },
+
+            data: {
+              attemptCount: {
+                increment: 1,
+              },
+
+              ...(nextAttempt >= otpRecord.maxAttempts
+                ? {
+                    consumedAt: now,
+                  }
+                : {}),
+            },
+          });
+
+          return {
+            status: 'invalid',
+          };
+        }
+
+        /*
+         * Consume the OTP atomically so that
+         * it cannot be verified more than once.
+         */
+        const consumeResult = await transaction.otpVerification.updateMany({
+          where: {
+            id: otpRecord.id,
+
+            employeeId: employee.id,
+
+            consumedAt: null,
+
+            expiresAt: {
+              gt: now,
+            },
+
+            attemptCount: {
+              lt: otpRecord.maxAttempts,
+            },
+          },
+
+          data: {
+            consumedAt: now,
+          },
+        });
+
+        if (consumeResult.count !== 1) {
+          return {
+            status: 'invalid',
+          };
+        }
+
         return {
-          status: "completed",
+          status: 'verified',
+
+          otpVerificationId: otpRecord.id,
 
           employee: {
             id: employee.id,
+
             empId: employee.empId,
-            empName:
-              employee.empName,
-            officialEmail:
-              employee.officialEmail,
+
+            empName: employee.empName,
+
+            officialEmail: employee.officialEmail,
+          },
+
+          accountRequest: {
+            id: accountRequest.id,
+
+            requestedRole: accountRequest.requestedRole,
+          },
+        };
+      },
+    );
+
+    if (outcome.status === 'inactive') {
+      throw new ForbiddenException('This employee record is inactive.');
+    }
+
+    if (outcome.status === 'activated') {
+      throw new ConflictException('This account is already activated.');
+    }
+
+    if (outcome.status === 'invalid') {
+      throw new UnauthorizedException(
+        'The activation code is invalid or expired.',
+      );
+    }
+
+    const activationToken = await this.jwtService.signAsync(
+      {
+        sub: outcome.employee.id,
+
+        otpVerificationId: outcome.otpVerificationId,
+
+        accountRequestId: outcome.accountRequest.id,
+
+        requestedRole: outcome.accountRequest.requestedRole,
+
+        type: 'account_activation',
+
+        jti: randomUUID(),
+      },
+
+      {
+        secret: this.activationTokenSecret,
+
+        expiresIn: this.activationTokenTtlSeconds,
+      },
+    );
+
+    return {
+      message: 'OTP verified successfully.',
+
+      activationToken,
+
+      expiresInSeconds: this.activationTokenTtlSeconds,
+
+      employee: outcome.employee,
+
+      accountRequest: outcome.accountRequest,
+    };
+  }
+
+  async completeActivation(
+    dto: CompleteActivationDto,
+    metadata: ActivationAuditMetadata,
+  ): Promise<CompleteActivationResult> {
+    if (dto.password !== dto.confirmPassword) {
+      throw new BadRequestException('Password confirmation does not match.');
+    }
+
+    const payload = await this.verifyActivationToken(dto.activationToken);
+
+    /*
+     * Password hashing is intentionally completed
+     * before opening the database transaction.
+     */
+    const passwordHash = await argon2.hash(dto.password, {
+      type: argon2.argon2id,
+    });
+
+    const now = new Date();
+
+    const ipAddress = metadata.ipAddress?.slice(0, 45) ?? null;
+
+    const userAgent = metadata.userAgent?.slice(0, 500) ?? null;
+
+    const outcome: CompletionOutcome = await this.prisma.$transaction(
+      async (transaction) => {
+        const employee = await transaction.employee.findUnique({
+          where: {
+            id: payload.sub,
+          },
+
+          select: {
+            id: true,
+            empId: true,
+            empName: true,
+            phoneNumber: true,
+            officialEmail: true,
+            divisionId: true,
+            departmentId: true,
+            status: true,
+            isActivated: true,
+
+            account: {
+              select: {
+                id: true,
+              },
+            },
+            accountRequests: {
+              where: {
+                status: {
+                  in: [
+                    AccountRequestStatus.APPROVED,
+                    AccountRequestStatus.ACTIVATION_PENDING,
+                  ],
+                },
+              },
+
+              orderBy: {
+                reviewedAt: 'desc',
+              },
+
+              take: 1,
+
+              select: {
+                id: true,
+                requestedRole: true,
+                status: true,
+              },
+            },
+          },
+        });
+
+        if (!employee) {
+          return {
+            status: 'invalid',
+          };
+        }
+
+        if (employee.status === EmployeeStatus.INACTIVE) {
+          return {
+            status: 'inactive',
+          };
+        }
+
+        if (employee.isActivated || employee.account) {
+          return {
+            status: 'activated',
+          };
+        }
+        // The activated account role must come from the approved request.
+        const approvedRequest = employee.accountRequests[0];
+
+        if (!approvedRequest) {
+          return {
+            status: 'invalid',
+          };
+        }
+
+        const accountRequest = await transaction.accountRequest.findFirst({
+          where: {
+            id: payload.accountRequestId,
+
+            employeeId: employee.id,
+
+            empId: employee.empId,
+
+            phoneNumber: employee.phoneNumber,
+
+            officialEmail: employee.officialEmail,
+
+            empName: {
+              equals: employee.empName,
+
+              mode: 'insensitive',
+            },
+
+            divisionId: employee.divisionId,
+
+            departmentId: employee.departmentId,
+
+            requestedRole: payload.requestedRole,
+
+            status: AccountRequestStatus.ACTIVATION_PENDING,
+          },
+
+          select: {
+            id: true,
+            requestedRole: true,
+            status: true,
+            divisionId: true,
+            departmentId: true,
+            managementPositionId: true,
+            reviewedByAccountId: true,
+          },
+        });
+
+        if (
+          !accountRequest ||
+          accountRequest.requestedRole === AccountRole.SUPER_ADMIN
+        ) {
+          return {
+            status: 'invalid',
+          };
+        }
+
+        let managementPositionId: string | null = null;
+
+        let managementAssignedByAccountId: string | null = null;
+
+        let managementAssignmentId: string | null = null;
+
+        if (accountRequest.requestedRole !== AccountRole.EMPLOYEE) {
+          if (
+            !accountRequest.managementPositionId ||
+            !accountRequest.reviewedByAccountId
+          ) {
+            throw new ConflictException(
+              'The approved management request does not have a valid reserved position.',
+            );
+          }
+
+          const requiredPositionType =
+            accountRequest.requestedRole ===
+            AccountRole.SENIOR_MANAGEMENT
+              ? ManagementPositionType.SENIOR_MANAGEMENT
+              : ManagementPositionType.TEAM_MANAGER;
+
+          const managementPosition =
+            await transaction.managementPosition.findUnique({
+              where: {
+                id: accountRequest.managementPositionId,
+              },
+
+              select: {
+                id: true,
+                positionType: true,
+                divisionId: true,
+                departmentId: true,
+                isActive: true,
+                reservedByAccountRequestId: true,
+
+                assignments: {
+                  where: {
+                    endedAt: null,
+                  },
+
+                  take: 1,
+
+                  select: {
+                    id: true,
+                  },
+                },
+              },
+            });
+
+          if (
+            !managementPosition ||
+            !managementPosition.isActive ||
+            managementPosition.positionType !==
+              requiredPositionType ||
+            managementPosition.divisionId !==
+              accountRequest.divisionId ||
+            managementPosition.reservedByAccountRequestId !==
+              accountRequest.id
+          ) {
+            throw new ConflictException(
+              'The reserved management position is no longer valid for this activation.',
+            );
+          }
+
+          if (
+            requiredPositionType ===
+              ManagementPositionType.SENIOR_MANAGEMENT &&
+            managementPosition.departmentId !== null
+          ) {
+            throw new ConflictException(
+              'The reserved Senior Management position has an invalid organization scope.',
+            );
+          }
+
+          if (
+            requiredPositionType ===
+              ManagementPositionType.TEAM_MANAGER &&
+            managementPosition.departmentId !==
+              accountRequest.departmentId
+          ) {
+            throw new ConflictException(
+              'The reserved Team Manager position does not match the request department.',
+            );
+          }
+
+          if (managementPosition.assignments.length > 0) {
+            throw new ConflictException(
+              'The reserved management position is no longer vacant.',
+            );
+          }
+
+          const existingEmployeeAssignment =
+            await transaction.managementAssignment.findFirst({
+              where: {
+                employeeId: employee.id,
+                endedAt: null,
+              },
+
+              select: {
+                id: true,
+              },
+            });
+
+          if (existingEmployeeAssignment) {
+            throw new ConflictException(
+              'This employee already has an active management assignment.',
+            );
+          }
+
+          managementPositionId = managementPosition.id;
+
+          managementAssignedByAccountId =
+            accountRequest.reviewedByAccountId;
+        } else if (accountRequest.managementPositionId) {
+          throw new ConflictException(
+            'A normal employee activation must not reference a management position.',
+          );
+        }
+
+        const otpVerification = await transaction.otpVerification.findFirst({
+          where: {
+            id: payload.otpVerificationId,
+
+            employeeId: employee.id,
+
+            purpose: OtpPurpose.ACCOUNT_ACTIVATION,
+
+            consumedAt: {
+              not: null,
+            },
+          },
+
+          select: {
+            id: true,
+          },
+        });
+
+        if (!otpVerification) {
+          return {
+            status: 'invalid',
+          };
+        }
+
+        const username = employee.empId.toLowerCase();
+
+        const existingUsername = await transaction.account.findUnique({
+          where: {
+            username,
+          },
+
+          select: {
+            id: true,
+          },
+        });
+
+        if (existingUsername) {
+          return {
+            status: 'username_conflict',
+          };
+        }
+
+        /*
+         * Claim the approved request first.
+         * Throwing on a race condition causes
+         * the complete transaction to roll back.
+         */
+        const requestClaim = await transaction.accountRequest.updateMany({
+          where: {
+            id: accountRequest.id,
+
+            employeeId: employee.id,
+
+            requestedRole: payload.requestedRole,
+
+            status: AccountRequestStatus.ACTIVATION_PENDING,
+          },
+
+          data: {
+            status: AccountRequestStatus.ACTIVATED,
+          },
+        });
+
+        if (requestClaim.count !== 1) {
+          throw new ConflictException(
+            'This activation request has already been completed or is no longer valid.',
+          );
+        }
+
+        /*
+         * Claim the employee identity.
+         * A failed claim rolls back the request
+         * status change above.
+         */
+        const employeeClaim = await transaction.employee.updateMany({
+          where: {
+            id: employee.id,
+
+            isActivated: false,
+
+            status: EmployeeStatus.ACTIVE,
+          },
+
+          data: {
+            isActivated: true,
+          },
+        });
+
+        if (employeeClaim.count !== 1) {
+          throw new ConflictException('This account is already activated.');
+        }
+
+        const account = await transaction.account.create({
+          data: {
+            employeeId: employee.id,
+
+            username,
+
+            role: accountRequest.requestedRole,
+
+            passwordHash,
+
+            isEnabled: true,
+
+            passwordChangedAt: now,
+          },
+
+          select: {
+            id: true,
+            username: true,
+            role: true,
+            isEnabled: true,
+          },
+        });
+
+        if (
+          managementPositionId &&
+          managementAssignedByAccountId
+        ) {
+          /*
+           * Claim and release the reservation before creating
+           * the active assignment. Any later failure rolls the
+           * complete transaction back.
+           */
+          const reservationClaim =
+            await transaction.managementPosition.updateMany({
+              where: {
+                id: managementPositionId,
+                isActive: true,
+
+                reservedByAccountRequestId:
+                  accountRequest.id,
+
+                assignments: {
+                  none: {
+                    endedAt: null,
+                  },
+                },
+              },
+
+              data: {
+                reservedByAccountRequestId: null,
+              },
+            });
+
+          if (reservationClaim.count !== 1) {
+            throw new ConflictException(
+              'The reserved management position could not be assigned.',
+            );
+          }
+
+          const managementAssignment =
+            await transaction.managementAssignment.create({
+              data: {
+                positionId: managementPositionId,
+
+                employeeId: employee.id,
+
+                assignedByAccountId:
+                  managementAssignedByAccountId,
+
+                startedAt: now,
+
+                assignmentReason:
+                  'Assigned automatically when the approved management account was activated.',
+              },
+
+              select: {
+                id: true,
+              },
+            });
+
+          managementAssignmentId =
+            managementAssignment.id;
+        }
+
+        await transaction.accountRequestAction.create({
+          data: {
+            accountRequestId: accountRequest.id,
+
+            actorAccountId: account.id,
+
+            action: AccountRequestActionType.ACTIVATED,
+
+            ipAddress,
+            userAgent,
+
+            metadata: {
+              source: 'EMPLOYEE_ACCOUNT_ACTIVATION',
+
+              employeeId: employee.id,
+
+              accountId: account.id,
+
+              requestedRole: accountRequest.requestedRole,
+
+              otpVerificationId: otpVerification.id,
+
+              divisionId: accountRequest.divisionId,
+
+              departmentId: accountRequest.departmentId,
+
+              managementPositionId,
+
+              managementAssignmentId,
+            },
+          },
+        });
+
+        /*
+         * Invalidate any other unused activation
+         * codes after successful completion.
+         */
+        await transaction.otpVerification.updateMany({
+          where: {
+            employeeId: employee.id,
+
+            purpose: OtpPurpose.ACCOUNT_ACTIVATION,
+
+            consumedAt: null,
+          },
+
+          data: {
+            consumedAt: now,
+          },
+        });
+
+        return {
+          status: 'completed',
+
+          employee: {
+            id: employee.id,
+
+            empId: employee.empId,
+
+            empName: employee.empName,
+
+            officialEmail: employee.officialEmail,
+
             isActivated: true,
           },
 
@@ -789,125 +1303,98 @@ export class ActivationService {
       },
     );
 
-  if (outcome.status === "invalid") {
-    throw new UnauthorizedException(
-      "The activation token is invalid or expired.",
-    );
-  }
-
-  if (outcome.status === "inactive") {
-    throw new ForbiddenException(
-      "This employee record is inactive.",
-    );
-  }
-
-  if (outcome.status === "activated") {
-    throw new ConflictException(
-      "This account is already activated.",
-    );
-  }
-
-  if (
-    outcome.status ===
-    "username_conflict"
-  ) {
-    throw new ConflictException(
-      "An account with this username already exists.",
-    );
-  }
-
-  return {
-    message:
-      "Employee account activated successfully.",
-
-    employee:
-      outcome.employee,
-
-    account:
-      outcome.account,
-  };
-}
-
-private async verifyActivationToken(
-  activationToken: string,
-): Promise<ActivationTokenPayload> {
-  try {
-    const payload =
-      await this.jwtService
-        .verifyAsync<ActivationTokenPayload>(
-          activationToken,
-          {
-            secret:
-              this.activationTokenSecret,
-
-            algorithms: [
-              "HS256",
-            ],
-          },
-        );
-
-    if (
-      payload.type !==
-        "account_activation" ||
-      !payload.sub ||
-      !payload.otpVerificationId
-    ) {
-      throw new Error(
-        "Invalid activation payload.",
+    if (outcome.status === 'invalid') {
+      throw new UnauthorizedException(
+        'The activation token is invalid or expired.',
       );
     }
 
-    return payload;
-  } catch {
-    throw new UnauthorizedException(
-      "The activation token is invalid or expired.",
-    );
-  }
-}
+    if (outcome.status === 'inactive') {
+      throw new ForbiddenException('This employee record is inactive.');
+    }
 
-  private hashOtp(
-    employeeId: string,
-    otp: string,
-  ): string {
-    return createHmac(
-      "sha256",
-      this.otpHashSecret,
-    )
+    if (outcome.status === 'activated') {
+      throw new ConflictException('This account is already activated.');
+    }
+
+    if (outcome.status === 'username_conflict') {
+      throw new ConflictException(
+        'An account with this username already exists.',
+      );
+    }
+
+    return {
+      message: 'Account activated successfully.',
+
+      employee: outcome.employee,
+
+      account: outcome.account,
+    };
+  }
+
+  private async verifyActivationToken(
+    activationToken: string,
+  ): Promise<ActivationTokenPayload> {
+    try {
+      const payload = await this.jwtService.verifyAsync<ActivationTokenPayload>(
+        activationToken,
+        {
+          secret: this.activationTokenSecret,
+
+          algorithms: ['HS256'],
+        },
+      );
+
+      const allowedRoles: AccountRole[] = [
+        AccountRole.SENIOR_MANAGEMENT,
+
+        AccountRole.TEAM_MANAGER,
+
+        AccountRole.EMPLOYEE,
+      ];
+
+      if (
+        payload.type !== 'account_activation' ||
+        !payload.sub ||
+        !payload.otpVerificationId ||
+        !payload.accountRequestId ||
+        !allowedRoles.includes(payload.requestedRole)
+      ) {
+        throw new Error('Invalid activation payload.');
+      }
+
+      return payload;
+    } catch {
+      throw new UnauthorizedException(
+        'The activation token is invalid or expired.',
+      );
+    }
+  }
+
+  private hashOtp(employeeId: string, otp: string): string {
+    return createHmac('sha256', this.otpHashSecret)
       .update(`${employeeId}:${otp}`)
-      .digest("hex");
+      .digest('hex');
   }
 
-  private hashesMatch(
-    storedHash: string,
-    incomingHash: string,
-  ): boolean {
-    const storedBuffer =
-      Buffer.from(storedHash, "hex");
+  private hashesMatch(storedHash: string, incomingHash: string): boolean {
+    const storedBuffer = Buffer.from(storedHash, 'hex');
 
-    const incomingBuffer =
-      Buffer.from(incomingHash, "hex");
+    const incomingBuffer = Buffer.from(incomingHash, 'hex');
 
-    if (
-      storedBuffer.length !==
-      incomingBuffer.length
-    ) {
+    if (storedBuffer.length !== incomingBuffer.length) {
       return false;
     }
 
-    return timingSafeEqual(
-      storedBuffer,
-      incomingBuffer,
-    );
+    return timingSafeEqual(storedBuffer, incomingBuffer);
   }
 
-  private createGenericResponse():
-    RequestOtpResult {
+  private createGenericResponse(): RequestOtpResult {
     return {
       message:
-        "If the employee details are valid, an OTP has been sent to the official email address.",
+        'If the employee details are valid, an OTP has been sent to the official email address.',
 
-      expiresInSeconds:
-        this.otpTtlMinutes * 60,
+      expiresInSeconds: this.otpTtlMinutes * 60,
     };
   }
 
@@ -915,19 +1402,10 @@ private async verifyActivationToken(
     configService: ConfigService,
     variableName: string,
   ): number {
-    const value = Number(
-      configService.getOrThrow<string>(
-        variableName,
-      ),
-    );
+    const value = Number(configService.getOrThrow<string>(variableName));
 
-    if (
-      !Number.isInteger(value) ||
-      value <= 0
-    ) {
-      throw new Error(
-        `${variableName} must be a positive integer.`,
-      );
+    if (!Number.isInteger(value) || value <= 0) {
+      throw new Error(`${variableName} must be a positive integer.`);
     }
 
     return value;

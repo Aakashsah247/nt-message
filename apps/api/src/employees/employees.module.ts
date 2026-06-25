@@ -1,7 +1,7 @@
-import { Module } from "@nestjs/common";
-import { AuthModule } from "../auth/auth.module";
-import { EmployeesController } from "./employees.controller";
-import { EmployeesService } from "./employees.service";
+import { Module } from '@nestjs/common';
+import { AuthModule } from '../auth/auth.module';
+import { EmployeesController } from './employees.controller';
+import { EmployeesService } from './employees.service';
 
 @Module({
   /*
@@ -9,12 +9,8 @@ import { EmployeesService } from "./employees.service";
    */
   imports: [AuthModule],
 
-  controllers: [
-    EmployeesController,
-  ],
+  controllers: [EmployeesController],
 
-  providers: [
-    EmployeesService,
-  ],
+  providers: [EmployeesService],
 })
 export class EmployeesModule {}

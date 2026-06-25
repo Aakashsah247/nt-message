@@ -1,0 +1,92 @@
+import {
+  Body,
+  Controller,
+  Get,
+  Param,
+  ParseUUIDPipe,
+  Patch,
+  Query,
+  Req,
+  UseGuards,
+} from '@nestjs/common';
+
+import type { Request } from 'express';
+
+import { CurrentUser } from '../auth/decorators/current-user.decorator';
+import { Roles } from '../auth/decorators/roles.decorator';
+import { AccessTokenGuard } from '../auth/guards/access-token.guard';
+import { RolesGuard } from '../auth/guards/roles.guard';
+import type { AuthenticatedUser } from '../auth/types/auth.types';
+import { AccountRole } from '../generated/prisma/client';
+
+import { EndManagementAssignmentDto } from './dto/end-management-assignment.dto';
+import { ListManagementPositionsQueryDto } from './dto/list-management-positions-query.dto';
+import { ManagementAssignmentsService } from './management-assignments.service';
+
+@Controller('admin/management-positions')
+@UseGuards(AccessTokenGuard, RolesGuard)
+@Roles(AccountRole.SUPER_ADMIN)
+export class ManagementAssignmentsController {
+  constructor(
+    private readonly managementAssignmentsService: ManagementAssignmentsService,
+  ) {}
+
+  @Get()
+  listPositions(
+    @CurrentUser()
+    user: AuthenticatedUser,
+
+    @Query()
+    query: ListManagementPositionsQueryDto,
+  ) {
+    return this.managementAssignmentsService.listPositions(user, query);
+  }
+
+  @Get(':id')
+  getPosition(
+    @CurrentUser()
+    user: AuthenticatedUser,
+
+    @Param(
+      'id',
+      new ParseUUIDPipe({
+        version: '4',
+      }),
+    )
+    id: string,
+  ) {
+    return this.managementAssignmentsService.getPosition(user, id);
+  }
+
+  @Patch(':id/end-assignment')
+  endAssignment(
+    @CurrentUser()
+    user: AuthenticatedUser,
+
+    @Param(
+      'id',
+      new ParseUUIDPipe({
+        version: '4',
+      }),
+    )
+    id: string,
+
+    @Body()
+    dto: EndManagementAssignmentDto,
+
+    @Req()
+    request: Request,
+  ) {
+    return this.managementAssignmentsService.endCurrentAssignment(
+      user,
+      id,
+      dto,
+      {
+        ipAddress: request.ip ?? request.socket.remoteAddress ?? null,
+
+        userAgent: request.get('user-agent') ?? null,
+      },
+    );
+  }
+
+}

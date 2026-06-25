@@ -1,59 +1,32 @@
-import {
-  createContext,
-  useContext,
-  useEffect,
-  useState,
-} from "react";
-import type {
-  ReactNode,
-} from "react";
-import {
-  loginUser,
-  logoutAuth,
-  refreshAuth,
-} from "../services/auth.service";
-import type {
-  AuthAccount,
-  AuthResponse,
-} from "../types/auth";
+import { createContext, useContext, useEffect, useState } from "react";
+import type { ReactNode } from "react";
+import { loginUser, logoutAuth, refreshAuth } from "../services/auth.service";
+import type { AuthAccount, AuthResponse } from "../types/auth";
 
 interface AuthContextValue {
   account: AuthAccount | null;
   accessToken: string | null;
   loading: boolean;
 
-  login: (
-    identifier: string,
-    password: string,
-  ) => Promise<AuthAccount>;
+  login: (identifier: string, password: string) => Promise<AuthAccount>;
 
   logout: () => Promise<void>;
 }
 
-const AuthContext =
-  createContext<AuthContextValue | null>(
-    null,
-  );
+const AuthContext = createContext<AuthContextValue | null>(null);
 
 interface AuthProviderProps {
   children: ReactNode;
 }
 
-export function AuthProvider({
-  children,
-}: AuthProviderProps) {
-  const [account, setAccount] =
-    useState<AuthAccount | null>(null);
+export function AuthProvider({ children }: AuthProviderProps) {
+  const [account, setAccount] = useState<AuthAccount | null>(null);
 
-  const [accessToken, setAccessToken] =
-    useState<string | null>(null);
+  const [accessToken, setAccessToken] = useState<string | null>(null);
 
-  const [loading, setLoading] =
-    useState(true);
+  const [loading, setLoading] = useState(true);
 
-  function saveSession(
-    result: AuthResponse,
-  ): void {
+  function saveSession(result: AuthResponse): void {
     setAccount(result.account);
     setAccessToken(result.accessToken);
   }
@@ -92,19 +65,14 @@ export function AuthProvider({
     identifier: string,
     password: string,
   ): Promise<AuthAccount> {
-    const result =
-      await loginUser(
-        identifier,
-        password,
-      );
+    const result = await loginUser(identifier, password);
 
     saveSession(result);
 
     return result.account;
   }
 
-  async function logout():
-    Promise<void> {
+  async function logout(): Promise<void> {
     try {
       await logoutAuth();
     } finally {
@@ -127,15 +95,13 @@ export function AuthProvider({
   );
 }
 
-export function useAuth():
-  AuthContextValue {
-  const context =
-    useContext(AuthContext);
+// The provider and its hook intentionally share this module.
+// eslint-disable-next-line react-refresh/only-export-components
+export function useAuth(): AuthContextValue {
+  const context = useContext(AuthContext);
 
   if (!context) {
-    throw new Error(
-      "useAuth must be used inside AuthProvider.",
-    );
+    throw new Error("useAuth must be used inside AuthProvider.");
   }
 
   return context;

@@ -1,48 +1,36 @@
-import { Module } from "@nestjs/common";
-import { ConfigModule } from "@nestjs/config";
+import { Module } from '@nestjs/common';
+import { ConfigModule } from '@nestjs/config';
 
-import { AppController } from "./app.controller";
-import { AppService } from "./app.service";
-import { ActivationModule } from "./activation/activation.module";
-
-/*
- * These imports connect the main application
- * with the authentication, database, and employee modules.
- */
-import { AuthModule } from "./auth/auth.module";
-import { PrismaModule } from "./database/prisma.module";
-import { EmployeesModule } from "./employees/employees.module";
+import { AccountRequestsModule } from './account-requests/account-requests.module';
+import { ActivationModule } from './activation/activation.module';
+import { AppController } from './app.controller';
+import { AppService } from './app.service';
+import { AuthModule } from './auth/auth.module';
+import { PrismaModule } from './database/prisma.module';
+import { DirectoryModule } from './directory/directory.module';
+import { EmployeesModule } from './employees/employees.module';
+import { ManagementAssignmentsModule } from './management-assignments/management-assignments.module';
+import { OrganizationModule } from './organization/organization.module';
 
 @Module({
   imports: [
-    /*
-     * Loads environment variables from the root .env file.
-     */
     ConfigModule.forRoot({
       isGlobal: true,
-      envFilePath: [
-        "../../.env",
-        ".env",
-      ],
+      envFilePath: ['../../.env', '.env'],
     }),
 
-    //Makes Prisma database access available.
     PrismaModule,
-
-    //Provides login, JWT, guards, and session management.
+    DirectoryModule,
     AuthModule,
-
-    // Provides employee create and list APIs.
     EmployeesModule,
+    ManagementAssignmentsModule,
+    OrganizationModule,
     ActivationModule,
+    AccountRequestsModule,
   ],
 
-  controllers: [
-    AppController,
-  ],
+  controllers: [AppController],
 
-  providers: [
-    AppService,
-  ],
+  providers: [AppService],
 })
 export class AppModule {}

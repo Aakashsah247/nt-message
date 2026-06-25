@@ -9,8 +9,15 @@ datasource db {
 }
 
 enum AccountRole {
-  ADMIN
+  SUPER_ADMIN
+  SENIOR_MANAGEMENT
+  TEAM_MANAGER
   EMPLOYEE
+}
+
+enum ManagementPositionType {
+  SENIOR_MANAGEMENT
+  TEAM_MANAGER
 }
 
 enum EmployeeStatus {
@@ -18,32 +25,132 @@ enum EmployeeStatus {
   INACTIVE
 }
 
+enum EmploymentStatus {
+  ACTIVE
+  RESIGNED
+  RETIRED
+  TERMINATED
+  TRANSFERRED
+}
+
+enum EmployeeLifecycleActionType {
+  SUSPENDED
+  REACTIVATED
+  RESIGNED
+  RETIRED
+  TERMINATED
+  ARCHIVED
+  UNARCHIVED
+  TRANSFERRED
+  PROMOTED
+  DEMOTED
+  REHIRED
+}
+
 enum OtpPurpose {
   ACCOUNT_ACTIVATION
   PASSWORD_RESET
 }
 
+enum AccountRequestStatus {
+  DRAFT
+  PENDING_APPROVAL
+  APPROVED
+  REJECTED
+  ACTIVATION_PENDING
+  ACTIVATED
+}
+
+enum AccountRequestActionType {
+  CREATED
+  SUBMITTED
+  APPROVED
+  REJECTED
+  RESUBMITTED
+  ACTIVATION_STARTED
+  ACTIVATED
+}
+
+model Division {
+  id        String   @id @default(uuid()) @db.Uuid
+  code      String   @unique @db.VarChar(50)
+  name      String   @unique @db.VarChar(120)
+  isActive  Boolean  @default(true) @map("is_active")
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  departments         Department[]
+  employees           Employee[]
+  accountRequests     AccountRequest[]
+  managementPositions ManagementPosition[]
+
+  @@index([isActive], map: "divisions_is_active_idx")
+  @@map("divisions")
+}
+
+model Department {
+  id         String   @id @default(uuid()) @db.Uuid
+  divisionId String   @map("division_id") @db.Uuid
+  code       String   @db.VarChar(50)
+  name       String   @db.VarChar(120)
+  isActive   Boolean  @default(true) @map("is_active")
+  createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt  DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  division            Division             @relation(fields: [divisionId], references: [id], onDelete: Restrict)
+  employees           Employee[]
+  accountRequests     AccountRequest[]
+  managementPositions ManagementPosition[]
+
+  @@unique([divisionId, code], map: "departments_division_id_code_key")
+  @@unique([divisionId, name], map: "departments_division_id_name_key")
+  @@index([divisionId], map: "departments_division_id_idx")
+  @@index([isActive], map: "departments_is_active_idx")
+  @@map("departments")
+}
+
 model Employee {
-  id              String         @id @default(uuid()) @db.Uuid
-  empId           String         @unique @map("emp_id") @db.VarChar(50)
-  empName         String         @map("emp_name") @db.VarChar(150)
-  phoneNumber     String         @map("phone_number") @db.VarChar(20)
-  officialEmail   String         @unique @map("official_email") @db.VarChar(255)
-  department      String?        @db.VarChar(120)
-  designation     String?        @db.VarChar(120)
-  status          EmployeeStatus @default(ACTIVE)
-  isActivated     Boolean        @default(false) @map("is_activated")
-  profilePhotoKey String?        @map("profile_photo_key") @db.VarChar(500)
-  createdAt       DateTime       @default(now()) @map("created_at") @db.Timestamptz(3)
-  updatedAt       DateTime       @updatedAt @map("updated_at") @db.Timestamptz(3)
+  id            String @id @default(uuid()) @db.Uuid
+  empId         String @unique @map("emp_id") @db.VarChar(50)
+  empName       String @map("emp_name") @db.VarChar(150)
+  phoneNumber   String @unique(map: "employees_phone_number_key") @map("phone_number") @db.VarChar(20)
+  officialEmail String @unique @map("official_email") @db.VarChar(255)
 
-  account          Account?
-  otpVerifications OtpVerification[]
+  divisionId   String? @map("division_id") @db.Uuid
+  departmentId String? @map("department_id") @db.Uuid
 
-  @@unique([empId, phoneNumber], map: "employees_emp_id_phone_number_key")
+  department  String? @db.VarChar(120)
+  designation String? @db.VarChar(120)
+
+  status           EmployeeStatus   @default(ACTIVE)
+  employmentStatus EmploymentStatus @default(ACTIVE) @map("employment_status")
+
+  employmentEndedAt   DateTime? @map("employment_ended_at") @db.Timestamptz(3)
+  employmentEndReason String?   @map("employment_end_reason") @db.VarChar(500)
+  archivedAt          DateTime? @map("archived_at") @db.Timestamptz(3)
+
+  isActivated     Boolean @default(false) @map("is_activated")
+  profilePhotoKey String? @map("profile_photo_key") @db.VarChar(500)
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  division       Division?   @relation(fields: [divisionId], references: [id], onDelete: Restrict)
+  departmentUnit Department? @relation(fields: [departmentId], references: [id], onDelete: Restrict)
+
+  account               Account?
+  otpVerifications      OtpVerification[]
+  accountRequests       AccountRequest[]
+  lifecycleActions      EmployeeLifecycleAction[]
+  managementAssignments ManagementAssignment[]
+
   @@index([empName], map: "employees_emp_name_idx")
   @@index([department], map: "employees_department_idx")
+  @@index([divisionId], map: "employees_division_id_idx")
+  @@index([departmentId], map: "employees_department_id_idx")
   @@index([status], map: "employees_status_idx")
+  @@index([employmentStatus], map: "employees_employment_status_idx")
+  @@index([archivedAt], map: "employees_archived_at_idx")
   @@map("employees")
 }
 
@@ -61,12 +168,80 @@ model Account {
   createdAt           DateTime    @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt           DateTime    @updatedAt @map("updated_at") @db.Timestamptz(3)
 
-  employee Employee?     @relation(fields: [employeeId], references: [id], onDelete: Restrict)
-  sessions AuthSession[]
+  employee                      Employee?                 @relation(fields: [employeeId], references: [id], onDelete: Restrict)
+  sessions                      AuthSession[]
+  submittedAccountRequests      AccountRequest[]          @relation("AccountRequestsRequestedBy")
+  reviewedAccountRequests       AccountRequest[]          @relation("AccountRequestsReviewedBy")
+  accountRequestActions         AccountRequestAction[]
+  employeeLifecycleActions      EmployeeLifecycleAction[] @relation("EmployeeLifecycleActionsByActor")
+  assignedManagementAssignments ManagementAssignment[]    @relation("ManagementAssignmentsAssignedBy")
+  endedManagementAssignments    ManagementAssignment[]    @relation("ManagementAssignmentsEndedBy")
 
   @@index([role], map: "accounts_role_idx")
   @@index([isEnabled], map: "accounts_is_enabled_idx")
   @@map("accounts")
+}
+
+model ManagementPosition {
+  id String @id @default(uuid()) @db.Uuid
+
+  positionType ManagementPositionType @map("position_type")
+
+  divisionId   String  @map("division_id") @db.Uuid
+  departmentId String? @map("department_id") @db.Uuid
+
+  reservedByAccountRequestId String? @unique @map("reserved_by_account_request_id") @db.Uuid
+
+  isActive Boolean @default(true) @map("is_active")
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  division   Division    @relation(fields: [divisionId], references: [id], onDelete: Restrict)
+  department Department? @relation(fields: [departmentId], references: [id], onDelete: Restrict)
+
+  reservedByAccountRequest AccountRequest? @relation("ManagementPositionReservation", fields: [reservedByAccountRequestId], references: [id], onDelete: Restrict)
+
+  assignments     ManagementAssignment[]
+  accountRequests AccountRequest[]       @relation("AccountRequestManagementPosition")
+
+  @@index([positionType], map: "management_positions_type_idx")
+  @@index([divisionId], map: "management_positions_division_idx")
+  @@index([departmentId], map: "management_positions_department_idx")
+  @@index([isActive], map: "management_positions_is_active_idx")
+  @@map("management_positions")
+}
+
+model ManagementAssignment {
+  id String @id @default(uuid()) @db.Uuid
+
+  positionId String @map("position_id") @db.Uuid
+  employeeId String @map("employee_id") @db.Uuid
+
+  assignedByAccountId String  @map("assigned_by_account_id") @db.Uuid
+  endedByAccountId    String? @map("ended_by_account_id") @db.Uuid
+
+  startedAt DateTime  @default(now()) @map("started_at") @db.Timestamptz(3)
+  endedAt   DateTime? @map("ended_at") @db.Timestamptz(3)
+
+  assignmentReason String? @map("assignment_reason") @db.VarChar(500)
+  endReason        String? @map("end_reason") @db.VarChar(500)
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  position ManagementPosition @relation(fields: [positionId], references: [id], onDelete: Restrict)
+  employee Employee           @relation(fields: [employeeId], references: [id], onDelete: Restrict)
+
+  assignedBy Account  @relation("ManagementAssignmentsAssignedBy", fields: [assignedByAccountId], references: [id], onDelete: Restrict)
+  endedBy    Account? @relation("ManagementAssignmentsEndedBy", fields: [endedByAccountId], references: [id], onDelete: Restrict)
+
+  @@index([positionId, endedAt], map: "management_assignments_position_ended_idx")
+  @@index([employeeId, endedAt], map: "management_assignments_employee_ended_idx")
+  @@index([assignedByAccountId], map: "management_assignments_assigned_by_idx")
+  @@index([endedByAccountId], map: "management_assignments_ended_by_idx")
+  @@index([startedAt], map: "management_assignments_started_at_idx")
+  @@map("management_assignments")
 }
 
 model AuthSession {
@@ -103,4 +278,124 @@ model OtpVerification {
   @@index([employeeId, purpose, createdAt], map: "otp_employee_purpose_created_idx")
   @@index([expiresAt], map: "otp_expires_at_idx")
   @@map("otp_verifications")
+}
+
+model AccountRequest {
+  id String @id @default(uuid()) @db.Uuid
+
+  empId         String  @map("emp_id") @db.VarChar(50)
+  empName       String  @map("emp_name") @db.VarChar(150)
+  phoneNumber   String  @map("phone_number") @db.VarChar(20)
+  officialEmail String  @map("official_email") @db.VarChar(255)
+  designation   String? @db.VarChar(120)
+
+  requestedRole AccountRole @map("requested_role")
+
+  divisionId   String? @map("division_id") @db.Uuid
+  departmentId String? @map("department_id") @db.Uuid
+  employeeId   String? @map("employee_id") @db.Uuid
+
+  managementPositionId String? @map("management_position_id") @db.Uuid
+
+  requestedByAccountId String  @map("requested_by_account_id") @db.Uuid
+  reviewedByAccountId  String? @map("reviewed_by_account_id") @db.Uuid
+
+  previousRequestId String? @map("previous_request_id") @db.Uuid
+  revisionNumber    Int     @default(1) @map("revision_number")
+
+  status AccountRequestStatus @default(PENDING_APPROVAL)
+
+  rejectionReason String? @map("rejection_reason") @db.VarChar(500)
+
+  submittedAt DateTime  @default(now()) @map("submitted_at") @db.Timestamptz(3)
+  reviewedAt  DateTime? @map("reviewed_at") @db.Timestamptz(3)
+  createdAt   DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt   DateTime  @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  division   Division?   @relation(fields: [divisionId], references: [id], onDelete: Restrict)
+  department Department? @relation(fields: [departmentId], references: [id], onDelete: Restrict)
+  employee   Employee?   @relation(fields: [employeeId], references: [id], onDelete: Restrict)
+
+  managementPosition ManagementPosition? @relation("AccountRequestManagementPosition", fields: [managementPositionId], references: [id], onDelete: Restrict)
+
+  reservedManagementPosition ManagementPosition? @relation("ManagementPositionReservation")
+
+  requestedBy Account  @relation("AccountRequestsRequestedBy", fields: [requestedByAccountId], references: [id], onDelete: Restrict)
+  reviewedBy  Account? @relation("AccountRequestsReviewedBy", fields: [reviewedByAccountId], references: [id], onDelete: Restrict)
+
+  previousRequest AccountRequest?  @relation("AccountRequestRevisions", fields: [previousRequestId], references: [id], onDelete: Restrict)
+  revisions       AccountRequest[] @relation("AccountRequestRevisions")
+
+  actions AccountRequestAction[]
+
+  @@index([status, createdAt], map: "account_requests_status_created_idx")
+  @@index([requestedByAccountId, status], map: "account_requests_requester_status_idx")
+  @@index([reviewedByAccountId], map: "account_requests_reviewer_idx")
+  @@index([requestedRole], map: "account_requests_requested_role_idx")
+  @@index([empId], map: "account_requests_emp_id_idx")
+  @@index([officialEmail], map: "account_requests_official_email_idx")
+  @@index([phoneNumber], map: "account_requests_phone_number_idx")
+  @@index([divisionId, departmentId], map: "account_requests_org_scope_idx")
+  @@index([employeeId], map: "account_requests_employee_idx")
+  @@index([managementPositionId], map: "account_requests_management_position_idx")
+  @@index([previousRequestId], map: "account_requests_previous_request_idx")
+  @@map("account_requests")
+}
+
+model AccountRequestAction {
+  id String @id @default(uuid()) @db.Uuid
+
+  accountRequestId String  @map("account_request_id") @db.Uuid
+  actorAccountId   String? @map("actor_account_id") @db.Uuid
+
+  action AccountRequestActionType
+
+  reason    String? @db.VarChar(500)
+  ipAddress String? @map("ip_address") @db.VarChar(45)
+  userAgent String? @map("user_agent") @db.VarChar(500)
+  metadata  Json?
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  accountRequest AccountRequest @relation(fields: [accountRequestId], references: [id], onDelete: Cascade)
+  actor          Account?       @relation(fields: [actorAccountId], references: [id], onDelete: Restrict)
+
+  @@index([accountRequestId, createdAt], map: "account_request_actions_request_created_idx")
+  @@index([actorAccountId, createdAt], map: "account_request_actions_actor_created_idx")
+  @@index([action], map: "account_request_actions_action_idx")
+  @@map("account_request_actions")
+}
+
+model EmployeeLifecycleAction {
+  id String @id @default(uuid()) @db.Uuid
+
+  employeeId     String @map("employee_id") @db.Uuid
+  actorAccountId String @map("actor_account_id") @db.Uuid
+
+  action EmployeeLifecycleActionType
+
+  previousEmployeeStatus EmployeeStatus? @map("previous_employee_status")
+  newEmployeeStatus      EmployeeStatus? @map("new_employee_status")
+
+  previousEmploymentStatus EmploymentStatus? @map("previous_employment_status")
+  newEmploymentStatus      EmploymentStatus? @map("new_employment_status")
+
+  reason String? @db.VarChar(500)
+
+  effectiveAt DateTime? @map("effective_at") @db.Timestamptz(3)
+
+  ipAddress String? @map("ip_address") @db.VarChar(45)
+  userAgent String? @map("user_agent") @db.VarChar(500)
+
+  metadata Json?
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  employee Employee @relation(fields: [employeeId], references: [id], onDelete: Restrict)
+  actor    Account  @relation("EmployeeLifecycleActionsByActor", fields: [actorAccountId], references: [id], onDelete: Restrict)
+
+  @@index([employeeId, createdAt], map: "employee_lifecycle_actions_employee_created_idx")
+  @@index([actorAccountId, createdAt], map: "employee_lifecycle_actions_actor_created_idx")
+  @@index([action], map: "employee_lifecycle_actions_action_idx")
+  @@map("employee_lifecycle_actions")
 }
