@@ -27,6 +27,7 @@ interface ResubmitFormState {
   officialEmail: string;
   designation: string;
   departmentId: string;
+  managementPositionId: string;
 }
 
 const emptyForm: ResubmitFormState = {
@@ -36,6 +37,7 @@ const emptyForm: ResubmitFormState = {
   officialEmail: "",
   designation: "",
   departmentId: "",
+  managementPositionId: "",
 };
 
 function getErrorMessage(error: unknown): string {
@@ -98,13 +100,19 @@ export function ManagerRequestDetailPanel({
 
   const isSeniorManagement = requestContext.role === "SENIOR_MANAGEMENT";
 
-  const selectedDepartment = useMemo(
+  const selectedPosition = useMemo(
     () =>
-      requestContext.departments.find(
-        (department) => department.id === form.departmentId,
+      requestContext.availableManagementPositions.find(
+        (position) => position.id === form.managementPositionId,
       ) ?? null,
-    [form.departmentId, requestContext.departments],
+    [
+      form.managementPositionId,
+      requestContext.availableManagementPositions,
+    ],
   );
+
+  const selectedDepartment =
+    selectedPosition?.department ?? null;
 
   useEffect(() => {
     let active = true;
@@ -119,6 +127,12 @@ export function ManagerRequestDetailPanel({
 
         setDetail(accountRequest);
 
+        const availablePosition =
+          requestContext.availableManagementPositions.find(
+            (position) =>
+              position.id === accountRequest.managementPositionId,
+          ) ?? null;
+
         setForm({
           empId: accountRequest.empId,
 
@@ -130,7 +144,9 @@ export function ManagerRequestDetailPanel({
 
           designation: accountRequest.designation ?? "",
 
-          departmentId: accountRequest.departmentId ?? "",
+          departmentId: availablePosition?.departmentId ?? "",
+
+          managementPositionId: availablePosition?.id ?? "",
         });
 
         setError("");
@@ -151,12 +167,35 @@ export function ManagerRequestDetailPanel({
     return () => {
       active = false;
     };
-  }, [accessToken, requestId, retryKey]);
+  }, [
+    accessToken,
+    requestContext.availableManagementPositions,
+    requestId,
+    retryKey,
+  ]);
 
   function updateField(field: keyof ResubmitFormState, value: string): void {
     setForm((current) => ({
       ...current,
       [field]: value,
+    }));
+
+    setError("");
+    setSuccess("");
+  }
+
+  function selectManagementPosition(
+    managementPositionId: string,
+  ): void {
+    const position =
+      requestContext.availableManagementPositions.find(
+        (candidate) => candidate.id === managementPositionId,
+      ) ?? null;
+
+    setForm((current) => ({
+      ...current,
+      managementPositionId,
+      departmentId: position?.departmentId ?? "",
     }));
 
     setError("");
@@ -199,8 +238,11 @@ export function ManagerRequestDetailPanel({
       return "Enter a valid official email address.";
     }
 
-    if (isSeniorManagement && !form.departmentId) {
-      return "Select the corrected department.";
+    if (
+      isSeniorManagement &&
+      (!form.managementPositionId || !form.departmentId)
+    ) {
+      return "Select a vacant Team Manager position.";
     }
 
     return null;
@@ -240,6 +282,11 @@ export function ManagerRequestDetailPanel({
         designation: form.designation.trim(),
 
         departmentId: isSeniorManagement ? form.departmentId : undefined,
+
+        managementPositionId:
+          isSeniorManagement
+            ? form.managementPositionId
+            : undefined,
       });
 
       setSuccess(response.message);
@@ -502,23 +549,30 @@ export function ManagerRequestDetailPanel({
 
                   {isSeniorManagement ? (
                     <label>
-                      <span>Department</span>
+                      <span>Vacant Team Manager position</span>
 
                       <select
-                        value={form.departmentId}
+                        value={form.managementPositionId}
                         onChange={(event) =>
-                          updateField("departmentId", event.target.value)
+                          selectManagementPosition(event.target.value)
                         }
                         disabled={submitting}
                         required
                       >
-                        <option value="">Select department</option>
+                        <option value="">
+                          {requestContext.availableManagementPositions.length > 0
+                            ? "Select vacant position"
+                            : "No vacant positions available"}
+                        </option>
 
-                        {requestContext.departments.map((department) => (
-                          <option key={department.id} value={department.id}>
-                            {department.name} ({department.code})
-                          </option>
-                        ))}
+                        {requestContext.availableManagementPositions.map(
+                          (position) => (
+                            <option key={position.id} value={position.id}>
+                              {position.department.name} (
+                              {position.department.code})
+                            </option>
+                          ),
+                        )}
                       </select>
                     </label>
                   ) : (
@@ -547,7 +601,14 @@ export function ManagerRequestDetailPanel({
                 </div>
 
                 <footer>
-                  <button type="submit" disabled={submitting}>
+                  <button
+                    type="submit"
+                    disabled={
+                      submitting ||
+                      (isSeniorManagement &&
+                        requestContext.availableManagementPositions.length === 0)
+                    }
+                  >
                     {submitting ? "Resubmitting..." : "Resubmit request"}
                   </button>
                 </footer>

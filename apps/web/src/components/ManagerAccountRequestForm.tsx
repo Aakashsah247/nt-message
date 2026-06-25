@@ -19,6 +19,7 @@ interface RequestFormState {
   officialEmail: string;
   designation: string;
   departmentId: string;
+  managementPositionId: string;
 }
 
 const initialFormState: RequestFormState = {
@@ -28,6 +29,7 @@ const initialFormState: RequestFormState = {
   officialEmail: "",
   designation: "",
   departmentId: "",
+  managementPositionId: "",
 };
 
 function getErrorMessage(error: unknown): string {
@@ -59,19 +61,42 @@ export function ManagerAccountRequestForm({
 
   const isSeniorManagement = requestContext.role === "SENIOR_MANAGEMENT";
 
-  // Uses only departments returned by the authenticated manager scope.
-  const selectedDepartment = useMemo(
+  const selectedPosition = useMemo(
     () =>
-      requestContext.departments.find(
-        (department) => department.id === form.departmentId,
+      requestContext.availableManagementPositions.find(
+        (position) => position.id === form.managementPositionId,
       ) ?? null,
-    [form.departmentId, requestContext.departments],
+    [
+      form.managementPositionId,
+      requestContext.availableManagementPositions,
+    ],
   );
+
+  const selectedDepartment =
+    selectedPosition?.department ?? null;
 
   function updateField(field: keyof RequestFormState, value: string): void {
     setForm((current) => ({
       ...current,
       [field]: value,
+    }));
+
+    setError("");
+    setSuccess("");
+  }
+
+  function selectManagementPosition(
+    managementPositionId: string,
+  ): void {
+    const position =
+      requestContext.availableManagementPositions.find(
+        (candidate) => candidate.id === managementPositionId,
+      ) ?? null;
+
+    setForm((current) => ({
+      ...current,
+      managementPositionId,
+      departmentId: position?.departmentId ?? "",
     }));
 
     setError("");
@@ -108,8 +133,11 @@ export function ManagerAccountRequestForm({
       return "Enter a valid official email address.";
     }
 
-    if (isSeniorManagement && !form.departmentId) {
-      return "Select the department for the Team Manager.";
+    if (
+      isSeniorManagement &&
+      (!form.managementPositionId || !form.departmentId)
+    ) {
+      return "Select a vacant Team Manager position.";
     }
 
     return null;
@@ -150,6 +178,11 @@ export function ManagerAccountRequestForm({
         designation: form.designation.trim() || undefined,
 
         departmentId: isSeniorManagement ? form.departmentId : undefined,
+
+        managementPositionId:
+          isSeniorManagement
+            ? form.managementPositionId
+            : undefined,
       });
 
       setSuccess(response.message);
@@ -283,23 +316,30 @@ export function ManagerAccountRequestForm({
 
           {isSeniorManagement ? (
             <label>
-              <span>Department</span>
+              <span>Vacant Team Manager position</span>
 
               <select
-                value={form.departmentId}
+                value={form.managementPositionId}
                 onChange={(event) =>
-                  updateField("departmentId", event.target.value)
+                  selectManagementPosition(event.target.value)
                 }
                 disabled={submitting}
                 required
               >
-                <option value="">Select department</option>
+                <option value="">
+                  {requestContext.availableManagementPositions.length > 0
+                    ? "Select vacant position"
+                    : "No vacant positions available"}
+                </option>
 
-                {requestContext.departments.map((department) => (
-                  <option key={department.id} value={department.id}>
-                    {department.name} ({department.code})
-                  </option>
-                ))}
+                {requestContext.availableManagementPositions.map(
+                  (position) => (
+                    <option key={position.id} value={position.id}>
+                      {position.department.name} (
+                      {position.department.code})
+                    </option>
+                  ),
+                )}
               </select>
             </label>
           ) : (
@@ -345,7 +385,15 @@ export function ManagerAccountRequestForm({
             activation is allowed.
           </p>
 
-          <button type="submit" className="req-btn" disabled={submitting}>
+          <button
+            type="submit"
+            className="req-btn"
+            disabled={
+              submitting ||
+              (isSeniorManagement &&
+                requestContext.availableManagementPositions.length === 0)
+            }
+          >
             {submitting ? "Submitting request..." : "Submit account request"}
           </button>
         </footer>

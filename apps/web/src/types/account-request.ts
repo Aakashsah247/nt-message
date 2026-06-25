@@ -32,6 +32,19 @@ export interface AccountRequestDepartment {
   isActive?: boolean;
 }
 
+export type ManagementPositionType =
+  | "SENIOR_MANAGEMENT"
+  | "TEAM_MANAGER";
+
+export interface AvailableManagementPosition {
+  id: string;
+  positionType: ManagementPositionType;
+  divisionId: string;
+  departmentId: string | null;
+  isActive: boolean;
+  department: AccountRequestDepartment;
+}
+
 export interface AccountRequestActor {
   id: string;
   username: string | null;
@@ -57,6 +70,7 @@ export interface AdminAccountRequestListItem {
   officialEmail: string;
   designation: string | null;
   requestedRole: AccountRole;
+  managementPositionId: string | null;
   revisionNumber: number;
   status: AccountRequestStatus;
   rejectionReason: string | null;
@@ -105,6 +119,7 @@ export interface AdminAccountRequestDetail {
   requestedRole: AccountRole;
   divisionId: string | null;
   departmentId: string | null;
+  managementPositionId: string | null;
   employeeId: string | null;
   previousRequestId: string | null;
   revisionNumber: number;
@@ -158,6 +173,7 @@ export interface ApproveAccountRequestResponse {
     requestedRole: AccountRole;
     divisionId: string | null;
     departmentId: string | null;
+    managementPositionId: string | null;
     employeeId: string | null;
     revisionNumber: number;
     status: AccountRequestStatus;
@@ -196,6 +212,7 @@ export interface RejectAccountRequestResponse {
     requestedRole: AccountRole;
     divisionId: string | null;
     departmentId: string | null;
+    managementPositionId: string | null;
     employeeId: string | null;
     revisionNumber: number;
     status: AccountRequestStatus;
@@ -227,6 +244,8 @@ export interface ManagerRequestContextResponse {
   };
 
   departments: AccountRequestDepartment[];
+
+  availableManagementPositions: AvailableManagementPosition[];
 }
 
 export interface CreateMyAccountRequestInput {
@@ -236,6 +255,7 @@ export interface CreateMyAccountRequestInput {
   officialEmail: string;
   designation?: string;
   departmentId?: string;
+  managementPositionId?: string;
 }
 
 export interface ResubmitMyAccountRequestInput {
@@ -245,6 +265,7 @@ export interface ResubmitMyAccountRequestInput {
   officialEmail?: string;
   designation?: string;
   departmentId?: string;
+  managementPositionId?: string;
 }
 
 export interface SubmittedAccountRequest {
@@ -257,6 +278,7 @@ export interface SubmittedAccountRequest {
   requestedRole: AccountRole;
   divisionId: string | null;
   departmentId: string | null;
+  managementPositionId: string | null;
   requestedByAccountId: string;
   previousRequestId?: string | null;
   revisionNumber: number;
@@ -289,6 +311,7 @@ export interface MyAccountRequestListItem {
   officialEmail: string;
   designation: string | null;
   requestedRole: AccountRole;
+  managementPositionId: string | null;
   revisionNumber: number;
   status: AccountRequestStatus;
   rejectionReason: string | null;
@@ -321,6 +344,7 @@ export interface MyAccountRequestDetail {
   requestedRole: AccountRole;
   divisionId: string | null;
   departmentId: string | null;
+  managementPositionId: string | null;
   employeeId: string | null;
   previousRequestId: string | null;
   revisionNumber: number;
