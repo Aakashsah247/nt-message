@@ -4,10 +4,6 @@ import {
   useState,
 } from "react";
 
-import type {
-  FormEvent,
-} from "react";
-
 import {
   useNavigate,
 } from "react-router";
@@ -22,7 +18,6 @@ import {
 } from "../services/admin-account.service";
 
 import {
-  createManagementPosition,
   getManagementPosition,
   listManagementPositions,
 } from "../services/management-assignment.service";
@@ -39,24 +34,12 @@ import type {
   ManagementPositionType,
 } from "../types/management-assignment";
 
-interface CreatePositionForm {
-  positionType: ManagementPositionType;
-  divisionId: string;
-  departmentId: string;
-}
-
 interface PositionFilters {
   positionType: "" | ManagementPositionType;
   divisionId: string;
   departmentId: string;
   occupancy: ManagementPositionOccupancy;
 }
-
-const initialCreateForm: CreatePositionForm = {
-  positionType: "SENIOR_MANAGEMENT",
-  divisionId: "",
-  departmentId: "",
-};
 
 const initialFilters: PositionFilters = {
   positionType: "",
@@ -192,23 +175,12 @@ export function ManagementPositionsPage() {
   );
 
   const [
-    createForm,
-    setCreateForm,
-  ] = useState<CreatePositionForm>(
-    initialCreateForm,
-  );
-
-  const [
     selectedPosition,
     setSelectedPosition,
   ] = useState<
     ManagementPositionDetail | null
   >(null);
 
-  const [
-    showCreateForm,
-    setShowCreateForm,
-  ] = useState(false);
 
   const [
     loading,
@@ -216,18 +188,8 @@ export function ManagementPositionsPage() {
   ] = useState(true);
 
   const [
-    organizationLoading,
-    setOrganizationLoading,
-  ] = useState(true);
-
-  const [
     detailLoading,
     setDetailLoading,
-  ] = useState(false);
-
-  const [
-    submitting,
-    setSubmitting,
   ] = useState(false);
 
   const [
@@ -241,30 +203,9 @@ export function ManagementPositionsPage() {
   ] = useState("");
 
   const [
-    success,
-    setSuccess,
-  ] = useState("");
-
-  const [
     refreshKey,
     setRefreshKey,
   ] = useState(0);
-
-  const createDepartments =
-    useMemo(
-      () =>
-        departments.filter(
-          (department) =>
-            department.isActive &&
-            department.division.isActive &&
-            department.division.id ===
-              createForm.divisionId,
-        ),
-      [
-        createForm.divisionId,
-        departments,
-      ],
-    );
 
   const filterDepartments =
     useMemo(
@@ -290,7 +231,6 @@ export function ManagementPositionsPage() {
       total: positions.length,
       vacant: 0,
       reserved: 0,
-      occupied: 0,
       inactive: 0,
     };
 
@@ -300,9 +240,6 @@ export function ManagementPositionsPage() {
           result.reserved += 1;
           break;
 
-        case "OCCUPIED":
-          result.occupied += 1;
-          break;
 
         case "INACTIVE":
           result.inactive += 1;
@@ -320,8 +257,6 @@ export function ManagementPositionsPage() {
 
   useEffect(() => {
     if (!accessToken) {
-      setOrganizationLoading(false);
-
       return;
     }
 
@@ -366,12 +301,7 @@ export function ManagementPositionsPage() {
             );
           }
         },
-      )
-      .finally(() => {
-        if (active) {
-          setOrganizationLoading(false);
-        }
-      });
+      );
 
     return () => {
       active = false;
@@ -413,7 +343,13 @@ export function ManagementPositionsPage() {
           return;
         }
 
-        setPositions(response.data);
+        setPositions(
+          response.data.filter(
+            (position) =>
+              position.occupancy !==
+              "OCCUPIED",
+          ),
+        );
         setError("");
       })
       .catch(
@@ -464,125 +400,6 @@ export function ManagementPositionsPage() {
     }));
 
     setError("");
-    setSuccess("");
-  }
-
-  function selectCreateType(
-    positionType:
-      ManagementPositionType,
-  ): void {
-    setCreateForm((current) => ({
-      ...current,
-      positionType,
-
-      departmentId:
-        positionType ===
-        "SENIOR_MANAGEMENT"
-          ? ""
-          : current.departmentId,
-    }));
-
-    setError("");
-    setSuccess("");
-  }
-
-  function selectCreateDivision(
-    divisionId: string,
-  ): void {
-    setCreateForm((current) => ({
-      ...current,
-      divisionId,
-      departmentId: "",
-    }));
-
-    setError("");
-    setSuccess("");
-  }
-
-  function validateCreateForm():
-    string | null {
-    if (!createForm.divisionId) {
-      return "Select a division.";
-    }
-
-    if (
-      createForm.positionType ===
-        "TEAM_MANAGER" &&
-      !createForm.departmentId
-    ) {
-      return "Select the department for the Team Manager position.";
-    }
-
-    return null;
-  }
-
-  async function handleCreatePosition(
-    event:
-      FormEvent<HTMLFormElement>,
-  ): Promise<void> {
-    event.preventDefault();
-
-    if (
-      !accessToken ||
-      submitting
-    ) {
-      return;
-    }
-
-    const validationError =
-      validateCreateForm();
-
-    if (validationError) {
-      setError(validationError);
-
-      return;
-    }
-
-    setSubmitting(true);
-    setError("");
-    setSuccess("");
-
-    try {
-      const response =
-        await createManagementPosition(
-          accessToken,
-          {
-            positionType:
-              createForm.positionType,
-
-            divisionId:
-              createForm.divisionId,
-
-            departmentId:
-              createForm.positionType ===
-              "TEAM_MANAGER"
-                ? createForm.departmentId
-                : undefined,
-          },
-        );
-
-      setSuccess(response.message);
-
-      setCreateForm(
-        initialCreateForm,
-      );
-
-      setShowCreateForm(false);
-
-      setRefreshKey(
-        (current) => current + 1,
-      );
-    } catch (
-      requestError: unknown
-    ) {
-      setError(
-        getErrorMessage(
-          requestError,
-        ),
-      );
-    } finally {
-      setSubmitting(false);
-    }
   }
 
   async function openPosition(
@@ -594,7 +411,6 @@ export function ManagementPositionsPage() {
 
     setDetailLoading(true);
     setError("");
-    setSuccess("");
 
     try {
       const response =
@@ -621,7 +437,6 @@ export function ManagementPositionsPage() {
 
   function refreshPositions(): void {
     setError("");
-    setSuccess("");
     setLoading(true);
 
     setRefreshKey(
@@ -632,7 +447,6 @@ export function ManagementPositionsPage() {
   function clearFilters(): void {
     setFilters(initialFilters);
     setError("");
-    setSuccess("");
   }
 
   async function handleLogout():
@@ -722,40 +536,12 @@ export function ManagementPositionsPage() {
             </h1>
 
             <p>
-              Maintain the official Senior Management and Team Manager
-              positions used by account approval, reservation and activation.
+              Review vacant, reserved and inactive Senior Management and Team
+              Manager positions. Occupied managers are available in the
+              Employee Directory.
             </p>
           </div>
-
-          <button
-            type="button"
-            className="mgmt-create-open"
-            onClick={() => {
-              setShowCreateForm(
-                (current) => !current,
-              );
-
-              setError("");
-              setSuccess("");
-            }}
-            disabled={
-              organizationLoading
-            }
-          >
-            {showCreateForm
-              ? "Close form"
-              : "Create position"}
-          </button>
         </header>
-
-        {success && (
-          <div
-            className="mgmt-success"
-            role="status"
-          >
-            {success}
-          </div>
-        )}
 
         {error && (
           <div
@@ -811,16 +597,6 @@ export function ManagementPositionsPage() {
 
           <article>
             <span>
-              Occupied
-            </span>
-
-            <strong>
-              {summary.occupied}
-            </strong>
-          </article>
-
-          <article>
-            <span>
               Inactive
             </span>
 
@@ -829,169 +605,6 @@ export function ManagementPositionsPage() {
             </strong>
           </article>
         </section>
-
-        {showCreateForm && (
-          <form
-            className="mgmt-create-form"
-            onSubmit={
-              handleCreatePosition
-            }
-          >
-            <header>
-              <span>
-                Official position
-              </span>
-
-              <h2>
-                Create management position
-              </h2>
-            </header>
-
-            <div className="mgmt-form-grid">
-              <label>
-                <span>
-                  Position type
-                </span>
-
-                <select
-                  value={
-                    createForm.positionType
-                  }
-                  onChange={(event) =>
-                    selectCreateType(
-                      event.target
-                        .value as ManagementPositionType,
-                    )
-                  }
-                  disabled={submitting}
-                >
-                  <option value="SENIOR_MANAGEMENT">
-                    Senior Management
-                  </option>
-
-                  <option value="TEAM_MANAGER">
-                    Team Manager
-                  </option>
-                </select>
-              </label>
-
-              <label>
-                <span>
-                  Division
-                </span>
-
-                <select
-                  value={
-                    createForm.divisionId
-                  }
-                  onChange={(event) =>
-                    selectCreateDivision(
-                      event.target.value,
-                    )
-                  }
-                  disabled={submitting}
-                  required
-                >
-                  <option value="">
-                    Select division
-                  </option>
-
-                  {divisions.map(
-                    (division) => (
-                      <option
-                        key={division.id}
-                        value={division.id}
-                      >
-                        {division.name} (
-                        {division.code})
-                      </option>
-                    ),
-                  )}
-                </select>
-              </label>
-
-              {createForm.positionType ===
-                "TEAM_MANAGER" && (
-                <label>
-                  <span>
-                    Department
-                  </span>
-
-                  <select
-                    value={
-                      createForm.departmentId
-                    }
-                    onChange={(event) =>
-                      setCreateForm(
-                        (current) => ({
-                          ...current,
-
-                          departmentId:
-                            event.target.value,
-                        }),
-                      )
-                    }
-                    disabled={
-                      submitting ||
-                      !createForm.divisionId
-                    }
-                    required
-                  >
-                    <option value="">
-                      Select department
-                    </option>
-
-                    {createDepartments.map(
-                      (department) => (
-                        <option
-                          key={department.id}
-                          value={
-                            department.id
-                          }
-                        >
-                          {department.name} (
-                          {department.code})
-                        </option>
-                      ),
-                    )}
-                  </select>
-                </label>
-              )}
-            </div>
-
-            <footer>
-              <button
-                type="button"
-                className="mgmt-secondary"
-                onClick={() => {
-                  setShowCreateForm(false);
-
-                  setCreateForm(
-                    initialCreateForm,
-                  );
-
-                  setError("");
-                }}
-                disabled={submitting}
-              >
-                Cancel
-              </button>
-
-              <button
-                type="submit"
-                className="mgmt-primary"
-                disabled={
-                  submitting ||
-                  divisions.length === 0
-                }
-              >
-                {submitting
-                  ? "Creating..."
-                  : "Create position"}
-              </button>
-            </footer>
-          </form>
-        )}
 
         <section className="mgmt-filter-card">
           <header>
@@ -1120,7 +733,7 @@ export function ManagementPositionsPage() {
 
             <label>
               <span>
-                Holder state
+                Position state
               </span>
 
               <select
@@ -1136,7 +749,7 @@ export function ManagementPositionsPage() {
                 }
               >
                 <option value="ALL">
-                  All positions
+                  All available positions
                 </option>
 
                 <option value="VACANT">
@@ -1145,10 +758,6 @@ export function ManagementPositionsPage() {
 
                 <option value="RESERVED">
                   Reserved
-                </option>
-
-                <option value="OCCUPIED">
-                  Occupied
                 </option>
 
                 <option value="INACTIVE">
@@ -1204,10 +813,6 @@ export function ManagementPositionsPage() {
                     </th>
 
                     <th>
-                      Current holder
-                    </th>
-
-                    <th>
                       State
                     </th>
 
@@ -1260,66 +865,6 @@ export function ManagementPositionsPage() {
                                   .code
                               }
                             </small>
-                          </td>
-
-                          <td>
-                            {position.currentAssignment ? (
-                              <>
-                                <strong>
-                                  {
-                                    position
-                                      .currentAssignment
-                                      .employee
-                                      .empName
-                                  }
-                                </strong>
-
-                                <small>
-                                  {
-                                    position
-                                      .currentAssignment
-                                      .employee
-                                      .empId
-                                  }
-                                  {" · "}
-                                  {
-                                    position
-                                      .currentAssignment
-                                      .employee
-                                      .officialEmail
-                                  }
-                                </small>
-                              </>
-                            ) : position.reservedByAccountRequest ? (
-                              <>
-                                <strong>
-                                  Reserved for{" "}
-                                  {
-                                    position
-                                      .reservedByAccountRequest
-                                      .empName
-                                  }
-                                </strong>
-
-                                <small>
-                                  {
-                                    position
-                                      .reservedByAccountRequest
-                                      .empId
-                                  }
-                                  {" · "}
-                                  {formatLabel(
-                                    position
-                                      .reservedByAccountRequest
-                                      .status,
-                                  )}
-                                </small>
-                              </>
-                            ) : (
-                              <span className="mgmt-no-holder">
-                                No active assignment
-                              </span>
-                            )}
                           </td>
 
                           <td>
@@ -1486,101 +1031,6 @@ export function ManagementPositionsPage() {
                     }
                   </strong>
                 </div>
-              </section>
-
-              <section className="mgmt-holder-card">
-                <header>
-                  <div>
-                    <span>
-                      Current holder
-                    </span>
-
-                    <h3>
-                      {selectedPosition
-                        .currentAssignment
-                        ?.employee.empName ??
-                        (selectedPosition
-                          .reservedByAccountRequest
-                          ? `Reserved for ${selectedPosition.reservedByAccountRequest.empName}`
-                          : "No active assignment")}
-                    </h3>
-                  </div>
-
-                  <span
-                    className={`mgmt-badge ${
-                      getPositionState(
-                        selectedPosition,
-                      ).className
-                    }`}
-                  >
-                    {
-                      getPositionState(
-                        selectedPosition,
-                      ).label
-                    }
-                  </span>
-                </header>
-
-                {selectedPosition.currentAssignment && (
-                  <dl>
-                    <div>
-                      <dt>
-                        Employee ID
-                      </dt>
-
-                      <dd>
-                        {
-                          selectedPosition
-                            .currentAssignment
-                            .employee.empId
-                        }
-                      </dd>
-                    </div>
-
-                    <div>
-                      <dt>
-                        Official email
-                      </dt>
-
-                      <dd>
-                        {
-                          selectedPosition
-                            .currentAssignment
-                            .employee
-                            .officialEmail
-                        }
-                      </dd>
-                    </div>
-
-                    <div>
-                      <dt>
-                        Designation
-                      </dt>
-
-                      <dd>
-                        {selectedPosition
-                          .currentAssignment
-                          .employee
-                          .designation ??
-                          "Not provided"}
-                      </dd>
-                    </div>
-
-                    <div>
-                      <dt>
-                        Assigned
-                      </dt>
-
-                      <dd>
-                        {formatDate(
-                          selectedPosition
-                            .currentAssignment
-                            .startedAt,
-                        )}
-                      </dd>
-                    </div>
-                  </dl>
-                )}
               </section>
 
               <section className="mgmt-action-card">
