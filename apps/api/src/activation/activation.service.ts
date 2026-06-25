@@ -25,6 +25,7 @@ import {
   AccountRole,
   EmployeeStatus,
   OtpPurpose,
+  ManagementPositionType,
 } from '../generated/prisma/client';
 
 import { MailService } from '../mail/mail.service';
@@ -921,6 +922,8 @@ export class ActivationService {
             status: true,
             divisionId: true,
             departmentId: true,
+            managementPositionId: true,
+            reviewedByAccountId: true,
           },
         });
 
@@ -931,6 +934,126 @@ export class ActivationService {
           return {
             status: 'invalid',
           };
+        }
+
+        let managementPositionId: string | null = null;
+
+        let managementAssignedByAccountId: string | null = null;
+
+        let managementAssignmentId: string | null = null;
+
+        if (accountRequest.requestedRole !== AccountRole.EMPLOYEE) {
+          if (
+            !accountRequest.managementPositionId ||
+            !accountRequest.reviewedByAccountId
+          ) {
+            throw new ConflictException(
+              'The approved management request does not have a valid reserved position.',
+            );
+          }
+
+          const requiredPositionType =
+            accountRequest.requestedRole ===
+            AccountRole.SENIOR_MANAGEMENT
+              ? ManagementPositionType.SENIOR_MANAGEMENT
+              : ManagementPositionType.TEAM_MANAGER;
+
+          const managementPosition =
+            await transaction.managementPosition.findUnique({
+              where: {
+                id: accountRequest.managementPositionId,
+              },
+
+              select: {
+                id: true,
+                positionType: true,
+                divisionId: true,
+                departmentId: true,
+                isActive: true,
+                reservedByAccountRequestId: true,
+
+                assignments: {
+                  where: {
+                    endedAt: null,
+                  },
+
+                  take: 1,
+
+                  select: {
+                    id: true,
+                  },
+                },
+              },
+            });
+
+          if (
+            !managementPosition ||
+            !managementPosition.isActive ||
+            managementPosition.positionType !==
+              requiredPositionType ||
+            managementPosition.divisionId !==
+              accountRequest.divisionId ||
+            managementPosition.reservedByAccountRequestId !==
+              accountRequest.id
+          ) {
+            throw new ConflictException(
+              'The reserved management position is no longer valid for this activation.',
+            );
+          }
+
+          if (
+            requiredPositionType ===
+              ManagementPositionType.SENIOR_MANAGEMENT &&
+            managementPosition.departmentId !== null
+          ) {
+            throw new ConflictException(
+              'The reserved Senior Management position has an invalid organization scope.',
+            );
+          }
+
+          if (
+            requiredPositionType ===
+              ManagementPositionType.TEAM_MANAGER &&
+            managementPosition.departmentId !==
+              accountRequest.departmentId
+          ) {
+            throw new ConflictException(
+              'The reserved Team Manager position does not match the request department.',
+            );
+          }
+
+          if (managementPosition.assignments.length > 0) {
+            throw new ConflictException(
+              'The reserved management position is no longer vacant.',
+            );
+          }
+
+          const existingEmployeeAssignment =
+            await transaction.managementAssignment.findFirst({
+              where: {
+                employeeId: employee.id,
+                endedAt: null,
+              },
+
+              select: {
+                id: true,
+              },
+            });
+
+          if (existingEmployeeAssignment) {
+            throw new ConflictException(
+              'This employee already has an active management assignment.',
+            );
+          }
+
+          managementPositionId = managementPosition.id;
+
+          managementAssignedByAccountId =
+            accountRequest.reviewedByAccountId;
+        } else if (accountRequest.managementPositionId) {
+          throw new ConflictException(
+            'A normal employee activation must not reference a management position.',
+          );
         }
 
         const otpVerification = await transaction.otpVerification.findFirst({
@@ -1047,6 +1170,68 @@ export class ActivationService {
             isEnabled: true,
           },
         });
+
+        if (
+          managementPositionId &&
+          managementAssignedByAccountId
+        ) {
+          /*
+           * Claim and release the reservation before creating
+           * the active assignment. Any later failure rolls the
+           * complete transaction back.
+           */
+          const reservationClaim =
+            await transaction.managementPosition.updateMany({
+              where: {
+                id: managementPositionId,
+                isActive: true,
+
+                reservedByAccountRequestId:
+                  accountRequest.id,
+
+                assignments: {
+                  none: {
+                    endedAt: null,
+                  },
+                },
+              },
+
+              data: {
+                reservedByAccountRequestId: null,
+              },
+            });
+
+          if (reservationClaim.count !== 1) {
+            throw new ConflictException(
+              'The reserved management position could not be assigned.',
+            );
+          }
+
+          const managementAssignment =
+            await transaction.managementAssignment.create({
+              data: {
+                positionId: managementPositionId,
+
+                employeeId: employee.id,
+
+                assignedByAccountId:
+                  managementAssignedByAccountId,
+
+                startedAt: now,
+
+                assignmentReason:
+                  'Assigned automatically when the approved management account was activated.',
+              },
+
+              select: {
+                id: true,
+              },
+            });
+
+          managementAssignmentId =
+            managementAssignment.id;
+        }
+
         await transaction.accountRequestAction.create({
           data: {
             accountRequestId: accountRequest.id,
@@ -1072,6 +1257,10 @@ export class ActivationService {
               divisionId: accountRequest.divisionId,
 
               departmentId: accountRequest.departmentId,
+
+              managementPositionId,
+
+              managementAssignmentId,
             },
           },
         });
