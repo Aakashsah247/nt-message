@@ -8,14 +8,10 @@ import {
 
 import type { AuthenticatedUser } from '../auth/types/auth.types';
 import { PrismaService } from '../database/prisma.service';
-import {
-  AccountRole,
-  ManagementPositionType,
-} from '../generated/prisma/client';
+import { AccountRole } from '../generated/prisma/client';
 
 import type { Prisma } from '../generated/prisma/client';
 
-import { CreateManagementPositionDto } from './dto/create-management-position.dto';
 import { EndManagementAssignmentDto } from './dto/end-management-assignment.dto';
 import {
   ListManagementPositionsQueryDto,
@@ -69,183 +65,6 @@ export class ManagementAssignmentsService {
     return date;
   }
 
-  private isUniqueConstraintError(error: unknown): boolean {
-    return (
-      typeof error === 'object' &&
-      error !== null &&
-      'code' in error &&
-      error.code === 'P2002'
-    );
-  }
-
-  async createPosition(
-    user: AuthenticatedUser,
-    dto: CreateManagementPositionDto,
-  ) {
-    this.assertSuperAdmin(user);
-
-    try {
-      const position = await this.prisma.$transaction(async (transaction) => {
-        const division = await transaction.division.findUnique({
-          where: {
-            id: dto.divisionId,
-          },
-
-          select: {
-            id: true,
-            code: true,
-            name: true,
-            isActive: true,
-          },
-        });
-
-        if (!division) {
-          throw new NotFoundException('Division was not found.');
-        }
-
-        if (!division.isActive) {
-          throw new ConflictException(
-            'A management position cannot be created in an inactive division.',
-          );
-        }
-
-        let department: {
-          id: string;
-          divisionId: string;
-          code: string;
-          name: string;
-          isActive: boolean;
-        } | null = null;
-
-        if (dto.positionType === ManagementPositionType.SENIOR_MANAGEMENT) {
-          if (dto.departmentId) {
-            throw new BadRequestException(
-              'A Senior Management position belongs to a division and must not have a department.',
-            );
-          }
-        } else {
-          if (!dto.departmentId) {
-            throw new BadRequestException(
-              'A Team Manager position requires a department.',
-            );
-          }
-
-          department = await transaction.department.findUnique({
-            where: {
-              id: dto.departmentId,
-            },
-
-            select: {
-              id: true,
-              divisionId: true,
-              code: true,
-              name: true,
-              isActive: true,
-            },
-          });
-
-          if (!department) {
-            throw new NotFoundException('Department was not found.');
-          }
-
-          if (!department.isActive) {
-            throw new ConflictException(
-              'A management position cannot be created in an inactive department.',
-            );
-          }
-
-          if (department.divisionId !== division.id) {
-            throw new BadRequestException(
-              'The selected department does not belong to the selected division.',
-            );
-          }
-        }
-
-        const existingPosition = await transaction.managementPosition.findFirst(
-          {
-            where: {
-              positionType: dto.positionType,
-
-              divisionId: division.id,
-
-              departmentId: department?.id ?? null,
-            },
-
-            select: {
-              id: true,
-              isActive: true,
-            },
-          },
-        );
-
-        // One official management position is allowed per scope.
-        if (existingPosition) {
-          throw new ConflictException(
-            existingPosition.isActive
-              ? 'This management position already exists.'
-              : 'This management position already exists but is inactive. Reactivate it instead of creating a duplicate.',
-          );
-        }
-
-        return transaction.managementPosition.create({
-          data: {
-            positionType: dto.positionType,
-
-            divisionId: division.id,
-
-            departmentId: department?.id ?? null,
-
-            isActive: true,
-          },
-
-          select: {
-            id: true,
-            positionType: true,
-            divisionId: true,
-            departmentId: true,
-            isActive: true,
-            createdAt: true,
-            updatedAt: true,
-
-            division: {
-              select: {
-                id: true,
-                code: true,
-                name: true,
-                isActive: true,
-              },
-            },
-
-            department: {
-              select: {
-                id: true,
-                code: true,
-                name: true,
-                isActive: true,
-              },
-            },
-          },
-        });
-      });
-
-      return {
-        message: 'Management position created successfully.',
-
-        position: {
-          ...position,
-          occupancy: 'VACANT',
-          currentAssignment: null,
-        },
-      };
-    } catch (error: unknown) {
-      if (this.isUniqueConstraintError(error)) {
-        throw new ConflictException('This management position already exists.');
-      }
-
-      throw error;
-    }
-  }
-
   async listPositions(
     user: AuthenticatedUser,
     query: ListManagementPositionsQueryDto,
@@ -272,6 +91,23 @@ export class ManagementAssignmentsService {
         : {}),
     };
 
+    if (query.occupancy === ManagementPositionOccupancy.ALL) {
+      where.OR = [
+        {
+          isActive: false,
+        },
+        {
+          isActive: true,
+
+          assignments: {
+            none: {
+              endedAt: null,
+            },
+          },
+        },
+      ];
+    }
+
     if (query.occupancy === ManagementPositionOccupancy.VACANT) {
       where.isActive = true;
 
@@ -293,16 +129,6 @@ export class ManagementAssignmentsService {
 
       where.assignments = {
         none: {
-          endedAt: null,
-        },
-      };
-    }
-
-    if (query.occupancy === ManagementPositionOccupancy.OCCUPIED) {
-      where.isActive = true;
-
-      where.assignments = {
-        some: {
           endedAt: null,
         },
       };
@@ -364,41 +190,6 @@ export class ManagementAssignmentsService {
           },
         },
 
-        assignments: {
-          where: {
-            endedAt: null,
-          },
-
-          take: 1,
-
-          orderBy: {
-            startedAt: 'desc',
-          },
-
-          select: {
-            id: true,
-            startedAt: true,
-            assignmentReason: true,
-
-            employee: {
-              select: {
-                id: true,
-                empId: true,
-                empName: true,
-                officialEmail: true,
-                designation: true,
-
-                account: {
-                  select: {
-                    role: true,
-                    isEnabled: true,
-                  },
-                },
-              },
-            },
-          },
-        },
-
         _count: {
           select: {
             assignments: true,
@@ -408,23 +199,19 @@ export class ManagementAssignmentsService {
     });
 
     return {
-      data: positions.map(({ assignments, ...position }) => {
-        const currentAssignment = assignments[0] ?? null;
-
+      data: positions.map((position) => {
         const occupancy = !position.isActive
           ? 'INACTIVE'
-          : currentAssignment
-            ? 'OCCUPIED'
-            : position.reservedByAccountRequestId
-              ? 'RESERVED'
-              : 'VACANT';
+          : position.reservedByAccountRequestId
+            ? 'RESERVED'
+            : 'VACANT';
 
         return {
           ...position,
 
           occupancy,
 
-          currentAssignment,
+          currentAssignment: null,
         };
       }),
 
@@ -563,13 +350,17 @@ export class ManagementAssignmentsService {
       position.assignments.find((assignment) => assignment.endedAt === null) ??
       null;
 
+    if (currentAssignment) {
+      throw new NotFoundException(
+        'Occupied management positions are available in the Employee Directory.',
+      );
+    }
+
     const occupancy = !position.isActive
       ? 'INACTIVE'
-      : currentAssignment
-        ? 'OCCUPIED'
-        : position.reservedByAccountRequestId
-          ? 'RESERVED'
-          : 'VACANT';
+      : position.reservedByAccountRequestId
+        ? 'RESERVED'
+        : 'VACANT';
 
     return {
       position: {

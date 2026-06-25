@@ -343,13 +343,7 @@ export function ManagementPositionsPage() {
           return;
         }
 
-        setPositions(
-          response.data.filter(
-            (position) =>
-              position.occupancy !==
-              "OCCUPIED",
-          ),
-        );
+        setPositions(response.data);
         setError("");
       })
       .catch(

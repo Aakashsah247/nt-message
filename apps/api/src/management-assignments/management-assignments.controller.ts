@@ -5,7 +5,6 @@ import {
   Param,
   ParseUUIDPipe,
   Patch,
-  Post,
   Query,
   Req,
   UseGuards,
@@ -20,7 +19,6 @@ import { RolesGuard } from '../auth/guards/roles.guard';
 import type { AuthenticatedUser } from '../auth/types/auth.types';
 import { AccountRole } from '../generated/prisma/client';
 
-import { CreateManagementPositionDto } from './dto/create-management-position.dto';
 import { EndManagementAssignmentDto } from './dto/end-management-assignment.dto';
 import { ListManagementPositionsQueryDto } from './dto/list-management-positions-query.dto';
 import { ManagementAssignmentsService } from './management-assignments.service';
@@ -32,17 +30,6 @@ export class ManagementAssignmentsController {
   constructor(
     private readonly managementAssignmentsService: ManagementAssignmentsService,
   ) {}
-
-  @Post()
-  createPosition(
-    @CurrentUser()
-    user: AuthenticatedUser,
-
-    @Body()
-    dto: CreateManagementPositionDto,
-  ) {
-    return this.managementAssignmentsService.createPosition(user, dto);
-  }
 
   @Get()
   listPositions(

@@ -147,19 +147,6 @@ export interface ManagementPositionDetailResponse {
     ManagementPositionDetail;
 }
 
-export interface CreateManagementPositionInput {
-  positionType:
-    ManagementPositionType;
-
-  divisionId: string;
-  departmentId?: string;
-}
-
-export interface CreateManagementPositionResponse {
-  message: string;
-  position: ManagementPositionListItem;
-}
-
 export interface EndManagementAssignmentInput {
   reason: string;
   effectiveAt?: string;

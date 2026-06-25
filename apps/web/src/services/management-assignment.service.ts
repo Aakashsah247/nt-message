@@ -1,8 +1,6 @@
 import { apiRequest } from "../lib/api";
 
 import type {
-  CreateManagementPositionInput,
-  CreateManagementPositionResponse,
   EndManagementAssignmentInput,
   ListManagementPositionsQuery,
   ListManagementPositionsResponse,
@@ -91,27 +89,6 @@ export function getManagementPosition(
         authorizationHeaders(
           accessToken,
         ),
-    },
-  );
-}
-
-export function createManagementPosition(
-  accessToken: string,
-  input:
-    CreateManagementPositionInput,
-): Promise<CreateManagementPositionResponse> {
-  return apiRequest<CreateManagementPositionResponse>(
-    "/admin/management-positions",
-    {
-      method: "POST",
-
-      headers:
-        authorizationHeaders(
-          accessToken,
-        ),
-
-      body:
-        JSON.stringify(input),
     },
   );
 }
