@@ -657,6 +657,16 @@ export class ManagementAssignmentsService {
       let revokedSessions = 0;
 
       if (assignment.employee.account) {
+        await transaction.account.update({
+          where: {
+            id: assignment.employee.account.id,
+          },
+
+          data: {
+            role: AccountRole.EMPLOYEE,
+          },
+        });
+
         const revoked = await transaction.authSession.updateMany({
           where: {
             accountId: assignment.employee.account.id,

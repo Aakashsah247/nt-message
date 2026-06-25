@@ -5,7 +5,11 @@ import {
   UnauthorizedException,
 } from '@nestjs/common';
 
-import { AccountRole, EmployeeStatus } from '../generated/prisma/client';
+import {
+  AccountRole,
+  EmployeeStatus,
+  ManagementPositionType,
+} from '../generated/prisma/client';
 import { AdminLoginDto } from './dto/admin-login.dto';
 import { EmployeeLoginDto } from './dto/employee-login.dto';
 import { UnifiedLoginDto } from './dto/unified-login.dto';
@@ -224,6 +228,7 @@ export class AuthService {
       },
 
       select: {
+        id: true,
         status: true,
         isActivated: true,
 
@@ -280,6 +285,12 @@ export class AuthService {
       throw this.invalidCredentials();
     }
 
+    const effectiveRole =
+      await this.resolveEffectiveEmployeeRole(
+        employee.id,
+        account.role,
+      );
+
     const sessionId = randomUUID();
 
     const refreshTokenExpiresAt = new Date(
@@ -288,7 +299,7 @@ export class AuthService {
 
     const tokens = await this.createTokenPair(
       account.id,
-      account.role,
+      effectiveRole,
       sessionId,
       refreshTokenExpiresAt,
     );
@@ -300,6 +311,8 @@ export class AuthService {
         },
 
         data: {
+          role: effectiveRole,
+
           failedLoginAttempts: 0,
           lockedUntil: null,
           lastLoginAt: now,
@@ -328,7 +341,7 @@ export class AuthService {
       account: {
         id: account.id,
         username: account.username,
-        role: account.role,
+        role: effectiveRole,
       },
     };
   }
@@ -355,6 +368,7 @@ export class AuthService {
         account: {
           select: {
             id: true,
+            employeeId: true,
             username: true,
             role: true,
             isEnabled: true,
@@ -370,12 +384,26 @@ export class AuthService {
       session.accountId !== payload.sub ||
       session.revokedAt !== null ||
       session.expiresAt <= now ||
-      !session.account.isEnabled ||
-      session.account.role !== payload.role;
+      !session.account.isEnabled;
 
     if (sessionIsInvalid) {
       throw new UnauthorizedException(
         'Authentication session is invalid or expired.',
+      );
+    }
+
+    const effectiveRole =
+      await this.resolveEffectiveEmployeeRole(
+        session.account.employeeId,
+        session.account.role,
+      );
+
+    if (
+      session.account.role !== effectiveRole ||
+      payload.role !== effectiveRole
+    ) {
+      throw new UnauthorizedException(
+        'Your account authority has changed. Sign in again.',
       );
     }
 
@@ -394,7 +422,7 @@ export class AuthService {
 
     const tokens = await this.createTokenPair(
       session.account.id,
-      session.account.role,
+      effectiveRole,
       session.id,
       session.expiresAt,
     );
@@ -435,7 +463,7 @@ export class AuthService {
       account: {
         id: session.account.id,
         username: session.account.username,
-        role: session.account.role,
+        role: effectiveRole,
       },
     };
   }
@@ -483,6 +511,48 @@ export class AuthService {
     });
 
     return result.count;
+  }
+
+  private async resolveEffectiveEmployeeRole(
+    employeeId: string | null,
+    storedRole: AccountRole,
+  ): Promise<AccountRole> {
+    if (storedRole === AccountRole.SUPER_ADMIN) {
+      return AccountRole.SUPER_ADMIN;
+    }
+
+    if (!employeeId) {
+      return AccountRole.EMPLOYEE;
+    }
+
+    const activeAssignment =
+      await this.prisma.managementAssignment.findFirst({
+        where: {
+          employeeId,
+          endedAt: null,
+
+          position: {
+            isActive: true,
+          },
+        },
+
+        select: {
+          position: {
+            select: {
+              positionType: true,
+            },
+          },
+        },
+      });
+
+    if (!activeAssignment) {
+      return AccountRole.EMPLOYEE;
+    }
+
+    return activeAssignment.position.positionType ===
+      ManagementPositionType.SENIOR_MANAGEMENT
+      ? AccountRole.SENIOR_MANAGEMENT
+      : AccountRole.TEAM_MANAGER;
   }
 
   private async createTokenPair(
