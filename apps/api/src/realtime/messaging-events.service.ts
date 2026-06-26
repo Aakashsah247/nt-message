@@ -2,6 +2,7 @@ import { Injectable } from '@nestjs/common';
 import type { Namespace } from 'socket.io';
 
 import type { AuthenticatedUser } from '../auth/types/auth.types';
+import type { MessagingPresenceState } from './messaging-presence.service';
 
 export type MessagingReceiptStatus = 'DELIVERED' | 'READ';
 
@@ -43,6 +44,23 @@ export interface MessagingConversationUpdatedPayload {
   occurredAt: string;
 }
 
+export interface MessagingPresenceSnapshotPayload {
+  presences: MessagingPresenceState[];
+  occurredAt: string;
+}
+
+export interface MessagingTypingPayload {
+  conversationId: string;
+  isTyping: boolean;
+}
+
+export interface MessagingTypingUpdatedPayload {
+  conversationId: string;
+  accountId: string;
+  isTyping: boolean;
+  occurredAt: string;
+}
+
 export interface MessagingServerToClientEvents {
   'messaging:ready': (payload: MessagingReadyPayload) => void;
   'messaging:error': (payload: MessagingErrorPayload) => void;
@@ -56,10 +74,20 @@ export interface MessagingServerToClientEvents {
   'messaging:conversation-updated': (
     payload: MessagingConversationUpdatedPayload,
   ) => void;
+  'messaging:presence-snapshot': (
+    payload: MessagingPresenceSnapshotPayload,
+  ) => void;
+  'messaging:presence-updated': (
+    payload: MessagingPresenceState,
+  ) => void;
+  'messaging:typing-updated': (
+    payload: MessagingTypingUpdatedPayload,
+  ) => void;
 }
 
 export interface MessagingClientToServerEvents {
   'messaging:ping': () => void;
+  'messaging:typing': (payload: MessagingTypingPayload) => void;
 }
 
 export interface MessagingSocketData {
@@ -123,6 +151,25 @@ export class MessagingEventsService {
       this.server
         .to(this.accountRoom(accountId))
         .emit('messaging:conversation-updated', payload);
+    }
+  }
+
+  emitPresenceUpdated(payload: MessagingPresenceState): void {
+    this.server?.emit('messaging:presence-updated', payload);
+  }
+
+  emitTypingUpdated(
+    accountIds: string[],
+    payload: MessagingTypingUpdatedPayload,
+  ): void {
+    if (!this.server) {
+      return;
+    }
+
+    for (const accountId of new Set(accountIds)) {
+      this.server
+        .to(this.accountRoom(accountId))
+        .emit('messaging:typing-updated', payload);
     }
   }
 

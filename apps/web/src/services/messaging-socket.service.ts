@@ -41,6 +41,30 @@ export interface MessagingConversationUpdatedPayload {
   occurredAt: string;
 }
 
+export interface MessagingPresenceState {
+  accountId: string;
+  isOnline: boolean;
+  lastSeenAt: string | null;
+  occurredAt: string;
+}
+
+export interface MessagingPresenceSnapshotPayload {
+  presences: MessagingPresenceState[];
+  occurredAt: string;
+}
+
+export interface MessagingTypingPayload {
+  conversationId: string;
+  isTyping: boolean;
+}
+
+export interface MessagingTypingUpdatedPayload {
+  conversationId: string;
+  accountId: string;
+  isTyping: boolean;
+  occurredAt: string;
+}
+
 interface ServerToClientEvents {
   "messaging:ready": (payload: MessagingReadyPayload) => void;
   "messaging:error": (payload: MessagingSocketErrorPayload) => void;
@@ -54,10 +78,20 @@ interface ServerToClientEvents {
   "messaging:conversation-updated": (
     payload: MessagingConversationUpdatedPayload,
   ) => void;
+  "messaging:presence-snapshot": (
+    payload: MessagingPresenceSnapshotPayload,
+  ) => void;
+  "messaging:presence-updated": (
+    payload: MessagingPresenceState,
+  ) => void;
+  "messaging:typing-updated": (
+    payload: MessagingTypingUpdatedPayload,
+  ) => void;
 }
 
 interface ClientToServerEvents {
   "messaging:ping": () => void;
+  "messaging:typing": (payload: MessagingTypingPayload) => void;
 }
 
 export type MessagingSocket = Socket<

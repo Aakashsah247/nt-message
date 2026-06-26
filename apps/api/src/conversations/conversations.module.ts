@@ -3,6 +3,7 @@ import { Module } from '@nestjs/common';
 import { AuthModule } from '../auth/auth.module';
 import { PrismaModule } from '../database/prisma.module';
 import { MessagingEventsService } from '../realtime/messaging-events.service';
+import { MessagingPresenceService } from '../realtime/messaging-presence.service';
 
 import { ConversationsController } from './conversations.controller';
 import { ConversationsGateway } from './conversations.gateway';
@@ -17,6 +18,7 @@ import { ConversationsService } from './conversations.service';
     ConversationsService,
     ConversationsGateway,
     MessagingEventsService,
+    MessagingPresenceService,
   ],
 })
 export class ConversationsModule {}

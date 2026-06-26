@@ -27,7 +27,11 @@ import {
 import type {
   MessagingConversationUpdatedPayload,
   MessagingMessageCreatedPayload,
+  MessagingPresenceSnapshotPayload,
+  MessagingPresenceState,
   MessagingReceiptUpdatedPayload,
+  MessagingSocket,
+  MessagingTypingUpdatedPayload,
 } from "../services/messaging-socket.service";
 import type {
   MessagingAccount,
@@ -98,6 +102,45 @@ function formatMessageTime(value: string): string {
   }).format(new Date(value));
 }
 
+function formatLastSeen(value: string): string {
+  const date = new Date(value);
+
+  if (Number.isNaN(date.getTime())) {
+    return "Offline";
+  }
+
+  const now = new Date();
+  const difference = Math.max(0, now.getTime() - date.getTime());
+
+  if (difference < 60_000) {
+    return "Last seen just now";
+  }
+
+  if (date.toDateString() === now.toDateString()) {
+    return `Last seen today at ${new Intl.DateTimeFormat(undefined, {
+      hour: "numeric",
+      minute: "2-digit",
+    }).format(date)}`;
+  }
+
+  const yesterday = new Date(now);
+  yesterday.setDate(now.getDate() - 1);
+
+  if (date.toDateString() === yesterday.toDateString()) {
+    return `Last seen yesterday at ${new Intl.DateTimeFormat(undefined, {
+      hour: "numeric",
+      minute: "2-digit",
+    }).format(date)}`;
+  }
+
+  return `Last seen ${new Intl.DateTimeFormat(undefined, {
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  }).format(date)}`;
+}
+
 function roleLabel(value: string): string {
   return value
     .toLowerCase()
@@ -139,6 +182,12 @@ export function MessageAppPage() {
   const [loggingOut, setLoggingOut] = useState(false);
   const [realtimeStatus, setRealtimeStatus] =
     useState<RealtimeConnectionStatus>("CONNECTING");
+  const [presenceByAccountId, setPresenceByAccountId] = useState<
+    Record<string, MessagingPresenceState>
+  >({});
+  const [typingByConversation, setTypingByConversation] = useState<
+    Record<string, string[]>
+  >({});
   const [conversations, setConversations] = useState<MessagingConversation[]>([]);
   const [selectedConversationId, setSelectedConversationId] = useState<string | null>(
     readStoredConversationId,
@@ -165,6 +214,10 @@ export function MessageAppPage() {
   const selectedConversationIdRef = useRef<string | null>(
     selectedConversationId,
   );
+  const messagingSocketRef = useRef<MessagingSocket | null>(null);
+  const activeTypingConversationIdRef = useRef<string | null>(null);
+  const typingStopTimerRef = useRef<number | null>(null);
+  const lastTypingEmitAtRef = useRef(0);
 
   const selectedConversation = useMemo(
     () => conversations.find(
@@ -328,18 +381,134 @@ export function MessageAppPage() {
     }
   }, [accessToken, account?.id]);
 
+  const stopLocalTyping = useCallback((
+    requestedConversationId?: string | null,
+  ): void => {
+    const conversationId =
+      requestedConversationId ?? activeTypingConversationIdRef.current;
+
+    if (typingStopTimerRef.current !== null) {
+      window.clearTimeout(typingStopTimerRef.current);
+      typingStopTimerRef.current = null;
+    }
+
+    if (
+      conversationId &&
+      messagingSocketRef.current?.connected
+    ) {
+      messagingSocketRef.current.emit("messaging:typing", {
+        conversationId,
+        isTyping: false,
+      });
+    }
+
+    if (activeTypingConversationIdRef.current === conversationId) {
+      activeTypingConversationIdRef.current = null;
+    }
+
+    lastTypingEmitAtRef.current = 0;
+  }, []);
+
+  const updateLocalTyping = useCallback((
+    conversationId: string,
+    value: string,
+  ): void => {
+    const socket = messagingSocketRef.current;
+
+    if (!socket?.connected || !value.trim()) {
+      stopLocalTyping(conversationId);
+      return;
+    }
+
+    const previousConversationId = activeTypingConversationIdRef.current;
+
+    if (
+      previousConversationId &&
+      previousConversationId !== conversationId
+    ) {
+      stopLocalTyping(previousConversationId);
+    }
+
+    const now = Date.now();
+    const shouldEmit =
+      activeTypingConversationIdRef.current !== conversationId ||
+      now - lastTypingEmitAtRef.current >= 600;
+
+    if (shouldEmit) {
+      socket.emit("messaging:typing", {
+        conversationId,
+        isTyping: true,
+      });
+      lastTypingEmitAtRef.current = now;
+    }
+
+    activeTypingConversationIdRef.current = conversationId;
+
+    if (typingStopTimerRef.current !== null) {
+      window.clearTimeout(typingStopTimerRef.current);
+    }
+
+    typingStopTimerRef.current = window.setTimeout(() => {
+      stopLocalTyping(conversationId);
+    }, 1800);
+  }, [stopLocalTyping]);
 
   useEffect(() => {
     selectedConversationIdRef.current = selectedConversationId;
-  }, [selectedConversationId]);
+
+    const activeTypingConversationId =
+      activeTypingConversationIdRef.current;
+
+    if (
+      activeTypingConversationId &&
+      activeTypingConversationId !== selectedConversationId
+    ) {
+      stopLocalTyping(activeTypingConversationId);
+    }
+  }, [selectedConversationId, stopLocalTyping]);
 
   useEffect(() => {
     if (!accessToken) {
       setRealtimeStatus("DISCONNECTED");
+      setPresenceByAccountId({});
+      setTypingByConversation({});
       return undefined;
     }
 
     const socket = createMessagingSocket(accessToken);
+    messagingSocketRef.current = socket;
+
+    const setAccountTyping = (
+      conversationId: string,
+      accountId: string,
+      isTyping: boolean,
+    ): void => {
+      setTypingByConversation((current) => {
+        const existing = current[conversationId] ?? [];
+        const nextAccountIds = isTyping
+          ? [...new Set([...existing, accountId])]
+          : existing.filter((value) => value !== accountId);
+
+        if (
+          existing.length === nextAccountIds.length &&
+          existing.every((value, index) => value === nextAccountIds[index])
+        ) {
+          return current;
+        }
+
+        const next = {
+          ...current,
+        };
+
+        if (nextAccountIds.length === 0) {
+          delete next[conversationId];
+        } else {
+          next[conversationId] = nextAccountIds;
+        }
+
+        return next;
+      });
+    };
 
     const refreshSelectedConversation = (): void => {
       const conversationId = selectedConversationIdRef.current;
@@ -367,9 +536,46 @@ export function MessageAppPage() {
       setRealtimeStatus("CONNECTED");
     };
 
+    const handlePresenceSnapshot = (
+      payload: MessagingPresenceSnapshotPayload,
+    ): void => {
+      const next: Record<string, MessagingPresenceState> = {};
+
+      for (const presence of payload.presences) {
+        next[presence.accountId] = presence;
+      }
+
+      setPresenceByAccountId(next);
+    };
+
+    const handlePresenceUpdated = (
+      payload: MessagingPresenceState,
+    ): void => {
+      setPresenceByAccountId((current) => ({
+        ...current,
+        [payload.accountId]: payload,
+      }));
+    };
+
+    const handleTypingUpdated = (
+      payload: MessagingTypingUpdatedPayload,
+    ): void => {
+      setAccountTyping(
+        payload.conversationId,
+        payload.accountId,
+        payload.isTyping,
+      );
+    };
+
     const handleMessageCreated = (
       payload: MessagingMessageCreatedPayload,
     ): void => {
+      setAccountTyping(
+        payload.conversationId,
+        payload.message.senderAccountId,
+        false,
+      );
+
       void loadConversations(
         true,
         selectedConversationIdRef.current ?? undefined,
@@ -413,6 +619,8 @@ export function MessageAppPage() {
     };
 
     const handleDisconnect = (): void => {
+      setTypingByConversation({});
+      setPresenceByAccountId({});
       setRealtimeStatus(
         socket.active
           ? "RECONNECTING"
@@ -421,6 +629,8 @@ export function MessageAppPage() {
     };
 
     const handleConnectError = (): void => {
+      setTypingByConversation({});
+      setPresenceByAccountId({});
       setRealtimeStatus(
         socket.active
           ? "RECONNECTING"
@@ -431,6 +641,9 @@ export function MessageAppPage() {
     socket.on("connect", handleConnect);
     socket.on("messaging:ready", handleReady);
     socket.on("messaging:pong", handlePong);
+    socket.on("messaging:presence-snapshot", handlePresenceSnapshot);
+    socket.on("messaging:presence-updated", handlePresenceUpdated);
+    socket.on("messaging:typing-updated", handleTypingUpdated);
     socket.on("messaging:message-created", handleMessageCreated);
     socket.on("messaging:receipt-updated", handleReceiptUpdated);
     socket.on(
@@ -443,9 +656,13 @@ export function MessageAppPage() {
     socket.connect();
 
     return () => {
+      stopLocalTyping();
       socket.off("connect", handleConnect);
       socket.off("messaging:ready", handleReady);
       socket.off("messaging:pong", handlePong);
+      socket.off("messaging:presence-snapshot", handlePresenceSnapshot);
+      socket.off("messaging:presence-updated", handlePresenceUpdated);
+      socket.off("messaging:typing-updated", handleTypingUpdated);
       socket.off("messaging:message-created", handleMessageCreated);
       socket.off("messaging:receipt-updated", handleReceiptUpdated);
       socket.off(
@@ -455,8 +672,17 @@ export function MessageAppPage() {
       socket.off("disconnect", handleDisconnect);
       socket.off("connect_error", handleConnectError);
       socket.disconnect();
+
+      if (messagingSocketRef.current === socket) {
+        messagingSocketRef.current = null;
+      }
     };
-  }, [accessToken, loadConversations, loadMessages]);
+  }, [
+    accessToken,
+    loadConversations,
+    loadMessages,
+    stopLocalTyping,
+  ]);
 
   useEffect(() => {
     try {
@@ -614,6 +840,7 @@ export function MessageAppPage() {
 
     setSendingMessage(true);
     setMessageError(null);
+    stopLocalTyping(selectedConversationId);
 
     try {
       const response = await sendConversationTextMessage(
@@ -717,6 +944,23 @@ export function MessageAppPage() {
   const peer = selectedConversation?.participants.find(
     (participant) => participant.accountId !== account?.id,
   ) ?? null;
+  const peerPresence = peer
+    ? presenceByAccountId[peer.accountId]
+    : undefined;
+  const peerIsTyping = Boolean(
+    peer &&
+    selectedConversationId &&
+    typingByConversation[selectedConversationId]?.includes(
+      peer.accountId,
+    ),
+  );
+  const peerActivityLabel = peerIsTyping
+    ? "Typing…"
+    : peerPresence?.isOnline
+      ? "Online"
+      : peerPresence?.lastSeenAt
+        ? formatLastSeen(peerPresence.lastSeenAt)
+        : "Offline";
 
   return (
     <main className="message-app-shell">
@@ -851,8 +1095,18 @@ export function MessageAppPage() {
                     }`}
                     onClick={() => setSelectedConversationId(conversation.id)}
                   >
-                    <span className="message-avatar">
-                      {initials(title)}
+                    <span className="message-avatar-presence">
+                      <span className="message-avatar">
+                        {initials(title)}
+                      </span>
+
+                      {conversationPeer &&
+                        presenceByAccountId[conversationPeer.accountId]?.isOnline && (
+                          <span
+                            className="message-presence-dot"
+                            aria-label={`${title} is online`}
+                          />
+                        )}
                     </span>
 
                     <span className="message-conversation-copy">
@@ -919,8 +1173,17 @@ export function MessageAppPage() {
                   ←
                 </button>
 
-                <span className="message-avatar large">
-                  {initials(selectedConversation.title ?? "NT")}
+                <span className="message-avatar-presence large">
+                  <span className="message-avatar large">
+                    {initials(selectedConversation.title ?? "NT")}
+                  </span>
+
+                  {peerPresence?.isOnline && (
+                    <span
+                      className="message-presence-dot"
+                      aria-label={`${selectedConversation.title ?? "Contact"} is online`}
+                    />
+                  )}
                 </span>
 
                 <div>
@@ -935,6 +1198,18 @@ export function MessageAppPage() {
                         ? ` · ${peer.employee.division.name}`
                         : ""}
                   </p>
+                  <small
+                    className={`message-peer-activity${
+                      peerIsTyping
+                        ? " typing"
+                        : peerPresence?.isOnline
+                          ? " online"
+                          : ""
+                    }`}
+                    aria-live="polite"
+                  >
+                    {peerActivityLabel}
+                  </small>
                 </div>
 
                 <span className="message-private-badge">
@@ -1035,6 +1310,25 @@ export function MessageAppPage() {
                     );
                   })
                 )}
+
+                {peerIsTyping && peer && (
+                  <div
+                    className="message-typing-indicator"
+                    aria-live="polite"
+                  >
+                    <span className="message-avatar small">
+                      {initials(peer.displayName)}
+                    </span>
+                    <span className="message-typing-bubble">
+                      <span aria-hidden="true">
+                        <i />
+                        <i />
+                        <i />
+                      </span>
+                      <small>{peer.displayName} is typing</small>
+                    </span>
+                  </div>
+                )}
               </div>
 
               <form
@@ -1043,7 +1337,15 @@ export function MessageAppPage() {
               >
                 <textarea
                   value={messageText}
-                  onChange={(event) => setMessageText(event.target.value)}
+                  onChange={(event) => {
+                    const value = event.target.value;
+                    setMessageText(value);
+
+                    if (selectedConversationId) {
+                      updateLocalTyping(selectedConversationId, value);
+                    }
+                  }}
+                  onBlur={() => stopLocalTyping(selectedConversationId)}
                   onKeyDown={handleComposerKeyDown}
                   placeholder={`Message ${selectedConversation.title ?? "conversation"}`}
                   maxLength={5000}

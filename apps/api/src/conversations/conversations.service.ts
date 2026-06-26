@@ -481,6 +481,35 @@ export class ConversationsService {
     }
   }
 
+  async getActiveParticipantAccountIds(
+    user: AuthenticatedUser,
+    conversationId: string,
+  ): Promise<string[]> {
+    await this.getMessagingViewer(user);
+
+    const participants =
+      await this.prisma.conversationParticipant.findMany({
+        where: {
+          conversationId,
+          leftAt: null,
+        },
+
+        select: {
+          accountId: true,
+        },
+      });
+
+    if (
+      !participants.some(
+        (participant) => participant.accountId === user.accountId,
+      )
+    ) {
+      throw new NotFoundException('Conversation was not found.');
+    }
+
+    return participants.map((participant) => participant.accountId);
+  }
+
   private async markReceiptsDelivered(
     accountId: string,
     conversationIds: string[],
