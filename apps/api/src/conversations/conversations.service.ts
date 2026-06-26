@@ -20,6 +20,7 @@ import type { Prisma } from '../generated/prisma/client';
 import { CreatePrivateConversationDto } from './dto/create-private-conversation.dto';
 import { ListConversationsQueryDto } from './dto/list-conversations-query.dto';
 import { ListMessagesQueryDto } from './dto/list-messages-query.dto';
+import { SearchMessagingContactsQueryDto } from './dto/search-messaging-contacts-query.dto';
 import { SendTextMessageDto } from './dto/send-text-message.dto';
 
 interface MessagingViewer {
@@ -290,42 +291,6 @@ export class ConversationsService {
     };
   }
 
-  private assertTargetInsideViewerScope(
-    viewer: MessagingViewer,
-    target: MessagingAccountRecord,
-  ): void {
-    if (target.role === AccountRole.SUPER_ADMIN) {
-      return;
-    }
-
-    const employee = target.employee;
-
-    if (!employee) {
-      throw new NotFoundException(
-        'The selected messaging account was not found.',
-      );
-    }
-
-    if (
-      viewer.role === AccountRole.SENIOR_MANAGEMENT &&
-      employee.divisionId !== viewer.divisionId
-    ) {
-      throw new ForbiddenException(
-        'You can start private conversations only inside your assigned division.',
-      );
-    }
-
-    if (
-      viewer.role === AccountRole.TEAM_MANAGER &&
-      (employee.divisionId !== viewer.divisionId ||
-        employee.departmentId !== viewer.departmentId)
-    ) {
-      throw new ForbiddenException(
-        'You can start private conversations only inside your assigned department.',
-      );
-    }
-  }
-
   private serializeAccount(account: MessagingAccountRecord) {
     const employee = account.employee;
 
@@ -562,6 +527,146 @@ export class ConversationsService {
     return conversation;
   }
 
+  async searchMessagingContacts(
+    user: AuthenticatedUser,
+    query: SearchMessagingContactsQueryDto,
+  ) {
+    const viewer = await this.getMessagingViewer(user);
+    const search = query.search?.trim() ?? '';
+
+    const andConditions: Prisma.AccountWhereInput[] = [
+      {
+        id: {
+          not: viewer.accountId,
+        },
+      },
+      {
+        isEnabled: true,
+      },
+      {
+        OR: [
+          {
+            role: AccountRole.SUPER_ADMIN,
+          },
+          {
+            employee: {
+              is: {
+                status: EmployeeStatus.ACTIVE,
+                employmentStatus: EmploymentStatus.ACTIVE,
+                archivedAt: null,
+                isActivated: true,
+
+                division: {
+                  is: {
+                    isActive: true,
+                  },
+                },
+
+                OR: [
+                  {
+                    departmentId: null,
+                  },
+                  {
+                    departmentUnit: {
+                      is: {
+                        isActive: true,
+                      },
+                    },
+                  },
+                ],
+              },
+            },
+          },
+        ],
+      },
+    ];
+
+    if (search) {
+      andConditions.push({
+        OR: [
+          {
+            username: {
+              contains: search,
+              mode: 'insensitive',
+            },
+          },
+          {
+            employee: {
+              is: {
+                OR: [
+                  {
+                    empId: {
+                      contains: search,
+                      mode: 'insensitive',
+                    },
+                  },
+                  {
+                    empName: {
+                      contains: search,
+                      mode: 'insensitive',
+                    },
+                  },
+                  {
+                    designation: {
+                      contains: search,
+                      mode: 'insensitive',
+                    },
+                  },
+                  {
+                    officialEmail: {
+                      contains: search,
+                      mode: 'insensitive',
+                    },
+                  },
+                ],
+              },
+            },
+          },
+        ],
+      });
+    }
+
+    const candidates = await this.prisma.account.findMany({
+      where: {
+        AND: andConditions,
+      },
+
+      take: Math.min(query.limit * 3, 100),
+
+      orderBy: [
+        {
+          username: 'asc',
+        },
+        {
+          id: 'asc',
+        },
+      ],
+
+      select: messagingAccountSelect,
+    });
+
+    const data = candidates
+      .filter((account) => this.isActiveEmployeeAccount(account))
+      .sort((first, second) => {
+        const firstName = this.serializeAccount(first).displayName;
+        const secondName = this.serializeAccount(second).displayName;
+
+        return firstName.localeCompare(secondName, undefined, {
+          sensitivity: 'base',
+        });
+      })
+      .slice(0, query.limit)
+      .map((account) => this.serializeAccount(account));
+
+    return {
+      data,
+      filters: {
+        search: search || null,
+        limit: query.limit,
+      },
+    };
+  }
+
   async createPrivateConversation(
     user: AuthenticatedUser,
     dto: CreatePrivateConversationDto,
@@ -591,8 +696,6 @@ export class ConversationsService {
         'The selected messaging account was not found.',
       );
     }
-
-    this.assertTargetInsideViewerScope(viewer, target);
 
     const privateParticipantKey = this.buildPrivateParticipantKey(
       viewer.accountId,

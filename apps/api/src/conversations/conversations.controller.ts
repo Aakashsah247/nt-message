@@ -18,6 +18,7 @@ import { ConversationsService } from './conversations.service';
 import { CreatePrivateConversationDto } from './dto/create-private-conversation.dto';
 import { ListConversationsQueryDto } from './dto/list-conversations-query.dto';
 import { ListMessagesQueryDto } from './dto/list-messages-query.dto';
+import { SearchMessagingContactsQueryDto } from './dto/search-messaging-contacts-query.dto';
 import { SendTextMessageDto } from './dto/send-text-message.dto';
 
 @Controller('conversations')
@@ -26,6 +27,17 @@ export class ConversationsController {
   constructor(
     private readonly conversationsService: ConversationsService,
   ) {}
+
+  @Get('contacts')
+  searchMessagingContacts(
+    @CurrentUser()
+    user: AuthenticatedUser,
+
+    @Query()
+    query: SearchMessagingContactsQueryDto,
+  ) {
+    return this.conversationsService.searchMessagingContacts(user, query);
+  }
 
   @Post('private')
   createPrivateConversation(
