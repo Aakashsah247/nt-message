@@ -1,6 +1,8 @@
 import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 
+import { ConversationsModule } from './conversations/conversations.module';
+
 import { AccountRequestsModule } from './account-requests/account-requests.module';
 import { ActivationModule } from './activation/activation.module';
 import { AppController } from './app.controller';
@@ -20,6 +22,7 @@ import { OrganizationModule } from './organization/organization.module';
     }),
 
     PrismaModule,
+    ConversationsModule,
     DirectoryModule,
     AuthModule,
     EmployeesModule,
