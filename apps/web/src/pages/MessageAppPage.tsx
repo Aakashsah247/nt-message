@@ -21,6 +21,9 @@ import {
   searchMessagingContacts,
   sendConversationTextMessage,
 } from "../services/messaging.service";
+import {
+  createMessagingSocket,
+} from "../services/messaging-socket.service";
 import type {
   MessagingAccount,
   MessagingConversation,
@@ -28,6 +31,12 @@ import type {
 } from "../types/messaging";
 
 const CONVERSATION_POLL_INTERVAL = 6000;
+
+type RealtimeConnectionStatus =
+  | "CONNECTING"
+  | "CONNECTED"
+  | "RECONNECTING"
+  | "DISCONNECTED";
 const SELECTED_CONVERSATION_STORAGE_KEY =
   "nt-message:selected-conversation";
 
@@ -124,6 +133,8 @@ export function MessageAppPage() {
   } = useAuth();
 
   const [loggingOut, setLoggingOut] = useState(false);
+  const [realtimeStatus, setRealtimeStatus] =
+    useState<RealtimeConnectionStatus>("CONNECTING");
   const [conversations, setConversations] = useState<MessagingConversation[]>([]);
   const [selectedConversationId, setSelectedConversationId] = useState<string | null>(
     readStoredConversationId,
@@ -309,6 +320,62 @@ export function MessageAppPage() {
       }
     }
   }, [accessToken, account?.id]);
+
+
+  useEffect(() => {
+    if (!accessToken) {
+      setRealtimeStatus("DISCONNECTED");
+      return undefined;
+    }
+
+    const socket = createMessagingSocket(accessToken);
+
+    const handleConnect = (): void => {
+      setRealtimeStatus("CONNECTING");
+      socket.emit("messaging:ping");
+    };
+
+    const handleReady = (): void => {
+      setRealtimeStatus("CONNECTED");
+    };
+
+    const handlePong = (): void => {
+      setRealtimeStatus("CONNECTED");
+    };
+
+    const handleDisconnect = (): void => {
+      setRealtimeStatus(
+        socket.active
+          ? "RECONNECTING"
+          : "DISCONNECTED",
+      );
+    };
+
+    const handleConnectError = (): void => {
+      setRealtimeStatus(
+        socket.active
+          ? "RECONNECTING"
+          : "DISCONNECTED",
+      );
+    };
+
+    socket.on("connect", handleConnect);
+    socket.on("messaging:ready", handleReady);
+    socket.on("messaging:pong", handlePong);
+    socket.on("disconnect", handleDisconnect);
+    socket.on("connect_error", handleConnectError);
+
+    socket.connect();
+
+    return () => {
+      socket.off("connect", handleConnect);
+      socket.off("messaging:ready", handleReady);
+      socket.off("messaging:pong", handlePong);
+      socket.off("disconnect", handleDisconnect);
+      socket.off("connect_error", handleConnectError);
+      socket.disconnect();
+    };
+  }, [accessToken]);
 
   useEffect(() => {
     try {
@@ -577,6 +644,15 @@ export function MessageAppPage() {
     }
   }
 
+  const realtimeLabel =
+    realtimeStatus === "CONNECTED"
+      ? "Real-time connected"
+      : realtimeStatus === "RECONNECTING"
+        ? "Real-time reconnecting"
+        : realtimeStatus === "CONNECTING"
+          ? "Real-time connecting"
+          : "Real-time offline";
+
   const peer = selectedConversation?.participants.find(
     (participant) => participant.accountId !== account?.id,
   ) ?? null;
@@ -606,7 +682,10 @@ export function MessageAppPage() {
           <div className="message-app-account-copy">
             <span>Signed in as</span>
             <strong>{account?.username ?? "NT Message User"}</strong>
-            <small>{account ? roleLabel(account.role) : "Employee"}</small>
+            <small aria-live="polite">
+              {account ? roleLabel(account.role) : "Employee"}
+              {` · ${realtimeLabel}`}
+            </small>
           </div>
 
           {account?.role !== "EMPLOYEE" && (

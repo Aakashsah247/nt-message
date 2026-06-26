@@ -4,6 +4,7 @@ import { NestFactory } from '@nestjs/core';
 import cookieParser from 'cookie-parser';
 import helmet from 'helmet';
 import { AppModule } from './app.module';
+import { MessagingSocketAdapter } from './realtime/messaging-socket.adapter';
 
 async function bootstrap(): Promise<void> {
   const app = await NestFactory.create(AppModule);
@@ -14,6 +15,10 @@ async function bootstrap(): Promise<void> {
 
   const webOrigin =
     configService.get<string>('WEB_ORIGIN') ?? 'http://localhost:5173';
+
+  app.useWebSocketAdapter(
+    new MessagingSocketAdapter(app, configService),
+  );
 
   /*
    * Adds secure HTTP response headers.

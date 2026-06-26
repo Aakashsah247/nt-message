@@ -5,6 +5,7 @@ import { AuthController } from "./auth.controller";
 import { AuthService } from "./auth.service";
 import { AccessTokenGuard } from "./guards/access-token.guard";
 import { RolesGuard } from "./guards/roles.guard";
+import { AccessTokenValidationService } from "./services/access-token-validation.service";
 import { AccessTokenStrategy } from "./strategies/access-token.strategy";
 
 @Module({
@@ -21,6 +22,7 @@ import { AccessTokenStrategy } from "./strategies/access-token.strategy";
 
   providers: [
     AuthService,
+    AccessTokenValidationService,
     AccessTokenStrategy,
     AccessTokenGuard,
     RolesGuard,
@@ -31,6 +33,7 @@ import { AccessTokenStrategy } from "./strategies/access-token.strategy";
    */
   exports: [
     AuthService,
+    AccessTokenValidationService,
     AccessTokenGuard,
     RolesGuard,
   ],
