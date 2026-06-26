@@ -3,6 +3,10 @@ import {
   type Socket,
 } from "socket.io-client";
 
+import type {
+  MessagingMessage,
+} from "../types/messaging";
+
 export interface MessagingReadyPayload {
   accountId: string;
   sessionId: string;
@@ -17,10 +21,39 @@ export interface MessagingPongPayload {
   serverTime: string;
 }
 
+export interface MessagingMessageCreatedPayload {
+  conversationId: string;
+  message: MessagingMessage;
+  occurredAt: string;
+}
+
+export interface MessagingReceiptUpdatedPayload {
+  conversationId: string;
+  messageIds: string[];
+  accountId: string;
+  status: "DELIVERED" | "READ";
+  occurredAt: string;
+}
+
+export interface MessagingConversationUpdatedPayload {
+  conversationId: string;
+  reason: "CREATED" | "REOPENED";
+  occurredAt: string;
+}
+
 interface ServerToClientEvents {
   "messaging:ready": (payload: MessagingReadyPayload) => void;
   "messaging:error": (payload: MessagingSocketErrorPayload) => void;
   "messaging:pong": (payload: MessagingPongPayload) => void;
+  "messaging:message-created": (
+    payload: MessagingMessageCreatedPayload,
+  ) => void;
+  "messaging:receipt-updated": (
+    payload: MessagingReceiptUpdatedPayload,
+  ) => void;
+  "messaging:conversation-updated": (
+    payload: MessagingConversationUpdatedPayload,
+  ) => void;
 }
 
 interface ClientToServerEvents {

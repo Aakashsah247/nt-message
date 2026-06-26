@@ -25,12 +25,16 @@ import {
   createMessagingSocket,
 } from "../services/messaging-socket.service";
 import type {
+  MessagingConversationUpdatedPayload,
+  MessagingMessageCreatedPayload,
+  MessagingReceiptUpdatedPayload,
+} from "../services/messaging-socket.service";
+import type {
   MessagingAccount,
   MessagingConversation,
   MessagingMessage,
 } from "../types/messaging";
 
-const CONVERSATION_POLL_INTERVAL = 6000;
 
 type RealtimeConnectionStatus =
   | "CONNECTING"
@@ -158,6 +162,9 @@ export function MessageAppPage() {
   const [creatingConversationId, setCreatingConversationId] = useState<string | null>(null);
 
   const messageListRef = useRef<HTMLDivElement | null>(null);
+  const selectedConversationIdRef = useRef<string | null>(
+    selectedConversationId,
+  );
 
   const selectedConversation = useMemo(
     () => conversations.find(
@@ -323,12 +330,24 @@ export function MessageAppPage() {
 
 
   useEffect(() => {
+    selectedConversationIdRef.current = selectedConversationId;
+  }, [selectedConversationId]);
+
+  useEffect(() => {
     if (!accessToken) {
       setRealtimeStatus("DISCONNECTED");
       return undefined;
     }
 
     const socket = createMessagingSocket(accessToken);
+
+    const refreshSelectedConversation = (): void => {
+      const conversationId = selectedConversationIdRef.current;
+
+      if (conversationId) {
+        void loadMessages(conversationId, true);
+      }
+    };
 
     const handleConnect = (): void => {
       setRealtimeStatus("CONNECTING");
@@ -337,10 +356,60 @@ export function MessageAppPage() {
 
     const handleReady = (): void => {
       setRealtimeStatus("CONNECTED");
+      void loadConversations(
+        true,
+        selectedConversationIdRef.current ?? undefined,
+      );
+      refreshSelectedConversation();
     };
 
     const handlePong = (): void => {
       setRealtimeStatus("CONNECTED");
+    };
+
+    const handleMessageCreated = (
+      payload: MessagingMessageCreatedPayload,
+    ): void => {
+      void loadConversations(
+        true,
+        selectedConversationIdRef.current ?? undefined,
+      );
+
+      if (payload.conversationId !== selectedConversationIdRef.current) {
+        return;
+      }
+
+      setMessages((current) => {
+        if (current.some((message) => message.id === payload.message.id)) {
+          return current;
+        }
+
+        return [...current, payload.message];
+      });
+
+      void loadMessages(payload.conversationId, true);
+    };
+
+    const handleReceiptUpdated = (
+      payload: MessagingReceiptUpdatedPayload,
+    ): void => {
+      void loadConversations(
+        true,
+        selectedConversationIdRef.current ?? undefined,
+      );
+
+      if (payload.conversationId === selectedConversationIdRef.current) {
+        void loadMessages(payload.conversationId, true);
+      }
+    };
+
+    const handleConversationUpdated = (
+      _payload: MessagingConversationUpdatedPayload,
+    ): void => {
+      void loadConversations(
+        true,
+        selectedConversationIdRef.current ?? undefined,
+      );
     };
 
     const handleDisconnect = (): void => {
@@ -362,6 +431,12 @@ export function MessageAppPage() {
     socket.on("connect", handleConnect);
     socket.on("messaging:ready", handleReady);
     socket.on("messaging:pong", handlePong);
+    socket.on("messaging:message-created", handleMessageCreated);
+    socket.on("messaging:receipt-updated", handleReceiptUpdated);
+    socket.on(
+      "messaging:conversation-updated",
+      handleConversationUpdated,
+    );
     socket.on("disconnect", handleDisconnect);
     socket.on("connect_error", handleConnectError);
 
@@ -371,11 +446,17 @@ export function MessageAppPage() {
       socket.off("connect", handleConnect);
       socket.off("messaging:ready", handleReady);
       socket.off("messaging:pong", handlePong);
+      socket.off("messaging:message-created", handleMessageCreated);
+      socket.off("messaging:receipt-updated", handleReceiptUpdated);
+      socket.off(
+        "messaging:conversation-updated",
+        handleConversationUpdated,
+      );
       socket.off("disconnect", handleDisconnect);
       socket.off("connect_error", handleConnectError);
       socket.disconnect();
     };
-  }, [accessToken]);
+  }, [accessToken, loadConversations, loadMessages]);
 
   useEffect(() => {
     try {
@@ -407,26 +488,6 @@ export function MessageAppPage() {
     void loadMessages(selectedConversationId);
   }, [loadMessages, selectedConversationId]);
 
-  useEffect(() => {
-    if (!accessToken) {
-      return undefined;
-    }
-
-    const timer = window.setInterval(() => {
-      void loadConversations(true);
-
-      if (selectedConversationId) {
-        void loadMessages(selectedConversationId, true);
-      }
-    }, CONVERSATION_POLL_INTERVAL);
-
-    return () => window.clearInterval(timer);
-  }, [
-    accessToken,
-    loadConversations,
-    loadMessages,
-    selectedConversationId,
-  ]);
 
   useEffect(() => {
     if (!messageLoading && !olderMessagesLoading) {

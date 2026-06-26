@@ -16,6 +16,7 @@ import {
   MessageContentType,
 } from '../generated/prisma/client';
 import type { Prisma } from '../generated/prisma/client';
+import { MessagingEventsService } from '../realtime/messaging-events.service';
 
 import { CreatePrivateConversationDto } from './dto/create-private-conversation.dto';
 import { ListConversationsQueryDto } from './dto/list-conversations-query.dto';
@@ -180,7 +181,10 @@ type ConversationRecord = Prisma.ConversationGetPayload<{
 
 @Injectable()
 export class ConversationsService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly messagingEventsService: MessagingEventsService,
+  ) {}
 
   private isUniqueConstraintError(error: unknown): boolean {
     return (
@@ -485,9 +489,7 @@ export class ConversationsService {
       return 0;
     }
 
-    const now = new Date();
-
-    const result = await this.prisma.messageReceipt.updateMany({
+    const pendingReceipts = await this.prisma.messageReceipt.findMany({
       where: {
         accountId,
         deliveredAt: null,
@@ -501,10 +503,75 @@ export class ConversationsService {
         },
       },
 
+      select: {
+        messageId: true,
+
+        message: {
+          select: {
+            conversationId: true,
+            senderAccountId: true,
+          },
+        },
+      },
+    });
+
+    if (pendingReceipts.length === 0) {
+      return 0;
+    }
+
+    const now = new Date();
+
+    const result = await this.prisma.messageReceipt.updateMany({
+      where: {
+        accountId,
+        deliveredAt: null,
+        messageId: {
+          in: pendingReceipts.map((receipt) => receipt.messageId),
+        },
+      },
+
       data: {
         deliveredAt: now,
       },
     });
+
+    const receiptsByConversationAndSender = new Map<
+      string,
+      {
+        conversationId: string;
+        senderAccountId: string;
+        messageIds: string[];
+      }
+    >();
+
+    for (const receipt of pendingReceipts) {
+      const key = [
+        receipt.message.conversationId,
+        receipt.message.senderAccountId,
+      ].join(':');
+
+      const group = receiptsByConversationAndSender.get(key) ?? {
+        conversationId: receipt.message.conversationId,
+        senderAccountId: receipt.message.senderAccountId,
+        messageIds: [],
+      };
+
+      group.messageIds.push(receipt.messageId);
+      receiptsByConversationAndSender.set(key, group);
+    }
+
+    for (const group of receiptsByConversationAndSender.values()) {
+      this.messagingEventsService.emitReceiptUpdated(
+        [group.senderAccountId],
+        {
+          conversationId: group.conversationId,
+          messageIds: group.messageIds,
+          accountId,
+          status: 'DELIVERED',
+          occurredAt: now.toISOString(),
+        },
+      );
+    }
 
     return result.count;
   }
@@ -763,17 +830,27 @@ export class ConversationsService {
     });
 
     const conversation = await this.getConversationRecord(conversationId);
+    const serializedConversation = this.serializeConversation(
+      conversation,
+      viewer.accountId,
+      0,
+    );
+
+    this.messagingEventsService.emitConversationUpdated(
+      [viewer.accountId, target.id],
+      {
+        conversationId,
+        reason: existingConversation ? 'REOPENED' : 'CREATED',
+        occurredAt: new Date().toISOString(),
+      },
+    );
 
     return {
       message: existingConversation
         ? 'Private conversation reopened successfully.'
         : 'Private conversation created successfully.',
       created: existingConversation === null,
-      data: this.serializeConversation(
-        conversation,
-        viewer.accountId,
-        0,
-      ),
+      data: serializedConversation,
     };
   }
 
@@ -1095,10 +1172,24 @@ export class ConversationsService {
         },
       );
 
+      const serializedMessage = this.serializeMessage(createdMessage);
+      const participantAccountIds = conversation.participants.map(
+        (participant) => participant.accountId,
+      );
+
+      this.messagingEventsService.emitMessageCreated(
+        participantAccountIds,
+        {
+          conversationId,
+          message: serializedMessage,
+          occurredAt: new Date().toISOString(),
+        },
+      );
+
       return {
         message: 'Message sent successfully.',
         duplicate: false,
-        data: this.serializeMessage(createdMessage),
+        data: serializedMessage,
       };
     } catch (error) {
       if (!this.isUniqueConstraintError(error)) {
@@ -1145,6 +1236,29 @@ export class ConversationsService {
       conversationId,
     );
 
+    const pendingReceipts = await this.prisma.messageReceipt.findMany({
+      where: {
+        accountId: viewer.accountId,
+        readAt: null,
+
+        message: {
+          is: {
+            conversationId,
+          },
+        },
+      },
+
+      select: {
+        messageId: true,
+
+        message: {
+          select: {
+            senderAccountId: true,
+          },
+        },
+      },
+    });
+
     const now = new Date();
 
     const readResult = await this.prisma.$transaction(
@@ -1184,6 +1298,29 @@ export class ConversationsService {
         });
       },
     );
+
+    const receiptsBySender = new Map<string, string[]>();
+
+    for (const receipt of pendingReceipts) {
+      const messageIds =
+        receiptsBySender.get(receipt.message.senderAccountId) ?? [];
+
+      messageIds.push(receipt.messageId);
+      receiptsBySender.set(receipt.message.senderAccountId, messageIds);
+    }
+
+    for (const [senderAccountId, messageIds] of receiptsBySender) {
+      this.messagingEventsService.emitReceiptUpdated(
+        [senderAccountId],
+        {
+          conversationId,
+          messageIds,
+          accountId: viewer.accountId,
+          status: 'READ',
+          occurredAt: now.toISOString(),
+        },
+      );
+    }
 
     return {
       message: 'Conversation marked as read.',

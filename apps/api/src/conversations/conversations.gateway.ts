@@ -6,49 +6,20 @@ import {
   SubscribeMessage,
   WebSocketGateway,
 } from '@nestjs/websockets';
-import type { Namespace, Socket } from 'socket.io';
+import type { Socket } from 'socket.io';
 
 import { AccessTokenValidationService } from '../auth/services/access-token-validation.service';
-import type { AuthenticatedUser } from '../auth/types/auth.types';
-
-interface MessagingReadyPayload {
-  accountId: string;
-  sessionId: string;
-  connectedAt: string;
-}
-
-interface MessagingErrorPayload {
-  message: string;
-}
-
-interface MessagingPongPayload {
-  serverTime: string;
-}
-
-interface ServerToClientEvents {
-  'messaging:ready': (payload: MessagingReadyPayload) => void;
-  'messaging:error': (payload: MessagingErrorPayload) => void;
-  'messaging:pong': (payload: MessagingPongPayload) => void;
-}
-
-interface ClientToServerEvents {
-  'messaging:ping': () => void;
-}
-
-interface MessagingSocketData {
-  user?: AuthenticatedUser;
-}
+import {
+  MessagingEventsService,
+  type MessagingClientToServerEvents,
+  type MessagingNamespace,
+  type MessagingServerToClientEvents,
+  type MessagingSocketData,
+} from '../realtime/messaging-events.service';
 
 type MessagingSocket = Socket<
-  ClientToServerEvents,
-  ServerToClientEvents,
-  Record<string, never>,
-  MessagingSocketData
->;
-
-type MessagingNamespace = Namespace<
-  ClientToServerEvents,
-  ServerToClientEvents,
+  MessagingClientToServerEvents,
+  MessagingServerToClientEvents,
   Record<string, never>,
   MessagingSocketData
 >;
@@ -61,9 +32,12 @@ export class ConversationsGateway
 {
   constructor(
     private readonly accessTokenValidationService: AccessTokenValidationService,
+    private readonly messagingEventsService: MessagingEventsService,
   ) {}
 
   afterInit(server: MessagingNamespace): void {
+    this.messagingEventsService.bindServer(server);
+
     server.use(async (client, next) => {
       const accessToken = this.extractAccessToken(client);
 
