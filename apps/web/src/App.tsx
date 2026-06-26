@@ -50,7 +50,7 @@ export default function App() {
         }
       />
 
-      {/* All authenticated organization roles can access the directory. */}
+      {/* The management directory is not available to regular employees. */}
       <Route
         path="/directory"
         element={
@@ -59,7 +59,6 @@ export default function App() {
               "SUPER_ADMIN",
               "SENIOR_MANAGEMENT",
               "TEAM_MANAGER",
-              "EMPLOYEE",
             ]}
           >
             <DirectoryPage />

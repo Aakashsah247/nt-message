@@ -609,7 +609,9 @@ export function MessageAppPage() {
             <small>{account ? roleLabel(account.role) : "Employee"}</small>
           </div>
 
-          <DirectoryButton />
+          {account?.role !== "EMPLOYEE" && (
+            <DirectoryButton />
+          )}
 
           <button
             type="button"

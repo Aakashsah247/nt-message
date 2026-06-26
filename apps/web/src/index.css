@@ -5625,29 +5625,6 @@
   cursor: pointer;
 }
 
-.employee-dashboard-actions {
-  display: flex;
-  margin-top: 24px;
-}
-
-.employee-directory-card-button {
-  min-height: 46px;
-  padding: 0 20px;
-  border-color: #0875c9;
-  background: #0875c9;
-  color: #ffffff;
-}
-
-.employee-directory-card-button:hover {
-  border-color: #0868b1;
-  background: #0868b1;
-  color: #ffffff;
-}
-
-.employee-directory-card-button span {
-  background: rgba(255, 255, 255, 0.2);
-  color: #ffffff;
-}
 
 @media (max-width: 700px) {
   .manager-account-actions,
