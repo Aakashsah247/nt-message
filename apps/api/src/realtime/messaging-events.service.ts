@@ -8,7 +8,11 @@ export type MessagingReceiptStatus = 'DELIVERED' | 'READ';
 
 export type MessagingConversationUpdateReason =
   | 'CREATED'
-  | 'REOPENED';
+  | 'REOPENED'
+  | 'GROUP_CREATED'
+  | 'GROUP_UPDATED'
+  | 'MEMBERS_CHANGED'
+  | 'LEFT';
 
 export type MessagingMessageRequestStatus =
   | 'PENDING'

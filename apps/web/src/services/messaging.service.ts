@@ -2,16 +2,20 @@ import { apiRequest } from "../lib/api";
 
 import type {
   AcceptMessageRequestResponse,
+  AddGroupMembersResponse,
   ConversationListResponse,
   CreatePrivateConversationResponse,
   DeleteMessageForMeResponse,
   DeleteMessageResponse,
   ForwardTextMessagesResponse,
+  GroupConversationResponse,
+  LeaveGroupResponse,
   MarkConversationReadResponse,
   MessageRequestActionResponse,
   MessageRequestListResponse,
   MessageListResponse,
   MessagingContactsResponse,
+  RemoveGroupMemberResponse,
   SendTextMessageResponse,
   UpdateTextMessageResponse,
 } from "../types/messaging";
@@ -61,6 +65,106 @@ export function listMessagingConversations(
   return apiRequest<ConversationListResponse>(
     `/conversations?${params.toString()}`,
     {
+      headers: authorizationHeaders(accessToken),
+    },
+  );
+}
+
+export function createGroupConversation(
+  accessToken: string,
+  title: string,
+  description: string,
+  memberAccountIds: string[],
+): Promise<GroupConversationResponse> {
+  return apiRequest<GroupConversationResponse>(
+    "/conversations/groups",
+    {
+      method: "POST",
+      headers: authorizationHeaders(accessToken),
+      body: JSON.stringify({
+        title,
+        description,
+        memberAccountIds,
+      }),
+    },
+  );
+}
+
+export function updateGroupConversation(
+  accessToken: string,
+  conversationId: string,
+  input: {
+    title?: string;
+    description?: string;
+  },
+): Promise<GroupConversationResponse> {
+  return apiRequest<GroupConversationResponse>(
+    `/conversations/${conversationId}/group`,
+    {
+      method: "PATCH",
+      headers: authorizationHeaders(accessToken),
+      body: JSON.stringify(input),
+    },
+  );
+}
+
+export function addGroupMembers(
+  accessToken: string,
+  conversationId: string,
+  memberAccountIds: string[],
+): Promise<AddGroupMembersResponse> {
+  return apiRequest<AddGroupMembersResponse>(
+    `/conversations/${conversationId}/group/members`,
+    {
+      method: "POST",
+      headers: authorizationHeaders(accessToken),
+      body: JSON.stringify({
+        memberAccountIds,
+      }),
+    },
+  );
+}
+
+export function updateGroupMemberRole(
+  accessToken: string,
+  conversationId: string,
+  accountId: string,
+  role: "ADMIN" | "MEMBER",
+): Promise<GroupConversationResponse> {
+  return apiRequest<GroupConversationResponse>(
+    `/conversations/${conversationId}/group/members/${accountId}/role`,
+    {
+      method: "PATCH",
+      headers: authorizationHeaders(accessToken),
+      body: JSON.stringify({
+        role,
+      }),
+    },
+  );
+}
+
+export function removeGroupMember(
+  accessToken: string,
+  conversationId: string,
+  accountId: string,
+): Promise<RemoveGroupMemberResponse> {
+  return apiRequest<RemoveGroupMemberResponse>(
+    `/conversations/${conversationId}/group/members/${accountId}`,
+    {
+      method: "DELETE",
+      headers: authorizationHeaders(accessToken),
+    },
+  );
+}
+
+export function leaveGroupConversation(
+  accessToken: string,
+  conversationId: string,
+): Promise<LeaveGroupResponse> {
+  return apiRequest<LeaveGroupResponse>(
+    `/conversations/${conversationId}/group/leave`,
+    {
+      method: "POST",
       headers: authorizationHeaders(accessToken),
     },
   );

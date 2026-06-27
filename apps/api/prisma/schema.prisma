@@ -77,6 +77,17 @@ enum ConversationType {
   ANNOUNCEMENT
 }
 
+enum GroupKind {
+  PERSONAL
+  OFFICIAL
+}
+
+enum ConversationParticipantRole {
+  OWNER
+  ADMIN
+  MEMBER
+}
+
 enum MessageContentType {
   TEXT
   IMAGE
@@ -444,6 +455,8 @@ model Conversation {
   type ConversationType @default(PRIVATE)
 
   title                 String? @db.VarChar(150)
+  description           String? @db.VarChar(500)
+  groupKind              GroupKind? @map("group_kind")
   privateParticipantKey String? @unique(map: "conversations_private_participant_key_key") @map("private_participant_key") @db.VarChar(73)
 
   createdByAccountId String @map("created_by_account_id") @db.Uuid
@@ -458,6 +471,7 @@ model Conversation {
   messageRequest MessageRequest?
 
   @@index([type, lastMessageAt], map: "conversations_type_last_message_idx")
+  @@index([groupKind, updatedAt], map: "conversations_group_kind_idx")
   @@index([createdByAccountId], map: "conversations_created_by_idx")
   @@index([lastMessageAt], map: "conversations_last_message_idx")
   @@map("conversations")
@@ -470,6 +484,7 @@ model ConversationParticipant {
   joinedAt DateTime  @default(now()) @map("joined_at") @db.Timestamptz(3)
   leftAt   DateTime? @map("left_at") @db.Timestamptz(3)
 
+  role       ConversationParticipantRole @default(MEMBER)
   isMuted    Boolean @default(false) @map("is_muted")
   isArchived Boolean @default(false) @map("is_archived")
 
@@ -482,6 +497,7 @@ model ConversationParticipant {
   @@id([conversationId, accountId], map: "conversation_participants_pkey")
   @@index([accountId, leftAt, isArchived], map: "conversation_participants_account_active_idx")
   @@index([conversationId, leftAt], map: "conversation_participants_conversation_active_idx")
+  @@index([conversationId, role, leftAt], map: "conversation_participants_conversation_role_idx")
   @@map("conversation_participants")
 }
 

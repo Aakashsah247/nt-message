@@ -5,6 +5,15 @@ export type ConversationType =
   | "GROUP"
   | "ANNOUNCEMENT";
 
+export type GroupKind =
+  | "PERSONAL"
+  | "OFFICIAL";
+
+export type ConversationParticipantRole =
+  | "OWNER"
+  | "ADMIN"
+  | "MEMBER";
+
 export type MessageContentType =
   | "TEXT"
   | "IMAGE"
@@ -138,14 +147,20 @@ export interface MessagingConversation {
   id: string;
   type: ConversationType;
   title: string | null;
+  description: string | null;
+  groupKind: GroupKind | null;
   createdByAccountId: string;
   lastMessageAt: string | null;
   unreadCount: number;
   isMuted: boolean;
   isArchived: boolean;
+  viewerParticipantRole: ConversationParticipantRole | null;
+  canManageGroup: boolean;
+  memberCount: number;
   participants: Array<
     MessagingAccount & {
       joinedAt: string;
+      participantRole: ConversationParticipantRole;
     }
   >;
   lastMessage: MessagingMessage | null;
@@ -192,6 +207,31 @@ export type CreatePrivateConversationResponse =
       data: null;
       request: MessagingMessageRequest;
     };
+
+
+export interface GroupConversationResponse {
+  message: string;
+  data: MessagingConversation;
+}
+
+export interface AddGroupMembersResponse
+  extends GroupConversationResponse {
+  addedCount: number;
+}
+
+export interface RemoveGroupMemberResponse {
+  message: string;
+  conversationId: string;
+  accountId: string;
+  removedAt: string;
+}
+
+export interface LeaveGroupResponse {
+  message: string;
+  conversationId: string;
+  leftAt: string;
+  newOwnerAccountId: string | null;
+}
 
 export interface MessageRequestListResponse {
   received: MessagingMessageRequest[];

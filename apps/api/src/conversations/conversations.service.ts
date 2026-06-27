@@ -10,9 +10,11 @@ import type { AuthenticatedUser } from '../auth/types/auth.types';
 import { PrismaService } from '../database/prisma.service';
 import {
   AccountRole,
+  ConversationParticipantRole,
   ConversationType,
   EmployeeStatus,
   EmploymentStatus,
+  GroupKind,
   MessageContentType,
   MessageRequestReason,
   MessageRequestStatus,
@@ -20,12 +22,16 @@ import {
 import type { Prisma } from '../generated/prisma/client';
 import { MessagingEventsService } from '../realtime/messaging-events.service';
 
+import { AddGroupMembersDto } from './dto/add-group-members.dto';
+import { CreateGroupConversationDto } from './dto/create-group-conversation.dto';
 import { CreatePrivateConversationDto } from './dto/create-private-conversation.dto';
 import { ForwardTextMessageDto } from './dto/forward-text-message.dto';
 import { ListConversationsQueryDto } from './dto/list-conversations-query.dto';
 import { ListMessagesQueryDto } from './dto/list-messages-query.dto';
 import { SearchMessagingContactsQueryDto } from './dto/search-messaging-contacts-query.dto';
 import { SendTextMessageDto } from './dto/send-text-message.dto';
+import { UpdateGroupConversationDto } from './dto/update-group-conversation.dto';
+import { UpdateGroupMemberRoleDto } from './dto/update-group-member-role.dto';
 import { UpdateTextMessageDto } from './dto/update-text-message.dto';
 
 interface MessagingViewer {
@@ -151,6 +157,8 @@ const conversationSelect = {
   id: true,
   type: true,
   title: true,
+  description: true,
+  groupKind: true,
   privateParticipantKey: true,
   createdByAccountId: true,
   lastMessageAt: true,
@@ -166,6 +174,7 @@ const conversationSelect = {
       accountId: true,
       joinedAt: true,
       leftAt: true,
+      role: true,
       isMuted: true,
       isArchived: true,
 
@@ -541,14 +550,23 @@ export class ConversationsService {
         conversation.type === ConversationType.PRIVATE && privatePeer
           ? this.serializeAccount(privatePeer).displayName
           : conversation.title,
+      description: conversation.description,
+      groupKind: conversation.groupKind,
       createdByAccountId: conversation.createdByAccountId,
       lastMessageAt: conversation.messages[0]?.sentAt ?? null,
       unreadCount,
       isMuted: viewerParticipant?.isMuted ?? false,
       isArchived: viewerParticipant?.isArchived ?? false,
+      viewerParticipantRole: viewerParticipant?.role ?? null,
+      canManageGroup:
+        conversation.type === ConversationType.GROUP &&
+        (viewerParticipant?.role === ConversationParticipantRole.OWNER ||
+          viewerParticipant?.role === ConversationParticipantRole.ADMIN),
+      memberCount: activeParticipants.length,
       participants: activeParticipants.map((participant) => ({
         ...this.serializeAccount(participant.account),
         joinedAt: participant.joinedAt,
+        participantRole: participant.role,
       })),
       lastMessage: conversation.messages[0]
         ? this.serializeMessage(conversation.messages[0])
@@ -561,7 +579,10 @@ export class ConversationsService {
   private async assertActiveParticipant(
     accountId: string,
     conversationId: string,
-  ): Promise<void> {
+  ): Promise<{
+    joinedAt: Date;
+    role: ConversationParticipantRole;
+  }> {
     const participant = await this.prisma.conversationParticipant.findUnique({
       where: {
         conversationId_accountId: {
@@ -571,13 +592,163 @@ export class ConversationsService {
       },
 
       select: {
+        joinedAt: true,
         leftAt: true,
+        role: true,
       },
     });
 
     if (!participant || participant.leftAt !== null) {
       throw new NotFoundException('Conversation was not found.');
     }
+
+    return {
+      joinedAt: participant.joinedAt,
+      role: participant.role,
+    };
+  }
+
+  private async getActiveGroupAccess(
+    accountId: string,
+    conversationId: string,
+  ) {
+    const conversation = await this.prisma.conversation.findFirst({
+      where: {
+        id: conversationId,
+        type: ConversationType.GROUP,
+        participants: {
+          some: {
+            accountId,
+            leftAt: null,
+          },
+        },
+      },
+      select: {
+        id: true,
+        type: true,
+        groupKind: true,
+        createdByAccountId: true,
+        participants: {
+          where: {
+            leftAt: null,
+          },
+          orderBy: {
+            joinedAt: 'asc',
+          },
+          select: {
+            accountId: true,
+            role: true,
+            joinedAt: true,
+          },
+        },
+      },
+    });
+
+    if (!conversation) {
+      throw new NotFoundException('Group conversation was not found.');
+    }
+
+    const viewerParticipant = conversation.participants.find(
+      (participant) => participant.accountId === accountId,
+    );
+
+    if (!viewerParticipant) {
+      throw new NotFoundException('Group conversation was not found.');
+    }
+
+    return {
+      conversation,
+      viewerParticipant,
+    };
+  }
+
+  private assertGroupManager(
+    role: ConversationParticipantRole,
+  ): void {
+    if (
+      role !== ConversationParticipantRole.OWNER &&
+      role !== ConversationParticipantRole.ADMIN
+    ) {
+      throw new ForbiddenException(
+        'Only a group owner or administrator can manage this group.',
+      );
+    }
+  }
+
+  private async getEligibleGroupAccounts(
+    viewer: MessagingViewer,
+    requestedAccountIds: string[],
+  ): Promise<MessagingAccountRecord[]> {
+    const accountIds = [...new Set(requestedAccountIds)];
+
+    if (accountIds.includes(viewer.accountId)) {
+      throw new BadRequestException(
+        'The current account is already included in the group.',
+      );
+    }
+
+    const accounts = await this.prisma.account.findMany({
+      where: {
+        id: {
+          in: accountIds,
+        },
+      },
+      select: messagingAccountSelect,
+    });
+
+    if (
+      accounts.length !== accountIds.length ||
+      accounts.some(
+        (account) =>
+          !account.isEnabled ||
+          !this.isActiveEmployeeAccount(account),
+      )
+    ) {
+      throw new BadRequestException(
+        'One or more selected group members are unavailable.',
+      );
+    }
+
+    if (viewer.role === AccountRole.SUPER_ADMIN) {
+      return accounts;
+    }
+
+    const participantKeys = accounts.map((account) =>
+      this.buildPrivateParticipantKey(viewer.accountId, account.id),
+    );
+    const existingConversations = await this.prisma.conversation.findMany({
+      where: {
+        privateParticipantKey: {
+          in: participantKeys,
+        },
+      },
+      select: {
+        privateParticipantKey: true,
+      },
+    });
+    const directKeys = new Set(
+      existingConversations
+        .map((conversation) => conversation.privateParticipantKey)
+        .filter((value): value is string => Boolean(value)),
+    );
+
+    for (const account of accounts) {
+      const key = this.buildPrivateParticipantKey(
+        viewer.accountId,
+        account.id,
+      );
+
+      if (
+        this.getMessageRequestReason(viewer, account) !== null &&
+        !directKeys.has(key)
+      ) {
+        throw new ForbiddenException(
+          `${this.serializeAccount(account).displayName} cannot be added before first-contact approval is completed.`,
+        );
+      }
+    }
+
+    return accounts;
   }
 
   async getActiveParticipantAccountIds(
@@ -1137,6 +1308,567 @@ export class ConversationsService {
     };
   }
 
+  async createGroupConversation(
+    user: AuthenticatedUser,
+    dto: CreateGroupConversationDto,
+  ) {
+    const viewer = await this.getMessagingViewer(user);
+    const title = dto.title.trim();
+    const description = dto.description?.trim() || null;
+
+    if (!title) {
+      throw new BadRequestException('Group name cannot be empty.');
+    }
+
+    const members = await this.getEligibleGroupAccounts(
+      viewer,
+      dto.memberAccountIds,
+    );
+    const participantAccountIds = [
+      viewer.accountId,
+      ...members.map((member) => member.id),
+    ];
+
+    const conversationId = await this.prisma.$transaction(
+      async (transaction) => {
+        const conversation = await transaction.conversation.create({
+          data: {
+            type: ConversationType.GROUP,
+            title,
+            description,
+            groupKind: GroupKind.PERSONAL,
+            createdByAccountId: viewer.accountId,
+            participants: {
+              create: [
+                {
+                  accountId: viewer.accountId,
+                  role: ConversationParticipantRole.OWNER,
+                },
+                ...members.map((member) => ({
+                  accountId: member.id,
+                  role: ConversationParticipantRole.MEMBER,
+                })),
+              ],
+            },
+          },
+          select: {
+            id: true,
+          },
+        });
+
+        return conversation.id;
+      },
+    );
+
+    const conversation = await this.getConversationRecord(conversationId);
+    const now = new Date();
+
+    this.messagingEventsService.emitConversationUpdated(
+      participantAccountIds,
+      {
+        conversationId,
+        reason: 'GROUP_CREATED',
+        occurredAt: now.toISOString(),
+      },
+    );
+
+    return {
+      message: 'Group created successfully.',
+      data: this.serializeConversation(
+        conversation,
+        viewer.accountId,
+        0,
+      ),
+    };
+  }
+
+  async updateGroupConversation(
+    user: AuthenticatedUser,
+    conversationId: string,
+    dto: UpdateGroupConversationDto,
+  ) {
+    const viewer = await this.getMessagingViewer(user);
+    const access = await this.getActiveGroupAccess(
+      viewer.accountId,
+      conversationId,
+    );
+
+    this.assertGroupManager(access.viewerParticipant.role);
+
+    if (
+      access.conversation.groupKind === GroupKind.OFFICIAL &&
+      viewer.role !== AccountRole.SUPER_ADMIN
+    ) {
+      throw new ForbiddenException(
+        'Only the Super Admin can change an official group.',
+      );
+    }
+
+    if (dto.title === undefined && dto.description === undefined) {
+      throw new BadRequestException(
+        'Provide a group name or description to update.',
+      );
+    }
+
+    const title = dto.title?.trim();
+
+    if (dto.title !== undefined && !title) {
+      throw new BadRequestException('Group name cannot be empty.');
+    }
+
+    await this.prisma.conversation.update({
+      where: {
+        id: conversationId,
+      },
+      data: {
+        ...(title !== undefined ? { title } : {}),
+        ...(dto.description !== undefined
+          ? {
+              description: dto.description.trim() || null,
+            }
+          : {}),
+      },
+    });
+
+    const conversation = await this.getConversationRecord(conversationId);
+    const participantAccountIds = access.conversation.participants.map(
+      (participant) => participant.accountId,
+    );
+
+    this.messagingEventsService.emitConversationUpdated(
+      participantAccountIds,
+      {
+        conversationId,
+        reason: 'GROUP_UPDATED',
+        occurredAt: new Date().toISOString(),
+      },
+    );
+
+    return {
+      message: 'Group details updated successfully.',
+      data: this.serializeConversation(
+        conversation,
+        viewer.accountId,
+        0,
+      ),
+    };
+  }
+
+  async addGroupMembers(
+    user: AuthenticatedUser,
+    conversationId: string,
+    dto: AddGroupMembersDto,
+  ) {
+    const viewer = await this.getMessagingViewer(user);
+    const access = await this.getActiveGroupAccess(
+      viewer.accountId,
+      conversationId,
+    );
+
+    this.assertGroupManager(access.viewerParticipant.role);
+
+    if (
+      access.conversation.groupKind === GroupKind.OFFICIAL &&
+      viewer.role !== AccountRole.SUPER_ADMIN
+    ) {
+      throw new ForbiddenException(
+        'Only the Super Admin can manage an official group.',
+      );
+    }
+
+    const activeAccountIds = new Set(
+      access.conversation.participants.map(
+        (participant) => participant.accountId,
+      ),
+    );
+    const requestedAccountIds = [...new Set(dto.memberAccountIds)].filter(
+      (accountId) => !activeAccountIds.has(accountId),
+    );
+
+    if (requestedAccountIds.length === 0) {
+      const conversation = await this.getConversationRecord(conversationId);
+
+      return {
+        message: 'The selected accounts are already group members.',
+        addedCount: 0,
+        data: this.serializeConversation(
+          conversation,
+          viewer.accountId,
+          0,
+        ),
+      };
+    }
+
+    if (
+      access.conversation.participants.length +
+        requestedAccountIds.length >
+      100
+    ) {
+      throw new BadRequestException(
+        'A personal group can contain at most 100 active members.',
+      );
+    }
+
+    const members = await this.getEligibleGroupAccounts(
+      viewer,
+      requestedAccountIds,
+    );
+    const now = new Date();
+
+    await this.prisma.$transaction(async (transaction) => {
+      for (const member of members) {
+        await transaction.conversationParticipant.upsert({
+          where: {
+            conversationId_accountId: {
+              conversationId,
+              accountId: member.id,
+            },
+          },
+          update: {
+            joinedAt: now,
+            leftAt: null,
+            role: ConversationParticipantRole.MEMBER,
+            isArchived: false,
+          },
+          create: {
+            conversationId,
+            accountId: member.id,
+            joinedAt: now,
+            role: ConversationParticipantRole.MEMBER,
+          },
+        });
+      }
+
+      await transaction.conversation.update({
+        where: {
+          id: conversationId,
+        },
+        data: {
+          updatedAt: now,
+        },
+      });
+    });
+
+    const conversation = await this.getConversationRecord(conversationId);
+    const participantAccountIds = [
+      ...access.conversation.participants.map(
+        (participant) => participant.accountId,
+      ),
+      ...members.map((member) => member.id),
+    ];
+
+    this.messagingEventsService.emitConversationUpdated(
+      participantAccountIds,
+      {
+        conversationId,
+        reason: 'MEMBERS_CHANGED',
+        occurredAt: now.toISOString(),
+      },
+    );
+
+    return {
+      message: `${members.length} member${members.length === 1 ? '' : 's'} added successfully.`,
+      addedCount: members.length,
+      data: this.serializeConversation(
+        conversation,
+        viewer.accountId,
+        0,
+      ),
+    };
+  }
+
+  async updateGroupMemberRole(
+    user: AuthenticatedUser,
+    conversationId: string,
+    accountId: string,
+    dto: UpdateGroupMemberRoleDto,
+  ) {
+    const viewer = await this.getMessagingViewer(user);
+    const access = await this.getActiveGroupAccess(
+      viewer.accountId,
+      conversationId,
+    );
+
+    if (
+      access.viewerParticipant.role !==
+      ConversationParticipantRole.OWNER
+    ) {
+      throw new ForbiddenException(
+        'Only the group owner can change administrator roles.',
+      );
+    }
+
+    const target = access.conversation.participants.find(
+      (participant) => participant.accountId === accountId,
+    );
+
+    if (!target) {
+      throw new NotFoundException('Group member was not found.');
+    }
+
+    if (target.role === ConversationParticipantRole.OWNER) {
+      throw new ForbiddenException(
+        'The group owner role cannot be changed here.',
+      );
+    }
+
+    const role =
+      dto.role === 'ADMIN'
+        ? ConversationParticipantRole.ADMIN
+        : ConversationParticipantRole.MEMBER;
+
+    await this.prisma.$transaction([
+      this.prisma.conversationParticipant.update({
+        where: {
+          conversationId_accountId: {
+            conversationId,
+            accountId,
+          },
+        },
+        data: {
+          role,
+        },
+      }),
+      this.prisma.conversation.update({
+        where: {
+          id: conversationId,
+        },
+        data: {
+          updatedAt: new Date(),
+        },
+      }),
+    ]);
+
+    const conversation = await this.getConversationRecord(conversationId);
+    const participantAccountIds = access.conversation.participants.map(
+      (participant) => participant.accountId,
+    );
+
+    this.messagingEventsService.emitConversationUpdated(
+      participantAccountIds,
+      {
+        conversationId,
+        reason: 'MEMBERS_CHANGED',
+        occurredAt: new Date().toISOString(),
+      },
+    );
+
+    return {
+      message:
+        role === ConversationParticipantRole.ADMIN
+          ? 'Member promoted to group administrator.'
+          : 'Group administrator changed to member.',
+      data: this.serializeConversation(
+        conversation,
+        viewer.accountId,
+        0,
+      ),
+    };
+  }
+
+  async removeGroupMember(
+    user: AuthenticatedUser,
+    conversationId: string,
+    accountId: string,
+  ) {
+    const viewer = await this.getMessagingViewer(user);
+    const access = await this.getActiveGroupAccess(
+      viewer.accountId,
+      conversationId,
+    );
+
+    this.assertGroupManager(access.viewerParticipant.role);
+
+    if (accountId === viewer.accountId) {
+      throw new BadRequestException(
+        'Use the leave-group action to remove your own account.',
+      );
+    }
+
+    const target = access.conversation.participants.find(
+      (participant) => participant.accountId === accountId,
+    );
+
+    if (!target) {
+      throw new NotFoundException('Group member was not found.');
+    }
+
+    if (target.role === ConversationParticipantRole.OWNER) {
+      throw new ForbiddenException('The group owner cannot be removed.');
+    }
+
+    if (
+      access.viewerParticipant.role ===
+        ConversationParticipantRole.ADMIN &&
+      target.role === ConversationParticipantRole.ADMIN
+    ) {
+      throw new ForbiddenException(
+        'Only the group owner can remove another administrator.',
+      );
+    }
+
+    const now = new Date();
+
+    await this.prisma.$transaction([
+      this.prisma.conversationParticipant.update({
+        where: {
+          conversationId_accountId: {
+            conversationId,
+            accountId,
+          },
+        },
+        data: {
+          leftAt: now,
+          role: ConversationParticipantRole.MEMBER,
+          isArchived: true,
+        },
+      }),
+      this.prisma.conversation.update({
+        where: {
+          id: conversationId,
+        },
+        data: {
+          updatedAt: now,
+        },
+      }),
+    ]);
+
+    const participantAccountIds = access.conversation.participants.map(
+      (participant) => participant.accountId,
+    );
+
+    this.messagingEventsService.emitConversationUpdated(
+      participantAccountIds,
+      {
+        conversationId,
+        reason: 'MEMBERS_CHANGED',
+        occurredAt: now.toISOString(),
+      },
+    );
+
+    return {
+      message: 'Member removed from the group.',
+      conversationId,
+      accountId,
+      removedAt: now,
+    };
+  }
+
+  async leaveGroupConversation(
+    user: AuthenticatedUser,
+    conversationId: string,
+  ) {
+    const viewer = await this.getMessagingViewer(user);
+    const access = await this.getActiveGroupAccess(
+      viewer.accountId,
+      conversationId,
+    );
+    const now = new Date();
+    let newOwnerAccountId: string | null = null;
+
+    if (
+      access.viewerParticipant.role ===
+      ConversationParticipantRole.OWNER
+    ) {
+      const successor =
+        access.conversation.participants.find(
+          (participant) =>
+            participant.accountId !== viewer.accountId &&
+            participant.role === ConversationParticipantRole.ADMIN,
+        ) ??
+        access.conversation.participants.find(
+          (participant) => participant.accountId !== viewer.accountId,
+        );
+
+      if (!successor) {
+        throw new ConflictException(
+          'The only remaining group member cannot leave the group.',
+        );
+      }
+
+      newOwnerAccountId = successor.accountId;
+
+      await this.prisma.$transaction(async (transaction) => {
+        await transaction.conversationParticipant.update({
+          where: {
+            conversationId_accountId: {
+              conversationId,
+              accountId: viewer.accountId,
+            },
+          },
+          data: {
+            leftAt: now,
+            role: ConversationParticipantRole.MEMBER,
+            isArchived: true,
+          },
+        });
+
+        await transaction.conversationParticipant.update({
+          where: {
+            conversationId_accountId: {
+              conversationId,
+              accountId: successor.accountId,
+            },
+          },
+          data: {
+            role: ConversationParticipantRole.OWNER,
+          },
+        });
+
+        await transaction.conversation.update({
+          where: {
+            id: conversationId,
+          },
+          data: {
+            updatedAt: now,
+          },
+        });
+      });
+    } else {
+      await this.prisma.$transaction([
+        this.prisma.conversationParticipant.update({
+          where: {
+            conversationId_accountId: {
+              conversationId,
+              accountId: viewer.accountId,
+            },
+          },
+          data: {
+            leftAt: now,
+            role: ConversationParticipantRole.MEMBER,
+            isArchived: true,
+          },
+        }),
+        this.prisma.conversation.update({
+          where: {
+            id: conversationId,
+          },
+          data: {
+            updatedAt: now,
+          },
+        }),
+      ]);
+    }
+
+    this.messagingEventsService.emitConversationUpdated(
+      access.conversation.participants.map(
+        (participant) => participant.accountId,
+      ),
+      {
+        conversationId,
+        reason: 'LEFT',
+        occurredAt: now.toISOString(),
+      },
+    );
+
+    return {
+      message: 'You left the group.',
+      conversationId,
+      leftAt: now,
+      newOwnerAccountId,
+    };
+  }
+
   async createPrivateConversation(
     user: AuthenticatedUser,
     dto: CreatePrivateConversationDto,
@@ -1648,16 +2380,27 @@ export class ConversationsService {
 
     const [unreadCounts, visibleLastMessages] = await Promise.all([
       Promise.all(
-        conversationIds.map((conversationId) =>
-          this.prisma.messageReceipt.count({
+        page.map((conversation) => {
+          const joinedAt = conversation.participants.find(
+            (participant) => participant.accountId === viewer.accountId,
+          )?.joinedAt;
+
+          return this.prisma.messageReceipt.count({
             where: {
               accountId: viewer.accountId,
               readAt: null,
 
               message: {
                 is: {
-                  conversationId,
+                  conversationId: conversation.id,
                   deletedAt: null,
+                  ...(joinedAt
+                    ? {
+                        sentAt: {
+                          gte: joinedAt,
+                        },
+                      }
+                    : {}),
                   hiddenForAccounts: {
                     none: {
                       accountId: viewer.accountId,
@@ -1666,14 +2409,25 @@ export class ConversationsService {
                 },
               },
             },
-          }),
-        ),
+          });
+        }),
       ),
       Promise.all(
-        conversationIds.map((conversationId) =>
-          this.prisma.message.findFirst({
+        page.map((conversation) => {
+          const joinedAt = conversation.participants.find(
+            (participant) => participant.accountId === viewer.accountId,
+          )?.joinedAt;
+
+          return this.prisma.message.findFirst({
             where: {
-              conversationId,
+              conversationId: conversation.id,
+              ...(joinedAt
+                ? {
+                    sentAt: {
+                      gte: joinedAt,
+                    },
+                  }
+                : {}),
               hiddenForAccounts: {
                 none: {
                   accountId: viewer.accountId,
@@ -1689,8 +2443,8 @@ export class ConversationsService {
               },
             ],
             select: messageSelect,
-          }),
-        ),
+          });
+        }),
       ),
     ]);
 
@@ -1727,7 +2481,7 @@ export class ConversationsService {
   ) {
     const viewer = await this.getMessagingViewer(user);
 
-    await this.assertActiveParticipant(
+    const viewerParticipant = await this.assertActiveParticipant(
       viewer.accountId,
       conversationId,
     );
@@ -1740,6 +2494,9 @@ export class ConversationsService {
     const messages = await this.prisma.message.findMany({
       where: {
         conversationId,
+        sentAt: {
+          gte: viewerParticipant.joinedAt,
+        },
         hiddenForAccounts: {
           none: {
             accountId: viewer.accountId,

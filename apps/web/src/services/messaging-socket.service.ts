@@ -51,7 +51,13 @@ export interface MessagingReceiptUpdatedPayload {
 
 export interface MessagingConversationUpdatedPayload {
   conversationId: string;
-  reason: "CREATED" | "REOPENED";
+  reason:
+    | "CREATED"
+    | "REOPENED"
+    | "GROUP_CREATED"
+    | "GROUP_UPDATED"
+    | "MEMBERS_CHANGED"
+    | "LEFT";
   occurredAt: string;
 }
 

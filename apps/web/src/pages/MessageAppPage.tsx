@@ -15,19 +15,25 @@ import { DirectoryButton } from "../components/DirectoryButton";
 import { useAuth } from "../context/AuthContext";
 import {
   acceptMessageRequest,
+  addGroupMembers,
   blockMessageRequest,
+  createGroupConversation,
   createPrivateConversation,
   declineMessageRequest,
   deleteConversationMessage,
   deleteConversationMessageForMe,
   editConversationTextMessage,
   forwardConversationTextMessage,
+  leaveGroupConversation,
   listConversationMessages,
   listMessageRequests,
   listMessagingConversations,
   markConversationRead,
+  removeGroupMember,
   searchMessagingContacts,
   sendConversationTextMessage,
+  updateGroupConversation,
+  updateGroupMemberRole,
 } from "../services/messaging.service";
 import {
   createMessagingSocket,
@@ -332,6 +338,18 @@ export function MessageAppPage() {
   const [forwardClientId, setForwardClientId] = useState<string | null>(null);
   const [forwardSubmitting, setForwardSubmitting] = useState(false);
   const [newConversationOpen, setNewConversationOpen] = useState(false);
+  const [groupDialogMode, setGroupDialogMode] = useState<
+    "CREATE" | "MANAGE" | null
+  >(null);
+  const [groupTitle, setGroupTitle] = useState("");
+  const [groupDescription, setGroupDescription] = useState("");
+  const [groupSearch, setGroupSearch] = useState("");
+  const [groupContacts, setGroupContacts] = useState<MessagingContact[]>([]);
+  const [groupSelectedAccountIds, setGroupSelectedAccountIds] = useState<string[]>([]);
+  const [groupContactsLoading, setGroupContactsLoading] = useState(false);
+  const [groupSubmitting, setGroupSubmitting] = useState(false);
+  const [groupActionAccountId, setGroupActionAccountId] = useState<string | null>(null);
+  const [groupError, setGroupError] = useState<string | null>(null);
   const [contactSearch, setContactSearch] = useState("");
   const [contacts, setContacts] = useState<MessagingContact[]>([]);
   const [contactsLoading, setContactsLoading] = useState(false);
@@ -1053,6 +1071,44 @@ export function MessageAppPage() {
     };
   }, [accessToken, contactSearch, newConversationOpen]);
 
+  useEffect(() => {
+    if (!groupDialogMode || !accessToken) {
+      return undefined;
+    }
+
+    let active = true;
+    const timer = window.setTimeout(() => {
+      setGroupContactsLoading(true);
+
+      searchMessagingContacts(accessToken, groupSearch, 50)
+        .then((response) => {
+          if (active) {
+            setGroupContacts(response.data);
+            setGroupError(null);
+          }
+        })
+        .catch((error) => {
+          if (active) {
+            setGroupError(
+              error instanceof Error
+                ? error.message
+                : "Group contacts could not be loaded.",
+            );
+          }
+        })
+        .finally(() => {
+          if (active) {
+            setGroupContactsLoading(false);
+          }
+        });
+    }, 250);
+
+    return () => {
+      active = false;
+      window.clearTimeout(timer);
+    };
+  }, [accessToken, groupDialogMode, groupSearch]);
+
   async function handleLogout(): Promise<void> {
     setLoggingOut(true);
 
@@ -1063,6 +1119,285 @@ export function MessageAppPage() {
       });
     } finally {
       setLoggingOut(false);
+    }
+  }
+
+  function openCreateGroup(): void {
+    setNewConversationOpen(false);
+    setRequestDialogOpen(false);
+    setGroupDialogMode("CREATE");
+    setGroupTitle("");
+    setGroupDescription("");
+    setGroupSearch("");
+    setGroupContacts([]);
+    setGroupSelectedAccountIds([]);
+    setGroupError(null);
+  }
+
+  function openManageGroup(): void {
+    if (!selectedConversation || selectedConversation.type !== "GROUP") {
+      return;
+    }
+
+    setGroupDialogMode("MANAGE");
+    setGroupTitle(selectedConversation.title ?? "");
+    setGroupDescription(selectedConversation.description ?? "");
+    setGroupSearch("");
+    setGroupContacts([]);
+    setGroupSelectedAccountIds([]);
+    setGroupError(null);
+  }
+
+  function closeGroupDialog(): void {
+    if (groupSubmitting || groupActionAccountId) {
+      return;
+    }
+
+    setGroupDialogMode(null);
+    setGroupSelectedAccountIds([]);
+    setGroupSearch("");
+    setGroupError(null);
+  }
+
+  function toggleGroupMember(accountId: string): void {
+    setGroupSelectedAccountIds((current) => (
+      current.includes(accountId)
+        ? current.filter((value) => value !== accountId)
+        : [...current, accountId]
+    ));
+  }
+
+  function replaceConversation(conversation: MessagingConversation): void {
+    setConversations((current) => {
+      const remaining = current.filter(
+        (item) => item.id !== conversation.id,
+      );
+
+      return [conversation, ...remaining];
+    });
+  }
+
+  async function handleCreateGroup(): Promise<void> {
+    if (
+      !accessToken ||
+      !groupTitle.trim() ||
+      groupSelectedAccountIds.length === 0 ||
+      groupSubmitting
+    ) {
+      return;
+    }
+
+    setGroupSubmitting(true);
+    setGroupError(null);
+
+    try {
+      const response = await createGroupConversation(
+        accessToken,
+        groupTitle.trim(),
+        groupDescription.trim(),
+        groupSelectedAccountIds,
+      );
+
+      replaceConversation(response.data);
+      setSelectedConversationId(response.data.id);
+      setMessageNotice(response.message);
+      setGroupDialogMode(null);
+      await loadConversations(true, response.data.id);
+    } catch (error) {
+      setGroupError(
+        error instanceof Error
+          ? error.message
+          : "The group could not be created.",
+      );
+    } finally {
+      setGroupSubmitting(false);
+    }
+  }
+
+  async function handleSaveGroupDetails(): Promise<void> {
+    if (
+      !accessToken ||
+      !selectedConversation ||
+      selectedConversation.type !== "GROUP" ||
+      !groupTitle.trim() ||
+      groupSubmitting
+    ) {
+      return;
+    }
+
+    setGroupSubmitting(true);
+    setGroupError(null);
+
+    try {
+      const response = await updateGroupConversation(
+        accessToken,
+        selectedConversation.id,
+        {
+          title: groupTitle.trim(),
+          description: groupDescription.trim(),
+        },
+      );
+
+      replaceConversation(response.data);
+      setMessageNotice(response.message);
+    } catch (error) {
+      setGroupError(
+        error instanceof Error
+          ? error.message
+          : "The group details could not be updated.",
+      );
+    } finally {
+      setGroupSubmitting(false);
+    }
+  }
+
+  async function handleAddGroupMembers(): Promise<void> {
+    if (
+      !accessToken ||
+      !selectedConversation ||
+      selectedConversation.type !== "GROUP" ||
+      groupSelectedAccountIds.length === 0 ||
+      groupSubmitting
+    ) {
+      return;
+    }
+
+    setGroupSubmitting(true);
+    setGroupError(null);
+
+    try {
+      const response = await addGroupMembers(
+        accessToken,
+        selectedConversation.id,
+        groupSelectedAccountIds,
+      );
+
+      replaceConversation(response.data);
+      setGroupSelectedAccountIds([]);
+      setGroupSearch("");
+      setMessageNotice(response.message);
+    } catch (error) {
+      setGroupError(
+        error instanceof Error
+          ? error.message
+          : "The selected members could not be added.",
+      );
+    } finally {
+      setGroupSubmitting(false);
+    }
+  }
+
+  async function handleGroupRoleChange(
+    accountId: string,
+    role: "ADMIN" | "MEMBER",
+  ): Promise<void> {
+    if (
+      !accessToken ||
+      !selectedConversation ||
+      selectedConversation.type !== "GROUP" ||
+      groupActionAccountId
+    ) {
+      return;
+    }
+
+    setGroupActionAccountId(accountId);
+    setGroupError(null);
+
+    try {
+      const response = await updateGroupMemberRole(
+        accessToken,
+        selectedConversation.id,
+        accountId,
+        role,
+      );
+
+      replaceConversation(response.data);
+      setMessageNotice(response.message);
+    } catch (error) {
+      setGroupError(
+        error instanceof Error
+          ? error.message
+          : "The member role could not be changed.",
+      );
+    } finally {
+      setGroupActionAccountId(null);
+    }
+  }
+
+  async function handleRemoveGroupMember(
+    accountId: string,
+  ): Promise<void> {
+    if (
+      !accessToken ||
+      !selectedConversation ||
+      selectedConversation.type !== "GROUP" ||
+      groupActionAccountId
+    ) {
+      return;
+    }
+
+    if (!window.confirm("Remove this member from the group?")) {
+      return;
+    }
+
+    setGroupActionAccountId(accountId);
+    setGroupError(null);
+
+    try {
+      const response = await removeGroupMember(
+        accessToken,
+        selectedConversation.id,
+        accountId,
+      );
+
+      setMessageNotice(response.message);
+      await loadConversations(true, selectedConversation.id);
+    } catch (error) {
+      setGroupError(
+        error instanceof Error
+          ? error.message
+          : "The member could not be removed.",
+      );
+    } finally {
+      setGroupActionAccountId(null);
+    }
+  }
+
+  async function handleLeaveGroup(): Promise<void> {
+    if (
+      !accessToken ||
+      !selectedConversation ||
+      selectedConversation.type !== "GROUP" ||
+      groupSubmitting
+    ) {
+      return;
+    }
+
+    if (!window.confirm("Leave this group?")) {
+      return;
+    }
+
+    setGroupSubmitting(true);
+    setGroupError(null);
+
+    try {
+      const response = await leaveGroupConversation(
+        accessToken,
+        selectedConversation.id,
+      );
+
+      setMessageNotice(response.message);
+      setGroupDialogMode(null);
+      setSelectedConversationId(null);
+      await loadConversations(true);
+    } catch (error) {
+      setGroupError(
+        error instanceof Error
+          ? error.message
+          : "The group could not be left.",
+      );
+    } finally {
+      setGroupSubmitting(false);
     }
   }
 
@@ -1636,26 +1971,45 @@ export function MessageAppPage() {
           ? "Real-time connecting"
           : "Real-time offline";
 
-  const peer = selectedConversation?.participants.find(
-    (participant) => participant.accountId !== account?.id,
-  ) ?? null;
+  const peer = selectedConversation?.type === "PRIVATE"
+    ? selectedConversation.participants.find(
+        (participant) => participant.accountId !== account?.id,
+      ) ?? null
+    : null;
   const peerPresence = peer
     ? presenceByAccountId[peer.accountId]
     : undefined;
-  const peerIsTyping = Boolean(
-    peer &&
-    selectedConversationId &&
-    typingByConversation[selectedConversationId]?.includes(
-      peer.accountId,
-    ),
+  const typingAccountIds = selectedConversationId
+    ? typingByConversation[selectedConversationId] ?? []
+    : [];
+  const typingParticipants = selectedConversation?.participants.filter(
+    (participant) =>
+      participant.accountId !== account?.id &&
+      typingAccountIds.includes(participant.accountId),
+  ) ?? [];
+  const peerActivityLabel = selectedConversation?.type === "GROUP"
+    ? typingParticipants.length > 0
+      ? `${typingParticipants
+          .slice(0, 2)
+          .map((participant) => participant.displayName)
+          .join(", ")}${typingParticipants.length > 2 ? " and others" : ""} typing…`
+      : `${selectedConversation.memberCount} members`
+    : typingParticipants.length > 0
+      ? "Typing…"
+      : peerPresence?.isOnline
+        ? "Online"
+        : peerPresence?.lastSeenAt
+          ? formatLastSeen(peerPresence.lastSeenAt)
+          : "Offline";
+
+  const selectedGroupMemberIds = new Set(
+    groupDialogMode === "MANAGE" &&
+    selectedConversation?.type === "GROUP"
+      ? selectedConversation.participants.map(
+          (participant) => participant.accountId,
+        )
+      : [],
   );
-  const peerActivityLabel = peerIsTyping
-    ? "Typing…"
-    : peerPresence?.isOnline
-      ? "Online"
-      : peerPresence?.lastSeenAt
-        ? formatLastSeen(peerPresence.lastSeenAt)
-        : "Offline";
 
   return (
     <main className="message-app-shell">
@@ -1729,6 +2083,14 @@ export function MessageAppPage() {
 
               <button
                 type="button"
+                className="message-group-new-button"
+                onClick={openCreateGroup}
+              >
+                Group
+              </button>
+
+              <button
+                type="button"
                 className="message-new-button"
                 onClick={openNewConversation}
                 aria-label="Start a new private conversation"
@@ -1789,7 +2151,7 @@ export function MessageAppPage() {
                 <div className="message-empty-icon">M</div>
                 <h2>No conversations found</h2>
                 <p>
-                  Start a private conversation with an eligible NT account.
+                  Start a private conversation or create a personal group.
                 </p>
                 <button
                   type="button"
@@ -1800,9 +2162,11 @@ export function MessageAppPage() {
               </div>
             ) : (
               filteredConversations.map((conversation) => {
-                const conversationPeer = conversation.participants.find(
-                  (participant) => participant.accountId !== account?.id,
-                );
+                const conversationPeer = conversation.type === "PRIVATE"
+                  ? conversation.participants.find(
+                      (participant) => participant.accountId !== account?.id,
+                    )
+                  : undefined;
                 const title = conversation.title ?? "Private conversation";
 
                 return (
@@ -1855,8 +2219,14 @@ export function MessageAppPage() {
                       </span>
 
                       <span className="message-conversation-meta">
-                        {conversationPeer?.employee?.designation ??
-                          roleLabel(conversationPeer?.role ?? "EMPLOYEE")}
+                        {conversation.type === "GROUP"
+                          ? `${conversation.memberCount} members · ${
+                              conversation.groupKind === "OFFICIAL"
+                                ? "Official group"
+                                : "Personal group"
+                            }`
+                          : conversationPeer?.employee?.designation ??
+                            roleLabel(conversationPeer?.role ?? "EMPLOYEE")}
                       </span>
                     </span>
                   </button>
@@ -1870,10 +2240,10 @@ export function MessageAppPage() {
           {!selectedConversation ? (
             <div className="message-welcome-state">
               <div className="message-welcome-mark">NT</div>
-              <span>Private messaging</span>
+              <span>Secure messaging</span>
               <h2>Select a conversation</h2>
               <p>
-                Choose an existing conversation or start a new secure message.
+                Choose a private conversation or group, or start a new secure message.
               </p>
               <button
                 type="button"
@@ -1899,12 +2269,13 @@ export function MessageAppPage() {
                     {initials(selectedConversation.title ?? "NT")}
                   </span>
 
-                  {peerPresence?.isOnline && (
-                    <span
-                      className="message-presence-dot"
-                      aria-label={`${selectedConversation.title ?? "Contact"} is online`}
-                    />
-                  )}
+                  {selectedConversation.type === "PRIVATE" &&
+                    peerPresence?.isOnline && (
+                      <span
+                        className="message-presence-dot"
+                        aria-label={`${selectedConversation.title ?? "Contact"} is online`}
+                      />
+                    )}
                 </span>
 
                 <div>
@@ -1912,16 +2283,25 @@ export function MessageAppPage() {
                     {selectedConversation.title ?? "Private conversation"}
                   </h2>
                   <p>
-                    {peer?.employee?.designation ?? roleLabel(peer?.role ?? "EMPLOYEE")}
-                    {peer?.employee?.department?.name
-                      ? ` · ${peer.employee.department.name}`
-                      : peer?.employee?.division?.name
-                        ? ` · ${peer.employee.division.name}`
-                        : ""}
+                    {selectedConversation.type === "GROUP"
+                      ? selectedConversation.description ||
+                        (selectedConversation.groupKind === "OFFICIAL"
+                          ? "Official organizational group"
+                          : "Personal group")
+                      : `${
+                          peer?.employee?.designation ??
+                          roleLabel(peer?.role ?? "EMPLOYEE")
+                        }${
+                          peer?.employee?.department?.name
+                            ? ` · ${peer.employee.department.name}`
+                            : peer?.employee?.division?.name
+                              ? ` · ${peer.employee.division.name}`
+                              : ""
+                        }`}
                   </p>
                   <small
                     className={`message-peer-activity${
-                      peerIsTyping
+                      typingParticipants.length > 0
                         ? " typing"
                         : peerPresence?.isOnline
                           ? " online"
@@ -1933,9 +2313,19 @@ export function MessageAppPage() {
                   </small>
                 </div>
 
-                <span className="message-private-badge">
-                  Private
-                </span>
+                {selectedConversation.type === "GROUP" ? (
+                  <button
+                    type="button"
+                    className="message-group-info-button"
+                    onClick={openManageGroup}
+                  >
+                    Group info
+                  </button>
+                ) : (
+                  <span className="message-private-badge">
+                    Private
+                  </span>
+                )}
               </header>
 
               {messageError && (
@@ -1991,7 +2381,7 @@ export function MessageAppPage() {
                     <div className="message-empty-icon">Hi</div>
                     <h3>Start the conversation</h3>
                     <p>
-                      Send the first private message to {selectedConversation.title}.
+                      Send the first message to {selectedConversation.title}.
                     </p>
                   </div>
                 ) : (
@@ -2140,13 +2530,13 @@ export function MessageAppPage() {
                   })
                 )}
 
-                {peerIsTyping && peer && (
+                {typingParticipants.length > 0 && (
                   <div
                     className="message-typing-indicator"
                     aria-live="polite"
                   >
                     <span className="message-avatar small">
-                      {initials(peer.displayName)}
+                      {initials(typingParticipants[0].displayName)}
                     </span>
                     <span className="message-typing-bubble">
                       <span aria-hidden="true">
@@ -2154,7 +2544,7 @@ export function MessageAppPage() {
                         <i />
                         <i />
                       </span>
-                      <small>{peer.displayName} is typing</small>
+                      <small>{peerActivityLabel}</small>
                     </span>
                   </div>
                 )}
@@ -2348,6 +2738,322 @@ export function MessageAppPage() {
                 ))
               )}
             </div>
+          </section>
+        </div>
+      )}
+
+      {groupDialogMode && (
+        <div
+          className="message-contact-backdrop"
+          role="presentation"
+          onMouseDown={(event) => {
+            if (event.currentTarget === event.target) {
+              closeGroupDialog();
+            }
+          }}
+        >
+          <section
+            className="message-contact-dialog message-group-dialog"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="group-dialog-title"
+          >
+            <header>
+              <div>
+                <span>
+                  {groupDialogMode === "CREATE"
+                    ? "Personal group"
+                    : "Group settings"}
+                </span>
+                <h2 id="group-dialog-title">
+                  {groupDialogMode === "CREATE"
+                    ? "Create a group"
+                    : selectedConversation?.title ?? "Group info"}
+                </h2>
+              </div>
+
+              <button
+                type="button"
+                onClick={closeGroupDialog}
+                disabled={groupSubmitting || groupActionAccountId !== null}
+                aria-label="Close group dialog"
+              >
+                ×
+              </button>
+            </header>
+
+            {groupError && (
+              <div className="message-inline-error compact">
+                <p>{groupError}</p>
+              </div>
+            )}
+
+            <div className="message-group-dialog-body">
+              {(groupDialogMode === "CREATE" ||
+                selectedConversation?.canManageGroup) && (
+                <section className="message-group-details">
+                  <label>
+                    <span>Group name</span>
+                    <input
+                      type="text"
+                      value={groupTitle}
+                      onChange={(event) => setGroupTitle(event.target.value)}
+                      maxLength={150}
+                      placeholder="Enter a group name"
+                      autoFocus={groupDialogMode === "CREATE"}
+                    />
+                  </label>
+
+                  <label>
+                    <span>Description</span>
+                    <textarea
+                      value={groupDescription}
+                      onChange={(event) => setGroupDescription(event.target.value)}
+                      maxLength={500}
+                      rows={2}
+                      placeholder="Optional group description"
+                    />
+                  </label>
+
+                  {groupDialogMode === "MANAGE" && (
+                    <button
+                      type="button"
+                      className="message-group-primary"
+                      onClick={() => void handleSaveGroupDetails()}
+                      disabled={!groupTitle.trim() || groupSubmitting}
+                    >
+                      {groupSubmitting ? "Saving..." : "Save group details"}
+                    </button>
+                  )}
+                </section>
+              )}
+
+              {groupDialogMode === "MANAGE" &&
+                selectedConversation?.type === "GROUP" && (
+                  <section className="message-group-members-section">
+                    <header>
+                      <h3>Members</h3>
+                      <span>{selectedConversation.memberCount}</span>
+                    </header>
+
+                    <div className="message-group-member-list">
+                      {selectedConversation.participants.map((participant) => {
+                        const isViewer = participant.accountId === account?.id;
+                        const viewerRole = selectedConversation.viewerParticipantRole;
+                        const canChangeRole =
+                          viewerRole === "OWNER" &&
+                          participant.participantRole !== "OWNER" &&
+                          !isViewer;
+                        const canRemove =
+                          selectedConversation.canManageGroup &&
+                          participant.participantRole !== "OWNER" &&
+                          !isViewer &&
+                          (viewerRole === "OWNER" ||
+                            participant.participantRole === "MEMBER");
+
+                        return (
+                          <article
+                            key={participant.accountId}
+                            className="message-group-member-row"
+                          >
+                            <span className="message-avatar small">
+                              {initials(participant.displayName)}
+                            </span>
+
+                            <span>
+                              <strong>
+                                {participant.displayName}
+                                {isViewer ? " (You)" : ""}
+                              </strong>
+                              <small>
+                                {participant.employee?.designation ??
+                                  roleLabel(participant.role)}
+                              </small>
+                            </span>
+
+                            <b>{roleLabel(participant.participantRole)}</b>
+
+                            {(canChangeRole || canRemove) && (
+                              <div className="message-group-member-actions">
+                                {canChangeRole && (
+                                  <button
+                                    type="button"
+                                    onClick={() => void handleGroupRoleChange(
+                                      participant.accountId,
+                                      participant.participantRole === "ADMIN"
+                                        ? "MEMBER"
+                                        : "ADMIN",
+                                    )}
+                                    disabled={groupActionAccountId !== null}
+                                  >
+                                    {groupActionAccountId === participant.accountId
+                                      ? "Working..."
+                                      : participant.participantRole === "ADMIN"
+                                        ? "Remove admin"
+                                        : "Make admin"}
+                                  </button>
+                                )}
+
+                                {canRemove && (
+                                  <button
+                                    type="button"
+                                    className="danger"
+                                    onClick={() => void handleRemoveGroupMember(
+                                      participant.accountId,
+                                    )}
+                                    disabled={groupActionAccountId !== null}
+                                  >
+                                    Remove
+                                  </button>
+                                )}
+                              </div>
+                            )}
+                          </article>
+                        );
+                      })}
+                    </div>
+                  </section>
+                )}
+
+              {(groupDialogMode === "CREATE" ||
+                selectedConversation?.canManageGroup) && (
+                <section className="message-group-add-section">
+                  <header>
+                    <h3>
+                      {groupDialogMode === "CREATE"
+                        ? "Choose members"
+                        : "Add members"}
+                    </h3>
+                    <span>{groupSelectedAccountIds.length} selected</span>
+                  </header>
+
+                  <label className="message-contact-search">
+                    <span>Search active NT accounts</span>
+                    <input
+                      type="search"
+                      value={groupSearch}
+                      onChange={(event) => setGroupSearch(event.target.value)}
+                      placeholder="Search by name, employee ID or designation"
+                    />
+                  </label>
+
+                  <div className="message-group-contact-list">
+                    {groupContactsLoading ? (
+                      <div className="message-list-state compact">
+                        <span className="message-small-spinner" />
+                        <p>Searching accounts...</p>
+                      </div>
+                    ) : groupContacts.length === 0 ? (
+                      <div className="message-list-state compact">
+                        <p>No matching active accounts.</p>
+                      </div>
+                    ) : (
+                      groupContacts.map((contact) => {
+                        const alreadyMember = selectedGroupMemberIds.has(
+                          contact.accountId,
+                        );
+                        const selected = groupSelectedAccountIds.includes(
+                          contact.accountId,
+                        );
+                        const eligible = contact.contactMode === "DIRECT";
+
+                        return (
+                          <label
+                            key={contact.accountId}
+                            className={`message-group-contact-row${
+                              selected ? " selected" : ""
+                            }${!eligible || alreadyMember ? " disabled" : ""}`}
+                          >
+                            <input
+                              type="checkbox"
+                              checked={selected}
+                              onChange={() => toggleGroupMember(contact.accountId)}
+                              disabled={
+                                !eligible ||
+                                alreadyMember ||
+                                groupSubmitting
+                              }
+                            />
+
+                            <span className="message-avatar small">
+                              {initials(contact.displayName)}
+                            </span>
+
+                            <span>
+                              <strong>{contact.displayName}</strong>
+                              <small>
+                                {alreadyMember
+                                  ? "Already a member"
+                                  : eligible
+                                    ? contact.employee?.designation ??
+                                      roleLabel(contact.role)
+                                    : "First-contact approval required"}
+                              </small>
+                            </span>
+                          </label>
+                        );
+                      })
+                    )}
+                  </div>
+
+                  {groupDialogMode === "MANAGE" && (
+                    <button
+                      type="button"
+                      className="message-group-primary"
+                      onClick={() => void handleAddGroupMembers()}
+                      disabled={
+                        groupSelectedAccountIds.length === 0 ||
+                        groupSubmitting
+                      }
+                    >
+                      {groupSubmitting ? "Adding..." : "Add selected members"}
+                    </button>
+                  )}
+                </section>
+              )}
+            </div>
+
+            <footer className="message-group-dialog-footer">
+              {groupDialogMode === "MANAGE" ? (
+                <button
+                  type="button"
+                  className="danger"
+                  onClick={() => void handleLeaveGroup()}
+                  disabled={groupSubmitting}
+                >
+                  {groupSubmitting ? "Leaving..." : "Leave group"}
+                </button>
+              ) : (
+                <span>
+                  Groups can include up to 100 active members.
+                </span>
+              )}
+
+              <div>
+                <button
+                  type="button"
+                  onClick={closeGroupDialog}
+                  disabled={groupSubmitting || groupActionAccountId !== null}
+                >
+                  Cancel
+                </button>
+
+                {groupDialogMode === "CREATE" && (
+                  <button
+                    type="button"
+                    className="primary"
+                    onClick={() => void handleCreateGroup()}
+                    disabled={
+                      !groupTitle.trim() ||
+                      groupSelectedAccountIds.length === 0 ||
+                      groupSubmitting
+                    }
+                  >
+                    {groupSubmitting ? "Creating..." : "Create group"}
+                  </button>
+                )}
+              </div>
+            </footer>
           </section>
         </div>
       )}
