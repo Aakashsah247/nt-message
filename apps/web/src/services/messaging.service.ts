@@ -6,6 +6,7 @@ import type {
   CreatePrivateConversationResponse,
   DeleteMessageForMeResponse,
   DeleteMessageResponse,
+  ForwardTextMessagesResponse,
   MarkConversationReadResponse,
   MessageRequestActionResponse,
   MessageRequestListResponse,
@@ -172,6 +173,26 @@ export function sendConversationTextMessage(
               replyToMessageId,
             }
           : {}),
+      }),
+    },
+  );
+}
+
+export function forwardConversationTextMessage(
+  accessToken: string,
+  sourceConversationId: string,
+  messageId: string,
+  destinationConversationIds: string[],
+  clientForwardId: string,
+): Promise<ForwardTextMessagesResponse> {
+  return apiRequest<ForwardTextMessagesResponse>(
+    `/conversations/${sourceConversationId}/messages/${messageId}/forward`,
+    {
+      method: "POST",
+      headers: authorizationHeaders(accessToken),
+      body: JSON.stringify({
+        clientForwardId,
+        destinationConversationIds,
       }),
     },
   );

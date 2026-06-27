@@ -87,6 +87,15 @@ export interface MessagingMessageRequest {
   updatedAt: string;
 }
 
+export interface MessagingForwardMetadata {
+  sourceMessageId: string;
+  sourceConversationId: string;
+  originalSenderAccountId: string;
+  originalSenderDisplayName: string;
+  originalSentAt: string;
+  originalTextContent: string;
+}
+
 export interface MessagingReply {
   id: string;
   senderAccountId: string;
@@ -108,6 +117,7 @@ export interface MessagingMessage {
   payload: unknown;
   replyToMessageId: string | null;
   replyTo: MessagingReply | null;
+  forwardedFrom: MessagingForwardMetadata | null;
   sentAt: string;
   editedAt: string | null;
   deletedAt: string | null;
@@ -206,6 +216,13 @@ export interface SendTextMessageResponse {
   message: string;
   duplicate: boolean;
   data: MessagingMessage;
+}
+
+export interface ForwardTextMessagesResponse {
+  message: string;
+  createdCount: number;
+  duplicateCount: number;
+  data: MessagingMessage[];
 }
 
 export interface UpdateTextMessageResponse {

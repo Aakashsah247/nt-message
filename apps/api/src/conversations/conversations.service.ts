@@ -21,6 +21,7 @@ import type { Prisma } from '../generated/prisma/client';
 import { MessagingEventsService } from '../realtime/messaging-events.service';
 
 import { CreatePrivateConversationDto } from './dto/create-private-conversation.dto';
+import { ForwardTextMessageDto } from './dto/forward-text-message.dto';
 import { ListConversationsQueryDto } from './dto/list-conversations-query.dto';
 import { ListMessagesQueryDto } from './dto/list-messages-query.dto';
 import { SearchMessagingContactsQueryDto } from './dto/search-messaging-contacts-query.dto';
@@ -35,6 +36,15 @@ interface MessagingViewer {
 }
 
 type DeliveryStatus = 'SENT' | 'DELIVERED' | 'READ';
+
+export interface ForwardedMessageMetadata {
+  sourceMessageId: string;
+  sourceConversationId: string;
+  originalSenderAccountId: string;
+  originalSenderDisplayName: string;
+  originalSentAt: string;
+  originalTextContent: string;
+}
 
 const MESSAGE_REQUEST_COOLDOWN_MS = 24 * 60 * 60 * 1000;
 const MESSAGE_EDIT_WINDOW_MS = 15 * 60 * 1000;
@@ -357,6 +367,60 @@ export class ConversationsService {
     };
   }
 
+  private getForwardedMessageMetadata(
+    payload: unknown,
+  ): ForwardedMessageMetadata | null {
+    if (
+      !payload ||
+      typeof payload !== 'object' ||
+      Array.isArray(payload)
+    ) {
+      return null;
+    }
+
+    const forwardedFrom = (payload as Record<string, unknown>)[
+      'forwardedFrom'
+    ];
+
+    if (
+      !forwardedFrom ||
+      typeof forwardedFrom !== 'object' ||
+      Array.isArray(forwardedFrom)
+    ) {
+      return null;
+    }
+
+    const value = forwardedFrom as Record<string, unknown>;
+    const requiredKeys = [
+      'sourceMessageId',
+      'sourceConversationId',
+      'originalSenderAccountId',
+      'originalSenderDisplayName',
+      'originalSentAt',
+      'originalTextContent',
+    ] as const;
+
+    if (
+      requiredKeys.some(
+        (key) => typeof value[key] !== 'string',
+      )
+    ) {
+      return null;
+    }
+
+    return {
+      sourceMessageId: value['sourceMessageId'] as string,
+      sourceConversationId: value['sourceConversationId'] as string,
+      originalSenderAccountId:
+        value['originalSenderAccountId'] as string,
+      originalSenderDisplayName:
+        value['originalSenderDisplayName'] as string,
+      originalSentAt: value['originalSentAt'] as string,
+      originalTextContent:
+        value['originalTextContent'] as string,
+    };
+  }
+
   private getAggregateReceiptDate(
     dates: Array<Date | null>,
   ): Date | null {
@@ -429,6 +493,7 @@ export class ConversationsService {
       payload: message.deletedAt ? null : message.payload,
       replyToMessageId: message.replyToMessageId,
       replyTo: this.serializeReply(message.replyTo),
+      forwardedFrom: this.getForwardedMessageMetadata(message.payload),
       sentAt: message.sentAt,
       editedAt: message.editedAt,
       deletedAt: message.deletedAt,
@@ -1946,6 +2011,272 @@ export class ConversationsService {
     }
   }
 
+  async forwardTextMessage(
+    user: AuthenticatedUser,
+    sourceConversationId: string,
+    sourceMessageId: string,
+    dto: ForwardTextMessageDto,
+  ) {
+    const viewer = await this.getMessagingViewer(user);
+
+    await this.assertActiveParticipant(
+      viewer.accountId,
+      sourceConversationId,
+    );
+
+    const sourceMessage = await this.prisma.message.findFirst({
+      where: {
+        id: sourceMessageId,
+        conversationId: sourceConversationId,
+        deletedAt: null,
+        hiddenForAccounts: {
+          none: {
+            accountId: viewer.accountId,
+          },
+        },
+      },
+      select: messageSelect,
+    });
+
+    if (!sourceMessage) {
+      throw new NotFoundException(
+        'The message selected for forwarding was not found.',
+      );
+    }
+
+    if (
+      sourceMessage.contentType !== MessageContentType.TEXT ||
+      !sourceMessage.textContent
+    ) {
+      throw new BadRequestException(
+        'Only active text messages can be forwarded.',
+      );
+    }
+
+    const forwardedTextContent = sourceMessage.textContent;
+    const destinationConversationIds = [
+      ...new Set(dto.destinationConversationIds),
+    ];
+    const destinationConversations =
+      await this.prisma.conversation.findMany({
+        where: {
+          id: {
+            in: destinationConversationIds,
+          },
+          participants: {
+            some: {
+              accountId: viewer.accountId,
+              leftAt: null,
+            },
+          },
+        },
+        select: {
+          id: true,
+          type: true,
+          participants: {
+            where: {
+              leftAt: null,
+            },
+            select: {
+              accountId: true,
+            },
+          },
+        },
+      });
+
+    if (
+      destinationConversations.length !==
+      destinationConversationIds.length
+    ) {
+      throw new BadRequestException(
+        'One or more forwarding destinations are unavailable.',
+      );
+    }
+
+    for (const conversation of destinationConversations) {
+      if (
+        conversation.type === ConversationType.PRIVATE &&
+        conversation.participants.length !== 2
+      ) {
+        throw new ConflictException(
+          'A forwarding destination has an invalid participant state.',
+        );
+      }
+    }
+
+    const existingMetadata = this.getForwardedMessageMetadata(
+      sourceMessage.payload,
+    );
+    const sourceSender = this.serializeAccount(sourceMessage.sender);
+    const forwardedFrom: ForwardedMessageMetadata =
+      existingMetadata ?? {
+        sourceMessageId: sourceMessage.id,
+        sourceConversationId: sourceMessage.conversationId,
+        originalSenderAccountId: sourceMessage.senderAccountId,
+        originalSenderDisplayName: sourceSender.displayName,
+        originalSentAt: sourceMessage.sentAt.toISOString(),
+        originalTextContent: forwardedTextContent,
+      };
+
+    const forwardedMessages = await this.prisma.$transaction(
+      async (transaction) => {
+        const results: Array<{
+          message: MessageRecord;
+          duplicate: boolean;
+          participantAccountIds: string[];
+        }> = [];
+
+        for (const conversation of destinationConversations) {
+          const clientMessageId = [
+            dto.clientForwardId,
+            conversation.id,
+          ].join(':');
+          const participantAccountIds =
+            conversation.participants.map(
+              (participant) => participant.accountId,
+            );
+          const recipientAccountIds = participantAccountIds.filter(
+            (accountId) => accountId !== viewer.accountId,
+          );
+          const existingMessage = await transaction.message.findUnique({
+            where: {
+              senderAccountId_clientMessageId: {
+                senderAccountId: viewer.accountId,
+                clientMessageId,
+              },
+            },
+            select: messageSelect,
+          });
+
+          if (existingMessage) {
+            const existingForward =
+              this.getForwardedMessageMetadata(
+                existingMessage.payload,
+              );
+
+            if (
+              existingMessage.conversationId !== conversation.id ||
+              existingForward?.sourceMessageId !==
+                forwardedFrom.sourceMessageId
+            ) {
+              throw new ConflictException(
+                'This forwarding request ID was already used for different content.',
+              );
+            }
+
+            results.push({
+              message: existingMessage,
+              duplicate: true,
+              participantAccountIds,
+            });
+            continue;
+          }
+
+          const createdMessage = await transaction.message.upsert({
+            where: {
+              senderAccountId_clientMessageId: {
+                senderAccountId: viewer.accountId,
+                clientMessageId,
+              },
+            },
+            update: {},
+            create: {
+              conversationId: conversation.id,
+              senderAccountId: viewer.accountId,
+              clientMessageId,
+              contentType: MessageContentType.TEXT,
+              textContent: forwardedTextContent,
+              payload: {
+                forwardedFrom: {
+                  sourceMessageId: forwardedFrom.sourceMessageId,
+                  sourceConversationId:
+                    forwardedFrom.sourceConversationId,
+                  originalSenderAccountId:
+                    forwardedFrom.originalSenderAccountId,
+                  originalSenderDisplayName:
+                    forwardedFrom.originalSenderDisplayName,
+                  originalSentAt: forwardedFrom.originalSentAt,
+                  originalTextContent:
+                    forwardedFrom.originalTextContent,
+                },
+              },
+              receipts: {
+                create: recipientAccountIds.map((accountId) => ({
+                  accountId,
+                })),
+              },
+            },
+            select: messageSelect,
+          });
+
+          await transaction.conversation.update({
+            where: {
+              id: conversation.id,
+            },
+            data: {
+              lastMessageAt: createdMessage.sentAt,
+            },
+          });
+
+          await transaction.conversationParticipant.updateMany({
+            where: {
+              conversationId: conversation.id,
+              accountId: {
+                in: participantAccountIds,
+              },
+            },
+            data: {
+              isArchived: false,
+            },
+          });
+
+          results.push({
+            message: createdMessage,
+            duplicate: false,
+            participantAccountIds,
+          });
+        }
+
+        return results;
+      },
+    );
+
+    for (const result of forwardedMessages) {
+      if (result.duplicate) {
+        continue;
+      }
+
+      this.messagingEventsService.emitMessageCreated(
+        result.participantAccountIds,
+        {
+          conversationId: result.message.conversationId,
+          message: this.serializeMessage(result.message),
+          occurredAt: new Date().toISOString(),
+        },
+      );
+    }
+
+    const createdCount = forwardedMessages.filter(
+      (result) => !result.duplicate,
+    ).length;
+    const duplicateCount =
+      forwardedMessages.length - createdCount;
+
+    return {
+      message:
+        createdCount === 0
+          ? 'This forwarding request was already completed.'
+          : `Message forwarded to ${createdCount} conversation${
+              createdCount === 1 ? '' : 's'
+            }.`,
+      createdCount,
+      duplicateCount,
+      data: forwardedMessages.map((result) =>
+        this.serializeMessage(result.message),
+      ),
+    };
+  }
+
   async editTextMessage(
     user: AuthenticatedUser,
     conversationId: string,
@@ -1990,6 +2321,12 @@ export class ConversationsService {
     if (message.contentType !== MessageContentType.TEXT) {
       throw new BadRequestException(
         'Only text messages can be edited.',
+      );
+    }
+
+    if (this.getForwardedMessageMetadata(message.payload)) {
+      throw new ForbiddenException(
+        'Forwarded messages cannot be edited.',
       );
     }
 

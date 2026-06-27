@@ -21,6 +21,7 @@ import {
   deleteConversationMessage,
   deleteConversationMessageForMe,
   editConversationTextMessage,
+  forwardConversationTextMessage,
   listConversationMessages,
   listMessageRequests,
   listMessagingConversations,
@@ -234,6 +235,7 @@ function canEditMessage(
     message.senderAccountId === accountId &&
     message.contentType === "TEXT" &&
     !message.isDeleted &&
+    !message.forwardedFrom &&
     Number.isFinite(sentAt) &&
     Date.now() - sentAt <= MESSAGE_EDIT_WINDOW_MS
   );
@@ -258,7 +260,31 @@ function messagePreview(
       ? "You: "
       : "";
 
-  return `${prefix}${message.textContent ?? "Message"}`;
+  return `${prefix}${message.forwardedFrom ? "Forwarded: " : ""}${
+    message.textContent ?? "Message"
+  }`;
+}
+
+async function copyTextToClipboard(text: string): Promise<void> {
+  if (navigator.clipboard?.writeText) {
+    await navigator.clipboard.writeText(text);
+    return;
+  }
+
+  const textArea = document.createElement("textarea");
+  textArea.value = text;
+  textArea.setAttribute("readonly", "");
+  textArea.style.position = "fixed";
+  textArea.style.opacity = "0";
+  document.body.appendChild(textArea);
+  textArea.select();
+
+  const copied = document.execCommand("copy");
+  document.body.removeChild(textArea);
+
+  if (!copied) {
+    throw new Error("The browser could not copy this message.");
+  }
 }
 
 export function MessageAppPage() {
@@ -299,6 +325,12 @@ export function MessageAppPage() {
   const [hasOlderMessages, setHasOlderMessages] = useState(false);
   const [pageError, setPageError] = useState<string | null>(null);
   const [messageError, setMessageError] = useState<string | null>(null);
+  const [messageNotice, setMessageNotice] = useState<string | null>(null);
+  const [forwardingMessage, setForwardingMessage] = useState<MessagingMessage | null>(null);
+  const [forwardDestinationIds, setForwardDestinationIds] = useState<string[]>([]);
+  const [forwardSearch, setForwardSearch] = useState("");
+  const [forwardClientId, setForwardClientId] = useState<string | null>(null);
+  const [forwardSubmitting, setForwardSubmitting] = useState(false);
   const [newConversationOpen, setNewConversationOpen] = useState(false);
   const [contactSearch, setContactSearch] = useState("");
   const [contacts, setContacts] = useState<MessagingContact[]>([]);
@@ -364,6 +396,34 @@ export function MessageAppPage() {
         .includes(search);
     });
   }, [conversationSearch, conversations]);
+
+  const filteredForwardConversations = useMemo(() => {
+    const search = forwardSearch.trim().toLowerCase();
+
+    if (!search) {
+      return conversations;
+    }
+
+    return conversations.filter((conversation) => {
+      const participantText = conversation.participants
+        .map((participant) => [
+          participant.displayName,
+          participant.username,
+          participant.employee?.empId,
+          participant.employee?.designation,
+        ].filter(Boolean).join(" "))
+        .join(" ");
+
+      return [
+        conversation.title,
+        participantText,
+      ]
+        .filter(Boolean)
+        .join(" ")
+        .toLowerCase()
+        .includes(search);
+    });
+  }, [conversations, forwardSearch]);
 
   const totalUnread = useMemo(
     () => conversations.reduce(
@@ -1210,6 +1270,128 @@ export function MessageAppPage() {
     stopLocalTyping(selectedConversationId);
   }
 
+  async function handleCopyMessage(
+    message: MessagingMessage,
+  ): Promise<void> {
+    if (message.isDeleted || !message.textContent) {
+      return;
+    }
+
+    setMessageError(null);
+    setMessageNotice(null);
+
+    try {
+      await copyTextToClipboard(message.textContent);
+      setMessageNotice("Message copied to clipboard.");
+    } catch (error) {
+      setMessageError(
+        error instanceof Error
+          ? error.message
+          : "The message could not be copied.",
+      );
+    }
+  }
+
+  function beginForward(message: MessagingMessage): void {
+    if (
+      message.isDeleted ||
+      message.contentType !== "TEXT" ||
+      !message.textContent
+    ) {
+      return;
+    }
+
+    setMessageError(null);
+    setMessageNotice(null);
+    setForwardingMessage(message);
+    setForwardDestinationIds([]);
+    setForwardSearch("");
+    setForwardClientId(crypto.randomUUID());
+  }
+
+  function closeForwardDialog(): void {
+    if (forwardSubmitting) {
+      return;
+    }
+
+    setForwardingMessage(null);
+    setForwardDestinationIds([]);
+    setForwardSearch("");
+    setForwardClientId(null);
+  }
+
+  function toggleForwardDestination(conversationId: string): void {
+    setForwardDestinationIds((current) => {
+      if (current.includes(conversationId)) {
+        return current.filter((id) => id !== conversationId);
+      }
+
+      if (current.length >= 20) {
+        return current;
+      }
+
+      return [...current, conversationId];
+    });
+  }
+
+  async function handleForwardMessage(): Promise<void> {
+    if (
+      !accessToken ||
+      !forwardingMessage ||
+      !forwardClientId ||
+      forwardDestinationIds.length === 0 ||
+      forwardSubmitting
+    ) {
+      return;
+    }
+
+    setForwardSubmitting(true);
+    setMessageError(null);
+    setMessageNotice(null);
+
+    try {
+      const response = await forwardConversationTextMessage(
+        accessToken,
+        forwardingMessage.conversationId,
+        forwardingMessage.id,
+        forwardDestinationIds,
+        forwardClientId,
+      );
+
+      if (selectedConversationId) {
+        const messagesForSelectedConversation = response.data.filter(
+          (message) => message.conversationId === selectedConversationId,
+        );
+
+        if (messagesForSelectedConversation.length > 0) {
+          setMessages((current) => {
+            const knownIds = new Set(current.map((message) => message.id));
+            const additions = messagesForSelectedConversation.filter(
+              (message) => !knownIds.has(message.id),
+            );
+
+            return [...current, ...additions];
+          });
+        }
+      }
+
+      setMessageNotice(response.message);
+      setForwardingMessage(null);
+      setForwardDestinationIds([]);
+      setForwardSearch("");
+      setForwardClientId(null);
+      await loadConversations(true, selectedConversationId ?? undefined);
+    } catch (error) {
+      setMessageError(
+        error instanceof Error
+          ? error.message
+          : "The message could not be forwarded.",
+      );
+    } finally {
+      setForwardSubmitting(false);
+    }
+  }
+
   async function handleDeleteMessageForMe(
     message: MessagingMessage,
   ): Promise<void> {
@@ -1769,6 +1951,19 @@ export function MessageAppPage() {
                 </div>
               )}
 
+              {messageNotice && (
+                <div className="message-chat-notice">
+                  <span>{messageNotice}</span>
+                  <button
+                    type="button"
+                    onClick={() => setMessageNotice(null)}
+                    aria-label="Dismiss message notice"
+                  >
+                    ×
+                  </button>
+                </div>
+              )}
+
               <div
                 className="message-thread"
                 ref={messageListRef}
@@ -1824,6 +2019,15 @@ export function MessageAppPage() {
                           )}
 
                           <div className="message-bubble">
+                            {message.forwardedFrom && !message.isDeleted && (
+                              <div className="message-forwarded-label">
+                                <strong>Forwarded</strong>
+                                <span>
+                                  Originally from {message.forwardedFrom.originalSenderDisplayName}
+                                </span>
+                              </div>
+                            )}
+
                             {message.replyTo && !message.isDeleted && (
                               <div className="message-reply-preview">
                                 <strong>
@@ -1847,6 +2051,26 @@ export function MessageAppPage() {
                           </div>
 
                           <div className="message-bubble-actions">
+                            {!message.isDeleted && message.textContent && (
+                              <button
+                                type="button"
+                                onClick={() => void handleCopyMessage(message)}
+                                disabled={messageActionId !== null}
+                              >
+                                Copy
+                              </button>
+                            )}
+
+                            {!message.isDeleted && message.textContent && (
+                              <button
+                                type="button"
+                                onClick={() => beginForward(message)}
+                                disabled={messageActionId !== null}
+                              >
+                                Forward
+                              </button>
+                            )}
+
                             {!message.isDeleted && (
                               <button
                                 type="button"
@@ -2124,6 +2348,137 @@ export function MessageAppPage() {
                 ))
               )}
             </div>
+          </section>
+        </div>
+      )}
+
+      {forwardingMessage && (
+        <div
+          className="message-contact-backdrop"
+          role="presentation"
+          onMouseDown={(event) => {
+            if (event.currentTarget === event.target) {
+              closeForwardDialog();
+            }
+          }}
+        >
+          <section
+            className="message-contact-dialog message-forward-dialog"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="forward-message-title"
+          >
+            <header>
+              <div>
+                <span>Message action</span>
+                <h2 id="forward-message-title">
+                  Forward message
+                </h2>
+              </div>
+
+              <button
+                type="button"
+                onClick={closeForwardDialog}
+                disabled={forwardSubmitting}
+                aria-label="Close forward message dialog"
+              >
+                ×
+              </button>
+            </header>
+
+            <div className="message-forward-source">
+              <strong>
+                {forwardingMessage.forwardedFrom
+                  ? "Forwarded message"
+                  : `From ${forwardingMessage.sender.displayName}`}
+              </strong>
+              <p>{forwardingMessage.textContent}</p>
+            </div>
+
+            <label className="message-contact-search">
+              <span>Select up to 20 conversations</span>
+              <input
+                type="search"
+                value={forwardSearch}
+                onChange={(event) => setForwardSearch(event.target.value)}
+                placeholder="Search conversations"
+                autoFocus
+              />
+            </label>
+
+            <div className="message-forward-list">
+              {filteredForwardConversations.length === 0 ? (
+                <div className="message-list-state compact">
+                  <div className="message-empty-icon">?</div>
+                  <h3>No conversations found</h3>
+                  <p>Try another conversation name.</p>
+                </div>
+              ) : (
+                filteredForwardConversations.map((conversation) => {
+                  const selected = forwardDestinationIds.includes(
+                    conversation.id,
+                  );
+
+                  return (
+                    <label
+                      key={conversation.id}
+                      className={`message-forward-row${
+                        selected ? " selected" : ""
+                      }`}
+                    >
+                      <input
+                        type="checkbox"
+                        checked={selected}
+                        onChange={() => toggleForwardDestination(conversation.id)}
+                        disabled={
+                          forwardSubmitting ||
+                          (!selected && forwardDestinationIds.length >= 20)
+                        }
+                      />
+
+                      <span className="message-avatar small">
+                        {initials(conversation.title ?? "NT")}
+                      </span>
+
+                      <span>
+                        <strong>
+                          {conversation.title ?? "Private conversation"}
+                        </strong>
+                        <small>
+                          {messagePreview(conversation, account?.id ?? "")}
+                        </small>
+                      </span>
+                    </label>
+                  );
+                })
+              )}
+            </div>
+
+            <footer className="message-forward-footer">
+              <span>
+                {forwardDestinationIds.length} selected
+              </span>
+              <div>
+                <button
+                  type="button"
+                  onClick={closeForwardDialog}
+                  disabled={forwardSubmitting}
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  className="primary"
+                  onClick={() => void handleForwardMessage()}
+                  disabled={
+                    forwardSubmitting ||
+                    forwardDestinationIds.length === 0
+                  }
+                >
+                  {forwardSubmitting ? "Forwarding..." : "Forward"}
+                </button>
+              </div>
+            </footer>
           </section>
         </div>
       )}

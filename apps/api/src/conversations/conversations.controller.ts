@@ -17,6 +17,7 @@ import type { AuthenticatedUser } from '../auth/types/auth.types';
 
 import { ConversationsService } from './conversations.service';
 import { CreatePrivateConversationDto } from './dto/create-private-conversation.dto';
+import { ForwardTextMessageDto } from './dto/forward-text-message.dto';
 import { ListConversationsQueryDto } from './dto/list-conversations-query.dto';
 import { ListMessagesQueryDto } from './dto/list-messages-query.dto';
 import { SearchMessagingContactsQueryDto } from './dto/search-messaging-contacts-query.dto';
@@ -170,6 +171,38 @@ export class ConversationsController {
     return this.conversationsService.sendTextMessage(
       user,
       conversationId,
+      dto,
+    );
+  }
+
+  @Post(':id/messages/:messageId/forward')
+  forwardTextMessage(
+    @CurrentUser()
+    user: AuthenticatedUser,
+
+    @Param(
+      'id',
+      new ParseUUIDPipe({
+        version: '4',
+      }),
+    )
+    conversationId: string,
+
+    @Param(
+      'messageId',
+      new ParseUUIDPipe({
+        version: '4',
+      }),
+    )
+    messageId: string,
+
+    @Body()
+    dto: ForwardTextMessageDto,
+  ) {
+    return this.conversationsService.forwardTextMessage(
+      user,
+      conversationId,
+      messageId,
       dto,
     );
   }
