@@ -87,6 +87,19 @@ enum MessageContentType {
   SYSTEM
 }
 
+enum MessageRequestStatus {
+  PENDING
+  ACCEPTED
+  DECLINED
+  BLOCKED
+}
+
+enum MessageRequestReason {
+  PROTECTED_RECIPIENT
+  CROSS_DEPARTMENT
+  CROSS_DIVISION
+}
+
 model Division {
   id        String   @id @default(uuid()) @db.Uuid
   code      String   @unique @db.VarChar(50)
@@ -197,6 +210,9 @@ model Account {
   sentMessages                  Message[]                 @relation("MessagesSentBy")
   deletedMessages               Message[]                 @relation("MessagesDeletedBy")
   messageReceipts               MessageReceipt[]
+  sentMessageRequests           MessageRequest[]           @relation("MessageRequestsSent")
+  receivedMessageRequests       MessageRequest[]           @relation("MessageRequestsReceived")
+  blockedMessageRequests        MessageRequest[]           @relation("MessageRequestsBlockedBy")
 
   @@index([role], map: "accounts_role_idx")
   @@index([isEnabled], map: "accounts_is_enabled_idx")
@@ -438,6 +454,7 @@ model Conversation {
   createdBy   Account                   @relation("ConversationsCreatedBy", fields: [createdByAccountId], references: [id], onDelete: Restrict)
   participants ConversationParticipant[]
   messages     Message[]
+  messageRequest MessageRequest?
 
   @@index([type, lastMessageAt], map: "conversations_type_last_message_idx")
   @@index([createdByAccountId], map: "conversations_created_by_idx")
@@ -465,6 +482,38 @@ model ConversationParticipant {
   @@index([accountId, leftAt, isArchived], map: "conversation_participants_account_active_idx")
   @@index([conversationId, leftAt], map: "conversation_participants_conversation_active_idx")
   @@map("conversation_participants")
+}
+
+
+model MessageRequest {
+  id String @id @default(uuid()) @db.Uuid
+
+  participantKey String @unique(map: "message_requests_participant_key_key") @map("participant_key") @db.VarChar(73)
+
+  requesterAccountId String @map("requester_account_id") @db.Uuid
+  recipientAccountId String @map("recipient_account_id") @db.Uuid
+  blockedByAccountId String? @map("blocked_by_account_id") @db.Uuid
+  conversationId     String? @unique(map: "message_requests_conversation_id_key") @map("conversation_id") @db.Uuid
+
+  status MessageRequestStatus @default(PENDING)
+  reason MessageRequestReason
+
+  requestCount Int @default(1) @map("request_count")
+  requestedAt DateTime @default(now()) @map("requested_at") @db.Timestamptz(3)
+  respondedAt DateTime? @map("responded_at") @db.Timestamptz(3)
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  requester Account @relation("MessageRequestsSent", fields: [requesterAccountId], references: [id], onDelete: Restrict)
+  recipient Account @relation("MessageRequestsReceived", fields: [recipientAccountId], references: [id], onDelete: Restrict)
+  blockedBy Account? @relation("MessageRequestsBlockedBy", fields: [blockedByAccountId], references: [id], onDelete: Restrict)
+  conversation Conversation? @relation(fields: [conversationId], references: [id], onDelete: SetNull)
+
+  @@index([requesterAccountId, status, requestedAt], map: "message_requests_requester_status_idx")
+  @@index([recipientAccountId, status, requestedAt], map: "message_requests_recipient_status_idx")
+  @@index([blockedByAccountId], map: "message_requests_blocked_by_idx")
+  @@map("message_requests")
 }
 
 model Message {

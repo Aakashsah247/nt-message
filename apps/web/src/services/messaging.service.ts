@@ -1,9 +1,12 @@
 import { apiRequest } from "../lib/api";
 
 import type {
+  AcceptMessageRequestResponse,
   ConversationListResponse,
   CreatePrivateConversationResponse,
   MarkConversationReadResponse,
+  MessageRequestActionResponse,
+  MessageRequestListResponse,
   MessageListResponse,
   MessagingContactsResponse,
   SendTextMessageResponse,
@@ -71,6 +74,56 @@ export function createPrivateConversation(
       body: JSON.stringify({
         participantAccountId,
       }),
+    },
+  );
+}
+
+export function listMessageRequests(
+  accessToken: string,
+): Promise<MessageRequestListResponse> {
+  return apiRequest<MessageRequestListResponse>(
+    "/conversations/requests",
+    {
+      headers: authorizationHeaders(accessToken),
+    },
+  );
+}
+
+export function acceptMessageRequest(
+  accessToken: string,
+  requestId: string,
+): Promise<AcceptMessageRequestResponse> {
+  return apiRequest<AcceptMessageRequestResponse>(
+    `/conversations/requests/${requestId}/accept`,
+    {
+      method: "PATCH",
+      headers: authorizationHeaders(accessToken),
+    },
+  );
+}
+
+export function declineMessageRequest(
+  accessToken: string,
+  requestId: string,
+): Promise<MessageRequestActionResponse> {
+  return apiRequest<MessageRequestActionResponse>(
+    `/conversations/requests/${requestId}/decline`,
+    {
+      method: "PATCH",
+      headers: authorizationHeaders(accessToken),
+    },
+  );
+}
+
+export function blockMessageRequest(
+  accessToken: string,
+  requestId: string,
+): Promise<MessageRequestActionResponse> {
+  return apiRequest<MessageRequestActionResponse>(
+    `/conversations/requests/${requestId}/block`,
+    {
+      method: "PATCH",
+      headers: authorizationHeaders(accessToken),
     },
   );
 }

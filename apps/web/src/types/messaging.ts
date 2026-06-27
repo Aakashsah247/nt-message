@@ -19,6 +19,24 @@ export type MessageDeliveryStatus =
   | "DELIVERED"
   | "READ";
 
+export type MessageRequestStatus =
+  | "PENDING"
+  | "ACCEPTED"
+  | "DECLINED"
+  | "BLOCKED";
+
+export type MessageRequestReason =
+  | "PROTECTED_RECIPIENT"
+  | "CROSS_DEPARTMENT"
+  | "CROSS_DIVISION";
+
+export type MessagingContactMode =
+  | "DIRECT"
+  | "REQUEST_REQUIRED"
+  | "REQUEST_SENT"
+  | "REQUEST_RECEIVED"
+  | "BLOCKED";
+
 export interface MessagingOrganizationUnit {
   id: string;
   code: string;
@@ -42,6 +60,31 @@ export interface MessagingAccount {
   role: AccountRole;
   displayName: string;
   employee: MessagingEmployeeIdentity | null;
+}
+
+export interface MessagingContact extends MessagingAccount {
+  contactMode: MessagingContactMode;
+  requestReason: MessageRequestReason | null;
+}
+
+export interface MessagingMessageRequest {
+  id: string;
+  participantKey: string;
+  requesterAccountId: string;
+  recipientAccountId: string;
+  blockedByAccountId: string | null;
+  conversationId: string | null;
+  status: MessageRequestStatus;
+  reason: MessageRequestReason;
+  direction: "SENT" | "RECEIVED";
+  requestCount: number;
+  requestedAt: string;
+  respondedAt: string | null;
+  requester: MessagingAccount;
+  recipient: MessagingAccount;
+  peer: MessagingAccount;
+  createdAt: string;
+  updatedAt: string;
 }
 
 export interface MessagingReply {
@@ -107,7 +150,7 @@ export interface CursorPagination {
 }
 
 export interface MessagingContactsResponse {
-  data: MessagingAccount[];
+  data: MessagingContact[];
   filters: {
     search: string | null;
     limit: number;
@@ -124,9 +167,38 @@ export interface MessageListResponse {
   pagination: CursorPagination;
 }
 
-export interface CreatePrivateConversationResponse {
+export type CreatePrivateConversationResponse =
+  | {
+      outcome: "CONVERSATION";
+      message: string;
+      created: boolean;
+      data: MessagingConversation;
+      request: null;
+    }
+  | {
+      outcome: "REQUEST";
+      message: string;
+      created: boolean;
+      data: null;
+      request: MessagingMessageRequest;
+    };
+
+export interface MessageRequestListResponse {
+  received: MessagingMessageRequest[];
+  sent: MessagingMessageRequest[];
+  counts: {
+    receivedPending: number;
+    sentPending: number;
+  };
+}
+
+export interface MessageRequestActionResponse {
   message: string;
-  created: boolean;
+  request: MessagingMessageRequest;
+}
+
+export interface AcceptMessageRequestResponse
+  extends MessageRequestActionResponse {
   data: MessagingConversation;
 }
 

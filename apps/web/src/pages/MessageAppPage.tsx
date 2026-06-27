@@ -14,8 +14,12 @@ import { useNavigate } from "react-router";
 import { DirectoryButton } from "../components/DirectoryButton";
 import { useAuth } from "../context/AuthContext";
 import {
+  acceptMessageRequest,
+  blockMessageRequest,
   createPrivateConversation,
+  declineMessageRequest,
   listConversationMessages,
+  listMessageRequests,
   listMessagingConversations,
   markConversationRead,
   searchMessagingContacts,
@@ -27,6 +31,7 @@ import {
 import type {
   MessagingConversationUpdatedPayload,
   MessagingMessageCreatedPayload,
+  MessagingMessageRequestUpdatedPayload,
   MessagingPresenceSnapshotPayload,
   MessagingPresenceState,
   MessagingReceiptUpdatedPayload,
@@ -34,9 +39,11 @@ import type {
   MessagingTypingUpdatedPayload,
 } from "../services/messaging-socket.service";
 import type {
-  MessagingAccount,
+  MessageRequestListResponse,
+  MessagingContact,
   MessagingConversation,
   MessagingMessage,
+  MessagingMessageRequest,
 } from "../types/messaging";
 
 
@@ -149,6 +156,40 @@ function roleLabel(value: string): string {
     .join(" ");
 }
 
+function requestReasonLabel(
+  reason: MessagingMessageRequest["reason"],
+): string {
+  if (reason === "PROTECTED_RECIPIENT") {
+    return "Protected first contact";
+  }
+
+  if (reason === "CROSS_DIVISION") {
+    return "Different division";
+  }
+
+  return "Different department";
+}
+
+function contactActionLabel(contact: MessagingContact): string {
+  if (contact.contactMode === "REQUEST_REQUIRED") {
+    return "Request";
+  }
+
+  if (contact.contactMode === "REQUEST_SENT") {
+    return "Pending";
+  }
+
+  if (contact.contactMode === "REQUEST_RECEIVED") {
+    return "Review";
+  }
+
+  if (contact.contactMode === "BLOCKED") {
+    return "Blocked";
+  }
+
+  return "Message";
+}
+
 function messagePreview(
   conversation: MessagingConversation,
   accountId: string,
@@ -205,10 +246,23 @@ export function MessageAppPage() {
   const [messageError, setMessageError] = useState<string | null>(null);
   const [newConversationOpen, setNewConversationOpen] = useState(false);
   const [contactSearch, setContactSearch] = useState("");
-  const [contacts, setContacts] = useState<MessagingAccount[]>([]);
+  const [contacts, setContacts] = useState<MessagingContact[]>([]);
   const [contactsLoading, setContactsLoading] = useState(false);
   const [contactError, setContactError] = useState<string | null>(null);
   const [creatingConversationId, setCreatingConversationId] = useState<string | null>(null);
+  const [messageRequests, setMessageRequests] = useState<MessageRequestListResponse>({
+    received: [],
+    sent: [],
+    counts: {
+      receivedPending: 0,
+      sentPending: 0,
+    },
+  });
+  const [requestDialogOpen, setRequestDialogOpen] = useState(false);
+  const [requestsLoading, setRequestsLoading] = useState(false);
+  const [requestActionId, setRequestActionId] = useState<string | null>(null);
+  const [requestError, setRequestError] = useState<string | null>(null);
+  const [requestNotice, setRequestNotice] = useState<string | null>(null);
 
   const messageListRef = useRef<HTMLDivElement | null>(null);
   const selectedConversationIdRef = useRef<string | null>(
@@ -308,6 +362,36 @@ export function MessageAppPage() {
     } finally {
       if (!silent) {
         setConversationLoading(false);
+      }
+    }
+  }, [accessToken]);
+
+  const loadMessageRequests = useCallback(async (
+    silent = false,
+  ): Promise<void> => {
+    if (!accessToken) {
+      return;
+    }
+
+    if (!silent) {
+      setRequestsLoading(true);
+    }
+
+    try {
+      const response = await listMessageRequests(accessToken);
+      setMessageRequests(response);
+      setRequestError(null);
+    } catch (error) {
+      if (!silent) {
+        setRequestError(
+          error instanceof Error
+            ? error.message
+            : "Message requests could not be loaded.",
+        );
+      }
+    } finally {
+      if (!silent) {
+        setRequestsLoading(false);
       }
     }
   }, [accessToken]);
@@ -530,6 +614,7 @@ export function MessageAppPage() {
         selectedConversationIdRef.current ?? undefined,
       );
       refreshSelectedConversation();
+      void loadMessageRequests(true);
     };
 
     const handlePong = (): void => {
@@ -618,6 +703,19 @@ export function MessageAppPage() {
       );
     };
 
+    const handleMessageRequestUpdated = (
+      payload: MessagingMessageRequestUpdatedPayload,
+    ): void => {
+      void loadMessageRequests(true);
+
+      if (payload.status === "ACCEPTED") {
+        void loadConversations(
+          true,
+          selectedConversationIdRef.current ?? undefined,
+        );
+      }
+    };
+
     const handleDisconnect = (): void => {
       setTypingByConversation({});
       setPresenceByAccountId({});
@@ -650,6 +748,10 @@ export function MessageAppPage() {
       "messaging:conversation-updated",
       handleConversationUpdated,
     );
+    socket.on(
+      "messaging:request-updated",
+      handleMessageRequestUpdated,
+    );
     socket.on("disconnect", handleDisconnect);
     socket.on("connect_error", handleConnectError);
 
@@ -669,6 +771,10 @@ export function MessageAppPage() {
         "messaging:conversation-updated",
         handleConversationUpdated,
       );
+      socket.off(
+        "messaging:request-updated",
+        handleMessageRequestUpdated,
+      );
       socket.off("disconnect", handleDisconnect);
       socket.off("connect_error", handleConnectError);
       socket.disconnect();
@@ -680,6 +786,7 @@ export function MessageAppPage() {
   }, [
     accessToken,
     loadConversations,
+    loadMessageRequests,
     loadMessages,
     stopLocalTyping,
   ]);
@@ -704,6 +811,10 @@ export function MessageAppPage() {
   useEffect(() => {
     void loadConversations();
   }, [loadConversations]);
+
+  useEffect(() => {
+    void loadMessageRequests();
+  }, [loadMessageRequests]);
 
   useEffect(() => {
     if (!selectedConversationId) {
@@ -777,6 +888,8 @@ export function MessageAppPage() {
   }
 
   function openNewConversation(): void {
+    setRequestDialogOpen(false);
+    setRequestNotice(null);
     setContactSearch("");
     setContacts([]);
     setContactError(null);
@@ -784,9 +897,23 @@ export function MessageAppPage() {
   }
 
   async function handleCreateConversation(
-    contact: MessagingAccount,
+    contact: MessagingContact,
   ): Promise<void> {
     if (!accessToken) {
+      return;
+    }
+
+    if (contact.contactMode === "REQUEST_RECEIVED") {
+      setNewConversationOpen(false);
+      setRequestDialogOpen(true);
+      void loadMessageRequests();
+      return;
+    }
+
+    if (
+      contact.contactMode === "REQUEST_SENT" ||
+      contact.contactMode === "BLOCKED"
+    ) {
       return;
     }
 
@@ -799,18 +926,25 @@ export function MessageAppPage() {
         contact.accountId,
       );
 
-      setConversations((current) => {
-        const withoutConversation = current.filter(
-          (conversation) => conversation.id !== response.data.id,
-        );
+      if (response.outcome === "CONVERSATION") {
+        setConversations((current) => {
+          const withoutConversation = current.filter(
+            (conversation) => conversation.id !== response.data.id,
+          );
 
-        return [response.data, ...withoutConversation];
-      });
+          return [response.data, ...withoutConversation];
+        });
 
-      setSelectedConversationId(response.data.id);
+        setSelectedConversationId(response.data.id);
+        setRequestNotice(null);
+        await loadConversations(true, response.data.id);
+      } else {
+        setRequestNotice(response.message);
+        await loadMessageRequests(true);
+      }
+
       setNewConversationOpen(false);
       setContactSearch("");
-      await loadConversations(true, response.data.id);
     } catch (error) {
       setContactError(
         error instanceof Error
@@ -819,6 +953,105 @@ export function MessageAppPage() {
       );
     } finally {
       setCreatingConversationId(null);
+    }
+  }
+
+  function openMessageRequests(): void {
+    setNewConversationOpen(false);
+    setRequestError(null);
+    setRequestDialogOpen(true);
+    void loadMessageRequests();
+  }
+
+  async function handleAcceptRequest(
+    request: MessagingMessageRequest,
+  ): Promise<void> {
+    if (!accessToken || requestActionId) {
+      return;
+    }
+
+    setRequestActionId(request.id);
+    setRequestError(null);
+
+    try {
+      const response = await acceptMessageRequest(
+        accessToken,
+        request.id,
+      );
+
+      setRequestNotice(response.message);
+      setRequestDialogOpen(false);
+      setSelectedConversationId(response.data.id);
+      await Promise.all([
+        loadMessageRequests(true),
+        loadConversations(true, response.data.id),
+      ]);
+    } catch (error) {
+      setRequestError(
+        error instanceof Error
+          ? error.message
+          : "The message request could not be accepted.",
+      );
+    } finally {
+      setRequestActionId(null);
+    }
+  }
+
+  async function handleDeclineRequest(
+    request: MessagingMessageRequest,
+  ): Promise<void> {
+    if (!accessToken || requestActionId) {
+      return;
+    }
+
+    setRequestActionId(request.id);
+    setRequestError(null);
+
+    try {
+      const response = await declineMessageRequest(
+        accessToken,
+        request.id,
+      );
+
+      setRequestNotice(response.message);
+      await loadMessageRequests(true);
+    } catch (error) {
+      setRequestError(
+        error instanceof Error
+          ? error.message
+          : "The message request could not be declined.",
+      );
+    } finally {
+      setRequestActionId(null);
+    }
+  }
+
+  async function handleBlockRequest(
+    request: MessagingMessageRequest,
+  ): Promise<void> {
+    if (!accessToken || requestActionId) {
+      return;
+    }
+
+    setRequestActionId(request.id);
+    setRequestError(null);
+
+    try {
+      const response = await blockMessageRequest(
+        accessToken,
+        request.id,
+      );
+
+      setRequestNotice(response.message);
+      await loadMessageRequests(true);
+    } catch (error) {
+      setRequestError(
+        error instanceof Error
+          ? error.message
+          : "The message request could not be blocked.",
+      );
+    } finally {
+      setRequestActionId(null);
     }
   }
 
@@ -1020,14 +1253,27 @@ export function MessageAppPage() {
               <h1>Conversations</h1>
             </div>
 
-            <button
-              type="button"
-              className="message-new-button"
-              onClick={openNewConversation}
-              aria-label="Start a new private conversation"
-            >
-              +
-            </button>
+            <div className="message-sidebar-actions">
+              <button
+                type="button"
+                className="message-requests-button"
+                onClick={openMessageRequests}
+              >
+                Requests
+                {messageRequests.counts.receivedPending > 0 && (
+                  <b>{messageRequests.counts.receivedPending}</b>
+                )}
+              </button>
+
+              <button
+                type="button"
+                className="message-new-button"
+                onClick={openNewConversation}
+                aria-label="Start a new private conversation"
+              >
+                +
+              </button>
+            </div>
           </div>
 
           <label className="message-conversation-search">
@@ -1044,6 +1290,19 @@ export function MessageAppPage() {
             <span>{conversations.length} conversations</span>
             <span>{totalUnread} unread</span>
           </div>
+
+          {requestNotice && (
+            <div className="message-inline-notice">
+              <span>{requestNotice}</span>
+              <button
+                type="button"
+                onClick={() => setRequestNotice(null)}
+                aria-label="Dismiss request notice"
+              >
+                ×
+              </button>
+            </div>
+          )}
 
           {pageError && (
             <div className="message-inline-error">
@@ -1441,7 +1700,11 @@ export function MessageAppPage() {
                     key={contact.accountId}
                     className="message-contact-row"
                     onClick={() => void handleCreateConversation(contact)}
-                    disabled={creatingConversationId !== null}
+                    disabled={
+                      creatingConversationId !== null ||
+                      contact.contactMode === "REQUEST_SENT" ||
+                      contact.contactMode === "BLOCKED"
+                    }
                   >
                     <span className="message-avatar">
                       {initials(contact.displayName)}
@@ -1458,15 +1721,173 @@ export function MessageAppPage() {
                           contact.username ??
                           roleLabel(contact.role)}
                       </em>
+                      {contact.requestReason &&
+                        contact.contactMode !== "DIRECT" && (
+                          <i>
+                            {requestReasonLabel(contact.requestReason)}
+                          </i>
+                        )}
                     </span>
 
                     <b>
                       {creatingConversationId === contact.accountId
                         ? "Opening..."
-                        : "Message"}
+                        : contactActionLabel(contact)}
                     </b>
                   </button>
                 ))
+              )}
+            </div>
+          </section>
+        </div>
+      )}
+
+      {requestDialogOpen && (
+        <div
+          className="message-contact-backdrop"
+          role="presentation"
+          onMouseDown={(event) => {
+            if (event.currentTarget === event.target) {
+              setRequestDialogOpen(false);
+            }
+          }}
+        >
+          <section
+            className="message-contact-dialog message-request-dialog"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="message-requests-title"
+          >
+            <header>
+              <div>
+                <span>First-contact protection</span>
+                <h2 id="message-requests-title">
+                  Message requests
+                </h2>
+              </div>
+
+              <button
+                type="button"
+                onClick={() => setRequestDialogOpen(false)}
+                aria-label="Close message requests"
+              >
+                ×
+              </button>
+            </header>
+
+            {requestError && (
+              <div className="message-inline-error compact">
+                <p>{requestError}</p>
+              </div>
+            )}
+
+            <div className="message-request-content">
+              {requestsLoading ? (
+                <div className="message-list-state compact">
+                  <span className="message-small-spinner" />
+                  <p>Loading message requests...</p>
+                </div>
+              ) : (
+                <>
+                  <section className="message-request-section">
+                    <header>
+                      <h3>Received</h3>
+                      <span>
+                        {messageRequests.counts.receivedPending} pending
+                      </span>
+                    </header>
+
+                    {messageRequests.received.length === 0 ? (
+                      <p className="message-request-empty">
+                        No incoming message requests.
+                      </p>
+                    ) : (
+                      messageRequests.received.map((request) => (
+                        <article
+                          key={request.id}
+                          className="message-request-card"
+                        >
+                          <span className="message-avatar">
+                            {initials(request.peer.displayName)}
+                          </span>
+
+                          <div>
+                            <strong>{request.peer.displayName}</strong>
+                            <small>
+                              {request.peer.employee?.designation ??
+                                roleLabel(request.peer.role)}
+                            </small>
+                            <em>{requestReasonLabel(request.reason)}</em>
+                          </div>
+
+                          <div className="message-request-actions">
+                            <button
+                              type="button"
+                              className="accept"
+                              onClick={() => void handleAcceptRequest(request)}
+                              disabled={requestActionId !== null}
+                            >
+                              {requestActionId === request.id
+                                ? "Working..."
+                                : "Accept"}
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => void handleDeclineRequest(request)}
+                              disabled={requestActionId !== null}
+                            >
+                              Decline
+                            </button>
+                            <button
+                              type="button"
+                              className="block"
+                              onClick={() => void handleBlockRequest(request)}
+                              disabled={requestActionId !== null}
+                            >
+                              Block
+                            </button>
+                          </div>
+                        </article>
+                      ))
+                    )}
+                  </section>
+
+                  <section className="message-request-section">
+                    <header>
+                      <h3>Sent</h3>
+                      <span>
+                        {messageRequests.counts.sentPending} pending
+                      </span>
+                    </header>
+
+                    {messageRequests.sent.length === 0 ? (
+                      <p className="message-request-empty">
+                        No outgoing message requests.
+                      </p>
+                    ) : (
+                      messageRequests.sent.map((request) => (
+                        <article
+                          key={request.id}
+                          className="message-request-card sent"
+                        >
+                          <span className="message-avatar">
+                            {initials(request.peer.displayName)}
+                          </span>
+
+                          <div>
+                            <strong>{request.peer.displayName}</strong>
+                            <small>Awaiting response</small>
+                            <em>{requestReasonLabel(request.reason)}</em>
+                          </div>
+
+                          <time>
+                            {formatConversationTime(request.requestedAt)}
+                          </time>
+                        </article>
+                      ))
+                    )}
+                  </section>
+                </>
               )}
             </div>
           </section>

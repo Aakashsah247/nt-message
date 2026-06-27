@@ -41,6 +41,13 @@ export interface MessagingConversationUpdatedPayload {
   occurredAt: string;
 }
 
+export interface MessagingMessageRequestUpdatedPayload {
+  requestId: string;
+  status: "PENDING" | "ACCEPTED" | "DECLINED" | "BLOCKED";
+  conversationId: string | null;
+  occurredAt: string;
+}
+
 export interface MessagingPresenceState {
   accountId: string;
   isOnline: boolean;
@@ -77,6 +84,9 @@ interface ServerToClientEvents {
   ) => void;
   "messaging:conversation-updated": (
     payload: MessagingConversationUpdatedPayload,
+  ) => void;
+  "messaging:request-updated": (
+    payload: MessagingMessageRequestUpdatedPayload,
   ) => void;
   "messaging:presence-snapshot": (
     payload: MessagingPresenceSnapshotPayload,

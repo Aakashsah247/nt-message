@@ -39,6 +39,71 @@ export class ConversationsController {
     return this.conversationsService.searchMessagingContacts(user, query);
   }
 
+  @Get('requests')
+  listMessageRequests(
+    @CurrentUser()
+    user: AuthenticatedUser,
+  ) {
+    return this.conversationsService.listMessageRequests(user);
+  }
+
+  @Patch('requests/:id/accept')
+  acceptMessageRequest(
+    @CurrentUser()
+    user: AuthenticatedUser,
+
+    @Param(
+      'id',
+      new ParseUUIDPipe({
+        version: '4',
+      }),
+    )
+    requestId: string,
+  ) {
+    return this.conversationsService.acceptMessageRequest(
+      user,
+      requestId,
+    );
+  }
+
+  @Patch('requests/:id/decline')
+  declineMessageRequest(
+    @CurrentUser()
+    user: AuthenticatedUser,
+
+    @Param(
+      'id',
+      new ParseUUIDPipe({
+        version: '4',
+      }),
+    )
+    requestId: string,
+  ) {
+    return this.conversationsService.declineMessageRequest(
+      user,
+      requestId,
+    );
+  }
+
+  @Patch('requests/:id/block')
+  blockMessageRequest(
+    @CurrentUser()
+    user: AuthenticatedUser,
+
+    @Param(
+      'id',
+      new ParseUUIDPipe({
+        version: '4',
+      }),
+    )
+    requestId: string,
+  ) {
+    return this.conversationsService.blockMessageRequest(
+      user,
+      requestId,
+    );
+  }
+
   @Post('private')
   createPrivateConversation(
     @CurrentUser()

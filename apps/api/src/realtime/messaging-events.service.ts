@@ -10,6 +10,12 @@ export type MessagingConversationUpdateReason =
   | 'CREATED'
   | 'REOPENED';
 
+export type MessagingMessageRequestStatus =
+  | 'PENDING'
+  | 'ACCEPTED'
+  | 'DECLINED'
+  | 'BLOCKED';
+
 export interface MessagingReadyPayload {
   accountId: string;
   sessionId: string;
@@ -44,6 +50,13 @@ export interface MessagingConversationUpdatedPayload {
   occurredAt: string;
 }
 
+export interface MessagingMessageRequestUpdatedPayload {
+  requestId: string;
+  status: MessagingMessageRequestStatus;
+  conversationId: string | null;
+  occurredAt: string;
+}
+
 export interface MessagingPresenceSnapshotPayload {
   presences: MessagingPresenceState[];
   occurredAt: string;
@@ -73,6 +86,9 @@ export interface MessagingServerToClientEvents {
   ) => void;
   'messaging:conversation-updated': (
     payload: MessagingConversationUpdatedPayload,
+  ) => void;
+  'messaging:request-updated': (
+    payload: MessagingMessageRequestUpdatedPayload,
   ) => void;
   'messaging:presence-snapshot': (
     payload: MessagingPresenceSnapshotPayload,
@@ -151,6 +167,21 @@ export class MessagingEventsService {
       this.server
         .to(this.accountRoom(accountId))
         .emit('messaging:conversation-updated', payload);
+    }
+  }
+
+  emitMessageRequestUpdated(
+    accountIds: string[],
+    payload: MessagingMessageRequestUpdatedPayload,
+  ): void {
+    if (!this.server) {
+      return;
+    }
+
+    for (const accountId of new Set(accountIds)) {
+      this.server
+        .to(this.accountRoom(accountId))
+        .emit('messaging:request-updated', payload);
     }
   }
 

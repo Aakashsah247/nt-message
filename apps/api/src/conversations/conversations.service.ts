@@ -14,6 +14,8 @@ import {
   EmployeeStatus,
   EmploymentStatus,
   MessageContentType,
+  MessageRequestReason,
+  MessageRequestStatus,
 } from '../generated/prisma/client';
 import type { Prisma } from '../generated/prisma/client';
 import { MessagingEventsService } from '../realtime/messaging-events.service';
@@ -32,6 +34,8 @@ interface MessagingViewer {
 }
 
 type DeliveryStatus = 'SENT' | 'DELIVERED' | 'READ';
+
+const MESSAGE_REQUEST_COOLDOWN_MS = 24 * 60 * 60 * 1000;
 
 const messagingAccountSelect = {
   id: true,
@@ -177,6 +181,34 @@ const conversationSelect = {
 
 type ConversationRecord = Prisma.ConversationGetPayload<{
   select: typeof conversationSelect;
+}>;
+
+const messageRequestSelect = {
+  id: true,
+  participantKey: true,
+  requesterAccountId: true,
+  recipientAccountId: true,
+  blockedByAccountId: true,
+  conversationId: true,
+  status: true,
+  reason: true,
+  requestCount: true,
+  requestedAt: true,
+  respondedAt: true,
+  createdAt: true,
+  updatedAt: true,
+
+  requester: {
+    select: messagingAccountSelect,
+  },
+
+  recipient: {
+    select: messagingAccountSelect,
+  },
+} satisfies Prisma.MessageRequestSelect;
+
+type MessageRequestRecord = Prisma.MessageRequestGetPayload<{
+  select: typeof messageRequestSelect;
 }>;
 
 @Injectable()
@@ -623,6 +655,200 @@ export class ConversationsService {
     return conversation;
   }
 
+  private getMessageRequestReason(
+    viewer: MessagingViewer,
+    target: MessagingAccountRecord,
+  ): MessageRequestReason | null {
+    if (viewer.role === AccountRole.SUPER_ADMIN) {
+      return null;
+    }
+
+    if (target.role === AccountRole.SUPER_ADMIN) {
+      return MessageRequestReason.PROTECTED_RECIPIENT;
+    }
+
+    if (
+      target.role === AccountRole.SENIOR_MANAGEMENT &&
+      viewer.role !== AccountRole.SENIOR_MANAGEMENT
+    ) {
+      return MessageRequestReason.PROTECTED_RECIPIENT;
+    }
+
+    if (
+      viewer.role === AccountRole.SENIOR_MANAGEMENT &&
+      viewer.divisionId &&
+      target.employee?.divisionId === viewer.divisionId
+    ) {
+      return null;
+    }
+
+    if (
+      (viewer.role === AccountRole.TEAM_MANAGER ||
+        viewer.role === AccountRole.EMPLOYEE) &&
+      viewer.departmentId &&
+      target.employee?.departmentId === viewer.departmentId
+    ) {
+      return null;
+    }
+
+    if (
+      viewer.divisionId &&
+      target.employee?.divisionId &&
+      viewer.divisionId !== target.employee.divisionId
+    ) {
+      return MessageRequestReason.CROSS_DIVISION;
+    }
+
+    return MessageRequestReason.CROSS_DEPARTMENT;
+  }
+
+  private serializeMessageRequest(
+    request: MessageRequestRecord,
+    viewerAccountId: string,
+  ) {
+    const direction =
+      request.requesterAccountId === viewerAccountId
+        ? 'SENT'
+        : 'RECEIVED';
+
+    const peer =
+      direction === 'SENT'
+        ? request.recipient
+        : request.requester;
+
+    return {
+      id: request.id,
+      participantKey: request.participantKey,
+      requesterAccountId: request.requesterAccountId,
+      recipientAccountId: request.recipientAccountId,
+      blockedByAccountId: request.blockedByAccountId,
+      conversationId: request.conversationId,
+      status: request.status,
+      reason: request.reason,
+      direction,
+      requestCount: request.requestCount,
+      requestedAt: request.requestedAt,
+      respondedAt: request.respondedAt,
+      requester: this.serializeAccount(request.requester),
+      recipient: this.serializeAccount(request.recipient),
+      peer: this.serializeAccount(peer),
+      createdAt: request.createdAt,
+      updatedAt: request.updatedAt,
+    };
+  }
+
+  private async openPrivateConversation(
+    viewer: MessagingViewer,
+    target: MessagingAccountRecord,
+    privateParticipantKey: string,
+    options?: {
+      messageRequestId?: string;
+      createdByAccountId?: string;
+    },
+  ) {
+    const existingConversation = await this.prisma.conversation.findUnique({
+      where: {
+        privateParticipantKey,
+      },
+
+      select: {
+        id: true,
+      },
+    });
+
+    const now = new Date();
+
+    const conversationId = await this.prisma.$transaction(
+      async (transaction) => {
+        const conversation = await transaction.conversation.upsert({
+          where: {
+            privateParticipantKey,
+          },
+
+          update: {},
+
+          create: {
+            type: ConversationType.PRIVATE,
+            privateParticipantKey,
+            createdByAccountId:
+              options?.createdByAccountId ?? viewer.accountId,
+          },
+
+          select: {
+            id: true,
+            type: true,
+          },
+        });
+
+        if (conversation.type !== ConversationType.PRIVATE) {
+          throw new ConflictException(
+            'The private conversation key is already used by another conversation type.',
+          );
+        }
+
+        for (const accountId of [viewer.accountId, target.id]) {
+          await transaction.conversationParticipant.upsert({
+            where: {
+              conversationId_accountId: {
+                conversationId: conversation.id,
+                accountId,
+              },
+            },
+
+            update: {
+              leftAt: null,
+              isArchived: false,
+            },
+
+            create: {
+              conversationId: conversation.id,
+              accountId,
+            },
+          });
+        }
+
+        if (options?.messageRequestId) {
+          await transaction.messageRequest.update({
+            where: {
+              id: options.messageRequestId,
+            },
+
+            data: {
+              status: MessageRequestStatus.ACCEPTED,
+              conversationId: conversation.id,
+              respondedAt: now,
+              blockedByAccountId: null,
+            },
+          });
+        }
+
+        return conversation.id;
+      },
+    );
+
+    const conversation = await this.getConversationRecord(conversationId);
+    const serializedConversation = this.serializeConversation(
+      conversation,
+      viewer.accountId,
+      0,
+    );
+
+    this.messagingEventsService.emitConversationUpdated(
+      [viewer.accountId, target.id],
+      {
+        conversationId,
+        reason: existingConversation ? 'REOPENED' : 'CREATED',
+        occurredAt: now.toISOString(),
+      },
+    );
+
+    return {
+      conversationId,
+      created: existingConversation === null,
+      data: serializedConversation,
+    };
+  }
+
   async searchMessagingContacts(
     user: AuthenticatedUser,
     query: SearchMessagingContactsQueryDto,
@@ -741,7 +967,7 @@ export class ConversationsService {
       select: messagingAccountSelect,
     });
 
-    const data = candidates
+    const selectedCandidates = candidates
       .filter((account) => this.isActiveEmployeeAccount(account))
       .sort((first, second) => {
         const firstName = this.serializeAccount(first).displayName;
@@ -751,8 +977,84 @@ export class ConversationsService {
           sensitivity: 'base',
         });
       })
-      .slice(0, query.limit)
-      .map((account) => this.serializeAccount(account));
+      .slice(0, query.limit);
+
+    const participantKeys = selectedCandidates.map((account) =>
+      this.buildPrivateParticipantKey(viewer.accountId, account.id),
+    );
+
+    const [existingConversations, existingRequests] = await Promise.all([
+      this.prisma.conversation.findMany({
+        where: {
+          privateParticipantKey: {
+            in: participantKeys,
+          },
+        },
+
+        select: {
+          privateParticipantKey: true,
+        },
+      }),
+      this.prisma.messageRequest.findMany({
+        where: {
+          participantKey: {
+            in: participantKeys,
+          },
+        },
+
+        select: {
+          participantKey: true,
+          requesterAccountId: true,
+          recipientAccountId: true,
+          status: true,
+          reason: true,
+        },
+      }),
+    ]);
+
+    const conversationKeys = new Set(
+      existingConversations
+        .map((conversation) => conversation.privateParticipantKey)
+        .filter((key): key is string => Boolean(key)),
+    );
+    const requestsByKey = new Map(
+      existingRequests.map((request) => [request.participantKey, request]),
+    );
+
+    const data = selectedCandidates.map((candidate) => {
+      const participantKey = this.buildPrivateParticipantKey(
+        viewer.accountId,
+        candidate.id,
+      );
+      const request = requestsByKey.get(participantKey);
+      const requestReason = this.getMessageRequestReason(viewer, candidate);
+
+      let contactMode:
+        | 'DIRECT'
+        | 'REQUEST_REQUIRED'
+        | 'REQUEST_SENT'
+        | 'REQUEST_RECEIVED'
+        | 'BLOCKED';
+
+      if (conversationKeys.has(participantKey)) {
+        contactMode = 'DIRECT';
+      } else if (request?.status === MessageRequestStatus.BLOCKED) {
+        contactMode = 'BLOCKED';
+      } else if (request?.status === MessageRequestStatus.PENDING) {
+        contactMode =
+          request.requesterAccountId === viewer.accountId
+            ? 'REQUEST_SENT'
+            : 'REQUEST_RECEIVED';
+      } else {
+        contactMode = requestReason ? 'REQUEST_REQUIRED' : 'DIRECT';
+      }
+
+      return {
+        ...this.serializeAccount(candidate),
+        contactMode,
+        requestReason: request?.reason ?? requestReason,
+      };
+    });
 
     return {
       data,
@@ -808,78 +1110,414 @@ export class ConversationsService {
       },
     });
 
-    const conversationId = await this.prisma.$transaction(async (transaction) => {
-      const conversation = await transaction.conversation.upsert({
-        where: {
-          privateParticipantKey,
-        },
+    if (existingConversation) {
+      const opened = await this.openPrivateConversation(
+        viewer,
+        target,
+        privateParticipantKey,
+      );
 
-        update: {},
+      return {
+        outcome: 'CONVERSATION' as const,
+        message: 'Private conversation reopened successfully.',
+        created: false,
+        data: opened.data,
+        request: null,
+      };
+    }
 
-        create: {
-          type: ConversationType.PRIVATE,
-          privateParticipantKey,
-          createdByAccountId: viewer.accountId,
-        },
+    const existingRequest = await this.prisma.messageRequest.findUnique({
+      where: {
+        participantKey: privateParticipantKey,
+      },
 
-        select: {
-          id: true,
-          type: true,
-        },
-      });
+      select: messageRequestSelect,
+    });
 
-      if (conversation.type !== ConversationType.PRIVATE) {
-        throw new ConflictException(
-          'The private conversation key is already used by another conversation type.',
+    if (existingRequest?.status === MessageRequestStatus.BLOCKED) {
+      throw new ForbiddenException(
+        'Private contact is blocked for this account.',
+      );
+    }
+
+    if (existingRequest?.status === MessageRequestStatus.PENDING) {
+      return {
+        outcome: 'REQUEST' as const,
+        message:
+          existingRequest.requesterAccountId === viewer.accountId
+            ? 'Your message request is still pending.'
+            : 'This account already sent you a message request. Review it before starting a conversation.',
+        created: false,
+        data: null,
+        request: this.serializeMessageRequest(
+          existingRequest,
+          viewer.accountId,
+        ),
+      };
+    }
+
+    const requestReason = this.getMessageRequestReason(viewer, target);
+    const viewerPreviouslyDeclined =
+      existingRequest?.status === MessageRequestStatus.DECLINED &&
+      existingRequest.recipientAccountId === viewer.accountId;
+
+    if (
+      requestReason === null ||
+      viewerPreviouslyDeclined ||
+      existingRequest?.status === MessageRequestStatus.ACCEPTED
+    ) {
+      const opened = await this.openPrivateConversation(
+        viewer,
+        target,
+        privateParticipantKey,
+        existingRequest
+          ? {
+              messageRequestId: existingRequest.id,
+              createdByAccountId: existingRequest.requesterAccountId,
+            }
+          : undefined,
+      );
+
+      if (existingRequest) {
+        this.messagingEventsService.emitMessageRequestUpdated(
+          [viewer.accountId, target.id],
+          {
+            requestId: existingRequest.id,
+            status: 'ACCEPTED',
+            conversationId: opened.conversationId,
+            occurredAt: new Date().toISOString(),
+          },
         );
       }
 
-      for (const accountId of [viewer.accountId, target.id]) {
-        await transaction.conversationParticipant.upsert({
-          where: {
-            conversationId_accountId: {
-              conversationId: conversation.id,
-              accountId,
-            },
-          },
+      return {
+        outcome: 'CONVERSATION' as const,
+        message: opened.created
+          ? 'Private conversation created successfully.'
+          : 'Private conversation reopened successfully.',
+        created: opened.created,
+        data: opened.data,
+        request: null,
+      };
+    }
 
-          update: {
-            leftAt: null,
-            isArchived: false,
-          },
+    if (
+      existingRequest?.status === MessageRequestStatus.DECLINED &&
+      existingRequest.requesterAccountId === viewer.accountId &&
+      existingRequest.respondedAt
+    ) {
+      const availableAt = new Date(
+        existingRequest.respondedAt.getTime() +
+          MESSAGE_REQUEST_COOLDOWN_MS,
+      );
 
-          create: {
-            conversationId: conversation.id,
-            accountId,
-          },
-        });
+      if (availableAt.getTime() > Date.now()) {
+        throw new ForbiddenException(
+          `This request was declined. You can try again after ${availableAt.toISOString()}.`,
+        );
       }
+    }
 
-      return conversation.id;
+    const now = new Date();
+    const request = await this.prisma.messageRequest.upsert({
+      where: {
+        participantKey: privateParticipantKey,
+      },
+
+      create: {
+        participantKey: privateParticipantKey,
+        requesterAccountId: viewer.accountId,
+        recipientAccountId: target.id,
+        status: MessageRequestStatus.PENDING,
+        reason: requestReason,
+        requestedAt: now,
+      },
+
+      update: {
+        requesterAccountId: viewer.accountId,
+        recipientAccountId: target.id,
+        blockedByAccountId: null,
+        conversationId: null,
+        status: MessageRequestStatus.PENDING,
+        reason: requestReason,
+        requestCount: {
+          increment: 1,
+        },
+        requestedAt: now,
+        respondedAt: null,
+      },
+
+      select: messageRequestSelect,
     });
 
-    const conversation = await this.getConversationRecord(conversationId);
-    const serializedConversation = this.serializeConversation(
-      conversation,
-      viewer.accountId,
-      0,
-    );
-
-    this.messagingEventsService.emitConversationUpdated(
+    this.messagingEventsService.emitMessageRequestUpdated(
       [viewer.accountId, target.id],
       {
-        conversationId,
-        reason: existingConversation ? 'REOPENED' : 'CREATED',
+        requestId: request.id,
+        status: 'PENDING',
+        conversationId: null,
+        occurredAt: now.toISOString(),
+      },
+    );
+
+    return {
+      outcome: 'REQUEST' as const,
+      message: existingRequest
+        ? 'Message request sent again.'
+        : 'Message request sent successfully.',
+      created: true,
+      data: null,
+      request: this.serializeMessageRequest(request, viewer.accountId),
+    };
+  }
+
+  async listMessageRequests(user: AuthenticatedUser) {
+    const viewer = await this.getMessagingViewer(user);
+
+    const requests = await this.prisma.messageRequest.findMany({
+      where: {
+        status: MessageRequestStatus.PENDING,
+        OR: [
+          {
+            requesterAccountId: viewer.accountId,
+          },
+          {
+            recipientAccountId: viewer.accountId,
+          },
+        ],
+      },
+
+      orderBy: [
+        {
+          requestedAt: 'desc',
+        },
+        {
+          id: 'desc',
+        },
+      ],
+
+      select: messageRequestSelect,
+    });
+
+    const serialized = requests.map((request) =>
+      this.serializeMessageRequest(request, viewer.accountId),
+    );
+    const received = serialized.filter(
+      (request) => request.direction === 'RECEIVED',
+    );
+    const sent = serialized.filter(
+      (request) => request.direction === 'SENT',
+    );
+
+    return {
+      received,
+      sent,
+      counts: {
+        receivedPending: received.length,
+        sentPending: sent.length,
+      },
+    };
+  }
+
+  async acceptMessageRequest(
+    user: AuthenticatedUser,
+    requestId: string,
+  ) {
+    const viewer = await this.getMessagingViewer(user);
+    const request = await this.prisma.messageRequest.findUnique({
+      where: {
+        id: requestId,
+      },
+
+      select: messageRequestSelect,
+    });
+
+    if (!request || request.recipientAccountId !== viewer.accountId) {
+      throw new NotFoundException('Message request was not found.');
+    }
+
+    if (
+      request.status === MessageRequestStatus.ACCEPTED &&
+      request.conversationId
+    ) {
+      const conversation = await this.getConversationRecord(
+        request.conversationId,
+      );
+
+      return {
+        message: 'Message request was already accepted.',
+        data: this.serializeConversation(
+          conversation,
+          viewer.accountId,
+          0,
+        ),
+        request: this.serializeMessageRequest(request, viewer.accountId),
+      };
+    }
+
+    if (request.status !== MessageRequestStatus.PENDING) {
+      throw new ConflictException(
+        'Only a pending message request can be accepted.',
+      );
+    }
+
+    if (
+      !request.requester.isEnabled ||
+      !this.isActiveEmployeeAccount(request.requester)
+    ) {
+      throw new NotFoundException(
+        'The requesting account is no longer available.',
+      );
+    }
+
+    const opened = await this.openPrivateConversation(
+      viewer,
+      request.requester,
+      request.participantKey,
+      {
+        messageRequestId: request.id,
+        createdByAccountId: request.requesterAccountId,
+      },
+    );
+    const updatedRequest = await this.prisma.messageRequest.findUniqueOrThrow({
+      where: {
+        id: request.id,
+      },
+
+      select: messageRequestSelect,
+    });
+
+    this.messagingEventsService.emitMessageRequestUpdated(
+      [request.requesterAccountId, request.recipientAccountId],
+      {
+        requestId: request.id,
+        status: 'ACCEPTED',
+        conversationId: opened.conversationId,
         occurredAt: new Date().toISOString(),
       },
     );
 
     return {
-      message: existingConversation
-        ? 'Private conversation reopened successfully.'
-        : 'Private conversation created successfully.',
-      created: existingConversation === null,
-      data: serializedConversation,
+      message: 'Message request accepted.',
+      data: opened.data,
+      request: this.serializeMessageRequest(
+        updatedRequest,
+        viewer.accountId,
+      ),
+    };
+  }
+
+  async declineMessageRequest(
+    user: AuthenticatedUser,
+    requestId: string,
+  ) {
+    const viewer = await this.getMessagingViewer(user);
+    const request = await this.prisma.messageRequest.findUnique({
+      where: {
+        id: requestId,
+      },
+
+      select: messageRequestSelect,
+    });
+
+    if (!request || request.recipientAccountId !== viewer.accountId) {
+      throw new NotFoundException('Message request was not found.');
+    }
+
+    if (request.status !== MessageRequestStatus.PENDING) {
+      throw new ConflictException(
+        'Only a pending message request can be declined.',
+      );
+    }
+
+    const now = new Date();
+    const updatedRequest = await this.prisma.messageRequest.update({
+      where: {
+        id: request.id,
+      },
+
+      data: {
+        status: MessageRequestStatus.DECLINED,
+        respondedAt: now,
+        blockedByAccountId: null,
+      },
+
+      select: messageRequestSelect,
+    });
+
+    this.messagingEventsService.emitMessageRequestUpdated(
+      [request.requesterAccountId, request.recipientAccountId],
+      {
+        requestId: request.id,
+        status: 'DECLINED',
+        conversationId: null,
+        occurredAt: now.toISOString(),
+      },
+    );
+
+    return {
+      message: 'Message request declined.',
+      request: this.serializeMessageRequest(
+        updatedRequest,
+        viewer.accountId,
+      ),
+    };
+  }
+
+  async blockMessageRequest(
+    user: AuthenticatedUser,
+    requestId: string,
+  ) {
+    const viewer = await this.getMessagingViewer(user);
+    const request = await this.prisma.messageRequest.findUnique({
+      where: {
+        id: requestId,
+      },
+
+      select: messageRequestSelect,
+    });
+
+    if (!request || request.recipientAccountId !== viewer.accountId) {
+      throw new NotFoundException('Message request was not found.');
+    }
+
+    if (request.status !== MessageRequestStatus.PENDING) {
+      throw new ConflictException(
+        'Only a pending message request can be blocked.',
+      );
+    }
+
+    const now = new Date();
+    const updatedRequest = await this.prisma.messageRequest.update({
+      where: {
+        id: request.id,
+      },
+
+      data: {
+        status: MessageRequestStatus.BLOCKED,
+        respondedAt: now,
+        blockedByAccountId: viewer.accountId,
+      },
+
+      select: messageRequestSelect,
+    });
+
+    this.messagingEventsService.emitMessageRequestUpdated(
+      [request.requesterAccountId, request.recipientAccountId],
+      {
+        requestId: request.id,
+        status: 'BLOCKED',
+        conversationId: null,
+        occurredAt: now.toISOString(),
+      },
+    );
+
+    return {
+      message: 'Message request blocked.',
+      request: this.serializeMessageRequest(
+        updatedRequest,
+        viewer.accountId,
+      ),
     };
   }
 
