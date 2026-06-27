@@ -25,6 +25,7 @@ import { ListConversationsQueryDto } from './dto/list-conversations-query.dto';
 import { ListMessagesQueryDto } from './dto/list-messages-query.dto';
 import { SearchMessagingContactsQueryDto } from './dto/search-messaging-contacts-query.dto';
 import { SendTextMessageDto } from './dto/send-text-message.dto';
+import { UpdateTextMessageDto } from './dto/update-text-message.dto';
 
 interface MessagingViewer {
   accountId: string;
@@ -36,6 +37,7 @@ interface MessagingViewer {
 type DeliveryStatus = 'SENT' | 'DELIVERED' | 'READ';
 
 const MESSAGE_REQUEST_COOLDOWN_MS = 24 * 60 * 60 * 1000;
+const MESSAGE_EDIT_WINDOW_MS = 15 * 60 * 1000;
 
 const messagingAccountSelect = {
   id: true,
@@ -475,7 +477,7 @@ export class ConversationsService {
           ? this.serializeAccount(privatePeer).displayName
           : conversation.title,
       createdByAccountId: conversation.createdByAccountId,
-      lastMessageAt: conversation.lastMessageAt,
+      lastMessageAt: conversation.messages[0]?.sentAt ?? null,
       unreadCount,
       isMuted: viewerParticipant?.isMuted ?? false,
       isArchived: viewerParticipant?.isArchived ?? false,
@@ -559,6 +561,11 @@ export class ConversationsService {
           is: {
             conversationId: {
               in: conversationIds,
+            },
+            hiddenForAccounts: {
+              none: {
+                accountId,
+              },
             },
           },
         },
@@ -1574,32 +1581,69 @@ export class ConversationsService {
       conversationIds,
     );
 
-    const unreadCounts = await Promise.all(
-      conversationIds.map((conversationId) =>
-        this.prisma.messageReceipt.count({
-          where: {
-            accountId: viewer.accountId,
-            readAt: null,
+    const [unreadCounts, visibleLastMessages] = await Promise.all([
+      Promise.all(
+        conversationIds.map((conversationId) =>
+          this.prisma.messageReceipt.count({
+            where: {
+              accountId: viewer.accountId,
+              readAt: null,
 
-            message: {
-              is: {
-                conversationId,
-                deletedAt: null,
+              message: {
+                is: {
+                  conversationId,
+                  deletedAt: null,
+                  hiddenForAccounts: {
+                    none: {
+                      accountId: viewer.accountId,
+                    },
+                  },
+                },
               },
             },
-          },
-        }),
-      ),
-    );
-
-    return {
-      data: page.map((conversation, index) =>
-        this.serializeConversation(
-          conversation,
-          viewer.accountId,
-          unreadCounts[index] ?? 0,
+          }),
         ),
       ),
+      Promise.all(
+        conversationIds.map((conversationId) =>
+          this.prisma.message.findFirst({
+            where: {
+              conversationId,
+              hiddenForAccounts: {
+                none: {
+                  accountId: viewer.accountId,
+                },
+              },
+            },
+            orderBy: [
+              {
+                sentAt: 'desc',
+              },
+              {
+                id: 'desc',
+              },
+            ],
+            select: messageSelect,
+          }),
+        ),
+      ),
+    ]);
+
+    return {
+      data: page.map((conversation, index) => {
+        const visibleLastMessage = visibleLastMessages[index];
+
+        return this.serializeConversation(
+          {
+            ...conversation,
+            messages: visibleLastMessage
+              ? [visibleLastMessage]
+              : [],
+          },
+          viewer.accountId,
+          unreadCounts[index] ?? 0,
+        );
+      }),
       pagination: {
         limit: query.limit,
         hasMore,
@@ -1631,6 +1675,11 @@ export class ConversationsService {
     const messages = await this.prisma.message.findMany({
       where: {
         conversationId,
+        hiddenForAccounts: {
+          none: {
+            accountId: viewer.accountId,
+          },
+        },
       },
 
       orderBy: [
@@ -1761,6 +1810,11 @@ export class ConversationsService {
           id: dto.replyToMessageId,
           conversationId,
           deletedAt: null,
+          hiddenForAccounts: {
+            none: {
+              accountId: viewer.accountId,
+            },
+          },
         },
 
         select: {
@@ -1892,6 +1946,277 @@ export class ConversationsService {
     }
   }
 
+  async editTextMessage(
+    user: AuthenticatedUser,
+    conversationId: string,
+    messageId: string,
+    dto: UpdateTextMessageDto,
+  ) {
+    const viewer = await this.getMessagingViewer(user);
+    const textContent = dto.text.trim();
+
+    if (!textContent) {
+      throw new BadRequestException('Message text cannot be empty.');
+    }
+
+    await this.assertActiveParticipant(
+      viewer.accountId,
+      conversationId,
+    );
+
+    const message = await this.prisma.message.findFirst({
+      where: {
+        id: messageId,
+        conversationId,
+      },
+
+      select: messageSelect,
+    });
+
+    if (!message) {
+      throw new NotFoundException('Message was not found.');
+    }
+
+    if (message.senderAccountId !== viewer.accountId) {
+      throw new ForbiddenException(
+        'You can edit only messages that you sent.',
+      );
+    }
+
+    if (message.deletedAt) {
+      throw new ConflictException('A deleted message cannot be edited.');
+    }
+
+    if (message.contentType !== MessageContentType.TEXT) {
+      throw new BadRequestException(
+        'Only text messages can be edited.',
+      );
+    }
+
+    if (
+      Date.now() - message.sentAt.getTime() >
+      MESSAGE_EDIT_WINDOW_MS
+    ) {
+      throw new ForbiddenException(
+        'The 15-minute message editing period has ended.',
+      );
+    }
+
+    const [updatedMessage, participants] = await this.prisma.$transaction([
+      this.prisma.message.update({
+        where: {
+          id: message.id,
+        },
+
+        data: {
+          textContent,
+          editedAt: new Date(),
+        },
+
+        select: messageSelect,
+      }),
+      this.prisma.conversationParticipant.findMany({
+        where: {
+          conversationId,
+          leftAt: null,
+        },
+
+        select: {
+          accountId: true,
+        },
+      }),
+    ]);
+
+    const serializedMessage = this.serializeMessage(updatedMessage);
+
+    this.messagingEventsService.emitMessageUpdated(
+      participants.map((participant) => participant.accountId),
+      {
+        conversationId,
+        message: serializedMessage,
+        action: 'EDITED',
+        occurredAt: new Date().toISOString(),
+      },
+    );
+
+    return {
+      message: 'Message edited successfully.',
+      data: serializedMessage,
+    };
+  }
+
+  async deleteMessageForMe(
+    user: AuthenticatedUser,
+    conversationId: string,
+    messageId: string,
+  ) {
+    const viewer = await this.getMessagingViewer(user);
+
+    await this.assertActiveParticipant(
+      viewer.accountId,
+      conversationId,
+    );
+
+    const message = await this.prisma.message.findFirst({
+      where: {
+        id: messageId,
+        conversationId,
+      },
+      select: {
+        id: true,
+        senderAccountId: true,
+      },
+    });
+
+    if (!message) {
+      throw new NotFoundException('Message was not found.');
+    }
+
+    const now = new Date();
+
+    await this.prisma.$transaction(async (transaction) => {
+      await transaction.messageHiddenForAccount.upsert({
+        where: {
+          messageId_accountId: {
+            messageId: message.id,
+            accountId: viewer.accountId,
+          },
+        },
+        update: {
+          hiddenAt: now,
+        },
+        create: {
+          messageId: message.id,
+          accountId: viewer.accountId,
+          hiddenAt: now,
+        },
+      });
+
+      await transaction.messageReceipt.updateMany({
+        where: {
+          messageId: message.id,
+          accountId: viewer.accountId,
+        },
+        data: {
+          deliveredAt: now,
+          readAt: now,
+        },
+      });
+    });
+
+    this.messagingEventsService.emitMessageHidden(
+      viewer.accountId,
+      {
+        conversationId,
+        messageId: message.id,
+        accountId: viewer.accountId,
+        occurredAt: now.toISOString(),
+      },
+    );
+
+    if (message.senderAccountId !== viewer.accountId) {
+      this.messagingEventsService.emitReceiptUpdated(
+        [message.senderAccountId],
+        {
+          conversationId,
+          messageIds: [message.id],
+          accountId: viewer.accountId,
+          status: 'READ',
+          occurredAt: now.toISOString(),
+        },
+      );
+    }
+
+    return {
+      message: 'Message deleted for you.',
+      conversationId,
+      messageId: message.id,
+      hiddenAt: now,
+    };
+  }
+
+  async deleteMessageForEveryone(
+    user: AuthenticatedUser,
+    conversationId: string,
+    messageId: string,
+  ) {
+    const viewer = await this.getMessagingViewer(user);
+
+    await this.assertActiveParticipant(
+      viewer.accountId,
+      conversationId,
+    );
+
+    const message = await this.prisma.message.findFirst({
+      where: {
+        id: messageId,
+        conversationId,
+      },
+
+      select: messageSelect,
+    });
+
+    if (!message) {
+      throw new NotFoundException('Message was not found.');
+    }
+
+    if (message.senderAccountId !== viewer.accountId) {
+      throw new ForbiddenException(
+        'You can delete only messages that you sent.',
+      );
+    }
+
+    if (message.deletedAt) {
+      return {
+        message: 'Message was already deleted.',
+        data: this.serializeMessage(message),
+      };
+    }
+
+    const now = new Date();
+    const [deletedMessage, participants] = await this.prisma.$transaction([
+      this.prisma.message.update({
+        where: {
+          id: message.id,
+        },
+
+        data: {
+          deletedAt: now,
+          deletedByAccountId: viewer.accountId,
+        },
+
+        select: messageSelect,
+      }),
+      this.prisma.conversationParticipant.findMany({
+        where: {
+          conversationId,
+          leftAt: null,
+        },
+
+        select: {
+          accountId: true,
+        },
+      }),
+    ]);
+
+    const serializedMessage = this.serializeMessage(deletedMessage);
+
+    this.messagingEventsService.emitMessageUpdated(
+      participants.map((participant) => participant.accountId),
+      {
+        conversationId,
+        message: serializedMessage,
+        action: 'DELETED',
+        occurredAt: now.toISOString(),
+      },
+    );
+
+    return {
+      message: 'Message deleted for everyone.',
+      data: serializedMessage,
+    };
+  }
+
   async markConversationRead(
     user: AuthenticatedUser,
     conversationId: string,
@@ -1911,6 +2236,11 @@ export class ConversationsService {
         message: {
           is: {
             conversationId,
+            hiddenForAccounts: {
+              none: {
+                accountId: viewer.accountId,
+              },
+            },
           },
         },
       },
@@ -1938,6 +2268,11 @@ export class ConversationsService {
             message: {
               is: {
                 conversationId,
+                hiddenForAccounts: {
+                  none: {
+                    accountId: viewer.accountId,
+                  },
+                },
               },
             },
           },
@@ -1955,6 +2290,11 @@ export class ConversationsService {
             message: {
               is: {
                 conversationId,
+                hiddenForAccounts: {
+                  none: {
+                    accountId: viewer.accountId,
+                  },
+                },
               },
             },
           },

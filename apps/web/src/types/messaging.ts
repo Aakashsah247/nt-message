@@ -208,6 +208,23 @@ export interface SendTextMessageResponse {
   data: MessagingMessage;
 }
 
+export interface UpdateTextMessageResponse {
+  message: string;
+  data: MessagingMessage;
+}
+
+export interface DeleteMessageResponse {
+  message: string;
+  data: MessagingMessage;
+}
+
+export interface DeleteMessageForMeResponse {
+  message: string;
+  conversationId: string;
+  messageId: string;
+  hiddenAt: string;
+}
+
 export interface MarkConversationReadResponse {
   message: string;
   conversationId: string;

@@ -27,6 +27,20 @@ export interface MessagingMessageCreatedPayload {
   occurredAt: string;
 }
 
+export interface MessagingMessageUpdatedPayload {
+  conversationId: string;
+  message: MessagingMessage;
+  action: "EDITED" | "DELETED";
+  occurredAt: string;
+}
+
+export interface MessagingMessageHiddenPayload {
+  conversationId: string;
+  messageId: string;
+  accountId: string;
+  occurredAt: string;
+}
+
 export interface MessagingReceiptUpdatedPayload {
   conversationId: string;
   messageIds: string[];
@@ -78,6 +92,12 @@ interface ServerToClientEvents {
   "messaging:pong": (payload: MessagingPongPayload) => void;
   "messaging:message-created": (
     payload: MessagingMessageCreatedPayload,
+  ) => void;
+  "messaging:message-updated": (
+    payload: MessagingMessageUpdatedPayload,
+  ) => void;
+  "messaging:message-hidden": (
+    payload: MessagingMessageHiddenPayload,
   ) => void;
   "messaging:receipt-updated": (
     payload: MessagingReceiptUpdatedPayload,

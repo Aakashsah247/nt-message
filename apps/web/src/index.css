@@ -9194,6 +9194,81 @@
   color: rgba(255, 255, 255, 0.76);
 }
 
+.message-reply-preview {
+  display: grid;
+  gap: 2px;
+  margin-bottom: 8px;
+  padding: 7px 9px;
+  border-left: 3px solid var(--color-nt-blue);
+  border-radius: 6px;
+  color: #4f6579;
+  background: #edf4fa;
+}
+
+.message-bubble-row.own .message-reply-preview {
+  border-left-color: rgba(255, 255, 255, 0.86);
+  color: rgba(255, 255, 255, 0.88);
+  background: rgba(255, 255, 255, 0.14);
+}
+
+.message-reply-preview strong,
+.message-reply-preview span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.message-reply-preview strong {
+  font-size: 9px;
+  font-weight: 900;
+}
+
+.message-reply-preview span {
+  max-width: 420px;
+  font-size: 9px;
+}
+
+.message-bubble-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  padding: 0 4px;
+  opacity: 0;
+  transition: opacity 150ms ease;
+}
+
+.message-bubble-row:hover .message-bubble-actions,
+.message-bubble-actions:focus-within {
+  opacity: 1;
+}
+
+.message-bubble-row.own .message-bubble-actions {
+  justify-content: flex-end;
+}
+
+.message-bubble-actions button {
+  min-height: 25px;
+  padding: 0 8px;
+  border: 1px solid #d6e1eb;
+  border-radius: 7px;
+  color: #536b80;
+  background: white;
+  font-size: 8px;
+  font-weight: 900;
+}
+
+.message-bubble-actions button:hover:not(:disabled) {
+  border-color: #a8c8e4;
+  color: var(--color-nt-blue);
+  background: #f2f8fd;
+}
+
+.message-bubble-actions button.danger:hover:not(:disabled) {
+  border-color: #efb7b7;
+  color: #b3261e;
+  background: #fff3f2;
+}
+
 .message-bubble-meta {
   display: flex;
   align-items: center;
@@ -9279,6 +9354,55 @@
   padding: 13px 20px 15px;
   border-top: 1px solid #dce6ef;
   background: rgba(255, 255, 255, 0.96);
+}
+
+.message-composer-context {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 10px;
+  border-left: 3px solid var(--color-nt-blue);
+  border-radius: 8px;
+  background: #eef6fc;
+}
+
+.message-composer-context > span {
+  display: grid;
+  min-width: 0;
+  gap: 2px;
+}
+
+.message-composer-context strong,
+.message-composer-context small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.message-composer-context strong {
+  color: var(--color-nt-blue);
+  font-size: 9px;
+  font-weight: 900;
+}
+
+.message-composer-context small {
+  color: #687e91;
+  font-size: 9px;
+}
+
+.message-composer-context button {
+  display: grid;
+  width: 28px;
+  height: 28px;
+  flex: 0 0 28px;
+  place-items: center;
+  border: 0;
+  border-radius: 50%;
+  color: #64798c;
+  background: white;
+  font-size: 17px;
+  font-weight: 800;
 }
 
 .message-composer textarea {
@@ -9899,6 +10023,10 @@
 
   .message-bubble {
     padding: 9px 11px;
+  }
+
+  .message-bubble-actions {
+    opacity: 1;
   }
 
   .message-bubble p,

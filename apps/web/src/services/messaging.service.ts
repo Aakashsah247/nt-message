@@ -4,12 +4,15 @@ import type {
   AcceptMessageRequestResponse,
   ConversationListResponse,
   CreatePrivateConversationResponse,
+  DeleteMessageForMeResponse,
+  DeleteMessageResponse,
   MarkConversationReadResponse,
   MessageRequestActionResponse,
   MessageRequestListResponse,
   MessageListResponse,
   MessagingContactsResponse,
   SendTextMessageResponse,
+  UpdateTextMessageResponse,
 } from "../types/messaging";
 
 function authorizationHeaders(
@@ -154,6 +157,7 @@ export function sendConversationTextMessage(
   accessToken: string,
   conversationId: string,
   text: string,
+  replyToMessageId?: string,
 ): Promise<SendTextMessageResponse> {
   return apiRequest<SendTextMessageResponse>(
     `/conversations/${conversationId}/messages`,
@@ -163,7 +167,58 @@ export function sendConversationTextMessage(
       body: JSON.stringify({
         clientMessageId: crypto.randomUUID(),
         text,
+        ...(replyToMessageId
+          ? {
+              replyToMessageId,
+            }
+          : {}),
       }),
+    },
+  );
+}
+
+export function editConversationTextMessage(
+  accessToken: string,
+  conversationId: string,
+  messageId: string,
+  text: string,
+): Promise<UpdateTextMessageResponse> {
+  return apiRequest<UpdateTextMessageResponse>(
+    `/conversations/${conversationId}/messages/${messageId}`,
+    {
+      method: "PATCH",
+      headers: authorizationHeaders(accessToken),
+      body: JSON.stringify({
+        text,
+      }),
+    },
+  );
+}
+
+export function deleteConversationMessageForMe(
+  accessToken: string,
+  conversationId: string,
+  messageId: string,
+): Promise<DeleteMessageForMeResponse> {
+  return apiRequest<DeleteMessageForMeResponse>(
+    `/conversations/${conversationId}/messages/${messageId}/me`,
+    {
+      method: "DELETE",
+      headers: authorizationHeaders(accessToken),
+    },
+  );
+}
+
+export function deleteConversationMessage(
+  accessToken: string,
+  conversationId: string,
+  messageId: string,
+): Promise<DeleteMessageResponse> {
+  return apiRequest<DeleteMessageResponse>(
+    `/conversations/${conversationId}/messages/${messageId}`,
+    {
+      method: "DELETE",
+      headers: authorizationHeaders(accessToken),
     },
   );
 }

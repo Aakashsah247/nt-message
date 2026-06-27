@@ -210,6 +210,7 @@ model Account {
   sentMessages                  Message[]                 @relation("MessagesSentBy")
   deletedMessages               Message[]                 @relation("MessagesDeletedBy")
   messageReceipts               MessageReceipt[]
+  hiddenMessages                MessageHiddenForAccount[]
   sentMessageRequests           MessageRequest[]           @relation("MessageRequestsSent")
   receivedMessageRequests       MessageRequest[]           @relation("MessageRequestsReceived")
   blockedMessageRequests        MessageRequest[]           @relation("MessageRequestsBlockedBy")
@@ -545,7 +546,8 @@ model Message {
   replyTo Message?  @relation("MessageReplies", fields: [replyToMessageId], references: [id], onDelete: SetNull)
   replies Message[] @relation("MessageReplies")
 
-  receipts MessageReceipt[]
+  receipts          MessageReceipt[]
+  hiddenForAccounts MessageHiddenForAccount[]
 
   @@unique([senderAccountId, clientMessageId], map: "messages_sender_client_message_key")
   @@index([conversationId, sentAt, id], map: "messages_conversation_sent_idx")
@@ -553,6 +555,20 @@ model Message {
   @@index([replyToMessageId], map: "messages_reply_to_idx")
   @@index([deletedAt], map: "messages_deleted_at_idx")
   @@map("messages")
+}
+
+model MessageHiddenForAccount {
+  messageId String @map("message_id") @db.Uuid
+  accountId String @map("account_id") @db.Uuid
+
+  hiddenAt DateTime @default(now()) @map("hidden_at") @db.Timestamptz(3)
+
+  message Message @relation(fields: [messageId], references: [id], onDelete: Cascade)
+  account Account @relation(fields: [accountId], references: [id], onDelete: Cascade)
+
+  @@id([messageId, accountId], map: "message_hidden_for_accounts_pkey")
+  @@index([accountId, hiddenAt], map: "message_hidden_for_accounts_account_hidden_idx")
+  @@map("message_hidden_for_accounts")
 }
 
 model MessageReceipt {

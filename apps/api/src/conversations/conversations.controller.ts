@@ -1,6 +1,7 @@
 import {
   Body,
   Controller,
+  Delete,
   Get,
   Param,
   ParseUUIDPipe,
@@ -20,6 +21,7 @@ import { ListConversationsQueryDto } from './dto/list-conversations-query.dto';
 import { ListMessagesQueryDto } from './dto/list-messages-query.dto';
 import { SearchMessagingContactsQueryDto } from './dto/search-messaging-contacts-query.dto';
 import { SendTextMessageDto } from './dto/send-text-message.dto';
+import { UpdateTextMessageDto } from './dto/update-text-message.dto';
 
 @Controller('conversations')
 @UseGuards(AccessTokenGuard)
@@ -169,6 +171,94 @@ export class ConversationsController {
       user,
       conversationId,
       dto,
+    );
+  }
+
+  @Patch(':id/messages/:messageId')
+  editTextMessage(
+    @CurrentUser()
+    user: AuthenticatedUser,
+
+    @Param(
+      'id',
+      new ParseUUIDPipe({
+        version: '4',
+      }),
+    )
+    conversationId: string,
+
+    @Param(
+      'messageId',
+      new ParseUUIDPipe({
+        version: '4',
+      }),
+    )
+    messageId: string,
+
+    @Body()
+    dto: UpdateTextMessageDto,
+  ) {
+    return this.conversationsService.editTextMessage(
+      user,
+      conversationId,
+      messageId,
+      dto,
+    );
+  }
+
+  @Delete(':id/messages/:messageId/me')
+  deleteMessageForMe(
+    @CurrentUser()
+    user: AuthenticatedUser,
+
+    @Param(
+      'id',
+      new ParseUUIDPipe({
+        version: '4',
+      }),
+    )
+    conversationId: string,
+
+    @Param(
+      'messageId',
+      new ParseUUIDPipe({
+        version: '4',
+      }),
+    )
+    messageId: string,
+  ) {
+    return this.conversationsService.deleteMessageForMe(
+      user,
+      conversationId,
+      messageId,
+    );
+  }
+
+  @Delete(':id/messages/:messageId')
+  deleteMessageForEveryone(
+    @CurrentUser()
+    user: AuthenticatedUser,
+
+    @Param(
+      'id',
+      new ParseUUIDPipe({
+        version: '4',
+      }),
+    )
+    conversationId: string,
+
+    @Param(
+      'messageId',
+      new ParseUUIDPipe({
+        version: '4',
+      }),
+    )
+    messageId: string,
+  ) {
+    return this.conversationsService.deleteMessageForEveryone(
+      user,
+      conversationId,
+      messageId,
     );
   }
 

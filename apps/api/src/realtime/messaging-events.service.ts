@@ -36,6 +36,22 @@ export interface MessagingMessageCreatedPayload {
   occurredAt: string;
 }
 
+export type MessagingMessageUpdateAction = 'EDITED' | 'DELETED';
+
+export interface MessagingMessageUpdatedPayload {
+  conversationId: string;
+  message: unknown;
+  action: MessagingMessageUpdateAction;
+  occurredAt: string;
+}
+
+export interface MessagingMessageHiddenPayload {
+  conversationId: string;
+  messageId: string;
+  accountId: string;
+  occurredAt: string;
+}
+
 export interface MessagingReceiptUpdatedPayload {
   conversationId: string;
   messageIds: string[];
@@ -80,6 +96,12 @@ export interface MessagingServerToClientEvents {
   'messaging:pong': (payload: MessagingPongPayload) => void;
   'messaging:message-created': (
     payload: MessagingMessageCreatedPayload,
+  ) => void;
+  'messaging:message-updated': (
+    payload: MessagingMessageUpdatedPayload,
+  ) => void;
+  'messaging:message-hidden': (
+    payload: MessagingMessageHiddenPayload,
   ) => void;
   'messaging:receipt-updated': (
     payload: MessagingReceiptUpdatedPayload,
@@ -138,6 +160,30 @@ export class MessagingEventsService {
         .to(this.accountRoom(accountId))
         .emit('messaging:message-created', payload);
     }
+  }
+
+  emitMessageUpdated(
+    accountIds: string[],
+    payload: MessagingMessageUpdatedPayload,
+  ): void {
+    if (!this.server) {
+      return;
+    }
+
+    for (const accountId of new Set(accountIds)) {
+      this.server
+        .to(this.accountRoom(accountId))
+        .emit('messaging:message-updated', payload);
+    }
+  }
+
+  emitMessageHidden(
+    accountId: string,
+    payload: MessagingMessageHiddenPayload,
+  ): void {
+    this.server
+      ?.to(this.accountRoom(accountId))
+      .emit('messaging:message-hidden', payload);
   }
 
   emitReceiptUpdated(

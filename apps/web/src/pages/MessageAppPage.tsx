@@ -18,6 +18,9 @@ import {
   blockMessageRequest,
   createPrivateConversation,
   declineMessageRequest,
+  deleteConversationMessage,
+  deleteConversationMessageForMe,
+  editConversationTextMessage,
   listConversationMessages,
   listMessageRequests,
   listMessagingConversations,
@@ -31,7 +34,9 @@ import {
 import type {
   MessagingConversationUpdatedPayload,
   MessagingMessageCreatedPayload,
+  MessagingMessageHiddenPayload,
   MessagingMessageRequestUpdatedPayload,
+  MessagingMessageUpdatedPayload,
   MessagingPresenceSnapshotPayload,
   MessagingPresenceState,
   MessagingReceiptUpdatedPayload,
@@ -54,6 +59,7 @@ type RealtimeConnectionStatus =
   | "DISCONNECTED";
 const SELECTED_CONVERSATION_STORAGE_KEY =
   "nt-message:selected-conversation";
+const MESSAGE_EDIT_WINDOW_MS = 15 * 60 * 1000;
 
 function readStoredConversationId(): string | null {
   try {
@@ -190,6 +196,49 @@ function contactActionLabel(contact: MessagingContact): string {
   return "Message";
 }
 
+function applyMessageUpdate(
+  messages: MessagingMessage[],
+  updatedMessage: MessagingMessage,
+): MessagingMessage[] {
+  return messages.map((message) => {
+    if (message.id === updatedMessage.id) {
+      return updatedMessage;
+    }
+
+    if (message.replyTo?.id === updatedMessage.id) {
+      return {
+        ...message,
+        replyTo: {
+          id: updatedMessage.id,
+          senderAccountId: updatedMessage.senderAccountId,
+          sender: updatedMessage.sender,
+          contentType: updatedMessage.contentType,
+          textContent: updatedMessage.textContent,
+          sentAt: updatedMessage.sentAt,
+          isDeleted: updatedMessage.isDeleted,
+        },
+      };
+    }
+
+    return message;
+  });
+}
+
+function canEditMessage(
+  message: MessagingMessage,
+  accountId: string | undefined,
+): boolean {
+  const sentAt = new Date(message.sentAt).getTime();
+
+  return (
+    message.senderAccountId === accountId &&
+    message.contentType === "TEXT" &&
+    !message.isDeleted &&
+    Number.isFinite(sentAt) &&
+    Date.now() - sentAt <= MESSAGE_EDIT_WINDOW_MS
+  );
+}
+
 function messagePreview(
   conversation: MessagingConversation,
   accountId: string,
@@ -236,6 +285,12 @@ export function MessageAppPage() {
   const [messages, setMessages] = useState<MessagingMessage[]>([]);
   const [conversationSearch, setConversationSearch] = useState("");
   const [messageText, setMessageText] = useState("");
+  const [replyingTo, setReplyingTo] = useState<MessagingMessage | null>(null);
+  const [editingMessage, setEditingMessage] = useState<MessagingMessage | null>(null);
+  const [messageActionId, setMessageActionId] = useState<string | null>(null);
+  const [messageActionMode, setMessageActionMode] = useState<
+    "ME" | "EVERYONE" | null
+  >(null);
   const [conversationLoading, setConversationLoading] = useState(true);
   const [messageLoading, setMessageLoading] = useState(false);
   const [olderMessagesLoading, setOlderMessagesLoading] = useState(false);
@@ -265,6 +320,7 @@ export function MessageAppPage() {
   const [requestNotice, setRequestNotice] = useState<string | null>(null);
 
   const messageListRef = useRef<HTMLDivElement | null>(null);
+  const composerRef = useRef<HTMLTextAreaElement | null>(null);
   const selectedConversationIdRef = useRef<string | null>(
     selectedConversationId,
   );
@@ -681,6 +737,61 @@ export function MessageAppPage() {
       void loadMessages(payload.conversationId, true);
     };
 
+    const handleMessageUpdated = (
+      payload: MessagingMessageUpdatedPayload,
+    ): void => {
+      void loadConversations(
+        true,
+        selectedConversationIdRef.current ?? undefined,
+      );
+
+      if (payload.conversationId !== selectedConversationIdRef.current) {
+        return;
+      }
+
+      setMessages((current) => applyMessageUpdate(
+        current,
+        payload.message,
+      ));
+
+      setReplyingTo((current) => (
+        current?.id === payload.message.id
+          ? payload.action === "DELETED"
+            ? null
+            : payload.message
+          : current
+      ));
+
+      setEditingMessage((current) => (
+        current?.id === payload.message.id && payload.action === "DELETED"
+          ? null
+          : current
+      ));
+    };
+
+    const handleMessageHidden = (
+      payload: MessagingMessageHiddenPayload,
+    ): void => {
+      void loadConversations(
+        true,
+        selectedConversationIdRef.current ?? undefined,
+      );
+
+      if (payload.conversationId !== selectedConversationIdRef.current) {
+        return;
+      }
+
+      setMessages((current) => current.filter(
+        (message) => message.id !== payload.messageId,
+      ));
+      setReplyingTo((current) => (
+        current?.id === payload.messageId ? null : current
+      ));
+      setEditingMessage((current) => (
+        current?.id === payload.messageId ? null : current
+      ));
+    };
+
     const handleReceiptUpdated = (
       payload: MessagingReceiptUpdatedPayload,
     ): void => {
@@ -743,6 +854,8 @@ export function MessageAppPage() {
     socket.on("messaging:presence-updated", handlePresenceUpdated);
     socket.on("messaging:typing-updated", handleTypingUpdated);
     socket.on("messaging:message-created", handleMessageCreated);
+    socket.on("messaging:message-updated", handleMessageUpdated);
+    socket.on("messaging:message-hidden", handleMessageHidden);
     socket.on("messaging:receipt-updated", handleReceiptUpdated);
     socket.on(
       "messaging:conversation-updated",
@@ -766,6 +879,8 @@ export function MessageAppPage() {
       socket.off("messaging:presence-updated", handlePresenceUpdated);
       socket.off("messaging:typing-updated", handleTypingUpdated);
       socket.off("messaging:message-created", handleMessageCreated);
+      socket.off("messaging:message-updated", handleMessageUpdated);
+      socket.off("messaging:message-hidden", handleMessageHidden);
       socket.off("messaging:receipt-updated", handleReceiptUpdated);
       socket.off(
         "messaging:conversation-updated",
@@ -817,6 +932,10 @@ export function MessageAppPage() {
   }, [loadMessageRequests]);
 
   useEffect(() => {
+    setReplyingTo(null);
+    setEditingMessage(null);
+    setMessageText("");
+
     if (!selectedConversationId) {
       setMessages([]);
       return;
@@ -1055,6 +1174,147 @@ export function MessageAppPage() {
     }
   }
 
+  function focusComposer(): void {
+    window.setTimeout(() => {
+      composerRef.current?.focus();
+    }, 0);
+  }
+
+  function beginReply(message: MessagingMessage): void {
+    if (message.isDeleted) {
+      return;
+    }
+
+    setEditingMessage(null);
+    setReplyingTo(message);
+    focusComposer();
+  }
+
+  function beginEdit(message: MessagingMessage): void {
+    if (
+      !canEditMessage(message, account?.id)
+    ) {
+      return;
+    }
+
+    setReplyingTo(null);
+    setEditingMessage(message);
+    setMessageText(message.textContent ?? "");
+    focusComposer();
+  }
+
+  function cancelMessageAction(): void {
+    setReplyingTo(null);
+    setEditingMessage(null);
+    setMessageText("");
+    stopLocalTyping(selectedConversationId);
+  }
+
+  async function handleDeleteMessageForMe(
+    message: MessagingMessage,
+  ): Promise<void> {
+    if (
+      !accessToken ||
+      !selectedConversationId ||
+      messageActionId
+    ) {
+      return;
+    }
+
+    const confirmed = window.confirm(
+      "Delete this message only for you? Other participants will still see it.",
+    );
+
+    if (!confirmed) {
+      return;
+    }
+
+    setMessageActionId(message.id);
+    setMessageActionMode("ME");
+    setMessageError(null);
+
+    try {
+      await deleteConversationMessageForMe(
+        accessToken,
+        selectedConversationId,
+        message.id,
+      );
+
+      setMessages((current) => current.filter(
+        (currentMessage) => currentMessage.id !== message.id,
+      ));
+
+      if (replyingTo?.id === message.id || editingMessage?.id === message.id) {
+        cancelMessageAction();
+      }
+
+      await loadConversations(true, selectedConversationId);
+    } catch (error) {
+      setMessageError(
+        error instanceof Error
+          ? error.message
+          : "The message could not be deleted for you.",
+      );
+    } finally {
+      setMessageActionId(null);
+      setMessageActionMode(null);
+    }
+  }
+
+  async function handleDeleteMessageForEveryone(
+    message: MessagingMessage,
+  ): Promise<void> {
+    if (
+      !accessToken ||
+      !selectedConversationId ||
+      message.senderAccountId !== account?.id ||
+      message.isDeleted ||
+      messageActionId
+    ) {
+      return;
+    }
+
+    const confirmed = window.confirm(
+      "Delete this message for everyone? This action cannot be undone.",
+    );
+
+    if (!confirmed) {
+      return;
+    }
+
+    setMessageActionId(message.id);
+    setMessageActionMode("EVERYONE");
+    setMessageError(null);
+
+    try {
+      const response = await deleteConversationMessage(
+        accessToken,
+        selectedConversationId,
+        message.id,
+      );
+
+      setMessages((current) => applyMessageUpdate(
+        current,
+        response.data,
+      ));
+
+      if (replyingTo?.id === message.id || editingMessage?.id === message.id) {
+        cancelMessageAction();
+      }
+
+      await loadConversations(true, selectedConversationId);
+    } catch (error) {
+      setMessageError(
+        error instanceof Error
+          ? error.message
+          : "The message could not be deleted for everyone.",
+      );
+    } finally {
+      setMessageActionId(null);
+      setMessageActionMode(null);
+    }
+  }
+
   async function handleSendMessage(
     event?: FormEvent<HTMLFormElement>,
   ): Promise<void> {
@@ -1076,13 +1336,33 @@ export function MessageAppPage() {
     stopLocalTyping(selectedConversationId);
 
     try {
+      if (editingMessage) {
+        const response = await editConversationTextMessage(
+          accessToken,
+          selectedConversationId,
+          editingMessage.id,
+          text,
+        );
+
+        setMessages((current) => applyMessageUpdate(
+          current,
+          response.data,
+        ));
+        setEditingMessage(null);
+        setMessageText("");
+        await loadConversations(true, selectedConversationId);
+        return;
+      }
+
       const response = await sendConversationTextMessage(
         accessToken,
         selectedConversationId,
         text,
+        replyingTo?.id,
       );
 
       setMessageText("");
+      setReplyingTo(null);
       setMessages((current) => {
         if (current.some((message) => message.id === response.data.id)) {
           return current;
@@ -1544,6 +1824,21 @@ export function MessageAppPage() {
                           )}
 
                           <div className="message-bubble">
+                            {message.replyTo && !message.isDeleted && (
+                              <div className="message-reply-preview">
+                                <strong>
+                                  {message.replyTo.senderAccountId === account?.id
+                                    ? "You"
+                                    : message.replyTo.sender.displayName}
+                                </strong>
+                                <span>
+                                  {message.replyTo.isDeleted
+                                    ? "This message was deleted"
+                                    : message.replyTo.textContent ?? "Message"}
+                                </span>
+                              </div>
+                            )}
+
                             {message.isDeleted ? (
                               <em>This message was deleted.</em>
                             ) : (
@@ -1551,8 +1846,59 @@ export function MessageAppPage() {
                             )}
                           </div>
 
+                          <div className="message-bubble-actions">
+                            {!message.isDeleted && (
+                              <button
+                                type="button"
+                                onClick={() => beginReply(message)}
+                                disabled={messageActionId !== null}
+                              >
+                                Reply
+                              </button>
+                            )}
+
+                            {ownMessage && canEditMessage(message, account?.id) && (
+                              <button
+                                type="button"
+                                onClick={() => beginEdit(message)}
+                                disabled={messageActionId !== null}
+                              >
+                                Edit
+                              </button>
+                            )}
+
+                            <button
+                              type="button"
+                              onClick={() => void handleDeleteMessageForMe(message)}
+                              disabled={messageActionId !== null}
+                            >
+                              {messageActionId === message.id &&
+                              messageActionMode === "ME"
+                                ? "Deleting..."
+                                : "Delete for me"}
+                            </button>
+
+                            {ownMessage && !message.isDeleted && (
+                              <button
+                                type="button"
+                                className="danger"
+                                onClick={() => void handleDeleteMessageForEveryone(message)}
+                                disabled={messageActionId !== null}
+                              >
+                                {messageActionId === message.id &&
+                                messageActionMode === "EVERYONE"
+                                  ? "Deleting..."
+                                  : "Delete for everyone"}
+                              </button>
+                            )}
+                          </div>
+
                           <div className="message-bubble-meta">
                             <time>{formatMessageTime(message.sentAt)}</time>
+
+                            {message.editedAt && !message.isDeleted && (
+                              <span>Edited</span>
+                            )}
 
                             {ownMessage && (
                               <span className={`message-delivery ${message.deliveryStatus.toLowerCase()}`}>
@@ -1594,7 +1940,35 @@ export function MessageAppPage() {
                 className="message-composer"
                 onSubmit={(event) => void handleSendMessage(event)}
               >
+                {(replyingTo || editingMessage) && (
+                  <div className="message-composer-context">
+                    <span>
+                      <strong>
+                        {editingMessage
+                          ? "Editing message"
+                          : `Replying to ${
+                              replyingTo?.senderAccountId === account?.id
+                                ? "yourself"
+                                : replyingTo?.sender.displayName ?? "message"
+                            }`}
+                      </strong>
+                      <small>
+                        {(editingMessage ?? replyingTo)?.textContent ?? "Message"}
+                      </small>
+                    </span>
+
+                    <button
+                      type="button"
+                      onClick={cancelMessageAction}
+                      aria-label="Cancel message action"
+                    >
+                      ×
+                    </button>
+                  </div>
+                )}
+
                 <textarea
+                  ref={composerRef}
                   value={messageText}
                   onChange={(event) => {
                     const value = event.target.value;
@@ -1606,7 +1980,13 @@ export function MessageAppPage() {
                   }}
                   onBlur={() => stopLocalTyping(selectedConversationId)}
                   onKeyDown={handleComposerKeyDown}
-                  placeholder={`Message ${selectedConversation.title ?? "conversation"}`}
+                  placeholder={
+                    editingMessage
+                      ? "Edit your message"
+                      : replyingTo
+                        ? "Write a reply"
+                        : `Message ${selectedConversation.title ?? "conversation"}`
+                  }
                   maxLength={5000}
                   rows={1}
                   disabled={sendingMessage}
@@ -1622,7 +2002,13 @@ export function MessageAppPage() {
                     type="submit"
                     disabled={!messageText.trim() || sendingMessage}
                   >
-                    {sendingMessage ? "Sending..." : "Send"}
+                    {sendingMessage
+                      ? editingMessage
+                        ? "Saving..."
+                        : "Sending..."
+                      : editingMessage
+                        ? "Save"
+                        : "Send"}
                   </button>
                 </div>
               </form>
