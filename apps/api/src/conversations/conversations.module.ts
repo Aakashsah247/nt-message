@@ -1,4 +1,4 @@
-import { Module } from '@nestjs/common';
+import { Global, Module } from '@nestjs/common';
 
 import { AuthModule } from '../auth/auth.module';
 import { PrismaModule } from '../database/prisma.module';
@@ -9,6 +9,7 @@ import { ConversationsController } from './conversations.controller';
 import { ConversationsGateway } from './conversations.gateway';
 import { ConversationsService } from './conversations.service';
 
+@Global()
 @Module({
   imports: [PrismaModule, AuthModule],
 
@@ -20,5 +21,7 @@ import { ConversationsService } from './conversations.service';
     MessagingEventsService,
     MessagingPresenceService,
   ],
+
+  exports: [ConversationsService],
 })
 export class ConversationsModule {}

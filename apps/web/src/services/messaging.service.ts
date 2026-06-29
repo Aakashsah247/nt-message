@@ -15,6 +15,10 @@ import type {
   MessageRequestListResponse,
   MessageListResponse,
   MessagingContactsResponse,
+  OfficialGroupAuditResponse,
+  OfficialGroupScopesResponse,
+  OfficialGroupScopeType,
+  ReconcileOfficialGroupsResponse,
   RemoveGroupMemberResponse,
   SendTextMessageResponse,
   UpdateTextMessageResponse,
@@ -64,6 +68,66 @@ export function listMessagingConversations(
 
   return apiRequest<ConversationListResponse>(
     `/conversations?${params.toString()}`,
+    {
+      headers: authorizationHeaders(accessToken),
+    },
+  );
+}
+
+export function listOfficialGroupScopes(
+  accessToken: string,
+): Promise<OfficialGroupScopesResponse> {
+  return apiRequest<OfficialGroupScopesResponse>(
+    "/conversations/official-groups/scopes",
+    {
+      headers: authorizationHeaders(accessToken),
+    },
+  );
+}
+
+export function createOfficialGroupConversation(
+  accessToken: string,
+  input: {
+    title: string;
+    description: string;
+    scopeType: OfficialGroupScopeType;
+    divisionId?: string;
+    departmentId?: string;
+  },
+): Promise<GroupConversationResponse> {
+  return apiRequest<GroupConversationResponse>(
+    "/conversations/official-groups",
+    {
+      method: "POST",
+      headers: authorizationHeaders(accessToken),
+      body: JSON.stringify(input),
+    },
+  );
+}
+
+export function reconcileOfficialGroups(
+  accessToken: string,
+): Promise<ReconcileOfficialGroupsResponse> {
+  return apiRequest<ReconcileOfficialGroupsResponse>(
+    "/conversations/official-groups/reconcile",
+    {
+      method: "POST",
+      headers: authorizationHeaders(accessToken),
+    },
+  );
+}
+
+export function listOfficialGroupAudit(
+  accessToken: string,
+  conversationId: string,
+  limit = 30,
+): Promise<OfficialGroupAuditResponse> {
+  const params = new URLSearchParams({
+    limit: String(limit),
+  });
+
+  return apiRequest<OfficialGroupAuditResponse>(
+    `/conversations/${conversationId}/group/audit?${params.toString()}`,
     {
       headers: authorizationHeaders(accessToken),
     },

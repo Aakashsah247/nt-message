@@ -14,6 +14,17 @@ export type ConversationParticipantRole =
   | "ADMIN"
   | "MEMBER";
 
+export type OfficialGroupScopeType =
+  | "ORGANIZATION"
+  | "DIVISION"
+  | "DEPARTMENT";
+
+export type OfficialGroupAuditAction =
+  | "CREATED"
+  | "DETAILS_UPDATED"
+  | "MEMBERSHIP_SYNCED"
+  | "RECONCILED";
+
 export type MessageContentType =
   | "TEXT"
   | "IMAGE"
@@ -143,12 +154,21 @@ export interface MessagingMessage {
   updatedAt: string;
 }
 
+export interface MessagingOfficialGroupScope {
+  scopeType: OfficialGroupScopeType;
+  divisionId: string | null;
+  departmentId: string | null;
+  division: MessagingOrganizationUnit | null;
+  department: MessagingOrganizationUnit | null;
+}
+
 export interface MessagingConversation {
   id: string;
   type: ConversationType;
   title: string | null;
   description: string | null;
   groupKind: GroupKind | null;
+  officialScope: MessagingOfficialGroupScope | null;
   createdByAccountId: string;
   lastMessageAt: string | null;
   unreadCount: number;
@@ -208,6 +228,44 @@ export type CreatePrivateConversationResponse =
       request: MessagingMessageRequest;
     };
 
+
+export interface OfficialGroupScopeOption {
+  key: string;
+  scopeType: OfficialGroupScopeType;
+  label: string;
+  defaultTitle: string;
+  divisionId: string | null;
+  departmentId: string | null;
+  division: MessagingOrganizationUnit | null;
+  department: MessagingOrganizationUnit | null;
+}
+
+export interface OfficialGroupScopesResponse {
+  canCreate: boolean;
+  scopes: OfficialGroupScopeOption[];
+}
+
+export interface OfficialGroupAuditEntry {
+  id: string;
+  conversationId: string;
+  actorAccountId: string | null;
+  action: OfficialGroupAuditAction;
+  metadata: unknown;
+  createdAt: string;
+  actor: MessagingAccount | null;
+}
+
+export interface OfficialGroupAuditResponse {
+  data: OfficialGroupAuditEntry[];
+}
+
+export interface ReconcileOfficialGroupsResponse {
+  message: string;
+  reconciledCount: number;
+  addedCount: number;
+  removedCount: number;
+  roleChangedCount: number;
+}
 
 export interface GroupConversationResponse {
   message: string;

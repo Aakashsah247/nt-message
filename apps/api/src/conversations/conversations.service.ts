@@ -3,6 +3,7 @@ import {
   ConflictException,
   ForbiddenException,
   Injectable,
+  Logger,
   NotFoundException,
 } from '@nestjs/common';
 
@@ -18,16 +19,20 @@ import {
   MessageContentType,
   MessageRequestReason,
   MessageRequestStatus,
+  OfficialGroupAuditAction,
+  OfficialGroupScopeType,
 } from '../generated/prisma/client';
 import type { Prisma } from '../generated/prisma/client';
 import { MessagingEventsService } from '../realtime/messaging-events.service';
 
 import { AddGroupMembersDto } from './dto/add-group-members.dto';
 import { CreateGroupConversationDto } from './dto/create-group-conversation.dto';
+import { CreateOfficialGroupConversationDto } from './dto/create-official-group-conversation.dto';
 import { CreatePrivateConversationDto } from './dto/create-private-conversation.dto';
 import { ForwardTextMessageDto } from './dto/forward-text-message.dto';
 import { ListConversationsQueryDto } from './dto/list-conversations-query.dto';
 import { ListMessagesQueryDto } from './dto/list-messages-query.dto';
+import { ListOfficialGroupAuditQueryDto } from './dto/list-official-group-audit-query.dto';
 import { SearchMessagingContactsQueryDto } from './dto/search-messaging-contacts-query.dto';
 import { SendTextMessageDto } from './dto/send-text-message.dto';
 import { UpdateGroupConversationDto } from './dto/update-group-conversation.dto';
@@ -39,6 +44,28 @@ interface MessagingViewer {
   role: AccountRole;
   divisionId: string | null;
   departmentId: string | null;
+}
+
+interface OfficialGroupScopeRecord {
+  id: string;
+  createdByAccountId: string;
+  officialScopeType: OfficialGroupScopeType;
+  officialDivisionId: string | null;
+  officialDepartmentId: string | null;
+}
+
+interface OfficialGroupParticipantSyncRecord {
+  accountId: string;
+  joinedAt: Date;
+  leftAt: Date | null;
+  role: ConversationParticipantRole;
+}
+
+interface OfficialGroupSyncResult {
+  conversationId: string;
+  addedCount: number;
+  removedCount: number;
+  roleChangedCount: number;
 }
 
 type DeliveryStatus = 'SENT' | 'DELIVERED' | 'READ';
@@ -159,11 +186,33 @@ const conversationSelect = {
   title: true,
   description: true,
   groupKind: true,
+  officialScopeType: true,
+  officialDivisionId: true,
+  officialDepartmentId: true,
   privateParticipantKey: true,
   createdByAccountId: true,
   lastMessageAt: true,
   createdAt: true,
   updatedAt: true,
+
+  officialDivision: {
+    select: {
+      id: true,
+      code: true,
+      name: true,
+      isActive: true,
+    },
+  },
+
+  officialDepartment: {
+    select: {
+      id: true,
+      divisionId: true,
+      code: true,
+      name: true,
+      isActive: true,
+    },
+  },
 
   participants: {
     orderBy: {
@@ -232,8 +281,23 @@ type MessageRequestRecord = Prisma.MessageRequestGetPayload<{
   select: typeof messageRequestSelect;
 }>;
 
+const officialGroupAuditSelect = {
+  id: true,
+  conversationId: true,
+  actorAccountId: true,
+  action: true,
+  metadata: true,
+  createdAt: true,
+
+  actor: {
+    select: messagingAccountSelect,
+  },
+} satisfies Prisma.OfficialGroupAuditLogSelect;
+
 @Injectable()
 export class ConversationsService {
+  private readonly logger = new Logger(ConversationsService.name);
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly messagingEventsService: MessagingEventsService,
@@ -552,6 +616,15 @@ export class ConversationsService {
           : conversation.title,
       description: conversation.description,
       groupKind: conversation.groupKind,
+      officialScope: conversation.officialScopeType
+        ? {
+            scopeType: conversation.officialScopeType,
+            divisionId: conversation.officialDivisionId,
+            departmentId: conversation.officialDepartmentId,
+            division: conversation.officialDivision,
+            department: conversation.officialDepartment,
+          }
+        : null,
       createdByAccountId: conversation.createdByAccountId,
       lastMessageAt: conversation.messages[0]?.sentAt ?? null,
       unreadCount,
@@ -626,7 +699,12 @@ export class ConversationsService {
       select: {
         id: true,
         type: true,
+        title: true,
+        description: true,
         groupKind: true,
+        officialScopeType: true,
+        officialDivisionId: true,
+        officialDepartmentId: true,
         createdByAccountId: true,
         participants: {
           where: {
@@ -749,6 +827,939 @@ export class ConversationsService {
     }
 
     return accounts;
+  }
+
+  private parseOfficialScopeType(
+    scopeType: CreateOfficialGroupConversationDto['scopeType'],
+  ): OfficialGroupScopeType {
+    switch (scopeType) {
+      case 'ORGANIZATION':
+        return OfficialGroupScopeType.ORGANIZATION;
+      case 'DIVISION':
+        return OfficialGroupScopeType.DIVISION;
+      case 'DEPARTMENT':
+        return OfficialGroupScopeType.DEPARTMENT;
+      default:
+        throw new BadRequestException(
+          'Official group scope type is invalid.',
+        );
+    }
+  }
+
+  private async getAuthorizedOfficialGroupScope(
+    viewer: MessagingViewer,
+    scopeType: OfficialGroupScopeType,
+    divisionId?: string | null,
+    departmentId?: string | null,
+  ) {
+    if (scopeType === OfficialGroupScopeType.ORGANIZATION) {
+      if (divisionId || departmentId) {
+        throw new BadRequestException(
+          'Organization-wide groups must not specify a division or department.',
+        );
+      }
+
+      if (viewer.role !== AccountRole.SUPER_ADMIN) {
+        throw new ForbiddenException(
+          'Only the Super Admin can manage organization-wide official groups.',
+        );
+      }
+
+      return {
+        scopeType,
+        division: null,
+        department: null,
+      };
+    }
+
+    if (!divisionId) {
+      throw new BadRequestException(
+        'A division is required for this official group scope.',
+      );
+    }
+
+    const division = await this.prisma.division.findUnique({
+      where: {
+        id: divisionId,
+      },
+      select: {
+        id: true,
+        code: true,
+        name: true,
+        isActive: true,
+      },
+    });
+
+    if (!division || !division.isActive) {
+      throw new NotFoundException(
+        'The selected active division was not found.',
+      );
+    }
+
+    if (scopeType === OfficialGroupScopeType.DIVISION) {
+      if (departmentId) {
+        throw new BadRequestException(
+          'A division-wide group must not specify a department.',
+        );
+      }
+
+      const authorized =
+        viewer.role === AccountRole.SUPER_ADMIN ||
+        (viewer.role === AccountRole.SENIOR_MANAGEMENT &&
+          viewer.divisionId === division.id);
+
+      if (!authorized) {
+        throw new ForbiddenException(
+          'You can create or manage official groups only inside your assigned division.',
+        );
+      }
+
+      return {
+        scopeType,
+        division,
+        department: null,
+      };
+    }
+
+    if (!departmentId) {
+      throw new BadRequestException(
+        'A department is required for a department official group.',
+      );
+    }
+
+    const department = await this.prisma.department.findUnique({
+      where: {
+        id: departmentId,
+      },
+      select: {
+        id: true,
+        divisionId: true,
+        code: true,
+        name: true,
+        isActive: true,
+      },
+    });
+
+    if (
+      !department ||
+      !department.isActive ||
+      department.divisionId !== division.id
+    ) {
+      throw new NotFoundException(
+        'The selected active department was not found in this division.',
+      );
+    }
+
+    const authorized =
+      viewer.role === AccountRole.SUPER_ADMIN ||
+      (viewer.role === AccountRole.SENIOR_MANAGEMENT &&
+        viewer.divisionId === division.id) ||
+      (viewer.role === AccountRole.TEAM_MANAGER &&
+        viewer.divisionId === division.id &&
+        viewer.departmentId === department.id);
+
+    if (!authorized) {
+      throw new ForbiddenException(
+        'You can create or manage official groups only inside your assigned organizational scope.',
+      );
+    }
+
+    return {
+      scopeType,
+      division,
+      department,
+    };
+  }
+
+  private async assertCanManageOfficialGroup(
+    viewer: MessagingViewer,
+    conversation: {
+      groupKind: GroupKind | null;
+      officialScopeType: OfficialGroupScopeType | null;
+      officialDivisionId: string | null;
+      officialDepartmentId: string | null;
+    },
+  ): Promise<void> {
+    if (
+      conversation.groupKind !== GroupKind.OFFICIAL ||
+      !conversation.officialScopeType
+    ) {
+      throw new ConflictException(
+        'This conversation is not an official organizational group.',
+      );
+    }
+
+    await this.getAuthorizedOfficialGroupScope(
+      viewer,
+      conversation.officialScopeType,
+      conversation.officialDivisionId,
+      conversation.officialDepartmentId,
+    );
+  }
+
+  private buildOfficialGroupMembershipWhere(
+    group: OfficialGroupScopeRecord,
+  ): Prisma.AccountWhereInput {
+    const employeeWhere: Prisma.EmployeeWhereInput = {
+      status: EmployeeStatus.ACTIVE,
+      employmentStatus: EmploymentStatus.ACTIVE,
+      archivedAt: null,
+      isActivated: true,
+      division: {
+        is: {
+          isActive: true,
+        },
+      },
+    };
+
+    if (group.officialScopeType === OfficialGroupScopeType.DIVISION) {
+      employeeWhere.divisionId = group.officialDivisionId;
+    }
+
+    if (group.officialScopeType === OfficialGroupScopeType.DEPARTMENT) {
+      employeeWhere.divisionId = group.officialDivisionId;
+      employeeWhere.departmentId = group.officialDepartmentId;
+      employeeWhere.departmentUnit = {
+        is: {
+          isActive: true,
+        },
+      };
+    } else {
+      employeeWhere.OR = [
+        {
+          departmentId: null,
+        },
+        {
+          departmentUnit: {
+            is: {
+              isActive: true,
+            },
+          },
+        },
+      ];
+    }
+
+    return {
+      isEnabled: true,
+      OR: [
+        {
+          role: AccountRole.SUPER_ADMIN,
+        },
+        {
+          employee: {
+            is: employeeWhere,
+          },
+        },
+      ],
+    };
+  }
+
+  private getOfficialGroupParticipantRole(
+    account: MessagingAccountRecord,
+    group: OfficialGroupScopeRecord,
+  ): ConversationParticipantRole {
+    if (account.role === AccountRole.SUPER_ADMIN) {
+      return ConversationParticipantRole.OWNER;
+    }
+
+    if (
+      group.officialScopeType === OfficialGroupScopeType.DIVISION &&
+      account.role === AccountRole.SENIOR_MANAGEMENT &&
+      account.employee?.divisionId === group.officialDivisionId
+    ) {
+      return ConversationParticipantRole.ADMIN;
+    }
+
+    if (group.officialScopeType === OfficialGroupScopeType.DEPARTMENT) {
+      if (
+        account.role === AccountRole.SENIOR_MANAGEMENT &&
+        account.employee?.divisionId === group.officialDivisionId
+      ) {
+        return ConversationParticipantRole.ADMIN;
+      }
+
+      if (
+        account.role === AccountRole.TEAM_MANAGER &&
+        account.employee?.departmentId === group.officialDepartmentId
+      ) {
+        return ConversationParticipantRole.ADMIN;
+      }
+    }
+
+    return ConversationParticipantRole.MEMBER;
+  }
+
+  private async getDesiredOfficialGroupAccounts(
+    group: OfficialGroupScopeRecord,
+  ): Promise<MessagingAccountRecord[]> {
+    return this.prisma.account.findMany({
+      where: this.buildOfficialGroupMembershipWhere(group),
+      orderBy: [
+        {
+          role: 'asc',
+        },
+        {
+          id: 'asc',
+        },
+      ],
+      select: messagingAccountSelect,
+    });
+  }
+
+  private async synchronizeOfficialGroup(
+    conversationId: string,
+    actorAccountId: string | null,
+    reason: string,
+    forceAudit = false,
+  ): Promise<OfficialGroupSyncResult> {
+    const conversation = await this.prisma.conversation.findUnique({
+      where: {
+        id: conversationId,
+      },
+      select: {
+        id: true,
+        type: true,
+        groupKind: true,
+        createdByAccountId: true,
+        officialScopeType: true,
+        officialDivisionId: true,
+        officialDepartmentId: true,
+        participants: {
+          select: {
+            accountId: true,
+            joinedAt: true,
+            leftAt: true,
+            role: true,
+          },
+        },
+      },
+    });
+
+    if (
+      !conversation ||
+      conversation.type !== ConversationType.GROUP ||
+      conversation.groupKind !== GroupKind.OFFICIAL ||
+      !conversation.officialScopeType
+    ) {
+      throw new NotFoundException('Official group was not found.');
+    }
+
+    const group: OfficialGroupScopeRecord = {
+      id: conversation.id,
+      createdByAccountId: conversation.createdByAccountId,
+      officialScopeType: conversation.officialScopeType,
+      officialDivisionId: conversation.officialDivisionId,
+      officialDepartmentId: conversation.officialDepartmentId,
+    };
+    const desiredAccounts = await this.getDesiredOfficialGroupAccounts(group);
+    const currentByAccountId = new Map<
+      string,
+      OfficialGroupParticipantSyncRecord
+    >(
+      conversation.participants.map((participant) => [
+        participant.accountId,
+        participant,
+      ]),
+    );
+    const desiredByAccountId = new Map<string, MessagingAccountRecord>(
+      desiredAccounts.map((account) => [account.id, account]),
+    );
+    const addedAccountIds: string[] = [];
+    const removedAccountIds: string[] = [];
+    const roleChangedAccountIds: string[] = [];
+
+    for (const account of desiredAccounts) {
+      const current = currentByAccountId.get(account.id);
+      const role = this.getOfficialGroupParticipantRole(account, group);
+
+      if (!current || current.leftAt !== null) {
+        addedAccountIds.push(account.id);
+      } else if (current.role !== role) {
+        roleChangedAccountIds.push(account.id);
+      }
+    }
+
+    for (const participant of conversation.participants) {
+      if (
+        participant.leftAt === null &&
+        !desiredByAccountId.has(participant.accountId)
+      ) {
+        removedAccountIds.push(participant.accountId);
+      }
+    }
+
+    const changed =
+      addedAccountIds.length > 0 ||
+      removedAccountIds.length > 0 ||
+      roleChangedAccountIds.length > 0;
+
+    if (!changed && !forceAudit) {
+      return {
+        conversationId,
+        addedCount: 0,
+        removedCount: 0,
+        roleChangedCount: 0,
+      };
+    }
+
+    const now = new Date();
+
+    await this.prisma.$transaction(async (transaction) => {
+      for (const account of desiredAccounts) {
+        const current = currentByAccountId.get(account.id);
+        const role = this.getOfficialGroupParticipantRole(account, group);
+
+        if (current?.leftAt === null && current.role === role) {
+          continue;
+        }
+
+        await transaction.conversationParticipant.upsert({
+          where: {
+            conversationId_accountId: {
+              conversationId,
+              accountId: account.id,
+            },
+          },
+          update: {
+            ...(current?.leftAt !== null
+              ? {
+                  joinedAt: now,
+                }
+              : {}),
+            leftAt: null,
+            role,
+            isArchived: false,
+          },
+          create: {
+            conversationId,
+            accountId: account.id,
+            joinedAt: now,
+            role,
+          },
+        });
+      }
+
+      if (removedAccountIds.length > 0) {
+        await transaction.conversationParticipant.updateMany({
+          where: {
+            conversationId,
+            accountId: {
+              in: removedAccountIds,
+            },
+            leftAt: null,
+          },
+          data: {
+            leftAt: now,
+            role: ConversationParticipantRole.MEMBER,
+            isArchived: true,
+          },
+        });
+      }
+
+      await transaction.conversation.update({
+        where: {
+          id: conversationId,
+        },
+        data: {
+          updatedAt: now,
+        },
+      });
+
+      await transaction.officialGroupAuditLog.create({
+        data: {
+          conversationId,
+          actorAccountId,
+          action: forceAudit
+            ? OfficialGroupAuditAction.RECONCILED
+            : OfficialGroupAuditAction.MEMBERSHIP_SYNCED,
+          metadata: {
+            reason,
+            addedAccountIds,
+            removedAccountIds,
+            roleChangedAccountIds,
+          },
+        },
+      });
+    });
+
+    const notifiedAccountIds = [
+      ...desiredAccounts.map((account) => account.id),
+      ...conversation.participants.map(
+        (participant) => participant.accountId,
+      ),
+    ];
+
+    this.messagingEventsService.emitConversationUpdated(
+      notifiedAccountIds,
+      {
+        conversationId,
+        reason: 'OFFICIAL_GROUP_SYNCED',
+        occurredAt: now.toISOString(),
+      },
+    );
+
+    return {
+      conversationId,
+      addedCount: addedAccountIds.length,
+      removedCount: removedAccountIds.length,
+      roleChangedCount: roleChangedAccountIds.length,
+    };
+  }
+
+  async synchronizeOfficialGroupsForAccountSafely(
+    accountId: string | null | undefined,
+    actorAccountId: string | null,
+    reason: string,
+  ): Promise<void> {
+    if (!accountId) {
+      return;
+    }
+
+    try {
+      const account = await this.prisma.account.findUnique({
+        where: {
+          id: accountId,
+        },
+        select: {
+          id: true,
+          employee: {
+            select: {
+              divisionId: true,
+              departmentId: true,
+            },
+          },
+        },
+      });
+
+      const scopeConditions: Prisma.ConversationWhereInput[] = [
+        {
+          participants: {
+            some: {
+              accountId,
+            },
+          },
+        },
+        {
+          officialScopeType: OfficialGroupScopeType.ORGANIZATION,
+        },
+      ];
+
+      if (account?.employee?.divisionId) {
+        scopeConditions.push({
+          officialScopeType: OfficialGroupScopeType.DIVISION,
+          officialDivisionId: account.employee.divisionId,
+        });
+      }
+
+      if (account?.employee?.departmentId) {
+        scopeConditions.push({
+          officialScopeType: OfficialGroupScopeType.DEPARTMENT,
+          officialDepartmentId: account.employee.departmentId,
+        });
+      }
+
+      const groups = await this.prisma.conversation.findMany({
+        where: {
+          type: ConversationType.GROUP,
+          groupKind: GroupKind.OFFICIAL,
+          OR: scopeConditions,
+        },
+        select: {
+          id: true,
+        },
+      });
+
+      for (const group of groups) {
+        await this.synchronizeOfficialGroup(
+          group.id,
+          actorAccountId,
+          reason,
+        );
+      }
+    } catch (error) {
+      this.logger.error(
+        `Official-group membership synchronization failed for account ${accountId}.`,
+        error instanceof Error ? error.stack : undefined,
+      );
+    }
+  }
+
+  async synchronizeAllOfficialGroupsSafely(
+    actorAccountId: string | null,
+    reason: string,
+  ): Promise<void> {
+    try {
+      const groups = await this.prisma.conversation.findMany({
+        where: {
+          type: ConversationType.GROUP,
+          groupKind: GroupKind.OFFICIAL,
+        },
+        select: {
+          id: true,
+        },
+      });
+
+      for (const group of groups) {
+        try {
+          await this.synchronizeOfficialGroup(
+            group.id,
+            actorAccountId,
+            reason,
+          );
+        } catch (error) {
+          this.logger.error(
+            `Official-group synchronization failed for conversation ${group.id}.`,
+            error instanceof Error ? error.stack : undefined,
+          );
+        }
+      }
+    } catch (error) {
+      this.logger.error(
+        'Official-group synchronization could not be started.',
+        error instanceof Error ? error.stack : undefined,
+      );
+    }
+  }
+
+  async listOfficialGroupScopes(user: AuthenticatedUser) {
+    const viewer = await this.getMessagingViewer(user);
+
+    if (viewer.role === AccountRole.EMPLOYEE) {
+      return {
+        canCreate: false,
+        scopes: [],
+      };
+    }
+
+    const divisions = await this.prisma.division.findMany({
+      where: {
+        isActive: true,
+        ...(viewer.role === AccountRole.SUPER_ADMIN
+          ? {}
+          : {
+              id: viewer.divisionId ?? undefined,
+            }),
+      },
+      orderBy: {
+        name: 'asc',
+      },
+      select: {
+        id: true,
+        code: true,
+        name: true,
+        isActive: true,
+        departments: {
+          where: {
+            isActive: true,
+            ...(viewer.role === AccountRole.TEAM_MANAGER
+              ? {
+                  id: viewer.departmentId ?? undefined,
+                }
+              : {}),
+          },
+          orderBy: {
+            name: 'asc',
+          },
+          select: {
+            id: true,
+            divisionId: true,
+            code: true,
+            name: true,
+            isActive: true,
+          },
+        },
+      },
+    });
+
+    const scopes: Array<{
+      key: string;
+      scopeType: OfficialGroupScopeType;
+      label: string;
+      defaultTitle: string;
+      divisionId: string | null;
+      departmentId: string | null;
+      division: {
+        id: string;
+        code: string;
+        name: string;
+        isActive: boolean;
+      } | null;
+      department: {
+        id: string;
+        divisionId: string;
+        code: string;
+        name: string;
+        isActive: boolean;
+      } | null;
+    }> = [];
+
+    if (viewer.role === AccountRole.SUPER_ADMIN) {
+      scopes.push({
+        key: 'ORGANIZATION',
+        scopeType: OfficialGroupScopeType.ORGANIZATION,
+        label: 'All Nepal Telecom employees',
+        defaultTitle: 'All Employees',
+        divisionId: null,
+        departmentId: null,
+        division: null,
+        department: null,
+      });
+    }
+
+    for (const division of divisions) {
+      if (
+        viewer.role === AccountRole.SUPER_ADMIN ||
+        viewer.role === AccountRole.SENIOR_MANAGEMENT
+      ) {
+        scopes.push({
+          key: `DIVISION:${division.id}`,
+          scopeType: OfficialGroupScopeType.DIVISION,
+          label: `${division.name} division`,
+          defaultTitle: `${division.name} Division`,
+          divisionId: division.id,
+          departmentId: null,
+          division: {
+            id: division.id,
+            code: division.code,
+            name: division.name,
+            isActive: division.isActive,
+          },
+          department: null,
+        });
+      }
+
+      if (
+        viewer.role === AccountRole.SUPER_ADMIN ||
+        viewer.role === AccountRole.TEAM_MANAGER
+      ) {
+        for (const department of division.departments) {
+          scopes.push({
+            key: `DEPARTMENT:${department.id}`,
+            scopeType: OfficialGroupScopeType.DEPARTMENT,
+            label: `${department.name} department`,
+            defaultTitle: `${department.name} Department`,
+            divisionId: division.id,
+            departmentId: department.id,
+            division: {
+              id: division.id,
+              code: division.code,
+              name: division.name,
+              isActive: division.isActive,
+            },
+            department,
+          });
+        }
+      }
+    }
+
+    return {
+      canCreate: scopes.length > 0,
+      scopes,
+    };
+  }
+
+  async createOfficialGroupConversation(
+    user: AuthenticatedUser,
+    dto: CreateOfficialGroupConversationDto,
+  ) {
+    const viewer = await this.getMessagingViewer(user);
+    const title = dto.title.trim();
+    const description = dto.description?.trim() || null;
+
+    if (!title) {
+      throw new BadRequestException('Official group name cannot be empty.');
+    }
+
+    const scopeType = this.parseOfficialScopeType(dto.scopeType);
+    const scope = await this.getAuthorizedOfficialGroupScope(
+      viewer,
+      scopeType,
+      dto.divisionId,
+      dto.departmentId,
+    );
+    const group: OfficialGroupScopeRecord = {
+      id: '',
+      createdByAccountId: viewer.accountId,
+      officialScopeType: scope.scopeType,
+      officialDivisionId: scope.division?.id ?? null,
+      officialDepartmentId: scope.department?.id ?? null,
+    };
+    const members = await this.getDesiredOfficialGroupAccounts(group);
+
+    if (!members.some((member) => member.id === viewer.accountId)) {
+      throw new ForbiddenException(
+        'Your account is not eligible for the selected official group scope.',
+      );
+    }
+
+    const now = new Date();
+    const conversationId = await this.prisma.$transaction(
+      async (transaction) => {
+        const conversation = await transaction.conversation.create({
+          data: {
+            type: ConversationType.GROUP,
+            title,
+            description,
+            groupKind: GroupKind.OFFICIAL,
+            officialScopeType: scope.scopeType,
+            officialDivisionId: scope.division?.id ?? null,
+            officialDepartmentId: scope.department?.id ?? null,
+            createdByAccountId: viewer.accountId,
+          },
+          select: {
+            id: true,
+          },
+        });
+        const createdGroup: OfficialGroupScopeRecord = {
+          ...group,
+          id: conversation.id,
+        };
+
+        await transaction.conversationParticipant.createMany({
+          data: members.map((member) => ({
+            conversationId: conversation.id,
+            accountId: member.id,
+            joinedAt: now,
+            role: this.getOfficialGroupParticipantRole(
+              member,
+              createdGroup,
+            ),
+          })),
+        });
+
+        await transaction.officialGroupAuditLog.create({
+          data: {
+            conversationId: conversation.id,
+            actorAccountId: viewer.accountId,
+            action: OfficialGroupAuditAction.CREATED,
+            metadata: {
+              scopeType: scope.scopeType,
+              divisionId: scope.division?.id ?? null,
+              departmentId: scope.department?.id ?? null,
+              memberCount: members.length,
+            },
+          },
+        });
+
+        return conversation.id;
+      },
+    );
+
+    const conversation = await this.getConversationRecord(conversationId);
+
+    this.messagingEventsService.emitConversationUpdated(
+      members.map((member) => member.id),
+      {
+        conversationId,
+        reason: 'OFFICIAL_GROUP_CREATED',
+        occurredAt: now.toISOString(),
+      },
+    );
+
+    return {
+      message: 'Official group created and synchronized successfully.',
+      data: this.serializeConversation(
+        conversation,
+        viewer.accountId,
+        0,
+      ),
+    };
+  }
+
+  async listOfficialGroupAudit(
+    user: AuthenticatedUser,
+    conversationId: string,
+    query: ListOfficialGroupAuditQueryDto,
+  ) {
+    const viewer = await this.getMessagingViewer(user);
+    const access = await this.getActiveGroupAccess(
+      viewer.accountId,
+      conversationId,
+    );
+
+    await this.assertCanManageOfficialGroup(
+      viewer,
+      access.conversation,
+    );
+
+    const data = await this.prisma.officialGroupAuditLog.findMany({
+      where: {
+        conversationId,
+      },
+      orderBy: [
+        {
+          createdAt: 'desc',
+        },
+        {
+          id: 'desc',
+        },
+      ],
+      take: query.limit,
+      select: officialGroupAuditSelect,
+    });
+
+    return {
+      data: data.map((entry) => ({
+        id: entry.id,
+        conversationId: entry.conversationId,
+        actorAccountId: entry.actorAccountId,
+        action: entry.action,
+        metadata: entry.metadata,
+        createdAt: entry.createdAt,
+        actor: entry.actor
+          ? this.serializeAccount(entry.actor)
+          : null,
+      })),
+    };
+  }
+
+  async reconcileOfficialGroups(user: AuthenticatedUser) {
+    const viewer = await this.getMessagingViewer(user);
+
+    if (viewer.role !== AccountRole.SUPER_ADMIN) {
+      throw new ForbiddenException(
+        'Only the Super Admin can reconcile every official group.',
+      );
+    }
+
+    const groups = await this.prisma.conversation.findMany({
+      where: {
+        type: ConversationType.GROUP,
+        groupKind: GroupKind.OFFICIAL,
+      },
+      select: {
+        id: true,
+      },
+    });
+    const results: OfficialGroupSyncResult[] = [];
+
+    for (const group of groups) {
+      results.push(
+        await this.synchronizeOfficialGroup(
+          group.id,
+          viewer.accountId,
+          'MANUAL_RECONCILIATION',
+          true,
+        ),
+      );
+    }
+
+    return {
+      message: `${groups.length} official group${groups.length === 1 ? '' : 's'} reconciled.`,
+      reconciledCount: groups.length,
+      addedCount: results.reduce(
+        (total, result) => total + result.addedCount,
+        0,
+      ),
+      removedCount: results.reduce(
+        (total, result) => total + result.removedCount,
+        0,
+      ),
+      roleChangedCount: results.reduce(
+        (total, result) => total + result.roleChangedCount,
+        0,
+      ),
+    };
   }
 
   async getActiveParticipantAccountIds(
@@ -1393,15 +2404,13 @@ export class ConversationsService {
       conversationId,
     );
 
-    this.assertGroupManager(access.viewerParticipant.role);
-
-    if (
-      access.conversation.groupKind === GroupKind.OFFICIAL &&
-      viewer.role !== AccountRole.SUPER_ADMIN
-    ) {
-      throw new ForbiddenException(
-        'Only the Super Admin can change an official group.',
+    if (access.conversation.groupKind === GroupKind.OFFICIAL) {
+      await this.assertCanManageOfficialGroup(
+        viewer,
+        access.conversation,
       );
+    } else {
+      this.assertGroupManager(access.viewerParticipant.role);
     }
 
     if (dto.title === undefined && dto.description === undefined) {
@@ -1416,18 +2425,44 @@ export class ConversationsService {
       throw new BadRequestException('Group name cannot be empty.');
     }
 
-    await this.prisma.conversation.update({
-      where: {
-        id: conversationId,
-      },
-      data: {
-        ...(title !== undefined ? { title } : {}),
-        ...(dto.description !== undefined
-          ? {
-              description: dto.description.trim() || null,
-            }
-          : {}),
-      },
+    const nextDescription =
+      dto.description !== undefined
+        ? dto.description.trim() || null
+        : undefined;
+
+    await this.prisma.$transaction(async (transaction) => {
+      await transaction.conversation.update({
+        where: {
+          id: conversationId,
+        },
+        data: {
+          ...(title !== undefined ? { title } : {}),
+          ...(nextDescription !== undefined
+            ? {
+                description: nextDescription,
+              }
+            : {}),
+        },
+      });
+
+      if (access.conversation.groupKind === GroupKind.OFFICIAL) {
+        await transaction.officialGroupAuditLog.create({
+          data: {
+            conversationId,
+            actorAccountId: viewer.accountId,
+            action: OfficialGroupAuditAction.DETAILS_UPDATED,
+            metadata: {
+              previousTitle: access.conversation.title,
+              nextTitle: title ?? access.conversation.title,
+              previousDescription: access.conversation.description,
+              nextDescription:
+                nextDescription !== undefined
+                  ? nextDescription
+                  : access.conversation.description,
+            },
+          },
+        });
+      }
     });
 
     const conversation = await this.getConversationRecord(conversationId);
@@ -1465,16 +2500,13 @@ export class ConversationsService {
       conversationId,
     );
 
-    this.assertGroupManager(access.viewerParticipant.role);
-
-    if (
-      access.conversation.groupKind === GroupKind.OFFICIAL &&
-      viewer.role !== AccountRole.SUPER_ADMIN
-    ) {
+    if (access.conversation.groupKind === GroupKind.OFFICIAL) {
       throw new ForbiddenException(
-        'Only the Super Admin can manage an official group.',
+        'Official group membership is synchronized from organizational assignments.',
       );
     }
+
+    this.assertGroupManager(access.viewerParticipant.role);
 
     const activeAccountIds = new Set(
       access.conversation.participants.map(
@@ -1589,6 +2621,12 @@ export class ConversationsService {
       conversationId,
     );
 
+    if (access.conversation.groupKind === GroupKind.OFFICIAL) {
+      throw new ForbiddenException(
+        'Official group roles are synchronized from organizational assignments.',
+      );
+    }
+
     if (
       access.viewerParticipant.role !==
       ConversationParticipantRole.OWNER
@@ -1677,6 +2715,12 @@ export class ConversationsService {
       conversationId,
     );
 
+    if (access.conversation.groupKind === GroupKind.OFFICIAL) {
+      throw new ForbiddenException(
+        'Official group membership is synchronized from organizational assignments.',
+      );
+    }
+
     this.assertGroupManager(access.viewerParticipant.role);
 
     if (accountId === viewer.accountId) {
@@ -1763,6 +2807,12 @@ export class ConversationsService {
       viewer.accountId,
       conversationId,
     );
+    if (access.conversation.groupKind === GroupKind.OFFICIAL) {
+      throw new ForbiddenException(
+        'Official group membership is controlled by organizational assignments and cannot be left manually.',
+      );
+    }
+
     const now = new Date();
     let newOwnerAccountId: string | null = null;
 
@@ -2330,6 +3380,13 @@ export class ConversationsService {
     query: ListConversationsQueryDto,
   ) {
     const viewer = await this.getMessagingViewer(user);
+
+    await this.synchronizeOfficialGroupsForAccountSafely(
+      viewer.accountId,
+      viewer.accountId,
+      'MESSAGING_ACCESS',
+    );
+
     const take = query.limit + 1;
 
     const conversations = await this.prisma.conversation.findMany({

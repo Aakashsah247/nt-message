@@ -57,6 +57,8 @@ export interface MessagingConversationUpdatedPayload {
     | "GROUP_CREATED"
     | "GROUP_UPDATED"
     | "MEMBERS_CHANGED"
+    | "OFFICIAL_GROUP_CREATED"
+    | "OFFICIAL_GROUP_SYNCED"
     | "LEFT";
   occurredAt: string;
 }

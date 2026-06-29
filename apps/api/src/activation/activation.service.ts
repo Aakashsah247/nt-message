@@ -17,6 +17,7 @@ import {
   randomUUID,
   timingSafeEqual,
 } from 'node:crypto';
+import { ConversationsService } from '../conversations/conversations.service';
 import { PrismaService } from '../database/prisma.service';
 
 import {
@@ -185,6 +186,7 @@ export class ActivationService {
 
   constructor(
     private readonly prisma: PrismaService,
+    private readonly conversationsService: ConversationsService,
     private readonly mailService: MailService,
     private readonly jwtService: JwtService,
     configService: ConfigService,
@@ -1322,6 +1324,12 @@ export class ActivationService {
         'An account with this username already exists.',
       );
     }
+
+    await this.conversationsService.synchronizeOfficialGroupsForAccountSafely(
+      outcome.account.id,
+      outcome.account.id,
+      'ACCOUNT_ACTIVATED',
+    );
 
     return {
       message: 'Account activated successfully.',

@@ -18,10 +18,12 @@ import type { AuthenticatedUser } from '../auth/types/auth.types';
 import { ConversationsService } from './conversations.service';
 import { AddGroupMembersDto } from './dto/add-group-members.dto';
 import { CreateGroupConversationDto } from './dto/create-group-conversation.dto';
+import { CreateOfficialGroupConversationDto } from './dto/create-official-group-conversation.dto';
 import { CreatePrivateConversationDto } from './dto/create-private-conversation.dto';
 import { ForwardTextMessageDto } from './dto/forward-text-message.dto';
 import { ListConversationsQueryDto } from './dto/list-conversations-query.dto';
 import { ListMessagesQueryDto } from './dto/list-messages-query.dto';
+import { ListOfficialGroupAuditQueryDto } from './dto/list-official-group-audit-query.dto';
 import { SearchMessagingContactsQueryDto } from './dto/search-messaging-contacts-query.dto';
 import { SendTextMessageDto } from './dto/send-text-message.dto';
 import { UpdateGroupConversationDto } from './dto/update-group-conversation.dto';
@@ -109,6 +111,36 @@ export class ConversationsController {
       user,
       requestId,
     );
+  }
+
+  @Get('official-groups/scopes')
+  listOfficialGroupScopes(
+    @CurrentUser()
+    user: AuthenticatedUser,
+  ) {
+    return this.conversationsService.listOfficialGroupScopes(user);
+  }
+
+  @Post('official-groups')
+  createOfficialGroupConversation(
+    @CurrentUser()
+    user: AuthenticatedUser,
+
+    @Body()
+    dto: CreateOfficialGroupConversationDto,
+  ) {
+    return this.conversationsService.createOfficialGroupConversation(
+      user,
+      dto,
+    );
+  }
+
+  @Post('official-groups/reconcile')
+  reconcileOfficialGroups(
+    @CurrentUser()
+    user: AuthenticatedUser,
+  ) {
+    return this.conversationsService.reconcileOfficialGroups(user);
   }
 
   @Post('groups')
@@ -266,6 +298,29 @@ export class ConversationsController {
     return this.conversationsService.leaveGroupConversation(
       user,
       conversationId,
+    );
+  }
+
+  @Get(':id/group/audit')
+  listOfficialGroupAudit(
+    @CurrentUser()
+    user: AuthenticatedUser,
+
+    @Param(
+      'id',
+      new ParseUUIDPipe({
+        version: '4',
+      }),
+    )
+    conversationId: string,
+
+    @Query()
+    query: ListOfficialGroupAuditQueryDto,
+  ) {
+    return this.conversationsService.listOfficialGroupAudit(
+      user,
+      conversationId,
+      query,
     );
   }
 

@@ -7,6 +7,7 @@ import {
 } from '@nestjs/common';
 
 import type { AuthenticatedUser } from '../auth/types/auth.types';
+import { ConversationsService } from '../conversations/conversations.service';
 import { PrismaService } from '../database/prisma.service';
 import {
   AccountRequestActionType,
@@ -43,7 +44,22 @@ interface EmployeeLifecycleMetadata {
 
 @Injectable()
 export class EmployeesService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly conversationsService: ConversationsService,
+  ) {}
+
+  private async synchronizeOfficialGroups(
+    accountId: string | null | undefined,
+    actorAccountId: string | null,
+    reason: string,
+  ): Promise<void> {
+    await this.conversationsService.synchronizeOfficialGroupsForAccountSafely(
+      accountId,
+      actorAccountId,
+      reason,
+    );
+  }
 
   private async validateDivisionAssignment(
     divisionId: string,
@@ -761,6 +777,12 @@ export class EmployeesService {
         divisionId: true,
         departmentId: true,
         isActivated: true,
+
+        account: {
+          select: {
+            id: true,
+          },
+        },
       },
     });
 
@@ -973,6 +995,12 @@ export class EmployeesService {
         },
       },
     });
+
+    await this.synchronizeOfficialGroups(
+      employee.account?.id,
+      null,
+      'EMPLOYEE_PROFILE_UPDATED',
+    );
 
     return {
       message: 'Employee updated successfully.',
@@ -1649,6 +1677,12 @@ export class EmployeesService {
           },
         );
 
+      await this.synchronizeOfficialGroups(
+        result.employee.account?.id,
+        user.accountId,
+        'EMPLOYEE_ROLE_OR_SCOPE_CHANGED',
+      );
+
       return {
         message:
           result.lifecycleAction ===
@@ -1950,6 +1984,12 @@ export class EmployeesService {
       };
     });
 
+    await this.synchronizeOfficialGroups(
+      result.employee.account?.id,
+      user.accountId,
+      'EMPLOYEE_ARCHIVED',
+    );
+
     return {
       message: 'Former employee record archived successfully.',
 
@@ -2221,6 +2261,12 @@ export class EmployeesService {
       };
     });
 
+    await this.synchronizeOfficialGroups(
+      result.employee.account?.id,
+      user.accountId,
+      'EMPLOYMENT_ENDED',
+    );
+
     return {
       message: `Employee employment marked as ${dto.employmentStatus.toLowerCase()} successfully.`,
 
@@ -2395,9 +2441,19 @@ export class EmployeesService {
       return {
         employee: updatedEmployee,
 
+        accountId: employee.account?.id ?? null,
+
         revokedSessions,
       };
     });
+
+    await this.synchronizeOfficialGroups(
+      result.accountId,
+      user.accountId,
+      status === EmployeeStatus.ACTIVE
+        ? 'EMPLOYEE_REACTIVATED'
+        : 'EMPLOYEE_SUSPENDED',
+    );
 
     return {
       message:

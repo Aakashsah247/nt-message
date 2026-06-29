@@ -88,6 +88,19 @@ enum ConversationParticipantRole {
   MEMBER
 }
 
+enum OfficialGroupScopeType {
+  ORGANIZATION
+  DIVISION
+  DEPARTMENT
+}
+
+enum OfficialGroupAuditAction {
+  CREATED
+  DETAILS_UPDATED
+  MEMBERSHIP_SYNCED
+  RECONCILED
+}
+
 enum MessageContentType {
   TEXT
   IMAGE
@@ -119,10 +132,11 @@ model Division {
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
 
-  departments         Department[]
-  employees           Employee[]
-  accountRequests     AccountRequest[]
-  managementPositions ManagementPosition[]
+  departments               Department[]
+  employees                 Employee[]
+  accountRequests           AccountRequest[]
+  managementPositions       ManagementPosition[]
+  officialGroupConversations Conversation[] @relation("OfficialGroupDivision")
 
   @@index([isActive], map: "divisions_is_active_idx")
   @@map("divisions")
@@ -137,10 +151,11 @@ model Department {
   createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt  DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
 
-  division            Division             @relation(fields: [divisionId], references: [id], onDelete: Restrict)
-  employees           Employee[]
-  accountRequests     AccountRequest[]
-  managementPositions ManagementPosition[]
+  division                   Division             @relation(fields: [divisionId], references: [id], onDelete: Restrict)
+  employees                  Employee[]
+  accountRequests            AccountRequest[]
+  managementPositions        ManagementPosition[]
+  officialGroupConversations Conversation[]         @relation("OfficialGroupDepartment")
 
   @@unique([divisionId, code], map: "departments_division_id_code_key")
   @@unique([divisionId, name], map: "departments_division_id_name_key")
@@ -225,6 +240,7 @@ model Account {
   sentMessageRequests           MessageRequest[]           @relation("MessageRequestsSent")
   receivedMessageRequests       MessageRequest[]           @relation("MessageRequestsReceived")
   blockedMessageRequests        MessageRequest[]           @relation("MessageRequestsBlockedBy")
+  officialGroupAuditActions    OfficialGroupAuditLog[]      @relation("OfficialGroupAuditActor")
 
   @@index([role], map: "accounts_role_idx")
   @@index([isEnabled], map: "accounts_is_enabled_idx")
@@ -454,10 +470,13 @@ model Conversation {
 
   type ConversationType @default(PRIVATE)
 
-  title                 String? @db.VarChar(150)
-  description           String? @db.VarChar(500)
-  groupKind              GroupKind? @map("group_kind")
-  privateParticipantKey String? @unique(map: "conversations_private_participant_key_key") @map("private_participant_key") @db.VarChar(73)
+  title                 String?                 @db.VarChar(150)
+  description           String?                 @db.VarChar(500)
+  groupKind             GroupKind?              @map("group_kind")
+  officialScopeType     OfficialGroupScopeType? @map("official_scope_type")
+  officialDivisionId   String?                 @map("official_division_id") @db.Uuid
+  officialDepartmentId String?                 @map("official_department_id") @db.Uuid
+  privateParticipantKey String?                @unique(map: "conversations_private_participant_key_key") @map("private_participant_key") @db.VarChar(73)
 
   createdByAccountId String @map("created_by_account_id") @db.Uuid
 
@@ -465,13 +484,17 @@ model Conversation {
   createdAt     DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt     DateTime  @updatedAt @map("updated_at") @db.Timestamptz(3)
 
-  createdBy   Account                   @relation("ConversationsCreatedBy", fields: [createdByAccountId], references: [id], onDelete: Restrict)
-  participants ConversationParticipant[]
-  messages     Message[]
-  messageRequest MessageRequest?
+  createdBy          Account                   @relation("ConversationsCreatedBy", fields: [createdByAccountId], references: [id], onDelete: Restrict)
+  officialDivision   Division?                  @relation("OfficialGroupDivision", fields: [officialDivisionId], references: [id], onDelete: Restrict)
+  officialDepartment Department?                @relation("OfficialGroupDepartment", fields: [officialDepartmentId], references: [id], onDelete: Restrict)
+  participants       ConversationParticipant[]
+  messages           Message[]
+  messageRequest     MessageRequest?
+  officialAuditLogs  OfficialGroupAuditLog[]
 
   @@index([type, lastMessageAt], map: "conversations_type_last_message_idx")
   @@index([groupKind, updatedAt], map: "conversations_group_kind_idx")
+  @@index([officialScopeType, officialDivisionId, officialDepartmentId], map: "conversations_official_scope_idx")
   @@index([createdByAccountId], map: "conversations_created_by_idx")
   @@index([lastMessageAt], map: "conversations_last_message_idx")
   @@map("conversations")
@@ -501,6 +524,27 @@ model ConversationParticipant {
   @@map("conversation_participants")
 }
 
+
+
+model OfficialGroupAuditLog {
+  id String @id @default(uuid()) @db.Uuid
+
+  conversationId String  @map("conversation_id") @db.Uuid
+  actorAccountId String? @map("actor_account_id") @db.Uuid
+
+  action OfficialGroupAuditAction
+  metadata Json?
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  conversation Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  actor        Account?     @relation("OfficialGroupAuditActor", fields: [actorAccountId], references: [id], onDelete: Restrict)
+
+  @@index([conversationId, createdAt], map: "official_group_audit_logs_conversation_created_idx")
+  @@index([actorAccountId, createdAt], map: "official_group_audit_logs_actor_created_idx")
+  @@index([action, createdAt], map: "official_group_audit_logs_action_created_idx")
+  @@map("official_group_audit_logs")
+}
 
 model MessageRequest {
   id String @id @default(uuid()) @db.Uuid

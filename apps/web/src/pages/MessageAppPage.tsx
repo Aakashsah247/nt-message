@@ -18,6 +18,7 @@ import {
   addGroupMembers,
   blockMessageRequest,
   createGroupConversation,
+  createOfficialGroupConversation,
   createPrivateConversation,
   declineMessageRequest,
   deleteConversationMessage,
@@ -28,7 +29,10 @@ import {
   listConversationMessages,
   listMessageRequests,
   listMessagingConversations,
+  listOfficialGroupAudit,
+  listOfficialGroupScopes,
   markConversationRead,
+  reconcileOfficialGroups,
   removeGroupMember,
   searchMessagingContacts,
   sendConversationTextMessage,
@@ -51,11 +55,14 @@ import type {
   MessagingTypingUpdatedPayload,
 } from "../services/messaging-socket.service";
 import type {
+  GroupKind,
   MessageRequestListResponse,
   MessagingContact,
   MessagingConversation,
   MessagingMessage,
   MessagingMessageRequest,
+  OfficialGroupAuditEntry,
+  OfficialGroupScopeOption,
 } from "../types/messaging";
 
 
@@ -167,6 +174,42 @@ function roleLabel(value: string): string {
     .split("_")
     .map((part) => part[0]?.toUpperCase() + part.slice(1))
     .join(" ");
+}
+
+function officialScopeLabel(
+  conversation: MessagingConversation,
+): string {
+  const scope = conversation.officialScope;
+
+  if (!scope) {
+    return "Official organizational group";
+  }
+
+  if (scope.scopeType === "ORGANIZATION") {
+    return "Organization-wide official group";
+  }
+
+  if (scope.scopeType === "DIVISION") {
+    return `${scope.division?.name ?? "Division"} official group`;
+  }
+
+  return `${scope.department?.name ?? "Department"} official group`;
+}
+
+function officialAuditLabel(entry: OfficialGroupAuditEntry): string {
+  if (entry.action === "CREATED") {
+    return "Official group created";
+  }
+
+  if (entry.action === "DETAILS_UPDATED") {
+    return "Group details updated";
+  }
+
+  if (entry.action === "RECONCILED") {
+    return "Membership reconciled";
+  }
+
+  return "Membership synchronized";
 }
 
 function requestReasonLabel(
@@ -341,6 +384,13 @@ export function MessageAppPage() {
   const [groupDialogMode, setGroupDialogMode] = useState<
     "CREATE" | "MANAGE" | null
   >(null);
+  const [groupKind, setGroupKind] = useState<GroupKind>("PERSONAL");
+  const [officialGroupScopes, setOfficialGroupScopes] = useState<OfficialGroupScopeOption[]>([]);
+  const [officialGroupScopeKey, setOfficialGroupScopeKey] = useState("");
+  const [officialGroupScopesLoading, setOfficialGroupScopesLoading] = useState(false);
+  const [officialGroupAudit, setOfficialGroupAudit] = useState<OfficialGroupAuditEntry[]>([]);
+  const [officialGroupAuditLoading, setOfficialGroupAuditLoading] = useState(false);
+  const [officialGroupReconciling, setOfficialGroupReconciling] = useState(false);
   const [groupTitle, setGroupTitle] = useState("");
   const [groupDescription, setGroupDescription] = useState("");
   const [groupSearch, setGroupSearch] = useState("");
@@ -384,6 +434,18 @@ export function MessageAppPage() {
       (conversation) => conversation.id === selectedConversationId,
     ) ?? null,
     [conversations, selectedConversationId],
+  );
+
+  const canCreateOfficialGroup =
+    account?.role === "SUPER_ADMIN" ||
+    account?.role === "SENIOR_MANAGEMENT" ||
+    account?.role === "TEAM_MANAGER";
+
+  const selectedOfficialGroupScope = useMemo(
+    () => officialGroupScopes.find(
+      (scope) => scope.key === officialGroupScopeKey,
+    ) ?? null,
+    [officialGroupScopeKey, officialGroupScopes],
   );
 
   const filteredConversations = useMemo(() => {
@@ -1072,7 +1134,13 @@ export function MessageAppPage() {
   }, [accessToken, contactSearch, newConversationOpen]);
 
   useEffect(() => {
-    if (!groupDialogMode || !accessToken) {
+    if (
+      !groupDialogMode ||
+      !accessToken ||
+      (groupDialogMode === "CREATE" && groupKind === "OFFICIAL") ||
+      (groupDialogMode === "MANAGE" &&
+        selectedConversation?.groupKind === "OFFICIAL")
+    ) {
       return undefined;
     }
 
@@ -1107,7 +1175,110 @@ export function MessageAppPage() {
       active = false;
       window.clearTimeout(timer);
     };
-  }, [accessToken, groupDialogMode, groupSearch]);
+  }, [
+    accessToken,
+    groupDialogMode,
+    groupKind,
+    groupSearch,
+    selectedConversation?.groupKind,
+  ]);
+
+  useEffect(() => {
+    if (
+      groupDialogMode !== "CREATE" ||
+      !accessToken ||
+      !canCreateOfficialGroup
+    ) {
+      return undefined;
+    }
+
+    let active = true;
+    setOfficialGroupScopesLoading(true);
+
+    listOfficialGroupScopes(accessToken)
+      .then((response) => {
+        if (!active) {
+          return;
+        }
+
+        setOfficialGroupScopes(response.scopes);
+        setOfficialGroupScopeKey((current) => (
+          response.scopes.some((scope) => scope.key === current)
+            ? current
+            : response.scopes[0]?.key ?? ""
+        ));
+      })
+      .catch((error) => {
+        if (active) {
+          setGroupError(
+            error instanceof Error
+              ? error.message
+              : "Official group scopes could not be loaded.",
+          );
+        }
+      })
+      .finally(() => {
+        if (active) {
+          setOfficialGroupScopesLoading(false);
+        }
+      });
+
+    return () => {
+      active = false;
+    };
+  }, [
+    accessToken,
+    canCreateOfficialGroup,
+    groupDialogMode,
+  ]);
+
+  useEffect(() => {
+    if (
+      groupDialogMode !== "MANAGE" ||
+      !accessToken ||
+      selectedConversation?.groupKind !== "OFFICIAL" ||
+      !selectedConversation.canManageGroup
+    ) {
+      setOfficialGroupAudit([]);
+      return undefined;
+    }
+
+    let active = true;
+    setOfficialGroupAuditLoading(true);
+
+    listOfficialGroupAudit(
+      accessToken,
+      selectedConversation.id,
+      30,
+    )
+      .then((response) => {
+        if (active) {
+          setOfficialGroupAudit(response.data);
+        }
+      })
+      .catch((error) => {
+        if (active) {
+          setGroupError(
+            error instanceof Error
+              ? error.message
+              : "Official group audit history could not be loaded.",
+          );
+        }
+      })
+      .finally(() => {
+        if (active) {
+          setOfficialGroupAuditLoading(false);
+        }
+      });
+
+    return () => {
+      active = false;
+    };
+  }, [
+    accessToken,
+    groupDialogMode,
+    selectedConversation,
+  ]);
 
   async function handleLogout(): Promise<void> {
     setLoggingOut(true);
@@ -1126,6 +1297,9 @@ export function MessageAppPage() {
     setNewConversationOpen(false);
     setRequestDialogOpen(false);
     setGroupDialogMode("CREATE");
+    setGroupKind("PERSONAL");
+    setOfficialGroupScopeKey("");
+    setOfficialGroupAudit([]);
     setGroupTitle("");
     setGroupDescription("");
     setGroupSearch("");
@@ -1140,6 +1314,8 @@ export function MessageAppPage() {
     }
 
     setGroupDialogMode("MANAGE");
+    setGroupKind(selectedConversation.groupKind ?? "PERSONAL");
+    setOfficialGroupAudit([]);
     setGroupTitle(selectedConversation.title ?? "");
     setGroupDescription(selectedConversation.description ?? "");
     setGroupSearch("");
@@ -1154,6 +1330,7 @@ export function MessageAppPage() {
     }
 
     setGroupDialogMode(null);
+    setOfficialGroupAudit([]);
     setGroupSelectedAccountIds([]);
     setGroupSearch("");
     setGroupError(null);
@@ -1181,8 +1358,10 @@ export function MessageAppPage() {
     if (
       !accessToken ||
       !groupTitle.trim() ||
-      groupSelectedAccountIds.length === 0 ||
-      groupSubmitting
+      groupSubmitting ||
+      (groupKind === "PERSONAL" &&
+        groupSelectedAccountIds.length === 0) ||
+      (groupKind === "OFFICIAL" && !selectedOfficialGroupScope)
     ) {
       return;
     }
@@ -1191,12 +1370,31 @@ export function MessageAppPage() {
     setGroupError(null);
 
     try {
-      const response = await createGroupConversation(
-        accessToken,
-        groupTitle.trim(),
-        groupDescription.trim(),
-        groupSelectedAccountIds,
-      );
+      const response = groupKind === "OFFICIAL" && selectedOfficialGroupScope
+        ? await createOfficialGroupConversation(
+            accessToken,
+            {
+              title: groupTitle.trim(),
+              description: groupDescription.trim(),
+              scopeType: selectedOfficialGroupScope.scopeType,
+              ...(selectedOfficialGroupScope.divisionId
+                ? {
+                    divisionId: selectedOfficialGroupScope.divisionId,
+                  }
+                : {}),
+              ...(selectedOfficialGroupScope.departmentId
+                ? {
+                    departmentId: selectedOfficialGroupScope.departmentId,
+                  }
+                : {}),
+            },
+          )
+        : await createGroupConversation(
+            accessToken,
+            groupTitle.trim(),
+            groupDescription.trim(),
+            groupSelectedAccountIds,
+          );
 
       replaceConversation(response.data);
       setSelectedConversationId(response.data.id);
@@ -1211,6 +1409,48 @@ export function MessageAppPage() {
       );
     } finally {
       setGroupSubmitting(false);
+    }
+  }
+
+  async function handleReconcileOfficialGroups(): Promise<void> {
+    if (
+      !accessToken ||
+      account?.role !== "SUPER_ADMIN" ||
+      officialGroupReconciling
+    ) {
+      return;
+    }
+
+    setOfficialGroupReconciling(true);
+    setGroupError(null);
+
+    try {
+      const response = await reconcileOfficialGroups(accessToken);
+      setMessageNotice(response.message);
+      await loadConversations(
+        true,
+        selectedConversationIdRef.current ?? undefined,
+      );
+
+      if (
+        selectedConversation?.groupKind === "OFFICIAL" &&
+        selectedConversation.canManageGroup
+      ) {
+        const auditResponse = await listOfficialGroupAudit(
+          accessToken,
+          selectedConversation.id,
+          30,
+        );
+        setOfficialGroupAudit(auditResponse.data);
+      }
+    } catch (error) {
+      setGroupError(
+        error instanceof Error
+          ? error.message
+          : "Official groups could not be reconciled.",
+      );
+    } finally {
+      setOfficialGroupReconciling(false);
     }
   }
 
@@ -2151,7 +2391,7 @@ export function MessageAppPage() {
                 <div className="message-empty-icon">M</div>
                 <h2>No conversations found</h2>
                 <p>
-                  Start a private conversation or create a personal group.
+                  Start a private conversation or create a group.
                 </p>
                 <button
                   type="button"
@@ -2222,7 +2462,7 @@ export function MessageAppPage() {
                         {conversation.type === "GROUP"
                           ? `${conversation.memberCount} members · ${
                               conversation.groupKind === "OFFICIAL"
-                                ? "Official group"
+                                ? officialScopeLabel(conversation)
                                 : "Personal group"
                             }`
                           : conversationPeer?.employee?.designation ??
@@ -2286,7 +2526,7 @@ export function MessageAppPage() {
                     {selectedConversation.type === "GROUP"
                       ? selectedConversation.description ||
                         (selectedConversation.groupKind === "OFFICIAL"
-                          ? "Official organizational group"
+                          ? officialScopeLabel(selectedConversation)
                           : "Personal group")
                       : `${
                           peer?.employee?.designation ??
@@ -2762,12 +3002,18 @@ export function MessageAppPage() {
               <div>
                 <span>
                   {groupDialogMode === "CREATE"
-                    ? "Personal group"
-                    : "Group settings"}
+                    ? groupKind === "OFFICIAL"
+                      ? "Official group"
+                      : "Personal group"
+                    : selectedConversation?.groupKind === "OFFICIAL"
+                      ? "Official organizational group"
+                      : "Group settings"}
                 </span>
                 <h2 id="group-dialog-title">
                   {groupDialogMode === "CREATE"
-                    ? "Create a group"
+                    ? groupKind === "OFFICIAL"
+                      ? "Create an official group"
+                      : "Create a group"
                     : selectedConversation?.title ?? "Group info"}
                 </h2>
               </div>
@@ -2789,6 +3035,106 @@ export function MessageAppPage() {
             )}
 
             <div className="message-group-dialog-body">
+              {groupDialogMode === "CREATE" && canCreateOfficialGroup && (
+                <section className="message-group-kind-section">
+                  <header>
+                    <h3>Group category</h3>
+                    <span>Choose how membership is controlled</span>
+                  </header>
+
+                  <div className="message-group-kind-options">
+                    <button
+                      type="button"
+                      className={groupKind === "PERSONAL" ? "active" : ""}
+                      onClick={() => {
+                        setGroupKind("PERSONAL");
+                        setGroupError(null);
+                      }}
+                      disabled={groupSubmitting}
+                    >
+                      <strong>Personal</strong>
+                      <small>Select members manually.</small>
+                    </button>
+
+                    <button
+                      type="button"
+                      className={groupKind === "OFFICIAL" ? "active" : ""}
+                      onClick={() => {
+                        const defaultScope =
+                          selectedOfficialGroupScope ??
+                          officialGroupScopes[0] ??
+                          null;
+
+                        setGroupKind("OFFICIAL");
+                        setGroupSelectedAccountIds([]);
+
+                        if (defaultScope) {
+                          setOfficialGroupScopeKey(defaultScope.key);
+                          setGroupTitle((current) => (
+                            current.trim()
+                              ? current
+                              : defaultScope.defaultTitle
+                          ));
+                        }
+
+                        setGroupError(null);
+                      }}
+                      disabled={groupSubmitting || officialGroupScopesLoading}
+                    >
+                      <strong>Official</strong>
+                      <small>Membership follows organization assignments.</small>
+                    </button>
+                  </div>
+
+                  {groupKind === "OFFICIAL" && (
+                    <label className="message-group-scope-field">
+                      <span>Organizational scope</span>
+                      <select
+                        value={officialGroupScopeKey}
+                        onChange={(event) => {
+                          const nextKey = event.target.value;
+                          const nextScope = officialGroupScopes.find(
+                            (scope) => scope.key === nextKey,
+                          );
+
+                          setOfficialGroupScopeKey(nextKey);
+
+                          if (nextScope && !groupTitle.trim()) {
+                            setGroupTitle(nextScope.defaultTitle);
+                          }
+                        }}
+                        disabled={officialGroupScopesLoading || groupSubmitting}
+                      >
+                        <option value="">
+                          {officialGroupScopesLoading
+                            ? "Loading official scopes..."
+                            : "Select an official scope"}
+                        </option>
+                        {officialGroupScopes.map((scope) => (
+                          <option key={scope.key} value={scope.key}>
+                            {scope.label}
+                          </option>
+                        ))}
+                      </select>
+                      <small>
+                        Eligible active accounts are added automatically and synchronized after activation, transfer, suspension, or role changes.
+                      </small>
+                    </label>
+                  )}
+                </section>
+              )}
+
+              {groupDialogMode === "MANAGE" &&
+                selectedConversation?.groupKind === "OFFICIAL" && (
+                  <section className="message-official-scope-card">
+                    <span>Official scope</span>
+                    <strong>{officialScopeLabel(selectedConversation)}</strong>
+                    <small>
+                      Membership and group roles are synchronized from active Nepal Telecom assignments.
+                    </small>
+                  </section>
+                )}
+
               {(groupDialogMode === "CREATE" ||
                 selectedConversation?.canManageGroup) && (
                 <section className="message-group-details">
@@ -2836,15 +3182,23 @@ export function MessageAppPage() {
                       <span>{selectedConversation.memberCount}</span>
                     </header>
 
+                    {selectedConversation.groupKind === "OFFICIAL" && (
+                      <p className="message-group-sync-note">
+                        Members and administrator roles are read-only because they follow active organizational assignments.
+                      </p>
+                    )}
+
                     <div className="message-group-member-list">
                       {selectedConversation.participants.map((participant) => {
                         const isViewer = participant.accountId === account?.id;
                         const viewerRole = selectedConversation.viewerParticipantRole;
                         const canChangeRole =
+                          selectedConversation.groupKind === "PERSONAL" &&
                           viewerRole === "OWNER" &&
                           participant.participantRole !== "OWNER" &&
                           !isViewer;
                         const canRemove =
+                          selectedConversation.groupKind === "PERSONAL" &&
                           selectedConversation.canManageGroup &&
                           participant.participantRole !== "OWNER" &&
                           !isViewer &&
@@ -2915,8 +3269,65 @@ export function MessageAppPage() {
                   </section>
                 )}
 
-              {(groupDialogMode === "CREATE" ||
-                selectedConversation?.canManageGroup) && (
+              {groupDialogMode === "MANAGE" &&
+                selectedConversation?.groupKind === "OFFICIAL" &&
+                selectedConversation.canManageGroup && (
+                  <section className="message-official-audit-section">
+                    <header>
+                      <div>
+                        <h3>Official group audit</h3>
+                        <span>Membership and administrator changes</span>
+                      </div>
+
+                      {account?.role === "SUPER_ADMIN" && (
+                        <button
+                          type="button"
+                          onClick={() => void handleReconcileOfficialGroups()}
+                          disabled={officialGroupReconciling}
+                        >
+                          {officialGroupReconciling
+                            ? "Reconciling..."
+                            : "Reconcile all"}
+                        </button>
+                      )}
+                    </header>
+
+                    {officialGroupAuditLoading ? (
+                      <div className="message-list-state compact">
+                        <span className="message-small-spinner" />
+                        <p>Loading audit history...</p>
+                      </div>
+                    ) : officialGroupAudit.length === 0 ? (
+                      <p className="message-group-sync-note">
+                        No official group audit entries are available yet.
+                      </p>
+                    ) : (
+                      <div className="message-official-audit-list">
+                        {officialGroupAudit.map((entry) => (
+                          <article key={entry.id}>
+                            <span />
+                            <div>
+                              <strong>{officialAuditLabel(entry)}</strong>
+                              <small>
+                                {entry.actor?.displayName ?? "System"} · {new Intl.DateTimeFormat(undefined, {
+                                  month: "short",
+                                  day: "numeric",
+                                  hour: "numeric",
+                                  minute: "2-digit",
+                                }).format(new Date(entry.createdAt))}
+                              </small>
+                            </div>
+                          </article>
+                        ))}
+                      </div>
+                    )}
+                  </section>
+                )}
+
+              {((groupDialogMode === "CREATE" && groupKind === "PERSONAL") ||
+                (groupDialogMode === "MANAGE" &&
+                  selectedConversation?.groupKind === "PERSONAL" &&
+                  selectedConversation.canManageGroup)) && (
                 <section className="message-group-add-section">
                   <header>
                     <h3>
@@ -3015,17 +3426,25 @@ export function MessageAppPage() {
 
             <footer className="message-group-dialog-footer">
               {groupDialogMode === "MANAGE" ? (
-                <button
-                  type="button"
-                  className="danger"
-                  onClick={() => void handleLeaveGroup()}
-                  disabled={groupSubmitting}
-                >
-                  {groupSubmitting ? "Leaving..." : "Leave group"}
-                </button>
+                selectedConversation?.groupKind === "PERSONAL" ? (
+                  <button
+                    type="button"
+                    className="danger"
+                    onClick={() => void handleLeaveGroup()}
+                    disabled={groupSubmitting}
+                  >
+                    {groupSubmitting ? "Leaving..." : "Leave group"}
+                  </button>
+                ) : (
+                  <span>
+                    Official membership changes automatically with organizational assignments.
+                  </span>
+                )
               ) : (
                 <span>
-                  Groups can include up to 100 active members.
+                  {groupKind === "OFFICIAL"
+                    ? "Official membership is generated from the selected scope."
+                    : "Personal groups can include up to 100 active members."}
                 </span>
               )}
 
@@ -3045,11 +3464,18 @@ export function MessageAppPage() {
                     onClick={() => void handleCreateGroup()}
                     disabled={
                       !groupTitle.trim() ||
-                      groupSelectedAccountIds.length === 0 ||
-                      groupSubmitting
+                      groupSubmitting ||
+                      (groupKind === "PERSONAL" &&
+                        groupSelectedAccountIds.length === 0) ||
+                      (groupKind === "OFFICIAL" &&
+                        !selectedOfficialGroupScope)
                     }
                   >
-                    {groupSubmitting ? "Creating..." : "Create group"}
+                    {groupSubmitting
+                      ? "Creating..."
+                      : groupKind === "OFFICIAL"
+                        ? "Create official group"
+                        : "Create group"}
                   </button>
                 )}
               </div>

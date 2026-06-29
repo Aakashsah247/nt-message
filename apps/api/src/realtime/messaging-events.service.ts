@@ -12,6 +12,8 @@ export type MessagingConversationUpdateReason =
   | 'GROUP_CREATED'
   | 'GROUP_UPDATED'
   | 'MEMBERS_CHANGED'
+  | 'OFFICIAL_GROUP_CREATED'
+  | 'OFFICIAL_GROUP_SYNCED'
   | 'LEFT';
 
 export type MessagingMessageRequestStatus =
