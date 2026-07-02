@@ -322,8 +322,7 @@ export class OrganizationService {
 
       if (protectedManagementPosition) {
         const scopeName =
-          protectedManagementPosition.department?.name ??
-          existingDivision.name;
+          protectedManagementPosition.department?.name ?? existingDivision.name;
 
         throw new ConflictException(
           `Deactivate or release the ${protectedManagementPosition.positionType} management position for ${scopeName} before deactivating this division.`,

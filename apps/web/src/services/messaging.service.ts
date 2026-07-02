@@ -14,6 +14,7 @@ import type {
   MessageRequestActionResponse,
   MessageRequestListResponse,
   MessageListResponse,
+  MessageReactionResponse,
   MessagingContactsResponse,
   OfficialGroupAuditResponse,
   OfficialGroupScopesResponse,
@@ -420,6 +421,38 @@ export function markConversationRead(
     `/conversations/${conversationId}/read`,
     {
       method: "PATCH",
+      headers: authorizationHeaders(accessToken),
+    },
+  );
+}
+
+export function reactToMessage(
+  accessToken: string,
+  conversationId: string,
+  messageId: string,
+  reaction: string,
+): Promise<MessageReactionResponse> {
+  return apiRequest<MessageReactionResponse>(
+    `/conversations/${conversationId}/messages/${messageId}/reactions`,
+    {
+      method: "POST",
+      headers: authorizationHeaders(accessToken),
+      body: JSON.stringify({
+        reaction,
+      }),
+    },
+  );
+}
+
+export function removeMessageReaction(
+  accessToken: string,
+  conversationId: string,
+  messageId: string,
+): Promise<MessageReactionResponse> {
+  return apiRequest<MessageReactionResponse>(
+    `/conversations/${conversationId}/messages/${messageId}/reactions`,
+    {
+      method: "DELETE",
       headers: authorizationHeaders(accessToken),
     },
   );

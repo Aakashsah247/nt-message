@@ -21,8 +21,7 @@ export class AccessTokenValidationService {
     private readonly jwtService: JwtService,
     configService: ConfigService,
   ) {
-    this.accessSecret =
-      configService.getOrThrow<string>('JWT_ACCESS_SECRET');
+    this.accessSecret = configService.getOrThrow<string>('JWT_ACCESS_SECRET');
   }
 
   async verifyAccessToken(token: string): Promise<AuthenticatedUser> {
@@ -114,25 +113,24 @@ export class AccessTokenValidationService {
       return AccountRole.EMPLOYEE;
     }
 
-    const activeAssignment =
-      await this.prisma.managementAssignment.findFirst({
-        where: {
-          employeeId,
-          endedAt: null,
+    const activeAssignment = await this.prisma.managementAssignment.findFirst({
+      where: {
+        employeeId,
+        endedAt: null,
 
-          position: {
-            isActive: true,
+        position: {
+          isActive: true,
+        },
+      },
+
+      select: {
+        position: {
+          select: {
+            positionType: true,
           },
         },
-
-        select: {
-          position: {
-            select: {
-              positionType: true,
-            },
-          },
-        },
-      });
+      },
+    });
 
     if (!activeAssignment) {
       return AccountRole.EMPLOYEE;

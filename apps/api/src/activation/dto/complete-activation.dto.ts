@@ -1,9 +1,4 @@
-import {
-  IsString,
-  Matches,
-  MaxLength,
-  MinLength,
-} from "class-validator";
+import { IsString, Matches, MaxLength, MinLength } from 'class-validator';
 
 export class CompleteActivationDto {
   @IsString()
@@ -14,13 +9,10 @@ export class CompleteActivationDto {
   @IsString()
   @MinLength(12)
   @MaxLength(128)
-  @Matches(
-    /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[^A-Za-z0-9]).+$/,
-    {
-      message:
-        "Password must include uppercase, lowercase, number and special character.",
-    },
-  )
+  @Matches(/^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[^A-Za-z0-9]).+$/, {
+    message:
+      'Password must include uppercase, lowercase, number and special character.',
+  })
   password!: string;
 
   @IsString()

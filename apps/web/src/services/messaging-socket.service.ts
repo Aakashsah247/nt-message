@@ -30,7 +30,7 @@ export interface MessagingMessageCreatedPayload {
 export interface MessagingMessageUpdatedPayload {
   conversationId: string;
   message: MessagingMessage;
-  action: "EDITED" | "DELETED";
+  action: "EDITED" | "DELETED" | "REACTION_UPDATED";
   occurredAt: string;
 }
 

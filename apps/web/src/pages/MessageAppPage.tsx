@@ -34,6 +34,7 @@ import {
   markConversationRead,
   reconcileOfficialGroups,
   removeGroupMember,
+  reactToMessage,
   searchMessagingContacts,
   sendConversationTextMessage,
   updateGroupConversation,
@@ -74,6 +75,67 @@ type RealtimeConnectionStatus =
 const SELECTED_CONVERSATION_STORAGE_KEY =
   "nt-message:selected-conversation";
 const MESSAGE_EDIT_WINDOW_MS = 15 * 60 * 1000;
+const QUICK_REACTIONS = ["👍", "❤️", "😂", "😮", "😢", "🙏"] as const;
+type QuickReaction = (typeof QUICK_REACTIONS)[number];
+const QUICK_REACTION_SET = new Set<string>(QUICK_REACTIONS);
+
+function isSupportedQuickReaction(value: string): value is QuickReaction {
+  return QUICK_REACTION_SET.has(value);
+}
+
+interface MessageReactionGroup {
+  emoji: string;
+  count: number;
+  reactedByViewer: boolean;
+  label: string;
+}
+
+function groupMessageReactions(
+  message: MessagingMessage,
+  viewerAccountId?: string | null,
+): MessageReactionGroup[] {
+  const grouped = new Map<string, MessageReactionGroup>();
+
+  for (const reaction of message.reactions ?? []) {
+    if (!isSupportedQuickReaction(reaction.reactionValue)) {
+      continue;
+    }
+
+    const existing = grouped.get(reaction.reactionValue);
+    const displayName =
+      reaction.account?.displayName ??
+      (reaction.accountId === viewerAccountId ? "You" : "Unknown user");
+
+    if (existing) {
+      existing.count += 1;
+      existing.reactedByViewer ||= reaction.accountId === viewerAccountId;
+      existing.label = `${existing.label}, ${displayName}`;
+      continue;
+    }
+
+    grouped.set(reaction.reactionValue, {
+      emoji: reaction.reactionValue,
+      count: 1,
+      reactedByViewer: reaction.accountId === viewerAccountId,
+      label: displayName,
+    });
+  }
+
+  return [...grouped.values()].sort((first, second) =>
+    first.emoji.localeCompare(second.emoji),
+  );
+}
+
+function getViewerReaction(
+  message: MessagingMessage,
+  viewerAccountId?: string | null,
+): string | null {
+  return (
+    message.reactions?.find(
+      (reaction) => reaction.accountId === viewerAccountId,
+    )?.reactionValue ?? null
+  );
+}
 
 function readStoredConversationId(): string | null {
   try {
@@ -252,7 +314,12 @@ function applyMessageUpdate(
 ): MessagingMessage[] {
   return messages.map((message) => {
     if (message.id === updatedMessage.id) {
-      return updatedMessage;
+      return{
+        ...message,
+        ...updatedMessage,
+        reactions: updatedMessage.reactions ?? [],
+
+      }
     }
 
     if (message.replyTo?.id === updatedMessage.id) {
@@ -366,6 +433,7 @@ export function MessageAppPage() {
   const [messageActionMode, setMessageActionMode] = useState<
     "ME" | "EVERYONE" | null
   >(null);
+  const [reactionActionId, setReactionActionId] = useState<string | null>(null);
   const [conversationLoading, setConversationLoading] = useState(true);
   const [messageLoading, setMessageLoading] = useState(false);
   const [olderMessagesLoading, setOlderMessagesLoading] = useState(false);
@@ -420,6 +488,8 @@ export function MessageAppPage() {
   const [requestNotice, setRequestNotice] = useState<string | null>(null);
 
   const messageListRef = useRef<HTMLDivElement | null>(null);
+  const previousScrollConversationIdRef = useRef<string | null>(null);
+  const previousMessageCountRef = useRef(0);
   const composerRef = useRef<HTMLTextAreaElement | null>(null);
   const selectedConversationIdRef = useRef<string | null>(
     selectedConversationId,
@@ -1086,14 +1156,31 @@ export function MessageAppPage() {
 
 
   useEffect(() => {
-    if (!messageLoading && !olderMessagesLoading) {
-      const element = messageListRef.current;
-
-      if (element) {
-        element.scrollTop = element.scrollHeight;
-      }
+    if (messageLoading || olderMessagesLoading) {
+      return;
     }
-  }, [messageLoading, messages, olderMessagesLoading]);
+
+    const element = messageListRef.current;
+
+    if (!element) {
+      return;
+    }
+
+    const conversationChanged =
+      previousScrollConversationIdRef.current !== selectedConversationId;
+    const messageCountIncreased =
+      messages.length > previousMessageCountRef.current;
+    const distanceFromBottom =
+      element.scrollHeight - element.scrollTop - element.clientHeight;
+    const viewerWasNearBottom = distanceFromBottom < 160;
+
+    if (conversationChanged || (messageCountIncreased && viewerWasNearBottom)) {
+      element.scrollTop = element.scrollHeight;
+    }
+
+    previousScrollConversationIdRef.current = selectedConversationId;
+    previousMessageCountRef.current = messages.length;
+  }, [messageLoading, messages.length, olderMessagesLoading, selectedConversationId]);
 
   useEffect(() => {
     if (!newConversationOpen || !accessToken) {
@@ -1813,6 +1900,47 @@ export function MessageAppPage() {
     window.setTimeout(() => {
       composerRef.current?.focus();
     }, 0);
+  }
+
+
+  async function handleReaction(
+    message: MessagingMessage,
+    reactionValue: string,
+  ): Promise<void> {
+    if (!accessToken || message.isDeleted || reactionActionId) {
+      return;
+    }
+
+    setReactionActionId(`${message.id}:${reactionValue}`);
+    setMessageError(null);
+
+    try {
+      const response = await reactToMessage(
+        accessToken,
+        message.conversationId,
+        message.id,
+        reactionValue,
+      );
+
+      setMessages((current) => applyMessageUpdate(current, response.data));
+      setConversations((current) => current.map((conversation) => (
+        conversation.id === response.data.conversationId &&
+        conversation.lastMessage?.id === response.data.id
+          ? {
+              ...conversation,
+              lastMessage: response.data,
+            }
+          : conversation
+      )));
+    } catch (error) {
+      setMessageError(
+        error instanceof Error
+          ? error.message
+          : "The reaction could not be updated.",
+      );
+    } finally {
+      setReactionActionId(null);
+    }
   }
 
   function beginReply(message: MessagingMessage): void {
@@ -2670,17 +2798,98 @@ export function MessageAppPage() {
                                     ? "This message was deleted"
                                     : message.replyTo.textContent ?? "Message"}
                                 </span>
+
                               </div>
                             )}
 
                             {message.isDeleted ? (
                               <em>This message was deleted.</em>
                             ) : (
-                              <p>{message.textContent}</p>
+                              <>
+                                <p>{message.textContent}</p>
+
+                                {(message.reactions?.length ?? 0) > 0 && (
+                                  <div className="message-reactions">
+                                    {groupMessageReactions(
+                                      message,
+                                      account?.id,
+                                    ).map((reactionGroup) => (
+                                      <button
+                                        key={reactionGroup.emoji}
+                                        type="button"
+                                        className={
+                                          reactionGroup.reactedByViewer
+                                            ? "message-reaction-chip message-reaction-chip-own"
+                                            : "message-reaction-chip"
+                                        }
+                                        title={reactionGroup.label}
+                                        aria-label={`${reactionGroup.emoji} reaction from ${reactionGroup.count} participant${
+                                          reactionGroup.count === 1 ? "" : "s"
+                                        }`}
+                                        onClick={() => void handleReaction(
+                                          message,
+                                          reactionGroup.emoji,
+                                        )}
+                                        disabled={reactionActionId !== null}
+                                      >
+                                        <span>{reactionGroup.emoji}</span>
+                                        {reactionGroup.count > 1 && (
+                                          <span>{reactionGroup.count}</span>
+                                        )}
+                                      </button>
+                                    ))}
+                                  </div>
+                                )}
+                              </>
                             )}
                           </div>
+                            
 
                           <div className="message-bubble-actions">
+                            
+                            {!message.isDeleted && (
+                              <div
+                                className="message-quick-reactions"
+                                aria-label="Message reactions"
+                              >
+                                {QUICK_REACTIONS.map((emoji) => {
+                                  const viewerReaction = getViewerReaction(
+                                    message,
+                                    account?.id,
+                                  );
+                                  const isSelected = viewerReaction === emoji;
+
+                                  return (
+                                    <button
+                                      key={emoji}
+                                      type="button"
+                                      className={
+                                        isSelected
+                                          ? "message-quick-reaction is-selected"
+                                          : "message-quick-reaction"
+                                      }
+                                      onClick={() => void handleReaction(
+                                        message,
+                                        emoji,
+                                      )}
+                                      disabled={
+                                        messageActionId !== null ||
+                                        reactionActionId !== null
+                                      }
+                                      aria-pressed={isSelected}
+                                      title={
+                                        isSelected
+                                          ? "Remove reaction"
+                                          : `React with ${emoji}`
+                                      }
+                                    >
+                                      {emoji}
+                                    </button>
+                                  );
+                                })}
+                              </div>
+                            )}
+                            
                             {!message.isDeleted && message.textContent && (
                               <button
                                 type="button"

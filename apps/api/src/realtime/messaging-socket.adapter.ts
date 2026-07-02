@@ -11,13 +11,9 @@ export class MessagingSocketAdapter extends IoAdapter {
     super(app);
   }
 
-  createIOServer(
-    port: number,
-    options?: ServerOptions,
-  ): Server {
+  createIOServer(port: number, options?: ServerOptions): Server {
     const webOrigin =
-      this.configService.get<string>('WEB_ORIGIN') ??
-      'http://localhost:5173';
+      this.configService.get<string>('WEB_ORIGIN') ?? 'http://localhost:5173';
 
     return super.createIOServer(port, {
       ...options,

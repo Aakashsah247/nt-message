@@ -42,7 +42,10 @@ export interface MessagingMessageCreatedPayload {
   occurredAt: string;
 }
 
-export type MessagingMessageUpdateAction = 'EDITED' | 'DELETED';
+export type MessagingMessageUpdateAction =
+  | 'EDITED'
+  | 'DELETED'
+  | 'REACTION_UPDATED';
 
 export interface MessagingMessageUpdatedPayload {
   conversationId: string;
@@ -106,9 +109,7 @@ export interface MessagingServerToClientEvents {
   'messaging:message-updated': (
     payload: MessagingMessageUpdatedPayload,
   ) => void;
-  'messaging:message-hidden': (
-    payload: MessagingMessageHiddenPayload,
-  ) => void;
+  'messaging:message-hidden': (payload: MessagingMessageHiddenPayload) => void;
   'messaging:receipt-updated': (
     payload: MessagingReceiptUpdatedPayload,
   ) => void;
@@ -121,12 +122,8 @@ export interface MessagingServerToClientEvents {
   'messaging:presence-snapshot': (
     payload: MessagingPresenceSnapshotPayload,
   ) => void;
-  'messaging:presence-updated': (
-    payload: MessagingPresenceState,
-  ) => void;
-  'messaging:typing-updated': (
-    payload: MessagingTypingUpdatedPayload,
-  ) => void;
+  'messaging:presence-updated': (payload: MessagingPresenceState) => void;
+  'messaging:typing-updated': (payload: MessagingTypingUpdatedPayload) => void;
 }
 
 export interface MessagingClientToServerEvents {

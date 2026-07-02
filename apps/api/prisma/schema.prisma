@@ -237,6 +237,7 @@ model Account {
   deletedMessages               Message[]                 @relation("MessagesDeletedBy")
   messageReceipts               MessageReceipt[]
   hiddenMessages                MessageHiddenForAccount[]
+  messageReactions              MessageReaction[]
   sentMessageRequests           MessageRequest[]           @relation("MessageRequestsSent")
   receivedMessageRequests       MessageRequest[]           @relation("MessageRequestsReceived")
   blockedMessageRequests        MessageRequest[]           @relation("MessageRequestsBlockedBy")
@@ -608,6 +609,7 @@ model Message {
 
   receipts          MessageReceipt[]
   hiddenForAccounts MessageHiddenForAccount[]
+  reactions MessageReaction[]
 
   @@unique([senderAccountId, clientMessageId], map: "messages_sender_client_message_key")
   @@index([conversationId, sentAt, id], map: "messages_conversation_sent_idx")
@@ -648,4 +650,25 @@ model MessageReceipt {
   @@index([accountId, readAt, messageId], map: "message_receipts_account_read_idx")
   @@index([accountId, deliveredAt, messageId], map: "message_receipts_account_delivered_idx")
   @@map("message_receipts")
+}
+
+
+model MessageReaction {
+  messageId String @map("message_id") @db.Uuid
+  accountId String @map("account_id") @db.Uuid
+
+  reactionValue String @map("reaction_value") @db.VarChar(20)
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  message Message @relation(fields: [messageId], references: [id], onDelete: Cascade)
+  account Account @relation(fields: [accountId], references: [id], onDelete: Cascade)
+
+  @@id([messageId, accountId], map: "message_reactions_pkey")
+
+  @@index([messageId], map: "message_reactions_message_idx")
+  @@index([accountId], map: "message_reactions_account_idx")
+
+  @@map("message_reactions")
 }

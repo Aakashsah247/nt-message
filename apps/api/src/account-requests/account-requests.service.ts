@@ -18,9 +18,7 @@ import {
 
 import type { Prisma } from '../generated/prisma/client';
 
-import {
-  resolveOrCreateVacantManagementPosition,
-} from '../management-assignments/management-position-resolver';
+import { resolveOrCreateVacantManagementPosition } from '../management-assignments/management-position-resolver';
 
 import { CreateAccountRequestDto } from './dto/create-account-request.dto';
 import { ListAccountRequestsQueryDto } from './dto/list-account-requests-query.dto';
@@ -282,32 +280,26 @@ export class AccountRequestsService {
   }
 
   private async resolveManagementPositionId(
-    transaction:
-      Prisma.TransactionClient,
+    transaction: Prisma.TransactionClient,
 
-    suppliedManagementPositionId:
-      string | null,
+    suppliedManagementPositionId: string | null,
 
-    requestedRole:
-      AccountRole,
+    requestedRole: AccountRole,
 
-    divisionId:
-      string,
+    divisionId: string,
 
-    departmentId:
-      string | null,
+    departmentId: string | null,
   ): Promise<string> {
-    const position =
-      await resolveOrCreateVacantManagementPosition(
-        transaction,
-        {
-          requestedRole,
-          divisionId,
-          departmentId,
+    const position = await resolveOrCreateVacantManagementPosition(
+      transaction,
+      {
+        requestedRole,
+        divisionId,
+        departmentId,
 
-          suppliedManagementPositionId,
-        },
-      );
+        suppliedManagementPositionId,
+      },
+    );
 
     return position.id;
   }
@@ -611,14 +603,13 @@ export class AccountRequestsService {
       async (transaction) => {
         if (requestedRole !== AccountRole.EMPLOYEE) {
           // Resolve and recheck the official vacancy inside the transaction.
-          managementPositionId =
-            await this.resolveManagementPositionId(
-              transaction,
-              managementPositionId,
-              requestedRole,
-              divisionId,
-              departmentId,
-            );
+          managementPositionId = await this.resolveManagementPositionId(
+            transaction,
+            managementPositionId,
+            requestedRole,
+            divisionId,
+            departmentId,
+          );
         }
 
         const createdRequest = await transaction.accountRequest.create({
@@ -974,14 +965,13 @@ export class AccountRequestsService {
 
         if (requestedRole !== AccountRole.EMPLOYEE) {
           // Resolve and recheck the official vacancy for this revision.
-          managementPositionId =
-            await this.resolveManagementPositionId(
-              transaction,
-              managementPositionId,
-              requestedRole,
-              divisionId,
-              departmentId,
-            );
+          managementPositionId = await this.resolveManagementPositionId(
+            transaction,
+            managementPositionId,
+            requestedRole,
+            divisionId,
+            departmentId,
+          );
         }
 
         const existingEmployee = await transaction.employee.findFirst({
@@ -1833,12 +1823,8 @@ export class AccountRequestsService {
     };
   }
 
-  private normalizeClosureReason(
-    rawReason: string,
-  ): string {
-    const reason = rawReason
-      .trim()
-      .replace(/\s+/g, ' ');
+  private normalizeClosureReason(rawReason: string): string {
+    const reason = rawReason.trim().replace(/\s+/g, ' ');
 
     if (reason.length < 3) {
       throw new BadRequestException(
@@ -1847,9 +1833,7 @@ export class AccountRequestsService {
     }
 
     if (reason.length > 500) {
-      throw new BadRequestException(
-        'The reason cannot exceed 500 characters.',
-      );
+      throw new BadRequestException('The reason cannot exceed 500 characters.');
     }
 
     return reason;
@@ -1861,328 +1845,253 @@ export class AccountRequestsService {
     rawReason: string,
     metadata: RequestMetadata,
     options: {
-      closureType:
-        | 'CANCELLED'
-        | 'INVALIDATED';
+      closureType: 'CANCELLED' | 'INVALIDATED';
 
-      allowedStatuses:
-        AccountRequestStatus[];
+      allowedStatuses: AccountRequestStatus[];
 
-      requestedByAccountId?:
-        string;
+      requestedByAccountId?: string;
 
-      notFoundMessage:
-        string;
+      notFoundMessage: string;
     },
   ) {
-    const reason =
-      this.normalizeClosureReason(
-        rawReason,
-      );
+    const reason = this.normalizeClosureReason(rawReason);
 
-    const ipAddress =
-      metadata.ipAddress
-        ?.slice(0, 45) ||
-      null;
+    const ipAddress = metadata.ipAddress?.slice(0, 45) || null;
 
-    const userAgent =
-      metadata.userAgent
-        ?.slice(0, 500) ||
-      null;
+    const userAgent = metadata.userAgent?.slice(0, 500) || null;
 
-    return this.prisma.$transaction(
-      async (transaction) => {
-        const request =
-          await transaction
-            .accountRequest
-            .findFirst({
-              where: {
-                id: requestId,
+    return this.prisma.$transaction(async (transaction) => {
+      const request = await transaction.accountRequest.findFirst({
+        where: {
+          id: requestId,
 
-                ...(options
-                  .requestedByAccountId
-                  ? {
-                      requestedByAccountId:
-                        options
-                          .requestedByAccountId,
-                    }
-                  : {}),
-              },
+          ...(options.requestedByAccountId
+            ? {
+                requestedByAccountId: options.requestedByAccountId,
+              }
+            : {}),
+        },
 
-              select: {
-                id: true,
-                empId: true,
-                empName: true,
-                officialEmail: true,
-                requestedRole: true,
-                divisionId: true,
-                departmentId: true,
-                managementPositionId: true,
-                employeeId: true,
-                revisionNumber: true,
-                status: true,
-                rejectionReason: true,
-                submittedAt: true,
-                reviewedAt: true,
-                updatedAt: true,
+        select: {
+          id: true,
+          empId: true,
+          empName: true,
+          officialEmail: true,
+          requestedRole: true,
+          divisionId: true,
+          departmentId: true,
+          managementPositionId: true,
+          employeeId: true,
+          revisionNumber: true,
+          status: true,
+          rejectionReason: true,
+          submittedAt: true,
+          reviewedAt: true,
+          updatedAt: true,
 
-                employee: {
-                  select: {
-                    id: true,
-                    isActivated: true,
-
-                    account: {
-                      select: {
-                        id: true,
-                      },
-                    },
-                  },
-                },
-
-                division: {
-                  select: {
-                    id: true,
-                    code: true,
-                    name: true,
-                  },
-                },
-
-                department: {
-                  select: {
-                    id: true,
-                    code: true,
-                    name: true,
-                  },
-                },
-              },
-            });
-
-        if (!request) {
-          throw new NotFoundException(
-            options.notFoundMessage,
-          );
-        }
-
-        if (
-          !options
-            .allowedStatuses
-            .includes(request.status)
-        ) {
-          throw new ConflictException(
-            options.closureType ===
-              'CANCELLED'
-              ? 'Only a pending or unactivated account request can be cancelled.'
-              : 'Only an approved or activation-pending account request can be invalidated.',
-          );
-        }
-
-        if (
-          request.employee &&
-          (
-            request.employee
-              .isActivated ||
-            request.employee.account
-          )
-        ) {
-          throw new ConflictException(
-            'This request can no longer be closed because its employee account is already active.',
-          );
-        }
-
-        /*
-         * Claim the current status before releasing anything.
-         * A simultaneous activation or review therefore causes
-         * one of the operations to fail safely.
-         */
-        const closeClaim =
-          await transaction
-            .accountRequest
-            .updateMany({
-              where: {
-                id: request.id,
-                status:
-                  request.status,
-
-                ...(options
-                  .requestedByAccountId
-                  ? {
-                      requestedByAccountId:
-                        options
-                          .requestedByAccountId,
-                    }
-                  : {}),
-              },
-
-              data: {
-                status:
-                  AccountRequestStatus
-                    .REJECTED,
-
-                rejectionReason:
-                  reason,
-
-                employeeId:
-                  null,
-              },
-            });
-
-        if (closeClaim.count !== 1) {
-          throw new ConflictException(
-            'This account request changed before it could be closed.',
-          );
-        }
-
-        /*
-         * Release only the position reserved by this exact
-         * account request. Another request cannot be affected.
-         */
-        const reservationRelease =
-          await transaction
-            .managementPosition
-            .updateMany({
-              where: {
-                reservedByAccountRequestId:
-                  request.id,
-              },
-
-              data: {
-                reservedByAccountRequestId:
-                  null,
-              },
-            });
-
-        let provisionalEmployeeDeleted =
-          false;
-
-        if (request.employee) {
-          /*
-           * Remove all unused OTP records before deleting
-           * the unactivated provisional employee identity.
-           */
-          await transaction
-            .otpVerification
-            .deleteMany({
-              where: {
-                employeeId:
-                  request.employee.id,
-              },
-            });
-
-          const deletedEmployee =
-            await transaction
-              .employee
-              .deleteMany({
-                where: {
-                  id:
-                    request.employee.id,
-
-                  isActivated:
-                    false,
-
-                  account: {
-                    is:
-                      null,
-                  },
-                },
-              });
-
-          if (
-            deletedEmployee.count !==
-            1
-          ) {
-            throw new ConflictException(
-              'The provisional employee identity could not be safely removed.',
-            );
-          }
-
-          provisionalEmployeeDeleted =
-            true;
-        }
-
-        await transaction
-          .accountRequestAction
-          .create({
-            data: {
-              accountRequestId:
-                request.id,
-
-              actorAccountId,
-
-              /*
-               * Existing enum value is used while metadata
-               * records the exact closure operation.
-               */
-              action:
-                AccountRequestActionType
-                  .REJECTED,
-
-              reason,
-              ipAddress,
-              userAgent,
-
-              metadata: {
-                closureType:
-                  options.closureType,
-
-                previousStatus:
-                  request.status,
-
-                newStatus:
-                  AccountRequestStatus
-                    .REJECTED,
-
-                releasedReservation:
-                  reservationRelease
-                    .count === 1,
-
-                provisionalEmployeeDeleted,
-              },
-            },
-          });
-
-        return transaction
-          .accountRequest
-          .findUniqueOrThrow({
-            where: {
-              id: request.id,
-            },
-
+          employee: {
             select: {
               id: true,
-              empId: true,
-              empName: true,
-              officialEmail: true,
-              requestedRole: true,
-              divisionId: true,
-              departmentId: true,
-              managementPositionId: true,
-              employeeId: true,
-              revisionNumber: true,
-              status: true,
-              rejectionReason: true,
-              submittedAt: true,
-              reviewedAt: true,
-              updatedAt: true,
+              isActivated: true,
 
-              division: {
+              account: {
                 select: {
                   id: true,
-                  code: true,
-                  name: true,
-                },
-              },
-
-              department: {
-                select: {
-                  id: true,
-                  code: true,
-                  name: true,
                 },
               },
             },
-          });
-      },
-    );
+          },
+
+          division: {
+            select: {
+              id: true,
+              code: true,
+              name: true,
+            },
+          },
+
+          department: {
+            select: {
+              id: true,
+              code: true,
+              name: true,
+            },
+          },
+        },
+      });
+
+      if (!request) {
+        throw new NotFoundException(options.notFoundMessage);
+      }
+
+      if (!options.allowedStatuses.includes(request.status)) {
+        throw new ConflictException(
+          options.closureType === 'CANCELLED'
+            ? 'Only a pending or unactivated account request can be cancelled.'
+            : 'Only an approved or activation-pending account request can be invalidated.',
+        );
+      }
+
+      if (
+        request.employee &&
+        (request.employee.isActivated || request.employee.account)
+      ) {
+        throw new ConflictException(
+          'This request can no longer be closed because its employee account is already active.',
+        );
+      }
+
+      /*
+       * Claim the current status before releasing anything.
+       * A simultaneous activation or review therefore causes
+       * one of the operations to fail safely.
+       */
+      const closeClaim = await transaction.accountRequest.updateMany({
+        where: {
+          id: request.id,
+          status: request.status,
+
+          ...(options.requestedByAccountId
+            ? {
+                requestedByAccountId: options.requestedByAccountId,
+              }
+            : {}),
+        },
+
+        data: {
+          status: AccountRequestStatus.REJECTED,
+
+          rejectionReason: reason,
+
+          employeeId: null,
+        },
+      });
+
+      if (closeClaim.count !== 1) {
+        throw new ConflictException(
+          'This account request changed before it could be closed.',
+        );
+      }
+
+      /*
+       * Release only the position reserved by this exact
+       * account request. Another request cannot be affected.
+       */
+      const reservationRelease =
+        await transaction.managementPosition.updateMany({
+          where: {
+            reservedByAccountRequestId: request.id,
+          },
+
+          data: {
+            reservedByAccountRequestId: null,
+          },
+        });
+
+      let provisionalEmployeeDeleted = false;
+
+      if (request.employee) {
+        /*
+         * Remove all unused OTP records before deleting
+         * the unactivated provisional employee identity.
+         */
+        await transaction.otpVerification.deleteMany({
+          where: {
+            employeeId: request.employee.id,
+          },
+        });
+
+        const deletedEmployee = await transaction.employee.deleteMany({
+          where: {
+            id: request.employee.id,
+
+            isActivated: false,
+
+            account: {
+              is: null,
+            },
+          },
+        });
+
+        if (deletedEmployee.count !== 1) {
+          throw new ConflictException(
+            'The provisional employee identity could not be safely removed.',
+          );
+        }
+
+        provisionalEmployeeDeleted = true;
+      }
+
+      await transaction.accountRequestAction.create({
+        data: {
+          accountRequestId: request.id,
+
+          actorAccountId,
+
+          /*
+           * Existing enum value is used while metadata
+           * records the exact closure operation.
+           */
+          action: AccountRequestActionType.REJECTED,
+
+          reason,
+          ipAddress,
+          userAgent,
+
+          metadata: {
+            closureType: options.closureType,
+
+            previousStatus: request.status,
+
+            newStatus: AccountRequestStatus.REJECTED,
+
+            releasedReservation: reservationRelease.count === 1,
+
+            provisionalEmployeeDeleted,
+          },
+        },
+      });
+
+      return transaction.accountRequest.findUniqueOrThrow({
+        where: {
+          id: request.id,
+        },
+
+        select: {
+          id: true,
+          empId: true,
+          empName: true,
+          officialEmail: true,
+          requestedRole: true,
+          divisionId: true,
+          departmentId: true,
+          managementPositionId: true,
+          employeeId: true,
+          revisionNumber: true,
+          status: true,
+          rejectionReason: true,
+          submittedAt: true,
+          reviewedAt: true,
+          updatedAt: true,
+
+          division: {
+            select: {
+              id: true,
+              code: true,
+              name: true,
+            },
+          },
+
+          department: {
+            select: {
+              id: true,
+              code: true,
+              name: true,
+            },
+          },
+        },
+      });
+    });
   }
 
   async cancelRequest(
@@ -2191,42 +2100,32 @@ export class AccountRequestsService {
     reason: string,
     metadata: RequestMetadata,
   ) {
-    const requester =
-      await this.getRequester(user);
+    const requester = await this.getRequester(user);
 
-    const accountRequest =
-      await this
-        .closeUnactivatedRequest(
-          requester.id,
-          id,
-          reason,
-          metadata,
-          {
-            closureType:
-              'CANCELLED',
+    const accountRequest = await this.closeUnactivatedRequest(
+      requester.id,
+      id,
+      reason,
+      metadata,
+      {
+        closureType: 'CANCELLED',
 
-            allowedStatuses: [
-              AccountRequestStatus
-                .PENDING_APPROVAL,
+        allowedStatuses: [
+          AccountRequestStatus.PENDING_APPROVAL,
 
-              AccountRequestStatus
-                .APPROVED,
+          AccountRequestStatus.APPROVED,
 
-              AccountRequestStatus
-                .ACTIVATION_PENDING,
-            ],
+          AccountRequestStatus.ACTIVATION_PENDING,
+        ],
 
-            requestedByAccountId:
-              requester.id,
+        requestedByAccountId: requester.id,
 
-            notFoundMessage:
-              'Your account request was not found.',
-          },
-        );
+        notFoundMessage: 'Your account request was not found.',
+      },
+    );
 
     return {
-      message:
-        'Account request cancelled successfully.',
+      message: 'Account request cancelled successfully.',
 
       accountRequest,
     };
@@ -2240,33 +2139,26 @@ export class AccountRequestsService {
   ) {
     this.assertSuperAdmin(user);
 
-    const accountRequest =
-      await this
-        .closeUnactivatedRequest(
-          user.accountId,
-          id,
-          reason,
-          metadata,
-          {
-            closureType:
-              'INVALIDATED',
+    const accountRequest = await this.closeUnactivatedRequest(
+      user.accountId,
+      id,
+      reason,
+      metadata,
+      {
+        closureType: 'INVALIDATED',
 
-            allowedStatuses: [
-              AccountRequestStatus
-                .APPROVED,
+        allowedStatuses: [
+          AccountRequestStatus.APPROVED,
 
-              AccountRequestStatus
-                .ACTIVATION_PENDING,
-            ],
+          AccountRequestStatus.ACTIVATION_PENDING,
+        ],
 
-            notFoundMessage:
-              'Account request was not found.',
-          },
-        );
+        notFoundMessage: 'Account request was not found.',
+      },
+    );
 
     return {
-      message:
-        'Account request invalidated successfully.',
+      message: 'Account request invalidated successfully.',
 
       accountRequest,
     };

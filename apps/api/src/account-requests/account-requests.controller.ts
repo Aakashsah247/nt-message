@@ -106,21 +106,11 @@ export class AccountRequestsController {
     @Req()
     request: Request,
   ) {
-    return this.accountRequestsService.cancelRequest(
-      user,
-      id,
-      dto.reason,
-      {
-        ipAddress:
-          request.ip ??
-          request.socket.remoteAddress ??
-          null,
+    return this.accountRequestsService.cancelRequest(user, id, dto.reason, {
+      ipAddress: request.ip ?? request.socket.remoteAddress ?? null,
 
-        userAgent:
-          request.get('user-agent') ??
-          null,
-      },
-    );
+      userAgent: request.get('user-agent') ?? null,
+    });
   }
 
   @Get('mine/:id')

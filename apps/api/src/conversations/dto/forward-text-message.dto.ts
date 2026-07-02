@@ -1,9 +1,4 @@
-import {
-  ArrayMaxSize,
-  ArrayNotEmpty,
-  IsArray,
-  IsUUID,
-} from 'class-validator';
+import { ArrayMaxSize, ArrayNotEmpty, IsArray, IsUUID } from 'class-validator';
 
 export class ForwardTextMessageDto {
   @IsUUID('4', {

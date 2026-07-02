@@ -94,21 +94,11 @@ export class AdminAccountRequestsController {
     @Req()
     request: Request,
   ) {
-    return this.accountRequestsService.invalidateRequest(
-      user,
-      id,
-      dto.reason,
-      {
-        ipAddress:
-          request.ip ??
-          request.socket.remoteAddress ??
-          null,
+    return this.accountRequestsService.invalidateRequest(user, id, dto.reason, {
+      ipAddress: request.ip ?? request.socket.remoteAddress ?? null,
 
-        userAgent:
-          request.get('user-agent') ??
-          null,
-      },
-    );
+      userAgent: request.get('user-agent') ?? null,
+    });
   }
 
   @Patch(':id/reject')

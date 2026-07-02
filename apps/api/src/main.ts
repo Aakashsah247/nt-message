@@ -16,9 +16,7 @@ async function bootstrap(): Promise<void> {
   const webOrigin =
     configService.get<string>('WEB_ORIGIN') ?? 'http://localhost:5173';
 
-  app.useWebSocketAdapter(
-    new MessagingSocketAdapter(app, configService),
-  );
+  app.useWebSocketAdapter(new MessagingSocketAdapter(app, configService));
 
   /*
    * Adds secure HTTP response headers.

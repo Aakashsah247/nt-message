@@ -453,91 +453,56 @@ export class DirectoryService {
         ? 'ENABLED'
         : 'DISABLED';
 
-    const currentAssignment =
-      employee.managementAssignments[0] ??
-      null;
+    const currentAssignment = employee.managementAssignments[0] ?? null;
 
-    const currentPosition =
-      currentAssignment
-        ? {
-            assignmentId:
-              currentAssignment.id,
+    const currentPosition = currentAssignment
+      ? {
+          assignmentId: currentAssignment.id,
 
-            startedAt:
-              currentAssignment.startedAt,
+          startedAt: currentAssignment.startedAt,
 
-            id:
-              currentAssignment.position.id,
+          id: currentAssignment.position.id,
 
-            positionType:
-              currentAssignment.position
-                .positionType,
+          positionType: currentAssignment.position.positionType,
 
-            divisionId:
-              currentAssignment.position
-                .divisionId,
+          divisionId: currentAssignment.position.divisionId,
 
-            departmentId:
-              currentAssignment.position
-                .departmentId,
+          departmentId: currentAssignment.position.departmentId,
 
-            isActive:
-              currentAssignment.position
-                .isActive,
+          isActive: currentAssignment.position.isActive,
 
-            status:
-              currentAssignment.position
-                .isActive
-                ? 'ACTIVE'
-                : 'INACTIVE',
+          status: currentAssignment.position.isActive ? 'ACTIVE' : 'INACTIVE',
 
-            division:
-              currentAssignment.position
-                .division,
+          division: currentAssignment.position.division,
 
-            department:
-              currentAssignment.position
-                .department,
-          }
-        : null;
+          department: currentAssignment.position.department,
+        }
+      : null;
 
     /*
      * Management authority comes from a valid active
      * assignment, not merely from the stored account role.
      */
-    let effectiveRole:
-      AccountRole | null =
-        employee.account?.role ?? null;
+    let effectiveRole: AccountRole | null = employee.account?.role ?? null;
 
-    if (
-      effectiveRole !==
-      AccountRole.SUPER_ADMIN
-    ) {
+    if (effectiveRole !== AccountRole.SUPER_ADMIN) {
       if (
         currentPosition?.isActive &&
         currentPosition.positionType ===
           ManagementPositionType.SENIOR_MANAGEMENT &&
-        currentPosition.divisionId ===
-          employee.divisionId &&
-        currentPosition.departmentId ===
-          null
+        currentPosition.divisionId === employee.divisionId &&
+        currentPosition.departmentId === null
       ) {
-        effectiveRole =
-          AccountRole.SENIOR_MANAGEMENT;
+        effectiveRole = AccountRole.SENIOR_MANAGEMENT;
       } else if (
         currentPosition?.isActive &&
-        currentPosition.positionType ===
-          ManagementPositionType.TEAM_MANAGER &&
-        currentPosition.divisionId ===
-          employee.divisionId &&
-        currentPosition.departmentId ===
-          employee.departmentId
+        currentPosition.positionType === ManagementPositionType.TEAM_MANAGER &&
+        currentPosition.divisionId === employee.divisionId &&
+        currentPosition.departmentId === employee.departmentId
       ) {
-        effectiveRole =
-          AccountRole.TEAM_MANAGER;
+        effectiveRole = AccountRole.TEAM_MANAGER;
       } else if (employee.account) {
-        effectiveRole =
-          AccountRole.EMPLOYEE;
+        effectiveRole = AccountRole.EMPLOYEE;
       }
     }
 
@@ -574,11 +539,9 @@ export class DirectoryService {
        * role remains as a compatibility alias for
        * the stored account role.
        */
-      role:
-        employee.account?.role ?? null,
+      role: employee.account?.role ?? null,
 
-      accountRole:
-        employee.account?.role ?? null,
+      accountRole: employee.account?.role ?? null,
 
       effectiveRole,
 

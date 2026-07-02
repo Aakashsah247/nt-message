@@ -29,13 +29,12 @@ import { SendTextMessageDto } from './dto/send-text-message.dto';
 import { UpdateGroupConversationDto } from './dto/update-group-conversation.dto';
 import { UpdateGroupMemberRoleDto } from './dto/update-group-member-role.dto';
 import { UpdateTextMessageDto } from './dto/update-text-message.dto';
+import { ReactMessageDto } from './dto/react-message.dto';
 
 @Controller('conversations')
 @UseGuards(AccessTokenGuard)
 export class ConversationsController {
-  constructor(
-    private readonly conversationsService: ConversationsService,
-  ) {}
+  constructor(private readonly conversationsService: ConversationsService) {}
 
   @Get('contacts')
   searchMessagingContacts(
@@ -69,10 +68,7 @@ export class ConversationsController {
     )
     requestId: string,
   ) {
-    return this.conversationsService.acceptMessageRequest(
-      user,
-      requestId,
-    );
+    return this.conversationsService.acceptMessageRequest(user, requestId);
   }
 
   @Patch('requests/:id/decline')
@@ -88,10 +84,7 @@ export class ConversationsController {
     )
     requestId: string,
   ) {
-    return this.conversationsService.declineMessageRequest(
-      user,
-      requestId,
-    );
+    return this.conversationsService.declineMessageRequest(user, requestId);
   }
 
   @Patch('requests/:id/block')
@@ -107,10 +100,7 @@ export class ConversationsController {
     )
     requestId: string,
   ) {
-    return this.conversationsService.blockMessageRequest(
-      user,
-      requestId,
-    );
+    return this.conversationsService.blockMessageRequest(user, requestId);
   }
 
   @Get('official-groups/scopes')
@@ -129,10 +119,7 @@ export class ConversationsController {
     @Body()
     dto: CreateOfficialGroupConversationDto,
   ) {
-    return this.conversationsService.createOfficialGroupConversation(
-      user,
-      dto,
-    );
+    return this.conversationsService.createOfficialGroupConversation(user, dto);
   }
 
   @Post('official-groups/reconcile')
@@ -215,11 +202,7 @@ export class ConversationsController {
     @Body()
     dto: AddGroupMembersDto,
   ) {
-    return this.conversationsService.addGroupMembers(
-      user,
-      conversationId,
-      dto,
-    );
+    return this.conversationsService.addGroupMembers(user, conversationId, dto);
   }
 
   @Patch(':id/group/members/:accountId/role')
@@ -340,11 +323,7 @@ export class ConversationsController {
     @Query()
     query: ListMessagesQueryDto,
   ) {
-    return this.conversationsService.listMessages(
-      user,
-      conversationId,
-      query,
-    );
+    return this.conversationsService.listMessages(user, conversationId, query);
   }
 
   @Post(':id/messages')
@@ -363,10 +342,66 @@ export class ConversationsController {
     @Body()
     dto: SendTextMessageDto,
   ) {
-    return this.conversationsService.sendTextMessage(
+    return this.conversationsService.sendTextMessage(user, conversationId, dto);
+  }
+
+  @Post(':conversationId/messages/:messageId/reactions')
+  reactToMessage(
+    @CurrentUser()
+    user: AuthenticatedUser,
+
+    @Param(
+      'conversationId',
+      new ParseUUIDPipe({
+        version: '4',
+      }),
+    )
+    conversationId: string,
+
+    @Param(
+      'messageId',
+      new ParseUUIDPipe({
+        version: '4',
+      }),
+    )
+    messageId: string,
+
+    @Body()
+    dto: ReactMessageDto,
+  ) {
+    return this.conversationsService.reactToMessage(
       user,
       conversationId,
+      messageId,
       dto,
+    );
+  }
+
+  @Delete(':conversationId/messages/:messageId/reactions')
+  removeMessageReaction(
+    @CurrentUser()
+    user: AuthenticatedUser,
+
+    @Param(
+      'conversationId',
+      new ParseUUIDPipe({
+        version: '4',
+      }),
+    )
+    conversationId: string,
+
+    @Param(
+      'messageId',
+      new ParseUUIDPipe({
+        version: '4',
+      }),
+    )
+    messageId: string,
+  ) {
+    return this.conversationsService.removeMessageReaction(
+      user,
+      conversationId,
+      messageId,
     );
   }
 
@@ -503,9 +538,6 @@ export class ConversationsController {
     )
     conversationId: string,
   ) {
-    return this.conversationsService.markConversationRead(
-      user,
-      conversationId,
-    );
+    return this.conversationsService.markConversationRead(user, conversationId);
   }
 }

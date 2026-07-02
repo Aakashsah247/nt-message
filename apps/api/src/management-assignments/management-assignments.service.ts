@@ -539,5 +539,4 @@ export class ManagementAssignmentsService {
       },
     };
   }
-
 }

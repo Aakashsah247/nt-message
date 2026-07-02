@@ -150,6 +150,15 @@ export interface MessagingMessage {
     delivered: number;
     read: number;
   };
+
+  reactions: {
+    accountId: string;
+    reactionValue: string;
+    account?: MessagingAccount;
+    createdAt?: string;
+    updatedAt?: string;
+  }[];
+
   createdAt: string;
   updatedAt: string;
 }
@@ -345,4 +354,10 @@ export interface MarkConversationReadResponse {
   conversationId: string;
   readMessages: number;
   readAt: string;
+}
+
+export interface MessageReactionResponse {
+  message: string;
+  action: "ADDED" | "UPDATED" | "REMOVED";
+  data: MessagingMessage;
 }

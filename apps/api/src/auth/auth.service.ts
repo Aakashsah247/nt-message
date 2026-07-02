@@ -285,11 +285,10 @@ export class AuthService {
       throw this.invalidCredentials();
     }
 
-    const effectiveRole =
-      await this.resolveEffectiveEmployeeRole(
-        employee.id,
-        account.role,
-      );
+    const effectiveRole = await this.resolveEffectiveEmployeeRole(
+      employee.id,
+      account.role,
+    );
 
     const sessionId = randomUUID();
 
@@ -392,11 +391,10 @@ export class AuthService {
       );
     }
 
-    const effectiveRole =
-      await this.resolveEffectiveEmployeeRole(
-        session.account.employeeId,
-        session.account.role,
-      );
+    const effectiveRole = await this.resolveEffectiveEmployeeRole(
+      session.account.employeeId,
+      session.account.role,
+    );
 
     if (
       session.account.role !== effectiveRole ||
@@ -525,25 +523,24 @@ export class AuthService {
       return AccountRole.EMPLOYEE;
     }
 
-    const activeAssignment =
-      await this.prisma.managementAssignment.findFirst({
-        where: {
-          employeeId,
-          endedAt: null,
+    const activeAssignment = await this.prisma.managementAssignment.findFirst({
+      where: {
+        employeeId,
+        endedAt: null,
 
-          position: {
-            isActive: true,
+        position: {
+          isActive: true,
+        },
+      },
+
+      select: {
+        position: {
+          select: {
+            positionType: true,
           },
         },
-
-        select: {
-          position: {
-            select: {
-              positionType: true,
-            },
-          },
-        },
-      });
+      },
+    });
 
     if (!activeAssignment) {
       return AccountRole.EMPLOYEE;

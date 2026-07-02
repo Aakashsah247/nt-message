@@ -65,24 +65,26 @@ export class ConversationsGateway
   afterInit(server: MessagingNamespace): void {
     this.messagingEventsService.bindServer(server);
 
-    server.use(async (client, next) => {
-      const accessToken = this.extractAccessToken(client);
+    server.use((client, next) => {
+      void (async () => {
+        const accessToken = this.extractAccessToken(client);
 
-      if (!accessToken) {
-        next(new Error('Authentication is required.'));
-        return;
-      }
+        if (!accessToken) {
+          next(new Error('Authentication is required.'));
+          return;
+        }
 
-      try {
-        client.data.user =
-          await this.accessTokenValidationService.verifyAccessToken(
-            accessToken,
-          );
+        try {
+          client.data.user =
+            await this.accessTokenValidationService.verifyAccessToken(
+              accessToken,
+            );
 
-        next();
-      } catch {
-        next(new Error('Authentication session is invalid or expired.'));
-      }
+          next();
+        } catch {
+          next(new Error('Authentication session is invalid or expired.'));
+        }
+      })();
     });
   }
 
@@ -118,9 +120,7 @@ export class ConversationsGateway
     });
 
     if (connection.becameOnline) {
-      this.messagingEventsService.emitPresenceUpdated(
-        connection.presence,
-      );
+      this.messagingEventsService.emitPresenceUpdated(connection.presence);
     }
   }
 
@@ -139,9 +139,7 @@ export class ConversationsGateway
     );
 
     if (disconnection?.becameOffline) {
-      this.messagingEventsService.emitPresenceUpdated(
-        disconnection.presence,
-      );
+      this.messagingEventsService.emitPresenceUpdated(disconnection.presence);
     }
   }
 
@@ -165,17 +163,13 @@ export class ConversationsGateway
   ): Promise<void> {
     const user = client.data.user;
 
-    if (
-      !user ||
-      !this.isValidTypingPayload(payload)
-    ) {
+    if (!user || !this.isValidTypingPayload(payload)) {
       return;
     }
 
     if (payload.isTyping) {
       const now = Date.now();
-      const lastEventAt =
-        this.lastTypingEventAtBySocket.get(client.id) ?? 0;
+      const lastEventAt = this.lastTypingEventAtBySocket.get(client.id) ?? 0;
 
       if (now - lastEventAt < TYPING_EVENT_THROTTLE_MS) {
         return;
@@ -218,21 +212,13 @@ export class ConversationsGateway
     }
 
     if (!payload.isTyping) {
-      this.stopTyping(
-        client.id,
-        user.accountId,
-        payload.conversationId,
-      );
+      this.stopTyping(client.id, user.accountId, payload.conversationId);
       return;
     }
 
     for (const activeConversationId of [...socketStates.keys()]) {
       if (activeConversationId !== payload.conversationId) {
-        this.stopTyping(
-          client.id,
-          user.accountId,
-          activeConversationId,
-        );
+        this.stopTyping(client.id, user.accountId, activeConversationId);
       }
     }
 
@@ -251,11 +237,7 @@ export class ConversationsGateway
     }
 
     state.stopTimer = setTimeout(() => {
-      this.stopTyping(
-        client.id,
-        user.accountId,
-        payload.conversationId,
-      );
+      this.stopTyping(client.id, user.accountId, payload.conversationId);
     }, TYPING_EXPIRY_MS);
   }
 
@@ -306,10 +288,7 @@ export class ConversationsGateway
     }
   }
 
-  private clearTypingForSocket(
-    socketId: string,
-    accountId: string,
-  ): void {
+  private clearTypingForSocket(socketId: string, accountId: string): void {
     const socketStates = this.typingStates.get(socketId);
 
     if (!socketStates) {
@@ -349,10 +328,7 @@ export class ConversationsGateway
 
     socketIds.add(socketId);
     accountSockets.set(accountId, socketIds);
-    this.typingSocketsByConversation.set(
-      conversationId,
-      accountSockets,
-    );
+    this.typingSocketsByConversation.set(conversationId, accountSockets);
 
     if (!wasTyping) {
       this.emitTypingState(
@@ -370,8 +346,7 @@ export class ConversationsGateway
     accountId: string,
     conversationId: string,
   ): void {
-    const accountSockets =
-      this.typingSocketsByConversation.get(conversationId);
+    const accountSockets = this.typingSocketsByConversation.get(conversationId);
     const socketIds = accountSockets?.get(accountId);
 
     if (!accountSockets || !socketIds) {
@@ -417,9 +392,7 @@ export class ConversationsGateway
     );
   }
 
-  private isValidTypingPayload(
-    payload: MessagingTypingPayload,
-  ): boolean {
+  private isValidTypingPayload(payload: MessagingTypingPayload): boolean {
     return (
       typeof payload === 'object' &&
       payload !== null &&
@@ -430,7 +403,7 @@ export class ConversationsGateway
   }
 
   private extractAccessToken(client: MessagingSocket): string | null {
-    const authToken = client.handshake.auth?.accessToken;
+    const authToken: unknown = client.handshake.auth?.accessToken;
 
     if (typeof authToken === 'string' && authToken.trim()) {
       return authToken.trim();

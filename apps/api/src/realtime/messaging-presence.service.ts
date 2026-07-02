@@ -58,11 +58,7 @@ export class MessagingPresenceService {
     if (entry.socketIds.size > 0) {
       return {
         becameOffline: false,
-        presence: this.serialize(
-          accountId,
-          entry,
-          new Date().toISOString(),
-        ),
+        presence: this.serialize(accountId, entry, new Date().toISOString()),
       };
     }
 
@@ -79,12 +75,8 @@ export class MessagingPresenceService {
     const occurredAt = new Date().toISOString();
 
     return [...this.entries.entries()]
-      .map(([accountId, entry]) =>
-        this.serialize(accountId, entry, occurredAt),
-      )
-      .sort((first, second) =>
-        first.accountId.localeCompare(second.accountId),
-      );
+      .map(([accountId, entry]) => this.serialize(accountId, entry, occurredAt))
+      .sort((first, second) => first.accountId.localeCompare(second.accountId));
   }
 
   private serialize(
