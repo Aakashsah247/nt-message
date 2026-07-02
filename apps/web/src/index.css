@@ -5562,7 +5562,8 @@
     font-size: 0.74rem;
   }
 }
-.directory-nav-button {
+.directory-nav-button,
+.message-nav-button {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -5584,19 +5585,22 @@
     transform 0.2s ease;
 }
 
-.directory-nav-button:hover {
+.directory-nav-button:hover,
+.message-nav-button:hover {
   border-color: #1686d9;
   background: #edf8ff;
   color: #075f9d;
   transform: translateY(-1px);
 }
 
-.directory-nav-button:focus-visible {
+.directory-nav-button:focus-visible,
+.message-nav-button:focus-visible {
   outline: 3px solid rgba(22, 134, 217, 0.22);
   outline-offset: 2px;
 }
 
-.directory-nav-button span {
+.directory-nav-button span,
+.message-nav-button span {
   display: grid;
   width: 20px;
   height: 20px;
@@ -5635,7 +5639,8 @@
     gap: 7px;
   }
 
-  .directory-nav-button {
+  .directory-nav-button,
+  .message-nav-button {
     min-height: 36px;
     padding: 0 12px;
     font-size: 0.75rem;
@@ -5845,20 +5850,23 @@
   gap: 10px;
 }
 
-.nt-dashboard-actions .directory-nav-button {
+.nt-dashboard-actions .directory-nav-button,
+.nt-dashboard-actions .message-nav-button {
   border-color: rgba(255, 255, 255, 0.65);
   background: rgba(255, 255, 255, 0.13);
   color: #ffffff;
   backdrop-filter: blur(8px);
 }
 
-.nt-dashboard-actions .directory-nav-button:hover {
+.nt-dashboard-actions .directory-nav-button:hover,
+.nt-dashboard-actions .message-nav-button:hover {
   border-color: #ffffff;
   background: rgba(255, 255, 255, 0.23);
   color: #ffffff;
 }
 
-.nt-dashboard-actions .directory-nav-button span {
+.nt-dashboard-actions .directory-nav-button span,
+.nt-dashboard-actions .message-nav-button span {
   background: rgba(255, 255, 255, 0.2);
   color: #ffffff;
 }
@@ -10835,3 +10843,467 @@
   transform: none;
 }
 /* Y22 MESSAGE REACTIONS END */
+
+/* Y23 MESSAGE ATTACHMENTS START */
+.message-attachment-input {
+  width: 100%;
+  padding: 8px 10px;
+  border: 1px dashed #b9cadd;
+  border-radius: 10px;
+  color: #526b80;
+  background: #f8fafc;
+  font-size: 10px;
+  font-weight: 800;
+}
+
+.message-selected-attachment {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 10px;
+  border: 1px solid #d7e4f0;
+  border-radius: 12px;
+  background: #f3f8fd;
+}
+
+.message-selected-attachment img,
+.message-selected-attachment video {
+  width: 46px;
+  height: 46px;
+  flex: 0 0 46px;
+  border-radius: 8px;
+  object-fit: cover;
+  background: #061220;
+}
+
+.message-selected-attachment span {
+  display: grid;
+  min-width: 0;
+  gap: 2px;
+}
+
+.message-selected-attachment strong,
+.message-selected-attachment small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.message-selected-attachment strong {
+  color: var(--color-nt-text);
+  font-size: 10px;
+  font-weight: 900;
+}
+
+.message-selected-attachment small {
+  color: #6f8296;
+  font-size: 9px;
+  font-weight: 800;
+}
+
+.message-selected-attachment button {
+  display: grid;
+  width: 30px;
+  height: 30px;
+  flex: 0 0 30px;
+  margin-left: auto;
+  place-items: center;
+  border: 0;
+  border-radius: 50%;
+  color: #5f7284;
+  background: white;
+  font-size: 18px;
+  font-weight: 900;
+}
+
+.message-attachments {
+  display: grid;
+  gap: 8px;
+  margin-top: 7px;
+}
+
+.message-attachment-card {
+  display: grid;
+  gap: 7px;
+  min-width: min(280px, 70vw);
+  padding: 8px;
+  border: 1px solid rgba(148, 163, 184, 0.32);
+  border-radius: 12px;
+  color: var(--color-nt-text);
+  background: rgba(255, 255, 255, 0.92);
+}
+
+.message-bubble-row.own .message-attachment-card {
+  color: var(--color-nt-text);
+  background: rgba(255, 255, 255, 0.96);
+}
+
+.message-attachment-preview {
+  width: 100%;
+  max-height: 260px;
+  border-radius: 9px;
+  object-fit: contain;
+  background: #edf4fa;
+}
+
+.message-attachment-preview-placeholder {
+  display: grid;
+  min-height: 90px;
+  place-items: center;
+  border-radius: 9px;
+  color: #6c7e90;
+  background: #edf4fa;
+  font-size: 10px;
+  font-weight: 800;
+}
+
+.message-attachment-preview-placeholder.error {
+  color: #b3261e;
+  background: #fff3f2;
+}
+
+.message-attachment-info {
+  display: grid;
+  gap: 2px;
+}
+
+.message-attachment-info strong {
+  overflow: hidden;
+  color: var(--color-nt-text);
+  font-size: 11px;
+  font-weight: 900;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.message-attachment-info span {
+  color: #687e91;
+  font-size: 9px;
+  font-weight: 800;
+}
+
+.message-attachment-card button {
+  justify-self: start;
+  min-height: 30px;
+  padding: 0 11px;
+  border: 0;
+  border-radius: 8px;
+  color: white;
+  background: var(--color-nt-blue);
+  font-size: 9px;
+  font-weight: 900;
+}
+
+.message-attachment-card button:hover {
+  background: var(--color-nt-deep);
+}
+/* Y23 MESSAGE ATTACHMENTS END */
+
+/* Y23 ATTACHMENT PREVIEW VIEWER START */
+.message-attachment-preview-button {
+  display: block;
+  width: 100%;
+  padding: 0;
+  border: 0;
+  border-radius: 9px;
+  background: transparent;
+  cursor: pointer;
+}
+
+.message-attachment-file-preview {
+  display: grid;
+  min-height: 104px;
+  width: 100%;
+  place-items: center;
+  gap: 6px;
+  padding: 12px;
+  border: 1px dashed rgba(48, 100, 155, 0.28);
+  border-radius: 9px;
+  color: #244b74;
+  background: #edf4fa;
+  cursor: pointer;
+}
+
+.message-attachment-file-preview span {
+  display: grid;
+  min-width: 48px;
+  min-height: 38px;
+  place-items: center;
+  border-radius: 10px;
+  color: white;
+  background: var(--color-nt-blue);
+  font-size: 12px;
+  font-weight: 950;
+  letter-spacing: 0.03em;
+}
+
+.message-attachment-file-preview small {
+  color: #5b7084;
+  font-size: 9px;
+  font-weight: 850;
+}
+
+.message-attachment-file-preview.disabled {
+  cursor: default;
+  opacity: 0.72;
+}
+
+.message-attachment-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+}
+
+.message-media-viewer-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 80;
+  display: grid;
+  place-items: center;
+  padding: 12px;
+  background: rgba(6, 18, 32, 0.78);
+  backdrop-filter: blur(10px);
+}
+
+.message-media-viewer {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  width: min(1280px, calc(100vw - 24px));
+  height: min(900px, calc(100dvh - 24px));
+  overflow: hidden;
+  border-radius: 18px;
+  background: #07111f;
+  box-shadow: 0 24px 70px rgba(0, 0, 0, 0.42);
+}
+
+.message-media-viewer > header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 12px 14px;
+  color: white;
+  background: rgba(15, 31, 51, 0.94);
+}
+
+.message-media-viewer > header > div:first-child {
+  display: grid;
+  min-width: 0;
+  gap: 2px;
+}
+
+.message-media-viewer > header strong,
+.message-media-viewer > header span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.message-media-viewer > header strong {
+  font-size: 13px;
+  font-weight: 950;
+}
+
+.message-media-viewer > header span {
+  color: #b8c8d8;
+  font-size: 10px;
+  font-weight: 800;
+}
+
+.message-media-viewer > header > div:last-child {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 8px;
+}
+
+.message-media-viewer > header button {
+  min-height: 34px;
+  padding: 0 12px;
+  border: 0;
+  border-radius: 10px;
+  color: white;
+  background: rgba(255, 255, 255, 0.14);
+  font-size: 11px;
+  font-weight: 900;
+}
+
+.message-media-viewer > header button:last-child {
+  width: 34px;
+  padding: 0;
+  border-radius: 50%;
+  font-size: 22px;
+  line-height: 1;
+}
+
+.message-media-viewer-body {
+  display: grid;
+  min-height: 0;
+  place-items: center;
+  padding: 10px;
+  overflow: auto;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior: contain;
+}
+
+.message-media-viewer-body.is-image,
+.message-media-viewer-body.is-video {
+  background: #02070d;
+}
+
+.message-media-viewer-body img,
+.message-media-viewer-body video {
+  width: auto;
+  height: auto;
+  max-width: 100%;
+  max-height: calc(100dvh - 96px);
+  border-radius: 12px;
+  object-fit: contain;
+  background: #02070d;
+}
+
+.message-media-viewer-body.is-video video {
+  width: 100%;
+}
+
+.message-media-viewer-body iframe {
+  width: 100%;
+  height: 100%;
+  min-height: 620px;
+  border: 0;
+  border-radius: 12px;
+  background: white;
+}
+
+.message-media-viewer-state {
+  display: grid;
+  justify-items: center;
+  gap: 10px;
+  color: #dbe8f5;
+  font-size: 12px;
+  font-weight: 850;
+}
+
+.message-media-viewer-state.error {
+  color: #ffd1cc;
+}
+
+@media (max-width: 720px) {
+  .message-media-viewer-backdrop {
+    padding: 0;
+  }
+
+  .message-media-viewer {
+    width: 100vw;
+    height: 100dvh;
+    border-radius: 0;
+  }
+
+  .message-media-viewer > header {
+    padding: 10px;
+  }
+
+  .message-media-viewer-body {
+    align-content: start;
+    padding: 8px;
+  }
+
+  .message-media-viewer-body.is-image,
+  .message-media-viewer-body.is-video {
+    align-content: center;
+  }
+
+  .message-media-viewer-body img,
+  .message-media-viewer-body video {
+    max-height: calc(100dvh - 76px);
+  }
+
+  .message-media-viewer-body iframe {
+    height: calc(100dvh - 76px);
+    min-height: 760px;
+  }
+}
+/* Y23 ATTACHMENT PREVIEW VIEWER END */
+
+/* Y23 MEDIA PREVIEW POLISH START */
+.message-media-viewer-backdrop {
+  padding: 0;
+}
+
+.message-media-viewer {
+  width: 100vw;
+  height: 100dvh;
+  border-radius: 0;
+}
+
+.message-media-viewer-body {
+  min-height: 0;
+  overflow: auto;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior: contain;
+}
+
+.message-media-viewer-body.is-image {
+  place-items: start center;
+  align-content: start;
+  padding: 12px;
+}
+
+.message-media-viewer-body.is-image img {
+  width: auto;
+  height: auto;
+  max-width: min(100%, 1280px);
+  max-height: none;
+  object-fit: contain;
+}
+
+.message-media-viewer-body.is-video {
+  place-items: center;
+  padding: 10px;
+}
+
+.message-media-viewer-body.is-video video {
+  width: min(100%, 1280px);
+  height: auto;
+  max-height: calc(100dvh - 92px);
+  object-fit: contain;
+}
+
+.message-media-viewer-body.is-pdf,
+.message-media-viewer-body.is-text {
+  display: block;
+  padding: 0;
+  overflow: hidden;
+}
+
+.message-media-viewer-body.is-pdf iframe,
+.message-media-viewer-body.is-text iframe {
+  display: block;
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  border: 0;
+  border-radius: 0;
+}
+
+@media (min-width: 900px) {
+  .message-media-viewer-backdrop {
+    padding: 16px;
+  }
+
+  .message-media-viewer {
+    width: min(1440px, calc(100vw - 32px));
+    height: min(960px, calc(100dvh - 32px));
+    border-radius: 18px;
+  }
+
+  .message-media-viewer-body.is-image {
+    place-items: center;
+    align-content: center;
+  }
+
+  .message-media-viewer-body.is-image img {
+    max-height: calc(100dvh - 116px);
+  }
+}
+/* Y23 MEDIA PREVIEW POLISH END */

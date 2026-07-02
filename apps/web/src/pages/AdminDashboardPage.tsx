@@ -4,6 +4,7 @@ import { useNavigate } from "react-router";
 import { AdminRequestDetailPanel } from "../components/AdminRequestDetailPanel";
 import { DirectoryButton } from "../components/DirectoryButton";
 import { ManagementPositionsButton } from "../components/ManagementPositionsButton";
+import { MessageButton } from "../components/MessageButton";
 import { AdminOrganizationPanel } from "../components/AdminOrganizationPanel";
 
 import { useAuth } from "../context/AuthContext";
@@ -344,6 +345,8 @@ export function AdminDashboardPage() {
 
           <div className="admin-header-actions">
 <ManagementPositionsButton />
+
+<MessageButton />
 
 <DirectoryButton />
             <button

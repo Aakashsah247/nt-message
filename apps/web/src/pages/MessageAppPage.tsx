@@ -6,6 +6,7 @@ import {
   useState,
 } from "react";
 import type {
+  ChangeEvent,
   FormEvent,
   KeyboardEvent,
 } from "react";
@@ -22,7 +23,9 @@ import {
   createPrivateConversation,
   declineMessageRequest,
   deleteConversationMessage,
+  createConversationAttachmentObjectUrl,
   deleteConversationMessageForMe,
+  downloadConversationAttachment,
   editConversationTextMessage,
   forwardConversationTextMessage,
   leaveGroupConversation,
@@ -36,6 +39,7 @@ import {
   removeGroupMember,
   reactToMessage,
   searchMessagingContacts,
+  sendConversationAttachmentMessage,
   sendConversationTextMessage,
   updateGroupConversation,
   updateGroupMemberRole,
@@ -59,6 +63,7 @@ import type {
   GroupKind,
   MessageRequestListResponse,
   MessagingContact,
+  MessagingAttachment,
   MessagingConversation,
   MessagingMessage,
   MessagingMessageRequest,
@@ -78,6 +83,24 @@ const MESSAGE_EDIT_WINDOW_MS = 15 * 60 * 1000;
 const QUICK_REACTIONS = ["👍", "❤️", "😂", "😮", "😢", "🙏"] as const;
 type QuickReaction = (typeof QUICK_REACTIONS)[number];
 const QUICK_REACTION_SET = new Set<string>(QUICK_REACTIONS);
+const ACCEPTED_ATTACHMENT_TYPES = [
+  "image/jpeg",
+  "image/png",
+  "image/webp",
+  "video/mp4",
+  "video/webm",
+  "application/pdf",
+  "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+  "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+  "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+  "text/plain",
+  "text/csv",
+  "application/zip",
+].join(",");
+const MAX_IMAGE_ATTACHMENT_BYTES = 20 * 1024 * 1024;
+const MAX_DOCUMENT_ATTACHMENT_BYTES = 50 * 1024 * 1024;
+const MAX_VIDEO_ATTACHMENT_BYTES = 200 * 1024 * 1024;
+
 
 function isSupportedQuickReaction(value: string): value is QuickReaction {
   return QUICK_REACTION_SET.has(value);
@@ -137,6 +160,159 @@ function getViewerReaction(
   );
 }
 
+interface MessageAttachmentCardProps {
+  accessToken: string | null;
+  conversationId: string;
+  messageId: string;
+  attachment: MessagingAttachment;
+  onDownload: (attachment: MessagingAttachment) => void;
+  onPreview: (attachment: MessagingAttachment) => void;
+}
+
+interface AttachmentViewerState {
+  message: MessagingMessage;
+  attachment: MessagingAttachment;
+  objectUrl: string | null;
+  loading: boolean;
+  error: string | null;
+}
+
+function MessageAttachmentCard({
+  accessToken,
+  conversationId,
+  messageId,
+  attachment,
+  onDownload,
+  onPreview,
+}: MessageAttachmentCardProps) {
+  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+  const [previewError, setPreviewError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!accessToken || !isImageAttachment(attachment)) {
+      return;
+    }
+
+    let cancelled = false;
+    let objectUrl: string | null = null;
+
+    void createConversationAttachmentObjectUrl(
+      accessToken,
+      conversationId,
+      messageId,
+      attachment.id,
+    )
+      .then((url) => {
+        if (cancelled) {
+          URL.revokeObjectURL(url);
+          return;
+        }
+
+        objectUrl = url;
+        setPreviewUrl(url);
+        setPreviewError(null);
+      })
+      .catch((error) => {
+        if (cancelled) {
+          return;
+        }
+
+        setPreviewError(
+          error instanceof Error
+            ? error.message
+            : "Image preview could not be loaded.",
+        );
+      });
+
+    return () => {
+      cancelled = true;
+
+      if (objectUrl) {
+        URL.revokeObjectURL(objectUrl);
+      }
+    };
+  }, [accessToken, attachment, conversationId, messageId]);
+
+  const canPreview = canPreviewAttachment(attachment);
+
+  return (
+    <div className="message-attachment-card">
+      {isImageAttachment(attachment) && previewUrl && (
+        <button
+          type="button"
+          className="message-attachment-preview-button"
+          onClick={() => onPreview(attachment)}
+          aria-label={`Open ${attachment.originalFileName}`}
+        >
+          <img
+            src={previewUrl}
+            alt={attachment.originalFileName}
+            className="message-attachment-preview"
+          />
+        </button>
+      )}
+
+      {isImageAttachment(attachment) && !previewUrl && !previewError && (
+        <div className="message-attachment-preview-placeholder">
+          Loading image...
+        </div>
+      )}
+
+      {!isImageAttachment(attachment) && (
+        <button
+          type="button"
+          className={`message-attachment-file-preview${canPreview ? "" : " disabled"}`}
+          onClick={() => {
+            if (canPreview) {
+              onPreview(attachment);
+            }
+          }}
+          disabled={!canPreview}
+          aria-label={canPreview ? `Preview ${attachment.originalFileName}` : undefined}
+        >
+          <span aria-hidden="true">
+            {isVideoAttachment(attachment) ? "▶" : documentIcon(attachment)}
+          </span>
+          <small>
+            {canPreview ? "Tap to preview" : "Download to open"}
+          </small>
+        </button>
+      )}
+
+      {previewError && (
+        <div className="message-attachment-preview-placeholder error">
+          {previewError}
+        </div>
+      )}
+
+      <div className="message-attachment-info">
+        <strong>{attachment.originalFileName}</strong>
+        <span>
+          {attachmentTypeLabel(attachment)} · {formatFileSize(attachment.fileSizeBytes)}
+        </span>
+      </div>
+
+      <div className="message-attachment-actions">
+        {canPreview && (
+          <button
+            type="button"
+            onClick={() => onPreview(attachment)}
+          >
+            Preview
+          </button>
+        )}
+
+        <button
+          type="button"
+          onClick={() => onDownload(attachment)}
+        >
+          Download
+        </button>
+      </div>
+    </div>
+  );
+}
+
 function readStoredConversationId(): string | null {
   try {
     return window.sessionStorage.getItem(
@@ -189,6 +365,118 @@ function formatMessageTime(value: string): string {
     hour: "numeric",
     minute: "2-digit",
   }).format(new Date(value));
+}
+
+function formatFileSize(bytes: number): string {
+  if (bytes < 1024) {
+    return `${bytes} B`;
+  }
+
+  const kilobytes = bytes / 1024;
+
+  if (kilobytes < 1024) {
+    return `${kilobytes.toFixed(kilobytes >= 10 ? 0 : 1)} KB`;
+  }
+
+  const megabytes = kilobytes / 1024;
+
+  return `${megabytes.toFixed(megabytes >= 10 ? 0 : 1)} MB`;
+}
+
+function isImageAttachment(attachment: MessagingAttachment): boolean {
+  return attachment.contentType === "IMAGE" && attachment.mimeType.startsWith("image/");
+}
+
+function isVideoAttachment(attachment: MessagingAttachment): boolean {
+  return attachment.contentType === "VIDEO" || attachment.mimeType.startsWith("video/");
+}
+
+function isPdfAttachment(attachment: MessagingAttachment): boolean {
+  return attachment.mimeType === "application/pdf" || attachment.originalFileName.toLowerCase().endsWith(".pdf");
+}
+
+function isTextPreviewAttachment(attachment: MessagingAttachment): boolean {
+  const fileName = attachment.originalFileName.toLowerCase();
+
+  return (
+    attachment.mimeType.startsWith("text/") ||
+    attachment.mimeType === "text/csv" ||
+    fileName.endsWith(".txt") ||
+    fileName.endsWith(".csv")
+  );
+}
+
+function isZipAttachment(attachment: MessagingAttachment): boolean {
+  const fileName = attachment.originalFileName.toLowerCase();
+
+  return (
+    attachment.mimeType === "application/zip" ||
+    attachment.mimeType === "application/x-zip-compressed" ||
+    fileName.endsWith(".zip")
+  );
+}
+
+function canPreviewAttachment(attachment: MessagingAttachment): boolean {
+  if (isZipAttachment(attachment)) {
+    return false;
+  }
+
+  return (
+    isImageAttachment(attachment) ||
+    isVideoAttachment(attachment) ||
+    isPdfAttachment(attachment) ||
+    isTextPreviewAttachment(attachment)
+  );
+}
+
+function documentIcon(attachment: MessagingAttachment): string {
+  if (isPdfAttachment(attachment)) {
+    return "PDF";
+  }
+
+  if (isTextPreviewAttachment(attachment)) {
+    return "TXT";
+  }
+
+  return "DOC";
+}
+
+function attachmentTypeLabel(attachment: MessagingAttachment): string {
+  if (isImageAttachment(attachment)) {
+    return "Image";
+  }
+
+  if (isVideoAttachment(attachment)) {
+    return "Video";
+  }
+
+  if (isPdfAttachment(attachment)) {
+    return "PDF document";
+  }
+
+  if (isTextPreviewAttachment(attachment)) {
+    return "Text document";
+  }
+
+  return "Document";
+}
+
+function attachmentLabel(message: Pick<MessagingMessage, "contentType" | "attachments" | "textContent">): string {
+  if (message.textContent) {
+    return message.textContent;
+  }
+
+  const firstAttachment = message.attachments?.[0];
+
+  if (!firstAttachment) {
+    return "Message";
+  }
+
+  if (isImageAttachment(firstAttachment)) {
+    return "Photo";
+  }
+
+  return `File: ${firstAttachment.originalFileName}`;
 }
 
 function formatLastSeen(value: string): string {
@@ -376,9 +664,7 @@ function messagePreview(
       ? "You: "
       : "";
 
-  return `${prefix}${message.forwardedFrom ? "Forwarded: " : ""}${
-    message.textContent ?? "Message"
-  }`;
+  return `${prefix}${message.forwardedFrom ? "Forwarded: " : ""}${attachmentLabel(message)}`;
 }
 
 async function copyTextToClipboard(text: string): Promise<void> {
@@ -438,6 +724,9 @@ export function MessageAppPage() {
   const [messageLoading, setMessageLoading] = useState(false);
   const [olderMessagesLoading, setOlderMessagesLoading] = useState(false);
   const [sendingMessage, setSendingMessage] = useState(false);
+  const [selectedAttachment, setSelectedAttachment] = useState<File | null>(null);
+  const [attachmentPreviewUrl, setAttachmentPreviewUrl] = useState<string | null>(null);
+  const [attachmentViewer, setAttachmentViewer] = useState<AttachmentViewerState | null>(null);
   const [messageCursor, setMessageCursor] = useState<string | null>(null);
   const [hasOlderMessages, setHasOlderMessages] = useState(false);
   const [pageError, setPageError] = useState<string | null>(null);
@@ -491,6 +780,8 @@ export function MessageAppPage() {
   const previousScrollConversationIdRef = useRef<string | null>(null);
   const previousMessageCountRef = useRef(0);
   const composerRef = useRef<HTMLTextAreaElement | null>(null);
+  const attachmentInputRef = useRef<HTMLInputElement | null>(null);
+  const attachmentViewerRequestRef = useRef(0);
   const selectedConversationIdRef = useRef<string | null>(
     selectedConversationId,
   );
@@ -505,6 +796,22 @@ export function MessageAppPage() {
     ) ?? null,
     [conversations, selectedConversationId],
   );
+
+  useEffect(() => {
+    return () => {
+      if (attachmentPreviewUrl) {
+        URL.revokeObjectURL(attachmentPreviewUrl);
+      }
+    };
+  }, [attachmentPreviewUrl]);
+
+  useEffect(() => {
+    return () => {
+      if (attachmentViewer?.objectUrl) {
+        URL.revokeObjectURL(attachmentViewer.objectUrl);
+      }
+    };
+  }, [attachmentViewer]);
 
   const canCreateOfficialGroup =
     account?.role === "SUPER_ADMIN" ||
@@ -1903,6 +2210,167 @@ export function MessageAppPage() {
   }
 
 
+  function clearSelectedAttachment(): void {
+    setSelectedAttachment(null);
+
+    setAttachmentPreviewUrl((current) => {
+      if (current) {
+        URL.revokeObjectURL(current);
+      }
+
+      return null;
+    });
+
+    if (attachmentInputRef.current) {
+      attachmentInputRef.current.value = "";
+    }
+  }
+
+  function handleAttachmentChange(
+    event: ChangeEvent<HTMLInputElement>,
+  ): void {
+    const file = event.target.files?.[0] ?? null;
+
+    if (!file) {
+      clearSelectedAttachment();
+      return;
+    }
+
+    const isImage = file.type.startsWith("image/");
+    const isVideo = file.type.startsWith("video/");
+    const maxSize = isImage
+      ? MAX_IMAGE_ATTACHMENT_BYTES
+      : isVideo
+        ? MAX_VIDEO_ATTACHMENT_BYTES
+        : MAX_DOCUMENT_ATTACHMENT_BYTES;
+
+    if (file.size > maxSize) {
+      setMessageError(
+        isImage
+          ? "Image attachments must be 20 MB or smaller."
+          : isVideo
+            ? "Video attachments must be 200 MB or smaller."
+            : "Document attachments must be 50 MB or smaller.",
+      );
+      clearSelectedAttachment();
+      return;
+    }
+
+    setSelectedAttachment(file);
+    setMessageError(null);
+
+    setAttachmentPreviewUrl((current) => {
+      if (current) {
+        URL.revokeObjectURL(current);
+      }
+
+      return isImage || isVideo ? URL.createObjectURL(file) : null;
+    });
+  }
+
+  async function handleDownloadAttachment(
+    message: MessagingMessage,
+    attachment: MessagingAttachment,
+  ): Promise<void> {
+    if (!accessToken) {
+      return;
+    }
+
+    setMessageError(null);
+
+    try {
+      await downloadConversationAttachment(
+        accessToken,
+        message.conversationId,
+        message.id,
+        attachment.id,
+        attachment.originalFileName,
+      );
+    } catch (error) {
+      setMessageError(
+        error instanceof Error
+          ? error.message
+          : "The attachment could not be downloaded.",
+      );
+    }
+  }
+
+  function closeAttachmentViewer(): void {
+    attachmentViewerRequestRef.current += 1;
+
+    setAttachmentViewer((current) => {
+      if (current?.objectUrl) {
+        URL.revokeObjectURL(current.objectUrl);
+      }
+
+      return null;
+    });
+  }
+
+  async function handlePreviewAttachment(
+    message: MessagingMessage,
+    attachment: MessagingAttachment,
+  ): Promise<void> {
+    if (!accessToken || !canPreviewAttachment(attachment)) {
+      return;
+    }
+
+    const requestId = attachmentViewerRequestRef.current + 1;
+    attachmentViewerRequestRef.current = requestId;
+
+    setMessageError(null);
+    setAttachmentViewer((current) => {
+      if (current?.objectUrl) {
+        URL.revokeObjectURL(current.objectUrl);
+      }
+
+      return {
+        message,
+        attachment,
+        objectUrl: null,
+        loading: true,
+        error: null,
+      };
+    });
+
+    try {
+      const objectUrl = await createConversationAttachmentObjectUrl(
+        accessToken,
+        message.conversationId,
+        message.id,
+        attachment.id,
+      );
+
+      if (attachmentViewerRequestRef.current !== requestId) {
+        URL.revokeObjectURL(objectUrl);
+        return;
+      }
+
+      setAttachmentViewer({
+        message,
+        attachment,
+        objectUrl,
+        loading: false,
+        error: null,
+      });
+    } catch (error) {
+      if (attachmentViewerRequestRef.current !== requestId) {
+        return;
+      }
+
+      setAttachmentViewer({
+        message,
+        attachment,
+        objectUrl: null,
+        loading: false,
+        error: error instanceof Error
+          ? error.message
+          : "The attachment preview could not be loaded.",
+      });
+    }
+  }
+
+
   async function handleReaction(
     message: MessagingMessage,
     reactionValue: string,
@@ -2210,7 +2678,7 @@ export function MessageAppPage() {
     if (
       !accessToken ||
       !selectedConversationId ||
-      !text ||
+      (!text && !selectedAttachment) ||
       sendingMessage
     ) {
       return;
@@ -2222,6 +2690,11 @@ export function MessageAppPage() {
 
     try {
       if (editingMessage) {
+        if (selectedAttachment) {
+          setMessageError("Remove the selected attachment before saving an edited text message.");
+          return;
+        }
+
         const response = await editConversationTextMessage(
           accessToken,
           selectedConversationId,
@@ -2239,15 +2712,24 @@ export function MessageAppPage() {
         return;
       }
 
-      const response = await sendConversationTextMessage(
-        accessToken,
-        selectedConversationId,
-        text,
-        replyingTo?.id,
-      );
+      const response = selectedAttachment
+        ? await sendConversationAttachmentMessage(
+            accessToken,
+            selectedConversationId,
+            selectedAttachment,
+            text,
+            replyingTo?.id,
+          )
+        : await sendConversationTextMessage(
+            accessToken,
+            selectedConversationId,
+            text,
+            replyingTo?.id,
+          );
 
       setMessageText("");
       setReplyingTo(null);
+      clearSelectedAttachment();
       setMessages((current) => {
         if (current.some((message) => message.id === response.data.id)) {
           return current;
@@ -2806,7 +3288,31 @@ export function MessageAppPage() {
                               <em>This message was deleted.</em>
                             ) : (
                               <>
-                                <p>{message.textContent}</p>
+                                {message.textContent && (
+                                  <p>{message.textContent}</p>
+                                )}
+
+                                {(message.attachments?.length ?? 0) > 0 && (
+                                  <div className="message-attachments">
+                                    {(message.attachments ?? []).map((attachment) => (
+                                      <MessageAttachmentCard
+                                        key={attachment.id}
+                                        accessToken={accessToken}
+                                        conversationId={message.conversationId}
+                                        messageId={message.id}
+                                        attachment={attachment}
+                                        onDownload={(selected) => void handleDownloadAttachment(
+                                          message,
+                                          selected,
+                                        )}
+                                        onPreview={(selected) => void handlePreviewAttachment(
+                                          message,
+                                          selected,
+                                        )}
+                                      />
+                                    ))}
+                                  </div>
+                                )}
 
                                 {(message.reactions?.length ?? 0) > 0 && (
                                   <div className="message-reactions">
@@ -3030,6 +3536,49 @@ export function MessageAppPage() {
                   </div>
                 )}
 
+                {selectedAttachment && (
+                  <div className="message-selected-attachment">
+                    {attachmentPreviewUrl && selectedAttachment.type.startsWith("image/") && (
+                      <img
+                        src={attachmentPreviewUrl}
+                        alt={selectedAttachment.name}
+                      />
+                    )}
+
+                    {attachmentPreviewUrl && selectedAttachment.type.startsWith("video/") && (
+                      <video
+                        src={attachmentPreviewUrl}
+                        muted
+                        playsInline
+                        preload="metadata"
+                      />
+                    )}
+
+                    <span>
+                      <strong>{selectedAttachment.name}</strong>
+                      <small>{formatFileSize(selectedAttachment.size)}</small>
+                    </span>
+
+                    <button
+                      type="button"
+                      onClick={clearSelectedAttachment}
+                      aria-label="Remove selected attachment"
+                    >
+                      ×
+                    </button>
+                  </div>
+                )}
+
+                <input
+                  ref={attachmentInputRef}
+                  type="file"
+                  accept={ACCEPTED_ATTACHMENT_TYPES}
+                  className="message-attachment-input"
+                  onChange={handleAttachmentChange}
+                  disabled={sendingMessage || editingMessage !== null}
+                  aria-label="Choose attachment"
+                />
+
                 <textarea
                   ref={composerRef}
                   value={messageText}
@@ -3058,12 +3607,12 @@ export function MessageAppPage() {
 
                 <div className="message-composer-actions">
                   <span>
-                    Enter to send · Shift + Enter for a new line
+                    Attach an image or document · Enter to send
                   </span>
 
                   <button
                     type="submit"
-                    disabled={!messageText.trim() || sendingMessage}
+                    disabled={(!messageText.trim() && !selectedAttachment) || sendingMessage}
                   >
                     {sendingMessage
                       ? editingMessage
@@ -3820,6 +4369,116 @@ export function MessageAppPage() {
                 </button>
               </div>
             </footer>
+          </section>
+        </div>
+      )}
+
+      {attachmentViewer && (
+        <div
+          className="message-media-viewer-backdrop"
+          role="presentation"
+          onMouseDown={(event) => {
+            if (event.currentTarget === event.target) {
+              closeAttachmentViewer();
+            }
+          }}
+        >
+          <section
+            className="message-media-viewer"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="message-media-viewer-title"
+          >
+            <header>
+              <div>
+                <strong id="message-media-viewer-title">
+                  {attachmentViewer.attachment.originalFileName}
+                </strong>
+                <span>
+                  {attachmentTypeLabel(attachmentViewer.attachment)} · {formatFileSize(attachmentViewer.attachment.fileSizeBytes)}
+                </span>
+              </div>
+
+              <div>
+                <button
+                  type="button"
+                  onClick={() => void handleDownloadAttachment(
+                    attachmentViewer.message,
+                    attachmentViewer.attachment,
+                  )}
+                >
+                  Download
+                </button>
+                <button
+                  type="button"
+                  onClick={closeAttachmentViewer}
+                  aria-label="Close attachment preview"
+                >
+                  ×
+                </button>
+              </div>
+            </header>
+
+            <div
+              className={`message-media-viewer-body ${
+                isImageAttachment(attachmentViewer.attachment)
+                  ? "is-image"
+                  : isVideoAttachment(attachmentViewer.attachment)
+                    ? "is-video"
+                    : isPdfAttachment(attachmentViewer.attachment)
+                      ? "is-pdf"
+                      : isTextPreviewAttachment(attachmentViewer.attachment)
+                        ? "is-text"
+                        : ""
+              }`}
+            >
+              {attachmentViewer.loading && (
+                <div className="message-media-viewer-state">
+                  <span className="message-small-spinner" />
+                  <p>Loading preview...</p>
+                </div>
+              )}
+
+              {!attachmentViewer.loading && attachmentViewer.error && (
+                <div className="message-media-viewer-state error">
+                  <p>{attachmentViewer.error}</p>
+                </div>
+              )}
+
+              {!attachmentViewer.loading &&
+                !attachmentViewer.error &&
+                attachmentViewer.objectUrl &&
+                isImageAttachment(attachmentViewer.attachment) && (
+                  <img
+                    src={attachmentViewer.objectUrl}
+                    alt={attachmentViewer.attachment.originalFileName}
+                  />
+                )}
+
+              {!attachmentViewer.loading &&
+                !attachmentViewer.error &&
+                attachmentViewer.objectUrl &&
+                isVideoAttachment(attachmentViewer.attachment) && (
+                  <video
+                    src={attachmentViewer.objectUrl}
+                    controls
+                    playsInline
+                  >
+                    Your browser does not support video preview.
+                  </video>
+                )}
+
+              {!attachmentViewer.loading &&
+                !attachmentViewer.error &&
+                attachmentViewer.objectUrl &&
+                (isPdfAttachment(attachmentViewer.attachment) ||
+                  isTextPreviewAttachment(attachmentViewer.attachment)) && (
+                  <iframe
+                    title={attachmentViewer.attachment.originalFileName}
+                    src={attachmentViewer.objectUrl}
+                  />
+                )}
+            </div>
           </section>
         </div>
       )}

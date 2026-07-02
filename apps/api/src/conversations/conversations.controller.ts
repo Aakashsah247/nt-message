@@ -8,8 +8,15 @@ import {
   Patch,
   Post,
   Query,
+  Res,
+  StreamableFile,
+  UploadedFile,
   UseGuards,
+  UseInterceptors,
 } from '@nestjs/common';
+import { FileInterceptor } from '@nestjs/platform-express';
+import { createReadStream } from 'node:fs';
+import type { Response } from 'express';
 
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import { AccessTokenGuard } from '../auth/guards/access-token.guard';
@@ -26,10 +33,12 @@ import { ListMessagesQueryDto } from './dto/list-messages-query.dto';
 import { ListOfficialGroupAuditQueryDto } from './dto/list-official-group-audit-query.dto';
 import { SearchMessagingContactsQueryDto } from './dto/search-messaging-contacts-query.dto';
 import { SendTextMessageDto } from './dto/send-text-message.dto';
+import { SendAttachmentMessageDto } from './dto/send-attachment-message.dto';
 import { UpdateGroupConversationDto } from './dto/update-group-conversation.dto';
 import { UpdateGroupMemberRoleDto } from './dto/update-group-member-role.dto';
 import { UpdateTextMessageDto } from './dto/update-text-message.dto';
 import { ReactMessageDto } from './dto/react-message.dto';
+import type { UploadedMessageAttachmentFile } from './types/uploaded-message-attachment-file';
 
 @Controller('conversations')
 @UseGuards(AccessTokenGuard)
@@ -343,6 +352,97 @@ export class ConversationsController {
     dto: SendTextMessageDto,
   ) {
     return this.conversationsService.sendTextMessage(user, conversationId, dto);
+  }
+
+  @Post(':id/attachments')
+  @UseInterceptors(FileInterceptor('file', { limits: { fileSize: 200 * 1024 * 1024 } }))
+  sendAttachmentMessage(
+    @CurrentUser()
+    user: AuthenticatedUser,
+
+    @Param(
+      'id',
+      new ParseUUIDPipe({
+        version: '4',
+      }),
+    )
+    conversationId: string,
+
+    @UploadedFile()
+    file: UploadedMessageAttachmentFile | undefined,
+
+    @Body()
+    dto: SendAttachmentMessageDto,
+  ) {
+    return this.conversationsService.sendAttachmentMessage(
+      user,
+      conversationId,
+      dto,
+      file,
+    );
+  }
+
+  @Get(':conversationId/messages/:messageId/attachments/:attachmentId/download')
+  async downloadMessageAttachment(
+    @CurrentUser()
+    user: AuthenticatedUser,
+
+    @Param(
+      'conversationId',
+      new ParseUUIDPipe({
+        version: '4',
+      }),
+    )
+    conversationId: string,
+
+    @Param(
+      'messageId',
+      new ParseUUIDPipe({
+        version: '4',
+      }),
+    )
+    messageId: string,
+
+    @Param(
+      'attachmentId',
+      new ParseUUIDPipe({
+        version: '4',
+      }),
+    )
+    attachmentId: string,
+
+    @Res({ passthrough: true })
+    response: Response,
+  ): Promise<StreamableFile> {
+    const attachment = await this.conversationsService.getAttachmentDownload(
+      user,
+      conversationId,
+      messageId,
+      attachmentId,
+    );
+
+    const safeFileName = attachment.originalFileName.replace(/[\r\n"]/g, '_');
+    const encodedFileName = encodeURIComponent(attachment.originalFileName);
+
+    const canPreviewInline =
+      attachment.mimeType.startsWith('image/') ||
+      attachment.mimeType.startsWith('video/') ||
+      attachment.mimeType === 'application/pdf' ||
+      attachment.mimeType.startsWith('text/');
+    const disposition = canPreviewInline ? 'inline' : 'attachment';
+
+    response.setHeader('Content-Type', attachment.mimeType);
+    response.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
+    response.setHeader('Cross-Origin-Embedder-Policy', 'unsafe-none');
+    response.setHeader('Cache-Control', 'no-store');
+    response.setHeader('Content-Length', String(attachment.fileSizeBytes));
+    response.setHeader('Accept-Ranges', 'bytes');
+    response.setHeader(
+      'Content-Disposition',
+      `${disposition}; filename="${safeFileName}"; filename*=UTF-8''${encodedFileName}`,
+    );
+
+    return new StreamableFile(createReadStream(attachment.absolutePath));
   }
 
   @Post(':conversationId/messages/:messageId/reactions')

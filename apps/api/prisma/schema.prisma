@@ -610,6 +610,7 @@ model Message {
   receipts          MessageReceipt[]
   hiddenForAccounts MessageHiddenForAccount[]
   reactions MessageReaction[]
+  attachments MessageAttachment[]
 
   @@unique([senderAccountId, clientMessageId], map: "messages_sender_client_message_key")
   @@index([conversationId, sentAt, id], map: "messages_conversation_sent_idx")
@@ -617,6 +618,29 @@ model Message {
   @@index([replyToMessageId], map: "messages_reply_to_idx")
   @@index([deletedAt], map: "messages_deleted_at_idx")
   @@map("messages")
+}
+
+
+model MessageAttachment {
+  id String @id @default(uuid()) @db.Uuid
+
+  messageId String @map("message_id") @db.Uuid
+
+  storageKey       String             @unique @map("storage_key") @db.VarChar(500)
+  originalFileName String             @map("original_file_name") @db.VarChar(255)
+  mimeType         String             @map("mime_type") @db.VarChar(120)
+  fileSizeBytes    Int                @map("file_size_bytes")
+  contentType      MessageContentType @map("content_type")
+  scanStatus       String             @default("PENDING") @map("scan_status") @db.VarChar(40)
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  message Message @relation(fields: [messageId], references: [id], onDelete: Cascade)
+
+  @@index([messageId], map: "message_attachments_message_idx")
+  @@index([contentType], map: "message_attachments_content_type_idx")
+  @@map("message_attachments")
 }
 
 model MessageHiddenForAccount {

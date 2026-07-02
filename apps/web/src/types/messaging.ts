@@ -126,6 +126,18 @@ export interface MessagingReply {
   isDeleted: boolean;
 }
 
+export interface MessagingAttachment {
+  id: string;
+  messageId: string;
+  originalFileName: string;
+  mimeType: string;
+  fileSizeBytes: number;
+  contentType: MessageContentType;
+  scanStatus: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface MessagingMessage {
   id: string;
   conversationId: string;
@@ -150,6 +162,8 @@ export interface MessagingMessage {
     delivered: number;
     read: number;
   };
+
+  attachments: MessagingAttachment[];
 
   reactions: {
     accountId: string;
@@ -320,6 +334,12 @@ export interface AcceptMessageRequestResponse
 }
 
 export interface SendTextMessageResponse {
+  message: string;
+  duplicate: boolean;
+  data: MessagingMessage;
+}
+
+export interface SendAttachmentMessageResponse {
   message: string;
   duplicate: boolean;
   data: MessagingMessage;

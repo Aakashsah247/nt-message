@@ -21,6 +21,7 @@ import type {
   OfficialGroupScopeType,
   ReconcileOfficialGroupsResponse,
   RemoveGroupMemberResponse,
+  SendAttachmentMessageResponse,
   SendTextMessageResponse,
   UpdateTextMessageResponse,
 } from "../types/messaging";
@@ -31,6 +32,15 @@ function authorizationHeaders(
   return {
     Authorization: `Bearer ${accessToken}`,
   };
+}
+
+const MESSAGING_API_BASE_URL =
+  import.meta.env.VITE_API_URL ??
+  import.meta.env.VITE_API_BASE_URL ??
+  "http://localhost:4000/api/v1";
+
+function messagingApiUrl(path: string): string {
+  return `${MESSAGING_API_BASE_URL}${path}`;
 }
 
 export function searchMessagingContacts(
@@ -345,6 +355,166 @@ export function sendConversationTextMessage(
       }),
     },
   );
+}
+
+export async function sendConversationAttachmentMessage(
+  accessToken: string,
+  conversationId: string,
+  file: File,
+  caption?: string,
+  replyToMessageId?: string,
+): Promise<SendAttachmentMessageResponse> {
+  const formData = new FormData();
+
+  formData.set("clientMessageId", crypto.randomUUID());
+  formData.set("file", file);
+
+  if (caption?.trim()) {
+    formData.set("caption", caption.trim());
+  }
+
+  if (replyToMessageId) {
+    formData.set("replyToMessageId", replyToMessageId);
+  }
+
+  const response = await fetch(
+    messagingApiUrl(`/conversations/${conversationId}/attachments`),
+    {
+      method: "POST",
+      headers: authorizationHeaders(accessToken),
+      body: formData,
+    },
+  );
+
+  const body = await response.json().catch(() => null) as
+    | SendAttachmentMessageResponse
+    | { message?: unknown }
+    | null;
+
+  if (!response.ok) {
+    throw new Error(
+      body && typeof body.message === "string"
+        ? body.message
+        : "Attachment could not be uploaded.",
+    );
+  }
+
+  if (!body || !("data" in body)) {
+    throw new Error("Attachment upload returned an invalid response.");
+  }
+
+  return body as SendAttachmentMessageResponse;
+}
+
+async function fetchAttachmentBlobWithXhrFallback(
+  url: string,
+  accessToken: string,
+): Promise<Blob> {
+  return new Promise((resolve, reject) => {
+    const request = new XMLHttpRequest();
+
+    request.open("GET", url);
+    request.responseType = "blob";
+    request.setRequestHeader("Authorization", `Bearer ${accessToken}`);
+
+    request.onload = () => {
+      if (request.status >= 200 && request.status < 300 && request.response) {
+        resolve(request.response);
+        return;
+      }
+
+      reject(new Error(`Attachment could not be downloaded. HTTP ${request.status}`));
+    };
+
+    request.onerror = () => {
+      reject(new Error("Attachment could not be downloaded. Check the API server and CORS configuration."));
+    };
+
+    request.send();
+  });
+}
+
+async function fetchConversationAttachmentBlob(
+  accessToken: string,
+  conversationId: string,
+  messageId: string,
+  attachmentId: string,
+): Promise<Blob> {
+  const url = messagingApiUrl(
+    `/conversations/${conversationId}/messages/${messageId}/attachments/${attachmentId}/download`,
+  );
+
+  try {
+    const response = await fetch(url, {
+      cache: "no-store",
+      credentials: "include",
+      headers: authorizationHeaders(accessToken),
+    });
+
+    if (!response.ok) {
+      let message = "Attachment could not be downloaded.";
+
+      try {
+        const errorBody = await response.json() as { message?: unknown };
+
+        if (typeof errorBody.message === "string") {
+          message = errorBody.message;
+        }
+      } catch {
+        // Binary responses and empty error bodies are both possible.
+      }
+
+      throw new Error(message);
+    }
+
+    return response.blob();
+  } catch (error) {
+    if (error instanceof TypeError) {
+      return fetchAttachmentBlobWithXhrFallback(url, accessToken);
+    }
+
+    throw error;
+  }
+}
+
+export async function createConversationAttachmentObjectUrl(
+  accessToken: string,
+  conversationId: string,
+  messageId: string,
+  attachmentId: string,
+): Promise<string> {
+  const blob = await fetchConversationAttachmentBlob(
+    accessToken,
+    conversationId,
+    messageId,
+    attachmentId,
+  );
+
+  return URL.createObjectURL(blob);
+}
+
+export async function downloadConversationAttachment(
+  accessToken: string,
+  conversationId: string,
+  messageId: string,
+  attachmentId: string,
+  fileName: string,
+): Promise<void> {
+  const objectUrl = await createConversationAttachmentObjectUrl(
+    accessToken,
+    conversationId,
+    messageId,
+    attachmentId,
+  );
+
+  const anchor = document.createElement("a");
+  anchor.href = objectUrl;
+  anchor.download = fileName;
+  document.body.appendChild(anchor);
+  anchor.click();
+  anchor.remove();
+
+  window.setTimeout(() => URL.revokeObjectURL(objectUrl), 1000);
 }
 
 export function forwardConversationTextMessage(

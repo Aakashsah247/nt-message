@@ -6,6 +6,9 @@ import {
   Logger,
   NotFoundException,
 } from '@nestjs/common';
+import { randomUUID } from 'node:crypto';
+import { promises as fs } from 'node:fs';
+import path from 'node:path';
 
 import type { AuthenticatedUser } from '../auth/types/auth.types';
 import { PrismaService } from '../database/prisma.service';
@@ -35,10 +38,12 @@ import { ListMessagesQueryDto } from './dto/list-messages-query.dto';
 import { ListOfficialGroupAuditQueryDto } from './dto/list-official-group-audit-query.dto';
 import { SearchMessagingContactsQueryDto } from './dto/search-messaging-contacts-query.dto';
 import { SendTextMessageDto } from './dto/send-text-message.dto';
+import { SendAttachmentMessageDto } from './dto/send-attachment-message.dto';
 import { UpdateGroupConversationDto } from './dto/update-group-conversation.dto';
 import { UpdateGroupMemberRoleDto } from './dto/update-group-member-role.dto';
 import { UpdateTextMessageDto } from './dto/update-text-message.dto';
 import { ReactMessageDto } from './dto/react-message.dto';
+import type { UploadedMessageAttachmentFile } from './types/uploaded-message-attachment-file';
 
 interface MessagingViewer {
   accountId: string;
@@ -83,6 +88,36 @@ export interface ForwardedMessageMetadata {
 
 const MESSAGE_REQUEST_COOLDOWN_MS = 24 * 60 * 60 * 1000;
 const MESSAGE_EDIT_WINDOW_MS = 15 * 60 * 1000;
+const MAX_IMAGE_ATTACHMENT_BYTES = 20 * 1024 * 1024;
+const MAX_DOCUMENT_ATTACHMENT_BYTES = 50 * 1024 * 1024;
+const MAX_VIDEO_ATTACHMENT_BYTES = 200 * 1024 * 1024;
+const MESSAGE_ATTACHMENT_STORAGE_DIR = path.resolve(
+  process.env.MESSAGE_ATTACHMENT_STORAGE_DIR ??
+    path.join(process.cwd(), 'storage', 'message-attachments'),
+);
+
+const IMAGE_ATTACHMENT_MIME_TYPES = new Set([
+  'image/jpeg',
+  'image/png',
+  'image/webp',
+]);
+
+const VIDEO_ATTACHMENT_MIME_TYPES = new Set([
+  'video/mp4',
+  'video/webm',
+]);
+
+const DOCUMENT_ATTACHMENT_MIME_TYPES = new Set([
+  'application/pdf',
+  'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+  'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+  'text/plain',
+  'text/csv',
+  'application/zip',
+  'application/x-zip-compressed',
+]);
+
 
 const messagingAccountSelect = {
   id: true,
@@ -197,6 +232,24 @@ const messageSelect = {
         createdAt: 'asc',
       },
     ],
+  },
+
+  attachments: {
+    select: {
+      id: true,
+      messageId: true,
+      originalFileName: true,
+      mimeType: true,
+      fileSizeBytes: true,
+      contentType: true,
+      scanStatus: true,
+      createdAt: true,
+      updatedAt: true,
+    },
+
+    orderBy: {
+      createdAt: 'asc',
+    },
   },
 } satisfies Prisma.MessageSelect;
 
@@ -595,6 +648,20 @@ export class ConversationsService {
           updatedAt: reaction.updatedAt,
         })) ?? [],
 
+      attachments: message.deletedAt
+        ? []
+        : message.attachments.map((attachment) => ({
+            id: attachment.id,
+            messageId: attachment.messageId,
+            originalFileName: attachment.originalFileName,
+            mimeType: attachment.mimeType,
+            fileSizeBytes: attachment.fileSizeBytes,
+            contentType: attachment.contentType,
+            scanStatus: attachment.scanStatus,
+            createdAt: attachment.createdAt,
+            updatedAt: attachment.updatedAt,
+          })),
+
       createdAt: message.createdAt,
       updatedAt: message.updatedAt,
     };
@@ -691,6 +758,105 @@ export class ConversationsService {
       joinedAt: participant.joinedAt,
       role: participant.role,
     };
+  }
+
+  private normalizeAttachmentFileName(fileName: string): string {
+    const normalized = fileName
+      .normalize('NFKC')
+      .replace(/[\/\0]/g, '_')
+      .replace(/[\r\n]/g, ' ')
+      .trim();
+
+    if (!normalized) {
+      return 'attachment';
+    }
+
+    return normalized.slice(0, 180);
+  }
+
+  private validateMessageAttachment(file?: UploadedMessageAttachmentFile): {
+    originalFileName: string;
+    contentType: MessageContentType;
+  } {
+    if (!file) {
+      throw new BadRequestException('Attachment file is required.');
+    }
+
+    if (!file.buffer || file.size <= 0) {
+      throw new BadRequestException('Attachment file is empty.');
+    }
+
+    const originalFileName = this.normalizeAttachmentFileName(
+      file.originalname,
+    );
+
+    if (IMAGE_ATTACHMENT_MIME_TYPES.has(file.mimetype)) {
+      if (file.size > MAX_IMAGE_ATTACHMENT_BYTES) {
+        throw new BadRequestException('Image attachments must be 20 MB or smaller.');
+      }
+
+      return {
+        originalFileName,
+        contentType: MessageContentType.IMAGE,
+      };
+    }
+
+    if (VIDEO_ATTACHMENT_MIME_TYPES.has(file.mimetype)) {
+      if (file.size > MAX_VIDEO_ATTACHMENT_BYTES) {
+        throw new BadRequestException('Video attachments must be 200 MB or smaller.');
+      }
+
+      return {
+        originalFileName,
+        contentType: MessageContentType.VIDEO,
+      };
+    }
+
+    if (DOCUMENT_ATTACHMENT_MIME_TYPES.has(file.mimetype)) {
+      if (file.size > MAX_DOCUMENT_ATTACHMENT_BYTES) {
+        throw new BadRequestException('Document attachments must be 50 MB or smaller.');
+      }
+
+      return {
+        originalFileName,
+        contentType: MessageContentType.FILE,
+      };
+    }
+
+    throw new BadRequestException(
+      'Unsupported attachment type. Allowed files are JPG, PNG, WEBP, MP4, WEBM, PDF, DOCX, XLSX, PPTX, TXT, CSV and ZIP.',
+    );
+  }
+
+  private resolveAttachmentPath(storageKey: string): string {
+    const absolutePath = path.resolve(MESSAGE_ATTACHMENT_STORAGE_DIR, storageKey);
+
+    if (!absolutePath.startsWith(`${MESSAGE_ATTACHMENT_STORAGE_DIR}${path.sep}`)) {
+      throw new BadRequestException('Attachment storage key is invalid.');
+    }
+
+    return absolutePath;
+  }
+
+  private async writeAttachmentFile(
+    storageKey: string,
+    file: UploadedMessageAttachmentFile,
+  ): Promise<void> {
+    const absolutePath = this.resolveAttachmentPath(storageKey);
+
+    await fs.mkdir(path.dirname(absolutePath), {
+      recursive: true,
+    });
+
+    await fs.writeFile(absolutePath, file.buffer);
+  }
+
+  private async deleteAttachmentFileIfExists(storageKey: string): Promise<void> {
+    try {
+      await fs.unlink(this.resolveAttachmentPath(storageKey));
+    } catch {
+      // Attachment cleanup is best-effort. The database remains authoritative.
+    }
   }
 
   private async getActiveGroupAccess(
@@ -3700,6 +3866,302 @@ export class ConversationsService {
         data: this.serializeMessage(duplicateMessage),
       };
     }
+  }
+
+  async sendAttachmentMessage(
+    user: AuthenticatedUser,
+    conversationId: string,
+    dto: SendAttachmentMessageDto,
+    file?: UploadedMessageAttachmentFile,
+  ) {
+    const viewer = await this.getMessagingViewer(user);
+    const attachment = this.validateMessageAttachment(file);
+    const uploadedFile = file as UploadedMessageAttachmentFile;
+    const caption = dto.caption?.trim() || null;
+
+    const conversation = await this.prisma.conversation.findFirst({
+      where: {
+        id: conversationId,
+
+        participants: {
+          some: {
+            accountId: viewer.accountId,
+            leftAt: null,
+          },
+        },
+      },
+
+      select: {
+        id: true,
+        type: true,
+
+        participants: {
+          where: {
+            leftAt: null,
+          },
+
+          select: {
+            accountId: true,
+          },
+        },
+      },
+    });
+
+    if (!conversation) {
+      throw new NotFoundException('Conversation was not found.');
+    }
+
+    if (
+      conversation.type === ConversationType.PRIVATE &&
+      conversation.participants.length !== 2
+    ) {
+      throw new ConflictException(
+        'The private conversation does not have exactly two active participants.',
+      );
+    }
+
+    const existingMessage = await this.prisma.message.findUnique({
+      where: {
+        senderAccountId_clientMessageId: {
+          senderAccountId: viewer.accountId,
+          clientMessageId: dto.clientMessageId,
+        },
+      },
+
+      select: messageSelect,
+    });
+
+    if (existingMessage) {
+      if (existingMessage.conversationId !== conversationId) {
+        throw new ConflictException(
+          'This client message ID was already used in another conversation.',
+        );
+      }
+
+      return {
+        message: 'Attachment message was already accepted.',
+        duplicate: true,
+        data: this.serializeMessage(existingMessage),
+      };
+    }
+
+    if (dto.replyToMessageId) {
+      const replyTarget = await this.prisma.message.findFirst({
+        where: {
+          id: dto.replyToMessageId,
+          conversationId,
+          deletedAt: null,
+          hiddenForAccounts: {
+            none: {
+              accountId: viewer.accountId,
+            },
+          },
+        },
+
+        select: {
+          id: true,
+        },
+      });
+
+      if (!replyTarget) {
+        throw new BadRequestException(
+          'The message selected for reply was not found in this conversation.',
+        );
+      }
+    }
+
+    const recipientAccountIds = conversation.participants
+      .map((participant) => participant.accountId)
+      .filter((accountId) => accountId !== viewer.accountId);
+
+    const storageKey = [
+      conversationId,
+      `${randomUUID()}-${attachment.originalFileName.replace(/[^a-zA-Z0-9._-]/g, '_')}`,
+    ].join('/');
+
+    await this.writeAttachmentFile(storageKey, uploadedFile);
+
+    try {
+      const createdMessage = await this.prisma.$transaction(
+        async (transaction) => {
+          const created = await transaction.message.create({
+            data: {
+              conversationId,
+              senderAccountId: viewer.accountId,
+              clientMessageId: dto.clientMessageId,
+              contentType: attachment.contentType,
+              textContent: caption,
+              replyToMessageId: dto.replyToMessageId ?? null,
+              payload: {
+                attachmentCount: 1,
+              },
+
+              attachments: {
+                create: {
+                  storageKey,
+                  originalFileName: attachment.originalFileName,
+                  mimeType: uploadedFile.mimetype,
+                  fileSizeBytes: uploadedFile.size,
+                  contentType: attachment.contentType,
+                  scanStatus: 'PENDING',
+                },
+              },
+
+              receipts: {
+                create: recipientAccountIds.map((accountId) => ({
+                  accountId,
+                })),
+              },
+            },
+
+            select: {
+              id: true,
+              sentAt: true,
+            },
+          });
+
+          await transaction.conversation.update({
+            where: {
+              id: conversationId,
+            },
+
+            data: {
+              lastMessageAt: created.sentAt,
+            },
+          });
+
+          await transaction.conversationParticipant.updateMany({
+            where: {
+              conversationId,
+              accountId: {
+                in: conversation.participants.map(
+                  (participant) => participant.accountId,
+                ),
+              },
+            },
+
+            data: {
+              isArchived: false,
+            },
+          });
+
+          return transaction.message.findUniqueOrThrow({
+            where: {
+              id: created.id,
+            },
+
+            select: messageSelect,
+          });
+        },
+      );
+
+      const serializedMessage = this.serializeMessage(createdMessage);
+      const participantAccountIds = conversation.participants.map(
+        (participant) => participant.accountId,
+      );
+
+      this.messagingEventsService.emitMessageCreated(participantAccountIds, {
+        conversationId,
+        message: serializedMessage,
+        occurredAt: new Date().toISOString(),
+      });
+
+      return {
+        message: 'Attachment sent successfully.',
+        duplicate: false,
+        data: serializedMessage,
+      };
+    } catch (error) {
+      await this.deleteAttachmentFileIfExists(storageKey);
+
+      if (!this.isUniqueConstraintError(error)) {
+        throw error;
+      }
+
+      const duplicateMessage = await this.prisma.message.findUnique({
+        where: {
+          senderAccountId_clientMessageId: {
+            senderAccountId: viewer.accountId,
+            clientMessageId: dto.clientMessageId,
+          },
+        },
+
+        select: messageSelect,
+      });
+
+      if (!duplicateMessage) {
+        throw error;
+      }
+
+      if (duplicateMessage.conversationId !== conversationId) {
+        throw new ConflictException(
+          'This client message ID was already used in another conversation.',
+        );
+      }
+
+      return {
+        message: 'Attachment message was already accepted.',
+        duplicate: true,
+        data: this.serializeMessage(duplicateMessage),
+      };
+    }
+  }
+
+  async getAttachmentDownload(
+    user: AuthenticatedUser,
+    conversationId: string,
+    messageId: string,
+    attachmentId: string,
+  ) {
+    await this.assertActiveParticipant(user.accountId, conversationId);
+
+    const attachment = await this.prisma.messageAttachment.findFirst({
+      where: {
+        id: attachmentId,
+        messageId,
+        message: {
+          id: messageId,
+          conversationId,
+          deletedAt: null,
+          hiddenForAccounts: {
+            none: {
+              accountId: user.accountId,
+            },
+          },
+        },
+      },
+
+      select: {
+        storageKey: true,
+        originalFileName: true,
+        mimeType: true,
+        fileSizeBytes: true,
+        scanStatus: true,
+      },
+    });
+
+    if (!attachment) {
+      throw new NotFoundException('Attachment was not found.');
+    }
+
+    if (attachment.scanStatus === 'FAILED') {
+      throw new ForbiddenException('This attachment is not available for download.');
+    }
+
+    const absolutePath = this.resolveAttachmentPath(attachment.storageKey);
+
+    try {
+      await fs.access(absolutePath);
+    } catch {
+      throw new NotFoundException('Attachment file was not found in storage.');
+    }
+
+    return {
+      absolutePath,
+      originalFileName: attachment.originalFileName,
+      mimeType: attachment.mimeType,
+      fileSizeBytes: attachment.fileSizeBytes,
+    };
   }
 
   async forwardTextMessage(

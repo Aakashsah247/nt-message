@@ -3,6 +3,7 @@ import type {
 } from "react";
 
 import { DirectoryButton } from "./DirectoryButton";
+import { MessageButton } from "./MessageButton";
 
 interface NtDashboardShellProps {
   roleLabel: string;
@@ -68,6 +69,8 @@ export function NtDashboardShell({
           <div className="nt-dashboard-actions">
             {/* Custom role actions appear before the shared directory button. */}
             {headerActions}
+
+            <MessageButton />
 
             <DirectoryButton />
 
