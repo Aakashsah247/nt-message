@@ -345,7 +345,7 @@ export interface SendAttachmentMessageResponse {
   data: MessagingMessage;
 }
 
-export interface ForwardTextMessagesResponse {
+export interface ForwardMessagesResponse {
   message: string;
   createdCount: number;
   duplicateCount: number;

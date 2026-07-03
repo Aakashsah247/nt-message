@@ -505,6 +505,7 @@ export class ConversationsController {
     );
   }
 
+  // Forwarding is shared by text and attachment messages so the route stays stable.
   @Post(':id/messages/:messageId/forward')
   forwardTextMessage(
     @CurrentUser()

@@ -626,7 +626,7 @@ model MessageAttachment {
 
   messageId String @map("message_id") @db.Uuid
 
-  storageKey       String             @unique @map("storage_key") @db.VarChar(500)
+  storageKey       String             @map("storage_key") @db.VarChar(500)
   originalFileName String             @map("original_file_name") @db.VarChar(255)
   mimeType         String             @map("mime_type") @db.VarChar(120)
   fileSizeBytes    Int                @map("file_size_bytes")
@@ -639,6 +639,7 @@ model MessageAttachment {
   message Message @relation(fields: [messageId], references: [id], onDelete: Cascade)
 
   @@index([messageId], map: "message_attachments_message_idx")
+  @@index([storageKey], map: "message_attachments_storage_key_idx")
   @@index([contentType], map: "message_attachments_content_type_idx")
   @@map("message_attachments")
 }

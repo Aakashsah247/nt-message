@@ -27,7 +27,7 @@ import {
   deleteConversationMessageForMe,
   downloadConversationAttachment,
   editConversationTextMessage,
-  forwardConversationTextMessage,
+  forwardConversationMessage,
   leaveGroupConversation,
   listConversationMessages,
   listMessageRequests,
@@ -476,7 +476,20 @@ function attachmentLabel(message: Pick<MessagingMessage, "contentType" | "attach
     return "Photo";
   }
 
+  if (isVideoAttachment(firstAttachment)) {
+    return "Video";
+  }
+
   return `File: ${firstAttachment.originalFileName}`;
+}
+
+function canForwardMessage(message: MessagingMessage): boolean {
+  if (message.isDeleted) {
+    return false;
+  }
+
+  // Text and attachment messages share the same forward dialog.
+  return Boolean(message.textContent || (message.attachments?.length ?? 0) > 0);
 }
 
 function formatLastSeen(value: string): string {
@@ -2464,11 +2477,7 @@ export function MessageAppPage() {
   }
 
   function beginForward(message: MessagingMessage): void {
-    if (
-      message.isDeleted ||
-      message.contentType !== "TEXT" ||
-      !message.textContent
-    ) {
+    if (!canForwardMessage(message)) {
       return;
     }
 
@@ -2521,7 +2530,8 @@ export function MessageAppPage() {
     setMessageNotice(null);
 
     try {
-      const response = await forwardConversationTextMessage(
+      // The backend decides whether this is a text or attachment forward.
+      const response = await forwardConversationMessage(
         accessToken,
         forwardingMessage.conversationId,
         forwardingMessage.id,
@@ -3406,7 +3416,7 @@ export function MessageAppPage() {
                               </button>
                             )}
 
-                            {!message.isDeleted && message.textContent && (
+                            {canForwardMessage(message) && (
                               <button
                                 type="button"
                                 onClick={() => beginForward(message)}
@@ -4282,7 +4292,7 @@ export function MessageAppPage() {
                   ? "Forwarded message"
                   : `From ${forwardingMessage.sender.displayName}`}
               </strong>
-              <p>{forwardingMessage.textContent}</p>
+              <p>{attachmentLabel(forwardingMessage)}</p>
             </div>
 
             <label className="message-contact-search">

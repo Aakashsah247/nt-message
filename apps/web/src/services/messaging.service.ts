@@ -7,7 +7,7 @@ import type {
   CreatePrivateConversationResponse,
   DeleteMessageForMeResponse,
   DeleteMessageResponse,
-  ForwardTextMessagesResponse,
+  ForwardMessagesResponse,
   GroupConversationResponse,
   LeaveGroupResponse,
   MarkConversationReadResponse,
@@ -517,14 +517,15 @@ export async function downloadConversationAttachment(
   window.setTimeout(() => URL.revokeObjectURL(objectUrl), 1000);
 }
 
-export function forwardConversationTextMessage(
+export function forwardConversationMessage(
   accessToken: string,
   sourceConversationId: string,
   messageId: string,
   destinationConversationIds: string[],
   clientForwardId: string,
-): Promise<ForwardTextMessagesResponse> {
-  return apiRequest<ForwardTextMessagesResponse>(
+): Promise<ForwardMessagesResponse> {
+  // This endpoint forwards text and stored attachments without re-uploading media.
+  return apiRequest<ForwardMessagesResponse>(
     `/conversations/${sourceConversationId}/messages/${messageId}/forward`,
     {
       method: "POST",

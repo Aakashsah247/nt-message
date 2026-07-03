@@ -238,6 +238,7 @@ const messageSelect = {
     select: {
       id: true,
       messageId: true,
+      storageKey: true,
       originalFileName: true,
       mimeType: true,
       fileSizeBytes: true,
@@ -4194,19 +4195,51 @@ export class ConversationsService {
       );
     }
 
-    if (
-      sourceMessage.contentType !== MessageContentType.TEXT ||
-      !sourceMessage.textContent
-    ) {
+    const sourceAttachments = sourceMessage.attachments ?? [];
+    // Forwarding is allowed only for active visible content that the requester can read.
+    const isTextForward =
+      sourceMessage.contentType === MessageContentType.TEXT &&
+      Boolean(sourceMessage.textContent);
+    const forwardableAttachmentTypes = new Set<MessageContentType>([
+      MessageContentType.IMAGE,
+      MessageContentType.VIDEO,
+      MessageContentType.FILE,
+      MessageContentType.AUDIO,
+    ]);
+    const isAttachmentForward =
+      sourceAttachments.length > 0 &&
+      forwardableAttachmentTypes.has(sourceMessage.contentType);
+
+    if (!isTextForward && !isAttachmentForward) {
       throw new BadRequestException(
-        'Only active text messages can be forwarded.',
+        'Only active text, image, video, audio and document messages can be forwarded.',
       );
     }
 
+    if (sourceAttachments.some((attachment) => attachment.scanStatus === 'FAILED')) {
+      throw new ForbiddenException(
+        'A failed or quarantined attachment cannot be forwarded.',
+      );
+    }
+
+    // Reuse the same stored object for forwarded media instead of uploading a duplicate file.
+    const forwardedAttachments = sourceAttachments.map((attachment) => ({
+      storageKey: attachment.storageKey,
+      originalFileName: attachment.originalFileName,
+      mimeType: attachment.mimeType,
+      fileSizeBytes: attachment.fileSizeBytes,
+      contentType: attachment.contentType,
+      scanStatus: attachment.scanStatus,
+    }));
     const forwardedTextContent = sourceMessage.textContent;
+    const forwardedPreviewText =
+      forwardedTextContent ??
+      forwardedAttachments[0]?.originalFileName ??
+      sourceMessage.contentType;
     const destinationConversationIds = [
       ...new Set(dto.destinationConversationIds),
     ];
+    // Every destination must already include the sender as an active participant.
     const destinationConversations = await this.prisma.conversation.findMany({
       where: {
         id: {
@@ -4260,7 +4293,7 @@ export class ConversationsService {
       originalSenderAccountId: sourceMessage.senderAccountId,
       originalSenderDisplayName: sourceSender.displayName,
       originalSentAt: sourceMessage.sentAt.toISOString(),
-      originalTextContent: forwardedTextContent,
+      originalTextContent: forwardedPreviewText,
     };
 
     const forwardedMessages = await this.prisma.$transaction(
@@ -4281,6 +4314,7 @@ export class ConversationsService {
           const recipientAccountIds = participantAccountIds.filter(
             (accountId) => accountId !== viewer.accountId,
           );
+          // Client forward ID keeps retry requests idempotent per destination conversation.
           const existingMessage = await transaction.message.findUnique({
             where: {
               senderAccountId_clientMessageId: {
@@ -4325,9 +4359,10 @@ export class ConversationsService {
               conversationId: conversation.id,
               senderAccountId: viewer.accountId,
               clientMessageId,
-              contentType: MessageContentType.TEXT,
+              contentType: sourceMessage.contentType,
               textContent: forwardedTextContent,
               payload: {
+                attachmentCount: forwardedAttachments.length,
                 forwardedFrom: {
                   sourceMessageId: forwardedFrom.sourceMessageId,
                   sourceConversationId: forwardedFrom.sourceConversationId,
@@ -4339,6 +4374,14 @@ export class ConversationsService {
                   originalTextContent: forwardedFrom.originalTextContent,
                 },
               },
+              // Create new attachment rows that point to the existing protected file object.
+              ...(forwardedAttachments.length > 0
+                ? {
+                    attachments: {
+                      create: forwardedAttachments,
+                    },
+                  }
+                : {}),
               receipts: {
                 create: recipientAccountIds.map((accountId) => ({
                   accountId,
