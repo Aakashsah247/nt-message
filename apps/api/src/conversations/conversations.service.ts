@@ -37,6 +37,7 @@ import { ListConversationsQueryDto } from './dto/list-conversations-query.dto';
 import { ListMessagesQueryDto } from './dto/list-messages-query.dto';
 import { ListOfficialGroupAuditQueryDto } from './dto/list-official-group-audit-query.dto';
 import { SearchMessagingContactsQueryDto } from './dto/search-messaging-contacts-query.dto';
+import { SearchMessagesQueryDto } from './dto/search-messages-query.dto';
 import { SendTextMessageDto } from './dto/send-text-message.dto';
 import { SendAttachmentMessageDto } from './dto/send-attachment-message.dto';
 import { UpdateGroupConversationDto } from './dto/update-group-conversation.dto';
@@ -76,6 +77,15 @@ interface OfficialGroupSyncResult {
 
 type DeliveryStatus = 'SENT' | 'DELIVERED' | 'READ';
 type MessageReactionMutationAction = 'ADDED' | 'UPDATED' | 'REMOVED';
+
+interface MessageSearchFilters {
+  searchText: string | null;
+  senderAccountId?: string;
+  contentType?: MessageContentType;
+  dateFrom?: Date;
+  dateTo?: Date;
+  limit: number;
+}
 
 export interface ForwardedMessageMetadata {
   sourceMessageId: string;
@@ -748,6 +758,191 @@ export class ConversationsService {
         : null,
       createdAt: conversation.createdAt,
       updatedAt: conversation.updatedAt,
+    };
+  }
+
+  private parseMessageSearchFilters(
+    query: SearchMessagesQueryDto,
+  ): MessageSearchFilters {
+    const searchText = query.search?.trim() || null;
+    const dateFrom = query.dateFrom ? new Date(query.dateFrom) : undefined;
+    const dateTo = query.dateTo ? new Date(query.dateTo) : undefined;
+
+    if (dateFrom && Number.isNaN(dateFrom.getTime())) {
+      throw new BadRequestException('Start date filter is invalid.');
+    }
+
+    if (dateTo && Number.isNaN(dateTo.getTime())) {
+      throw new BadRequestException('End date filter is invalid.');
+    }
+
+    if (dateFrom && dateTo && dateFrom.getTime() > dateTo.getTime()) {
+      throw new BadRequestException('Start date cannot be after end date.');
+    }
+
+    return {
+      searchText,
+      senderAccountId: query.senderAccountId,
+      contentType: query.contentType,
+      dateFrom,
+      dateTo,
+      limit: query.limit,
+    };
+  }
+
+  private buildMessageSearchConditions(
+    filters: MessageSearchFilters,
+  ): Prisma.MessageWhereInput[] {
+    const andConditions: Prisma.MessageWhereInput[] = [
+      {
+        deletedAt: null,
+      },
+    ];
+
+    if (filters.senderAccountId) {
+      andConditions.push({
+        senderAccountId: filters.senderAccountId,
+      });
+    }
+
+    if (filters.contentType) {
+      andConditions.push({
+        contentType: filters.contentType,
+      });
+    }
+
+    if (filters.dateFrom || filters.dateTo) {
+      andConditions.push({
+        sentAt: {
+          ...(filters.dateFrom ? { gte: filters.dateFrom } : {}),
+          ...(filters.dateTo ? { lte: filters.dateTo } : {}),
+        },
+      });
+    }
+
+    if (filters.searchText) {
+      // Search only approved visible fields so private payload data is not exposed accidentally.
+      andConditions.push({
+        OR: [
+          {
+            textContent: {
+              contains: filters.searchText,
+              mode: 'insensitive',
+            },
+          },
+          {
+            attachments: {
+              some: {
+                originalFileName: {
+                  contains: filters.searchText,
+                  mode: 'insensitive',
+                },
+              },
+            },
+          },
+          {
+            sender: {
+              is: {
+                OR: [
+                  {
+                    username: {
+                      contains: filters.searchText,
+                      mode: 'insensitive',
+                    },
+                  },
+                  {
+                    employee: {
+                      is: {
+                        OR: [
+                          {
+                            empName: {
+                              contains: filters.searchText,
+                              mode: 'insensitive',
+                            },
+                          },
+                          {
+                            empId: {
+                              contains: filters.searchText,
+                              mode: 'insensitive',
+                            },
+                          },
+                          {
+                            designation: {
+                              contains: filters.searchText,
+                              mode: 'insensitive',
+                            },
+                          },
+                        ],
+                      },
+                    },
+                  },
+                ],
+              },
+            },
+          },
+        ],
+      });
+    }
+
+    return andConditions;
+  }
+
+  private buildSearchSnippet(
+    message: MessageRecord,
+    searchText: string | null,
+  ): string {
+    const attachmentName = message.attachments.find((attachment) =>
+      searchText
+        ? attachment.originalFileName.toLowerCase().includes(searchText.toLowerCase())
+        : false,
+    )?.originalFileName;
+
+    if (attachmentName) {
+      return attachmentName;
+    }
+
+    const text = message.textContent?.trim();
+
+    if (!text) {
+      return message.attachments[0]?.originalFileName ?? String(message.contentType);
+    }
+
+    if (!searchText) {
+      return text.length > 140 ? `${text.slice(0, 137)}...` : text;
+    }
+
+    const lowerText = text.toLowerCase();
+    const lowerSearch = searchText.toLowerCase();
+    const index = lowerText.indexOf(lowerSearch);
+
+    if (index < 0) {
+      return text.length > 140 ? `${text.slice(0, 137)}...` : text;
+    }
+
+    const start = Math.max(0, index - 45);
+    const end = Math.min(text.length, index + searchText.length + 75);
+    const prefix = start > 0 ? '...' : '';
+    const suffix = end < text.length ? '...' : '';
+
+    return `${prefix}${text.slice(start, end)}${suffix}`;
+  }
+
+  private buildMessageSearchResult(
+    message: MessageRecord,
+    conversation: ConversationRecord,
+    viewerAccountId: string,
+    searchText: string | null,
+  ) {
+    return {
+      message: this.serializeMessage(message),
+      conversation: this.serializeConversation(conversation, viewerAccountId, 0),
+      snippet: this.buildSearchSnippet(message, searchText),
+      matchedAttachmentFileName:
+        message.attachments.find((attachment) =>
+          searchText
+            ? attachment.originalFileName.toLowerCase().includes(searchText.toLowerCase())
+            : false,
+        )?.originalFileName ?? null,
     };
   }
 
@@ -2270,6 +2465,274 @@ export class ConversationsService {
       conversationId,
       created: existingConversation === null,
       data: serializedConversation,
+    };
+  }
+
+  async searchConversationMessages(
+    user: AuthenticatedUser,
+    conversationId: string,
+    query: SearchMessagesQueryDto,
+  ) {
+    const viewer = await this.getMessagingViewer(user);
+    const filters = this.parseMessageSearchFilters(query);
+
+    const viewerParticipant = await this.assertActiveParticipant(
+      viewer.accountId,
+      conversationId,
+    );
+
+    const conversation = await this.getConversationRecord(conversationId);
+
+    const messages = await this.prisma.message.findMany({
+      where: {
+        AND: [
+          {
+            conversationId,
+            sentAt: {
+              gte: viewerParticipant.joinedAt,
+            },
+            hiddenForAccounts: {
+              none: {
+                accountId: viewer.accountId,
+              },
+            },
+          },
+          ...this.buildMessageSearchConditions(filters),
+        ],
+      },
+
+      orderBy: [
+        {
+          sentAt: 'desc',
+        },
+        {
+          id: 'desc',
+        },
+      ],
+
+      take: filters.limit,
+      select: messageSelect,
+    });
+
+    return {
+      data: messages.map((message) =>
+        this.buildMessageSearchResult(
+          message,
+          conversation,
+          viewer.accountId,
+          filters.searchText,
+        ),
+      ),
+      filters: {
+        search: filters.searchText,
+        senderAccountId: filters.senderAccountId ?? null,
+        contentType: filters.contentType ?? null,
+        dateFrom: filters.dateFrom?.toISOString() ?? null,
+        dateTo: filters.dateTo?.toISOString() ?? null,
+        limit: filters.limit,
+      },
+    };
+  }
+
+  async searchMessaging(
+    user: AuthenticatedUser,
+    query: SearchMessagesQueryDto,
+  ) {
+    const viewer = await this.getMessagingViewer(user);
+    const filters = this.parseMessageSearchFilters(query);
+
+    await this.synchronizeOfficialGroupsForAccountSafely(
+      viewer.accountId,
+      viewer.accountId,
+      'MESSAGING_SEARCH',
+    );
+
+    const memberships = await this.prisma.conversationParticipant.findMany({
+      where: {
+        accountId: viewer.accountId,
+        leftAt: null,
+        isArchived: false,
+      },
+      select: {
+        conversationId: true,
+        joinedAt: true,
+      },
+    });
+
+    const conversationIds = memberships.map((membership) => membership.conversationId);
+    const visibilityConditions = memberships.map((membership) => ({
+      conversationId: membership.conversationId,
+      sentAt: {
+        gte: membership.joinedAt,
+      },
+    }));
+
+    const messages = visibilityConditions.length === 0
+      ? []
+      : await this.prisma.message.findMany({
+          where: {
+            AND: [
+              {
+                OR: visibilityConditions,
+                hiddenForAccounts: {
+                  none: {
+                    accountId: viewer.accountId,
+                  },
+                },
+              },
+              ...this.buildMessageSearchConditions(filters),
+            ],
+          },
+
+          orderBy: [
+            {
+              sentAt: 'desc',
+            },
+            {
+              id: 'desc',
+            },
+          ],
+
+          take: filters.limit,
+          select: messageSelect,
+        });
+
+    const searchedConversationIds = [
+      ...new Set(messages.map((message) => message.conversationId)),
+    ];
+
+    const messageConversations = searchedConversationIds.length === 0
+      ? []
+      : await this.prisma.conversation.findMany({
+          where: {
+            id: {
+              in: searchedConversationIds,
+            },
+          },
+          select: conversationSelect,
+        });
+
+    const conversationById = new Map(
+      messageConversations.map((conversation) => [conversation.id, conversation]),
+    );
+
+    const conversationMatches = filters.searchText && conversationIds.length > 0
+      ? await this.prisma.conversation.findMany({
+          where: {
+            id: {
+              in: conversationIds,
+            },
+            OR: [
+              {
+                title: {
+                  contains: filters.searchText,
+                  mode: 'insensitive',
+                },
+              },
+              {
+                description: {
+                  contains: filters.searchText,
+                  mode: 'insensitive',
+                },
+              },
+              {
+                participants: {
+                  some: {
+                    account: {
+                      is: {
+                        OR: [
+                          {
+                            username: {
+                              contains: filters.searchText,
+                              mode: 'insensitive',
+                            },
+                          },
+                          {
+                            employee: {
+                              is: {
+                                OR: [
+                                  {
+                                    empName: {
+                                      contains: filters.searchText,
+                                      mode: 'insensitive',
+                                    },
+                                  },
+                                  {
+                                    empId: {
+                                      contains: filters.searchText,
+                                      mode: 'insensitive',
+                                    },
+                                  },
+                                  {
+                                    designation: {
+                                      contains: filters.searchText,
+                                      mode: 'insensitive',
+                                    },
+                                  },
+                                ],
+                              },
+                            },
+                          },
+                        ],
+                      },
+                    },
+                  },
+                },
+              },
+            ],
+          },
+          orderBy: [
+            {
+              updatedAt: 'desc',
+            },
+            {
+              id: 'desc',
+            },
+          ],
+          take: 10,
+          select: conversationSelect,
+        })
+      : [];
+
+    // Contact results reuse the existing protected directory rules and message-request policy.
+    const contactResponse = filters.searchText
+      ? await this.searchMessagingContacts(user, {
+          search: filters.searchText,
+          limit: 10,
+        })
+      : {
+          data: [],
+        };
+
+    const messageResults = messages.flatMap((message) => {
+      const conversation = conversationById.get(message.conversationId);
+
+      if (!conversation) {
+        return [];
+      }
+
+      return [this.buildMessageSearchResult(
+        message,
+        conversation,
+        viewer.accountId,
+        filters.searchText,
+      )];
+    });
+
+    return {
+      messages: messageResults,
+      conversations: conversationMatches.map((conversation) =>
+        this.serializeConversation(conversation, viewer.accountId, 0),
+      ),
+      contacts: contactResponse.data,
+      filters: {
+        search: filters.searchText,
+        senderAccountId: filters.senderAccountId ?? null,
+        contentType: filters.contentType ?? null,
+        dateFrom: filters.dateFrom?.toISOString() ?? null,
+        dateTo: filters.dateTo?.toISOString() ?? null,
+        limit: filters.limit,
+      },
     };
   }
 

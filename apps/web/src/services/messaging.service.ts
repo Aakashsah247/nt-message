@@ -4,15 +4,18 @@ import type {
   AcceptMessageRequestResponse,
   AddGroupMembersResponse,
   ConversationListResponse,
+  ConversationMessageSearchResponse,
   CreatePrivateConversationResponse,
   DeleteMessageForMeResponse,
   DeleteMessageResponse,
   ForwardMessagesResponse,
+  GlobalMessagingSearchResponse,
   GroupConversationResponse,
   LeaveGroupResponse,
   MarkConversationReadResponse,
   MessageRequestActionResponse,
   MessageRequestListResponse,
+  MessagingSearchFilters,
   MessageListResponse,
   MessageReactionResponse,
   MessagingContactsResponse,
@@ -306,6 +309,66 @@ export function blockMessageRequest(
     `/conversations/requests/${requestId}/block`,
     {
       method: "PATCH",
+      headers: authorizationHeaders(accessToken),
+    },
+  );
+}
+
+
+function messagingSearchParams(
+  filters: MessagingSearchFilters,
+): URLSearchParams {
+  const params = new URLSearchParams({
+    limit: String(filters.limit ?? 25),
+  });
+
+  if (filters.search?.trim()) {
+    params.set("search", filters.search.trim());
+  }
+
+  if (filters.senderAccountId) {
+    params.set("senderAccountId", filters.senderAccountId);
+  }
+
+  if (filters.contentType) {
+    params.set("contentType", filters.contentType);
+  }
+
+  if (filters.dateFrom) {
+    params.set("dateFrom", filters.dateFrom);
+  }
+
+  if (filters.dateTo) {
+    params.set("dateTo", filters.dateTo);
+  }
+
+  return params;
+}
+
+export function searchConversationMessages(
+  accessToken: string,
+  conversationId: string,
+  filters: MessagingSearchFilters,
+): Promise<ConversationMessageSearchResponse> {
+  const params = messagingSearchParams(filters);
+
+  return apiRequest<ConversationMessageSearchResponse>(
+    `/conversations/${conversationId}/messages/search?${params.toString()}`,
+    {
+      headers: authorizationHeaders(accessToken),
+    },
+  );
+}
+
+export function searchMessaging(
+  accessToken: string,
+  filters: MessagingSearchFilters,
+): Promise<GlobalMessagingSearchResponse> {
+  const params = messagingSearchParams(filters);
+
+  return apiRequest<GlobalMessagingSearchResponse>(
+    `/conversations/search?${params.toString()}`,
+    {
       headers: authorizationHeaders(accessToken),
     },
   );

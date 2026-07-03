@@ -376,6 +376,42 @@ export interface MarkConversationReadResponse {
   readAt: string;
 }
 
+
+export interface MessagingSearchFilters {
+  search?: string;
+  senderAccountId?: string;
+  contentType?: MessageContentType;
+  dateFrom?: string;
+  dateTo?: string;
+  limit?: number;
+}
+
+export interface MessagingSearchMessageResult {
+  message: MessagingMessage;
+  conversation: MessagingConversation;
+  snippet: string;
+  matchedAttachmentFileName: string | null;
+}
+
+export interface ConversationMessageSearchResponse {
+  data: MessagingSearchMessageResult[];
+  filters: {
+    search: string | null;
+    senderAccountId: string | null;
+    contentType: MessageContentType | null;
+    dateFrom: string | null;
+    dateTo: string | null;
+    limit: number;
+  };
+}
+
+export interface GlobalMessagingSearchResponse {
+  messages: MessagingSearchMessageResult[];
+  conversations: MessagingConversation[];
+  contacts: MessagingContact[];
+  filters: ConversationMessageSearchResponse["filters"];
+}
+
 export interface MessageReactionResponse {
   message: string;
   action: "ADDED" | "UPDATED" | "REMOVED";

@@ -32,6 +32,7 @@ import { ListConversationsQueryDto } from './dto/list-conversations-query.dto';
 import { ListMessagesQueryDto } from './dto/list-messages-query.dto';
 import { ListOfficialGroupAuditQueryDto } from './dto/list-official-group-audit-query.dto';
 import { SearchMessagingContactsQueryDto } from './dto/search-messaging-contacts-query.dto';
+import { SearchMessagesQueryDto } from './dto/search-messages-query.dto';
 import { SendTextMessageDto } from './dto/send-text-message.dto';
 import { SendAttachmentMessageDto } from './dto/send-attachment-message.dto';
 import { UpdateGroupConversationDto } from './dto/update-group-conversation.dto';
@@ -172,6 +173,17 @@ export class ConversationsController {
     return this.conversationsService.listConversations(user, query);
   }
 
+  @Get('search')
+  searchMessaging(
+    @CurrentUser()
+    user: AuthenticatedUser,
+
+    @Query()
+    query: SearchMessagesQueryDto,
+  ) {
+    return this.conversationsService.searchMessaging(user, query);
+  }
+
   @Patch(':id/group')
   updateGroupConversation(
     @CurrentUser()
@@ -310,6 +322,29 @@ export class ConversationsController {
     query: ListOfficialGroupAuditQueryDto,
   ) {
     return this.conversationsService.listOfficialGroupAudit(
+      user,
+      conversationId,
+      query,
+    );
+  }
+
+  @Get(':id/messages/search')
+  searchConversationMessages(
+    @CurrentUser()
+    user: AuthenticatedUser,
+
+    @Param(
+      'id',
+      new ParseUUIDPipe({
+        version: '4',
+      }),
+    )
+    conversationId: string,
+
+    @Query()
+    query: SearchMessagesQueryDto,
+  ) {
+    return this.conversationsService.searchConversationMessages(
       user,
       conversationId,
       query,

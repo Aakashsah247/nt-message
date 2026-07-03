@@ -40,6 +40,8 @@ import {
   reactToMessage,
   searchMessagingContacts,
   sendConversationAttachmentMessage,
+  searchConversationMessages,
+  searchMessaging,
   sendConversationTextMessage,
   updateGroupConversation,
   updateGroupMemberRole,
@@ -67,6 +69,8 @@ import type {
   MessagingConversation,
   MessagingMessage,
   MessagingMessageRequest,
+  MessagingSearchMessageResult,
+  MessageContentType,
   OfficialGroupAuditEntry,
   OfficialGroupScopeOption,
 } from "../types/messaging";
@@ -884,8 +888,21 @@ export function MessageAppPage() {
   const [requestActionId, setRequestActionId] = useState<string | null>(null);
   const [requestError, setRequestError] = useState<string | null>(null);
   const [requestNotice, setRequestNotice] = useState<string | null>(null);
+  const [searchDialogOpen, setSearchDialogOpen] = useState(false);
+  const [searchScope, setSearchScope] = useState<"CURRENT" | "GLOBAL">("CURRENT");
+  const [searchText, setSearchText] = useState("");
+  const [searchContentType, setSearchContentType] = useState<"" | MessageContentType>("");
+  const [searchDateFrom, setSearchDateFrom] = useState("");
+  const [searchDateTo, setSearchDateTo] = useState("");
+  const [searchResults, setSearchResults] = useState<MessagingSearchMessageResult[]>([]);
+  const [searchConversationResults, setSearchConversationResults] = useState<MessagingConversation[]>([]);
+  const [searchContactResults, setSearchContactResults] = useState<MessagingContact[]>([]);
+  const [searchLoading, setSearchLoading] = useState(false);
+  const [searchError, setSearchError] = useState<string | null>(null);
+  const [highlightedMessageId, setHighlightedMessageId] = useState<string | null>(null);
 
   const messageListRef = useRef<HTMLDivElement | null>(null);
+  const pendingSearchResultRef = useRef<MessagingSearchMessageResult | null>(null);
   const previousScrollConversationIdRef = useRef<string | null>(null);
   const previousMessageCountRef = useRef(0);
   const composerRef = useRef<HTMLTextAreaElement | null>(null);
@@ -1120,7 +1137,18 @@ export function MessageAppPage() {
         50,
       );
 
-      setMessages(response.data);
+      const pendingSearchResult = pendingSearchResultRef.current;
+      const pendingMessage = pendingSearchResult?.conversation.id === conversationId
+        ? pendingSearchResult.message
+        : null;
+      const nextMessages = pendingMessage && !response.data.some((message) => message.id === pendingMessage.id)
+        ? [...response.data, pendingMessage].sort((first, second) => (
+            new Date(first.sentAt).getTime() - new Date(second.sentAt).getTime()
+          ))
+        : response.data;
+
+      // Keep an older search result visible even when the first page does not contain it.
+      setMessages(nextMessages);
       setMessageCursor(response.pagination.nextCursor);
       setHasOlderMessages(response.pagination.hasMore);
       setMessageError(null);
@@ -1618,6 +1646,33 @@ export function MessageAppPage() {
     previousScrollConversationIdRef.current = selectedConversationId;
     previousMessageCountRef.current = messages.length;
   }, [messageLoading, messages.length, olderMessagesLoading, selectedConversationId]);
+
+  useEffect(() => {
+    if (!highlightedMessageId) {
+      return undefined;
+    }
+
+    const timer = window.setTimeout(() => {
+      const messageElement = messageListRef.current?.querySelector(
+        `[data-message-id="${highlightedMessageId}"]`,
+      );
+
+      // Search navigation focuses the exact result when it is loaded in the thread.
+      messageElement?.scrollIntoView({
+        block: "center",
+        behavior: "smooth",
+      });
+    }, 120);
+
+    const clearTimer = window.setTimeout(() => {
+      setHighlightedMessageId(null);
+    }, 3200);
+
+    return () => {
+      window.clearTimeout(timer);
+      window.clearTimeout(clearTimer);
+    };
+  }, [highlightedMessageId, messages]);
 
   useEffect(() => {
     if (!newConversationOpen || !accessToken) {
@@ -2239,6 +2294,89 @@ export function MessageAppPage() {
     setRequestError(null);
     setRequestDialogOpen(true);
     void loadMessageRequests();
+  }
+
+  function openSearchDialog(scope: "CURRENT" | "GLOBAL" = selectedConversationId ? "CURRENT" : "GLOBAL"): void {
+    setSearchScope(scope);
+    setSearchError(null);
+    setSearchDialogOpen(true);
+  }
+
+  function searchFilters() {
+    return {
+      search: searchText,
+      contentType: searchContentType || undefined,
+      dateFrom: searchDateFrom || undefined,
+      dateTo: searchDateTo || undefined,
+      limit: 25,
+    };
+  }
+
+  async function handleMessagingSearch(
+    event: FormEvent<HTMLFormElement>,
+  ): Promise<void> {
+    event.preventDefault();
+
+    if (!accessToken) {
+      return;
+    }
+
+    if (searchScope === "CURRENT" && !selectedConversationId) {
+      setSearchError("Select a conversation before searching inside it.");
+      return;
+    }
+
+    setSearchLoading(true);
+    setSearchError(null);
+
+    try {
+      if (searchScope === "CURRENT" && selectedConversationId) {
+        // Current-conversation search still uses the same backend membership checks.
+        const response = await searchConversationMessages(
+          accessToken,
+          selectedConversationId,
+          searchFilters(),
+        );
+
+        setSearchResults(response.data);
+        setSearchConversationResults([]);
+        setSearchContactResults([]);
+      } else {
+        // Global search combines authorized messages, conversations and eligible contacts.
+        const response = await searchMessaging(accessToken, searchFilters());
+
+        setSearchResults(response.messages);
+        setSearchConversationResults(response.conversations);
+        setSearchContactResults(response.contacts);
+      }
+    } catch (error) {
+      setSearchError(
+        error instanceof Error
+          ? error.message
+          : "Search could not be completed.",
+      );
+    } finally {
+      setSearchLoading(false);
+    }
+  }
+
+  function openSearchMessageResult(result: MessagingSearchMessageResult): void {
+    pendingSearchResultRef.current = result;
+    setSearchDialogOpen(false);
+    setHighlightedMessageId(result.message.id);
+    setSelectedConversationId(result.conversation.id);
+    setConversations((current) => {
+      if (current.some((conversation) => conversation.id === result.conversation.id)) {
+        return current;
+      }
+
+      return [result.conversation, ...current];
+    });
+  }
+
+  function openSearchConversationResult(conversation: MessagingConversation): void {
+    setSearchDialogOpen(false);
+    setSelectedConversationId(conversation.id);
   }
 
   async function handleAcceptRequest(
@@ -3183,6 +3321,14 @@ export function MessageAppPage() {
             <div className="message-sidebar-actions">
               <button
                 type="button"
+                className="message-search-mini-button"
+                onClick={() => openSearchDialog("GLOBAL")}
+              >
+                Search
+              </button>
+
+              <button
+                type="button"
                 className="message-requests-button"
                 onClick={openMessageRequests}
               >
@@ -3424,6 +3570,14 @@ export function MessageAppPage() {
                   </small>
                 </div>
 
+                <button
+                  type="button"
+                  className="message-search-open-button"
+                  onClick={() => openSearchDialog("CURRENT")}
+                >
+                  Search
+                </button>
+
                 {selectedConversation.type === "GROUP" ? (
                   <button
                     type="button"
@@ -3502,9 +3656,10 @@ export function MessageAppPage() {
                     return (
                       <article
                         key={message.id}
+                        data-message-id={message.id}
                         className={`message-bubble-row${
                           ownMessage ? " own" : ""
-                        }`}
+                        }${highlightedMessageId === message.id ? " search-highlight" : ""}`}
                       >
                         {!ownMessage && (
                           <span className="message-avatar small">
@@ -3610,10 +3765,10 @@ export function MessageAppPage() {
                               </>
                             )}
                           </div>
-                            
+
 
                           <div className="message-bubble-actions">
-                            
+
                             {!message.isDeleted && (
                               <div
                                 className="message-quick-reactions"
@@ -3656,7 +3811,7 @@ export function MessageAppPage() {
                                 })}
                               </div>
                             )}
-                            
+
                             {!message.isDeleted && message.textContent && (
                               <button
                                 type="button"
@@ -3928,6 +4083,204 @@ export function MessageAppPage() {
           )}
         </section>
       </section>
+
+      {searchDialogOpen && (
+        <div
+          className="message-contact-backdrop"
+          role="presentation"
+          onMouseDown={(event) => {
+            if (event.currentTarget === event.target && !searchLoading) {
+              setSearchDialogOpen(false);
+            }
+          }}
+        >
+          <section
+            className="message-search-dialog"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="message-search-title"
+          >
+            <header>
+              <div>
+                <span>Search and filters</span>
+                <h2 id="message-search-title">Find messages</h2>
+              </div>
+
+              <button
+                type="button"
+                onClick={() => setSearchDialogOpen(false)}
+                aria-label="Close message search"
+                disabled={searchLoading}
+              >
+                ×
+              </button>
+            </header>
+
+            <form
+              className="message-search-form"
+              onSubmit={(event) => void handleMessagingSearch(event)}
+            >
+              <label>
+                <span>Search text</span>
+                <input
+                  type="search"
+                  value={searchText}
+                  onChange={(event) => setSearchText(event.target.value)}
+                  placeholder="Search text, sender or file name"
+                  autoFocus
+                />
+              </label>
+
+              <label>
+                <span>Scope</span>
+                <select
+                  value={searchScope}
+                  onChange={(event) => setSearchScope(event.target.value as "CURRENT" | "GLOBAL")}
+                >
+                  <option value="CURRENT" disabled={!selectedConversationId}>Current conversation</option>
+                  <option value="GLOBAL">All conversations</option>
+                </select>
+              </label>
+
+              <label>
+                <span>Message type</span>
+                <select
+                  value={searchContentType}
+                  onChange={(event) => setSearchContentType(event.target.value as "" | MessageContentType)}
+                >
+                  <option value="">All types</option>
+                  <option value="TEXT">Text</option>
+                  <option value="IMAGE">Images</option>
+                  <option value="VIDEO">Videos</option>
+                  <option value="AUDIO">Audio / voice notes</option>
+                  <option value="FILE">Documents</option>
+                </select>
+              </label>
+
+              <label>
+                <span>From date</span>
+                <input
+                  type="date"
+                  value={searchDateFrom}
+                  onChange={(event) => setSearchDateFrom(event.target.value)}
+                />
+              </label>
+
+              <label>
+                <span>To date</span>
+                <input
+                  type="date"
+                  value={searchDateTo}
+                  onChange={(event) => setSearchDateTo(event.target.value)}
+                />
+              </label>
+
+              <button type="submit" disabled={searchLoading}>
+                {searchLoading ? "Searching..." : "Search"}
+              </button>
+            </form>
+
+            {searchError && (
+              <div className="message-inline-error compact">
+                <p>{searchError}</p>
+              </div>
+            )}
+
+            <div className="message-search-results">
+              {searchLoading ? (
+                <div className="message-list-state compact">
+                  <span className="message-small-spinner" />
+                  <p>Searching authorized conversations...</p>
+                </div>
+              ) : searchResults.length === 0 &&
+                searchConversationResults.length === 0 &&
+                searchContactResults.length === 0 ? (
+                <div className="message-list-state compact">
+                  <div className="message-empty-icon">S</div>
+                  <h3>No search results yet</h3>
+                  <p>Enter a keyword or use filters, then press Search.</p>
+                </div>
+              ) : (
+                <>
+                  {searchResults.length > 0 && (
+                    <section className="message-search-section">
+                      <h3>Messages</h3>
+                      {searchResults.map((result) => (
+                        <button
+                          key={result.message.id}
+                          type="button"
+                          className="message-search-result-row"
+                          onClick={() => openSearchMessageResult(result)}
+                        >
+                          <span className="message-avatar small">
+                            {initials(result.message.sender.displayName)}
+                          </span>
+                          <span>
+                            <strong>{result.conversation.title ?? "Conversation"}</strong>
+                            <small>{result.snippet}</small>
+                            <em>
+                              {attachmentLabel(result.message)} · {formatConversationTime(result.message.sentAt)}
+                            </em>
+                          </span>
+                        </button>
+                      ))}
+                    </section>
+                  )}
+
+                  {searchConversationResults.length > 0 && (
+                    <section className="message-search-section">
+                      <h3>Conversations</h3>
+                      {searchConversationResults.map((conversation) => (
+                        <button
+                          key={conversation.id}
+                          type="button"
+                          className="message-search-result-row"
+                          onClick={() => openSearchConversationResult(conversation)}
+                        >
+                          <span className="message-avatar small">
+                            {initials(conversation.title ?? "NT")}
+                          </span>
+                          <span>
+                            <strong>{conversation.title ?? "Private conversation"}</strong>
+                            <small>{conversation.description ?? messagePreview(conversation, account?.id ?? "")}</small>
+                          </span>
+                        </button>
+                      ))}
+                    </section>
+                  )}
+
+                  {searchContactResults.length > 0 && (
+                    <section className="message-search-section">
+                      <h3>People</h3>
+                      {searchContactResults.map((contact) => (
+                        <button
+                          key={contact.accountId}
+                          type="button"
+                          className="message-search-result-row"
+                          onClick={() => {
+                            setSearchDialogOpen(false);
+                            void handleCreateConversation(contact);
+                          }}
+                          disabled={contact.contactMode === "REQUEST_SENT" || contact.contactMode === "BLOCKED"}
+                        >
+                          <span className="message-avatar small">
+                            {initials(contact.displayName)}
+                          </span>
+                          <span>
+                            <strong>{contact.displayName}</strong>
+                            <small>{contact.employee?.designation ?? roleLabel(contact.role)}</small>
+                            <em>{contactActionLabel(contact)}</em>
+                          </span>
+                        </button>
+                      ))}
+                    </section>
+                  )}
+                </>
+              )}
+            </div>
+          </section>
+        </div>
+      )}
 
       {newConversationOpen && (
         <div
