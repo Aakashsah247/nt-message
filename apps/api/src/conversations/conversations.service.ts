@@ -99,6 +99,33 @@ interface MessageNotificationInput {
   notificationType?: MessagingNotificationType;
 }
 
+export interface AnalyticsScopeSummary {
+  role: AccountRole;
+  label: string;
+  division: {
+    id: string;
+    name: string;
+    code: string;
+    isActive: boolean;
+  } | null;
+  department: {
+    id: string;
+    name: string;
+    code: string;
+    isActive: boolean;
+  } | null;
+}
+
+export interface AnalyticsCountItem {
+  key: string;
+  label: string;
+  count: number;
+}
+
+export interface AnalyticsAttachmentItem extends AnalyticsCountItem {
+  totalBytes: number;
+}
+
 export interface ForwardedMessageMetadata {
   sourceMessageId: string;
   sourceConversationId: string;
@@ -814,6 +841,89 @@ export class ConversationsService {
       createdAt: notification.createdAt,
       updatedAt: notification.updatedAt,
     };
+  }
+
+  private ensureAnalyticsViewer(viewer: MessagingViewer): void {
+    if (viewer.role === AccountRole.EMPLOYEE) {
+      throw new ForbiddenException('Analytics are available only to management accounts.');
+    }
+  }
+
+  private getAnalyticsEmployeeScopeWhere(viewer: MessagingViewer): Prisma.EmployeeWhereInput {
+    return {
+      divisionId: viewer.divisionId ?? undefined,
+      ...(viewer.role === AccountRole.TEAM_MANAGER
+        ? { departmentId: viewer.departmentId ?? undefined }
+        : {}),
+    };
+  }
+
+  private getAnalyticsAccountWhere(viewer: MessagingViewer): Prisma.AccountWhereInput {
+    if (viewer.role === AccountRole.SUPER_ADMIN) {
+      return {};
+    }
+
+    // Management analytics are scoped by employee assignment, not by editable frontend filters.
+    return {
+      employee: {
+        is: this.getAnalyticsEmployeeScopeWhere(viewer),
+      },
+    };
+  }
+
+  private async buildAnalyticsScopeSummary(
+    viewer: MessagingViewer,
+  ): Promise<AnalyticsScopeSummary> {
+    const [division, department] = await Promise.all([
+      viewer.divisionId
+        ? this.prisma.division.findUnique({
+            where: { id: viewer.divisionId },
+            select: { id: true, name: true, code: true, isActive: true },
+          })
+        : null,
+      viewer.departmentId
+        ? this.prisma.department.findUnique({
+            where: { id: viewer.departmentId },
+            select: { id: true, name: true, code: true, isActive: true },
+          })
+        : null,
+    ]);
+
+    const label =
+      viewer.role === AccountRole.SUPER_ADMIN
+        ? 'Organization-wide analytics'
+        : viewer.role === AccountRole.SENIOR_MANAGEMENT
+          ? 'Division analytics'
+          : 'Department analytics';
+
+    return {
+      role: viewer.role,
+      label,
+      division,
+      department,
+    };
+  }
+
+  private emptyCountItems(keys: string[]): AnalyticsCountItem[] {
+    return keys.map((key) => ({
+      key,
+      label: key
+        .toLowerCase()
+        .split('_')
+        .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+        .join(' '),
+      count: 0,
+    }));
+  }
+
+  private countMapToItems(
+    keys: string[],
+    counts: Map<string, number>,
+  ): AnalyticsCountItem[] {
+    return this.emptyCountItems(keys).map((item) => ({
+      ...item,
+      count: counts.get(item.key) ?? 0,
+    }));
   }
 
   private parseMessageSearchFilters(
@@ -1861,6 +1971,272 @@ export class ConversationsService {
         error instanceof Error ? error.stack : undefined,
       );
     }
+  }
+
+  async getMessagingAnalytics(user: AuthenticatedUser) {
+    const viewer = await this.getMessagingViewer(user);
+
+    this.ensureAnalyticsViewer(viewer);
+
+    const now = new Date();
+    const todayStart = new Date(now);
+    todayStart.setHours(0, 0, 0, 0);
+
+    const weekStart = new Date(now);
+    weekStart.setDate(weekStart.getDate() - 7);
+
+    const accountWhere = this.getAnalyticsAccountWhere(viewer);
+
+    const scopedAccounts = await this.prisma.account.findMany({
+      where: accountWhere,
+      select: { id: true },
+    });
+
+    const scopedAccountIds = scopedAccounts.map((account) => account.id);
+    const scopedAccountFilter: Prisma.StringFilter = { in: scopedAccountIds };
+
+    const scopedMessageWhere: Prisma.MessageWhereInput = {
+      senderAccountId: scopedAccountFilter,
+      deletedAt: null,
+    };
+
+    const scopedConversationWhere: Prisma.ConversationWhereInput = {
+      participants: {
+        some: {
+          accountId: scopedAccountFilter,
+          leftAt: null,
+        },
+      },
+    };
+
+    const [
+      scope,
+      totalUsers,
+      enabledUsers,
+      disabledUsers,
+      activeEmployeeUsers,
+      roleGroups,
+      scopedEmployees,
+      totalConversations,
+      conversationGroups,
+      totalMessages,
+      messageGroups,
+      totalAttachments,
+      attachmentGroups,
+      totalNotifications,
+      unreadNotifications,
+      activeUsersToday,
+      activeUsersThisWeek,
+      messagesToday,
+      messagesThisWeek,
+      attachmentsToday,
+      notificationsToday,
+      latestMessageActivity,
+    ] = await Promise.all([
+      this.buildAnalyticsScopeSummary(viewer),
+      this.prisma.account.count({ where: accountWhere }),
+      this.prisma.account.count({ where: { ...accountWhere, isEnabled: true } }),
+      this.prisma.account.count({ where: { ...accountWhere, isEnabled: false } }),
+      this.prisma.account.count({
+        where: {
+          ...accountWhere,
+          isEnabled: true,
+          employee: {
+            is: {
+              ...this.getAnalyticsEmployeeScopeWhere(viewer),
+              status: EmployeeStatus.ACTIVE,
+              employmentStatus: EmploymentStatus.ACTIVE,
+              archivedAt: null,
+              isActivated: true,
+            },
+          },
+        },
+      }),
+      this.prisma.account.groupBy({
+        by: ['role'],
+        where: accountWhere,
+        _count: { _all: true },
+      }),
+      this.prisma.employee.findMany({
+        where: {
+          account: {
+            is: {
+              id: scopedAccountFilter,
+            },
+          },
+        },
+        select: {
+          divisionId: true,
+          departmentId: true,
+          division: { select: { id: true, name: true, code: true } },
+          departmentUnit: { select: { id: true, name: true, code: true } },
+        },
+      }),
+      this.prisma.conversation.count({ where: scopedConversationWhere }),
+      this.prisma.conversation.groupBy({
+        by: ['type', 'groupKind'],
+        where: scopedConversationWhere,
+        _count: { _all: true },
+      }),
+      this.prisma.message.count({ where: scopedMessageWhere }),
+      this.prisma.message.groupBy({
+        by: ['contentType'],
+        where: scopedMessageWhere,
+        _count: { _all: true },
+      }),
+      this.prisma.messageAttachment.count({
+        where: { message: { is: scopedMessageWhere } },
+      }),
+      this.prisma.messageAttachment.groupBy({
+        by: ['contentType'],
+        where: { message: { is: scopedMessageWhere } },
+        _count: { _all: true },
+        _sum: { fileSizeBytes: true },
+      }),
+      this.prisma.messagingNotification.count({
+        where: { recipientAccountId: scopedAccountFilter },
+      }),
+      this.prisma.messagingNotification.count({
+        where: { recipientAccountId: scopedAccountFilter, isRead: false },
+      }),
+      this.prisma.account.count({
+        where: { ...accountWhere, lastLoginAt: { gte: todayStart } },
+      }),
+      this.prisma.account.count({
+        where: { ...accountWhere, lastLoginAt: { gte: weekStart } },
+      }),
+      this.prisma.message.count({
+        where: { ...scopedMessageWhere, sentAt: { gte: todayStart } },
+      }),
+      this.prisma.message.count({
+        where: { ...scopedMessageWhere, sentAt: { gte: weekStart } },
+      }),
+      this.prisma.messageAttachment.count({
+        where: {
+          createdAt: { gte: todayStart },
+          message: { is: scopedMessageWhere },
+        },
+      }),
+      this.prisma.messagingNotification.count({
+        where: {
+          recipientAccountId: scopedAccountFilter,
+          createdAt: { gte: todayStart },
+        },
+      }),
+      this.prisma.message.aggregate({
+        where: scopedMessageWhere,
+        _max: { sentAt: true },
+      }),
+    ]);
+
+    const roleCountMap = new Map(
+      roleGroups.map((item) => [item.role, item._count._all]),
+    );
+
+    const messageTypeCountMap = new Map(
+      messageGroups.map((item) => [item.contentType, item._count._all]),
+    );
+
+    const divisionCounts = new Map<string, AnalyticsCountItem>();
+    const departmentCounts = new Map<string, AnalyticsCountItem>();
+
+    for (const employee of scopedEmployees) {
+      if (employee.division) {
+        const current = divisionCounts.get(employee.division.id);
+        divisionCounts.set(employee.division.id, {
+          key: employee.division.id,
+          label: `${employee.division.name} (${employee.division.code})`,
+          count: (current?.count ?? 0) + 1,
+        });
+      }
+
+      if (employee.departmentUnit) {
+        const current = departmentCounts.get(employee.departmentUnit.id);
+        departmentCounts.set(employee.departmentUnit.id, {
+          key: employee.departmentUnit.id,
+          label: `${employee.departmentUnit.name} (${employee.departmentUnit.code})`,
+          count: (current?.count ?? 0) + 1,
+        });
+      }
+    }
+
+    const conversationTypeCounts = new Map<string, number>();
+
+    for (const item of conversationGroups) {
+      const key =
+        item.type === ConversationType.PRIVATE
+          ? 'PRIVATE'
+          : item.groupKind === GroupKind.OFFICIAL
+            ? 'OFFICIAL_GROUP'
+            : item.groupKind === GroupKind.PERSONAL
+              ? 'PERSONAL_GROUP'
+              : item.type;
+
+      conversationTypeCounts.set(
+        key,
+        (conversationTypeCounts.get(key) ?? 0) + item._count._all,
+      );
+    }
+
+    const attachmentCounts: AnalyticsAttachmentItem[] = attachmentGroups.map((item) => ({
+      key: item.contentType,
+      label: item.contentType
+        .toLowerCase()
+        .split('_')
+        .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+        .join(' '),
+      count: item._count._all,
+      totalBytes: item._sum.fileSizeBytes ?? 0,
+    }));
+
+    // Keep analytics audit-safe by returning counts only, never message bodies or file previews.
+    return {
+      generatedAt: now.toISOString(),
+      scope,
+      totals: {
+        users: totalUsers,
+        enabledUsers,
+        disabledUsers,
+        activeEmployeeUsers,
+        conversations: totalConversations,
+        messages: totalMessages,
+        attachments: totalAttachments,
+        notifications: totalNotifications,
+        unreadNotifications,
+      },
+      usersByRole: this.countMapToItems(
+        Object.values(AccountRole),
+        roleCountMap,
+      ),
+      usersByDivision: Array.from(divisionCounts.values()).sort(
+        (first, second) => second.count - first.count,
+      ),
+      usersByDepartment: Array.from(departmentCounts.values()).sort(
+        (first, second) => second.count - first.count,
+      ),
+      conversationsByType: this.countMapToItems(
+        ['PRIVATE', 'PERSONAL_GROUP', 'OFFICIAL_GROUP', 'ANNOUNCEMENT'],
+        conversationTypeCounts,
+      ),
+      messagesByType: this.countMapToItems(
+        Object.values(MessageContentType),
+        messageTypeCountMap,
+      ),
+      attachmentsByType: attachmentCounts,
+      activeUsers: {
+        today: activeUsersToday,
+        thisWeek: activeUsersThisWeek,
+      },
+      recentActivity: {
+        messagesToday,
+        messagesThisWeek,
+        attachmentsToday,
+        notificationsToday,
+        latestMessageAt: latestMessageActivity._max.sentAt?.toISOString() ?? null,
+      },
+      privacyNotice:
+        'Analytics are limited to aggregated counts and do not expose private message content.',
+    };
   }
 
   async listMessagingNotifications(user: AuthenticatedUser) {

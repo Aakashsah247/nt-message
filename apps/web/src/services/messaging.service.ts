@@ -16,6 +16,7 @@ import type {
   MessageRequestActionResponse,
   MessageRequestListResponse,
   MessagingNotificationListResponse,
+  MessagingAnalyticsResponse,
   MessagingSearchFilters,
   MessageListResponse,
   MessageReactionResponse,
@@ -270,6 +271,17 @@ export function listMessageRequests(
 ): Promise<MessageRequestListResponse> {
   return apiRequest<MessageRequestListResponse>(
     "/conversations/requests",
+    {
+      headers: authorizationHeaders(accessToken),
+    },
+  );
+}
+
+export function getMessagingAnalytics(
+  accessToken: string,
+): Promise<MessagingAnalyticsResponse> {
+  return apiRequest<MessagingAnalyticsResponse>(
+    "/conversations/analytics",
     {
       headers: authorizationHeaders(accessToken),
     },

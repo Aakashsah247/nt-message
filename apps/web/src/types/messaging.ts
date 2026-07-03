@@ -451,3 +451,54 @@ export interface MessageReactionResponse {
   action: "ADDED" | "UPDATED" | "REMOVED";
   data: MessagingMessage;
 }
+
+export interface MessagingAnalyticsCountItem {
+  key: string;
+  label: string;
+  count: number;
+}
+
+export interface MessagingAnalyticsAttachmentItem extends MessagingAnalyticsCountItem {
+  totalBytes: number;
+}
+
+export interface MessagingAnalyticsScope {
+  role: AccountRole;
+  label: string;
+  division: MessagingOrganizationUnit | null;
+  department: MessagingOrganizationUnit | null;
+}
+
+export interface MessagingAnalyticsResponse {
+  generatedAt: string;
+  scope: MessagingAnalyticsScope;
+  totals: {
+    users: number;
+    enabledUsers: number;
+    disabledUsers: number;
+    activeEmployeeUsers: number;
+    conversations: number;
+    messages: number;
+    attachments: number;
+    notifications: number;
+    unreadNotifications: number;
+  };
+  usersByRole: MessagingAnalyticsCountItem[];
+  usersByDivision: MessagingAnalyticsCountItem[];
+  usersByDepartment: MessagingAnalyticsCountItem[];
+  conversationsByType: MessagingAnalyticsCountItem[];
+  messagesByType: MessagingAnalyticsCountItem[];
+  attachmentsByType: MessagingAnalyticsAttachmentItem[];
+  activeUsers: {
+    today: number;
+    thisWeek: number;
+  };
+  recentActivity: {
+    messagesToday: number;
+    messagesThisWeek: number;
+    attachmentsToday: number;
+    notificationsToday: number;
+    latestMessageAt: string | null;
+  };
+  privacyNotice: string;
+}

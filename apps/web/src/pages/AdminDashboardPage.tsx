@@ -5,6 +5,7 @@ import { AdminRequestDetailPanel } from "../components/AdminRequestDetailPanel";
 import { DirectoryButton } from "../components/DirectoryButton";
 import { ManagementPositionsButton } from "../components/ManagementPositionsButton";
 import { MessageButton } from "../components/MessageButton";
+import { MessagingAnalyticsPanel } from "../components/MessagingAnalyticsPanel";
 import { AdminOrganizationPanel } from "../components/AdminOrganizationPanel";
 
 import { useAuth } from "../context/AuthContext";
@@ -137,7 +138,8 @@ function getRequesterName(request: AdminAccountRequestListItem): string {
 
 type AdminView =
   | "requests"
-  | "organization";
+  | "organization"
+  | "analytics";
 
 export function AdminDashboardPage() {
   const navigate = useNavigate();
@@ -400,6 +402,26 @@ export function AdminDashboardPage() {
 
           Organization Management
         </button>
+
+        <button
+          type="button"
+          className={
+            view === "analytics"
+            ? "active"
+            : ""
+          }
+          onClick={() => {
+            setSelectedRequestId(null);
+
+            setView(
+              "analytics",
+            );
+          }}
+        >
+          <span>03</span>
+
+          Analytics
+        </button>
         </nav>
         {view === "requests" && (
           <div className="admin-view">
@@ -633,6 +655,13 @@ export function AdminDashboardPage() {
         </section>
        </div>
      )}
+     {view === "analytics" && (
+      <div className="admin-view">
+        {/* Super Admin analytics are organization-wide and audit-safe. */}
+        <MessagingAnalyticsPanel accessToken={accessToken ?? ""} />
+      </div>
+     )}
+
      {view === "organization" &&
      accessToken && (
       <AdminOrganizationPanel accessToken={ accessToken } />

@@ -8,6 +8,7 @@ import { useNavigate } from "react-router";
 
 import { ManagerAccountRequestForm } from "../components/ManagerAccountRequestForm";
 import { ManagerRequestHistory } from "../components/ManagerRequestHistory";
+import { MessagingAnalyticsPanel } from "../components/MessagingAnalyticsPanel";
 import { NtDashboardShell } from "../components/NtDashboardShell";
 import { useAuth } from "../context/AuthContext";
 import { getMyRequestContext } from "../services/account-request.service";
@@ -423,6 +424,9 @@ export function ManagerRequestDashboardPage() {
                 </p>
               </article>
             </section>
+
+            {/* Managers see scoped analytics before account-request workspaces. */}
+            <MessagingAnalyticsPanel accessToken={accessToken ?? ""} />
 
             {/* The form and history remain separate so they can refresh independently. */}
             <section className="manager-workspace-grid nt-manager-workspace">

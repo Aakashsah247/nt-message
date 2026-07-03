@@ -65,6 +65,14 @@ export class ConversationsController {
     return this.conversationsService.listMessageRequests(user);
   }
 
+  @Get('analytics')
+  getMessagingAnalytics(
+    @CurrentUser()
+    user: AuthenticatedUser,
+  ) {
+    return this.conversationsService.getMessagingAnalytics(user);
+  }
+
   @Get('notifications')
   listMessagingNotifications(
     @CurrentUser()
