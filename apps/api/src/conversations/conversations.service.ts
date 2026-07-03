@@ -21,6 +21,7 @@ import {
   GroupKind,
   MessageContentType,
   MessageRequestReason,
+  MessagingNotificationType,
   MessageRequestStatus,
   OfficialGroupAuditAction,
   OfficialGroupScopeType,
@@ -85,6 +86,17 @@ interface MessageSearchFilters {
   dateFrom?: Date;
   dateTo?: Date;
   limit: number;
+}
+
+interface NotificationParticipant {
+  accountId: string;
+  isMuted?: boolean;
+}
+
+interface MessageNotificationInput {
+  message: MessageRecord;
+  participants: NotificationParticipant[];
+  notificationType?: MessagingNotificationType;
 }
 
 export interface ForwardedMessageMetadata {
@@ -393,6 +405,30 @@ const officialGroupAuditSelect = {
     select: messagingAccountSelect,
   },
 } satisfies Prisma.OfficialGroupAuditLogSelect;
+
+const messagingNotificationSelect = {
+  id: true,
+  recipientAccountId: true,
+  actorAccountId: true,
+  conversationId: true,
+  messageId: true,
+  type: true,
+  title: true,
+  body: true,
+  isRead: true,
+  readAt: true,
+  metadata: true,
+  createdAt: true,
+  updatedAt: true,
+
+  actor: {
+    select: messagingAccountSelect,
+  },
+} satisfies Prisma.MessagingNotificationSelect;
+
+type MessagingNotificationRecord = Prisma.MessagingNotificationGetPayload<{
+  select: typeof messagingNotificationSelect;
+}>;
 
 @Injectable()
 export class ConversationsService {
@@ -758,6 +794,25 @@ export class ConversationsService {
         : null,
       createdAt: conversation.createdAt,
       updatedAt: conversation.updatedAt,
+    };
+  }
+
+  private serializeNotification(notification: MessagingNotificationRecord) {
+    return {
+      id: notification.id,
+      recipientAccountId: notification.recipientAccountId,
+      actorAccountId: notification.actorAccountId,
+      actor: notification.actor ? this.serializeAccount(notification.actor) : null,
+      conversationId: notification.conversationId,
+      messageId: notification.messageId,
+      type: notification.type,
+      title: notification.title,
+      body: notification.body,
+      isRead: notification.isRead,
+      readAt: notification.readAt,
+      metadata: notification.metadata,
+      createdAt: notification.createdAt,
+      updatedAt: notification.updatedAt,
     };
   }
 
@@ -1806,6 +1861,121 @@ export class ConversationsService {
         error instanceof Error ? error.stack : undefined,
       );
     }
+  }
+
+  async listMessagingNotifications(user: AuthenticatedUser) {
+    const viewer = await this.getMessagingViewer(user);
+
+    const [notifications, unreadCount] = await Promise.all([
+      this.prisma.messagingNotification.findMany({
+        where: {
+          recipientAccountId: viewer.accountId,
+        },
+        orderBy: {
+          createdAt: 'desc',
+        },
+        take: 40,
+        select: messagingNotificationSelect,
+      }),
+      this.prisma.messagingNotification.count({
+        where: {
+          recipientAccountId: viewer.accountId,
+          isRead: false,
+        },
+      }),
+    ]);
+
+    return {
+      data: notifications.map((notification) =>
+        this.serializeNotification(notification),
+      ),
+      unreadCount,
+    };
+  }
+
+  async markMessagingNotificationRead(
+    user: AuthenticatedUser,
+    notificationId: string,
+  ) {
+    const viewer = await this.getMessagingViewer(user);
+
+    const notification = await this.prisma.messagingNotification.findFirst({
+      where: {
+        id: notificationId,
+        recipientAccountId: viewer.accountId,
+      },
+      select: {
+        id: true,
+      },
+    });
+
+    if (!notification) {
+      throw new NotFoundException('Notification was not found.');
+    }
+
+    await this.prisma.messagingNotification.update({
+      where: {
+        id: notificationId,
+      },
+      data: {
+        isRead: true,
+        readAt: new Date(),
+      },
+    });
+
+    return this.listMessagingNotifications(user);
+  }
+
+  async markAllMessagingNotificationsRead(user: AuthenticatedUser) {
+    const viewer = await this.getMessagingViewer(user);
+
+    await this.prisma.messagingNotification.updateMany({
+      where: {
+        recipientAccountId: viewer.accountId,
+        isRead: false,
+      },
+      data: {
+        isRead: true,
+        readAt: new Date(),
+      },
+    });
+
+    return this.listMessagingNotifications(user);
+  }
+
+  async removeMessagingNotification(
+    user: AuthenticatedUser,
+    notificationId: string,
+  ) {
+    const viewer = await this.getMessagingViewer(user);
+
+    // Delete is scoped to the signed-in recipient so users cannot remove another account's alerts.
+    const result = await this.prisma.messagingNotification.deleteMany({
+      where: {
+        id: notificationId,
+        recipientAccountId: viewer.accountId,
+      },
+    });
+
+    if (result.count === 0) {
+      throw new NotFoundException('Notification was not found.');
+    }
+
+    return this.listMessagingNotifications(user);
+  }
+
+  async removeReadMessagingNotifications(user: AuthenticatedUser) {
+    const viewer = await this.getMessagingViewer(user);
+
+    // Read notifications can be cleared without changing unread badge accuracy.
+    await this.prisma.messagingNotification.deleteMany({
+      where: {
+        recipientAccountId: viewer.accountId,
+        isRead: true,
+      },
+    });
+
+    return this.listMessagingNotifications(user);
   }
 
   async listOfficialGroupScopes(user: AuthenticatedUser) {
@@ -4149,6 +4319,179 @@ export class ConversationsService {
     };
   }
 
+  private getNotificationTypeForMessage(
+    message: MessageRecord,
+  ): MessagingNotificationType {
+    if (message.replyToMessageId) {
+      return MessagingNotificationType.REPLY;
+    }
+
+    if (message.contentType === MessageContentType.IMAGE) {
+      return MessagingNotificationType.IMAGE;
+    }
+
+    if (message.contentType === MessageContentType.VIDEO) {
+      return MessagingNotificationType.VIDEO;
+    }
+
+    if (message.contentType === MessageContentType.AUDIO) {
+      const payload = this.getPlainMessagePayload(message.payload);
+
+      return payload.attachmentKind === 'VOICE_NOTE'
+        ? MessagingNotificationType.VOICE_NOTE
+        : MessagingNotificationType.AUDIO;
+    }
+
+    if (message.contentType === MessageContentType.FILE) {
+      return MessagingNotificationType.FILE;
+    }
+
+    return MessagingNotificationType.MESSAGE;
+  }
+
+  private buildNotificationBody(message: MessageRecord): string {
+    if (message.textContent) {
+      return message.textContent.length > 140
+        ? `${message.textContent.slice(0, 137)}...`
+        : message.textContent;
+    }
+
+    const attachment = message.attachments[0];
+
+    if (attachment) {
+      return attachment.originalFileName;
+    }
+
+    return 'New message';
+  }
+
+  private async createAndEmitMessageNotifications(
+    input: MessageNotificationInput,
+  ): Promise<void> {
+    const notificationType =
+      input.notificationType ?? this.getNotificationTypeForMessage(input.message);
+    const actor = this.serializeAccount(input.message.sender);
+    const recipients = input.participants.filter(
+      (participant) =>
+        participant.accountId !== input.message.senderAccountId &&
+        !participant.isMuted,
+    );
+
+    if (recipients.length === 0) {
+      return;
+    }
+
+    const unreadCounts = new Map<string, number>();
+
+    for (const recipient of recipients) {
+      // Muted conversations keep unread receipts but suppress active notification rows.
+      const notification = await this.prisma.messagingNotification.create({
+        data: {
+          recipientAccountId: recipient.accountId,
+          actorAccountId: input.message.senderAccountId,
+          conversationId: input.message.conversationId,
+          messageId: input.message.id,
+          type: notificationType,
+          title:
+            notificationType === MessagingNotificationType.REPLY
+              ? `${actor.displayName} replied`
+              : `${actor.displayName} sent a message`,
+          body: this.buildNotificationBody(input.message),
+          metadata: {
+            contentType: input.message.contentType,
+            replyToMessageId: input.message.replyToMessageId,
+          },
+        },
+        select: messagingNotificationSelect,
+      });
+
+      const unreadCount =
+        unreadCounts.get(recipient.accountId) ??
+        (await this.prisma.messagingNotification.count({
+          where: {
+            recipientAccountId: recipient.accountId,
+            isRead: false,
+          },
+        }));
+      unreadCounts.set(recipient.accountId, unreadCount);
+
+      this.messagingEventsService.emitNotificationCreated(recipient.accountId, {
+        notification: this.serializeNotification(notification),
+        unreadCount,
+        occurredAt: new Date().toISOString(),
+      });
+    }
+  }
+
+  private async createAndEmitReactionNotification(
+    actorAccountId: string,
+    conversationId: string,
+    message: MessageRecord,
+    reactionValue: string | null,
+  ): Promise<void> {
+    if (!reactionValue || message.senderAccountId === actorAccountId) {
+      return;
+    }
+
+    const recipient = await this.prisma.conversationParticipant.findFirst({
+      where: {
+        conversationId,
+        accountId: message.senderAccountId,
+        leftAt: null,
+        isMuted: false,
+      },
+      select: {
+        accountId: true,
+      },
+    });
+
+    if (!recipient) {
+      return;
+    }
+
+    const actorAccount = await this.prisma.account.findUnique({
+      where: {
+        id: actorAccountId,
+      },
+      select: messagingAccountSelect,
+    });
+
+    if (!actorAccount) {
+      return;
+    }
+
+    const actor = this.serializeAccount(actorAccount);
+    // Reaction notifications are sent only to the original sender, never to all participants.
+    const notification = await this.prisma.messagingNotification.create({
+      data: {
+        recipientAccountId: message.senderAccountId,
+        actorAccountId,
+        conversationId,
+        messageId: message.id,
+        type: MessagingNotificationType.REACTION,
+        title: `${actor.displayName} reacted ${reactionValue}`,
+        body: this.buildNotificationBody(message),
+        metadata: {
+          reactionValue,
+        },
+      },
+      select: messagingNotificationSelect,
+    });
+
+    const unreadCount = await this.prisma.messagingNotification.count({
+      where: {
+        recipientAccountId: message.senderAccountId,
+        isRead: false,
+      },
+    });
+
+    this.messagingEventsService.emitNotificationCreated(message.senderAccountId, {
+      notification: this.serializeNotification(notification),
+      unreadCount,
+      occurredAt: new Date().toISOString(),
+    });
+  }
+
   async sendTextMessage(
     user: AuthenticatedUser,
     conversationId: string,
@@ -4184,6 +4527,7 @@ export class ConversationsService {
 
           select: {
             accountId: true,
+            isMuted: true,
           },
         },
       },
@@ -4327,6 +4671,11 @@ export class ConversationsService {
         occurredAt: new Date().toISOString(),
       });
 
+      await this.createAndEmitMessageNotifications({
+        message: createdMessage,
+        participants: conversation.participants,
+      });
+
       return {
         message: 'Message sent successfully.',
         duplicate: false,
@@ -4405,6 +4754,7 @@ export class ConversationsService {
 
           select: {
             accountId: true,
+            isMuted: true,
           },
         },
       },
@@ -4569,6 +4919,11 @@ export class ConversationsService {
         conversationId,
         message: serializedMessage,
         occurredAt: new Date().toISOString(),
+      });
+
+      await this.createAndEmitMessageNotifications({
+        message: createdMessage,
+        participants: conversation.participants,
       });
 
       return {
@@ -4766,6 +5121,7 @@ export class ConversationsService {
           },
           select: {
             accountId: true,
+            isMuted: true,
           },
         },
       },
@@ -4807,6 +5163,7 @@ export class ConversationsService {
           message: MessageRecord;
           duplicate: boolean;
           participantAccountIds: string[];
+          participants: NotificationParticipant[];
         }> = [];
 
         for (const conversation of destinationConversations) {
@@ -4848,6 +5205,7 @@ export class ConversationsService {
               message: existingMessage,
               duplicate: true,
               participantAccountIds,
+              participants: conversation.participants,
             });
             continue;
           }
@@ -4922,6 +5280,7 @@ export class ConversationsService {
             message: createdMessage,
             duplicate: false,
             participantAccountIds,
+            participants: conversation.participants,
           });
         }
 
@@ -4942,6 +5301,11 @@ export class ConversationsService {
           occurredAt: new Date().toISOString(),
         },
       );
+
+      await this.createAndEmitMessageNotifications({
+        message: result.message,
+        participants: result.participants,
+      });
     }
 
     const createdCount = forwardedMessages.filter(
@@ -5101,6 +5465,7 @@ export class ConversationsService {
 
       select: {
         id: true,
+        senderAccountId: true,
       },
     });
 
@@ -5208,6 +5573,13 @@ export class ConversationsService {
         action: 'REACTION_UPDATED',
         occurredAt: now.toISOString(),
       },
+    );
+
+    await this.createAndEmitReactionNotification(
+      user.accountId,
+      conversationId,
+      result.message,
+      reactionValue,
     );
 
     return {

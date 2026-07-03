@@ -15,6 +15,7 @@ import type {
   MarkConversationReadResponse,
   MessageRequestActionResponse,
   MessageRequestListResponse,
+  MessagingNotificationListResponse,
   MessagingSearchFilters,
   MessageListResponse,
   MessageReactionResponse,
@@ -270,6 +271,67 @@ export function listMessageRequests(
   return apiRequest<MessageRequestListResponse>(
     "/conversations/requests",
     {
+      headers: authorizationHeaders(accessToken),
+    },
+  );
+}
+
+export function listMessagingNotifications(
+  accessToken: string,
+): Promise<MessagingNotificationListResponse> {
+  return apiRequest<MessagingNotificationListResponse>(
+    "/conversations/notifications",
+    {
+      headers: authorizationHeaders(accessToken),
+    },
+  );
+}
+
+export function markAllMessagingNotificationsRead(
+  accessToken: string,
+): Promise<MessagingNotificationListResponse> {
+  return apiRequest<MessagingNotificationListResponse>(
+    "/conversations/notifications/read",
+    {
+      method: "PATCH",
+      headers: authorizationHeaders(accessToken),
+    },
+  );
+}
+
+export function markMessagingNotificationRead(
+  accessToken: string,
+  notificationId: string,
+): Promise<MessagingNotificationListResponse> {
+  return apiRequest<MessagingNotificationListResponse>(
+    `/conversations/notifications/${notificationId}/read`,
+    {
+      method: "PATCH",
+      headers: authorizationHeaders(accessToken),
+    },
+  );
+}
+
+export function deleteMessagingNotification(
+  accessToken: string,
+  notificationId: string,
+): Promise<MessagingNotificationListResponse> {
+  return apiRequest<MessagingNotificationListResponse>(
+    `/conversations/notifications/${notificationId}`,
+    {
+      method: "DELETE",
+      headers: authorizationHeaders(accessToken),
+    },
+  );
+}
+
+export function deleteReadMessagingNotifications(
+  accessToken: string,
+): Promise<MessagingNotificationListResponse> {
+  return apiRequest<MessagingNotificationListResponse>(
+    "/conversations/notifications/read",
+    {
+      method: "DELETE",
       headers: authorizationHeaders(accessToken),
     },
   );

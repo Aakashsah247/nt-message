@@ -11798,3 +11798,239 @@
   }
 }
 /* Y25 SEARCH AND FILTERS END */
+
+/* Y26 NOTIFICATIONS START */
+.message-notification-wrapper {
+  position: relative;
+}
+
+.message-notification-button {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  border: 1px solid rgba(15, 103, 177, 0.14);
+  border-radius: 14px;
+  color: #0f2942;
+  background: #f8fbff;
+  font-size: 17px;
+  cursor: pointer;
+}
+
+.message-notification-button b {
+  position: absolute;
+  top: -7px;
+  right: -7px;
+  min-width: 20px;
+  height: 20px;
+  border-radius: 999px;
+  padding: 0 5px;
+  color: white;
+  background: #d92d20;
+  font-size: 10px;
+  line-height: 20px;
+  text-align: center;
+}
+
+.message-notification-panel {
+  position: absolute;
+  top: calc(100% + 10px);
+  right: 0;
+  z-index: 50;
+  display: grid;
+  width: min(380px, calc(100vw - 24px));
+  max-height: min(560px, calc(100vh - 96px));
+  overflow: hidden;
+  border: 1px solid rgba(15, 103, 177, 0.16);
+  border-radius: 20px;
+  background: white;
+  box-shadow: 0 24px 70px rgba(15, 41, 66, 0.22);
+}
+
+.message-notification-panel-header,
+.message-notification-settings {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 12px 14px;
+  border-bottom: 1px solid rgba(15, 103, 177, 0.1);
+}
+
+.message-notification-header-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 6px;
+}
+
+.message-notification-panel-header strong {
+  color: #0f2942;
+  font-size: 14px;
+}
+
+.message-notification-panel-header button,
+.message-notification-settings button {
+  border: 0;
+  border-radius: 999px;
+  padding: 7px 10px;
+  color: #0f67b1;
+  background: #edf6ff;
+  font-size: 11px;
+  font-weight: 850;
+  cursor: pointer;
+}
+
+.message-notification-panel-header button:disabled {
+  color: #94a3b8;
+  background: #f1f5f9;
+  cursor: not-allowed;
+}
+
+.message-notification-list {
+  display: grid;
+  max-height: 390px;
+  overflow: auto;
+}
+
+.message-notification-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  gap: 10px;
+  width: 100%;
+  border: 0;
+  border-bottom: 1px solid rgba(15, 103, 177, 0.08);
+  padding: 12px 14px;
+  text-align: left;
+  background: white;
+  cursor: pointer;
+}
+
+.message-notification-row.unread {
+  background: #f0f8ff;
+}
+
+.message-notification-row:hover {
+  background: #edf6ff;
+}
+
+.message-notification-row span {
+  display: grid;
+  min-width: 0;
+  gap: 3px;
+}
+
+.message-notification-row strong,
+.message-notification-row small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.message-notification-row strong {
+  color: #0f2942;
+  font-size: 13px;
+}
+
+.message-notification-row small {
+  color: #405b74;
+  font-size: 12px;
+}
+
+.message-notification-row em {
+  color: #64748b;
+  font-size: 10px;
+  font-style: normal;
+  font-weight: 850;
+  white-space: nowrap;
+}
+
+.message-notification-delete {
+  display: inline-grid !important;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  border-radius: 999px;
+  color: #64748b;
+  background: #eef4fb;
+  font-size: 16px;
+  font-weight: 900;
+}
+
+.message-notification-delete:hover,
+.message-notification-delete:focus-visible {
+  color: #b42318;
+  background: #fff1f0;
+}
+
+.message-notification-toast {
+  position: fixed;
+  top: 90px;
+  right: 24px;
+  z-index: 70;
+  display: grid;
+  width: min(360px, calc(100vw - 32px));
+  gap: 4px;
+  border: 1px solid rgba(15, 103, 177, 0.16);
+  border-radius: 18px;
+  padding: 14px 16px;
+  text-align: left;
+  color: #0f2942;
+  background: white;
+  box-shadow: 0 24px 70px rgba(15, 41, 66, 0.2);
+  cursor: pointer;
+}
+
+.message-notification-toast strong,
+.message-notification-toast span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.message-notification-toast strong {
+  font-size: 13px;
+}
+
+.message-notification-toast span {
+  color: #405b74;
+  font-size: 12px;
+}
+
+.message-notification-empty,
+.message-notification-error {
+  margin: 0;
+  padding: 14px;
+  color: #64748b;
+  font-size: 12px;
+}
+
+.message-notification-error {
+  color: #b42318;
+}
+
+@media (max-width: 640px) {
+  .message-notification-wrapper {
+    position: static;
+  }
+
+  .message-notification-panel {
+    position: fixed;
+    top: 70px;
+    right: 12px;
+    left: 12px;
+    width: auto;
+    max-height: calc(100vh - 92px);
+  }
+
+  .message-notification-toast {
+    top: auto;
+    right: 12px;
+    bottom: 18px;
+    left: 12px;
+    width: auto;
+  }
+}
+/* Y26 NOTIFICATIONS END */

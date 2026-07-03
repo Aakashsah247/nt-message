@@ -9,6 +9,7 @@ import type {
   ChangeEvent,
   FormEvent,
   KeyboardEvent,
+  MouseEvent,
 } from "react";
 import { useNavigate } from "react-router";
 
@@ -22,6 +23,8 @@ import {
   createOfficialGroupConversation,
   createPrivateConversation,
   declineMessageRequest,
+  deleteMessagingNotification,
+  deleteReadMessagingNotifications,
   deleteConversationMessage,
   createConversationAttachmentObjectUrl,
   deleteConversationMessageForMe,
@@ -32,6 +35,9 @@ import {
   listConversationMessages,
   listMessageRequests,
   listMessagingConversations,
+  listMessagingNotifications,
+  markAllMessagingNotificationsRead,
+  markMessagingNotificationRead,
   listOfficialGroupAudit,
   listOfficialGroupScopes,
   markConversationRead,
@@ -54,6 +60,7 @@ import type {
   MessagingMessageCreatedPayload,
   MessagingMessageHiddenPayload,
   MessagingMessageRequestUpdatedPayload,
+  MessagingNotificationCreatedPayload,
   MessagingMessageUpdatedPayload,
   MessagingPresenceSnapshotPayload,
   MessagingPresenceState,
@@ -69,6 +76,7 @@ import type {
   MessagingConversation,
   MessagingMessage,
   MessagingMessageRequest,
+  MessagingNotification,
   MessagingSearchMessageResult,
   MessageContentType,
   OfficialGroupAuditEntry,
@@ -83,6 +91,9 @@ type RealtimeConnectionStatus =
   | "DISCONNECTED";
 const SELECTED_CONVERSATION_STORAGE_KEY =
   "nt-message:selected-conversation";
+const NOTIFICATION_SOUND_STORAGE_KEY = "nt-message:notification-sound-enabled";
+const BROWSER_NOTIFICATION_STORAGE_KEY = "nt-message:browser-notifications-enabled";
+const NOTIFICATION_SOUND_URL = "/sounds/web-whatsapp.mp3";
 const MESSAGE_EDIT_WINDOW_MS = 15 * 60 * 1000;
 const QUICK_REACTIONS = ["👍", "❤️", "😂", "😮", "😢", "🙏"] as const;
 type QuickReaction = (typeof QUICK_REACTIONS)[number];
@@ -799,6 +810,49 @@ async function copyTextToClipboard(text: string): Promise<void> {
   }
 }
 
+function playGeneratedNotificationFallback(): void {
+  const audioWindow = window as Window & typeof globalThis & {
+    webkitAudioContext?: typeof AudioContext;
+  };
+  const AudioContextClass = audioWindow.AudioContext ?? audioWindow.webkitAudioContext;
+
+  if (!AudioContextClass) {
+    return;
+  }
+
+  const context = new AudioContextClass();
+  const oscillator = context.createOscillator();
+  const gain = context.createGain();
+
+  oscillator.type = "sine";
+  oscillator.frequency.value = 740;
+  gain.gain.value = 0.06;
+
+  // Fallback keeps alerts usable if the custom mp3 asset is missing during development.
+  oscillator.connect(gain);
+  gain.connect(context.destination);
+  oscillator.start();
+  oscillator.stop(context.currentTime + 0.12);
+  oscillator.addEventListener("ended", () => void context.close());
+}
+
+function playNotificationTone(): void {
+  const audio = new Audio(NOTIFICATION_SOUND_URL);
+  audio.volume = 0.55;
+
+  // Use the approved WhatsApp-style mp3 sound and fall back only if the asset cannot play.
+  void audio.play().catch(() => playGeneratedNotificationFallback());
+}
+
+function notificationTimestampLabel(value: string): string {
+  return new Intl.DateTimeFormat(undefined, {
+    hour: "2-digit",
+    minute: "2-digit",
+    month: "short",
+    day: "numeric",
+  }).format(new Date(value));
+}
+
 export function MessageAppPage() {
   const navigate = useNavigate();
   const {
@@ -888,6 +942,19 @@ export function MessageAppPage() {
   const [requestActionId, setRequestActionId] = useState<string | null>(null);
   const [requestError, setRequestError] = useState<string | null>(null);
   const [requestNotice, setRequestNotice] = useState<string | null>(null);
+  const [notifications, setNotifications] = useState<MessagingNotification[]>([]);
+  const [notificationUnreadCount, setNotificationUnreadCount] = useState(0);
+  const [notificationPanelOpen, setNotificationPanelOpen] = useState(false);
+  const [notificationToast, setNotificationToast] = useState<MessagingNotification | null>(null);
+  const notificationToastTimerRef = useRef<number | null>(null);
+  const [notificationsLoading, setNotificationsLoading] = useState(false);
+  const [notificationError, setNotificationError] = useState<string | null>(null);
+  const [notificationSoundEnabled, setNotificationSoundEnabled] = useState(() => (
+    window.localStorage.getItem(NOTIFICATION_SOUND_STORAGE_KEY) !== "false"
+  ));
+  const [browserNotificationsEnabled, setBrowserNotificationsEnabled] = useState(() => (
+    window.localStorage.getItem(BROWSER_NOTIFICATION_STORAGE_KEY) === "true"
+  ));
   const [searchDialogOpen, setSearchDialogOpen] = useState(false);
   const [searchScope, setSearchScope] = useState<"CURRENT" | "GLOBAL">("CURRENT");
   const [searchText, setSearchText] = useState("");
@@ -1283,6 +1350,55 @@ export function MessageAppPage() {
   }, [selectedConversationId, stopLocalTyping]);
 
   useEffect(() => {
+    window.localStorage.setItem(
+      NOTIFICATION_SOUND_STORAGE_KEY,
+      notificationSoundEnabled ? "true" : "false",
+    );
+  }, [notificationSoundEnabled]);
+
+  useEffect(() => {
+    window.localStorage.setItem(
+      BROWSER_NOTIFICATION_STORAGE_KEY,
+      browserNotificationsEnabled ? "true" : "false",
+    );
+  }, [browserNotificationsEnabled]);
+
+  useEffect(() => () => {
+    if (notificationToastTimerRef.current !== null) {
+      window.clearTimeout(notificationToastTimerRef.current);
+    }
+  }, []);
+
+  const loadNotifications = useCallback(async () => {
+    if (!accessToken) {
+      setNotifications([]);
+      setNotificationUnreadCount(0);
+      return;
+    }
+
+    setNotificationsLoading(true);
+    setNotificationError(null);
+
+    try {
+      const response = await listMessagingNotifications(accessToken);
+      setNotifications(response.data);
+      setNotificationUnreadCount(response.unreadCount);
+    } catch (error) {
+      setNotificationError(
+        error instanceof Error
+          ? error.message
+          : "Notifications could not be loaded.",
+      );
+    } finally {
+      setNotificationsLoading(false);
+    }
+  }, [accessToken]);
+
+  useEffect(() => {
+    void loadNotifications();
+  }, [loadNotifications]);
+
+  useEffect(() => {
     if (!accessToken) {
       setRealtimeStatus("DISCONNECTED");
       setPresenceByAccountId({});
@@ -1381,6 +1497,42 @@ export function MessageAppPage() {
         payload.accountId,
         payload.isTyping,
       );
+    };
+
+    const handleNotificationCreated = (
+      payload: MessagingNotificationCreatedPayload,
+    ): void => {
+      // Realtime notifications update the bell immediately without waiting for list polling.
+      setNotifications((current) => [
+        payload.notification,
+        ...current.filter((notification) => notification.id !== payload.notification.id),
+      ].slice(0, 40));
+      setNotificationUnreadCount(payload.unreadCount);
+      setNotificationToast(payload.notification);
+
+      if (notificationToastTimerRef.current !== null) {
+        window.clearTimeout(notificationToastTimerRef.current);
+      }
+
+      // The in-app toast shows sender and preview even when browser popups are hidden.
+      notificationToastTimerRef.current = window.setTimeout(() => {
+        setNotificationToast(null);
+      }, 6000);
+
+      if (notificationSoundEnabled) {
+        playNotificationTone();
+      }
+
+      if (
+        browserNotificationsEnabled &&
+        "Notification" in window &&
+        window.Notification.permission === "granted"
+      ) {
+        new window.Notification(payload.notification.title, {
+          body: payload.notification.body,
+          tag: payload.notification.id,
+        });
+      }
     };
 
     const handleMessageCreated = (
@@ -1531,6 +1683,7 @@ export function MessageAppPage() {
     socket.on("messaging:message-created", handleMessageCreated);
     socket.on("messaging:message-updated", handleMessageUpdated);
     socket.on("messaging:message-hidden", handleMessageHidden);
+    socket.on("messaging:notification-created", handleNotificationCreated);
     socket.on("messaging:receipt-updated", handleReceiptUpdated);
     socket.on(
       "messaging:conversation-updated",
@@ -1556,6 +1709,7 @@ export function MessageAppPage() {
       socket.off("messaging:message-created", handleMessageCreated);
       socket.off("messaging:message-updated", handleMessageUpdated);
       socket.off("messaging:message-hidden", handleMessageHidden);
+      socket.off("messaging:notification-created", handleNotificationCreated);
       socket.off("messaging:receipt-updated", handleReceiptUpdated);
       socket.off(
         "messaging:conversation-updated",
@@ -1578,6 +1732,8 @@ export function MessageAppPage() {
     loadConversations,
     loadMessageRequests,
     loadMessages,
+    browserNotificationsEnabled,
+    notificationSoundEnabled,
     stopLocalTyping,
   ]);
 
@@ -2294,6 +2450,82 @@ export function MessageAppPage() {
     setRequestError(null);
     setRequestDialogOpen(true);
     void loadMessageRequests();
+  }
+
+  async function handleNotificationClick(notification: MessagingNotification): Promise<void> {
+    if (!accessToken) {
+      return;
+    }
+
+    try {
+      const response = await markMessagingNotificationRead(accessToken, notification.id);
+      setNotifications(response.data);
+      setNotificationUnreadCount(response.unreadCount);
+    } catch {
+      // Opening the related conversation is still useful even if read-state sync fails.
+    }
+
+    if (notification.conversationId) {
+      setSelectedConversationId(notification.conversationId);
+    }
+
+    if (notification.messageId) {
+      setHighlightedMessageId(notification.messageId);
+    }
+
+    setNotificationPanelOpen(false);
+  }
+
+  async function handleMarkAllNotificationsRead(): Promise<void> {
+    if (!accessToken) {
+      return;
+    }
+
+    const response = await markAllMessagingNotificationsRead(accessToken);
+    setNotifications(response.data);
+    setNotificationUnreadCount(response.unreadCount);
+  }
+
+  async function handleDeleteNotification(
+    notification: MessagingNotification,
+    event?: MouseEvent<HTMLElement>,
+  ): Promise<void> {
+    event?.stopPropagation();
+
+    if (!accessToken) {
+      return;
+    }
+
+    // Delete only the current user's notification row and refresh the unread badge from the server.
+    const response = await deleteMessagingNotification(accessToken, notification.id);
+    setNotifications(response.data);
+    setNotificationUnreadCount(response.unreadCount);
+
+    if (notificationToast?.id === notification.id) {
+      setNotificationToast(null);
+    }
+  }
+
+  async function handleDeleteReadNotifications(): Promise<void> {
+    if (!accessToken || !notifications.some((notification) => notification.isRead)) {
+      return;
+    }
+
+    // Remove seen notifications while leaving unread alerts visible for action.
+    const response = await deleteReadMessagingNotifications(accessToken);
+    setNotifications(response.data);
+    setNotificationUnreadCount(response.unreadCount);
+  }
+
+  async function handleBrowserNotificationToggle(): Promise<void> {
+    if (!browserNotificationsEnabled && "Notification" in window) {
+      // Browser permission must be requested from a direct user click.
+      const permission = await window.Notification.requestPermission();
+      setBrowserNotificationsEnabled(permission === "granted");
+      return;
+    }
+
+    setBrowserNotificationsEnabled((value) => !value);
   }
 
   function openSearchDialog(scope: "CURRENT" | "GLOBAL" = selectedConversationId ? "CURRENT" : "GLOBAL"): void {
@@ -3295,6 +3527,103 @@ export function MessageAppPage() {
             <DirectoryButton />
           )}
 
+          <div className="message-notification-wrapper">
+            <button
+              type="button"
+              className="message-notification-button"
+              onClick={() => setNotificationPanelOpen((value) => !value)}
+              aria-label="Open notifications"
+            >
+              🔔
+              {notificationUnreadCount > 0 && (
+                <b>{notificationUnreadCount > 99 ? "99+" : notificationUnreadCount}</b>
+              )}
+            </button>
+
+            {notificationPanelOpen && (
+              <div className="message-notification-panel">
+                <div className="message-notification-panel-header">
+                  <strong>Notifications</strong>
+                  <div className="message-notification-header-actions">
+                    <button
+                      type="button"
+                      onClick={() => void handleMarkAllNotificationsRead()}
+                      disabled={notificationUnreadCount === 0}
+                    >
+                      Mark all read
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => void handleDeleteReadNotifications()}
+                      disabled={!notifications.some((notification) => notification.isRead)}
+                    >
+                      Remove seen
+                    </button>
+                  </div>
+                </div>
+
+                <div className="message-notification-settings">
+                  <button
+                    type="button"
+                    onClick={() => setNotificationSoundEnabled((value) => !value)}
+                  >
+                    Sound: {notificationSoundEnabled ? "On" : "Off"}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => void handleBrowserNotificationToggle()}
+                  >
+                    Browser: {browserNotificationsEnabled ? "On" : "Off"}
+                  </button>
+                </div>
+
+                {notificationsLoading && (
+                  <p className="message-notification-empty">Loading notifications...</p>
+                )}
+
+                {notificationError && (
+                  <p className="message-notification-error">{notificationError}</p>
+                )}
+
+                {!notificationsLoading && notifications.length === 0 && (
+                  <p className="message-notification-empty">No notifications yet.</p>
+                )}
+
+                <div className="message-notification-list">
+                  {notifications.map((notification) => (
+                    <button
+                      key={notification.id}
+                      type="button"
+                      className={`message-notification-row${notification.isRead ? "" : " unread"}`}
+                      onClick={() => void handleNotificationClick(notification)}
+                    >
+                      <span>
+                        <strong>{notification.title}</strong>
+                        <small>{notification.body}</small>
+                      </span>
+                      <em>{notificationTimestampLabel(notification.createdAt)}</em>
+                      <span
+                        role="button"
+                        tabIndex={0}
+                        className="message-notification-delete"
+                        aria-label="Remove notification"
+                        onClick={(event) => void handleDeleteNotification(notification, event)}
+                        onKeyDown={(event) => {
+                          if (event.key === "Enter" || event.key === " ") {
+                            event.preventDefault();
+                            void handleDeleteNotification(notification);
+                          }
+                        }}
+                      >
+                        ×
+                      </span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+
           <button
             type="button"
             className="message-app-logout"
@@ -3305,6 +3634,17 @@ export function MessageAppPage() {
           </button>
         </div>
       </header>
+
+      {notificationToast && (
+        <button
+          type="button"
+          className="message-notification-toast"
+          onClick={() => void handleNotificationClick(notificationToast)}
+        >
+          <strong>{notificationToast.title}</strong>
+          <span>{notificationToast.body}</span>
+        </button>
+      )}
 
       <section
         className={`message-workspace${

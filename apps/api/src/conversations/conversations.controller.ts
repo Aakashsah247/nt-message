@@ -65,6 +65,68 @@ export class ConversationsController {
     return this.conversationsService.listMessageRequests(user);
   }
 
+  @Get('notifications')
+  listMessagingNotifications(
+    @CurrentUser()
+    user: AuthenticatedUser,
+  ) {
+    return this.conversationsService.listMessagingNotifications(user);
+  }
+
+  @Patch('notifications/read')
+  markAllMessagingNotificationsRead(
+    @CurrentUser()
+    user: AuthenticatedUser,
+  ) {
+    return this.conversationsService.markAllMessagingNotificationsRead(user);
+  }
+
+  @Delete('notifications/read')
+  removeReadMessagingNotifications(
+    @CurrentUser()
+    user: AuthenticatedUser,
+  ) {
+    return this.conversationsService.removeReadMessagingNotifications(user);
+  }
+
+  @Delete('notifications/:id')
+  removeMessagingNotification(
+    @CurrentUser()
+    user: AuthenticatedUser,
+
+    @Param(
+      'id',
+      new ParseUUIDPipe({
+        version: '4',
+      }),
+    )
+    notificationId: string,
+  ) {
+    return this.conversationsService.removeMessagingNotification(
+      user,
+      notificationId,
+    );
+  }
+
+  @Patch('notifications/:id/read')
+  markMessagingNotificationRead(
+    @CurrentUser()
+    user: AuthenticatedUser,
+
+    @Param(
+      'id',
+      new ParseUUIDPipe({
+        version: '4',
+      }),
+    )
+    notificationId: string,
+  ) {
+    return this.conversationsService.markMessagingNotificationRead(
+      user,
+      notificationId,
+    );
+  }
+
   @Patch('requests/:id/accept')
   acceptMessageRequest(
     @CurrentUser()

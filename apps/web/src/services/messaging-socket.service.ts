@@ -5,6 +5,7 @@ import {
 
 import type {
   MessagingMessage,
+  MessagingNotification,
 } from "../types/messaging";
 
 export interface MessagingReadyPayload {
@@ -70,6 +71,12 @@ export interface MessagingMessageRequestUpdatedPayload {
   occurredAt: string;
 }
 
+export interface MessagingNotificationCreatedPayload {
+  notification: MessagingNotification;
+  unreadCount: number;
+  occurredAt: string;
+}
+
 export interface MessagingPresenceState {
   accountId: string;
   isOnline: boolean;
@@ -115,6 +122,9 @@ interface ServerToClientEvents {
   ) => void;
   "messaging:request-updated": (
     payload: MessagingMessageRequestUpdatedPayload,
+  ) => void;
+  "messaging:notification-created": (
+    payload: MessagingNotificationCreatedPayload,
   ) => void;
   "messaging:presence-snapshot": (
     payload: MessagingPresenceSnapshotPayload,

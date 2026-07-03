@@ -124,6 +124,19 @@ enum MessageRequestReason {
   CROSS_DIVISION
 }
 
+enum MessagingNotificationType {
+  MESSAGE
+  REPLY
+  REACTION
+  FILE
+  IMAGE
+  VIDEO
+  AUDIO
+  VOICE_NOTE
+  GROUP_EVENT
+  MENTION
+}
+
 model Division {
   id        String   @id @default(uuid()) @db.Uuid
   code      String   @unique @db.VarChar(50)
@@ -242,6 +255,8 @@ model Account {
   receivedMessageRequests       MessageRequest[]           @relation("MessageRequestsReceived")
   blockedMessageRequests        MessageRequest[]           @relation("MessageRequestsBlockedBy")
   officialGroupAuditActions    OfficialGroupAuditLog[]      @relation("OfficialGroupAuditActor")
+  receivedNotifications        MessagingNotification[]      @relation("MessagingNotificationsRecipient")
+  actedNotifications           MessagingNotification[]      @relation("MessagingNotificationsActor")
 
   @@index([role], map: "accounts_role_idx")
   @@index([isEnabled], map: "accounts_is_enabled_idx")
@@ -492,6 +507,7 @@ model Conversation {
   messages           Message[]
   messageRequest     MessageRequest?
   officialAuditLogs  OfficialGroupAuditLog[]
+  notifications      MessagingNotification[]
 
   @@index([type, lastMessageAt], map: "conversations_type_last_message_idx")
   @@index([groupKind, updatedAt], map: "conversations_group_kind_idx")
@@ -611,6 +627,7 @@ model Message {
   hiddenForAccounts MessageHiddenForAccount[]
   reactions MessageReaction[]
   attachments MessageAttachment[]
+  notifications MessagingNotification[]
 
   @@unique([senderAccountId, clientMessageId], map: "messages_sender_client_message_key")
   @@index([conversationId, sentAt, id], map: "messages_conversation_sent_idx")
@@ -696,4 +713,37 @@ model MessageReaction {
   @@index([accountId], map: "message_reactions_account_idx")
 
   @@map("message_reactions")
+}
+
+model MessagingNotification {
+  id String @id @default(uuid()) @db.Uuid
+
+  recipientAccountId String  @map("recipient_account_id") @db.Uuid
+  actorAccountId     String? @map("actor_account_id") @db.Uuid
+  conversationId     String? @map("conversation_id") @db.Uuid
+  messageId          String? @map("message_id") @db.Uuid
+
+  type  MessagingNotificationType
+  title String @db.VarChar(160)
+  body  String @db.VarChar(500)
+
+  isRead Boolean   @default(false) @map("is_read")
+  readAt DateTime? @map("read_at") @db.Timestamptz(3)
+
+  metadata Json?
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  recipient    Account       @relation("MessagingNotificationsRecipient", fields: [recipientAccountId], references: [id], onDelete: Cascade)
+  actor        Account?      @relation("MessagingNotificationsActor", fields: [actorAccountId], references: [id], onDelete: SetNull)
+  conversation Conversation? @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  message      Message?      @relation(fields: [messageId], references: [id], onDelete: Cascade)
+
+  @@index([recipientAccountId, isRead, createdAt], map: "messaging_notifications_recipient_read_created_idx")
+  @@index([recipientAccountId, createdAt], map: "messaging_notifications_recipient_created_idx")
+  @@index([conversationId, createdAt], map: "messaging_notifications_conversation_created_idx")
+  @@index([messageId], map: "messaging_notifications_message_idx")
+  @@index([type, createdAt], map: "messaging_notifications_type_created_idx")
+  @@map("messaging_notifications")
 }

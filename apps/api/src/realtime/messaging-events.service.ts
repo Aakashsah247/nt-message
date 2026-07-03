@@ -82,6 +82,12 @@ export interface MessagingMessageRequestUpdatedPayload {
   occurredAt: string;
 }
 
+export interface MessagingNotificationCreatedPayload {
+  notification: unknown;
+  unreadCount: number;
+  occurredAt: string;
+}
+
 export interface MessagingPresenceSnapshotPayload {
   presences: MessagingPresenceState[];
   occurredAt: string;
@@ -118,6 +124,9 @@ export interface MessagingServerToClientEvents {
   ) => void;
   'messaging:request-updated': (
     payload: MessagingMessageRequestUpdatedPayload,
+  ) => void;
+  'messaging:notification-created': (
+    payload: MessagingNotificationCreatedPayload,
   ) => void;
   'messaging:presence-snapshot': (
     payload: MessagingPresenceSnapshotPayload,
@@ -232,6 +241,16 @@ export class MessagingEventsService {
         .to(this.accountRoom(accountId))
         .emit('messaging:request-updated', payload);
     }
+  }
+
+  emitNotificationCreated(
+    accountId: string,
+    payload: MessagingNotificationCreatedPayload,
+  ): void {
+    // Notifications are scoped to the recipient account room, not the full conversation room.
+    this.server
+      ?.to(this.accountRoom(accountId))
+      .emit('messaging:notification-created', payload);
   }
 
   emitPresenceUpdated(payload: MessagingPresenceState): void {

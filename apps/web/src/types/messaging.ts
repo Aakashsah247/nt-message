@@ -376,6 +376,40 @@ export interface MarkConversationReadResponse {
   readAt: string;
 }
 
+export type MessagingNotificationType =
+  | "MESSAGE"
+  | "REPLY"
+  | "REACTION"
+  | "FILE"
+  | "IMAGE"
+  | "VIDEO"
+  | "AUDIO"
+  | "VOICE_NOTE"
+  | "GROUP_EVENT"
+  | "MENTION";
+
+export interface MessagingNotification {
+  id: string;
+  recipientAccountId: string;
+  actorAccountId: string | null;
+  actor: MessagingAccount | null;
+  conversationId: string | null;
+  messageId: string | null;
+  type: MessagingNotificationType;
+  title: string;
+  body: string;
+  isRead: boolean;
+  readAt: string | null;
+  metadata: unknown;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface MessagingNotificationListResponse {
+  data: MessagingNotification[];
+  unreadCount: number;
+}
+
 
 export interface MessagingSearchFilters {
   search?: string;
