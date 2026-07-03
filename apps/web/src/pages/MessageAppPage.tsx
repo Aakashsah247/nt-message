@@ -89,6 +89,14 @@ const ACCEPTED_ATTACHMENT_TYPES = [
   "image/webp",
   "video/mp4",
   "video/webm",
+  "audio/aac",
+  "audio/m4a",
+  "audio/mp4",
+  "audio/mpeg",
+  "audio/ogg",
+  "audio/wav",
+  "audio/webm",
+  "audio/x-m4a",
   "application/pdf",
   "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
   "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
@@ -99,7 +107,13 @@ const ACCEPTED_ATTACHMENT_TYPES = [
 ].join(",");
 const MAX_IMAGE_ATTACHMENT_BYTES = 20 * 1024 * 1024;
 const MAX_DOCUMENT_ATTACHMENT_BYTES = 50 * 1024 * 1024;
+const MAX_AUDIO_ATTACHMENT_BYTES = 25 * 1024 * 1024;
 const MAX_VIDEO_ATTACHMENT_BYTES = 200 * 1024 * 1024;
+const VOICE_NOTE_MIME_TYPE_CANDIDATES = [
+  "audio/webm;codecs=opus",
+  "audio/webm",
+  "audio/mp4",
+] as const;
 
 
 function isSupportedQuickReaction(value: string): value is QuickReaction {
@@ -189,7 +203,7 @@ function MessageAttachmentCard({
   const [previewError, setPreviewError] = useState<string | null>(null);
 
   useEffect(() => {
-    if (!accessToken || !isImageAttachment(attachment)) {
+    if (!accessToken || (!isImageAttachment(attachment) && !isAudioAttachment(attachment))) {
       return;
     }
 
@@ -220,7 +234,9 @@ function MessageAttachmentCard({
         setPreviewError(
           error instanceof Error
             ? error.message
-            : "Image preview could not be loaded.",
+            : isAudioAttachment(attachment)
+              ? "Audio preview could not be loaded."
+              : "Image preview could not be loaded.",
         );
       });
 
@@ -258,7 +274,29 @@ function MessageAttachmentCard({
         </div>
       )}
 
-      {!isImageAttachment(attachment) && (
+      {isAudioAttachment(attachment) && previewUrl && (
+        <div className="message-audio-card">
+          <div className="message-audio-waveform" aria-hidden="true">
+            <i />
+            <i />
+            <i />
+            <i />
+            <i />
+            <i />
+          </div>
+          <audio src={previewUrl} controls preload="metadata">
+            Your browser does not support audio playback.
+          </audio>
+        </div>
+      )}
+
+      {isAudioAttachment(attachment) && !previewUrl && !previewError && (
+        <div className="message-attachment-preview-placeholder">
+          Loading audio...
+        </div>
+      )}
+
+      {!isImageAttachment(attachment) && !isAudioAttachment(attachment) && (
         <button
           type="button"
           className={`message-attachment-file-preview${canPreview ? "" : " disabled"}`}
@@ -391,6 +429,46 @@ function isVideoAttachment(attachment: MessagingAttachment): boolean {
   return attachment.contentType === "VIDEO" || attachment.mimeType.startsWith("video/");
 }
 
+function isAudioAttachment(attachment: MessagingAttachment): boolean {
+  return attachment.contentType === "AUDIO" || attachment.mimeType.startsWith("audio/");
+}
+
+function getMessagePayloadValue(
+  message: Pick<MessagingMessage, "payload">,
+  key: string,
+): unknown {
+  if (!message.payload || typeof message.payload !== "object" || Array.isArray(message.payload)) {
+    return null;
+  }
+
+  return (message.payload as Record<string, unknown>)[key];
+}
+
+
+function preferredVoiceNoteMimeType(): string {
+  if (typeof MediaRecorder === "undefined") {
+    return "";
+  }
+
+  return VOICE_NOTE_MIME_TYPE_CANDIDATES.find((value) => MediaRecorder.isTypeSupported(value)) ?? "";
+}
+
+function voiceNoteExtension(mimeType: string): string {
+  if (mimeType.includes("mp4") || mimeType.includes("m4a")) {
+    return "m4a";
+  }
+
+  return "webm";
+}
+
+function formatRecordingDuration(seconds: number): string {
+  const safeSeconds = Math.max(0, Math.floor(seconds));
+  const minutes = Math.floor(safeSeconds / 60);
+  const remainingSeconds = safeSeconds % 60;
+
+  return `${minutes}:${remainingSeconds.toString().padStart(2, "0")}`;
+}
+
 function isPdfAttachment(attachment: MessagingAttachment): boolean {
   return attachment.mimeType === "application/pdf" || attachment.originalFileName.toLowerCase().endsWith(".pdf");
 }
@@ -424,12 +502,17 @@ function canPreviewAttachment(attachment: MessagingAttachment): boolean {
   return (
     isImageAttachment(attachment) ||
     isVideoAttachment(attachment) ||
+    isAudioAttachment(attachment) ||
     isPdfAttachment(attachment) ||
     isTextPreviewAttachment(attachment)
   );
 }
 
 function documentIcon(attachment: MessagingAttachment): string {
+  if (isAudioAttachment(attachment)) {
+    return "♪";
+  }
+
   if (isPdfAttachment(attachment)) {
     return "PDF";
   }
@@ -450,6 +533,10 @@ function attachmentTypeLabel(attachment: MessagingAttachment): string {
     return "Video";
   }
 
+  if (isAudioAttachment(attachment)) {
+    return "Audio";
+  }
+
   if (isPdfAttachment(attachment)) {
     return "PDF document";
   }
@@ -461,7 +548,7 @@ function attachmentTypeLabel(attachment: MessagingAttachment): string {
   return "Document";
 }
 
-function attachmentLabel(message: Pick<MessagingMessage, "contentType" | "attachments" | "textContent">): string {
+function attachmentLabel(message: Pick<MessagingMessage, "contentType" | "attachments" | "textContent" | "payload">): string {
   if (message.textContent) {
     return message.textContent;
   }
@@ -478,6 +565,12 @@ function attachmentLabel(message: Pick<MessagingMessage, "contentType" | "attach
 
   if (isVideoAttachment(firstAttachment)) {
     return "Video";
+  }
+
+  if (isAudioAttachment(firstAttachment)) {
+    return getMessagePayloadValue(message, "attachmentKind") === "VOICE_NOTE"
+      ? "Voice note"
+      : "Audio";
   }
 
   return `File: ${firstAttachment.originalFileName}`;
@@ -738,7 +831,10 @@ export function MessageAppPage() {
   const [olderMessagesLoading, setOlderMessagesLoading] = useState(false);
   const [sendingMessage, setSendingMessage] = useState(false);
   const [selectedAttachment, setSelectedAttachment] = useState<File | null>(null);
+  const [selectedAttachmentKind, setSelectedAttachmentKind] = useState<"FILE" | "VOICE_NOTE">("FILE");
   const [attachmentPreviewUrl, setAttachmentPreviewUrl] = useState<string | null>(null);
+  const [voiceRecordingState, setVoiceRecordingState] = useState<"IDLE" | "RECORDING" | "STOPPING">("IDLE");
+  const [voiceRecordingSeconds, setVoiceRecordingSeconds] = useState(0);
   const [attachmentViewer, setAttachmentViewer] = useState<AttachmentViewerState | null>(null);
   const [messageCursor, setMessageCursor] = useState<string | null>(null);
   const [hasOlderMessages, setHasOlderMessages] = useState(false);
@@ -795,6 +891,12 @@ export function MessageAppPage() {
   const composerRef = useRef<HTMLTextAreaElement | null>(null);
   const attachmentInputRef = useRef<HTMLInputElement | null>(null);
   const attachmentViewerRequestRef = useRef(0);
+  const voiceRecorderRef = useRef<MediaRecorder | null>(null);
+  const voiceRecorderStreamRef = useRef<MediaStream | null>(null);
+  const voiceRecorderChunksRef = useRef<Blob[]>([]);
+  const voiceRecordingTimerRef = useRef<number | null>(null);
+  const voiceRecordingStartedAtRef = useRef(0);
+  const voiceRecordingCancelledRef = useRef(false);
   const selectedConversationIdRef = useRef<string | null>(
     selectedConversationId,
   );
@@ -817,6 +919,21 @@ export function MessageAppPage() {
       }
     };
   }, [attachmentPreviewUrl]);
+
+  useEffect(() => {
+    return () => {
+      clearVoiceRecordingTimer();
+
+      if (voiceRecorderRef.current?.state === "recording") {
+        // Avoid saving a half-recorded voice note when the page is closed.
+        voiceRecordingCancelledRef.current = true;
+        voiceRecorderRef.current.stop();
+        return;
+      }
+
+      stopVoiceRecorderStream();
+    };
+  }, []);
 
   useEffect(() => {
     return () => {
@@ -2223,8 +2340,134 @@ export function MessageAppPage() {
   }
 
 
+  function clearVoiceRecordingTimer(): void {
+    if (voiceRecordingTimerRef.current !== null) {
+      window.clearInterval(voiceRecordingTimerRef.current);
+      voiceRecordingTimerRef.current = null;
+    }
+  }
+
+  function stopVoiceRecorderStream(): void {
+    voiceRecorderStreamRef.current?.getTracks().forEach((track) => track.stop());
+    voiceRecorderStreamRef.current = null;
+  }
+
+  function resetVoiceRecordingState(): void {
+    clearVoiceRecordingTimer();
+    stopVoiceRecorderStream();
+    voiceRecorderRef.current = null;
+    voiceRecorderChunksRef.current = [];
+    voiceRecordingStartedAtRef.current = 0;
+    setVoiceRecordingState("IDLE");
+    setVoiceRecordingSeconds(0);
+  }
+
+  async function beginVoiceRecording(): Promise<void> {
+    if (sendingMessage || editingMessage || voiceRecordingState !== "IDLE") {
+      return;
+    }
+
+    if (!navigator.mediaDevices?.getUserMedia || typeof MediaRecorder === "undefined") {
+      setMessageError("Voice recording is not supported in this browser.");
+      return;
+    }
+
+    try {
+      clearSelectedAttachment();
+      setMessageError(null);
+      // Microphone access must be explicit before the browser can record a voice note.
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const mimeType = preferredVoiceNoteMimeType();
+      const recorder = new MediaRecorder(stream, mimeType ? { mimeType } : undefined);
+
+      voiceRecordingCancelledRef.current = false;
+      voiceRecorderStreamRef.current = stream;
+      voiceRecorderRef.current = recorder;
+      voiceRecorderChunksRef.current = [];
+
+      // MediaRecorder provides small chunks that are merged after the user stops recording.
+      recorder.ondataavailable = (event) => {
+        if (event.data.size > 0) {
+          voiceRecorderChunksRef.current.push(event.data);
+        }
+      };
+
+      recorder.onstop = () => {
+        const chunks = voiceRecorderChunksRef.current;
+        const recordedMimeType = recorder.mimeType || mimeType || "audio/webm";
+
+        if (voiceRecordingCancelledRef.current) {
+          resetVoiceRecordingState();
+          return;
+        }
+
+        resetVoiceRecordingState();
+
+        if (chunks.length === 0) {
+          setMessageError("No voice audio was recorded.");
+          return;
+        }
+
+        const blob = new Blob(chunks, { type: recordedMimeType });
+
+        if (blob.size > MAX_AUDIO_ATTACHMENT_BYTES) {
+          setMessageError("Voice notes must be 25 MB or smaller.");
+          return;
+        }
+
+        const file = new File(
+          [blob],
+          `voice-note-${new Date().toISOString().replace(/[:.]/g, "-")}.${voiceNoteExtension(recordedMimeType)}`,
+          { type: recordedMimeType },
+        );
+
+        // Store the recorded audio as a normal attachment with a voice-note marker.
+        setSelectedAttachment(file);
+        setSelectedAttachmentKind("VOICE_NOTE");
+        setAttachmentPreviewUrl(URL.createObjectURL(file));
+      };
+
+      // A one-second timeslice keeps longer recordings responsive without manual polling.
+      recorder.start(1000);
+      voiceRecordingStartedAtRef.current = Date.now();
+      setVoiceRecordingSeconds(0);
+      setVoiceRecordingState("RECORDING");
+      voiceRecordingTimerRef.current = window.setInterval(() => {
+        setVoiceRecordingSeconds(Math.floor((Date.now() - voiceRecordingStartedAtRef.current) / 1000));
+      }, 500);
+    } catch (error) {
+      resetVoiceRecordingState();
+      setMessageError(
+        error instanceof Error
+          ? error.message
+          : "Microphone permission was not granted.",
+      );
+    }
+  }
+
+  function finishVoiceRecording(): void {
+    // Stop triggers MediaRecorder.onstop, which converts chunks into an uploadable File.
+    if (voiceRecorderRef.current?.state === "recording") {
+      setVoiceRecordingState("STOPPING");
+      clearVoiceRecordingTimer();
+      voiceRecorderRef.current.stop();
+    }
+  }
+
+  function cancelVoiceRecording(): void {
+    // Cancel stops the microphone without creating a draft attachment.
+    if (voiceRecorderRef.current?.state === "recording") {
+      voiceRecordingCancelledRef.current = true;
+      voiceRecorderRef.current.stop();
+      return;
+    }
+
+    resetVoiceRecordingState();
+  }
+
   function clearSelectedAttachment(): void {
     setSelectedAttachment(null);
+    setSelectedAttachmentKind("FILE");
 
     setAttachmentPreviewUrl((current) => {
       if (current) {
@@ -2251,11 +2494,14 @@ export function MessageAppPage() {
 
     const isImage = file.type.startsWith("image/");
     const isVideo = file.type.startsWith("video/");
+    const isAudio = file.type.startsWith("audio/");
     const maxSize = isImage
       ? MAX_IMAGE_ATTACHMENT_BYTES
       : isVideo
         ? MAX_VIDEO_ATTACHMENT_BYTES
-        : MAX_DOCUMENT_ATTACHMENT_BYTES;
+        : isAudio
+          ? MAX_AUDIO_ATTACHMENT_BYTES
+          : MAX_DOCUMENT_ATTACHMENT_BYTES;
 
     if (file.size > maxSize) {
       setMessageError(
@@ -2263,13 +2509,16 @@ export function MessageAppPage() {
           ? "Image attachments must be 20 MB or smaller."
           : isVideo
             ? "Video attachments must be 200 MB or smaller."
-            : "Document attachments must be 50 MB or smaller.",
+            : isAudio
+              ? "Audio attachments must be 25 MB or smaller."
+              : "Document attachments must be 50 MB or smaller.",
       );
       clearSelectedAttachment();
       return;
     }
 
     setSelectedAttachment(file);
+    setSelectedAttachmentKind("FILE");
     setMessageError(null);
 
     setAttachmentPreviewUrl((current) => {
@@ -2277,7 +2526,7 @@ export function MessageAppPage() {
         URL.revokeObjectURL(current);
       }
 
-      return isImage || isVideo ? URL.createObjectURL(file) : null;
+      return isImage || isVideo || isAudio ? URL.createObjectURL(file) : null;
     });
   }
 
@@ -2689,7 +2938,8 @@ export function MessageAppPage() {
       !accessToken ||
       !selectedConversationId ||
       (!text && !selectedAttachment) ||
-      sendingMessage
+      sendingMessage ||
+      voiceRecordingState !== "IDLE"
     ) {
       return;
     }
@@ -2729,6 +2979,7 @@ export function MessageAppPage() {
             selectedAttachment,
             text,
             replyingTo?.id,
+            selectedAttachmentKind === "VOICE_NOTE" ? "VOICE_NOTE" : undefined,
           )
         : await sendConversationTextMessage(
             accessToken,
@@ -3564,8 +3815,17 @@ export function MessageAppPage() {
                       />
                     )}
 
+                    {attachmentPreviewUrl && selectedAttachment.type.startsWith("audio/") && (
+                      <div className="message-selected-audio">
+                        <span aria-hidden="true">♪</span>
+                        <audio src={attachmentPreviewUrl} controls preload="metadata">
+                          Your browser does not support audio playback.
+                        </audio>
+                      </div>
+                    )}
+
                     <span>
-                      <strong>{selectedAttachment.name}</strong>
+                      <strong>{selectedAttachmentKind === "VOICE_NOTE" ? "Voice note" : selectedAttachment.name}</strong>
                       <small>{formatFileSize(selectedAttachment.size)}</small>
                     </span>
 
@@ -3579,13 +3839,34 @@ export function MessageAppPage() {
                   </div>
                 )}
 
+                {voiceRecordingState !== "IDLE" && (
+                  <div className="message-voice-recorder-bar">
+                    <span className="message-recording-dot" aria-hidden="true" />
+                    <strong>{voiceRecordingState === "STOPPING" ? "Preparing voice note" : "Recording voice note"}</strong>
+                    <small>{formatRecordingDuration(voiceRecordingSeconds)}</small>
+                    <button
+                      type="button"
+                      onClick={finishVoiceRecording}
+                      disabled={voiceRecordingState !== "RECORDING"}
+                    >
+                      Stop
+                    </button>
+                    <button
+                      type="button"
+                      onClick={cancelVoiceRecording}
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                )}
+
                 <input
                   ref={attachmentInputRef}
                   type="file"
                   accept={ACCEPTED_ATTACHMENT_TYPES}
                   className="message-attachment-input"
                   onChange={handleAttachmentChange}
-                  disabled={sendingMessage || editingMessage !== null}
+                  disabled={sendingMessage || editingMessage !== null || voiceRecordingState !== "IDLE"}
                   aria-label="Choose attachment"
                 />
 
@@ -3611,18 +3892,27 @@ export function MessageAppPage() {
                   }
                   maxLength={5000}
                   rows={1}
-                  disabled={sendingMessage}
+                  disabled={sendingMessage || voiceRecordingState !== "IDLE"}
                   aria-label="Message text"
                 />
 
                 <div className="message-composer-actions">
                   <span>
-                    Attach an image or document · Enter to send
+                    Attach image, video, audio or document · Enter to send
                   </span>
 
                   <button
+                    type="button"
+                    className="message-voice-record-button"
+                    onClick={() => void beginVoiceRecording()}
+                    disabled={sendingMessage || editingMessage !== null || selectedAttachment !== null || voiceRecordingState !== "IDLE"}
+                  >
+                    🎙 Voice note
+                  </button>
+
+                  <button
                     type="submit"
-                    disabled={(!messageText.trim() && !selectedAttachment) || sendingMessage}
+                    disabled={(!messageText.trim() && !selectedAttachment) || sendingMessage || voiceRecordingState !== "IDLE"}
                   >
                     {sendingMessage
                       ? editingMessage
@@ -4435,7 +4725,9 @@ export function MessageAppPage() {
                   ? "is-image"
                   : isVideoAttachment(attachmentViewer.attachment)
                     ? "is-video"
-                    : isPdfAttachment(attachmentViewer.attachment)
+                    : isAudioAttachment(attachmentViewer.attachment)
+                      ? "is-audio"
+                      : isPdfAttachment(attachmentViewer.attachment)
                       ? "is-pdf"
                       : isTextPreviewAttachment(attachmentViewer.attachment)
                         ? "is-text"
@@ -4476,6 +4768,27 @@ export function MessageAppPage() {
                   >
                     Your browser does not support video preview.
                   </video>
+                )}
+
+              {!attachmentViewer.loading &&
+                !attachmentViewer.error &&
+                attachmentViewer.objectUrl &&
+                isAudioAttachment(attachmentViewer.attachment) && (
+                  <div className="message-media-viewer-audio">
+                    <div className="message-audio-waveform large" aria-hidden="true">
+                      <i />
+                      <i />
+                      <i />
+                      <i />
+                      <i />
+                      <i />
+                      <i />
+                      <i />
+                    </div>
+                    <audio src={attachmentViewer.objectUrl} controls preload="metadata">
+                      Your browser does not support audio playback.
+                    </audio>
+                  </div>
                 )}
 
               {!attachmentViewer.loading &&

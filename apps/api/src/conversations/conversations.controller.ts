@@ -427,10 +427,12 @@ export class ConversationsController {
     const canPreviewInline =
       attachment.mimeType.startsWith('image/') ||
       attachment.mimeType.startsWith('video/') ||
+      attachment.mimeType.startsWith('audio/') ||
       attachment.mimeType === 'application/pdf' ||
       attachment.mimeType.startsWith('text/');
     const disposition = canPreviewInline ? 'inline' : 'attachment';
 
+    // Audio and video previews are served inline through the same protected endpoint.
     response.setHeader('Content-Type', attachment.mimeType);
     response.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
     response.setHeader('Cross-Origin-Embedder-Policy', 'unsafe-none');

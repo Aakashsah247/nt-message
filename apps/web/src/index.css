@@ -11307,3 +11307,166 @@
   }
 }
 /* Y23 MEDIA PREVIEW POLISH END */
+
+/* Y24 AUDIO AND VOICE NOTES START */
+.message-audio-card {
+  display: grid;
+  gap: 8px;
+  padding: 10px;
+  border-radius: 12px;
+  background: #edf6ff;
+}
+
+.message-audio-card audio,
+.message-selected-audio audio,
+.message-media-viewer-audio audio {
+  width: 100%;
+  min-width: 220px;
+}
+
+.message-audio-waveform {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  height: 28px;
+}
+
+.message-audio-waveform i {
+  display: block;
+  width: 4px;
+  height: 14px;
+  border-radius: 999px;
+  background: var(--color-nt-blue);
+  opacity: 0.76;
+}
+
+.message-audio-waveform i:nth-child(2),
+.message-audio-waveform i:nth-child(5) {
+  height: 22px;
+}
+
+.message-audio-waveform i:nth-child(3),
+.message-audio-waveform i:nth-child(6) {
+  height: 10px;
+}
+
+.message-audio-waveform.large {
+  height: 48px;
+  justify-content: center;
+}
+
+.message-audio-waveform.large i {
+  width: 6px;
+  height: 24px;
+  background: #7db7ff;
+}
+
+.message-audio-waveform.large i:nth-child(2),
+.message-audio-waveform.large i:nth-child(5),
+.message-audio-waveform.large i:nth-child(8) {
+  height: 38px;
+}
+
+.message-selected-audio {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: min(320px, 58vw);
+}
+
+.message-selected-audio > span {
+  display: grid;
+  width: 34px;
+  height: 34px;
+  flex: 0 0 34px;
+  place-items: center;
+  border-radius: 50%;
+  color: white;
+  background: var(--color-nt-blue);
+  font-size: 17px;
+  font-weight: 950;
+}
+
+.message-voice-recorder-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 9px;
+  padding: 9px 10px;
+  border: 1px solid rgba(220, 38, 38, 0.18);
+  border-radius: 12px;
+  color: #7f1d1d;
+  background: #fff1f1;
+  font-size: 10px;
+  font-weight: 900;
+}
+
+.message-recording-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: #dc2626;
+  box-shadow: 0 0 0 5px rgba(220, 38, 38, 0.12);
+}
+
+.message-voice-recorder-bar small {
+  color: #991b1b;
+  font-size: 10px;
+  font-weight: 950;
+}
+
+.message-voice-recorder-bar button,
+.message-voice-record-button {
+  min-height: 30px;
+  padding: 0 11px;
+  border: 0;
+  border-radius: 999px;
+  color: white;
+  background: #1d4ed8;
+  font-size: 10px;
+  font-weight: 900;
+}
+
+.message-voice-recorder-bar button:last-child {
+  color: #7f1d1d;
+  background: white;
+}
+
+.message-voice-recorder-bar button:disabled,
+.message-voice-record-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+.message-media-viewer-body.is-audio {
+  background: radial-gradient(circle at top, #0f2b4d, #02070d 68%);
+}
+
+.message-media-viewer-audio {
+  display: grid;
+  width: min(720px, 100%);
+  gap: 18px;
+  padding: 28px;
+  border-radius: 18px;
+  background: rgba(255, 255, 255, 0.08);
+}
+
+@media (max-width: 720px) {
+  .message-selected-audio {
+    min-width: 0;
+  }
+
+  .message-selected-audio audio,
+  .message-audio-card audio {
+    min-width: 0;
+  }
+
+  .message-voice-recorder-bar {
+    align-items: stretch;
+  }
+
+  .message-media-viewer-audio {
+    padding: 16px;
+  }
+}
+/* Y24 AUDIO AND VOICE NOTES END */

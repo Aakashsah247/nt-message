@@ -363,6 +363,7 @@ export async function sendConversationAttachmentMessage(
   file: File,
   caption?: string,
   replyToMessageId?: string,
+  attachmentKind?: 'VOICE_NOTE',
 ): Promise<SendAttachmentMessageResponse> {
   const formData = new FormData();
 
@@ -375,6 +376,11 @@ export async function sendConversationAttachmentMessage(
 
   if (replyToMessageId) {
     formData.set("replyToMessageId", replyToMessageId);
+  }
+
+  if (attachmentKind) {
+    // Voice-note uploads are still protected attachments, but the backend stores their UI kind.
+    formData.set("attachmentKind", attachmentKind);
   }
 
   const response = await fetch(

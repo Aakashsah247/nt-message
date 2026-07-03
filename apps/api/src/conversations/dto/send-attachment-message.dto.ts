@@ -1,4 +1,5 @@
 import {
+  IsIn,
   IsOptional,
   IsString,
   IsUUID,
@@ -21,4 +22,10 @@ export class SendAttachmentMessageDto {
     message: 'Reply message ID must be a valid UUID.',
   })
   replyToMessageId?: string;
+
+  @IsOptional()
+  @IsIn(['VOICE_NOTE'], {
+    message: 'Attachment kind is not supported.',
+  })
+  attachmentKind?: 'VOICE_NOTE';
 }

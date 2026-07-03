@@ -90,6 +90,7 @@ const MESSAGE_REQUEST_COOLDOWN_MS = 24 * 60 * 60 * 1000;
 const MESSAGE_EDIT_WINDOW_MS = 15 * 60 * 1000;
 const MAX_IMAGE_ATTACHMENT_BYTES = 20 * 1024 * 1024;
 const MAX_DOCUMENT_ATTACHMENT_BYTES = 50 * 1024 * 1024;
+const MAX_AUDIO_ATTACHMENT_BYTES = 25 * 1024 * 1024;
 const MAX_VIDEO_ATTACHMENT_BYTES = 200 * 1024 * 1024;
 const MESSAGE_ATTACHMENT_STORAGE_DIR = path.resolve(
   process.env.MESSAGE_ATTACHMENT_STORAGE_DIR ??
@@ -105,6 +106,17 @@ const IMAGE_ATTACHMENT_MIME_TYPES = new Set([
 const VIDEO_ATTACHMENT_MIME_TYPES = new Set([
   'video/mp4',
   'video/webm',
+]);
+
+const AUDIO_ATTACHMENT_MIME_TYPES = new Set([
+  'audio/aac',
+  'audio/m4a',
+  'audio/mp4',
+  'audio/mpeg',
+  'audio/ogg',
+  'audio/wav',
+  'audio/webm',
+  'audio/x-m4a',
 ]);
 
 const DOCUMENT_ATTACHMENT_MIME_TYPES = new Set([
@@ -518,6 +530,16 @@ export class ConversationsService {
     };
   }
 
+  private getPlainMessagePayload(
+    payload: unknown,
+  ): Record<string, unknown> {
+    if (!payload || typeof payload !== 'object' || Array.isArray(payload)) {
+      return {};
+    }
+
+    return { ...(payload as Record<string, unknown>) };
+  }
+
   private getForwardedMessageMetadata(
     payload: unknown,
   ): ForwardedMessageMetadata | null {
@@ -813,6 +835,18 @@ export class ConversationsService {
       };
     }
 
+    if (AUDIO_ATTACHMENT_MIME_TYPES.has(file.mimetype)) {
+      // Audio files and browser voice notes share the same secure attachment pipeline.
+      if (file.size > MAX_AUDIO_ATTACHMENT_BYTES) {
+        throw new BadRequestException('Audio and voice-note attachments must be 25 MB or smaller.');
+      }
+
+      return {
+        originalFileName,
+        contentType: MessageContentType.AUDIO,
+      };
+    }
+
     if (DOCUMENT_ATTACHMENT_MIME_TYPES.has(file.mimetype)) {
       if (file.size > MAX_DOCUMENT_ATTACHMENT_BYTES) {
         throw new BadRequestException('Document attachments must be 50 MB or smaller.');
@@ -825,7 +859,7 @@ export class ConversationsService {
     }
 
     throw new BadRequestException(
-      'Unsupported attachment type. Allowed files are JPG, PNG, WEBP, MP4, WEBM, PDF, DOCX, XLSX, PPTX, TXT, CSV and ZIP.',
+      'Unsupported attachment type. Allowed files are JPG, PNG, WEBP, MP4, WEBM, MP3, M4A, AAC, WAV, OGG, WEBM audio, PDF, DOCX, XLSX, PPTX, TXT, CSV and ZIP.',
     );
   }
 
@@ -3879,6 +3913,11 @@ export class ConversationsService {
     const attachment = this.validateMessageAttachment(file);
     const uploadedFile = file as UploadedMessageAttachmentFile;
     const caption = dto.caption?.trim() || null;
+    const attachmentKind = dto.attachmentKind ?? null;
+
+    if (attachmentKind === 'VOICE_NOTE' && attachment.contentType !== MessageContentType.AUDIO) {
+      throw new BadRequestException('Voice notes must be uploaded as an audio file.');
+    }
 
     const conversation = await this.prisma.conversation.findFirst({
       where: {
@@ -3995,6 +4034,8 @@ export class ConversationsService {
               replyToMessageId: dto.replyToMessageId ?? null,
               payload: {
                 attachmentCount: 1,
+                // The payload marks browser-recorded audio so clients can show voice-note UI.
+                ...(attachmentKind ? { attachmentKind } : {}),
               },
 
               attachments: {
@@ -4231,6 +4272,7 @@ export class ConversationsService {
       contentType: attachment.contentType,
       scanStatus: attachment.scanStatus,
     }));
+    const sourcePayload = this.getPlainMessagePayload(sourceMessage.payload);
     const forwardedTextContent = sourceMessage.textContent;
     const forwardedPreviewText =
       forwardedTextContent ??
@@ -4362,6 +4404,7 @@ export class ConversationsService {
               contentType: sourceMessage.contentType,
               textContent: forwardedTextContent,
               payload: {
+                ...sourcePayload,
                 attachmentCount: forwardedAttachments.length,
                 forwardedFrom: {
                   sourceMessageId: forwardedFrom.sourceMessageId,
