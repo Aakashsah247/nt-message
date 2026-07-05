@@ -492,6 +492,7 @@ model Conversation {
 
   title                 String?                 @db.VarChar(150)
   description           String?                 @db.VarChar(500)
+  groupPhotoKey         String?                 @map("group_photo_key") @db.VarChar(500)
   groupKind             GroupKind?              @map("group_kind")
   officialScopeType     OfficialGroupScopeType? @map("official_scope_type")
   officialDivisionId   String?                 @map("official_division_id") @db.Uuid
@@ -515,6 +516,7 @@ model Conversation {
 
   @@index([type, lastMessageAt], map: "conversations_type_last_message_idx")
   @@index([groupKind, updatedAt], map: "conversations_group_kind_idx")
+  @@index([groupPhotoKey], map: "conversations_group_photo_key_idx")
   @@index([officialScopeType, officialDivisionId, officialDepartmentId], map: "conversations_official_scope_idx")
   @@index([createdByAccountId], map: "conversations_created_by_idx")
   @@index([lastMessageAt], map: "conversations_last_message_idx")

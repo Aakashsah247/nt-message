@@ -125,7 +125,6 @@
 }
 /* Y25 SEARCH UI POLISH END */
 
-
 /* NT Message design tokens */
 @theme {
   --color-nt-blue: #075ca8;
@@ -5755,7 +5754,6 @@
   cursor: pointer;
 }
 
-
 @media (max-width: 700px) {
   .manager-account-actions,
   .admin-header-actions,
@@ -6927,7 +6925,6 @@
   }
 }
 
-
 /* DIRECTORY LIST VISIBILITY FIX START */
 .directory-table-wrap {
   display: block;
@@ -6943,7 +6940,6 @@
 }
 /* DIRECTORY LIST VISIBILITY FIX END */
 
-
 /* Role-specific account form help */
 @layer components {
   .acct-help {
@@ -6955,7 +6951,6 @@
     line-height: 1.5;
   }
 }
-
 
 @layer components {
   .dir-status-box {
@@ -7103,7 +7098,6 @@
     opacity: 0.6;
   }
 }
-
 
 /* DIRECTORY EMPLOYMENT LIFECYCLE START */
 @layer components {
@@ -7301,7 +7295,6 @@
 }
 /* DIRECTORY EMPLOYMENT LIFECYCLE END */
 
-
 /* DIRECTORY ARCHIVE CONTROL START */
 @layer components {
   .dir-archive-box {
@@ -7425,7 +7418,6 @@
   }
 }
 /* DIRECTORY ARCHIVE CONTROL END */
-
 
 /* DIRECTORY LIFECYCLE HISTORY START */
 @layer components {
@@ -7594,7 +7586,6 @@
 }
 /* DIRECTORY LIFECYCLE HISTORY END */
 
-
 /* DIRECTORY RECORD SECTIONS START */
 @layer components {
   .directory-record-tabs {
@@ -7661,7 +7652,6 @@
   }
 }
 /* DIRECTORY RECORD SECTIONS END */
-
 
 /* DIRECTORY ROLE CHANGE START */
 @layer components {
@@ -7848,7 +7838,6 @@
   }
 }
 /* DIRECTORY ROLE CHANGE END */
-
 
 /* MANAGEMENT POSITIONS START */
 .mgmt-page {
@@ -10527,6 +10516,85 @@
   resize: vertical;
 }
 
+.message-group-photo-card {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 12px;
+  border: 1px solid #dce7f0;
+  border-radius: 12px;
+  background: #fbfdff;
+}
+
+.message-group-photo-preview {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 4.75rem;
+  height: 4.75rem;
+  border: 1px solid #cde0ee;
+  border-radius: 22px;
+  color: #075ca8;
+  background: #eaf5ff;
+  font-size: 1rem;
+  font-weight: 900;
+  overflow: hidden;
+  flex: 0 0 auto;
+}
+
+.message-group-photo-preview img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.message-group-photo-copy {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+  flex: 1;
+}
+
+.message-group-photo-copy strong {
+  color: #20364a;
+  font-size: 12px;
+}
+
+.message-group-photo-copy small {
+  color: #6f8295;
+  font-size: 9px;
+  line-height: 1.45;
+}
+
+.message-group-photo-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+}
+
+.message-group-photo-actions button {
+  min-height: 30px;
+  padding: 0 10px;
+  border: 1px solid #cfdeea;
+  border-radius: 8px;
+  color: #49667e;
+  background: white;
+  font-size: 9px;
+  font-weight: 900;
+}
+
+.message-group-photo-actions button.primary {
+  border-color: var(--color-nt-blue);
+  color: white;
+  background: var(--color-nt-blue);
+}
+
+.message-group-photo-actions button.danger {
+  border-color: #efc3bf;
+  color: #b3261e;
+  background: #fff7f6;
+}
+
 .message-group-members-section > header,
 .message-group-add-section > header {
   display: flex;
@@ -10553,7 +10621,6 @@
 .message-group-member-row,
 .message-group-contact-row {
   display: grid;
-  grid-template-columns: auto minmax(0, 1fr) auto auto;
   align-items: center;
   gap: 10px;
   min-height: 54px;
@@ -10561,6 +10628,10 @@
   border: 1px solid #e0e9f1;
   border-radius: 10px;
   background: white;
+}
+
+.message-group-member-row {
+  grid-template-columns: auto minmax(0, 1fr) auto auto;
 }
 
 .message-group-contact-row {
@@ -10616,13 +10687,14 @@
 }
 
 .message-group-member-actions {
-  display: flex;
-  flex-wrap: wrap;
+  display: inline-flex;
+  flex-wrap: nowrap;
   justify-content: flex-end;
-  gap: 5px;
+  gap: 6px;
 }
 
 .message-group-member-actions button,
+.message-group-member-profile,
 .message-group-primary,
 .message-group-dialog-footer button {
   min-height: 30px;
@@ -10633,6 +10705,13 @@
   background: white;
   font-size: 9px;
   font-weight: 900;
+  white-space: nowrap;
+}
+
+.message-group-member-profile {
+  border-color: #b9d4ff;
+  color: #075ca8;
+  background: #f5f9ff;
 }
 
 .message-group-primary,
@@ -10673,7 +10752,6 @@
   display: flex;
   gap: 8px;
 }
-
 
 .message-group-kind-section,
 .message-official-scope-card,
@@ -10849,13 +10927,22 @@
   }
 
   .message-group-member-row {
-    grid-template-columns: auto minmax(0, 1fr) auto;
+    grid-template-columns: auto minmax(0, 1fr);
+  }
+
+  .message-group-member-row > b,
+  .message-group-member-actions {
+    grid-column: 2;
+    justify-self: start;
   }
 
   .message-group-member-actions {
-    grid-column: 1 / -1;
-    justify-content: flex-start;
-    padding-left: 42px;
+    flex-wrap: wrap;
+  }
+
+  .message-group-photo-card {
+    align-items: flex-start;
+    flex-direction: column;
   }
 
   .message-group-dialog-footer {
@@ -12593,3 +12680,399 @@
   opacity: 0.6;
 }
 /* M4 PROFILE PHOTO SYNC END */
+
+/* M5 CUSTOMIZATION START */
+.message-app-shell {
+  --message-accent: var(--color-nt-blue);
+  --message-accent-deep: var(--color-nt-deep);
+  --message-topbar-bg: linear-gradient(105deg, var(--color-nt-dark), var(--color-nt-blue));
+  --message-shell-bg: radial-gradient(circle at 12% 8%, rgba(7, 92, 168, 0.08), transparent 32%), #eef4f9;
+  --message-sidebar-bg: rgba(255, 255, 255, 0.94);
+  --message-surface-bg: rgba(255, 255, 255, 0.92);
+  --message-chat-base: #f7fafd;
+  --message-chat-overlay: linear-gradient(rgba(247, 250, 253, 0.88), rgba(247, 250, 253, 0.94));
+  --message-chat-pattern: radial-gradient(circle at 85% 18%, rgba(7, 92, 168, 0.09), transparent 29%);
+  --message-text: var(--color-nt-text);
+  --message-muted: #71859a;
+  --message-line: #dce6ef;
+  --message-peer-bubble: #ffffff;
+  --message-peer-text: var(--color-nt-text);
+  --message-own-bubble: var(--message-accent);
+  --message-own-text: #ffffff;
+  background: var(--message-shell-bg);
+  color: var(--message-text);
+}
+
+.message-app-shell.accent-emerald {
+  --message-accent: #0f766e;
+  --message-accent-deep: #115e59;
+}
+
+.message-app-shell.accent-purple {
+  --message-accent: #6d28d9;
+  --message-accent-deep: #4c1d95;
+}
+
+.message-app-shell.accent-gold {
+  --message-accent: #b7791f;
+  --message-accent-deep: #8a5a12;
+}
+
+.message-app-shell.accent-rose {
+  --message-accent: #be123c;
+  --message-accent-deep: #881337;
+}
+
+.message-app-shell.theme-light {
+  --message-topbar-bg: linear-gradient(105deg, #ffffff, #eaf4ff);
+  --message-shell-bg: #eef4f9;
+  --message-sidebar-bg: rgba(255, 255, 255, 0.96);
+  --message-surface-bg: rgba(255, 255, 255, 0.94);
+  --message-chat-base: #f9fbfd;
+  --message-chat-overlay: linear-gradient(rgba(250, 252, 255, 0.9), rgba(250, 252, 255, 0.96));
+  --message-chat-pattern: radial-gradient(circle at 82% 12%, rgba(37, 99, 235, 0.08), transparent 28%);
+}
+
+.message-app-shell.theme-light .message-app-topbar,
+.message-app-shell.theme-light .message-app-brand,
+.message-app-shell.theme-light .message-app-logout,
+.message-app-shell.theme-light .message-profile-topbar-button,
+.message-app-shell.theme-light .message-customization-button,
+.message-app-shell.theme-light .message-notification-button,
+.message-app-shell.theme-light .message-app-account .directory-button {
+  color: #0f2744;
+}
+
+.message-app-shell.theme-light .message-app-brand small,
+.message-app-shell.theme-light .message-app-account-copy span,
+.message-app-shell.theme-light .message-app-account-copy small {
+  color: #64748b;
+}
+
+.message-app-shell.theme-light .message-app-logout,
+.message-app-shell.theme-light .message-profile-topbar-button,
+.message-app-shell.theme-light .message-customization-button,
+.message-app-shell.theme-light .message-notification-button,
+.message-app-shell.theme-light .message-app-account .directory-button {
+  border-color: #bfd3e8;
+  background: rgba(255, 255, 255, 0.78);
+}
+
+.message-app-shell.theme-dark {
+  --message-topbar-bg: linear-gradient(105deg, #020617, #0f172a 48%, #1e293b);
+  --message-shell-bg: #020617;
+  --message-sidebar-bg: rgba(15, 23, 42, 0.96);
+  --message-surface-bg: rgba(15, 23, 42, 0.94);
+  --message-chat-base: #0f172a;
+  --message-chat-overlay: linear-gradient(rgba(15, 23, 42, 0.88), rgba(15, 23, 42, 0.94));
+  --message-chat-pattern: radial-gradient(circle at 78% 16%, rgba(59, 130, 246, 0.15), transparent 30%);
+  --message-text: #e5eefb;
+  --message-muted: #94a3b8;
+  --message-line: rgba(148, 163, 184, 0.22);
+  --message-peer-bubble: #1e293b;
+  --message-peer-text: #e2e8f0;
+}
+
+.message-app-shell .message-app-topbar {
+  background: var(--message-topbar-bg);
+}
+
+.message-customization-wrapper {
+  position: relative;
+}
+
+.message-customization-button {
+  min-height: 39px;
+  padding: 0 14px;
+  border: 1px solid rgba(255, 255, 255, 0.28);
+  border-radius: 999px;
+  color: #ffffff;
+  background: rgba(255, 255, 255, 0.12);
+  font-size: 11px;
+  font-weight: 900;
+}
+
+.message-customization-panel {
+  position: absolute;
+  top: calc(100% + 12px);
+  right: 0;
+  z-index: 50;
+  display: grid;
+  width: 280px;
+  gap: 12px;
+  padding: 16px;
+  border: 1px solid rgba(148, 163, 184, 0.26);
+  border-radius: 20px;
+  color: #102a43;
+  background: #ffffff;
+  box-shadow: 0 22px 60px rgba(15, 23, 42, 0.24);
+}
+
+.message-customization-panel-header {
+  display: grid;
+  gap: 2px;
+}
+
+.message-customization-panel-header span,
+.message-customization-field span {
+  color: var(--message-accent);
+  font-size: 10px;
+  font-weight: 900;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.message-customization-panel-header strong {
+  color: #0f172a;
+  font-size: 16px;
+}
+
+.message-customization-field {
+  display: grid;
+  gap: 6px;
+}
+
+.message-customization-field select {
+  width: 100%;
+  min-height: 40px;
+  border: 1px solid #d1deea;
+  border-radius: 12px;
+  color: #102a43;
+  background: #f8fbff;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.message-customization-reset {
+  min-height: 38px;
+  border: 0;
+  border-radius: 999px;
+  color: #ffffff;
+  background: var(--message-accent);
+  font-size: 11px;
+  font-weight: 900;
+}
+
+.message-customization-panel small {
+  color: #64748b;
+  font-size: 11px;
+}
+
+.message-app-shell .message-sidebar,
+.message-app-shell .message-chat-header,
+.message-app-shell .message-composer,
+.message-app-shell .message-notification-panel {
+  border-color: var(--message-line);
+  background: var(--message-surface-bg);
+}
+
+.message-app-shell .message-sidebar {
+  background: var(--message-sidebar-bg);
+}
+
+.message-app-shell .message-chat-panel {
+  background: var(--message-chat-overlay), var(--message-chat-pattern), var(--message-chat-base);
+}
+
+.message-app-shell.wallpaper-dots {
+  --message-chat-pattern:
+    radial-gradient(circle at 1px 1px, rgba(7, 92, 168, 0.13) 1px, transparent 0),
+    radial-gradient(circle at 82% 18%, rgba(7, 92, 168, 0.08), transparent 28%);
+}
+
+.message-app-shell.wallpaper-dots .message-chat-panel {
+  background-size: auto, 22px 22px, auto;
+}
+
+.message-app-shell.wallpaper-waves {
+  --message-chat-pattern:
+    repeating-radial-gradient(circle at 0 0, rgba(7, 92, 168, 0.08) 0 2px, transparent 2px 30px),
+    radial-gradient(circle at 82% 18%, rgba(7, 92, 168, 0.09), transparent 28%);
+}
+
+.message-app-shell.wallpaper-grid {
+  --message-chat-pattern:
+    linear-gradient(rgba(7, 92, 168, 0.06) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(7, 92, 168, 0.06) 1px, transparent 1px),
+    radial-gradient(circle at 82% 18%, rgba(7, 92, 168, 0.08), transparent 28%);
+}
+
+.message-app-shell.wallpaper-grid .message-chat-panel {
+  background-size: auto, 28px 28px, 28px 28px, auto;
+}
+
+.message-app-shell .message-bubble {
+  color: var(--message-peer-text);
+  background: var(--message-peer-bubble);
+}
+
+.message-app-shell .message-bubble-row.own .message-bubble,
+.message-app-shell .message-composer-actions button,
+.message-app-shell .message-new-button,
+.message-app-shell .message-requests-button b,
+.message-app-shell .message-load-older,
+.message-app-shell .message-profile-actions button,
+.message-app-shell .message-profile-footer button,
+.message-app-shell .message-profile-photo-upload {
+  background: var(--message-accent);
+}
+
+.message-app-shell .message-bubble-row.own .message-bubble {
+  color: var(--message-own-text);
+}
+
+.message-app-shell .message-composer-actions button:hover:not(:disabled),
+.message-app-shell .message-new-button:hover,
+.message-app-shell .message-load-older:hover:not(:disabled),
+.message-app-shell .message-customization-reset:hover:not(:disabled) {
+  background: var(--message-accent-deep);
+}
+
+.message-app-shell .message-sidebar-heading span,
+.message-app-shell .message-peer-activity.typing,
+.message-app-shell .message-delivery.read,
+.message-app-shell .message-private-badge,
+.message-app-shell .message-composer-context strong,
+.message-app-shell a {
+  color: var(--message-accent);
+}
+
+.message-app-shell .message-conversation-row.active {
+  box-shadow: inset 4px 0 0 var(--message-accent);
+}
+
+.message-app-shell .message-composer-context {
+  border-left-color: var(--message-accent);
+}
+
+.message-app-shell.theme-dark .message-conversation-row,
+.message-app-shell.theme-dark .message-conversation-list,
+.message-app-shell.theme-dark .message-chat-header,
+.message-app-shell.theme-dark .message-composer,
+.message-app-shell.theme-dark .message-sidebar {
+  border-color: var(--message-line);
+}
+
+.message-app-shell.theme-dark .message-conversation-row:hover,
+.message-app-shell.theme-dark .message-conversation-row.active,
+.message-app-shell.theme-dark .message-conversation-search input,
+.message-app-shell.theme-dark .message-contact-search input,
+.message-app-shell.theme-dark .message-composer textarea,
+.message-app-shell.theme-dark .message-composer-context,
+.message-app-shell.theme-dark .message-typing-bubble {
+  color: #e2e8f0;
+  background: rgba(30, 41, 59, 0.92);
+}
+
+.message-app-shell.theme-dark .message-conversation-preview-line small,
+.message-app-shell.theme-dark .message-conversation-meta,
+.message-app-shell.theme-dark .message-bubble-meta,
+.message-app-shell.theme-dark .message-chat-header p,
+.message-app-shell.theme-dark .message-peer-activity,
+.message-app-shell.theme-dark .message-composer-actions span {
+  color: var(--message-muted);
+}
+
+.message-app-shell.density-compact .message-thread {
+  padding-top: 14px;
+  padding-bottom: 18px;
+}
+
+.message-app-shell.density-compact .message-bubble-row,
+.message-app-shell.density-compact .message-typing-indicator {
+  margin-top: 7px;
+}
+
+.message-app-shell.density-compact .message-bubble {
+  padding: 8px 11px;
+  font-size: 11px;
+}
+
+.message-app-shell.density-compact .message-composer {
+  gap: 6px;
+  padding: 10px 16px 12px;
+}
+
+.message-app-shell.density-compact .message-composer textarea {
+  min-height: 40px;
+  padding: 9px 12px;
+}
+
+@media (max-width: 760px) {
+  .message-customization-panel {
+    right: -70px;
+    width: min(280px, calc(100vw - 24px));
+  }
+}
+/* M5 CUSTOMIZATION END */
+
+/* M5 CUSTOMIZATION FIX START */
+.message-app-shell {
+  --message-wallpaper-mark: rgba(7, 92, 168, 0.18);
+  --message-wallpaper-soft: rgba(7, 92, 168, 0.09);
+  --message-wallpaper-overlay: rgba(247, 250, 253, 0.58);
+}
+
+.message-app-shell.theme-dark {
+  --message-wallpaper-mark: rgba(147, 197, 253, 0.18);
+  --message-wallpaper-soft: rgba(147, 197, 253, 0.1);
+  --message-wallpaper-overlay: rgba(15, 23, 42, 0.58);
+}
+
+.message-app-shell.wallpaper-clean .message-chat-panel {
+  background: var(--message-chat-overlay), var(--message-chat-base);
+}
+
+.message-app-shell.wallpaper-clean .message-thread {
+  background-image: none;
+}
+
+.message-app-shell.wallpaper-dots .message-thread {
+  background-color: transparent;
+  background-image:
+    radial-gradient(circle at 2px 2px, var(--message-wallpaper-mark) 1.3px, transparent 1.8px),
+    linear-gradient(var(--message-wallpaper-overlay), var(--message-wallpaper-overlay));
+  background-size: 24px 24px, auto;
+}
+
+.message-app-shell.wallpaper-waves .message-thread {
+  background-color: transparent;
+  background-image:
+    repeating-radial-gradient(
+      circle at 0 0,
+      transparent 0 18px,
+      var(--message-wallpaper-soft) 19px 20px,
+      transparent 21px 38px
+    ),
+    linear-gradient(var(--message-wallpaper-overlay), var(--message-wallpaper-overlay));
+  background-size: 90px 90px, auto;
+}
+
+.message-app-shell.wallpaper-grid .message-thread {
+  background-color: transparent;
+  background-image:
+    linear-gradient(var(--message-wallpaper-soft) 1px, transparent 1px),
+    linear-gradient(90deg, var(--message-wallpaper-soft) 1px, transparent 1px),
+    linear-gradient(var(--message-wallpaper-overlay), var(--message-wallpaper-overlay));
+  background-size: 30px 30px, 30px 30px, auto;
+}
+
+.message-profile-hero {
+  align-items: center;
+}
+
+.message-profile-photo {
+  width: 7.75rem;
+  height: 7.75rem;
+  border-radius: 50%;
+  box-shadow: 0 16px 40px rgba(15, 23, 42, 0.18);
+}
+
+@media (max-width: 760px) {
+  .message-profile-photo {
+    width: 6.25rem;
+    height: 6.25rem;
+  }
+}
+/* M5 CUSTOMIZATION FIX END */

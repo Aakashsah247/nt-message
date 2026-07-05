@@ -319,6 +319,78 @@ export function updateGroupConversation(
   );
 }
 
+
+export async function updateGroupPhoto(
+  accessToken: string,
+  conversationId: string,
+  file: File,
+): Promise<GroupConversationResponse> {
+  const formData = new FormData();
+  formData.set("file", file);
+
+  const response = await fetch(
+    messagingApiUrl(`/conversations/${conversationId}/group/photo`),
+    {
+      method: "POST",
+      headers: authorizationHeaders(accessToken),
+      body: formData,
+    },
+  );
+
+  const body = await response.json().catch(() => null) as
+    | GroupConversationResponse
+    | { message?: unknown }
+    | null;
+
+  if (!response.ok) {
+    throw new Error(
+      body && typeof (body as { message?: unknown } | null)?.message === "string"
+        ? String((body as { message?: unknown }).message)
+        : "Group photo could not be uploaded.",
+    );
+  }
+
+  if (!body || !("data" in body)) {
+    throw new Error("Group photo upload returned an invalid response.");
+  }
+
+  return body as GroupConversationResponse;
+}
+
+export function deleteGroupPhoto(
+  accessToken: string,
+  conversationId: string,
+): Promise<GroupConversationResponse> {
+  return apiRequest<GroupConversationResponse>(
+    `/conversations/${conversationId}/group/photo`,
+    {
+      method: "DELETE",
+      headers: authorizationHeaders(accessToken),
+    },
+  );
+}
+
+export async function createGroupPhotoObjectUrl(
+  accessToken: string,
+  conversationId: string,
+): Promise<string> {
+  const response = await fetch(
+    messagingApiUrl(`/conversations/${conversationId}/group/photo`),
+    {
+      cache: "no-store",
+      credentials: "include",
+      headers: authorizationHeaders(accessToken),
+    },
+  );
+
+  if (!response.ok) {
+    throw new Error("Group photo could not be loaded.");
+  }
+
+  const blob = await response.blob();
+  return URL.createObjectURL(blob);
+}
+
 export function addGroupMembers(
   accessToken: string,
   conversationId: string,

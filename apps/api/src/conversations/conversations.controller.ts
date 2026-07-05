@@ -392,6 +392,75 @@ export class ConversationsController {
     );
   }
 
+
+  @Post(':id/group/photo')
+  @UseInterceptors(FileInterceptor('file', { limits: { fileSize: 5 * 1024 * 1024 } }))
+  updateGroupPhoto(
+    @CurrentUser()
+    user: AuthenticatedUser,
+
+    @Param(
+      'id',
+      new ParseUUIDPipe({
+        version: '4',
+      }),
+    )
+    conversationId: string,
+
+    @UploadedFile()
+    file: UploadedMessageAttachmentFile | undefined,
+  ) {
+    return this.conversationsService.updateGroupPhoto(
+      user,
+      conversationId,
+      file,
+    );
+  }
+
+  @Delete(':id/group/photo')
+  removeGroupPhoto(
+    @CurrentUser()
+    user: AuthenticatedUser,
+
+    @Param(
+      'id',
+      new ParseUUIDPipe({
+        version: '4',
+      }),
+    )
+    conversationId: string,
+  ) {
+    return this.conversationsService.removeGroupPhoto(user, conversationId);
+  }
+
+  @Get(':id/group/photo')
+  async downloadGroupPhoto(
+    @CurrentUser()
+    user: AuthenticatedUser,
+
+    @Param(
+      'id',
+      new ParseUUIDPipe({
+        version: '4',
+      }),
+    )
+    conversationId: string,
+
+    @Res({ passthrough: true })
+    response: Response,
+  ): Promise<StreamableFile> {
+    const photo = await this.conversationsService.getGroupPhotoDownload(
+      user,
+      conversationId,
+    );
+
+    response.setHeader('Content-Type', photo.mimeType);
+    response.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
+    response.setHeader('Cache-Control', 'private, max-age=300');
+
+    return new StreamableFile(createReadStream(photo.absolutePath));
+  }
+
   @Post(':id/group/members')
   addGroupMembers(
     @CurrentUser()

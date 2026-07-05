@@ -227,6 +227,7 @@ export interface MessagingConversation {
   type: ConversationType;
   title: string | null;
   description: string | null;
+  groupPhotoKey: string | null;
   groupKind: GroupKind | null;
   officialScope: MessagingOfficialGroupScope | null;
   createdByAccountId: string;

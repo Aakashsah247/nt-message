@@ -158,6 +158,10 @@ const PROFILE_PHOTO_STORAGE_DIR = path.resolve(
   process.env.PROFILE_PHOTO_STORAGE_DIR ??
     path.join(process.cwd(), 'storage', 'profile-photos'),
 );
+const GROUP_PHOTO_STORAGE_DIR = path.resolve(
+  process.env.GROUP_PHOTO_STORAGE_DIR ??
+    path.join(process.cwd(), 'storage', 'group-photos'),
+);
 
 const IMAGE_ATTACHMENT_MIME_TYPES = new Set([
   'image/jpeg',
@@ -343,6 +347,7 @@ const conversationSelect = {
   type: true,
   title: true,
   description: true,
+  groupPhotoKey: true,
   groupKind: true,
   officialScopeType: true,
   officialDivisionId: true,
@@ -721,6 +726,76 @@ export class ConversationsService {
     }
   }
 
+
+  private resolveGroupPhotoPath(storageKey: string): string {
+    const absolutePath = path.resolve(GROUP_PHOTO_STORAGE_DIR, storageKey);
+
+    if (!absolutePath.startsWith(`${GROUP_PHOTO_STORAGE_DIR}${path.sep}`)) {
+      throw new BadRequestException('Group photo storage key is invalid.');
+    }
+
+    return absolutePath;
+  }
+
+  private validateGroupPhoto(file?: UploadedMessageAttachmentFile): {
+    originalFileName: string;
+  } {
+    if (!file) {
+      throw new BadRequestException('Group photo file is required.');
+    }
+
+    if (!file.buffer || file.size <= 0) {
+      throw new BadRequestException('Group photo file is empty.');
+    }
+
+    if (!PROFILE_PHOTO_MIME_TYPES.has(file.mimetype)) {
+      throw new BadRequestException('Group photo must be JPG, PNG or WEBP.');
+    }
+
+    if (file.size > MAX_PROFILE_PHOTO_BYTES) {
+      throw new BadRequestException('Group photo must be 5 MB or smaller.');
+    }
+
+    return {
+      originalFileName: this.normalizeAttachmentFileName(file.originalname),
+    };
+  }
+
+  private async writeGroupPhotoFile(
+    storageKey: string,
+    file: UploadedMessageAttachmentFile,
+  ): Promise<void> {
+    const absolutePath = this.resolveGroupPhotoPath(storageKey);
+
+    await fs.mkdir(path.dirname(absolutePath), {
+      recursive: true,
+    });
+
+    await fs.writeFile(absolutePath, file.buffer);
+  }
+
+  private async deleteGroupPhotoIfExists(storageKey: string | null): Promise<void> {
+    if (!storageKey) {
+      return;
+    }
+
+    try {
+      await fs.unlink(this.resolveGroupPhotoPath(storageKey));
+    } catch {
+      // Group-photo cleanup is best-effort because the database is the source of truth.
+    }
+  }
+
+  private getPhotoMimeType(storageKey: string): string {
+    const lowerStorageKey = storageKey.toLowerCase();
+
+    return lowerStorageKey.endsWith('.png')
+      ? 'image/png'
+      : lowerStorageKey.endsWith('.webp')
+        ? 'image/webp'
+        : 'image/jpeg';
+  }
+
   private async getProfileContactMode(
     viewer: MessagingViewer,
     target: MessagingAccountRecord,
@@ -1030,6 +1105,7 @@ export class ConversationsService {
           ? this.serializeAccount(privatePeer).displayName
           : conversation.title,
       description: conversation.description,
+      groupPhotoKey: conversation.groupPhotoKey,
       groupKind: conversation.groupKind,
       officialScope: conversation.officialScopeType
         ? {
@@ -1514,6 +1590,7 @@ export class ConversationsService {
         type: true,
         title: true,
         description: true,
+        groupPhotoKey: true,
         groupKind: true,
         officialScopeType: true,
         officialDivisionId: true,
@@ -3771,16 +3848,9 @@ export class ConversationsService {
       throw new NotFoundException('Profile photo file was not found in storage.');
     }
 
-    const lowerStorageKey = profilePhotoKey.toLowerCase();
-    const mimeType = lowerStorageKey.endsWith('.png')
-      ? 'image/png'
-      : lowerStorageKey.endsWith('.webp')
-        ? 'image/webp'
-        : 'image/jpeg';
-
     return {
       absolutePath,
-      mimeType,
+      mimeType: this.getPhotoMimeType(profilePhotoKey),
     };
   }
 
@@ -4170,6 +4240,155 @@ export class ConversationsService {
     return {
       message: 'Group details updated successfully.',
       data: this.serializeConversation(conversation, viewer.accountId, 0),
+    };
+  }
+
+
+  private async assertCanUpdateGroupPhoto(
+    viewer: MessagingViewer,
+    access: {
+      conversation: {
+        groupKind: GroupKind | null;
+        officialScopeType: OfficialGroupScopeType | null;
+        officialDivisionId: string | null;
+        officialDepartmentId: string | null;
+      };
+      viewerParticipant: {
+        role: ConversationParticipantRole;
+      };
+    },
+  ): Promise<void> {
+    if (access.conversation.groupKind === GroupKind.OFFICIAL) {
+      await this.assertCanManageOfficialGroup(viewer, access.conversation);
+      return;
+    }
+
+    this.assertGroupManager(access.viewerParticipant.role);
+  }
+
+  async updateGroupPhoto(
+    user: AuthenticatedUser,
+    conversationId: string,
+    file?: UploadedMessageAttachmentFile,
+  ) {
+    const viewer = await this.getMessagingViewer(user);
+    const access = await this.getActiveGroupAccess(
+      viewer.accountId,
+      conversationId,
+    );
+
+    await this.assertCanUpdateGroupPhoto(viewer, access);
+
+    const photo = this.validateGroupPhoto(file);
+    const storageKey = `${conversationId}/${randomUUID()}-${photo.originalFileName}`;
+
+    await this.writeGroupPhotoFile(storageKey, file as UploadedMessageAttachmentFile);
+
+    await this.prisma.conversation.update({
+      where: {
+        id: conversationId,
+      },
+      data: {
+        groupPhotoKey: storageKey,
+      },
+    });
+
+    await this.deleteGroupPhotoIfExists(access.conversation.groupPhotoKey ?? null);
+
+    const conversation = await this.getConversationRecord(conversationId);
+    const participantAccountIds = access.conversation.participants.map(
+      (participant) => participant.accountId,
+    );
+
+    this.messagingEventsService.emitConversationUpdated(participantAccountIds, {
+      conversationId,
+      reason: 'GROUP_UPDATED',
+      occurredAt: new Date().toISOString(),
+    });
+
+    return {
+      message: 'Group photo updated successfully.',
+      data: this.serializeConversation(conversation, viewer.accountId, 0),
+    };
+  }
+
+  async removeGroupPhoto(
+    user: AuthenticatedUser,
+    conversationId: string,
+  ) {
+    const viewer = await this.getMessagingViewer(user);
+    const access = await this.getActiveGroupAccess(
+      viewer.accountId,
+      conversationId,
+    );
+
+    await this.assertCanUpdateGroupPhoto(viewer, access);
+
+    await this.prisma.conversation.update({
+      where: {
+        id: conversationId,
+      },
+      data: {
+        groupPhotoKey: null,
+      },
+    });
+
+    await this.deleteGroupPhotoIfExists(access.conversation.groupPhotoKey ?? null);
+
+    const conversation = await this.getConversationRecord(conversationId);
+    const participantAccountIds = access.conversation.participants.map(
+      (participant) => participant.accountId,
+    );
+
+    this.messagingEventsService.emitConversationUpdated(participantAccountIds, {
+      conversationId,
+      reason: 'GROUP_UPDATED',
+      occurredAt: new Date().toISOString(),
+    });
+
+    return {
+      message: 'Group photo removed successfully.',
+      data: this.serializeConversation(conversation, viewer.accountId, 0),
+    };
+  }
+
+  async getGroupPhotoDownload(
+    user: AuthenticatedUser,
+    conversationId: string,
+  ) {
+    const viewer = await this.getMessagingViewer(user);
+
+    const conversation = await this.prisma.conversation.findFirst({
+      where: {
+        id: conversationId,
+        type: ConversationType.GROUP,
+        participants: {
+          some: {
+            accountId: viewer.accountId,
+            leftAt: null,
+          },
+        },
+      },
+      select: {
+        groupPhotoKey: true,
+      },
+    });
+
+    if (!conversation?.groupPhotoKey) {
+      throw new NotFoundException('Group photo was not found.');
+    }
+
+    const absolutePath = this.resolveGroupPhotoPath(conversation.groupPhotoKey);
+
+    try {
+      await fs.access(absolutePath);
+    } catch {
+      throw new NotFoundException('Group photo file was not found in storage.');
+    }
+
+    return {
+      absolutePath,
+      mimeType: this.getPhotoMimeType(conversation.groupPhotoKey),
     };
   }
 

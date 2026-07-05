@@ -23,6 +23,8 @@ import {
   createOfficialGroupConversation,
   createPrivateConversation,
   createMessagingProfilePhotoObjectUrl,
+  createGroupPhotoObjectUrl,
+  deleteGroupPhoto,
   deleteMyMessagingProfilePhoto,
   declineMessageRequest,
   deleteMessagingNotification,
@@ -57,6 +59,7 @@ import {
   sendConversationTextMessage,
   updateGroupConversation,
   updateGroupMemberRole,
+  updateGroupPhoto,
 } from "../services/messaging.service";
 import {
   createMessagingSocket,
@@ -101,11 +104,57 @@ const SELECTED_CONVERSATION_STORAGE_KEY =
   "nt-message:selected-conversation";
 const NOTIFICATION_SOUND_STORAGE_KEY = "nt-message:notification-sound-enabled";
 const BROWSER_NOTIFICATION_STORAGE_KEY = "nt-message:browser-notifications-enabled";
+const CUSTOMIZATION_STORAGE_KEY = "nt-message:customization";
 const NOTIFICATION_SOUND_URL = "/sounds/web-whatsapp.mp3";
 const MESSAGE_EDIT_WINDOW_MS = 15 * 60 * 1000;
 const QUICK_REACTIONS = ["👍", "❤️", "😂", "😮", "😢", "🙏"] as const;
 type QuickReaction = (typeof QUICK_REACTIONS)[number];
 const QUICK_REACTION_SET = new Set<string>(QUICK_REACTIONS);
+
+type MessagingTheme = "NT_BLUE" | "LIGHT" | "DARK";
+type MessagingAccent = "BLUE" | "EMERALD" | "PURPLE" | "GOLD" | "ROSE";
+type MessagingWallpaper = "CLEAN" | "DOTS" | "WAVES" | "GRID";
+type MessagingDensity = "COMFORTABLE" | "COMPACT";
+
+interface MessagingCustomization {
+  theme: MessagingTheme;
+  accent: MessagingAccent;
+  wallpaper: MessagingWallpaper;
+  density: MessagingDensity;
+}
+
+const DEFAULT_MESSAGING_CUSTOMIZATION: MessagingCustomization = {
+  theme: "NT_BLUE",
+  accent: "BLUE",
+  wallpaper: "CLEAN",
+  density: "COMFORTABLE",
+};
+
+const THEME_OPTIONS: Array<{ value: MessagingTheme; label: string }> = [
+  { value: "NT_BLUE", label: "NT Blue" },
+  { value: "LIGHT", label: "Light" },
+  { value: "DARK", label: "Dark" },
+];
+
+const ACCENT_OPTIONS: Array<{ value: MessagingAccent; label: string }> = [
+  { value: "BLUE", label: "Blue" },
+  { value: "EMERALD", label: "Emerald" },
+  { value: "PURPLE", label: "Purple" },
+  { value: "GOLD", label: "Gold" },
+  { value: "ROSE", label: "Rose" },
+];
+
+const WALLPAPER_OPTIONS: Array<{ value: MessagingWallpaper; label: string }> = [
+  { value: "CLEAN", label: "Clean" },
+  { value: "DOTS", label: "Dots" },
+  { value: "WAVES", label: "Waves" },
+  { value: "GRID", label: "Grid" },
+];
+
+const DENSITY_OPTIONS: Array<{ value: MessagingDensity; label: string }> = [
+  { value: "COMFORTABLE", label: "Comfortable" },
+  { value: "COMPACT", label: "Compact" },
+];
 const ACCEPTED_ATTACHMENT_TYPES = [
   "image/jpeg",
   "image/png",
@@ -138,6 +187,61 @@ const VOICE_NOTE_MIME_TYPE_CANDIDATES = [
   "audio/mp4",
 ] as const;
 
+
+function isMessagingTheme(value: unknown): value is MessagingTheme {
+  return value === "NT_BLUE" || value === "LIGHT" || value === "DARK";
+}
+
+function isMessagingAccent(value: unknown): value is MessagingAccent {
+  return (
+    value === "BLUE" ||
+    value === "EMERALD" ||
+    value === "PURPLE" ||
+    value === "GOLD" ||
+    value === "ROSE"
+  );
+}
+
+function isMessagingWallpaper(value: unknown): value is MessagingWallpaper {
+  return value === "CLEAN" || value === "DOTS" || value === "WAVES" || value === "GRID";
+}
+
+function isMessagingDensity(value: unknown): value is MessagingDensity {
+  return value === "COMFORTABLE" || value === "COMPACT";
+}
+
+function readMessagingCustomization(): MessagingCustomization {
+  try {
+    const stored = window.localStorage.getItem(CUSTOMIZATION_STORAGE_KEY);
+
+    if (!stored) {
+      return DEFAULT_MESSAGING_CUSTOMIZATION;
+    }
+
+    const parsed = JSON.parse(stored) as Partial<MessagingCustomization>;
+
+    return {
+      theme: isMessagingTheme(parsed.theme)
+        ? parsed.theme
+        : DEFAULT_MESSAGING_CUSTOMIZATION.theme,
+      accent: isMessagingAccent(parsed.accent)
+        ? parsed.accent
+        : DEFAULT_MESSAGING_CUSTOMIZATION.accent,
+      wallpaper: isMessagingWallpaper(parsed.wallpaper)
+        ? parsed.wallpaper
+        : DEFAULT_MESSAGING_CUSTOMIZATION.wallpaper,
+      density: isMessagingDensity(parsed.density)
+        ? parsed.density
+        : DEFAULT_MESSAGING_CUSTOMIZATION.density,
+    };
+  } catch {
+    return DEFAULT_MESSAGING_CUSTOMIZATION;
+  }
+}
+
+function customizationToken(value: string): string {
+  return value.toLowerCase().replace(/_/g, "-");
+}
 
 function isSupportedQuickReaction(value: string): value is QuickReaction {
   return QUICK_REACTION_SET.has(value);
@@ -932,6 +1036,8 @@ export function MessageAppPage() {
   const [groupSubmitting, setGroupSubmitting] = useState(false);
   const [groupActionAccountId, setGroupActionAccountId] = useState<string | null>(null);
   const [groupError, setGroupError] = useState<string | null>(null);
+  const [groupPhotoUploading, setGroupPhotoUploading] = useState(false);
+  const groupPhotoInputRef = useRef<HTMLInputElement | null>(null);
   const [contactSearch, setContactSearch] = useState("");
   const [contacts, setContacts] = useState<MessagingContact[]>([]);
   const [contactsLoading, setContactsLoading] = useState(false);
@@ -963,6 +1069,17 @@ export function MessageAppPage() {
   const [browserNotificationsEnabled, setBrowserNotificationsEnabled] = useState(() => (
     window.localStorage.getItem(BROWSER_NOTIFICATION_STORAGE_KEY) === "true"
   ));
+  const [customizationPanelOpen, setCustomizationPanelOpen] = useState(false);
+  const [messagingCustomization, setMessagingCustomization] = useState<MessagingCustomization>(
+    readMessagingCustomization,
+  );
+  useEffect(() => {
+    window.localStorage.setItem(
+      CUSTOMIZATION_STORAGE_KEY,
+      JSON.stringify(messagingCustomization),
+    );
+  }, [messagingCustomization]);
+
   const [searchDialogOpen, setSearchDialogOpen] = useState(false);
   const [searchScope, setSearchScope] = useState<"CURRENT" | "GLOBAL">("CURRENT");
   const [searchText, setSearchText] = useState("");
@@ -981,6 +1098,9 @@ export function MessageAppPage() {
   const [profilePhotoUrl, setProfilePhotoUrl] = useState<string | null>(null);
   const [profilePhotoUrls, setProfilePhotoUrls] = useState<Record<string, string>>({});
   const profilePhotoUrlsRef = useRef<Record<string, string>>({});
+  const [groupPhotoUrls, setGroupPhotoUrls] = useState<Record<string, string>>({});
+  const [groupPhotoCacheKeys, setGroupPhotoCacheKeys] = useState<Record<string, string>>({});
+  const groupPhotoUrlsRef = useRef<Record<string, string>>({});
   const [profilePhotoRefreshKey, setProfilePhotoRefreshKey] = useState(0);
   const [profileLoading, setProfileLoading] = useState(false);
   const [profileSaving, setProfileSaving] = useState(false);
@@ -1208,11 +1328,81 @@ export function MessageAppPage() {
   ]);
 
   useEffect(() => {
+    if (!accessToken) {
+      return;
+    }
+
+    const groupsToLoad = conversations.filter(
+      (conversation) => conversation.type === "GROUP" &&
+        conversation.groupPhotoKey &&
+        groupPhotoCacheKeys[conversation.id] !== conversation.groupPhotoKey,
+    );
+
+    if (groupsToLoad.length === 0) {
+      return;
+    }
+
+    let cancelled = false;
+    const loadedUrls: string[] = [];
+
+    void Promise.all(
+      groupsToLoad.map(async (conversation) => {
+        try {
+          const url = await createGroupPhotoObjectUrl(accessToken, conversation.id);
+          loadedUrls.push(url);
+          return [conversation.id, conversation.groupPhotoKey as string, url] as const;
+        } catch {
+          return null;
+        }
+      }),
+    ).then((entries) => {
+      if (cancelled) {
+        loadedUrls.forEach((url) => URL.revokeObjectURL(url));
+        return;
+      }
+
+      const nextEntries = entries.filter((entry): entry is readonly [string, string, string] => Boolean(entry));
+
+      if (nextEntries.length === 0) {
+        return;
+      }
+
+      setGroupPhotoUrls((current) => {
+        const next = { ...current };
+
+        for (const [conversationId, , url] of nextEntries) {
+          if (next[conversationId]) {
+            URL.revokeObjectURL(next[conversationId]);
+          }
+
+          next[conversationId] = url;
+        }
+
+        return next;
+      });
+
+      setGroupPhotoCacheKeys((current) => ({
+        ...current,
+        ...Object.fromEntries(nextEntries.map(([conversationId, photoKey]) => [conversationId, photoKey])),
+      }));
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [accessToken, conversations, groupPhotoCacheKeys]);
+
+  useEffect(() => {
     profilePhotoUrlsRef.current = profilePhotoUrls;
   }, [profilePhotoUrls]);
 
+  useEffect(() => {
+    groupPhotoUrlsRef.current = groupPhotoUrls;
+  }, [groupPhotoUrls]);
+
   useEffect(() => () => {
     Object.values(profilePhotoUrlsRef.current).forEach((url) => URL.revokeObjectURL(url));
+    Object.values(groupPhotoUrlsRef.current).forEach((url) => URL.revokeObjectURL(url));
   }, []);
 
   const canCreateOfficialGroup =
@@ -2414,6 +2604,120 @@ export function MessageAppPage() {
     }
   }
 
+  async function handleGroupPhotoChange(
+    event: ChangeEvent<HTMLInputElement>,
+  ): Promise<void> {
+    const file = event.target.files?.[0] ?? null;
+    event.target.value = "";
+
+    if (
+      !file ||
+      !accessToken ||
+      !selectedConversation ||
+      selectedConversation.type !== "GROUP" ||
+      groupPhotoUploading
+    ) {
+      return;
+    }
+
+    if (!file.type.startsWith("image/")) {
+      setGroupError("Choose a JPG, PNG or WEBP group photo.");
+      return;
+    }
+
+    if (file.size > 5 * 1024 * 1024) {
+      setGroupError("Group photo must be 5 MB or smaller.");
+      return;
+    }
+
+    setGroupPhotoUploading(true);
+    setGroupError(null);
+
+    try {
+      const response = await updateGroupPhoto(
+        accessToken,
+        selectedConversation.id,
+        file,
+      );
+
+      setGroupPhotoUrls((current) => {
+        const next = { ...current };
+        const existingUrl = next[selectedConversation.id];
+
+        if (existingUrl) {
+          URL.revokeObjectURL(existingUrl);
+          delete next[selectedConversation.id];
+        }
+
+        return next;
+      });
+      setGroupPhotoCacheKeys((current) => {
+        const next = { ...current };
+        delete next[selectedConversation.id];
+        return next;
+      });
+      replaceConversation(response.data);
+      setMessageNotice(response.message);
+    } catch (error) {
+      setGroupError(
+        error instanceof Error
+          ? error.message
+          : "The group photo could not be updated.",
+      );
+    } finally {
+      setGroupPhotoUploading(false);
+    }
+  }
+
+  async function handleRemoveGroupPhoto(): Promise<void> {
+    if (
+      !accessToken ||
+      !selectedConversation ||
+      selectedConversation.type !== "GROUP" ||
+      groupPhotoUploading
+    ) {
+      return;
+    }
+
+    if (!window.confirm("Remove this group photo?")) {
+      return;
+    }
+
+    setGroupPhotoUploading(true);
+    setGroupError(null);
+
+    try {
+      const response = await deleteGroupPhoto(accessToken, selectedConversation.id);
+
+      setGroupPhotoUrls((current) => {
+        const next = { ...current };
+        const existingUrl = next[selectedConversation.id];
+
+        if (existingUrl) {
+          URL.revokeObjectURL(existingUrl);
+          delete next[selectedConversation.id];
+        }
+
+        return next;
+      });
+      setGroupPhotoCacheKeys((current) => {
+        const next = { ...current };
+        delete next[selectedConversation.id];
+        return next;
+      });
+      replaceConversation(response.data);
+      setMessageNotice(response.message);
+    } catch (error) {
+      setGroupError(
+        error instanceof Error
+          ? error.message
+          : "The group photo could not be removed.",
+      );
+    } finally {
+      setGroupPhotoUploading(false);
+    }
+  }
+
   async function handleAddGroupMembers(): Promise<void> {
     if (
       !accessToken ||
@@ -2879,6 +3183,19 @@ export function MessageAppPage() {
     const response = await deleteReadMessagingNotifications(accessToken);
     setNotifications(response.data);
     setNotificationUnreadCount(response.unreadCount);
+  }
+
+  function updateMessagingCustomization(
+    changes: Partial<MessagingCustomization>,
+  ): void {
+    setMessagingCustomization((current) => ({
+      ...current,
+      ...changes,
+    }));
+  }
+
+  function resetMessagingCustomization(): void {
+    setMessagingCustomization(DEFAULT_MESSAGING_CUSTOMIZATION);
   }
 
   async function handleBrowserNotificationToggle(): Promise<void> {
@@ -3876,8 +4193,32 @@ export function MessageAppPage() {
     );
   }
 
+
+  function renderGroupAvatar(
+    conversation: MessagingConversation,
+    className = "message-avatar",
+  ) {
+    const photoUrl = groupPhotoUrls[conversation.id];
+    const title = conversation.title ?? "Group";
+
+    return (
+      <span className={className}>
+        {photoUrl ? (
+          <img
+            src={photoUrl}
+            alt={`${title} group`}
+          />
+        ) : (
+          initials(title)
+        )}
+      </span>
+    );
+  }
+
   return (
-    <main className="message-app-shell">
+    <main
+      className={`message-app-shell theme-${customizationToken(messagingCustomization.theme)} accent-${customizationToken(messagingCustomization.accent)} wallpaper-${customizationToken(messagingCustomization.wallpaper)} density-${customizationToken(messagingCustomization.density)}`}
+    >
       <header className="message-app-topbar">
         <button
           type="button"
@@ -3914,6 +4255,108 @@ export function MessageAppPage() {
           >
             My profile
           </button>
+
+          <div className="message-customization-wrapper">
+            <button
+              type="button"
+              className="message-customization-button"
+              onClick={() => setCustomizationPanelOpen((value) => !value)}
+              aria-expanded={customizationPanelOpen}
+            >
+              Customize
+            </button>
+
+            {customizationPanelOpen && (
+              <div className="message-customization-panel">
+                <div className="message-customization-panel-header">
+                  <span>Customization</span>
+                  <strong>Theme & wallpaper</strong>
+                </div>
+
+                <label className="message-customization-field">
+                  <span>Theme</span>
+                  <select
+                    value={messagingCustomization.theme}
+                    onChange={(event) =>
+                      updateMessagingCustomization({
+                        theme: event.target.value as MessagingTheme,
+                      })
+                    }
+                  >
+                    {THEME_OPTIONS.map((option) => (
+                      <option key={option.value} value={option.value}>
+                        {option.label}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+
+                <label className="message-customization-field">
+                  <span>Accent color</span>
+                  <select
+                    value={messagingCustomization.accent}
+                    onChange={(event) =>
+                      updateMessagingCustomization({
+                        accent: event.target.value as MessagingAccent,
+                      })
+                    }
+                  >
+                    {ACCENT_OPTIONS.map((option) => (
+                      <option key={option.value} value={option.value}>
+                        {option.label}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+
+                <label className="message-customization-field">
+                  <span>Chat wallpaper</span>
+                  <select
+                    value={messagingCustomization.wallpaper}
+                    onChange={(event) =>
+                      updateMessagingCustomization({
+                        wallpaper: event.target.value as MessagingWallpaper,
+                      })
+                    }
+                  >
+                    {WALLPAPER_OPTIONS.map((option) => (
+                      <option key={option.value} value={option.value}>
+                        {option.label}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+
+                <label className="message-customization-field">
+                  <span>Message density</span>
+                  <select
+                    value={messagingCustomization.density}
+                    onChange={(event) =>
+                      updateMessagingCustomization({
+                        density: event.target.value as MessagingDensity,
+                      })
+                    }
+                  >
+                    {DENSITY_OPTIONS.map((option) => (
+                      <option key={option.value} value={option.value}>
+                        {option.label}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+
+                <button
+                  type="button"
+                  className="message-customization-reset"
+                  onClick={resetMessagingCustomization}
+                >
+                  Reset to default
+                </button>
+
+                <small>Saved automatically on this browser.</small>
+              </div>
+            )}
+          </div>
 
           {account?.role !== "EMPLOYEE" && (
             <DirectoryButton />
@@ -4172,11 +4615,7 @@ export function MessageAppPage() {
                     <span className="message-avatar-presence">
                       {conversationPeer
                         ? renderAccountAvatar(conversationPeer)
-                        : (
-                          <span className="message-avatar">
-                            {initials(title)}
-                          </span>
-                        )}
+                        : renderGroupAvatar(conversation)}
 
                       {conversationPeer &&
                         presenceByAccountId[conversationPeer.accountId]?.isOnline && (
@@ -4258,9 +4697,15 @@ export function MessageAppPage() {
                 </button>
 
                 <span className="message-avatar-presence large">
-                  <span className="message-avatar large">
-                    {initials(selectedConversation.title ?? "NT")}
-                  </span>
+                  {selectedConversation.type === "PRIVATE" && peer ? (
+                    renderAccountAvatar(peer, "message-avatar large")
+                  ) : selectedConversation.type === "GROUP" ? (
+                    renderGroupAvatar(selectedConversation, "message-avatar large")
+                  ) : (
+                    <span className="message-avatar large">
+                      {initials(selectedConversation.title ?? "NT")}
+                    </span>
+                  )}
 
                   {selectedConversation.type === "PRIVATE" &&
                     peerPresence?.isOnline && (
@@ -5485,6 +5930,50 @@ export function MessageAppPage() {
               {(groupDialogMode === "CREATE" ||
                 selectedConversation?.canManageGroup) && (
                 <section className="message-group-details">
+                  {groupDialogMode === "MANAGE" && selectedConversation?.type === "GROUP" && (
+                    <div className="message-group-photo-card">
+                      {renderGroupAvatar(selectedConversation, "message-group-photo-preview")}
+
+                      <div className="message-group-photo-copy">
+                        <strong>Group photo</strong>
+                        <small>JPG, PNG or WEBP. Maximum 5 MB.</small>
+                        <div className="message-group-photo-actions">
+                          <input
+                            ref={groupPhotoInputRef}
+                            type="file"
+                            accept="image/jpeg,image/png,image/webp"
+                            hidden
+                            onChange={(event) => void handleGroupPhotoChange(event)}
+                          />
+
+                          <button
+                            type="button"
+                            className="primary"
+                            onClick={() => groupPhotoInputRef.current?.click()}
+                            disabled={groupPhotoUploading || groupSubmitting}
+                          >
+                            {groupPhotoUploading
+                              ? "Uploading..."
+                              : selectedConversation.groupPhotoKey
+                                ? "Change photo"
+                                : "Upload photo"}
+                          </button>
+
+                          {selectedConversation.groupPhotoKey && (
+                            <button
+                              type="button"
+                              className="danger"
+                              onClick={() => void handleRemoveGroupPhoto()}
+                              disabled={groupPhotoUploading || groupSubmitting}
+                            >
+                              Remove photo
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
                   <label>
                     <span>Group name</span>
                     <input
@@ -5572,49 +6061,47 @@ export function MessageAppPage() {
 
                             <b>{roleLabel(participant.participantRole)}</b>
 
-                            <button
-                              type="button"
-                              className="message-group-member-profile"
-                              onClick={() => openProfile(participant.accountId)}
-                            >
-                              Profile
-                            </button>
+                            <div className="message-group-member-actions">
+                              <button
+                                type="button"
+                                className="message-group-member-profile"
+                                onClick={() => openProfile(participant.accountId)}
+                              >
+                                Profile
+                              </button>
 
-                            {(canChangeRole || canRemove) && (
-                              <div className="message-group-member-actions">
-                                {canChangeRole && (
-                                  <button
-                                    type="button"
-                                    onClick={() => void handleGroupRoleChange(
-                                      participant.accountId,
-                                      participant.participantRole === "ADMIN"
-                                        ? "MEMBER"
-                                        : "ADMIN",
-                                    )}
-                                    disabled={groupActionAccountId !== null}
-                                  >
-                                    {groupActionAccountId === participant.accountId
-                                      ? "Working..."
-                                      : participant.participantRole === "ADMIN"
-                                        ? "Remove admin"
-                                        : "Make admin"}
-                                  </button>
-                                )}
+                              {canChangeRole && (
+                                <button
+                                  type="button"
+                                  onClick={() => void handleGroupRoleChange(
+                                    participant.accountId,
+                                    participant.participantRole === "ADMIN"
+                                      ? "MEMBER"
+                                      : "ADMIN",
+                                  )}
+                                  disabled={groupActionAccountId !== null}
+                                >
+                                  {groupActionAccountId === participant.accountId
+                                    ? "Working..."
+                                    : participant.participantRole === "ADMIN"
+                                      ? "Remove admin"
+                                      : "Make admin"}
+                                </button>
+                              )}
 
-                                {canRemove && (
-                                  <button
-                                    type="button"
-                                    className="danger"
-                                    onClick={() => void handleRemoveGroupMember(
-                                      participant.accountId,
-                                    )}
-                                    disabled={groupActionAccountId !== null}
-                                  >
-                                    Remove
-                                  </button>
-                                )}
-                              </div>
-                            )}
+                              {canRemove && (
+                                <button
+                                  type="button"
+                                  className="danger"
+                                  onClick={() => void handleRemoveGroupMember(
+                                    participant.accountId,
+                                  )}
+                                  disabled={groupActionAccountId !== null}
+                                >
+                                  Remove
+                                </button>
+                              )}
+                            </div>
                           </article>
                         );
                       })}
