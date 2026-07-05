@@ -236,6 +236,8 @@ model Account {
   passwordChangedAt   DateTime    @default(now()) @map("password_changed_at") @db.Timestamptz(3)
   profilePhotoKey     String?     @map("profile_photo_key") @db.VarChar(500)
   profileBio          String?     @map("profile_bio") @db.VarChar(160)
+  showOnlineStatus    Boolean     @default(true) @map("show_online_status")
+  showReadReceipts    Boolean     @default(true) @map("show_read_receipts")
   createdAt           DateTime    @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt           DateTime    @updatedAt @map("updated_at") @db.Timestamptz(3)
 
@@ -260,6 +262,8 @@ model Account {
   officialGroupAuditActions    OfficialGroupAuditLog[]      @relation("OfficialGroupAuditActor")
   receivedNotifications        MessagingNotification[]      @relation("MessagingNotificationsRecipient")
   actedNotifications           MessagingNotification[]      @relation("MessagingNotificationsActor")
+  blocksCreated                MessagingAccountBlock[]      @relation("MessagingAccountBlocksCreated")
+  blocksReceived               MessagingAccountBlock[]      @relation("MessagingAccountBlocksReceived")
 
   @@index([role], map: "accounts_role_idx")
   @@index([isEnabled], map: "accounts_is_enabled_idx")
@@ -719,6 +723,24 @@ model MessageReaction {
   @@index([accountId], map: "message_reactions_account_idx")
 
   @@map("message_reactions")
+}
+
+model MessagingAccountBlock {
+  blockerAccountId String @map("blocker_account_id") @db.Uuid
+  blockedAccountId String @map("blocked_account_id") @db.Uuid
+
+  reason String? @db.VarChar(240)
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  blocker Account @relation("MessagingAccountBlocksCreated", fields: [blockerAccountId], references: [id], onDelete: Cascade)
+  blocked Account @relation("MessagingAccountBlocksReceived", fields: [blockedAccountId], references: [id], onDelete: Cascade)
+
+  @@id([blockerAccountId, blockedAccountId], map: "messaging_account_blocks_pkey")
+  @@index([blockedAccountId, createdAt], map: "messaging_account_blocks_blocked_created_idx")
+  @@index([blockerAccountId, createdAt], map: "messaging_account_blocks_blocker_created_idx")
+  @@map("messaging_account_blocks")
 }
 
 model MessagingNotification {

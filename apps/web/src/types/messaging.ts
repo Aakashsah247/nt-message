@@ -81,6 +81,8 @@ export interface MessagingAccount {
   role: AccountRole;
   profilePhotoKey: string | null;
   profileBio: string | null;
+  showOnlineStatus: boolean;
+  showReadReceipts: boolean;
   displayName: string;
   employee: MessagingEmployeeIdentity | null;
 }
@@ -94,6 +96,12 @@ export type MessagingProfileContactMode =
   | "REQUEST_RECEIVED"
   | "BLOCKED";
 
+export type MessagingBlockDirection =
+  | "BLOCKED_BY_ME"
+  | "BLOCKED_ME"
+  | "MUTUAL"
+  | null;
+
 export interface MessagingProfileSharedGroup {
   id: string;
   title: string | null;
@@ -104,6 +112,7 @@ export interface MessagingProfileSharedGroup {
 export interface MessagingUserProfile extends MessagingAccount {
   isOwnProfile: boolean;
   contactMode: MessagingProfileContactMode;
+  blockDirection?: MessagingBlockDirection;
   profileBio: string | null;
   official: {
     employeeId: string;
@@ -122,6 +131,33 @@ export interface MessagingUserProfileResponse {
 export interface MessagingContact extends MessagingAccount {
   contactMode: MessagingContactMode;
   requestReason: MessageRequestReason | null;
+  blockDirection?: MessagingBlockDirection;
+}
+
+export interface MessagingBlockedAccount {
+  blockerAccountId: string;
+  blockedAccountId: string;
+  reason: string | null;
+  account: MessagingAccount;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface MessagingBlockedAccountsResponse {
+  data: MessagingBlockedAccount[];
+  counts: {
+    blockedByMe: number;
+  };
+}
+
+export interface MessagingBlockAccountResponse {
+  message: string;
+  data: MessagingBlockedAccount;
+}
+
+export interface MessagingUnblockAccountResponse {
+  message: string;
+  blockedAccountId: string;
 }
 
 export interface MessagingMessageRequest {
@@ -253,6 +289,18 @@ export interface CursorPagination {
   limit: number;
   hasMore: boolean;
   nextCursor: string | null;
+}
+
+
+export interface MessagingPrivacySettings {
+  accountId: string;
+  showOnlineStatus: boolean;
+  showReadReceipts: boolean;
+  updatedAt: string | null;
+}
+
+export interface MessagingPrivacySettingsResponse {
+  data: MessagingPrivacySettings;
 }
 
 export interface MessagingContactsResponse {

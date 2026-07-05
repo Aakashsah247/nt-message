@@ -39,6 +39,7 @@ import { UpdateGroupConversationDto } from './dto/update-group-conversation.dto'
 import { UpdateGroupMemberRoleDto } from './dto/update-group-member-role.dto';
 import { UpdateTextMessageDto } from './dto/update-text-message.dto';
 import { UpdateMessagingProfileDto } from './dto/update-messaging-profile.dto';
+import { UpdateMessagingSettingsDto } from './dto/update-messaging-settings.dto';
 import { ReactMessageDto } from './dto/react-message.dto';
 import type { UploadedMessageAttachmentFile } from './types/uploaded-message-attachment-file';
 
@@ -47,6 +48,65 @@ import type { UploadedMessageAttachmentFile } from './types/uploaded-message-att
 export class ConversationsController {
   constructor(private readonly conversationsService: ConversationsService) {}
 
+
+  @Get('settings')
+  getMessagingSettings(
+    @CurrentUser()
+    user: AuthenticatedUser,
+  ) {
+    return this.conversationsService.getMessagingSettings(user);
+  }
+
+  @Patch('settings')
+  updateMessagingSettings(
+    @CurrentUser()
+    user: AuthenticatedUser,
+
+    @Body()
+    dto: UpdateMessagingSettingsDto,
+  ) {
+    return this.conversationsService.updateMessagingSettings(user, dto);
+  }
+
+  @Get('blocks')
+  listBlockedMessagingAccounts(
+    @CurrentUser()
+    user: AuthenticatedUser,
+  ) {
+    return this.conversationsService.listBlockedMessagingAccounts(user);
+  }
+
+  @Post('blocks/:accountId')
+  blockMessagingAccount(
+    @CurrentUser()
+    user: AuthenticatedUser,
+
+    @Param(
+      'accountId',
+      new ParseUUIDPipe({
+        version: '4',
+      }),
+    )
+    accountId: string,
+  ) {
+    return this.conversationsService.blockMessagingAccount(user, accountId);
+  }
+
+  @Delete('blocks/:accountId')
+  unblockMessagingAccount(
+    @CurrentUser()
+    user: AuthenticatedUser,
+
+    @Param(
+      'accountId',
+      new ParseUUIDPipe({
+        version: '4',
+      }),
+    )
+    accountId: string,
+  ) {
+    return this.conversationsService.unblockMessagingAccount(user, accountId);
+  }
 
   @Get('profiles/me')
   getMyMessagingProfile(

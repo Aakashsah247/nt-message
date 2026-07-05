@@ -45,6 +45,7 @@ import { UpdateGroupConversationDto } from './dto/update-group-conversation.dto'
 import { UpdateGroupMemberRoleDto } from './dto/update-group-member-role.dto';
 import { UpdateTextMessageDto } from './dto/update-text-message.dto';
 import { UpdateMessagingProfileDto } from './dto/update-messaging-profile.dto';
+import { UpdateMessagingSettingsDto } from './dto/update-messaging-settings.dto';
 import { ReactMessageDto } from './dto/react-message.dto';
 import type { UploadedMessageAttachmentFile } from './types/uploaded-message-attachment-file';
 
@@ -53,6 +54,8 @@ interface MessagingViewer {
   role: AccountRole;
   divisionId: string | null;
   departmentId: string | null;
+  showOnlineStatus: boolean;
+  showReadReceipts: boolean;
 }
 
 interface OfficialGroupScopeRecord {
@@ -79,6 +82,7 @@ interface OfficialGroupSyncResult {
 
 type DeliveryStatus = 'SENT' | 'DELIVERED' | 'READ';
 type MessageReactionMutationAction = 'ADDED' | 'UPDATED' | 'REMOVED';
+type MessagingBlockDirection = 'BLOCKED_BY_ME' | 'BLOCKED_ME' | 'MUTUAL' | null;
 
 interface MessageSearchFilters {
   searchText: string | null;
@@ -206,6 +210,8 @@ const messagingAccountSelect = {
   isEnabled: true,
   profilePhotoKey: true,
   profileBio: true,
+  showOnlineStatus: true,
+  showReadReceipts: true,
 
   employee: {
     select: {
@@ -289,6 +295,11 @@ const messageSelect = {
       accountId: true,
       deliveredAt: true,
       readAt: true,
+      account: {
+        select: {
+          showReadReceipts: true,
+        },
+      },
     },
 
     orderBy: {
@@ -444,6 +455,22 @@ type MessageRequestRecord = Prisma.MessageRequestGetPayload<{
   select: typeof messageRequestSelect;
 }>;
 
+const messagingAccountBlockSelect = {
+  blockerAccountId: true,
+  blockedAccountId: true,
+  reason: true,
+  createdAt: true,
+  updatedAt: true,
+
+  blocked: {
+    select: messagingAccountSelect,
+  },
+} satisfies Prisma.MessagingAccountBlockSelect;
+
+type MessagingAccountBlockRecord = Prisma.MessagingAccountBlockGetPayload<{
+  select: typeof messagingAccountBlockSelect;
+}>;
+
 const officialGroupAuditSelect = {
   id: true,
   conversationId: true,
@@ -489,6 +516,438 @@ export class ConversationsService {
     private readonly prisma: PrismaService,
     private readonly messagingEventsService: MessagingEventsService,
   ) {}
+
+  private getRoleRank(role: AccountRole): number {
+    switch (role) {
+      case AccountRole.SUPER_ADMIN:
+        return 4;
+      case AccountRole.SENIOR_MANAGEMENT:
+        return 3;
+      case AccountRole.TEAM_MANAGER:
+        return 2;
+      case AccountRole.EMPLOYEE:
+      default:
+        return 1;
+    }
+  }
+
+  private getBlockDirection(
+    viewerAccountId: string,
+    targetAccountId: string,
+    blocks: Array<{ blockerAccountId: string; blockedAccountId: string }>,
+  ): MessagingBlockDirection {
+    const blockedByMe = blocks.some(
+      (block) =>
+        block.blockerAccountId === viewerAccountId &&
+        block.blockedAccountId === targetAccountId,
+    );
+    const blockedMe = blocks.some(
+      (block) =>
+        block.blockerAccountId === targetAccountId &&
+        block.blockedAccountId === viewerAccountId,
+    );
+
+    if (blockedByMe && blockedMe) {
+      return 'MUTUAL';
+    }
+
+    if (blockedByMe) {
+      return 'BLOCKED_BY_ME';
+    }
+
+    return blockedMe ? 'BLOCKED_ME' : null;
+  }
+
+  private serializeMessagingAccountBlock(block: MessagingAccountBlockRecord) {
+    return {
+      blockerAccountId: block.blockerAccountId,
+      blockedAccountId: block.blockedAccountId,
+      reason: block.reason,
+      account: this.serializeAccount(block.blocked),
+      createdAt: block.createdAt,
+      updatedAt: block.updatedAt,
+    };
+  }
+
+  private assertCanBlockAccount(
+    viewer: MessagingViewer,
+    target: MessagingAccountRecord,
+  ): void {
+    if (viewer.accountId === target.id) {
+      throw new BadRequestException('You cannot block your own account.');
+    }
+
+    if (target.role === AccountRole.SUPER_ADMIN && viewer.role !== AccountRole.SUPER_ADMIN) {
+      throw new ForbiddenException(
+        'Super Admin cannot be blocked. You can mute private alerts or report the concern.',
+      );
+    }
+
+    if (this.getRoleRank(target.role) > this.getRoleRank(viewer.role)) {
+      throw new ForbiddenException(
+        'You cannot block a higher authority account. Use mute/report for personal discomfort; official communication remains available.',
+      );
+    }
+  }
+
+  private async findPersonalBlockRelation(
+    firstAccountId: string,
+    secondAccountId: string,
+  ): Promise<Array<{ blockerAccountId: string; blockedAccountId: string }>> {
+    return this.prisma.messagingAccountBlock.findMany({
+      where: {
+        OR: [
+          {
+            blockerAccountId: firstAccountId,
+            blockedAccountId: secondAccountId,
+          },
+          {
+            blockerAccountId: secondAccountId,
+            blockedAccountId: firstAccountId,
+          },
+        ],
+      },
+      select: {
+        blockerAccountId: true,
+        blockedAccountId: true,
+      },
+    });
+  }
+
+  private async assertNoPersonalBlock(
+    actorAccountId: string,
+    targetAccountId: string,
+    actionDescription: string,
+  ): Promise<void> {
+    const blocks = await this.findPersonalBlockRelation(
+      actorAccountId,
+      targetAccountId,
+    );
+
+    if (blocks.length === 0) {
+      return;
+    }
+
+    const direction = this.getBlockDirection(
+      actorAccountId,
+      targetAccountId,
+      blocks,
+    );
+
+    if (direction === 'BLOCKED_BY_ME' || direction === 'MUTUAL') {
+      throw new ForbiddenException(
+        `You blocked this account. Unblock them before ${actionDescription}.`,
+      );
+    }
+
+    throw new ForbiddenException(
+      `This account blocked private contact with you, so you cannot ${actionDescription}.`,
+    );
+  }
+
+  private async assertNoPersonalGroupBlocks(
+    participantAccountIds: string[],
+  ): Promise<void> {
+    const uniqueAccountIds = [...new Set(participantAccountIds)];
+
+    if (uniqueAccountIds.length < 2) {
+      return;
+    }
+
+    const block = await this.prisma.messagingAccountBlock.findFirst({
+      where: {
+        blockerAccountId: {
+          in: uniqueAccountIds,
+        },
+        blockedAccountId: {
+          in: uniqueAccountIds,
+        },
+      },
+      select: {
+        blockerAccountId: true,
+        blockedAccountId: true,
+      },
+    });
+
+    if (block) {
+      throw new ForbiddenException(
+        'A personal group cannot include accounts that have blocked each other.',
+      );
+    }
+  }
+
+  private serializeMessagingSettings(account: {
+    id: string;
+    showOnlineStatus: boolean;
+    showReadReceipts: boolean;
+    updatedAt?: Date;
+  }) {
+    return {
+      accountId: account.id,
+      showOnlineStatus: account.showOnlineStatus,
+      showReadReceipts: account.showReadReceipts,
+      updatedAt: account.updatedAt ?? null,
+    };
+  }
+
+  async getMessagingSettings(user: AuthenticatedUser) {
+    const viewer = await this.getMessagingViewer(user);
+
+    return {
+      data: {
+        accountId: viewer.accountId,
+        showOnlineStatus: viewer.showOnlineStatus,
+        showReadReceipts: viewer.showReadReceipts,
+        updatedAt: null,
+      },
+    };
+  }
+
+  async updateMessagingSettings(
+    user: AuthenticatedUser,
+    dto: UpdateMessagingSettingsDto,
+  ) {
+    const viewer = await this.getMessagingViewer(user);
+    const data: Prisma.AccountUpdateInput = {};
+
+    if (typeof dto.showOnlineStatus === 'boolean') {
+      data.showOnlineStatus = dto.showOnlineStatus;
+    }
+
+    if (typeof dto.showReadReceipts === 'boolean') {
+      data.showReadReceipts = dto.showReadReceipts;
+    }
+
+    if (Object.keys(data).length === 0) {
+      return {
+        data: {
+          accountId: viewer.accountId,
+          showOnlineStatus: viewer.showOnlineStatus,
+          showReadReceipts: viewer.showReadReceipts,
+          updatedAt: null,
+        },
+      };
+    }
+
+    const updated = await this.prisma.account.update({
+      where: {
+        id: viewer.accountId,
+      },
+      data,
+      select: {
+        id: true,
+        showOnlineStatus: true,
+        showReadReceipts: true,
+        updatedAt: true,
+      },
+    });
+
+    if (typeof dto.showOnlineStatus === 'boolean') {
+      const occurredAt = new Date().toISOString();
+
+      // Tell connected clients to hide/reveal this account's active presence promptly.
+      this.messagingEventsService.emitPresenceUpdated({
+        accountId: viewer.accountId,
+        isOnline: updated.showOnlineStatus,
+        lastSeenAt: updated.showOnlineStatus ? null : occurredAt,
+        occurredAt,
+      });
+    }
+
+    return {
+      data: this.serializeMessagingSettings(updated),
+    };
+  }
+
+  async listBlockedMessagingAccounts(user: AuthenticatedUser) {
+    const viewer = await this.getMessagingViewer(user);
+
+    const blocks = await this.prisma.messagingAccountBlock.findMany({
+      where: {
+        blockerAccountId: viewer.accountId,
+      },
+      orderBy: [
+        {
+          createdAt: 'desc',
+        },
+        {
+          blockedAccountId: 'asc',
+        },
+      ],
+      select: messagingAccountBlockSelect,
+    });
+
+    return {
+      data: blocks.map((block) => this.serializeMessagingAccountBlock(block)),
+      counts: {
+        blockedByMe: blocks.length,
+      },
+    };
+  }
+
+  async blockMessagingAccount(
+    user: AuthenticatedUser,
+    blockedAccountId: string,
+  ) {
+    const viewer = await this.getMessagingViewer(user);
+
+    const target = await this.prisma.account.findUnique({
+      where: {
+        id: blockedAccountId,
+      },
+      select: messagingAccountSelect,
+    });
+
+    if (!target || !target.isEnabled || !this.isVisibleMessagingProfile(target)) {
+      throw new NotFoundException('The selected messaging account was not found.');
+    }
+
+    this.assertCanBlockAccount(viewer, target);
+
+    const block = await this.prisma.messagingAccountBlock.upsert({
+      where: {
+        blockerAccountId_blockedAccountId: {
+          blockerAccountId: viewer.accountId,
+          blockedAccountId: target.id,
+        },
+      },
+      create: {
+        blockerAccountId: viewer.accountId,
+        blockedAccountId: target.id,
+      },
+      update: {},
+      select: messagingAccountBlockSelect,
+    });
+
+    const participantKey = this.buildPrivateParticipantKey(
+      viewer.accountId,
+      target.id,
+    );
+    const now = new Date();
+
+    await this.prisma.messageRequest.updateMany({
+      where: {
+        participantKey,
+        status: {
+          in: [MessageRequestStatus.PENDING, MessageRequestStatus.DECLINED],
+        },
+      },
+      data: {
+        status: MessageRequestStatus.BLOCKED,
+        blockedByAccountId: viewer.accountId,
+        respondedAt: now,
+      },
+    });
+
+    await this.prisma.conversationParticipant.updateMany({
+      where: {
+        accountId: viewer.accountId,
+        conversation: {
+          privateParticipantKey: participantKey,
+        },
+      },
+      data: {
+        isArchived: true,
+        isMuted: true,
+      },
+    });
+
+    this.messagingEventsService.emitMessageRequestUpdated(
+      [viewer.accountId, target.id],
+      {
+        requestId: participantKey,
+        status: 'BLOCKED',
+        conversationId: null,
+        occurredAt: now.toISOString(),
+      },
+    );
+
+    return {
+      message: 'Account blocked for private messaging.',
+      data: this.serializeMessagingAccountBlock(block),
+    };
+  }
+
+  async unblockMessagingAccount(
+    user: AuthenticatedUser,
+    blockedAccountId: string,
+  ) {
+    const viewer = await this.getMessagingViewer(user);
+
+    const deleted = await this.prisma.messagingAccountBlock.deleteMany({
+      where: {
+        blockerAccountId: viewer.accountId,
+        blockedAccountId,
+      },
+    });
+
+    if (deleted.count === 0) {
+      throw new NotFoundException('Blocked account was not found.');
+    }
+
+    const participantKey = this.buildPrivateParticipantKey(
+      viewer.accountId,
+      blockedAccountId,
+    );
+
+    await this.prisma.messageRequest.updateMany({
+      where: {
+        participantKey,
+        blockedByAccountId: viewer.accountId,
+        status: MessageRequestStatus.BLOCKED,
+      },
+      data: {
+        status: MessageRequestStatus.DECLINED,
+        blockedByAccountId: null,
+      },
+    });
+
+    this.messagingEventsService.emitMessageRequestUpdated(
+      [viewer.accountId, blockedAccountId],
+      {
+        requestId: participantKey,
+        status: 'DECLINED',
+        conversationId: null,
+        occurredAt: new Date().toISOString(),
+      },
+    );
+
+    return {
+      message: 'Account unblocked for private messaging.',
+      blockedAccountId,
+    };
+  }
+
+  async canShareOnlineStatus(accountId: string): Promise<boolean> {
+    const account = await this.prisma.account.findUnique({
+      where: { id: accountId },
+      select: { showOnlineStatus: true },
+    });
+
+    return account?.showOnlineStatus ?? false;
+  }
+
+  async filterAccountIdsSharingOnlineStatus(
+    accountIds: string[],
+  ): Promise<Set<string>> {
+    if (accountIds.length === 0) {
+      return new Set();
+    }
+
+    const accounts = await this.prisma.account.findMany({
+      where: {
+        id: {
+          in: [...new Set(accountIds)],
+        },
+        showOnlineStatus: true,
+      },
+      select: {
+        id: true,
+      },
+    });
+
+    return new Set(accounts.map((account) => account.id));
+  }
 
   private isUniqueConstraintError(error: unknown): boolean {
     return (
@@ -562,6 +1021,8 @@ export class ConversationsService {
         role: account.role,
         divisionId: null,
         departmentId: null,
+        showOnlineStatus: account.showOnlineStatus,
+        showReadReceipts: account.showReadReceipts,
       };
     }
 
@@ -596,6 +1057,8 @@ export class ConversationsService {
       role: account.role,
       divisionId: employee.divisionId,
       departmentId: employee.departmentId,
+      showOnlineStatus: account.showOnlineStatus,
+      showReadReceipts: account.showReadReceipts,
     };
   }
 
@@ -618,6 +1081,8 @@ export class ConversationsService {
       role: account.role,
       profilePhotoKey,
       profileBio,
+      showOnlineStatus: account.showOnlineStatus,
+      showReadReceipts: account.showReadReceipts,
       displayName:
         employee?.empName ??
         account.username ??
@@ -645,6 +1110,7 @@ export class ConversationsService {
     viewerAccountId: string,
     sharedGroups: MessagingProfileSharedGroup[],
     contactMode: 'SELF' | 'DIRECT' | 'REQUEST_REQUIRED' | 'REQUEST_SENT' | 'REQUEST_RECEIVED' | 'BLOCKED',
+    blockDirection: MessagingBlockDirection = null,
   ) {
     const employee = account.employee;
 
@@ -652,6 +1118,7 @@ export class ConversationsService {
       ...this.serializeAccount(account),
       isOwnProfile: account.id === viewerAccountId,
       contactMode,
+      blockDirection,
       profileBio: this.getAccountProfileBio(account),
       official: employee
         ? {
@@ -809,7 +1276,7 @@ export class ConversationsService {
       target.id,
     );
 
-    const [conversation, request] = await Promise.all([
+    const [conversation, request, blocks] = await Promise.all([
       this.prisma.conversation.findUnique({
         where: {
           privateParticipantKey: participantKey,
@@ -827,14 +1294,15 @@ export class ConversationsService {
           status: true,
         },
       }),
+      this.findPersonalBlockRelation(viewer.accountId, target.id),
     ]);
+
+    if (blocks.length > 0 || request?.status === MessageRequestStatus.BLOCKED) {
+      return 'BLOCKED';
+    }
 
     if (conversation) {
       return 'DIRECT';
-    }
-
-    if (request?.status === MessageRequestStatus.BLOCKED) {
-      return 'BLOCKED';
     }
 
     if (request?.status === MessageRequestStatus.PENDING) {
@@ -981,12 +1449,43 @@ export class ConversationsService {
     }, dates[0] as Date);
   }
 
-  private getDeliveryStatus(message: MessageRecord): DeliveryStatus {
+  private canExposeReceiptRead(
+    message: MessageRecord,
+    receipt: MessageRecord['receipts'][number],
+    viewerAccountId?: string,
+  ): boolean {
+    if (!viewerAccountId || viewerAccountId !== message.senderAccountId) {
+      return true;
+    }
+
+    // When a recipient disables read receipts, the sender can still see delivery,
+    // but read state stays hidden. Internal readAt remains stored for unread counts.
+    return receipt.account.showReadReceipts;
+  }
+
+  private getVisibleReadAt(
+    message: MessageRecord,
+    receipt: MessageRecord['receipts'][number],
+    viewerAccountId?: string,
+  ): Date | null {
+    return this.canExposeReceiptRead(message, receipt, viewerAccountId)
+      ? receipt.readAt
+      : null;
+  }
+
+  private getDeliveryStatus(
+    message: MessageRecord,
+    viewerAccountId?: string,
+  ): DeliveryStatus {
     if (message.receipts.length === 0) {
       return 'SENT';
     }
 
-    if (message.receipts.every((receipt) => receipt.readAt !== null)) {
+    if (
+      message.receipts.every(
+        (receipt) => this.getVisibleReadAt(message, receipt, viewerAccountId) !== null,
+      )
+    ) {
       return 'READ';
     }
 
@@ -1013,13 +1512,18 @@ export class ConversationsService {
     };
   }
 
-  private serializeMessage(message: MessageRecord) {
+  private serializeMessage(
+    message: MessageRecord,
+    viewerAccountId?: string,
+  ) {
     const deliveredAt = this.getAggregateReceiptDate(
       message.receipts.map((receipt) => receipt.deliveredAt),
     );
 
     const readAt = this.getAggregateReceiptDate(
-      message.receipts.map((receipt) => receipt.readAt),
+      message.receipts.map((receipt) =>
+        this.getVisibleReadAt(message, receipt, viewerAccountId),
+      ),
     );
 
     return {
@@ -1038,7 +1542,7 @@ export class ConversationsService {
       editedAt: message.editedAt,
       deletedAt: message.deletedAt,
       isDeleted: message.deletedAt !== null,
-      deliveryStatus: this.getDeliveryStatus(message),
+      deliveryStatus: this.getDeliveryStatus(message, viewerAccountId),
       deliveredAt,
       readAt,
       receiptSummary: {
@@ -1046,8 +1550,9 @@ export class ConversationsService {
         delivered: message.receipts.filter(
           (receipt) => receipt.deliveredAt !== null,
         ).length,
-        read: message.receipts.filter((receipt) => receipt.readAt !== null)
-          .length,
+        read: message.receipts.filter(
+          (receipt) => this.getVisibleReadAt(message, receipt, viewerAccountId) !== null,
+        ).length,
       },
 
       reactions:
@@ -1133,7 +1638,7 @@ export class ConversationsService {
         participantRole: participant.role,
       })),
       lastMessage: conversation.messages[0]
-        ? this.serializeMessage(conversation.messages[0])
+        ? this.serializeMessage(conversation.messages[0], viewerAccountId)
         : null,
       createdAt: conversation.createdAt,
       updatedAt: conversation.updatedAt,
@@ -3636,9 +4141,10 @@ export class ConversationsService {
       throw new NotFoundException('Profile was not found.');
     }
 
-    const [sharedGroups, contactMode] = await Promise.all([
+    const [sharedGroups, contactMode, blocks] = await Promise.all([
       this.listSharedGroupsForProfile(viewer.accountId, account.id),
       this.getProfileContactMode(viewer, account),
+      this.findPersonalBlockRelation(viewer.accountId, account.id),
     ]);
 
     return {
@@ -3647,6 +4153,7 @@ export class ConversationsService {
         viewer.accountId,
         sharedGroups,
         contactMode,
+        this.getBlockDirection(viewer.accountId, account.id, blocks),
       ),
     };
   }
@@ -4008,7 +4515,9 @@ export class ConversationsService {
       this.buildPrivateParticipantKey(viewer.accountId, account.id),
     );
 
-    const [existingConversations, existingRequests] = await Promise.all([
+    const candidateAccountIds = selectedCandidates.map((candidate) => candidate.id);
+
+    const [existingConversations, existingRequests, existingBlocks] = await Promise.all([
       this.prisma.conversation.findMany({
         where: {
           privateParticipantKey: {
@@ -4033,6 +4542,28 @@ export class ConversationsService {
           recipientAccountId: true,
           status: true,
           reason: true,
+        },
+      }),
+      this.prisma.messagingAccountBlock.findMany({
+        where: {
+          OR: [
+            {
+              blockerAccountId: viewer.accountId,
+              blockedAccountId: {
+                in: candidateAccountIds,
+              },
+            },
+            {
+              blockerAccountId: {
+                in: candidateAccountIds,
+              },
+              blockedAccountId: viewer.accountId,
+            },
+          ],
+        },
+        select: {
+          blockerAccountId: true,
+          blockedAccountId: true,
         },
       }),
     ]);
@@ -4061,10 +4592,16 @@ export class ConversationsService {
         | 'REQUEST_RECEIVED'
         | 'BLOCKED';
 
-      if (conversationKeys.has(participantKey)) {
-        contactMode = 'DIRECT';
-      } else if (request?.status === MessageRequestStatus.BLOCKED) {
+      const blockDirection = this.getBlockDirection(
+        viewer.accountId,
+        candidate.id,
+        existingBlocks,
+      );
+
+      if (blockDirection || request?.status === MessageRequestStatus.BLOCKED) {
         contactMode = 'BLOCKED';
+      } else if (conversationKeys.has(participantKey)) {
+        contactMode = 'DIRECT';
       } else if (request?.status === MessageRequestStatus.PENDING) {
         contactMode =
           request.requesterAccountId === viewer.accountId
@@ -4078,6 +4615,7 @@ export class ConversationsService {
         ...this.serializeAccount(candidate),
         contactMode,
         requestReason: request?.reason ?? requestReason,
+        blockDirection,
       };
     });
 
@@ -4110,6 +4648,8 @@ export class ConversationsService {
       viewer.accountId,
       ...members.map((member) => member.id),
     ];
+
+    await this.assertNoPersonalGroupBlocks(participantAccountIds);
 
     const conversationId = await this.prisma.$transaction(
       async (transaction) => {
@@ -4443,6 +4983,12 @@ export class ConversationsService {
       viewer,
       requestedAccountIds,
     );
+
+    await this.assertNoPersonalGroupBlocks([
+      ...access.conversation.participants.map((participant) => participant.accountId),
+      ...members.map((member) => member.id),
+    ]);
+
     const now = new Date();
 
     await this.prisma.$transaction(async (transaction) => {
@@ -4824,6 +5370,12 @@ export class ConversationsService {
       target.id,
     );
 
+    await this.assertNoPersonalBlock(
+      viewer.accountId,
+      target.id,
+      'start a private conversation',
+    );
+
     const existingConversation = await this.prisma.conversation.findUnique({
       where: {
         privateParticipantKey,
@@ -5084,6 +5636,12 @@ export class ConversationsService {
       );
     }
 
+    await this.assertNoPersonalBlock(
+      viewer.accountId,
+      request.requesterAccountId,
+      'accept this private message request',
+    );
+
     const opened = await this.openPrivateConversation(
       viewer,
       request.requester,
@@ -5189,19 +5747,52 @@ export class ConversationsService {
       );
     }
 
+    this.assertCanBlockAccount(viewer, request.requester);
+
     const now = new Date();
-    const updatedRequest = await this.prisma.messageRequest.update({
-      where: {
-        id: request.id,
-      },
+    const updatedRequest = await this.prisma.$transaction(async (transaction) => {
+      const updated = await transaction.messageRequest.update({
+        where: {
+          id: request.id,
+        },
 
-      data: {
-        status: MessageRequestStatus.BLOCKED,
-        respondedAt: now,
-        blockedByAccountId: viewer.accountId,
-      },
+        data: {
+          status: MessageRequestStatus.BLOCKED,
+          respondedAt: now,
+          blockedByAccountId: viewer.accountId,
+        },
 
-      select: messageRequestSelect,
+        select: messageRequestSelect,
+      });
+
+      await transaction.messagingAccountBlock.upsert({
+        where: {
+          blockerAccountId_blockedAccountId: {
+            blockerAccountId: viewer.accountId,
+            blockedAccountId: request.requesterAccountId,
+          },
+        },
+        create: {
+          blockerAccountId: viewer.accountId,
+          blockedAccountId: request.requesterAccountId,
+        },
+        update: {},
+      });
+
+      await transaction.conversationParticipant.updateMany({
+        where: {
+          accountId: viewer.accountId,
+          conversation: {
+            privateParticipantKey: request.participantKey,
+          },
+        },
+        data: {
+          isArchived: true,
+          isMuted: true,
+        },
+      });
+
+      return updated;
     });
 
     this.messagingEventsService.emitMessageRequestUpdated(
@@ -5427,7 +6018,7 @@ export class ConversationsService {
     return {
       data: [...pageDescending]
         .reverse()
-        .map((message) => this.serializeMessage(message)),
+        .map((message) => this.serializeMessage(message, viewer.accountId)),
       pagination: {
         limit: query.limit,
         hasMore,
@@ -5636,6 +6227,7 @@ export class ConversationsService {
       select: {
         id: true,
         type: true,
+        groupKind: true,
 
         participants: {
           where: {
@@ -5661,6 +6253,20 @@ export class ConversationsService {
       throw new ConflictException(
         'The private conversation does not have exactly two active participants.',
       );
+    }
+
+    if (conversation.type === ConversationType.PRIVATE) {
+      const recipient = conversation.participants.find(
+        (participant) => participant.accountId !== viewer.accountId,
+      );
+
+      if (recipient) {
+        await this.assertNoPersonalBlock(
+          viewer.accountId,
+          recipient.accountId,
+          'send a private message',
+        );
+      }
     }
 
     const existingMessage = await this.prisma.message.findUnique({
@@ -5863,6 +6469,7 @@ export class ConversationsService {
       select: {
         id: true,
         type: true,
+        groupKind: true,
 
         participants: {
           where: {
@@ -5888,6 +6495,20 @@ export class ConversationsService {
       throw new ConflictException(
         'The private conversation does not have exactly two active participants.',
       );
+    }
+
+    if (conversation.type === ConversationType.PRIVATE) {
+      const recipient = conversation.participants.find(
+        (participant) => participant.accountId !== viewer.accountId,
+      );
+
+      if (recipient) {
+        await this.assertNoPersonalBlock(
+          viewer.accountId,
+          recipient.accountId,
+          'send a private message',
+        );
+      }
     }
 
     const existingMessage = await this.prisma.message.findUnique({
@@ -6232,6 +6853,7 @@ export class ConversationsService {
       select: {
         id: true,
         type: true,
+        groupKind: true,
         participants: {
           where: {
             leftAt: null,
@@ -6258,6 +6880,20 @@ export class ConversationsService {
         throw new ConflictException(
           'A forwarding destination has an invalid participant state.',
         );
+      }
+
+      if (conversation.type === ConversationType.PRIVATE) {
+        const recipient = conversation.participants.find(
+          (participant) => participant.accountId !== viewer.accountId,
+        );
+
+        if (recipient) {
+          await this.assertNoPersonalBlock(
+            viewer.accountId,
+            recipient.accountId,
+            'forward a private message',
+          );
+        }
       }
     }
 
@@ -6965,14 +7601,16 @@ export class ConversationsService {
       receiptsBySender.set(receipt.message.senderAccountId, messageIds);
     }
 
-    for (const [senderAccountId, messageIds] of receiptsBySender) {
-      this.messagingEventsService.emitReceiptUpdated([senderAccountId], {
-        conversationId,
-        messageIds,
-        accountId: viewer.accountId,
-        status: 'READ',
-        occurredAt: now.toISOString(),
-      });
+    if (viewer.showReadReceipts) {
+      for (const [senderAccountId, messageIds] of receiptsBySender) {
+        this.messagingEventsService.emitReceiptUpdated([senderAccountId], {
+          conversationId,
+          messageIds,
+          accountId: viewer.accountId,
+          status: 'READ',
+          occurredAt: now.toISOString(),
+        });
+      }
     }
 
     return {

@@ -16,6 +16,10 @@ import type {
   MessageRequestActionResponse,
   MessageRequestListResponse,
   MessagingNotificationListResponse,
+  MessagingPrivacySettingsResponse,
+  MessagingBlockedAccountsResponse,
+  MessagingBlockAccountResponse,
+  MessagingUnblockAccountResponse,
   MessagingUserProfileResponse,
   MessagingAnalyticsResponse,
   MessagingSearchFilters,
@@ -177,6 +181,71 @@ export async function createDirectoryProfilePhotoObjectUrl(
 
   const blob = await response.blob();
   return URL.createObjectURL(blob);
+}
+
+export function getMessagingPrivacySettings(
+  accessToken: string,
+): Promise<MessagingPrivacySettingsResponse> {
+  return apiRequest<MessagingPrivacySettingsResponse>(
+    "/conversations/settings",
+    {
+      headers: authorizationHeaders(accessToken),
+    },
+  );
+}
+
+export function updateMessagingPrivacySettings(
+  accessToken: string,
+  settings: {
+    showOnlineStatus?: boolean;
+    showReadReceipts?: boolean;
+  },
+): Promise<MessagingPrivacySettingsResponse> {
+  return apiRequest<MessagingPrivacySettingsResponse>(
+    "/conversations/settings",
+    {
+      method: "PATCH",
+      headers: authorizationHeaders(accessToken),
+      body: JSON.stringify(settings),
+    },
+  );
+}
+
+export function listBlockedMessagingAccounts(
+  accessToken: string,
+): Promise<MessagingBlockedAccountsResponse> {
+  return apiRequest<MessagingBlockedAccountsResponse>(
+    "/conversations/blocks",
+    {
+      headers: authorizationHeaders(accessToken),
+    },
+  );
+}
+
+export function blockMessagingAccount(
+  accessToken: string,
+  accountId: string,
+): Promise<MessagingBlockAccountResponse> {
+  return apiRequest<MessagingBlockAccountResponse>(
+    `/conversations/blocks/${accountId}`,
+    {
+      method: "POST",
+      headers: authorizationHeaders(accessToken),
+    },
+  );
+}
+
+export function unblockMessagingAccount(
+  accessToken: string,
+  accountId: string,
+): Promise<MessagingUnblockAccountResponse> {
+  return apiRequest<MessagingUnblockAccountResponse>(
+    `/conversations/blocks/${accountId}`,
+    {
+      method: "DELETE",
+      headers: authorizationHeaders(accessToken),
+    },
+  );
 }
 
 export function searchMessagingContacts(

@@ -114,17 +114,30 @@ export class ConversationsGateway
       connectedAt,
     });
 
+    const presenceSnapshot = this.messagingPresenceService.getSnapshot();
+    const visiblePresenceAccountIds =
+      await this.conversationsService.filterAccountIdsSharingOnlineStatus(
+        presenceSnapshot.map((presence) => presence.accountId),
+      );
+
     client.emit('messaging:presence-snapshot', {
-      presences: this.messagingPresenceService.getSnapshot(),
+      presences: presenceSnapshot.filter(
+        (presence) =>
+          presence.accountId === user.accountId ||
+          visiblePresenceAccountIds.has(presence.accountId),
+      ),
       occurredAt: connectedAt,
     });
 
-    if (connection.becameOnline) {
+    if (
+      connection.becameOnline &&
+      (await this.conversationsService.canShareOnlineStatus(user.accountId))
+    ) {
       this.messagingEventsService.emitPresenceUpdated(connection.presence);
     }
   }
 
-  handleDisconnect(client: MessagingSocket): void {
+  async handleDisconnect(client: MessagingSocket): Promise<void> {
     const user = client.data.user;
 
     if (!user) {
@@ -138,7 +151,10 @@ export class ConversationsGateway
       client.id,
     );
 
-    if (disconnection?.becameOffline) {
+    if (
+      disconnection?.becameOffline &&
+      (await this.conversationsService.canShareOnlineStatus(user.accountId))
+    ) {
       this.messagingEventsService.emitPresenceUpdated(disconnection.presence);
     }
   }
@@ -164,6 +180,14 @@ export class ConversationsGateway
     const user = client.data.user;
 
     if (!user || !this.isValidTypingPayload(payload)) {
+      return;
+    }
+
+    if (
+      payload.isTyping &&
+      !(await this.conversationsService.canShareOnlineStatus(user.accountId))
+    ) {
+      this.stopTyping(client.id, user.accountId, payload.conversationId);
       return;
     }
 

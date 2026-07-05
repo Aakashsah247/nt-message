@@ -19,6 +19,7 @@ import {
   acceptMessageRequest,
   addGroupMembers,
   blockMessageRequest,
+  blockMessagingAccount,
   createGroupConversation,
   createOfficialGroupConversation,
   createPrivateConversation,
@@ -28,6 +29,7 @@ import {
   deleteMyMessagingProfilePhoto,
   declineMessageRequest,
   deleteMessagingNotification,
+  getMessagingPrivacySettings,
   getMessagingProfile,
   getMyMessagingProfile,
   deleteReadMessagingNotifications,
@@ -40,6 +42,7 @@ import {
   leaveGroupConversation,
   listConversationMessages,
   listMessageRequests,
+  listBlockedMessagingAccounts,
   listMessagingConversations,
   listMessagingNotifications,
   markAllMessagingNotificationsRead,
@@ -52,12 +55,14 @@ import {
   reactToMessage,
   searchMessagingContacts,
   updateMyMessagingProfile,
+  updateMessagingPrivacySettings,
   updateMyMessagingProfilePhoto,
   sendConversationAttachmentMessage,
   searchConversationMessages,
   searchMessaging,
   sendConversationTextMessage,
   updateGroupConversation,
+  unblockMessagingAccount,
   updateGroupMemberRole,
   updateGroupPhoto,
 } from "../services/messaging.service";
@@ -81,6 +86,7 @@ import type {
   GroupKind,
   MessageRequestListResponse,
   MessagingAccount,
+  MessagingBlockedAccount,
   MessagingContact,
   MessagingAttachment,
   MessagingConversation,
@@ -105,6 +111,7 @@ const SELECTED_CONVERSATION_STORAGE_KEY =
 const NOTIFICATION_SOUND_STORAGE_KEY = "nt-message:notification-sound-enabled";
 const BROWSER_NOTIFICATION_STORAGE_KEY = "nt-message:browser-notifications-enabled";
 const CUSTOMIZATION_STORAGE_KEY = "nt-message:customization";
+const SETTINGS_STORAGE_KEY = "nt-message:settings";
 const NOTIFICATION_SOUND_URL = "/sounds/web-whatsapp.mp3";
 const MESSAGE_EDIT_WINDOW_MS = 15 * 60 * 1000;
 const QUICK_REACTIONS = ["👍", "❤️", "😂", "😮", "😢", "🙏"] as const;
@@ -115,6 +122,29 @@ type MessagingTheme = "NT_BLUE" | "LIGHT" | "DARK";
 type MessagingAccent = "BLUE" | "EMERALD" | "PURPLE" | "GOLD" | "ROSE";
 type MessagingWallpaper = "CLEAN" | "DOTS" | "WAVES" | "GRID";
 type MessagingDensity = "COMFORTABLE" | "COMPACT";
+
+type MessagingSettingsTab = "PRIVACY" | "NOTIFICATIONS" | "BLOCKED" | "SECURITY";
+
+interface MessagingSettings {
+  showOnlineStatus: boolean;
+  showReadReceipts: boolean;
+  notificationPreview: boolean;
+  muteAllNotifications: boolean;
+}
+
+const DEFAULT_MESSAGING_SETTINGS: MessagingSettings = {
+  showOnlineStatus: true,
+  showReadReceipts: true,
+  notificationPreview: true,
+  muteAllNotifications: false,
+};
+
+const SETTINGS_TABS: Array<{ value: MessagingSettingsTab; label: string }> = [
+  { value: "PRIVACY", label: "Privacy" },
+  { value: "NOTIFICATIONS", label: "Notifications" },
+  { value: "BLOCKED", label: "Blocked" },
+  { value: "SECURITY", label: "Security" },
+];
 
 interface MessagingCustomization {
   theme: MessagingTheme;
@@ -241,6 +271,39 @@ function readMessagingCustomization(): MessagingCustomization {
 
 function customizationToken(value: string): string {
   return value.toLowerCase().replace(/_/g, "-");
+}
+
+function readMessagingSettings(): MessagingSettings {
+  try {
+    const stored = window.localStorage.getItem(SETTINGS_STORAGE_KEY);
+
+    if (!stored) {
+      return DEFAULT_MESSAGING_SETTINGS;
+    }
+
+    const parsed = JSON.parse(stored) as Partial<MessagingSettings>;
+
+    return {
+      showOnlineStatus:
+        typeof parsed.showOnlineStatus === "boolean"
+          ? parsed.showOnlineStatus
+          : DEFAULT_MESSAGING_SETTINGS.showOnlineStatus,
+      showReadReceipts:
+        typeof parsed.showReadReceipts === "boolean"
+          ? parsed.showReadReceipts
+          : DEFAULT_MESSAGING_SETTINGS.showReadReceipts,
+      notificationPreview:
+        typeof parsed.notificationPreview === "boolean"
+          ? parsed.notificationPreview
+          : DEFAULT_MESSAGING_SETTINGS.notificationPreview,
+      muteAllNotifications:
+        typeof parsed.muteAllNotifications === "boolean"
+          ? parsed.muteAllNotifications
+          : DEFAULT_MESSAGING_SETTINGS.muteAllNotifications,
+    };
+  } catch {
+    return DEFAULT_MESSAGING_SETTINGS;
+  }
 }
 
 function isSupportedQuickReaction(value: string): value is QuickReaction {
@@ -1070,15 +1133,87 @@ export function MessageAppPage() {
     window.localStorage.getItem(BROWSER_NOTIFICATION_STORAGE_KEY) === "true"
   ));
   const [customizationPanelOpen, setCustomizationPanelOpen] = useState(false);
+  const [settingsPanelOpen, setSettingsPanelOpen] = useState(false);
+  const [settingsTab, setSettingsTab] = useState<MessagingSettingsTab>("PRIVACY");
   const [messagingCustomization, setMessagingCustomization] = useState<MessagingCustomization>(
     readMessagingCustomization,
   );
+  const [messagingSettings, setMessagingSettings] = useState<MessagingSettings>(
+    readMessagingSettings,
+  );
+  const [blockedAccounts, setBlockedAccounts] = useState<MessagingBlockedAccount[]>([]);
+  const [blockedAccountsLoading, setBlockedAccountsLoading] = useState(false);
+  const [blockActionAccountId, setBlockActionAccountId] = useState<string | null>(null);
+  const [blockSettingsError, setBlockSettingsError] = useState<string | null>(null);
+  const [blockSettingsNotice, setBlockSettingsNotice] = useState<string | null>(null);
   useEffect(() => {
     window.localStorage.setItem(
       CUSTOMIZATION_STORAGE_KEY,
       JSON.stringify(messagingCustomization),
     );
   }, [messagingCustomization]);
+
+  useEffect(() => {
+    window.localStorage.setItem(
+      SETTINGS_STORAGE_KEY,
+      JSON.stringify(messagingSettings),
+    );
+  }, [messagingSettings]);
+
+  useEffect(() => {
+    if (!accessToken) {
+      return;
+    }
+
+    let cancelled = false;
+
+    void getMessagingPrivacySettings(accessToken)
+      .then((response) => {
+        if (cancelled) {
+          return;
+        }
+
+        setMessagingSettings((current) => ({
+          ...current,
+          showOnlineStatus: response.data.showOnlineStatus,
+          showReadReceipts: response.data.showReadReceipts,
+        }));
+      })
+      .catch(() => {
+        // Local notification settings still work if privacy settings cannot load.
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [accessToken]);
+
+  const loadBlockedAccounts = useCallback(async () => {
+    if (!accessToken) {
+      setBlockedAccounts([]);
+      return;
+    }
+
+    setBlockedAccountsLoading(true);
+    setBlockSettingsError(null);
+
+    try {
+      const response = await listBlockedMessagingAccounts(accessToken);
+      setBlockedAccounts(response.data);
+    } catch (error) {
+      setBlockSettingsError(
+        error instanceof Error
+          ? error.message
+          : "Blocked accounts could not be loaded.",
+      );
+    } finally {
+      setBlockedAccountsLoading(false);
+    }
+  }, [accessToken]);
+
+  useEffect(() => {
+    void loadBlockedAccounts();
+  }, [loadBlockedAccounts]);
 
   const [searchDialogOpen, setSearchDialogOpen] = useState(false);
   const [searchScope, setSearchScope] = useState<"CURRENT" | "GLOBAL">("CURRENT");
@@ -1267,6 +1402,7 @@ export function MessageAppPage() {
       message.reactions.forEach((reaction) => collectAccount(reaction.account ?? null));
     });
     contacts.forEach(collectAccount);
+    blockedAccounts.forEach((block) => collectAccount(block.account));
     searchContactResults.forEach(collectAccount);
     searchResults.forEach((result) => collectAccount(result.message.sender));
     if (profileData) {
@@ -1317,6 +1453,7 @@ export function MessageAppPage() {
     };
   }, [
     accessToken,
+    blockedAccounts,
     contacts,
     conversations,
     messages,
@@ -1886,13 +2023,17 @@ export function MessageAppPage() {
         ...current.filter((notification) => notification.id !== payload.notification.id),
       ].slice(0, 40));
       setNotificationUnreadCount(payload.unreadCount);
+
+      if (messagingSettings.muteAllNotifications) {
+        return;
+      }
+
       setNotificationToast(payload.notification);
 
       if (notificationToastTimerRef.current !== null) {
         window.clearTimeout(notificationToastTimerRef.current);
       }
 
-      // The in-app toast shows sender and preview even when browser popups are hidden.
       notificationToastTimerRef.current = window.setTimeout(() => {
         setNotificationToast(null);
       }, 6000);
@@ -1907,7 +2048,9 @@ export function MessageAppPage() {
         window.Notification.permission === "granted"
       ) {
         new window.Notification(payload.notification.title, {
-          body: payload.notification.body,
+          body: messagingSettings.notificationPreview
+            ? payload.notification.body
+            : "Open NT Message to view this notification.",
           tag: payload.notification.id,
         });
       }
@@ -2111,6 +2254,8 @@ export function MessageAppPage() {
     loadMessageRequests,
     loadMessages,
     browserNotificationsEnabled,
+    messagingSettings.muteAllNotifications,
+    messagingSettings.notificationPreview,
     notificationSoundEnabled,
     stopLocalTyping,
   ]);
@@ -3198,6 +3343,71 @@ export function MessageAppPage() {
     setMessagingCustomization(DEFAULT_MESSAGING_CUSTOMIZATION);
   }
 
+  function updateMessagingSettings(
+    changes: Partial<MessagingSettings>,
+  ): void {
+    setMessagingSettings((current) => ({
+      ...current,
+      ...changes,
+    }));
+
+    const privacyChanges: Pick<
+      Partial<MessagingSettings>,
+      "showOnlineStatus" | "showReadReceipts"
+    > = {};
+
+    if (typeof changes.showOnlineStatus === "boolean") {
+      privacyChanges.showOnlineStatus = changes.showOnlineStatus;
+    }
+
+    if (typeof changes.showReadReceipts === "boolean") {
+      privacyChanges.showReadReceipts = changes.showReadReceipts;
+    }
+
+    if (accessToken && Object.keys(privacyChanges).length > 0) {
+      void updateMessagingPrivacySettings(accessToken, privacyChanges)
+        .then((response) => {
+          setMessagingSettings((current) => ({
+            ...current,
+            showOnlineStatus: response.data.showOnlineStatus,
+            showReadReceipts: response.data.showReadReceipts,
+          }));
+        })
+        .catch(() => {
+          void getMessagingPrivacySettings(accessToken).then((response) => {
+            setMessagingSettings((current) => ({
+              ...current,
+              showOnlineStatus: response.data.showOnlineStatus,
+              showReadReceipts: response.data.showReadReceipts,
+            }));
+          });
+        });
+    }
+  }
+
+  function resetMessagingSettings(): void {
+    setMessagingSettings((current) => ({
+      ...DEFAULT_MESSAGING_SETTINGS,
+      showOnlineStatus: current.showOnlineStatus,
+      showReadReceipts: current.showReadReceipts,
+    }));
+  }
+
+  function clearLocalMessagingPreferences(): void {
+    setMessagingCustomization(DEFAULT_MESSAGING_CUSTOMIZATION);
+    setMessagingSettings((current) => ({
+      ...DEFAULT_MESSAGING_SETTINGS,
+      showOnlineStatus: current.showOnlineStatus,
+      showReadReceipts: current.showReadReceipts,
+    }));
+    setNotificationSoundEnabled(true);
+    setBrowserNotificationsEnabled(false);
+    window.localStorage.removeItem(CUSTOMIZATION_STORAGE_KEY);
+    window.localStorage.removeItem(SETTINGS_STORAGE_KEY);
+    window.localStorage.removeItem(NOTIFICATION_SOUND_STORAGE_KEY);
+    window.localStorage.removeItem(BROWSER_NOTIFICATION_STORAGE_KEY);
+  }
+
   async function handleBrowserNotificationToggle(): Promise<void> {
     if (!browserNotificationsEnabled && "Notification" in window) {
       // Browser permission must be requested from a direct user click.
@@ -3343,7 +3553,10 @@ export function MessageAppPage() {
       );
 
       setRequestNotice(response.message);
-      await loadMessageRequests(true);
+      await Promise.all([
+        loadMessageRequests(true),
+        loadBlockedAccounts(),
+      ]);
     } catch (error) {
       setRequestError(
         error instanceof Error
@@ -3372,7 +3585,10 @@ export function MessageAppPage() {
       );
 
       setRequestNotice(response.message);
-      await loadMessageRequests(true);
+      await Promise.all([
+        loadMessageRequests(true),
+        loadBlockedAccounts(),
+      ]);
     } catch (error) {
       setRequestError(
         error instanceof Error
@@ -3381,6 +3597,100 @@ export function MessageAppPage() {
       );
     } finally {
       setRequestActionId(null);
+    }
+  }
+
+  async function handleBlockAccount(target: MessagingAccount): Promise<void> {
+    if (!accessToken || blockActionAccountId) {
+      return;
+    }
+
+    const confirmed = window.confirm(
+      `Block ${target.displayName} for private messaging? Official groups and announcements will still remain visible.`,
+    );
+
+    if (!confirmed) {
+      return;
+    }
+
+    setBlockActionAccountId(target.accountId);
+    setBlockSettingsError(null);
+    setBlockSettingsNotice(null);
+    setProfileError(null);
+
+    try {
+      const response = await blockMessagingAccount(accessToken, target.accountId);
+      setBlockSettingsNotice(response.message);
+      await loadBlockedAccounts();
+
+      if (profileData?.accountId === target.accountId) {
+        setProfileData((current) => current
+          ? {
+              ...current,
+              contactMode: "BLOCKED",
+              blockDirection: "BLOCKED_BY_ME",
+            }
+          : current,
+        );
+      }
+
+      setContacts((current) => current.map((contact) => (
+        contact.accountId === target.accountId
+          ? {
+              ...contact,
+              contactMode: "BLOCKED",
+              blockDirection: "BLOCKED_BY_ME",
+            }
+          : contact
+      )));
+    } catch (error) {
+      const message = error instanceof Error
+        ? error.message
+        : "Account could not be blocked.";
+      setBlockSettingsError(message);
+      setProfileError(message);
+    } finally {
+      setBlockActionAccountId(null);
+    }
+  }
+
+  async function handleUnblockAccount(targetAccountId: string): Promise<void> {
+    if (!accessToken || blockActionAccountId) {
+      return;
+    }
+
+    setBlockActionAccountId(targetAccountId);
+    setBlockSettingsError(null);
+    setBlockSettingsNotice(null);
+    setProfileError(null);
+
+    try {
+      const response = await unblockMessagingAccount(accessToken, targetAccountId);
+      setBlockSettingsNotice(response.message);
+      await loadBlockedAccounts();
+
+      if (profileData?.accountId === targetAccountId) {
+        const refreshed = await getMessagingProfile(accessToken, targetAccountId);
+        setProfileData(refreshed.data);
+      }
+
+      setContacts((current) => current.map((contact) => (
+        contact.accountId === targetAccountId
+          ? {
+              ...contact,
+              contactMode: "DIRECT",
+              blockDirection: null,
+            }
+          : contact
+      )));
+    } catch (error) {
+      const message = error instanceof Error
+        ? error.message
+        : "Account could not be unblocked.";
+      setBlockSettingsError(message);
+      setProfileError(message);
+    } finally {
+      setBlockActionAccountId(null);
     }
   }
 
@@ -4147,6 +4457,7 @@ export function MessageAppPage() {
   const typingParticipants = selectedConversation?.participants.filter(
     (participant) =>
       participant.accountId !== account?.id &&
+      participant.showOnlineStatus !== false &&
       typingAccountIds.includes(participant.accountId),
   ) ?? [];
   const peerActivityLabel = selectedConversation?.type === "GROUP"
@@ -4156,13 +4467,15 @@ export function MessageAppPage() {
           .map((participant) => participant.displayName)
           .join(", ")}${typingParticipants.length > 2 ? " and others" : ""} typing…`
       : `${selectedConversation.memberCount} members`
-    : typingParticipants.length > 0
-      ? "Typing…"
-      : peerPresence?.isOnline
-        ? "Online"
-        : peerPresence?.lastSeenAt
-          ? formatLastSeen(peerPresence.lastSeenAt)
-          : "Offline";
+    : peer?.showOnlineStatus === false
+      ? "Online status hidden"
+      : typingParticipants.length > 0
+        ? "Typing…"
+        : peerPresence?.isOnline
+          ? "Online"
+          : peerPresence?.lastSeenAt
+            ? formatLastSeen(peerPresence.lastSeenAt)
+            : "Offline";
 
   const selectedGroupMemberIds = new Set(
     groupDialogMode === "MANAGE" &&
@@ -4172,6 +4485,12 @@ export function MessageAppPage() {
         )
       : [],
   );
+
+  const blockedMessageRequests = [
+    ...messageRequests.received,
+    ...messageRequests.sent,
+  ].filter((request) => request.status === "BLOCKED");
+  const blockedAccountIds = new Set(blockedAccounts.map((block) => block.blockedAccountId));
 
   function renderAccountAvatar(
     targetAccount: MessagingAccount,
@@ -4260,7 +4579,10 @@ export function MessageAppPage() {
             <button
               type="button"
               className="message-customization-button"
-              onClick={() => setCustomizationPanelOpen((value) => !value)}
+              onClick={() => {
+                setCustomizationPanelOpen((value) => !value);
+                setSettingsPanelOpen(false);
+              }}
               aria-expanded={customizationPanelOpen}
             >
               Customize
@@ -4358,6 +4680,223 @@ export function MessageAppPage() {
             )}
           </div>
 
+          <div className="message-settings-wrapper">
+            <button
+              type="button"
+              className="message-settings-button"
+              onClick={() => {
+                setSettingsPanelOpen((value) => !value);
+                setCustomizationPanelOpen(false);
+              }}
+              aria-expanded={settingsPanelOpen}
+            >
+              Settings
+            </button>
+
+            {settingsPanelOpen && (
+              <div className="message-settings-panel">
+                <div className="message-settings-panel-header">
+                  <span>M6 Settings</span>
+                  <strong>Privacy, alerts & security</strong>
+                </div>
+
+                <div className="message-settings-tabs" role="tablist" aria-label="Messaging settings">
+                  {SETTINGS_TABS.map((tab) => (
+                    <button
+                      key={tab.value}
+                      type="button"
+                      className={settingsTab === tab.value ? "active" : ""}
+                      onClick={() => setSettingsTab(tab.value)}
+                    >
+                      {tab.label}
+                    </button>
+                  ))}
+                </div>
+
+                <div className="message-settings-body">
+                  {settingsTab === "PRIVACY" && (
+                    <section className="message-settings-section">
+                      <label className="message-settings-toggle">
+                        <span>
+                          <strong>Share my online status</strong>
+                          <small>Allow other users to see when you are online, typing and recently active.</small>
+                        </span>
+                        <input
+                          type="checkbox"
+                          checked={messagingSettings.showOnlineStatus}
+                          onChange={(event) => updateMessagingSettings({ showOnlineStatus: event.target.checked })}
+                        />
+                      </label>
+
+                      <label className="message-settings-toggle">
+                        <span>
+                          <strong>Send my read receipts</strong>
+                          <small>Allow message senders to see when you have read their messages.</small>
+                        </span>
+                        <input
+                          type="checkbox"
+                          checked={messagingSettings.showReadReceipts}
+                          onChange={(event) => updateMessagingSettings({ showReadReceipts: event.target.checked })}
+                        />
+                      </label>
+
+                      <p className="message-settings-note">
+                        Privacy settings are saved to your account. Turning them off hides your status or read activity from other users, not from your own screen.
+                      </p>
+                    </section>
+                  )}
+
+                  {settingsTab === "NOTIFICATIONS" && (
+                    <section className="message-settings-section">
+                      <label className="message-settings-toggle">
+                        <span>
+                          <strong>Notification sound</strong>
+                          <small>Play the NT Message alert sound for new realtime notifications.</small>
+                        </span>
+                        <input
+                          type="checkbox"
+                          checked={notificationSoundEnabled}
+                          onChange={(event) => setNotificationSoundEnabled(event.target.checked)}
+                          disabled={messagingSettings.muteAllNotifications}
+                        />
+                      </label>
+
+                      <label className="message-settings-toggle">
+                        <span>
+                          <strong>Browser notifications</strong>
+                          <small>Show system notifications when permission is granted.</small>
+                        </span>
+                        <input
+                          type="checkbox"
+                          checked={browserNotificationsEnabled}
+                          onChange={() => void handleBrowserNotificationToggle()}
+                          disabled={messagingSettings.muteAllNotifications}
+                        />
+                      </label>
+
+                      <label className="message-settings-toggle">
+                        <span>
+                          <strong>Show notification preview</strong>
+                          <small>Include message preview text in toast and browser notifications.</small>
+                        </span>
+                        <input
+                          type="checkbox"
+                          checked={messagingSettings.notificationPreview}
+                          onChange={(event) => updateMessagingSettings({ notificationPreview: event.target.checked })}
+                        />
+                      </label>
+
+                      <label className="message-settings-toggle">
+                        <span>
+                          <strong>Mute all popups</strong>
+                          <small>Keep the bell count, but suppress toast, sound and browser popups.</small>
+                        </span>
+                        <input
+                          type="checkbox"
+                          checked={messagingSettings.muteAllNotifications}
+                          onChange={(event) => updateMessagingSettings({ muteAllNotifications: event.target.checked })}
+                        />
+                      </label>
+                    </section>
+                  )}
+
+                  {settingsTab === "BLOCKED" && (
+                    <section className="message-settings-section">
+                      <div className="message-settings-summary">
+                        <strong>{blockedAccounts.length}</strong>
+                        <span>blocked private contact{blockedAccounts.length === 1 ? "" : "s"}</span>
+                      </div>
+
+                      {blockSettingsNotice && (
+                        <p className="message-settings-success">{blockSettingsNotice}</p>
+                      )}
+
+                      {blockSettingsError && (
+                        <p className="message-settings-danger-note">{blockSettingsError}</p>
+                      )}
+
+                      {blockedAccountsLoading ? (
+                        <p className="message-settings-empty">Loading blocked accounts...</p>
+                      ) : blockedAccounts.length === 0 ? (
+                        <p className="message-settings-empty">No blocked private contacts.</p>
+                      ) : (
+                        <div className="message-settings-blocked-list">
+                          {blockedAccounts.map((block) => (
+                            <article key={block.blockedAccountId}>
+                              {renderAccountAvatar(block.account, "message-avatar small")}
+                              <div>
+                                <strong>{block.account.displayName}</strong>
+                                <small>Private messages and personal group invites blocked</small>
+                              </div>
+                              <button
+                                type="button"
+                                onClick={() => void handleUnblockAccount(block.blockedAccountId)}
+                                disabled={blockActionAccountId !== null}
+                              >
+                                {blockActionAccountId === block.blockedAccountId
+                                  ? "Working..."
+                                  : "Unblock"}
+                              </button>
+                            </article>
+                          ))}
+                        </div>
+                      )}
+
+                      {blockedMessageRequests.length > 0 && (
+                        <p className="message-settings-note">
+                          {blockedMessageRequests.length} old blocked request{blockedMessageRequests.length === 1 ? "" : "s"} remain in history.
+                        </p>
+                      )}
+
+                      <p className="message-settings-note">
+                        Blocking is hierarchy-safe: it affects private chat and new personal group invites only. Existing group messages, official groups, announcements and authority messages remain available.
+                      </p>
+                    </section>
+                  )}
+
+                  {settingsTab === "SECURITY" && (
+                    <section className="message-settings-section">
+                      <div className="message-settings-security-card">
+                        <span>Signed-in account</span>
+                        <strong>{account?.username ?? "NT Message User"}</strong>
+                        <small>{account ? roleLabel(account.role) : "Employee"} · {realtimeLabel}</small>
+                      </div>
+
+                      <div className="message-settings-actions">
+                        <button
+                          type="button"
+                          onClick={clearLocalMessagingPreferences}
+                        >
+                          Reset local settings
+                        </button>
+                        <button
+                          type="button"
+                          className="danger"
+                          onClick={handleLogout}
+                          disabled={loggingOut}
+                        >
+                          {loggingOut ? "Signing out..." : "Sign out this session"}
+                        </button>
+                      </div>
+
+                      <p className="message-settings-note">
+                        Current session termination is available through sign out. Multi-session review and password rotation need auth API support.
+                      </p>
+                    </section>
+                  )}
+                </div>
+
+                <button
+                  type="button"
+                  className="message-settings-reset"
+                  onClick={resetMessagingSettings}
+                >
+                  Reset local alert settings
+                </button>
+              </div>
+            )}
+          </div>
+
           {account?.role !== "EMPLOYEE" && (
             <DirectoryButton />
           )}
@@ -4434,7 +4973,11 @@ export function MessageAppPage() {
                     >
                       <span>
                         <strong>{notification.title}</strong>
-                        <small>{notification.body}</small>
+                        <small>
+                          {messagingSettings.notificationPreview
+                            ? notification.body
+                            : "Preview hidden by notification privacy."}
+                        </small>
                       </span>
                       <em>{notificationTimestampLabel(notification.createdAt)}</em>
                       <span
@@ -4477,7 +5020,11 @@ export function MessageAppPage() {
           onClick={() => void handleNotificationClick(notificationToast)}
         >
           <strong>{notificationToast.title}</strong>
-          <span>{notificationToast.body}</span>
+          <span>
+            {messagingSettings.notificationPreview
+              ? notificationToast.body
+              : "Open NT Message to view this notification."}
+          </span>
         </button>
       )}
 
@@ -4617,7 +5164,8 @@ export function MessageAppPage() {
                         ? renderAccountAvatar(conversationPeer)
                         : renderGroupAvatar(conversation)}
 
-                      {conversationPeer &&
+                      {conversationPeer?.showOnlineStatus !== false &&
+                        conversationPeer &&
                         presenceByAccountId[conversationPeer.accountId]?.isOnline && (
                           <span
                             className="message-presence-dot"
@@ -4707,7 +5255,8 @@ export function MessageAppPage() {
                     </span>
                   )}
 
-                  {selectedConversation.type === "PRIVATE" &&
+                  {peer?.showOnlineStatus !== false &&
+                    selectedConversation.type === "PRIVATE" &&
                     peerPresence?.isOnline && (
                       <span
                         className="message-presence-dot"
@@ -4741,7 +5290,7 @@ export function MessageAppPage() {
                     className={`message-peer-activity${
                       typingParticipants.length > 0
                         ? " typing"
-                        : peerPresence?.isOnline
+                        : peer?.showOnlineStatus !== false && peerPresence?.isOnline
                           ? " online"
                           : ""
                     }`}
@@ -5640,23 +6189,51 @@ export function MessageAppPage() {
 
                 <div className="message-profile-footer">
                   {!profileData.isOwnProfile && (
-                    <button
-                      type="button"
-                      onClick={() => void handleStartProfileConversation()}
-                      disabled={
-                        profileSaving ||
-                        profileData.contactMode === "REQUEST_SENT" ||
-                        profileData.contactMode === "BLOCKED"
-                      }
-                    >
-                      {profileData.contactMode === "REQUEST_SENT"
-                        ? "Request sent"
-                        : profileData.contactMode === "BLOCKED"
-                          ? "Blocked"
-                          : profileData.contactMode === "REQUEST_REQUIRED"
-                            ? "Send request"
-                            : "Message"}
-                    </button>
+                    <>
+                      <button
+                        type="button"
+                        onClick={() => void handleStartProfileConversation()}
+                        disabled={
+                          profileSaving ||
+                          profileData.contactMode === "REQUEST_SENT" ||
+                          profileData.contactMode === "BLOCKED"
+                        }
+                      >
+                        {profileData.contactMode === "REQUEST_SENT"
+                          ? "Request sent"
+                          : profileData.contactMode === "BLOCKED"
+                            ? "Blocked"
+                            : profileData.contactMode === "REQUEST_REQUIRED"
+                              ? "Send request"
+                              : "Message"}
+                      </button>
+
+                      {profileData.blockDirection === "BLOCKED_BY_ME" ||
+                      profileData.blockDirection === "MUTUAL" ||
+                      blockedAccountIds.has(profileData.accountId) ? (
+                        <button
+                          type="button"
+                          className="message-profile-unblock"
+                          onClick={() => void handleUnblockAccount(profileData.accountId)}
+                          disabled={blockActionAccountId !== null}
+                        >
+                          {blockActionAccountId === profileData.accountId
+                            ? "Working..."
+                            : "Unblock"}
+                        </button>
+                      ) : (
+                        <button
+                          type="button"
+                          className="message-profile-block"
+                          onClick={() => void handleBlockAccount(profileData)}
+                          disabled={blockActionAccountId !== null}
+                        >
+                          {blockActionAccountId === profileData.accountId
+                            ? "Working..."
+                            : "Block private contact"}
+                        </button>
+                      )}
+                    </>
                   )}
                 </div>
               </div>
@@ -6236,7 +6813,9 @@ export function MessageAppPage() {
                                   : eligible
                                     ? contact.employee?.designation ??
                                       roleLabel(contact.role)
-                                    : "First-contact approval required"}
+                                    : contact.contactMode === "BLOCKED"
+                                      ? "Blocked private contact"
+                                      : "First-contact approval required"}
                               </small>
                             </span>
                           </label>
