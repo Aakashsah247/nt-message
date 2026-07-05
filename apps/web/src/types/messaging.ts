@@ -217,6 +217,21 @@ export interface MessagingMention {
   displayName: string;
 }
 
+
+export interface MessagingLocationPayload {
+  kind: "CURRENT" | "LIVE";
+  latitude: number;
+  longitude: number;
+  accuracyMeters: number | null;
+  headingDegrees: number | null;
+  speedMetersPerSecond: number | null;
+  label: string | null;
+  mapUrl: string;
+  liveExpiresAt: string | null;
+  liveStoppedAt: string | null;
+  updatedAt: string;
+}
+
 export interface MessagingMessage {
   id: string;
   conversationId: string;
@@ -434,6 +449,17 @@ export interface SendTextMessageResponse {
 export interface SendAttachmentMessageResponse {
   message: string;
   duplicate: boolean;
+  data: MessagingMessage;
+}
+
+export interface SendLocationMessageResponse {
+  message: string;
+  duplicate: boolean;
+  data: MessagingMessage;
+}
+
+export interface UpdateLiveLocationMessageResponse {
+  message: string;
   data: MessagingMessage;
 }
 

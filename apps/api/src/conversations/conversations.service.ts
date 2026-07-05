@@ -40,10 +40,12 @@ import { ListOfficialGroupAuditQueryDto } from './dto/list-official-group-audit-
 import { SearchMessagingContactsQueryDto } from './dto/search-messaging-contacts-query.dto';
 import { SearchMessagesQueryDto } from './dto/search-messages-query.dto';
 import { SendTextMessageDto } from './dto/send-text-message.dto';
+import { SendLocationMessageDto } from './dto/send-location-message.dto';
 import { SendAttachmentMessageDto } from './dto/send-attachment-message.dto';
 import { UpdateGroupConversationDto } from './dto/update-group-conversation.dto';
 import { UpdateGroupMemberRoleDto } from './dto/update-group-member-role.dto';
 import { UpdateTextMessageDto } from './dto/update-text-message.dto';
+import { UpdateLiveLocationDto } from './dto/update-live-location.dto';
 import { UpdateMessagingProfileDto } from './dto/update-messaging-profile.dto';
 import { UpdateMessagingSettingsDto } from './dto/update-messaging-settings.dto';
 import { ReactMessageDto } from './dto/react-message.dto';
@@ -108,6 +110,20 @@ interface MessageNotificationInput {
 interface MessageMentionPayloadItem {
   accountId: string;
   displayName: string;
+}
+
+interface MessageLocationPayload {
+  kind: 'CURRENT' | 'LIVE';
+  latitude: number;
+  longitude: number;
+  accuracyMeters: number | null;
+  headingDegrees: number | null;
+  speedMetersPerSecond: number | null;
+  label: string | null;
+  mapUrl: string;
+  liveExpiresAt: string | null;
+  liveStoppedAt: string | null;
+  updatedAt: string;
 }
 
 export interface AnalyticsScopeSummary {
@@ -1497,6 +1513,101 @@ export class ConversationsService {
     return {
       mentions: mentionPayload,
     } as Prisma.InputJsonObject;
+  }
+
+
+  private roundCoordinate(value: number): number {
+    return Number(value.toFixed(8));
+  }
+
+  private normalizeOptionalNumber(value: number | undefined): number | null {
+    return typeof value === 'number' && Number.isFinite(value) ? value : null;
+  }
+
+  private buildMapUrl(latitude: number, longitude: number): string {
+    return `https://www.google.com/maps/search/?api=1&query=${latitude},${longitude}`;
+  }
+
+  private buildLocationPayload(
+    dto: SendLocationMessageDto | UpdateLiveLocationDto,
+    kind: 'CURRENT' | 'LIVE',
+    liveExpiresAt: Date | null,
+    stoppedAt: Date | null = null,
+  ): Prisma.InputJsonObject {
+    const latitude = this.roundCoordinate(dto.latitude);
+    const longitude = this.roundCoordinate(dto.longitude);
+    const now = new Date().toISOString();
+    const label = 'label' in dto && typeof dto.label === 'string'
+      ? dto.label.trim().slice(0, 120) || null
+      : null;
+    const location: MessageLocationPayload = {
+      kind,
+      latitude,
+      longitude,
+      accuracyMeters: this.normalizeOptionalNumber(dto.accuracyMeters),
+      headingDegrees: this.normalizeOptionalNumber(dto.headingDegrees),
+      speedMetersPerSecond: this.normalizeOptionalNumber(dto.speedMetersPerSecond),
+      label,
+      mapUrl: this.buildMapUrl(latitude, longitude),
+      liveExpiresAt: liveExpiresAt?.toISOString() ?? null,
+      liveStoppedAt: stoppedAt?.toISOString() ?? null,
+      updatedAt: now,
+    };
+
+    return {
+      location: location as unknown as Prisma.InputJsonObject,
+    } as Prisma.InputJsonObject;
+  }
+
+  private getLocationPayload(payload: unknown): MessageLocationPayload | null {
+    const location = this.getPlainMessagePayload(payload).location;
+
+    if (!location || typeof location !== 'object' || Array.isArray(location)) {
+      return null;
+    }
+
+    const value = location as Record<string, unknown>;
+    const kind = value.kind;
+    const latitude = value.latitude;
+    const longitude = value.longitude;
+    const mapUrl = value.mapUrl;
+    const updatedAt = value.updatedAt;
+
+    if (
+      (kind !== 'CURRENT' && kind !== 'LIVE') ||
+      typeof latitude !== 'number' ||
+      typeof longitude !== 'number' ||
+      typeof mapUrl !== 'string' ||
+      typeof updatedAt !== 'string'
+    ) {
+      return null;
+    }
+
+    return {
+      kind,
+      latitude,
+      longitude,
+      accuracyMeters: typeof value.accuracyMeters === 'number' ? value.accuracyMeters : null,
+      headingDegrees: typeof value.headingDegrees === 'number' ? value.headingDegrees : null,
+      speedMetersPerSecond: typeof value.speedMetersPerSecond === 'number' ? value.speedMetersPerSecond : null,
+      label: typeof value.label === 'string' ? value.label : null,
+      mapUrl,
+      liveExpiresAt: typeof value.liveExpiresAt === 'string' ? value.liveExpiresAt : null,
+      liveStoppedAt: typeof value.liveStoppedAt === 'string' ? value.liveStoppedAt : null,
+      updatedAt,
+    };
+  }
+
+  private isLiveLocationActive(location: MessageLocationPayload | null): boolean {
+    if (!location || location.kind !== 'LIVE' || location.liveStoppedAt) {
+      return false;
+    }
+
+    if (!location.liveExpiresAt) {
+      return false;
+    }
+
+    return new Date(location.liveExpiresAt).getTime() > Date.now();
   }
 
   private getForwardedMessageMetadata(
@@ -6564,6 +6675,352 @@ export class ConversationsService {
         data: this.serializeMessage(duplicateMessage),
       };
     }
+  }
+
+  async sendLocationMessage(
+    user: AuthenticatedUser,
+    conversationId: string,
+    dto: SendLocationMessageDto,
+  ) {
+    const viewer = await this.getMessagingViewer(user);
+    const isLive = dto.live === true;
+    const liveDurationMinutes = dto.liveDurationMinutes ?? 15;
+    const liveExpiresAt = isLive
+      ? new Date(Date.now() + liveDurationMinutes * 60 * 1000)
+      : null;
+    const textContent = isLive ? 'Started live location' : 'Shared current location';
+
+    const conversation = await this.prisma.conversation.findFirst({
+      where: {
+        id: conversationId,
+        participants: {
+          some: {
+            accountId: viewer.accountId,
+            leftAt: null,
+          },
+        },
+      },
+      select: {
+        id: true,
+        type: true,
+        groupKind: true,
+        participants: {
+          where: {
+            leftAt: null,
+          },
+          select: {
+            accountId: true,
+            isMuted: true,
+          },
+        },
+      },
+    });
+
+    if (!conversation) {
+      throw new NotFoundException('Conversation was not found.');
+    }
+
+    if (
+      conversation.type === ConversationType.PRIVATE &&
+      conversation.participants.length !== 2
+    ) {
+      throw new ConflictException(
+        'The private conversation does not have exactly two active participants.',
+      );
+    }
+
+    if (conversation.type === ConversationType.PRIVATE) {
+      const recipient = conversation.participants.find(
+        (participant) => participant.accountId !== viewer.accountId,
+      );
+
+      if (recipient) {
+        await this.assertNoPersonalBlock(
+          viewer.accountId,
+          recipient.accountId,
+          'share a location privately',
+        );
+      }
+    }
+
+    const existingMessage = await this.prisma.message.findUnique({
+      where: {
+        senderAccountId_clientMessageId: {
+          senderAccountId: viewer.accountId,
+          clientMessageId: dto.clientMessageId,
+        },
+      },
+      select: messageSelect,
+    });
+
+    if (existingMessage) {
+      if (existingMessage.conversationId !== conversationId) {
+        throw new ConflictException(
+          'This client message ID was already used in another conversation.',
+        );
+      }
+
+      return {
+        message: 'Location message was already accepted.',
+        duplicate: true,
+        data: this.serializeMessage(existingMessage),
+      };
+    }
+
+    const recipientAccountIds = conversation.participants
+      .map((participant) => participant.accountId)
+      .filter((accountId) => accountId !== viewer.accountId);
+
+    const createdMessage = await this.prisma.$transaction(async (transaction) => {
+      const created = await transaction.message.create({
+        data: {
+          conversationId,
+          senderAccountId: viewer.accountId,
+          clientMessageId: dto.clientMessageId,
+          contentType: MessageContentType.LOCATION,
+          textContent,
+          payload: this.buildLocationPayload(
+            dto,
+            isLive ? 'LIVE' : 'CURRENT',
+            liveExpiresAt,
+          ),
+          receipts: {
+            create: recipientAccountIds.map((accountId) => ({
+              accountId,
+            })),
+          },
+        },
+        select: {
+          id: true,
+          sentAt: true,
+        },
+      });
+
+      await transaction.conversation.update({
+        where: {
+          id: conversationId,
+        },
+        data: {
+          lastMessageAt: created.sentAt,
+        },
+      });
+
+      await transaction.conversationParticipant.updateMany({
+        where: {
+          conversationId,
+          accountId: {
+            in: conversation.participants.map(
+              (participant) => participant.accountId,
+            ),
+          },
+        },
+        data: {
+          isArchived: false,
+        },
+      });
+
+      return transaction.message.findUniqueOrThrow({
+        where: {
+          id: created.id,
+        },
+        select: messageSelect,
+      });
+    });
+
+    const serializedMessage = this.serializeMessage(createdMessage);
+    const participantAccountIds = conversation.participants.map(
+      (participant) => participant.accountId,
+    );
+
+    this.messagingEventsService.emitMessageCreated(participantAccountIds, {
+      conversationId,
+      message: serializedMessage,
+      occurredAt: new Date().toISOString(),
+    });
+
+    await this.createAndEmitMessageNotifications({
+      message: createdMessage,
+      participants: conversation.participants,
+    });
+
+    return {
+      message: isLive
+        ? 'Live location started successfully.'
+        : 'Current location sent successfully.',
+      duplicate: false,
+      data: serializedMessage,
+    };
+  }
+
+  async updateLiveLocationMessage(
+    user: AuthenticatedUser,
+    conversationId: string,
+    messageId: string,
+    dto: UpdateLiveLocationDto,
+  ) {
+    const viewer = await this.getMessagingViewer(user);
+
+    const message = await this.prisma.message.findFirst({
+      where: {
+        id: messageId,
+        conversationId,
+        senderAccountId: viewer.accountId,
+        contentType: MessageContentType.LOCATION,
+        deletedAt: null,
+        conversation: {
+          participants: {
+            some: {
+              accountId: viewer.accountId,
+              leftAt: null,
+            },
+          },
+        },
+      },
+      select: messageSelect,
+    });
+
+    if (!message) {
+      throw new NotFoundException('Live location message was not found.');
+    }
+
+    const currentLocation = this.getLocationPayload(message.payload);
+
+    if (!this.isLiveLocationActive(currentLocation)) {
+      throw new BadRequestException('Live location is not active.');
+    }
+
+    const activeLocation = currentLocation as MessageLocationPayload;
+
+    const updatedMessage = await this.prisma.message.update({
+      where: {
+        id: message.id,
+      },
+      data: {
+        payload: this.buildLocationPayload(
+          dto,
+          'LIVE',
+          activeLocation.liveExpiresAt ? new Date(activeLocation.liveExpiresAt) : null,
+          activeLocation.liveStoppedAt ? new Date(activeLocation.liveStoppedAt) : null,
+        ),
+      },
+      select: messageSelect,
+    });
+
+    const participants = await this.prisma.conversationParticipant.findMany({
+      where: {
+        conversationId,
+        leftAt: null,
+      },
+      select: {
+        accountId: true,
+      },
+    });
+
+    const serializedMessage = this.serializeMessage(updatedMessage);
+
+    this.messagingEventsService.emitMessageUpdated(
+      participants.map((participant) => participant.accountId),
+      {
+        conversationId,
+        message: serializedMessage,
+        action: 'LIVE_LOCATION_UPDATED',
+        occurredAt: new Date().toISOString(),
+      },
+    );
+
+    return {
+      message: 'Live location updated successfully.',
+      data: serializedMessage,
+    };
+  }
+
+  async stopLiveLocationMessage(
+    user: AuthenticatedUser,
+    conversationId: string,
+    messageId: string,
+  ) {
+    const viewer = await this.getMessagingViewer(user);
+
+    const message = await this.prisma.message.findFirst({
+      where: {
+        id: messageId,
+        conversationId,
+        senderAccountId: viewer.accountId,
+        contentType: MessageContentType.LOCATION,
+        deletedAt: null,
+        conversation: {
+          participants: {
+            some: {
+              accountId: viewer.accountId,
+              leftAt: null,
+            },
+          },
+        },
+      },
+      select: messageSelect,
+    });
+
+    if (!message) {
+      throw new NotFoundException('Live location message was not found.');
+    }
+
+    const currentLocation = this.getLocationPayload(message.payload);
+
+    if (!currentLocation || currentLocation.kind !== 'LIVE') {
+      throw new BadRequestException('This message is not a live location.');
+    }
+
+    const stoppedAt = currentLocation.liveStoppedAt
+      ? new Date(currentLocation.liveStoppedAt)
+      : new Date();
+
+    const updatedMessage = await this.prisma.message.update({
+      where: {
+        id: message.id,
+      },
+      data: {
+        payload: this.buildLocationPayload(
+          {
+            latitude: currentLocation.latitude,
+            longitude: currentLocation.longitude,
+            accuracyMeters: currentLocation.accuracyMeters ?? undefined,
+            headingDegrees: currentLocation.headingDegrees ?? undefined,
+            speedMetersPerSecond: currentLocation.speedMetersPerSecond ?? undefined,
+          },
+          'LIVE',
+          currentLocation.liveExpiresAt ? new Date(currentLocation.liveExpiresAt) : null,
+          stoppedAt,
+        ),
+      },
+      select: messageSelect,
+    });
+
+    const participants = await this.prisma.conversationParticipant.findMany({
+      where: {
+        conversationId,
+        leftAt: null,
+      },
+      select: {
+        accountId: true,
+      },
+    });
+
+    const serializedMessage = this.serializeMessage(updatedMessage);
+
+    this.messagingEventsService.emitMessageUpdated(
+      participants.map((participant) => participant.accountId),
+      {
+        conversationId,
+        message: serializedMessage,
+        action: 'LIVE_LOCATION_STOPPED',
+        occurredAt: new Date().toISOString(),
+      },
+    );
+
+    return {
+      message: 'Live location stopped successfully.',
+      data: serializedMessage,
+    };
   }
 
   async sendAttachmentMessage(

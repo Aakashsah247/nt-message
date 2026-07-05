@@ -34,10 +34,12 @@ import { ListOfficialGroupAuditQueryDto } from './dto/list-official-group-audit-
 import { SearchMessagingContactsQueryDto } from './dto/search-messaging-contacts-query.dto';
 import { SearchMessagesQueryDto } from './dto/search-messages-query.dto';
 import { SendTextMessageDto } from './dto/send-text-message.dto';
+import { SendLocationMessageDto } from './dto/send-location-message.dto';
 import { SendAttachmentMessageDto } from './dto/send-attachment-message.dto';
 import { UpdateGroupConversationDto } from './dto/update-group-conversation.dto';
 import { UpdateGroupMemberRoleDto } from './dto/update-group-member-role.dto';
 import { UpdateTextMessageDto } from './dto/update-text-message.dto';
+import { UpdateLiveLocationDto } from './dto/update-live-location.dto';
 import { UpdateMessagingProfileDto } from './dto/update-messaging-profile.dto';
 import { UpdateMessagingSettingsDto } from './dto/update-messaging-settings.dto';
 import { ReactMessageDto } from './dto/react-message.dto';
@@ -701,6 +703,89 @@ export class ConversationsController {
     dto: SendTextMessageDto,
   ) {
     return this.conversationsService.sendTextMessage(user, conversationId, dto);
+  }
+
+  @Post(':id/location')
+  sendLocationMessage(
+    @CurrentUser()
+    user: AuthenticatedUser,
+
+    @Param(
+      'id',
+      new ParseUUIDPipe({
+        version: '4',
+      }),
+    )
+    conversationId: string,
+
+    @Body()
+    dto: SendLocationMessageDto,
+  ) {
+    return this.conversationsService.sendLocationMessage(
+      user,
+      conversationId,
+      dto,
+    );
+  }
+
+  @Patch(':conversationId/messages/:messageId/live-location')
+  updateLiveLocationMessage(
+    @CurrentUser()
+    user: AuthenticatedUser,
+
+    @Param(
+      'conversationId',
+      new ParseUUIDPipe({
+        version: '4',
+      }),
+    )
+    conversationId: string,
+
+    @Param(
+      'messageId',
+      new ParseUUIDPipe({
+        version: '4',
+      }),
+    )
+    messageId: string,
+
+    @Body()
+    dto: UpdateLiveLocationDto,
+  ) {
+    return this.conversationsService.updateLiveLocationMessage(
+      user,
+      conversationId,
+      messageId,
+      dto,
+    );
+  }
+
+  @Post(':conversationId/messages/:messageId/live-location/stop')
+  stopLiveLocationMessage(
+    @CurrentUser()
+    user: AuthenticatedUser,
+
+    @Param(
+      'conversationId',
+      new ParseUUIDPipe({
+        version: '4',
+      }),
+    )
+    conversationId: string,
+
+    @Param(
+      'messageId',
+      new ParseUUIDPipe({
+        version: '4',
+      }),
+    )
+    messageId: string,
+  ) {
+    return this.conversationsService.stopLiveLocationMessage(
+      user,
+      conversationId,
+      messageId,
+    );
   }
 
   @Post(':id/attachments')
