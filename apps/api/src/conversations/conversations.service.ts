@@ -102,6 +102,12 @@ interface MessageNotificationInput {
   message: MessageRecord;
   participants: NotificationParticipant[];
   notificationType?: MessagingNotificationType;
+  mentionedAccountIds?: string[];
+}
+
+interface MessageMentionPayloadItem {
+  accountId: string;
+  displayName: string;
 }
 
 export interface AnalyticsScopeSummary {
@@ -1394,6 +1400,103 @@ export class ConversationsService {
     }
 
     return { ...(payload as Record<string, unknown>) };
+  }
+
+  private escapeRegExp(value: string): string {
+    return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  }
+
+  private getPayloadMentions(payload: unknown): MessageMentionPayloadItem[] {
+    const mentions = this.getPlainMessagePayload(payload)['mentions'];
+
+    if (!Array.isArray(mentions)) {
+      return [];
+    }
+
+    return mentions
+      .map((mention) => {
+        if (!mention || typeof mention !== 'object' || Array.isArray(mention)) {
+          return null;
+        }
+
+        const value = mention as Record<string, unknown>;
+        const accountId = value.accountId;
+        const displayName = value.displayName;
+
+        if (typeof accountId !== 'string' || typeof displayName !== 'string') {
+          return null;
+        }
+
+        return {
+          accountId,
+          displayName,
+        };
+      })
+      .filter((mention): mention is MessageMentionPayloadItem => Boolean(mention));
+  }
+
+  private resolveTextMentions(
+    textContent: string,
+    requestedAccountIds: string[] | undefined,
+    participants: Array<{
+      accountId: string;
+      account: Prisma.AccountGetPayload<{ select: typeof messagingAccountSelect }>;
+    }>,
+    senderAccountId: string,
+  ): MessageMentionPayloadItem[] {
+    const uniqueRequestedIds = new Set(requestedAccountIds ?? []);
+    const resolved = new Map<string, MessageMentionPayloadItem>();
+
+    for (const participant of participants) {
+      if (participant.accountId === senderAccountId) {
+        continue;
+      }
+
+      const account = this.serializeAccount(participant.account);
+      const aliases = [
+        account.displayName,
+        account.username ?? '',
+        account.employee?.empName ?? '',
+      ]
+        .map((value) => value.trim())
+        .filter(Boolean);
+
+      const wasRequested = uniqueRequestedIds.has(participant.accountId);
+      const appearsInText = aliases.some((alias) => {
+        const pattern = new RegExp(`(^|\\s)@${this.escapeRegExp(alias)}(?=\\s|$|[.,!?;:])`, 'i');
+
+        return pattern.test(textContent);
+      });
+
+      if (wasRequested || appearsInText) {
+        resolved.set(participant.accountId, {
+          accountId: participant.accountId,
+          displayName: account.displayName,
+        });
+      }
+    }
+
+    return [...resolved.values()];
+  }
+
+  private buildTextMessagePayload(
+    mentions: MessageMentionPayloadItem[],
+  ): Prisma.InputJsonValue | undefined {
+    if (mentions.length === 0) {
+      return undefined;
+    }
+
+    const mentionPayload: Prisma.InputJsonArray = mentions.map(
+      (mention) =>
+        ({
+          accountId: mention.accountId,
+          displayName: mention.displayName,
+        }) as Prisma.InputJsonObject,
+    );
+
+    return {
+      mentions: mentionPayload,
+    } as Prisma.InputJsonObject;
   }
 
   private getForwardedMessageMetadata(
@@ -6079,6 +6182,10 @@ export class ConversationsService {
     const notificationType =
       input.notificationType ?? this.getNotificationTypeForMessage(input.message);
     const actor = this.serializeAccount(input.message.sender);
+    const mentionedAccountIds = new Set(
+      input.mentionedAccountIds ??
+        this.getPayloadMentions(input.message.payload).map((mention) => mention.accountId),
+    );
     const recipients = input.participants.filter(
       (participant) =>
         participant.accountId !== input.message.senderAccountId &&
@@ -6092,6 +6199,10 @@ export class ConversationsService {
     const unreadCounts = new Map<string, number>();
 
     for (const recipient of recipients) {
+      const recipientNotificationType = mentionedAccountIds.has(recipient.accountId)
+        ? MessagingNotificationType.MENTION
+        : notificationType;
+
       // Muted conversations keep unread receipts but suppress active notification rows.
       const notification = await this.prisma.messagingNotification.create({
         data: {
@@ -6099,15 +6210,18 @@ export class ConversationsService {
           actorAccountId: input.message.senderAccountId,
           conversationId: input.message.conversationId,
           messageId: input.message.id,
-          type: notificationType,
+          type: recipientNotificationType,
           title:
-            notificationType === MessagingNotificationType.REPLY
-              ? `${actor.displayName} replied`
-              : `${actor.displayName} sent a message`,
+            recipientNotificationType === MessagingNotificationType.MENTION
+              ? `${actor.displayName} mentioned you`
+              : recipientNotificationType === MessagingNotificationType.REPLY
+                ? `${actor.displayName} replied`
+                : `${actor.displayName} sent a message`,
           body: this.buildNotificationBody(input.message),
           metadata: {
             contentType: input.message.contentType,
             replyToMessageId: input.message.replyToMessageId,
+            mentionedAccountIds: [...mentionedAccountIds],
           },
         },
         select: messagingNotificationSelect,
@@ -6237,6 +6351,9 @@ export class ConversationsService {
           select: {
             accountId: true,
             isMuted: true,
+            account: {
+              select: messagingAccountSelect,
+            },
           },
         },
       },
@@ -6319,6 +6436,15 @@ export class ConversationsService {
       }
     }
 
+    const mentions = conversation.type === ConversationType.GROUP
+      ? this.resolveTextMentions(
+          textContent,
+          dto.mentionedAccountIds,
+          conversation.participants,
+          viewer.accountId,
+        )
+      : [];
+
     const recipientAccountIds = conversation.participants
       .map((participant) => participant.accountId)
       .filter((accountId) => accountId !== viewer.accountId);
@@ -6334,6 +6460,7 @@ export class ConversationsService {
               contentType: MessageContentType.TEXT,
               textContent,
               replyToMessageId: dto.replyToMessageId ?? null,
+              payload: this.buildTextMessagePayload(mentions),
 
               receipts: {
                 create: recipientAccountIds.map((accountId) => ({
@@ -6397,6 +6524,7 @@ export class ConversationsService {
       await this.createAndEmitMessageNotifications({
         message: createdMessage,
         participants: conversation.participants,
+        mentionedAccountIds: mentions.map((mention) => mention.accountId),
       });
 
       return {

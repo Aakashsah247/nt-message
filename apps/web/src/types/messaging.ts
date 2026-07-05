@@ -211,6 +211,12 @@ export interface MessagingAttachment {
   updatedAt: string;
 }
 
+
+export interface MessagingMention {
+  accountId: string;
+  displayName: string;
+}
+
 export interface MessagingMessage {
   id: string;
   conversationId: string;

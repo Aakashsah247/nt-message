@@ -13382,3 +13382,70 @@
   background: rgba(127, 29, 29, 0.28);
 }
 /* M6B HIERARCHY-SAFE BLOCKING END */
+
+/* M7 GROUP MENTIONS START */
+.message-mention-suggestions {
+  display: grid;
+  gap: 0.35rem;
+  width: min(24rem, 100%);
+  margin: 0 0 0.15rem;
+  padding: 0.45rem;
+  border: 1px solid rgba(148, 163, 184, 0.35);
+  border-radius: 1rem;
+  background: rgba(255, 255, 255, 0.98);
+  box-shadow: 0 18px 45px rgba(15, 23, 42, 0.16);
+}
+
+.message-app-shell.theme-dark .message-mention-suggestions {
+  background: rgba(15, 23, 42, 0.98);
+  border-color: rgba(148, 163, 184, 0.24);
+}
+
+.message-mention-suggestions button {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  gap: 0.65rem;
+  width: 100%;
+  padding: 0.55rem 0.65rem;
+  border: 0;
+  border-radius: 0.75rem;
+  background: transparent;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.message-mention-suggestions button:hover,
+.message-mention-suggestions button:focus-visible {
+  background: rgba(7, 92, 168, 0.1);
+  outline: none;
+}
+
+.message-mention-suggestions strong,
+.message-mention-suggestions small {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.message-mention-suggestions small {
+  color: #64748b;
+  font-size: 0.72rem;
+}
+
+.message-mention-highlight {
+  display: inline;
+  padding: 0.05rem 0.22rem;
+  border-radius: 0.4rem;
+  background: rgba(7, 92, 168, 0.13);
+  color: #075ca8;
+  font-weight: 700;
+}
+
+.message-bubble-row.own .message-mention-highlight {
+  background: rgba(255, 255, 255, 0.22);
+  color: inherit;
+}
+/* M7 GROUP MENTIONS END */

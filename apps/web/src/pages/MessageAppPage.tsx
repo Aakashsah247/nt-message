@@ -10,6 +10,7 @@ import type {
   FormEvent,
   KeyboardEvent,
   MouseEvent,
+  ReactNode,
 } from "react";
 import { useNavigate } from "react-router";
 
@@ -91,6 +92,7 @@ import type {
   MessagingAttachment,
   MessagingConversation,
   MessagingMessage,
+  MessagingMention,
   MessagingMessageRequest,
   MessagingNotification,
   MessagingSearchMessageResult,
@@ -634,6 +636,140 @@ function getMessagePayloadValue(
   return (message.payload as Record<string, unknown>)[key];
 }
 
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function mentionSearchText(account: MessagingAccount): string {
+  return [
+    account.displayName,
+    account.username ?? "",
+    account.employee?.empName ?? "",
+    account.employee?.empId ?? "",
+  ].join(" ").toLowerCase();
+}
+
+function getComposerMentionQuery(
+  text: string,
+  caretIndex: number,
+): { query: string; startIndex: number; endIndex: number } | null {
+  const beforeCaret = text.slice(0, caretIndex);
+  const match = /(^|\s)@([^@\n]*)$/.exec(beforeCaret);
+
+  if (!match) {
+    return null;
+  }
+
+  const query = match[2] ?? "";
+
+  if (query.length > 80 || /[.,!?;:]$/.test(query)) {
+    return null;
+  }
+
+  return {
+    query: query.trimStart().toLowerCase(),
+    startIndex: beforeCaret.length - query.length - 1,
+    endIndex: caretIndex,
+  };
+}
+
+function getMentionedAccountIds(
+  text: string,
+  conversation: MessagingConversation | null,
+  viewerAccountId?: string | null,
+): string[] {
+  if (!conversation || conversation.type !== "GROUP") {
+    return [];
+  }
+
+  return conversation.participants
+    .filter((participant) => participant.accountId !== viewerAccountId)
+    .filter((participant) => {
+      const pattern = new RegExp(`(^|\\s)@${escapeRegExp(participant.displayName)}(?=\\s|$|[.,!?;:])`, "i");
+
+      return pattern.test(text);
+    })
+    .map((participant) => participant.accountId);
+}
+
+function getMessageMentions(message: MessagingMessage): MessagingMention[] {
+  const mentions = getMessagePayloadValue(message, "mentions");
+
+  if (!Array.isArray(mentions)) {
+    return [];
+  }
+
+  return mentions
+    .map((mention) => {
+      if (!mention || typeof mention !== "object" || Array.isArray(mention)) {
+        return null;
+      }
+
+      const value = mention as Record<string, unknown>;
+      const accountId = value.accountId;
+      const displayName = value.displayName;
+
+      if (typeof accountId !== "string" || typeof displayName !== "string") {
+        return null;
+      }
+
+      return {
+        accountId,
+        displayName,
+      };
+    })
+    .filter((mention): mention is MessagingMention => Boolean(mention));
+}
+
+function renderMessageTextWithMentions(message: MessagingMessage): ReactNode[] {
+  const text = message.textContent ?? "";
+  const mentions = getMessageMentions(message);
+
+  if (!text || mentions.length === 0) {
+    return [text];
+  }
+
+  const mentionPattern = new RegExp(
+    `@(${mentions
+      .map((mention) => escapeRegExp(mention.displayName))
+      .sort((first, second) => second.length - first.length)
+      .join("|")})(?=\\s|$|[.,!?;:])`,
+    "gi",
+  );
+  const nodes: ReactNode[] = [];
+  let lastIndex = 0;
+  let match: RegExpExecArray | null;
+
+  while ((match = mentionPattern.exec(text)) !== null) {
+    if (match.index > lastIndex) {
+      nodes.push(text.slice(lastIndex, match.index));
+    }
+
+    const matchedText = match[0];
+    const displayName = matchedText.slice(1);
+    const mention = mentions.find(
+      (item) => item.displayName.toLowerCase() === displayName.toLowerCase(),
+    );
+
+    nodes.push(
+      <span
+        key={`${mention?.accountId ?? displayName}-${match.index}`}
+        className="message-mention-highlight"
+      >
+        {matchedText}
+      </span>,
+    );
+
+    lastIndex = match.index + matchedText.length;
+  }
+
+  if (lastIndex < text.length) {
+    nodes.push(text.slice(lastIndex));
+  }
+
+  return nodes;
+}
+
 
 function preferredVoiceNoteMimeType(): string {
   if (typeof MediaRecorder === "undefined") {
@@ -1052,6 +1188,7 @@ export function MessageAppPage() {
   const [messages, setMessages] = useState<MessagingMessage[]>([]);
   const [conversationSearch, setConversationSearch] = useState("");
   const [messageText, setMessageText] = useState("");
+  const [composerCaretIndex, setComposerCaretIndex] = useState(0);
   const [replyingTo, setReplyingTo] = useState<MessagingMessage | null>(null);
   const [editingMessage, setEditingMessage] = useState<MessagingMessage | null>(null);
   const [messageActionId, setMessageActionId] = useState<string | null>(null);
@@ -1269,6 +1406,33 @@ export function MessageAppPage() {
     ) ?? null,
     [conversations, selectedConversationId],
   );
+
+  const activeMentionQuery = useMemo(
+    () => getComposerMentionQuery(messageText, composerCaretIndex),
+    [composerCaretIndex, messageText],
+  );
+
+  const mentionSuggestions = useMemo(() => {
+    if (
+      !activeMentionQuery ||
+      !selectedConversation ||
+      selectedConversation.type !== "GROUP" ||
+      editingMessage
+    ) {
+      return [];
+    }
+
+    const query = activeMentionQuery.query;
+
+    return selectedConversation.participants
+      .filter((participant) => participant.accountId !== account?.id)
+      .filter((participant) =>
+        query
+          ? mentionSearchText(participant).includes(query)
+          : true,
+      )
+      .slice(0, 6);
+  }, [account?.id, activeMentionQuery, editingMessage, selectedConversation]);
 
   useEffect(() => {
     return () => {
@@ -4288,6 +4452,35 @@ export function MessageAppPage() {
     }
   }
 
+  function handleMentionSelect(participant: MessagingAccount): void {
+    const query = getComposerMentionQuery(
+      messageText,
+      composerRef.current?.selectionStart ?? composerCaretIndex,
+    );
+
+    if (!query) {
+      return;
+    }
+
+    const beforeMention = messageText.slice(0, query.startIndex);
+    const afterMention = messageText.slice(query.endIndex);
+    const insertedText = `@${participant.displayName} `;
+    const nextText = `${beforeMention}${insertedText}${afterMention}`;
+    const nextCaretIndex = beforeMention.length + insertedText.length;
+
+    setMessageText(nextText);
+    setComposerCaretIndex(nextCaretIndex);
+
+    window.requestAnimationFrame(() => {
+      composerRef.current?.focus();
+      composerRef.current?.setSelectionRange(nextCaretIndex, nextCaretIndex);
+    });
+
+    if (selectedConversationId) {
+      updateLocalTyping(selectedConversationId, nextText);
+    }
+  }
+
   async function handleSendMessage(
     event?: FormEvent<HTMLFormElement>,
   ): Promise<void> {
@@ -4347,6 +4540,7 @@ export function MessageAppPage() {
             selectedConversationId,
             text,
             replyingTo?.id,
+            getMentionedAccountIds(text, selectedConversation, account?.id),
           );
 
       setMessageText("");
@@ -5435,7 +5629,7 @@ export function MessageAppPage() {
                             ) : (
                               <>
                                 {message.textContent && (
-                                  <p>{message.textContent}</p>
+                                  <p>{renderMessageTextWithMentions(message)}</p>
                                 )}
 
                                 {(message.attachments?.length ?? 0) > 0 && (
@@ -5755,16 +5949,42 @@ export function MessageAppPage() {
                   aria-label="Choose attachment"
                 />
 
+                {mentionSuggestions.length > 0 && activeMentionQuery && (
+                  <div className="message-mention-suggestions" role="listbox" aria-label="Mention group member">
+                    {mentionSuggestions.map((participant) => (
+                      <button
+                        key={participant.accountId}
+                        type="button"
+                        role="option"
+                        onMouseDown={(event) => event.preventDefault()}
+                        onClick={() => handleMentionSelect(participant)}
+                      >
+                        <span className="message-avatar small">
+                          {initials(participant.displayName)}
+                        </span>
+                        <span>
+                          <strong>{participant.displayName}</strong>
+                          <small>{participant.employee?.designation ?? participant.username ?? "Group member"}</small>
+                        </span>
+                      </button>
+                    ))}
+                  </div>
+                )}
+
                 <textarea
                   ref={composerRef}
                   value={messageText}
                   onChange={(event) => {
                     const value = event.target.value;
                     setMessageText(value);
+                    setComposerCaretIndex(event.target.selectionStart ?? value.length);
 
                     if (selectedConversationId) {
                       updateLocalTyping(selectedConversationId, value);
                     }
+                  }}
+                  onSelect={(event) => {
+                    setComposerCaretIndex(event.currentTarget.selectionStart ?? messageText.length);
                   }}
                   onBlur={() => stopLocalTyping(selectedConversationId)}
                   onKeyDown={handleComposerKeyDown}

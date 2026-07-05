@@ -1,4 +1,6 @@
 import {
+  ArrayUnique,
+  IsArray,
   IsOptional,
   IsString,
   IsUUID,
@@ -22,4 +24,13 @@ export class SendTextMessageDto {
     message: 'Reply message ID must be a valid UUID.',
   })
   replyToMessageId?: string;
+
+  @IsOptional()
+  @IsArray()
+  @ArrayUnique()
+  @IsUUID('4', {
+    each: true,
+    message: 'Mentioned account IDs must be valid UUIDs.',
+  })
+  mentionedAccountIds?: string[];
 }

@@ -747,6 +747,7 @@ export function sendConversationTextMessage(
   conversationId: string,
   text: string,
   replyToMessageId?: string,
+  mentionedAccountIds: string[] = [],
 ): Promise<SendTextMessageResponse> {
   return apiRequest<SendTextMessageResponse>(
     `/conversations/${conversationId}/messages`,
@@ -759,6 +760,11 @@ export function sendConversationTextMessage(
         ...(replyToMessageId
           ? {
               replyToMessageId,
+            }
+          : {}),
+        ...(mentionedAccountIds.length > 0
+          ? {
+              mentionedAccountIds,
             }
           : {}),
       }),
