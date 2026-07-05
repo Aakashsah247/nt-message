@@ -14,6 +14,9 @@ import {
   listDirectoryOrganizationDivisions,
   updateDirectoryEmployeeStatus,
 } from "../services/directory.service";
+import {
+  createDirectoryProfilePhotoObjectUrl,
+} from "../services/messaging.service";
 
 import type {
   AccountRole,
@@ -218,6 +221,11 @@ export function EmployeeDirectoryDetailPanel({
   ] = useState("");
 
   const [
+    profilePhotoUrl,
+    setProfilePhotoUrl,
+  ] = useState<string | null>(null);
+
+  const [
     pendingEmploymentStatus,
     setPendingEmploymentStatus,
   ] =
@@ -379,6 +387,46 @@ export function EmployeeDirectoryDetailPanel({
     accessToken,
     employeeId,
     retryKey,
+  ]);
+
+  useEffect(() => {
+    const employee = response?.employee;
+
+    if (!employee?.id) {
+      setProfilePhotoUrl(null);
+      return;
+    }
+
+    let active = true;
+    let objectUrl: string | null = null;
+
+    // Detail drawer avatars use the same protected photo route as the directory list.
+    void createDirectoryProfilePhotoObjectUrl(accessToken, employee.id)
+      .then((url) => {
+        if (!active) {
+          URL.revokeObjectURL(url);
+          return;
+        }
+
+        objectUrl = url;
+        setProfilePhotoUrl(url);
+      })
+      .catch(() => {
+        if (active) {
+          setProfilePhotoUrl(null);
+        }
+      });
+
+    return () => {
+      active = false;
+
+      if (objectUrl) {
+        URL.revokeObjectURL(objectUrl);
+      }
+    };
+  }, [
+    accessToken,
+    response?.employee.id,
   ]);
 
   useEffect(() => {
@@ -1076,8 +1124,15 @@ export function EmployeeDirectoryDetailPanel({
           <div className="directory-detail-content">
             <section className="directory-detail-profile">
               <div className="directory-detail-avatar">
-                {getInitials(
-                  employee.empName,
+                {profilePhotoUrl ? (
+                  <img
+                    src={profilePhotoUrl}
+                    alt={`${employee.empName} profile`}
+                  />
+                ) : (
+                  getInitials(
+                    employee.empName,
+                  )
                 )}
               </div>
 

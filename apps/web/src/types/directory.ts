@@ -103,6 +103,8 @@ export interface DirectoryEmployee {
 
   designation: string | null;
 
+  profilePhotoKey: string | null;
+
   status:
     DirectoryEmployeeStatus;
 

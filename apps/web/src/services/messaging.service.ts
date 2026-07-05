@@ -16,6 +16,7 @@ import type {
   MessageRequestActionResponse,
   MessageRequestListResponse,
   MessagingNotificationListResponse,
+  MessagingUserProfileResponse,
   MessagingAnalyticsResponse,
   MessagingSearchFilters,
   MessageListResponse,
@@ -46,6 +47,136 @@ const MESSAGING_API_BASE_URL =
 
 function messagingApiUrl(path: string): string {
   return `${MESSAGING_API_BASE_URL}${path}`;
+}
+
+
+export function getMyMessagingProfile(
+  accessToken: string,
+): Promise<MessagingUserProfileResponse> {
+  return apiRequest<MessagingUserProfileResponse>(
+    "/conversations/profiles/me",
+    {
+      headers: authorizationHeaders(accessToken),
+    },
+  );
+}
+
+export function getMessagingProfile(
+  accessToken: string,
+  accountId: string,
+): Promise<MessagingUserProfileResponse> {
+  return apiRequest<MessagingUserProfileResponse>(
+    `/conversations/profiles/${accountId}`,
+    {
+      headers: authorizationHeaders(accessToken),
+    },
+  );
+}
+
+export function updateMyMessagingProfile(
+  accessToken: string,
+  bio: string,
+): Promise<MessagingUserProfileResponse> {
+  return apiRequest<MessagingUserProfileResponse>(
+    "/conversations/profiles/me",
+    {
+      method: "PATCH",
+      headers: authorizationHeaders(accessToken),
+      body: JSON.stringify({
+        bio,
+      }),
+    },
+  );
+}
+
+export async function updateMyMessagingProfilePhoto(
+  accessToken: string,
+  file: File,
+): Promise<MessagingUserProfileResponse> {
+  const formData = new FormData();
+  formData.set("file", file);
+
+  const response = await fetch(
+    messagingApiUrl("/conversations/profiles/me/photo"),
+    {
+      method: "POST",
+      headers: authorizationHeaders(accessToken),
+      body: formData,
+    },
+  );
+
+  const body = await response.json().catch(() => null) as
+    | MessagingUserProfileResponse
+    | { message?: unknown }
+    | null;
+
+  if (!response.ok) {
+    throw new Error(
+      body && typeof (body as { message?: unknown } | null)?.message === "string"
+        ? String((body as { message?: unknown }).message)
+        : "Profile photo could not be uploaded.",
+    );
+  }
+
+  if (!body || !("data" in body)) {
+    throw new Error("Profile photo upload returned an invalid response.");
+  }
+
+  return body as MessagingUserProfileResponse;
+}
+
+export function deleteMyMessagingProfilePhoto(
+  accessToken: string,
+): Promise<MessagingUserProfileResponse> {
+  return apiRequest<MessagingUserProfileResponse>(
+    "/conversations/profiles/me/photo",
+    {
+      method: "DELETE",
+      headers: authorizationHeaders(accessToken),
+    },
+  );
+}
+
+export async function createMessagingProfilePhotoObjectUrl(
+  accessToken: string,
+  accountId: string,
+): Promise<string> {
+  const response = await fetch(
+    messagingApiUrl(`/conversations/profiles/${accountId}/photo`),
+    {
+      cache: "no-store",
+      credentials: "include",
+      headers: authorizationHeaders(accessToken),
+    },
+  );
+
+  if (!response.ok) {
+    throw new Error("Profile photo could not be loaded.");
+  }
+
+  const blob = await response.blob();
+  return URL.createObjectURL(blob);
+}
+
+export async function createDirectoryProfilePhotoObjectUrl(
+  accessToken: string,
+  employeeId: string,
+): Promise<string> {
+  const response = await fetch(
+    messagingApiUrl(`/conversations/profiles/employees/${employeeId}/photo`),
+    {
+      cache: "no-store",
+      credentials: "include",
+      headers: authorizationHeaders(accessToken),
+    },
+  );
+
+  if (!response.ok) {
+    throw new Error("Directory profile photo could not be loaded.");
+  }
+
+  const blob = await response.blob();
+  return URL.createObjectURL(blob);
 }
 
 export function searchMessagingContacts(
@@ -536,8 +667,8 @@ export async function sendConversationAttachmentMessage(
 
   if (!response.ok) {
     throw new Error(
-      body && typeof body.message === "string"
-        ? body.message
+      body && typeof (body as { message?: unknown } | null)?.message === "string"
+        ? String((body as { message?: unknown }).message)
         : "Attachment could not be uploaded.",
     );
   }

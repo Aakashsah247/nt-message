@@ -22,8 +22,12 @@ import {
   createGroupConversation,
   createOfficialGroupConversation,
   createPrivateConversation,
+  createMessagingProfilePhotoObjectUrl,
+  deleteMyMessagingProfilePhoto,
   declineMessageRequest,
   deleteMessagingNotification,
+  getMessagingProfile,
+  getMyMessagingProfile,
   deleteReadMessagingNotifications,
   deleteConversationMessage,
   createConversationAttachmentObjectUrl,
@@ -45,6 +49,8 @@ import {
   removeGroupMember,
   reactToMessage,
   searchMessagingContacts,
+  updateMyMessagingProfile,
+  updateMyMessagingProfilePhoto,
   sendConversationAttachmentMessage,
   searchConversationMessages,
   searchMessaging,
@@ -71,6 +77,7 @@ import type {
 import type {
   GroupKind,
   MessageRequestListResponse,
+  MessagingAccount,
   MessagingContact,
   MessagingAttachment,
   MessagingConversation,
@@ -78,6 +85,7 @@ import type {
   MessagingMessageRequest,
   MessagingNotification,
   MessagingSearchMessageResult,
+  MessagingUserProfile,
   MessageContentType,
   OfficialGroupAuditEntry,
   OfficialGroupScopeOption,
@@ -967,6 +975,17 @@ export function MessageAppPage() {
   const [searchLoading, setSearchLoading] = useState(false);
   const [searchError, setSearchError] = useState<string | null>(null);
   const [highlightedMessageId, setHighlightedMessageId] = useState<string | null>(null);
+  const [profileAccountId, setProfileAccountId] = useState<string | null>(null);
+  const [profileData, setProfileData] = useState<MessagingUserProfile | null>(null);
+  const [profileBioDraft, setProfileBioDraft] = useState("");
+  const [profilePhotoUrl, setProfilePhotoUrl] = useState<string | null>(null);
+  const [profilePhotoUrls, setProfilePhotoUrls] = useState<Record<string, string>>({});
+  const profilePhotoUrlsRef = useRef<Record<string, string>>({});
+  const [profilePhotoRefreshKey, setProfilePhotoRefreshKey] = useState(0);
+  const [profileLoading, setProfileLoading] = useState(false);
+  const [profileSaving, setProfileSaving] = useState(false);
+  const [profilePhotoUploading, setProfilePhotoUploading] = useState(false);
+  const [profileError, setProfileError] = useState<string | null>(null);
 
   const messageListRef = useRef<HTMLDivElement | null>(null);
   const pendingSearchResultRef = useRef<MessagingSearchMessageResult | null>(null);
@@ -1026,6 +1045,175 @@ export function MessageAppPage() {
       }
     };
   }, [attachmentViewer]);
+
+  useEffect(() => {
+    if (!accessToken || !profileAccountId) {
+      setProfileData(null);
+      setProfileBioDraft("");
+      return;
+    }
+
+    let cancelled = false;
+    setProfileLoading(true);
+    setProfileError(null);
+
+    const request = profileAccountId === account?.id
+      ? getMyMessagingProfile(accessToken)
+      : getMessagingProfile(accessToken, profileAccountId);
+
+    void request
+      .then((response) => {
+        if (cancelled) {
+          return;
+        }
+
+        setProfileData(response.data);
+        setProfileBioDraft(response.data.profileBio ?? "");
+      })
+      .catch((error) => {
+        if (cancelled) {
+          return;
+        }
+
+        setProfileError(
+          error instanceof Error
+            ? error.message
+            : "Profile could not be loaded.",
+        );
+      })
+      .finally(() => {
+        if (!cancelled) {
+          setProfileLoading(false);
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [accessToken, account?.id, profileAccountId]);
+
+  useEffect(() => {
+    if (!accessToken || !profileData?.profilePhotoKey) {
+      setProfilePhotoUrl(null);
+      return;
+    }
+
+    let cancelled = false;
+    let objectUrl: string | null = null;
+
+    // Profile photos stay protected behind the API instead of using public image URLs.
+    void createMessagingProfilePhotoObjectUrl(accessToken, profileData.accountId)
+      .then((url) => {
+        objectUrl = url;
+
+        if (!cancelled) {
+          setProfilePhotoUrl(url);
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setProfilePhotoUrl(null);
+        }
+      });
+
+    return () => {
+      cancelled = true;
+
+      if (objectUrl) {
+        URL.revokeObjectURL(objectUrl);
+      }
+    };
+  }, [accessToken, profileData?.accountId, profileData?.profilePhotoKey, profilePhotoRefreshKey]);
+
+  useEffect(() => {
+    if (!accessToken) {
+      return;
+    }
+
+    const accountsToLoad = new Map<string, MessagingAccount>();
+    const collectAccount = (candidate?: MessagingAccount | null) => {
+      if (candidate?.profilePhotoKey) {
+        accountsToLoad.set(candidate.accountId, candidate);
+      }
+    };
+
+    // Collect every visible account so avatars update across conversations, messages and search results.
+    conversations.forEach((conversation) => {
+      conversation.participants.forEach(collectAccount);
+    });
+    messages.forEach((message) => {
+      collectAccount(message.sender);
+      collectAccount(message.replyTo?.sender ?? null);
+      message.reactions.forEach((reaction) => collectAccount(reaction.account ?? null));
+    });
+    contacts.forEach(collectAccount);
+    searchContactResults.forEach(collectAccount);
+    searchResults.forEach((result) => collectAccount(result.message.sender));
+    if (profileData) {
+      collectAccount(profileData);
+    }
+
+    const missingAccounts = [...accountsToLoad.values()].filter(
+      (candidate) => !profilePhotoUrls[candidate.accountId],
+    );
+
+    if (missingAccounts.length === 0) {
+      return;
+    }
+
+    let cancelled = false;
+    const loadedUrls: string[] = [];
+
+    void Promise.all(
+      missingAccounts.map(async (candidate) => {
+        try {
+          const url = await createMessagingProfilePhotoObjectUrl(accessToken, candidate.accountId);
+          loadedUrls.push(url);
+          return [candidate.accountId, url] as const;
+        } catch {
+          return null;
+        }
+      }),
+    ).then((entries) => {
+      if (cancelled) {
+        loadedUrls.forEach((url) => URL.revokeObjectURL(url));
+        return;
+      }
+
+      const nextEntries = entries.filter((entry): entry is readonly [string, string] => Boolean(entry));
+
+      if (nextEntries.length === 0) {
+        return;
+      }
+
+      setProfilePhotoUrls((current) => ({
+        ...current,
+        ...Object.fromEntries(nextEntries),
+      }));
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    accessToken,
+    contacts,
+    conversations,
+    messages,
+    profileData,
+    profilePhotoRefreshKey,
+    profilePhotoUrls,
+    searchContactResults,
+    searchResults,
+  ]);
+
+  useEffect(() => {
+    profilePhotoUrlsRef.current = profilePhotoUrls;
+  }, [profilePhotoUrls]);
+
+  useEffect(() => () => {
+    Object.values(profilePhotoUrlsRef.current).forEach((url) => URL.revokeObjectURL(url));
+  }, []);
 
   const canCreateOfficialGroup =
     account?.role === "SUPER_ADMIN" ||
@@ -2385,6 +2573,182 @@ export function MessageAppPage() {
     setNewConversationOpen(true);
   }
 
+  function openProfile(accountId?: string | null): void {
+    if (!accountId) {
+      return;
+    }
+
+    setProfileAccountId(accountId);
+    setProfileError(null);
+  }
+
+  function closeProfile(): void {
+    setProfileAccountId(null);
+    setProfileData(null);
+    setProfileBioDraft("");
+    setProfileError(null);
+  }
+
+  async function handleSaveProfileBio(): Promise<void> {
+    if (!accessToken || !profileData?.isOwnProfile) {
+      return;
+    }
+
+    setProfileSaving(true);
+    setProfileError(null);
+
+    try {
+      // Users can update display bio only; official identity fields remain read-only.
+      const response = await updateMyMessagingProfile(accessToken, profileBioDraft);
+      setProfileData(response.data);
+      setProfileBioDraft(response.data.profileBio ?? "");
+      await loadConversations(true, selectedConversationId ?? undefined);
+    } catch (error) {
+      setProfileError(
+        error instanceof Error
+          ? error.message
+          : "Profile could not be updated.",
+      );
+    } finally {
+      setProfileSaving(false);
+    }
+  }
+
+  async function handleProfilePhotoChange(event: ChangeEvent<HTMLInputElement>): Promise<void> {
+    const file = event.target.files?.[0] ?? null;
+    event.target.value = "";
+
+    if (!accessToken || !file || !profileData?.isOwnProfile) {
+      return;
+    }
+
+    setProfilePhotoUploading(true);
+    setProfileError(null);
+
+    try {
+      // Profile-photo upload uses the same protected API approach as message media.
+      const response = await updateMyMessagingProfilePhoto(accessToken, file);
+      setProfileData(response.data);
+      setProfilePhotoUrls((current) => {
+        const previousUrl = current[response.data.accountId];
+        if (previousUrl) {
+          URL.revokeObjectURL(previousUrl);
+        }
+
+        const { [response.data.accountId]: _removed, ...rest } = current;
+        void _removed;
+        return rest;
+      });
+      setProfilePhotoRefreshKey((current) => current + 1);
+      await loadConversations(true, selectedConversationId ?? undefined);
+      if (selectedConversationId) {
+        await loadMessages(selectedConversationId, true);
+      }
+    } catch (error) {
+      setProfileError(
+        error instanceof Error
+          ? error.message
+          : "Profile photo could not be uploaded.",
+      );
+    } finally {
+      setProfilePhotoUploading(false);
+    }
+  }
+
+  async function handleRemoveProfilePhoto(): Promise<void> {
+    if (!accessToken || !profileData?.isOwnProfile) {
+      return;
+    }
+
+    setProfilePhotoUploading(true);
+    setProfileError(null);
+
+    try {
+      // Removing the display photo must update every avatar source without touching official identity.
+      const response = await deleteMyMessagingProfilePhoto(accessToken);
+      setProfileData(response.data);
+      setProfilePhotoUrl(null);
+      setProfilePhotoUrls((current) => {
+        const previousUrl = current[response.data.accountId];
+        if (previousUrl) {
+          URL.revokeObjectURL(previousUrl);
+        }
+
+        const { [response.data.accountId]: _removed, ...rest } = current;
+        void _removed;
+        return rest;
+      });
+      setProfilePhotoRefreshKey((current) => current + 1);
+      await loadConversations(true, selectedConversationId ?? undefined);
+      if (selectedConversationId) {
+        await loadMessages(selectedConversationId, true);
+      }
+    } catch (error) {
+      setProfileError(
+        error instanceof Error
+          ? error.message
+          : "Profile photo could not be removed.",
+      );
+    } finally {
+      setProfilePhotoUploading(false);
+    }
+  }
+
+  async function handleStartProfileConversation(): Promise<void> {
+    if (!accessToken || !profileData || profileData.isOwnProfile) {
+      return;
+    }
+
+    if (profileData.contactMode === "REQUEST_RECEIVED") {
+      closeProfile();
+      setRequestDialogOpen(true);
+      void loadMessageRequests();
+      return;
+    }
+
+    if (
+      profileData.contactMode === "REQUEST_SENT" ||
+      profileData.contactMode === "BLOCKED"
+    ) {
+      return;
+    }
+
+    setProfileSaving(true);
+    setProfileError(null);
+
+    try {
+      const response = await createPrivateConversation(
+        accessToken,
+        profileData.accountId,
+      );
+
+      if (response.outcome === "CONVERSATION") {
+        setConversations((current) => {
+          const withoutConversation = current.filter(
+            (conversation) => conversation.id !== response.data.id,
+          );
+
+          return [response.data, ...withoutConversation];
+        });
+
+        setSelectedConversationId(response.data.id);
+        await loadConversations(true, response.data.id);
+        closeProfile();
+      } else {
+        setProfileError(response.message);
+        await loadMessageRequests(true);
+      }
+    } catch (error) {
+      setProfileError(
+        error instanceof Error
+          ? error.message
+          : "The conversation could not be started.",
+      );
+    } finally {
+      setProfileSaving(false);
+    }
+  }
+
   async function handleCreateConversation(
     contact: MessagingContact,
   ): Promise<void> {
@@ -3492,6 +3856,26 @@ export function MessageAppPage() {
       : [],
   );
 
+  function renderAccountAvatar(
+    targetAccount: MessagingAccount,
+    className = "message-avatar",
+  ) {
+    const photoUrl = profilePhotoUrls[targetAccount.accountId];
+
+    return (
+      <span className={className}>
+        {photoUrl ? (
+          <img
+            src={photoUrl}
+            alt={`${targetAccount.displayName} profile`}
+          />
+        ) : (
+          initials(targetAccount.displayName)
+        )}
+      </span>
+    );
+  }
+
   return (
     <main className="message-app-shell">
       <header className="message-app-topbar">
@@ -3522,6 +3906,14 @@ export function MessageAppPage() {
               {` · ${realtimeLabel}`}
             </small>
           </div>
+
+          <button
+            type="button"
+            className="message-profile-topbar-button"
+            onClick={() => openProfile(account?.id)}
+          >
+            My profile
+          </button>
 
           {account?.role !== "EMPLOYEE" && (
             <DirectoryButton />
@@ -3778,9 +4170,13 @@ export function MessageAppPage() {
                     onClick={() => setSelectedConversationId(conversation.id)}
                   >
                     <span className="message-avatar-presence">
-                      <span className="message-avatar">
-                        {initials(title)}
-                      </span>
+                      {conversationPeer
+                        ? renderAccountAvatar(conversationPeer)
+                        : (
+                          <span className="message-avatar">
+                            {initials(title)}
+                          </span>
+                        )}
 
                       {conversationPeer &&
                         presenceByAccountId[conversationPeer.accountId]?.isOnline && (
@@ -3927,9 +4323,13 @@ export function MessageAppPage() {
                     Group info
                   </button>
                 ) : (
-                  <span className="message-private-badge">
-                    Private
-                  </span>
+                  <button
+                    type="button"
+                    className="message-group-info-button"
+                    onClick={() => openProfile(peer?.accountId)}
+                  >
+                    View profile
+                  </button>
                 )}
               </header>
 
@@ -4001,11 +4401,7 @@ export function MessageAppPage() {
                           ownMessage ? " own" : ""
                         }${highlightedMessageId === message.id ? " search-highlight" : ""}`}
                       >
-                        {!ownMessage && (
-                          <span className="message-avatar small">
-                            {initials(message.sender.displayName)}
-                          </span>
-                        )}
+                        {!ownMessage && renderAccountAvatar(message.sender, "message-avatar small")}
 
                         <div className="message-bubble-wrap">
                           {!ownMessage && (
@@ -4603,9 +4999,7 @@ export function MessageAppPage() {
                           }}
                           disabled={contact.contactMode === "REQUEST_SENT" || contact.contactMode === "BLOCKED"}
                         >
-                          <span className="message-avatar small">
-                            {initials(contact.displayName)}
-                          </span>
+                          {renderAccountAvatar(contact, "message-avatar small")}
                           <span>
                             <strong>{contact.displayName}</strong>
                             <small>{contact.employee?.designation ?? roleLabel(contact.role)}</small>
@@ -4618,6 +5012,210 @@ export function MessageAppPage() {
                 </>
               )}
             </div>
+          </section>
+        </div>
+      )}
+
+      {profileAccountId && (
+        <div
+          className="message-contact-backdrop"
+          role="presentation"
+          onMouseDown={(event) => {
+            if (event.currentTarget === event.target) {
+              closeProfile();
+            }
+          }}
+        >
+          <section
+            className="message-profile-dialog"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="message-profile-title"
+          >
+            <header>
+              <div>
+                <span>User profile</span>
+                <h2 id="message-profile-title">
+                  {profileData?.displayName ?? "Profile"}
+                </h2>
+              </div>
+
+              <button
+                type="button"
+                onClick={closeProfile}
+                aria-label="Close profile dialog"
+              >
+                ×
+              </button>
+            </header>
+
+            {profileLoading ? (
+              <div className="message-list-state compact">
+                <span className="message-small-spinner" />
+                <p>Loading profile...</p>
+              </div>
+            ) : profileError && !profileData ? (
+              <div className="message-inline-error compact">
+                <p>{profileError}</p>
+              </div>
+            ) : profileData ? (
+              <div className="message-profile-content">
+                <div className="message-profile-hero">
+                  <span className="message-profile-photo">
+                    {profilePhotoUrl ? (
+                      <img
+                        src={profilePhotoUrl}
+                        alt={`${profileData.displayName} profile`}
+                      />
+                    ) : (
+                      initials(profileData.displayName)
+                    )}
+                  </span>
+
+                  <div>
+                    <strong>{profileData.displayName}</strong>
+                    <span>{roleLabel(profileData.role)}</span>
+                    <small>
+                      {profileData.official?.department?.name ??
+                        profileData.official?.division?.name ??
+                        "Nepal Telecom"}
+                    </small>
+                  </div>
+                </div>
+
+                {profileError && (
+                  <div className="message-inline-error compact">
+                    <p>{profileError}</p>
+                  </div>
+                )}
+
+                <section className="message-profile-section">
+                  <h3>About</h3>
+
+                  {profileData.isOwnProfile ? (
+                    <>
+                      <textarea
+                        value={profileBioDraft}
+                        onChange={(event) => setProfileBioDraft(event.target.value.slice(0, 160))}
+                        maxLength={160}
+                        placeholder="Add a short about message"
+                      />
+                      <div className="message-profile-actions">
+                        <small>{profileBioDraft.length}/160</small>
+                        <button
+                          type="button"
+                          onClick={() => void handleSaveProfileBio()}
+                          disabled={profileSaving}
+                        >
+                          {profileSaving ? "Saving..." : "Save about"}
+                        </button>
+                      </div>
+                    </>
+                  ) : (
+                    <p>{profileData.profileBio || "No about message added."}</p>
+                  )}
+                </section>
+
+                {profileData.isOwnProfile && (
+                  <section className="message-profile-section">
+                    <h3>Profile photo</h3>
+                    <div className="message-profile-photo-controls">
+                      <label className="message-profile-photo-upload">
+                        <span>{profilePhotoUploading ? "Uploading..." : profileData.profilePhotoKey ? "Change photo" : "Upload JPG, PNG or WEBP"}</span>
+                        <input
+                          type="file"
+                          accept="image/jpeg,image/png,image/webp"
+                          onChange={(event) => void handleProfilePhotoChange(event)}
+                          disabled={profilePhotoUploading}
+                        />
+                      </label>
+
+                      {profileData.profilePhotoKey && (
+                        <button
+                          type="button"
+                          className="message-profile-photo-remove"
+                          onClick={() => void handleRemoveProfilePhoto()}
+                          disabled={profilePhotoUploading}
+                        >
+                          Remove photo
+                        </button>
+                      )}
+                    </div>
+                  </section>
+                )}
+
+                <section className="message-profile-section">
+                  <h3>Official information</h3>
+                  <dl className="message-profile-details">
+                    <div>
+                      <dt>Employee ID</dt>
+                      <dd>{profileData.official?.employeeId ?? "System account"}</dd>
+                    </div>
+                    <div>
+                      <dt>Official email</dt>
+                      <dd>{profileData.official?.officialEmail ?? profileData.username ?? "—"}</dd>
+                    </div>
+                    <div>
+                      <dt>Designation</dt>
+                      <dd>{profileData.official?.designation ?? "—"}</dd>
+                    </div>
+                    <div>
+                      <dt>Division</dt>
+                      <dd>{profileData.official?.division?.name ?? "—"}</dd>
+                    </div>
+                    <div>
+                      <dt>Department</dt>
+                      <dd>{profileData.official?.department?.name ?? "—"}</dd>
+                    </div>
+                  </dl>
+                  <p className="message-profile-locked-note">
+                    Official identity fields are managed through the approved account workflow.
+                  </p>
+                </section>
+
+                {!profileData.isOwnProfile && (
+                  <section className="message-profile-section">
+                    <h3>Shared groups</h3>
+                    {profileData.sharedGroups.length === 0 ? (
+                      <p>No shared groups found.</p>
+                    ) : (
+                      <ul className="message-profile-shared-groups">
+                        {profileData.sharedGroups.map((group) => (
+                          <li key={group.id}>
+                            <strong>{group.title ?? "Group"}</strong>
+                            <span>
+                              {group.groupKind === "OFFICIAL" ? "Official" : "Personal"} · {group.memberCount} members
+                            </span>
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+                  </section>
+                )}
+
+                <div className="message-profile-footer">
+                  {!profileData.isOwnProfile && (
+                    <button
+                      type="button"
+                      onClick={() => void handleStartProfileConversation()}
+                      disabled={
+                        profileSaving ||
+                        profileData.contactMode === "REQUEST_SENT" ||
+                        profileData.contactMode === "BLOCKED"
+                      }
+                    >
+                      {profileData.contactMode === "REQUEST_SENT"
+                        ? "Request sent"
+                        : profileData.contactMode === "BLOCKED"
+                          ? "Blocked"
+                          : profileData.contactMode === "REQUEST_REQUIRED"
+                            ? "Send request"
+                            : "Message"}
+                    </button>
+                  )}
+                </div>
+              </div>
+            ) : null}
           </section>
         </div>
       )}
@@ -4697,9 +5295,7 @@ export function MessageAppPage() {
                       contact.contactMode === "BLOCKED"
                     }
                   >
-                    <span className="message-avatar">
-                      {initials(contact.displayName)}
-                    </span>
+                    {renderAccountAvatar(contact)}
 
                     <span>
                       <strong>{contact.displayName}</strong>
@@ -4961,9 +5557,7 @@ export function MessageAppPage() {
                             key={participant.accountId}
                             className="message-group-member-row"
                           >
-                            <span className="message-avatar small">
-                              {initials(participant.displayName)}
-                            </span>
+                            {renderAccountAvatar(participant, "message-avatar small")}
 
                             <span>
                               <strong>
@@ -4977,6 +5571,14 @@ export function MessageAppPage() {
                             </span>
 
                             <b>{roleLabel(participant.participantRole)}</b>
+
+                            <button
+                              type="button"
+                              className="message-group-member-profile"
+                              onClick={() => openProfile(participant.accountId)}
+                            >
+                              Profile
+                            </button>
 
                             {(canChangeRole || canRemove) && (
                               <div className="message-group-member-actions">
@@ -5137,9 +5739,7 @@ export function MessageAppPage() {
                               }
                             />
 
-                            <span className="message-avatar small">
-                              {initials(contact.displayName)}
-                            </span>
+                            {renderAccountAvatar(contact, "message-avatar small")}
 
                             <span>
                               <strong>{contact.displayName}</strong>

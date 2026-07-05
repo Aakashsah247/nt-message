@@ -70,6 +70,7 @@ export interface MessagingEmployeeIdentity {
   empName: string;
   designation: string | null;
   profilePhotoKey: string | null;
+  profileBio: string | null;
   division: MessagingOrganizationUnit | null;
   department: MessagingOrganizationUnit | null;
 }
@@ -78,8 +79,44 @@ export interface MessagingAccount {
   accountId: string;
   username: string | null;
   role: AccountRole;
+  profilePhotoKey: string | null;
+  profileBio: string | null;
   displayName: string;
   employee: MessagingEmployeeIdentity | null;
+}
+
+
+export type MessagingProfileContactMode =
+  | "SELF"
+  | "DIRECT"
+  | "REQUEST_REQUIRED"
+  | "REQUEST_SENT"
+  | "REQUEST_RECEIVED"
+  | "BLOCKED";
+
+export interface MessagingProfileSharedGroup {
+  id: string;
+  title: string | null;
+  groupKind: GroupKind | null;
+  memberCount: number;
+}
+
+export interface MessagingUserProfile extends MessagingAccount {
+  isOwnProfile: boolean;
+  contactMode: MessagingProfileContactMode;
+  profileBio: string | null;
+  official: {
+    employeeId: string;
+    officialEmail: string;
+    designation: string | null;
+    division: MessagingOrganizationUnit | null;
+    department: MessagingOrganizationUnit | null;
+  } | null;
+  sharedGroups: MessagingProfileSharedGroup[];
+}
+
+export interface MessagingUserProfileResponse {
+  data: MessagingUserProfile;
 }
 
 export interface MessagingContact extends MessagingAccount {

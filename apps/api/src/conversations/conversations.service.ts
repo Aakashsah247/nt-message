@@ -44,6 +44,7 @@ import { SendAttachmentMessageDto } from './dto/send-attachment-message.dto';
 import { UpdateGroupConversationDto } from './dto/update-group-conversation.dto';
 import { UpdateGroupMemberRoleDto } from './dto/update-group-member-role.dto';
 import { UpdateTextMessageDto } from './dto/update-text-message.dto';
+import { UpdateMessagingProfileDto } from './dto/update-messaging-profile.dto';
 import { ReactMessageDto } from './dto/react-message.dto';
 import type { UploadedMessageAttachmentFile } from './types/uploaded-message-attachment-file';
 
@@ -135,15 +136,27 @@ export interface ForwardedMessageMetadata {
   originalTextContent: string;
 }
 
+export interface MessagingProfileSharedGroup {
+  id: string;
+  title: string | null;
+  groupKind: GroupKind | null;
+  memberCount: number;
+}
+
 const MESSAGE_REQUEST_COOLDOWN_MS = 24 * 60 * 60 * 1000;
 const MESSAGE_EDIT_WINDOW_MS = 15 * 60 * 1000;
 const MAX_IMAGE_ATTACHMENT_BYTES = 20 * 1024 * 1024;
 const MAX_DOCUMENT_ATTACHMENT_BYTES = 50 * 1024 * 1024;
 const MAX_AUDIO_ATTACHMENT_BYTES = 25 * 1024 * 1024;
 const MAX_VIDEO_ATTACHMENT_BYTES = 200 * 1024 * 1024;
+const MAX_PROFILE_PHOTO_BYTES = 5 * 1024 * 1024;
 const MESSAGE_ATTACHMENT_STORAGE_DIR = path.resolve(
   process.env.MESSAGE_ATTACHMENT_STORAGE_DIR ??
     path.join(process.cwd(), 'storage', 'message-attachments'),
+);
+const PROFILE_PHOTO_STORAGE_DIR = path.resolve(
+  process.env.PROFILE_PHOTO_STORAGE_DIR ??
+    path.join(process.cwd(), 'storage', 'profile-photos'),
 );
 
 const IMAGE_ATTACHMENT_MIME_TYPES = new Set([
@@ -151,6 +164,8 @@ const IMAGE_ATTACHMENT_MIME_TYPES = new Set([
   'image/png',
   'image/webp',
 ]);
+
+const PROFILE_PHOTO_MIME_TYPES = IMAGE_ATTACHMENT_MIME_TYPES;
 
 const VIDEO_ATTACHMENT_MIME_TYPES = new Set([
   'video/mp4',
@@ -185,14 +200,18 @@ const messagingAccountSelect = {
   username: true,
   role: true,
   isEnabled: true,
+  profilePhotoKey: true,
+  profileBio: true,
 
   employee: {
     select: {
       id: true,
       empId: true,
       empName: true,
+      officialEmail: true,
       designation: true,
       profilePhotoKey: true,
+      profileBio: true,
       status: true,
       employmentStatus: true,
       archivedAt: true,
@@ -575,13 +594,25 @@ export class ConversationsService {
     };
   }
 
+  private getAccountProfilePhotoKey(account: MessagingAccountRecord): string | null {
+    return account.profilePhotoKey ?? account.employee?.profilePhotoKey ?? null;
+  }
+
+  private getAccountProfileBio(account: MessagingAccountRecord): string | null {
+    return account.profileBio ?? account.employee?.profileBio ?? null;
+  }
+
   private serializeAccount(account: MessagingAccountRecord) {
     const employee = account.employee;
+    const profilePhotoKey = this.getAccountProfilePhotoKey(account);
+    const profileBio = this.getAccountProfileBio(account);
 
     return {
       accountId: account.id,
       username: account.username,
       role: account.role,
+      profilePhotoKey,
+      profileBio,
       displayName:
         employee?.empName ??
         account.username ??
@@ -595,12 +626,221 @@ export class ConversationsService {
             empId: employee.empId,
             empName: employee.empName,
             designation: employee.designation,
-            profilePhotoKey: employee.profilePhotoKey,
+            profilePhotoKey,
+            profileBio,
             division: employee.division,
             department: employee.departmentUnit,
           }
         : null,
     };
+  }
+
+  private serializeUserProfile(
+    account: MessagingAccountRecord,
+    viewerAccountId: string,
+    sharedGroups: MessagingProfileSharedGroup[],
+    contactMode: 'SELF' | 'DIRECT' | 'REQUEST_REQUIRED' | 'REQUEST_SENT' | 'REQUEST_RECEIVED' | 'BLOCKED',
+  ) {
+    const employee = account.employee;
+
+    return {
+      ...this.serializeAccount(account),
+      isOwnProfile: account.id === viewerAccountId,
+      contactMode,
+      profileBio: this.getAccountProfileBio(account),
+      official: employee
+        ? {
+            // Official identity stays read-only and comes from activation/admin workflows.
+            employeeId: employee.empId,
+            officialEmail: employee.officialEmail,
+            designation: employee.designation,
+            division: employee.division,
+            department: employee.departmentUnit,
+          }
+        : null,
+      sharedGroups,
+    };
+  }
+
+  private resolveProfilePhotoPath(storageKey: string): string {
+    const absolutePath = path.resolve(PROFILE_PHOTO_STORAGE_DIR, storageKey);
+
+    if (!absolutePath.startsWith(`${PROFILE_PHOTO_STORAGE_DIR}${path.sep}`)) {
+      throw new BadRequestException('Profile photo storage key is invalid.');
+    }
+
+    return absolutePath;
+  }
+
+  private validateProfilePhoto(file?: UploadedMessageAttachmentFile): {
+    originalFileName: string;
+  } {
+    if (!file) {
+      throw new BadRequestException('Profile photo file is required.');
+    }
+
+    if (!file.buffer || file.size <= 0) {
+      throw new BadRequestException('Profile photo file is empty.');
+    }
+
+    if (!PROFILE_PHOTO_MIME_TYPES.has(file.mimetype)) {
+      throw new BadRequestException('Profile photo must be JPG, PNG or WEBP.');
+    }
+
+    if (file.size > MAX_PROFILE_PHOTO_BYTES) {
+      throw new BadRequestException('Profile photo must be 5 MB or smaller.');
+    }
+
+    return {
+      originalFileName: this.normalizeAttachmentFileName(file.originalname),
+    };
+  }
+
+  private async writeProfilePhotoFile(
+    storageKey: string,
+    file: UploadedMessageAttachmentFile,
+  ): Promise<void> {
+    const absolutePath = this.resolveProfilePhotoPath(storageKey);
+
+    await fs.mkdir(path.dirname(absolutePath), {
+      recursive: true,
+    });
+
+    await fs.writeFile(absolutePath, file.buffer);
+  }
+
+  private async deleteProfilePhotoIfExists(storageKey: string | null): Promise<void> {
+    if (!storageKey) {
+      return;
+    }
+
+    try {
+      await fs.unlink(this.resolveProfilePhotoPath(storageKey));
+    } catch {
+      // Profile-photo cleanup is best-effort because the database is the source of truth.
+    }
+  }
+
+  private async getProfileContactMode(
+    viewer: MessagingViewer,
+    target: MessagingAccountRecord,
+  ): Promise<'SELF' | 'DIRECT' | 'REQUEST_REQUIRED' | 'REQUEST_SENT' | 'REQUEST_RECEIVED' | 'BLOCKED'> {
+    if (viewer.accountId === target.id) {
+      return 'SELF';
+    }
+
+    const participantKey = this.buildPrivateParticipantKey(
+      viewer.accountId,
+      target.id,
+    );
+
+    const [conversation, request] = await Promise.all([
+      this.prisma.conversation.findUnique({
+        where: {
+          privateParticipantKey: participantKey,
+        },
+        select: {
+          id: true,
+        },
+      }),
+      this.prisma.messageRequest.findUnique({
+        where: {
+          participantKey,
+        },
+        select: {
+          requesterAccountId: true,
+          status: true,
+        },
+      }),
+    ]);
+
+    if (conversation) {
+      return 'DIRECT';
+    }
+
+    if (request?.status === MessageRequestStatus.BLOCKED) {
+      return 'BLOCKED';
+    }
+
+    if (request?.status === MessageRequestStatus.PENDING) {
+      return request.requesterAccountId === viewer.accountId
+        ? 'REQUEST_SENT'
+        : 'REQUEST_RECEIVED';
+    }
+
+    return this.getMessageRequestReason(viewer, target)
+      ? 'REQUEST_REQUIRED'
+      : 'DIRECT';
+  }
+
+  private isVisibleMessagingProfile(account: MessagingAccountRecord): boolean {
+    if (!account.isEnabled) {
+      return false;
+    }
+
+    // Super Admin system accounts may not be employee-linked, but they still need display profiles.
+    if (account.role === AccountRole.SUPER_ADMIN && !account.employee) {
+      return true;
+    }
+
+    return this.isActiveEmployeeAccount(account);
+  }
+
+  private async listSharedGroupsForProfile(
+    viewerAccountId: string,
+    targetAccountId: string,
+  ): Promise<MessagingProfileSharedGroup[]> {
+    if (viewerAccountId === targetAccountId) {
+      return [];
+    }
+
+    const sharedGroups = await this.prisma.conversation.findMany({
+      where: {
+        type: ConversationType.GROUP,
+        AND: [
+          {
+            participants: {
+              some: {
+                accountId: viewerAccountId,
+                leftAt: null,
+              },
+            },
+          },
+          {
+            participants: {
+              some: {
+                accountId: targetAccountId,
+                leftAt: null,
+              },
+            },
+          },
+        ],
+      },
+      take: 5,
+      orderBy: {
+        updatedAt: 'desc',
+      },
+      select: {
+        id: true,
+        title: true,
+        groupKind: true,
+        participants: {
+          where: {
+            leftAt: null,
+          },
+          select: {
+            accountId: true,
+          },
+        },
+      },
+    });
+
+    return sharedGroups.map((group) => ({
+      id: group.id,
+      title: group.title,
+      groupKind: group.groupKind,
+      memberCount: group.participants.length,
+    }));
   }
 
   private getPlainMessagePayload(
@@ -3280,6 +3520,288 @@ export class ConversationsService {
         limit: filters.limit,
       },
     };
+  }
+
+
+  async getMyMessagingProfile(user: AuthenticatedUser) {
+    const viewer = await this.getMessagingViewer(user);
+
+    const account = await this.prisma.account.findUnique({
+      where: {
+        id: viewer.accountId,
+      },
+      select: messagingAccountSelect,
+    });
+
+    if (!account) {
+      throw new NotFoundException('Profile was not found.');
+    }
+
+    return {
+      data: this.serializeUserProfile(account, viewer.accountId, [], 'SELF'),
+    };
+  }
+
+  async getMessagingProfile(
+    user: AuthenticatedUser,
+    accountId: string,
+  ) {
+    const viewer = await this.getMessagingViewer(user);
+
+    const account = await this.prisma.account.findUnique({
+      where: {
+        id: accountId,
+      },
+      select: messagingAccountSelect,
+    });
+
+    if (!account || !this.isVisibleMessagingProfile(account)) {
+      throw new NotFoundException('Profile was not found.');
+    }
+
+    const [sharedGroups, contactMode] = await Promise.all([
+      this.listSharedGroupsForProfile(viewer.accountId, account.id),
+      this.getProfileContactMode(viewer, account),
+    ]);
+
+    return {
+      data: this.serializeUserProfile(
+        account,
+        viewer.accountId,
+        sharedGroups,
+        contactMode,
+      ),
+    };
+  }
+
+  async updateMyMessagingProfile(
+    user: AuthenticatedUser,
+    dto: UpdateMessagingProfileDto,
+  ) {
+    const viewer = await this.getMessagingViewer(user);
+    const bio = dto.bio?.trim() || null;
+
+    const account = await this.prisma.account.findUnique({
+      where: {
+        id: viewer.accountId,
+      },
+      select: {
+        id: true,
+        employeeId: true,
+      },
+    });
+
+    if (!account) {
+      throw new NotFoundException('Profile was not found.');
+    }
+
+    // Display profile updates never change official employee identity fields.
+    await this.prisma.$transaction(async (transaction) => {
+      await transaction.account.update({
+        where: {
+          id: account.id,
+        },
+        data: {
+          profileBio: bio,
+        },
+      });
+
+      if (account.employeeId) {
+        await transaction.employee.update({
+          where: {
+            id: account.employeeId,
+          },
+          data: {
+            profileBio: bio,
+          },
+        });
+      }
+    });
+
+    return this.getMyMessagingProfile(user);
+  }
+
+  async updateMyMessagingProfilePhoto(
+    user: AuthenticatedUser,
+    file?: UploadedMessageAttachmentFile,
+  ) {
+    const viewer = await this.getMessagingViewer(user);
+    const photo = this.validateProfilePhoto(file);
+
+    const account = await this.prisma.account.findUnique({
+      where: {
+        id: viewer.accountId,
+      },
+      select: {
+        id: true,
+        employeeId: true,
+        profilePhotoKey: true,
+        employee: {
+          select: {
+            profilePhotoKey: true,
+          },
+        },
+      },
+    });
+
+    if (!account) {
+      throw new NotFoundException('Profile was not found.');
+    }
+
+    const storageKey = `${viewer.accountId}/${randomUUID()}-${photo.originalFileName}`;
+
+    await this.writeProfilePhotoFile(storageKey, file as UploadedMessageAttachmentFile);
+
+    // Store the display photo on Account so Super Admins without employee rows can also use it.
+    await this.prisma.$transaction(async (transaction) => {
+      await transaction.account.update({
+        where: {
+          id: account.id,
+        },
+        data: {
+          profilePhotoKey: storageKey,
+        },
+      });
+
+      if (account.employeeId) {
+        await transaction.employee.update({
+          where: {
+            id: account.employeeId,
+          },
+          data: {
+            profilePhotoKey: storageKey,
+          },
+        });
+      }
+    });
+
+    await this.deleteProfilePhotoIfExists(account.profilePhotoKey ?? null);
+
+    if (account.employee?.profilePhotoKey !== account.profilePhotoKey) {
+      await this.deleteProfilePhotoIfExists(account.employee?.profilePhotoKey ?? null);
+    }
+
+    return this.getMyMessagingProfile(user);
+  }
+
+  async removeMyMessagingProfilePhoto(user: AuthenticatedUser) {
+    const viewer = await this.getMessagingViewer(user);
+
+    const account = await this.prisma.account.findUnique({
+      where: {
+        id: viewer.accountId,
+      },
+      select: {
+        id: true,
+        employeeId: true,
+        profilePhotoKey: true,
+        employee: {
+          select: {
+            profilePhotoKey: true,
+          },
+        },
+      },
+    });
+
+    if (!account) {
+      throw new NotFoundException('Profile was not found.');
+    }
+
+    // Removing a photo clears only display profile fields, never official identity data.
+    await this.prisma.$transaction(async (transaction) => {
+      await transaction.account.update({
+        where: {
+          id: account.id,
+        },
+        data: {
+          profilePhotoKey: null,
+        },
+      });
+
+      if (account.employeeId) {
+        await transaction.employee.update({
+          where: {
+            id: account.employeeId,
+          },
+          data: {
+            profilePhotoKey: null,
+          },
+        });
+      }
+    });
+
+    await this.deleteProfilePhotoIfExists(account.profilePhotoKey ?? null);
+
+    if (account.employee?.profilePhotoKey !== account.profilePhotoKey) {
+      await this.deleteProfilePhotoIfExists(account.employee?.profilePhotoKey ?? null);
+    }
+
+    return this.getMyMessagingProfile(user);
+  }
+
+  async getMessagingProfilePhotoDownload(
+    user: AuthenticatedUser,
+    accountId: string,
+  ) {
+    await this.getMessagingViewer(user);
+
+    const account = await this.prisma.account.findUnique({
+      where: {
+        id: accountId,
+      },
+      select: messagingAccountSelect,
+    });
+
+    if (!account || !this.isVisibleMessagingProfile(account)) {
+      throw new NotFoundException('Profile photo was not found.');
+    }
+
+    const profilePhotoKey = this.getAccountProfilePhotoKey(account);
+
+    if (!profilePhotoKey) {
+      throw new NotFoundException('Profile photo was not found.');
+    }
+
+    // Any active messaging user may view another active profile photo, but only through this protected route.
+    const absolutePath = this.resolveProfilePhotoPath(profilePhotoKey);
+
+    try {
+      await fs.access(absolutePath);
+    } catch {
+      throw new NotFoundException('Profile photo file was not found in storage.');
+    }
+
+    const lowerStorageKey = profilePhotoKey.toLowerCase();
+    const mimeType = lowerStorageKey.endsWith('.png')
+      ? 'image/png'
+      : lowerStorageKey.endsWith('.webp')
+        ? 'image/webp'
+        : 'image/jpeg';
+
+    return {
+      absolutePath,
+      mimeType,
+    };
+  }
+
+  async getMessagingProfilePhotoByEmployeeDownload(
+    user: AuthenticatedUser,
+    employeeId: string,
+  ) {
+    await this.getMessagingViewer(user);
+
+    const account = await this.prisma.account.findFirst({
+      where: {
+        employeeId,
+      },
+      select: messagingAccountSelect,
+    });
+
+    if (!account || !this.isVisibleMessagingProfile(account)) {
+      throw new NotFoundException('Profile photo was not found.');
+    }
+
+    return this.getMessagingProfilePhotoDownload(user, account.id);
   }
 
   async searchMessagingContacts(

@@ -315,6 +315,7 @@ export class EmployeesService {
           designation: true,
           status: true,
           isActivated: true,
+          profilePhotoKey: true,
           createdAt: true,
           updatedAt: true,
 
@@ -623,6 +624,8 @@ export class EmployeesService {
           designation: true,
           status: true,
           isActivated: true,
+          // Directory avatars need this key so the frontend can fetch protected photos.
+          profilePhotoKey: true,
           createdAt: true,
           updatedAt: true,
 

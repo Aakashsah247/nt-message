@@ -38,6 +38,7 @@ import { SendAttachmentMessageDto } from './dto/send-attachment-message.dto';
 import { UpdateGroupConversationDto } from './dto/update-group-conversation.dto';
 import { UpdateGroupMemberRoleDto } from './dto/update-group-member-role.dto';
 import { UpdateTextMessageDto } from './dto/update-text-message.dto';
+import { UpdateMessagingProfileDto } from './dto/update-messaging-profile.dto';
 import { ReactMessageDto } from './dto/react-message.dto';
 import type { UploadedMessageAttachmentFile } from './types/uploaded-message-attachment-file';
 
@@ -45,6 +46,120 @@ import type { UploadedMessageAttachmentFile } from './types/uploaded-message-att
 @UseGuards(AccessTokenGuard)
 export class ConversationsController {
   constructor(private readonly conversationsService: ConversationsService) {}
+
+
+  @Get('profiles/me')
+  getMyMessagingProfile(
+    @CurrentUser()
+    user: AuthenticatedUser,
+  ) {
+    return this.conversationsService.getMyMessagingProfile(user);
+  }
+
+  @Patch('profiles/me')
+  updateMyMessagingProfile(
+    @CurrentUser()
+    user: AuthenticatedUser,
+
+    @Body()
+    dto: UpdateMessagingProfileDto,
+  ) {
+    return this.conversationsService.updateMyMessagingProfile(user, dto);
+  }
+
+  @Post('profiles/me/photo')
+  @UseInterceptors(FileInterceptor('file', { limits: { fileSize: 5 * 1024 * 1024 } }))
+  updateMyMessagingProfilePhoto(
+    @CurrentUser()
+    user: AuthenticatedUser,
+
+    @UploadedFile()
+    file: UploadedMessageAttachmentFile | undefined,
+  ) {
+    return this.conversationsService.updateMyMessagingProfilePhoto(user, file);
+  }
+
+  @Delete('profiles/me/photo')
+  removeMyMessagingProfilePhoto(
+    @CurrentUser()
+    user: AuthenticatedUser,
+  ) {
+    return this.conversationsService.removeMyMessagingProfilePhoto(user);
+  }
+
+  @Get('profiles/employees/:employeeId/photo')
+  async downloadMessagingProfilePhotoByEmployee(
+    @CurrentUser()
+    user: AuthenticatedUser,
+
+    @Param(
+      'employeeId',
+      new ParseUUIDPipe({
+        version: '4',
+      }),
+    )
+    employeeId: string,
+
+    @Res({ passthrough: true })
+    response: Response,
+  ): Promise<StreamableFile> {
+    const photo = await this.conversationsService.getMessagingProfilePhotoByEmployeeDownload(
+      user,
+      employeeId,
+    );
+
+    // Directory profile photos use the same protected response headers as messaging profile photos.
+    response.setHeader('Content-Type', photo.mimeType);
+    response.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
+    response.setHeader('Cache-Control', 'private, max-age=300');
+
+    return new StreamableFile(createReadStream(photo.absolutePath));
+  }
+
+  @Get('profiles/:accountId')
+  getMessagingProfile(
+    @CurrentUser()
+    user: AuthenticatedUser,
+
+    @Param(
+      'accountId',
+      new ParseUUIDPipe({
+        version: '4',
+      }),
+    )
+    accountId: string,
+  ) {
+    return this.conversationsService.getMessagingProfile(user, accountId);
+  }
+
+  @Get('profiles/:accountId/photo')
+  async downloadMessagingProfilePhoto(
+    @CurrentUser()
+    user: AuthenticatedUser,
+
+    @Param(
+      'accountId',
+      new ParseUUIDPipe({
+        version: '4',
+      }),
+    )
+    accountId: string,
+
+    @Res({ passthrough: true })
+    response: Response,
+  ): Promise<StreamableFile> {
+    const photo = await this.conversationsService.getMessagingProfilePhotoDownload(
+      user,
+      accountId,
+    );
+
+    // Profile photos are protected resources, not public object-storage URLs.
+    response.setHeader('Content-Type', photo.mimeType);
+    response.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
+    response.setHeader('Cache-Control', 'private, max-age=300');
+
+    return new StreamableFile(createReadStream(photo.absolutePath));
+  }
 
   @Get('contacts')
   searchMessagingContacts(

@@ -199,6 +199,7 @@ model Employee {
 
   isActivated     Boolean @default(false) @map("is_activated")
   profilePhotoKey String? @map("profile_photo_key") @db.VarChar(500)
+  profileBio      String? @map("profile_bio") @db.VarChar(160)
 
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
@@ -233,6 +234,8 @@ model Account {
   lockedUntil         DateTime?   @map("locked_until") @db.Timestamptz(3)
   lastLoginAt         DateTime?   @map("last_login_at") @db.Timestamptz(3)
   passwordChangedAt   DateTime    @default(now()) @map("password_changed_at") @db.Timestamptz(3)
+  profilePhotoKey     String?     @map("profile_photo_key") @db.VarChar(500)
+  profileBio          String?     @map("profile_bio") @db.VarChar(160)
   createdAt           DateTime    @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt           DateTime    @updatedAt @map("updated_at") @db.Timestamptz(3)
 
@@ -260,6 +263,7 @@ model Account {
 
   @@index([role], map: "accounts_role_idx")
   @@index([isEnabled], map: "accounts_is_enabled_idx")
+  @@index([profilePhotoKey], map: "accounts_profile_photo_key_idx")
   @@map("accounts")
 }
 
