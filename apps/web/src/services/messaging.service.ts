@@ -32,7 +32,9 @@ import type {
   ReconcileOfficialGroupsResponse,
   RemoveGroupMemberResponse,
   SendAttachmentMessageResponse,
+  SendLocationMessageResponse,
   SendTextMessageResponse,
+  UpdateLiveLocationMessageResponse,
   UpdateTextMessageResponse,
 } from "../types/messaging";
 
@@ -768,6 +770,69 @@ export function sendConversationTextMessage(
             }
           : {}),
       }),
+    },
+  );
+}
+
+export function sendConversationLocationMessage(
+  accessToken: string,
+  conversationId: string,
+  location: {
+    latitude: number;
+    longitude: number;
+    accuracyMeters?: number;
+    headingDegrees?: number;
+    speedMetersPerSecond?: number;
+    label?: string;
+    live?: boolean;
+    liveDurationMinutes?: 15 | 60 | 480;
+  },
+): Promise<SendLocationMessageResponse> {
+  return apiRequest<SendLocationMessageResponse>(
+    `/conversations/${conversationId}/location`,
+    {
+      method: "POST",
+      headers: authorizationHeaders(accessToken),
+      body: JSON.stringify({
+        clientMessageId: crypto.randomUUID(),
+        ...location,
+      }),
+    },
+  );
+}
+
+export function updateConversationLiveLocationMessage(
+  accessToken: string,
+  conversationId: string,
+  messageId: string,
+  location: {
+    latitude: number;
+    longitude: number;
+    accuracyMeters?: number;
+    headingDegrees?: number;
+    speedMetersPerSecond?: number;
+  },
+): Promise<UpdateLiveLocationMessageResponse> {
+  return apiRequest<UpdateLiveLocationMessageResponse>(
+    `/conversations/${conversationId}/messages/${messageId}/live-location`,
+    {
+      method: "PATCH",
+      headers: authorizationHeaders(accessToken),
+      body: JSON.stringify(location),
+    },
+  );
+}
+
+export function stopConversationLiveLocationMessage(
+  accessToken: string,
+  conversationId: string,
+  messageId: string,
+): Promise<UpdateLiveLocationMessageResponse> {
+  return apiRequest<UpdateLiveLocationMessageResponse>(
+    `/conversations/${conversationId}/messages/${messageId}/live-location/stop`,
+    {
+      method: "POST",
+      headers: authorizationHeaders(accessToken),
     },
   );
 }

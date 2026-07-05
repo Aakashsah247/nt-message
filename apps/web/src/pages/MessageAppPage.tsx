@@ -59,9 +59,12 @@ import {
   updateMessagingPrivacySettings,
   updateMyMessagingProfilePhoto,
   sendConversationAttachmentMessage,
+  sendConversationLocationMessage,
   searchConversationMessages,
   searchMessaging,
   sendConversationTextMessage,
+  stopConversationLiveLocationMessage,
+  updateConversationLiveLocationMessage,
   updateGroupConversation,
   unblockMessagingAccount,
   updateGroupMemberRole,
@@ -93,6 +96,7 @@ import type {
   MessagingConversation,
   MessagingMessage,
   MessagingMention,
+  MessagingLocationPayload,
   MessagingMessageRequest,
   MessagingNotification,
   MessagingSearchMessageResult,
@@ -771,6 +775,166 @@ function renderMessageTextWithMentions(message: MessagingMessage): ReactNode[] {
 }
 
 
+function getMessageLocationPayload(message: MessagingMessage): MessagingLocationPayload | null {
+  const location = getMessagePayloadValue(message, "location");
+
+  if (!location || typeof location !== "object" || Array.isArray(location)) {
+    return null;
+  }
+
+  const value = location as Record<string, unknown>;
+
+  if (
+    (value.kind !== "CURRENT" && value.kind !== "LIVE") ||
+    typeof value.latitude !== "number" ||
+    typeof value.longitude !== "number" ||
+    typeof value.mapUrl !== "string" ||
+    typeof value.updatedAt !== "string"
+  ) {
+    return null;
+  }
+
+  return {
+    kind: value.kind,
+    latitude: value.latitude,
+    longitude: value.longitude,
+    accuracyMeters: typeof value.accuracyMeters === "number" ? value.accuracyMeters : null,
+    headingDegrees: typeof value.headingDegrees === "number" ? value.headingDegrees : null,
+    speedMetersPerSecond: typeof value.speedMetersPerSecond === "number" ? value.speedMetersPerSecond : null,
+    label: typeof value.label === "string" ? value.label : null,
+    mapUrl: value.mapUrl,
+    liveExpiresAt: typeof value.liveExpiresAt === "string" ? value.liveExpiresAt : null,
+    liveStoppedAt: typeof value.liveStoppedAt === "string" ? value.liveStoppedAt : null,
+    updatedAt: value.updatedAt,
+  };
+}
+
+function isLiveLocationActive(location: MessagingLocationPayload | null): boolean {
+  if (!location || location.kind !== "LIVE" || location.liveStoppedAt || !location.liveExpiresAt) {
+    return false;
+  }
+
+  return new Date(location.liveExpiresAt).getTime() > Date.now();
+}
+
+function locationStatusLabel(location: MessagingLocationPayload): string {
+  if (location.kind === "CURRENT") {
+    return "Current location";
+  }
+
+  if (location.liveStoppedAt) {
+    return "Live location stopped";
+  }
+
+  if (location.liveExpiresAt && new Date(location.liveExpiresAt).getTime() <= Date.now()) {
+    return "Live location expired";
+  }
+
+  return "Live location active";
+}
+
+function formatLocationCoordinate(value: number): string {
+  return value.toFixed(5);
+}
+
+function formatLocationUpdatedAt(value: string): string {
+  const date = new Date(value);
+
+  if (Number.isNaN(date.getTime())) {
+    return "Updated just now";
+  }
+
+  return `Updated ${new Intl.DateTimeFormat(undefined, {
+    hour: "numeric",
+    minute: "2-digit",
+  }).format(date)}`;
+}
+
+function browserPositionToLocationInput(
+  position: GeolocationPosition,
+): {
+  latitude: number;
+  longitude: number;
+  accuracyMeters?: number;
+  headingDegrees?: number;
+  speedMetersPerSecond?: number;
+} {
+  return {
+    latitude: position.coords.latitude,
+    longitude: position.coords.longitude,
+    accuracyMeters: Number.isFinite(position.coords.accuracy)
+      ? position.coords.accuracy
+      : undefined,
+    headingDegrees: typeof position.coords.heading === "number" && Number.isFinite(position.coords.heading)
+      ? position.coords.heading
+      : undefined,
+    speedMetersPerSecond: typeof position.coords.speed === "number" && Number.isFinite(position.coords.speed)
+      ? position.coords.speed
+      : undefined,
+  };
+}
+
+interface LocationMessageCardProps {
+  message: MessagingMessage;
+  viewerAccountId?: string;
+  stopping: boolean;
+  onStop: (message: MessagingMessage) => void;
+}
+
+function LocationMessageCard({
+  message,
+  viewerAccountId,
+  stopping,
+  onStop,
+}: LocationMessageCardProps) {
+  const location = getMessageLocationPayload(message);
+
+  if (!location) {
+    return null;
+  }
+
+  const active = isLiveLocationActive(location);
+  const ownMessage = message.senderAccountId === viewerAccountId;
+
+  return (
+    <div className={`message-location-card${active ? " live" : ""}`}>
+      <div className="message-location-map-preview" aria-hidden="true">
+        <span>📍</span>
+      </div>
+
+      <div className="message-location-content">
+        <strong>{location.label ?? locationStatusLabel(location)}</strong>
+        <span>
+          {formatLocationCoordinate(location.latitude)}, {formatLocationCoordinate(location.longitude)}
+        </span>
+        <small>
+          {formatLocationUpdatedAt(location.updatedAt)}
+          {location.accuracyMeters !== null
+            ? ` · ±${Math.round(location.accuracyMeters)}m`
+            : ""}
+        </small>
+
+        <div className="message-location-actions">
+          <a href={location.mapUrl} target="_blank" rel="noreferrer">
+            Open map
+          </a>
+
+          {ownMessage && active && (
+            <button
+              type="button"
+              onClick={() => onStop(message)}
+              disabled={stopping}
+            >
+              {stopping ? "Stopping..." : "Stop sharing"}
+            </button>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+
 function preferredVoiceNoteMimeType(): string {
   if (typeof MediaRecorder === "undefined") {
     return "";
@@ -904,6 +1068,10 @@ function attachmentLabel(message: Pick<MessagingMessage, "contentType" | "attach
 
 function canForwardMessage(message: MessagingMessage): boolean {
   if (message.isDeleted) {
+    return false;
+  }
+
+  if (message.contentType === "LOCATION") {
     return false;
   }
 
@@ -1205,6 +1373,13 @@ export function MessageAppPage() {
   const [attachmentPreviewUrl, setAttachmentPreviewUrl] = useState<string | null>(null);
   const [voiceRecordingState, setVoiceRecordingState] = useState<"IDLE" | "RECORDING" | "STOPPING">("IDLE");
   const [voiceRecordingSeconds, setVoiceRecordingSeconds] = useState(0);
+  const [locationDurationMinutes, setLocationDurationMinutes] = useState<15 | 60 | 480>(15);
+  const [locationActionLoading, setLocationActionLoading] = useState<"CURRENT" | "LIVE" | "STOP" | null>(null);
+  const [activeLiveLocation, setActiveLiveLocation] = useState<{
+    conversationId: string;
+    messageId: string;
+    expiresAt: string;
+  } | null>(null);
   const [attachmentViewer, setAttachmentViewer] = useState<AttachmentViewerState | null>(null);
   const [messageCursor, setMessageCursor] = useState<string | null>(null);
   const [hasOlderMessages, setHasOlderMessages] = useState(false);
@@ -1296,6 +1471,10 @@ export function MessageAppPage() {
       JSON.stringify(messagingSettings),
     );
   }, [messagingSettings]);
+
+  useEffect(() => () => {
+    clearLiveLocationWatch();
+  }, []);
 
   useEffect(() => {
     if (!accessToken) {
@@ -1392,6 +1571,9 @@ export function MessageAppPage() {
   const voiceRecordingTimerRef = useRef<number | null>(null);
   const voiceRecordingStartedAtRef = useRef(0);
   const voiceRecordingCancelledRef = useRef(false);
+  const liveLocationWatchIdRef = useRef<number | null>(null);
+  const liveLocationExpiryTimerRef = useRef<number | null>(null);
+  const liveLocationLastUpdateAtRef = useRef(0);
   const selectedConversationIdRef = useRef<string | null>(
     selectedConversationId,
   );
@@ -3990,6 +4172,246 @@ export function MessageAppPage() {
     resetVoiceRecordingState();
   }
 
+  function clearLiveLocationWatch(): void {
+    if (liveLocationWatchIdRef.current !== null && navigator.geolocation?.clearWatch) {
+      navigator.geolocation.clearWatch(liveLocationWatchIdRef.current);
+      liveLocationWatchIdRef.current = null;
+    }
+
+    if (liveLocationExpiryTimerRef.current !== null) {
+      window.clearTimeout(liveLocationExpiryTimerRef.current);
+      liveLocationExpiryTimerRef.current = null;
+    }
+
+    liveLocationLastUpdateAtRef.current = 0;
+  }
+
+  function getCurrentBrowserPosition(): Promise<GeolocationPosition> {
+    if (!navigator.geolocation) {
+      return Promise.reject(new Error("Location sharing is not supported in this browser."));
+    }
+
+    return new Promise((resolve, reject) => {
+      navigator.geolocation.getCurrentPosition(
+        resolve,
+        () => reject(new Error("Location permission was denied or unavailable.")),
+        {
+          enableHighAccuracy: true,
+          maximumAge: 5000,
+          timeout: 15000,
+        },
+      );
+    });
+  }
+
+  function applySentLocationMessage(message: MessagingMessage): void {
+    setMessages((current) => {
+      if (current.some((item) => item.id === message.id)) {
+        return current;
+      }
+
+      return [...current, message];
+    });
+
+    setConversations((current) => current.map((conversation) => (
+      conversation.id === message.conversationId
+        ? {
+            ...conversation,
+            lastMessage: message,
+            lastMessageAt: message.sentAt,
+            updatedAt: message.updatedAt,
+          }
+        : conversation
+    )));
+  }
+
+  function startLiveLocationWatch(
+    conversationId: string,
+    messageId: string,
+    expiresAt: string,
+  ): void {
+    if (!accessToken || !navigator.geolocation) {
+      return;
+    }
+
+    clearLiveLocationWatch();
+    const expiresAtMs = new Date(expiresAt).getTime();
+
+    liveLocationExpiryTimerRef.current = window.setTimeout(() => {
+      clearLiveLocationWatch();
+      setActiveLiveLocation(null);
+      setMessageNotice("Live location sharing expired.");
+    }, Math.max(0, expiresAtMs - Date.now()));
+
+    liveLocationWatchIdRef.current = navigator.geolocation.watchPosition(
+      (position) => {
+        if (!accessToken) {
+          return;
+        }
+
+        if (Date.now() >= expiresAtMs) {
+          clearLiveLocationWatch();
+          setActiveLiveLocation(null);
+          return;
+        }
+
+        if (Date.now() - liveLocationLastUpdateAtRef.current < 10000) {
+          return;
+        }
+
+        liveLocationLastUpdateAtRef.current = Date.now();
+
+        void updateConversationLiveLocationMessage(
+          accessToken,
+          conversationId,
+          messageId,
+          browserPositionToLocationInput(position),
+        )
+          .then((response) => {
+            setMessages((current) => applyMessageUpdate(current, response.data));
+            setConversations((current) => current.map((conversation) => (
+              conversation.id === response.data.conversationId &&
+              conversation.lastMessage?.id === response.data.id
+                ? {
+                    ...conversation,
+                    lastMessage: response.data,
+                    updatedAt: response.data.updatedAt,
+                  }
+                : conversation
+            )));
+          })
+          .catch(() => {
+            setMessageNotice("Live location update failed. Sharing will keep trying until it expires or you stop it.");
+          });
+      },
+      () => {
+        setMessageNotice("Live location permission was interrupted. Stop and start again if needed.");
+      },
+      {
+        enableHighAccuracy: true,
+        maximumAge: 5000,
+        timeout: 15000,
+      },
+    );
+  }
+
+  async function handleShareCurrentLocation(): Promise<void> {
+    if (!accessToken || !selectedConversationId || sendingMessage || editingMessage || voiceRecordingState !== "IDLE") {
+      return;
+    }
+
+    setLocationActionLoading("CURRENT");
+    setMessageError(null);
+
+    try {
+      const position = await getCurrentBrowserPosition();
+      const response = await sendConversationLocationMessage(
+        accessToken,
+        selectedConversationId,
+        {
+          ...browserPositionToLocationInput(position),
+          live: false,
+        },
+      );
+
+      applySentLocationMessage(response.data);
+      await loadConversations(true);
+    } catch (error) {
+      setMessageError(
+        error instanceof Error
+          ? error.message
+          : "Current location could not be shared.",
+      );
+    } finally {
+      setLocationActionLoading(null);
+    }
+  }
+
+  async function handleStartLiveLocation(): Promise<void> {
+    if (!accessToken || !selectedConversationId || sendingMessage || editingMessage || voiceRecordingState !== "IDLE") {
+      return;
+    }
+
+    setLocationActionLoading("LIVE");
+    setMessageError(null);
+
+    try {
+      const position = await getCurrentBrowserPosition();
+      const response = await sendConversationLocationMessage(
+        accessToken,
+        selectedConversationId,
+        {
+          ...browserPositionToLocationInput(position),
+          live: true,
+          liveDurationMinutes: locationDurationMinutes,
+        },
+      );
+      const location = getMessageLocationPayload(response.data);
+
+      applySentLocationMessage(response.data);
+
+      if (location?.liveExpiresAt) {
+        setActiveLiveLocation({
+          conversationId: selectedConversationId,
+          messageId: response.data.id,
+          expiresAt: location.liveExpiresAt,
+        });
+        startLiveLocationWatch(
+          selectedConversationId,
+          response.data.id,
+          location.liveExpiresAt,
+        );
+      }
+
+      await loadConversations(true);
+    } catch (error) {
+      setMessageError(
+        error instanceof Error
+          ? error.message
+          : "Live location could not be started.",
+      );
+    } finally {
+      setLocationActionLoading(null);
+    }
+  }
+
+  async function handleStopLiveLocation(message?: MessagingMessage): Promise<void> {
+    if (!accessToken) {
+      return;
+    }
+
+    const conversationId = message?.conversationId ?? activeLiveLocation?.conversationId;
+    const messageId = message?.id ?? activeLiveLocation?.messageId;
+
+    if (!conversationId || !messageId) {
+      return;
+    }
+
+    setLocationActionLoading("STOP");
+    setMessageError(null);
+
+    try {
+      const response = await stopConversationLiveLocationMessage(
+        accessToken,
+        conversationId,
+        messageId,
+      );
+
+      setMessages((current) => applyMessageUpdate(current, response.data));
+      clearLiveLocationWatch();
+      setActiveLiveLocation(null);
+      setMessageNotice("Live location sharing stopped.");
+    } catch (error) {
+      setMessageError(
+        error instanceof Error
+          ? error.message
+          : "Live location could not be stopped.",
+      );
+    } finally {
+      setLocationActionLoading(null);
+    }
+  }
+
   function clearSelectedAttachment(): void {
     setSelectedAttachment(null);
     setSelectedAttachmentKind("FILE");
@@ -5628,8 +6050,21 @@ export function MessageAppPage() {
                               <em>This message was deleted.</em>
                             ) : (
                               <>
-                                {message.textContent && (
+                                {message.textContent && message.contentType !== "LOCATION" && (
                                   <p>{renderMessageTextWithMentions(message)}</p>
+                                )}
+
+                                {message.contentType === "LOCATION" && (
+                                  <LocationMessageCard
+                                    message={message}
+                                    viewerAccountId={account?.id}
+                                    stopping={
+                                      locationActionLoading === "STOP" &&
+                                      (activeLiveLocation?.messageId === message.id ||
+                                        message.senderAccountId === account?.id)
+                                    }
+                                    onStop={(selected) => void handleStopLiveLocation(selected)}
+                                  />
                                 )}
 
                                 {(message.attachments?.length ?? 0) > 0 && (
@@ -6008,6 +6443,53 @@ export function MessageAppPage() {
 
                   <button
                     type="button"
+                    className="message-location-button"
+                    onClick={() => void handleShareCurrentLocation()}
+                    disabled={sendingMessage || editingMessage !== null || voiceRecordingState !== "IDLE" || locationActionLoading !== null}
+                  >
+                    {locationActionLoading === "CURRENT" ? "Sharing..." : "📍 Location"}
+                  </button>
+
+                  <label className="message-live-location-control">
+                    <span className="sr-only">Live location duration</span>
+                    <select
+                      onChange={(event) =>
+                        setLocationDurationMinutes(Number(event.target.value) as 15 | 60 | 480)
+                      }
+                      disabled={
+                        sendingMessage ||
+                        editingMessage !== null ||
+                        voiceRecordingState !== "IDLE" ||
+                        locationActionLoading !== null
+                      }
+                      >
+                       <option value={15}>15m</option>
+                      <option value={60}>1h</option>
+                      <option value={480}>8h</option>
+                    </select>
+                    <button
+                      type="button"
+                      className="message-live-location-button"
+                      onClick={() => void handleStartLiveLocation()}
+                      disabled={sendingMessage || editingMessage !== null || voiceRecordingState !== "IDLE" || locationActionLoading !== null || activeLiveLocation !== null}
+                    >
+                      {locationActionLoading === "LIVE" ? "Starting..." : "Live"}
+                    </button>
+                  </label>
+
+                  {activeLiveLocation && (
+                    <button
+                      type="button"
+                      className="message-live-stop-button"
+                      onClick={() => void handleStopLiveLocation()}
+                      disabled={locationActionLoading === "STOP"}
+                    >
+                      {locationActionLoading === "STOP" ? "Stopping..." : "Stop live"}
+                    </button>
+                  )}
+
+                  <button
+                    type="button"
                     className="message-voice-record-button"
                     onClick={() => void beginVoiceRecording()}
                     disabled={sendingMessage || editingMessage !== null || selectedAttachment !== null || voiceRecordingState !== "IDLE"}
@@ -6017,6 +6499,7 @@ export function MessageAppPage() {
 
                   <button
                     type="submit"
+                    className="message-send-button"
                     disabled={(!messageText.trim() && !selectedAttachment) || sendingMessage || voiceRecordingState !== "IDLE"}
                   >
                     {sendingMessage
