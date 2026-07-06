@@ -613,6 +613,35 @@ export interface MessagePersonalStateResponse {
   data: MessagingMessage;
 }
 
+export interface MessageInformationRecipient {
+  accountId: string;
+  account: MessagingAccount;
+  deliveredAt: string | null;
+  readAt: string | null;
+  readHidden: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface MessageInformation {
+  message: MessagingMessage;
+  sender: MessagingAccount;
+  sentAt: string;
+  editedAt: string | null;
+  deletedAt: string | null;
+  recipients: MessageInformationRecipient[];
+  summary: {
+    totalRecipients: number;
+    delivered: number;
+    read: number;
+    readHidden: number;
+  };
+}
+
+export interface MessageInformationResponse {
+  data: MessageInformation;
+}
+
 export interface StarredMessageItem {
   starredAt: string;
   message: MessagingMessage;

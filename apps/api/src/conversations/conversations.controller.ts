@@ -929,6 +929,34 @@ export class ConversationsController {
     return new StreamableFile(createReadStream(attachment.absolutePath));
   }
 
+  @Get(':conversationId/messages/:messageId/info')
+  getMessageInformation(
+    @CurrentUser()
+    user: AuthenticatedUser,
+
+    @Param(
+      'conversationId',
+      new ParseUUIDPipe({
+        version: '4',
+      }),
+    )
+    conversationId: string,
+
+    @Param(
+      'messageId',
+      new ParseUUIDPipe({
+        version: '4',
+      }),
+    )
+    messageId: string,
+  ) {
+    return this.conversationsService.getMessageInformation(
+      user,
+      conversationId,
+      messageId,
+    );
+  }
+
   @Post(':conversationId/messages/:messageId/star')
   starMessage(
     @CurrentUser()

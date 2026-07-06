@@ -406,6 +406,32 @@ type MessageRecord = Prisma.MessageGetPayload<{
   select: typeof messageSelect;
 }>;
 
+const messageInformationSelect = {
+  ...messageSelect,
+
+  receipts: {
+    select: {
+      accountId: true,
+      deliveredAt: true,
+      readAt: true,
+      createdAt: true,
+      updatedAt: true,
+
+      account: {
+        select: messagingAccountSelect,
+      },
+    },
+
+    orderBy: {
+      accountId: 'asc',
+    },
+  },
+} satisfies Prisma.MessageSelect;
+
+type MessageInformationRecord = Prisma.MessageGetPayload<{
+  select: typeof messageInformationSelect;
+}>;
+
 const conversationSelect = {
   id: true,
   type: true,
@@ -1762,6 +1788,57 @@ export class ConversationsService {
       textContent: message.deletedAt ? null : message.textContent,
       sentAt: message.sentAt,
       isDeleted: message.deletedAt !== null,
+    };
+  }
+
+  private getVisibleMessageInformationReadAt(
+    message: Pick<MessageInformationRecord, 'senderAccountId'>,
+    receipt: MessageInformationRecord['receipts'][number],
+    viewerAccountId: string,
+  ): Date | null {
+    if (viewerAccountId !== message.senderAccountId) {
+      return receipt.accountId === viewerAccountId ? receipt.readAt : null;
+    }
+
+    // Recipient privacy can hide read time from the sender while delivery remains visible.
+    return receipt.account.showReadReceipts ? receipt.readAt : null;
+  }
+
+  private serializeMessageInformation(
+    message: MessageInformationRecord,
+    viewerAccountId: string,
+  ) {
+    const recipients = message.receipts.map((receipt) => {
+      const readAt = this.getVisibleMessageInformationReadAt(
+        message,
+        receipt,
+        viewerAccountId,
+      );
+
+      return {
+        accountId: receipt.accountId,
+        account: this.serializeAccount(receipt.account),
+        deliveredAt: receipt.deliveredAt,
+        readAt,
+        readHidden: receipt.readAt !== null && readAt === null,
+        createdAt: receipt.createdAt,
+        updatedAt: receipt.updatedAt,
+      };
+    });
+
+    return {
+      message: this.serializeMessage(message, viewerAccountId),
+      sender: this.serializeAccount(message.sender),
+      sentAt: message.sentAt,
+      editedAt: message.editedAt,
+      deletedAt: message.deletedAt,
+      recipients,
+      summary: {
+        totalRecipients: message.receipts.length,
+        delivered: recipients.filter((receipt) => receipt.deliveredAt !== null).length,
+        read: recipients.filter((receipt) => receipt.readAt !== null).length,
+        readHidden: recipients.filter((receipt) => receipt.readHidden).length,
+      },
     };
   }
 
@@ -6378,6 +6455,47 @@ export class ConversationsService {
         hasMore,
         nextCursor,
       },
+    };
+  }
+
+  async getMessageInformation(
+    user: AuthenticatedUser,
+    conversationId: string,
+    messageId: string,
+  ) {
+    const viewer = await this.getMessagingViewer(user);
+    const participant = await this.assertActiveParticipant(
+      viewer.accountId,
+      conversationId,
+    );
+
+    const message = await this.prisma.message.findFirst({
+      where: {
+        id: messageId,
+        conversationId,
+        sentAt: {
+          gte: participant.joinedAt,
+        },
+        hiddenForAccounts: {
+          none: {
+            accountId: viewer.accountId,
+          },
+        },
+      },
+
+      select: messageInformationSelect,
+    });
+
+    if (!message) {
+      throw new NotFoundException('Message was not found.');
+    }
+
+    if (message.senderAccountId !== viewer.accountId) {
+      throw new ForbiddenException('Only the sender can view message information.');
+    }
+
+    return {
+      data: this.serializeMessageInformation(message, viewer.accountId),
     };
   }
 

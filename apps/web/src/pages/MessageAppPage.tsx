@@ -30,6 +30,7 @@ import {
   deleteMyMessagingProfilePhoto,
   declineMessageRequest,
   deleteMessagingNotification,
+  getConversationMessageInformation,
   getMessagingPrivacySettings,
   getMessagingProfile,
   getMyMessagingProfile,
@@ -102,6 +103,7 @@ import type {
   MessagingConversation,
   ConversationListView,
   ConversationMuteSetting,
+  MessageInformation,
   MessagingMessage,
   MessagingMention,
   MessagingLocationPayload,
@@ -1399,6 +1401,9 @@ export function MessageAppPage() {
   >(null);
   const [reactionActionId, setReactionActionId] = useState<string | null>(null);
   const [pinActionId, setPinActionId] = useState<string | null>(null);
+  const [messageInformation, setMessageInformation] = useState<MessageInformation | null>(null);
+  const [messageInformationLoadingId, setMessageInformationLoadingId] = useState<string | null>(null);
+  const [messageInformationError, setMessageInformationError] = useState<string | null>(null);
   const [conversationPreferenceLoading, setConversationPreferenceLoading] = useState<string | null>(null);
   const [conversationLoading, setConversationLoading] = useState(true);
   const [messageLoading, setMessageLoading] = useState(false);
@@ -4893,6 +4898,39 @@ export function MessageAppPage() {
     setHighlightedMessageId(message.id);
   }
 
+  function closeMessageInformationDialog(): void {
+    setMessageInformation(null);
+    setMessageInformationError(null);
+  }
+
+  async function handleViewMessageInformation(message: MessagingMessage): Promise<void> {
+    if (!accessToken || messageInformationLoadingId !== null) {
+      return;
+    }
+
+    setMessageInformation(null);
+    setMessageInformationError(null);
+    setMessageInformationLoadingId(message.id);
+
+    try {
+      const response = await getConversationMessageInformation(
+        accessToken,
+        message.conversationId,
+        message.id,
+      );
+
+      setMessageInformation(response.data);
+    } catch (error) {
+      setMessageInformationError(
+        error instanceof Error
+          ? error.message
+          : "Message information could not be loaded.",
+      );
+    } finally {
+      setMessageInformationLoadingId(null);
+    }
+  }
+
   async function handleConversationPinnedToggle(): Promise<void> {
     if (!selectedConversation) {
       return;
@@ -6653,6 +6691,18 @@ export function MessageAppPage() {
                               </button>
                             )}
 
+                            {ownMessage && (
+                              <button
+                                type="button"
+                                onClick={() => void handleViewMessageInformation(message)}
+                                disabled={messageInformationLoadingId !== null}
+                              >
+                                {messageInformationLoadingId === message.id
+                                  ? "Loading..."
+                                  : "Info"}
+                              </button>
+                            )}
+
                             {!message.isDeleted && message.textContent && (
                               <button
                                 type="button"
@@ -8213,6 +8263,108 @@ export function MessageAppPage() {
                 </button>
               </div>
             </footer>
+          </section>
+        </div>
+      )}
+
+      {(messageInformation || messageInformationError) && (
+        <div
+          className="message-contact-backdrop"
+          role="presentation"
+          onMouseDown={(event) => {
+            if (event.currentTarget === event.target) {
+              closeMessageInformationDialog();
+            }
+          }}
+        >
+          <section
+            className="message-contact-dialog message-info-dialog"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="message-info-title"
+          >
+            <header>
+              <div>
+                <span>Message action</span>
+                <h2 id="message-info-title">Message information</h2>
+              </div>
+
+              <button
+                type="button"
+                onClick={closeMessageInformationDialog}
+                aria-label="Close message information dialog"
+              >
+                ×
+              </button>
+            </header>
+
+            {messageInformationError && !messageInformation ? (
+              <div className="message-info-state">
+                <strong>Could not load message information</strong>
+                <p>{messageInformationError}</p>
+              </div>
+            ) : messageInformation ? (
+              <div className="message-info-body">
+                <section className="message-info-summary">
+                  <span>Original message</span>
+                  <strong>{attachmentLabel(messageInformation.message)}</strong>
+                  <small>Sent {notificationTimestampLabel(messageInformation.sentAt)}</small>
+                </section>
+
+                <section className="message-info-counts" aria-label="Delivery summary">
+                  <div>
+                    <strong>{messageInformation.summary.totalRecipients}</strong>
+                    <span>Recipients</span>
+                  </div>
+                  <div>
+                    <strong>{messageInformation.summary.delivered}</strong>
+                    <span>Delivered</span>
+                  </div>
+                  <div>
+                    <strong>{messageInformation.summary.read}</strong>
+                    <span>Read</span>
+                  </div>
+                </section>
+
+                <section className="message-info-recipients">
+                  <h3>Recipient details</h3>
+
+                  {messageInformation.recipients.length === 0 ? (
+                    <p>This message has no separate recipients.</p>
+                  ) : (
+                    messageInformation.recipients.map((recipient) => (
+                      <article key={recipient.accountId} className="message-info-recipient">
+                        <span className="message-avatar small">
+                          {initials(recipient.account.displayName)}
+                        </span>
+
+                        <div>
+                          <strong>{recipient.account.displayName}</strong>
+                          <small>{recipient.account.employee?.designation ?? roleLabel(recipient.account.role)}</small>
+                        </div>
+
+                        <dl>
+                          <div>
+                            <dt>Delivered</dt>
+                            <dd>{recipient.deliveredAt ? notificationTimestampLabel(recipient.deliveredAt) : "Pending"}</dd>
+                          </div>
+                          <div>
+                            <dt>Read</dt>
+                            <dd>
+                              {recipient.readAt
+                                ? notificationTimestampLabel(recipient.readAt)
+                                : recipient.readHidden
+                                  ? "Hidden by privacy"
+                                  : "Not read"}
+                            </dd>
+                          </div>
+                        </dl>
+                      </article>
+                    ))
+                  )}
+                </section>
+              </div>
+            ) : null}
           </section>
         </div>
       )}

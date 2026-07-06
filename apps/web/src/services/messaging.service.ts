@@ -26,6 +26,7 @@ import type {
   MessagingUserProfileResponse,
   MessagingAnalyticsResponse,
   MessagingSearchFilters,
+  MessageInformationResponse,
   MessageListResponse,
   MessagePersonalStateResponse,
   MessageReactionResponse,
@@ -1133,6 +1134,19 @@ export function markConversationRead(
     `/conversations/${conversationId}/read`,
     {
       method: "PATCH",
+      headers: authorizationHeaders(accessToken),
+    },
+  );
+}
+
+export function getConversationMessageInformation(
+  accessToken: string,
+  conversationId: string,
+  messageId: string,
+): Promise<MessageInformationResponse> {
+  return apiRequest<MessageInformationResponse>(
+    `/conversations/${conversationId}/messages/${messageId}/info`,
+    {
       headers: authorizationHeaders(accessToken),
     },
   );
