@@ -35,4 +35,4 @@ test-results/
 generated/
 apps/api/src/generated/
 
-**/.env.local
+**/.env.localapps/api/storage/message-attachments/
