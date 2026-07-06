@@ -6,7 +6,7 @@ import {
   Logger,
   NotFoundException,
 } from '@nestjs/common';
-import { randomUUID } from 'node:crypto';
+import { randomBytes, randomUUID } from 'node:crypto';
 import { promises as fs } from 'node:fs';
 import path from 'node:path';
 
@@ -180,6 +180,7 @@ export interface MessagingProfileSharedGroup {
 
 const MESSAGE_REQUEST_COOLDOWN_MS = 24 * 60 * 60 * 1000;
 const MESSAGE_EDIT_WINDOW_MS = 15 * 60 * 1000;
+const GROUP_INVITATION_TOKEN_BYTES = 32;
 const MAX_IMAGE_ATTACHMENT_BYTES = 20 * 1024 * 1024;
 const MAX_DOCUMENT_ATTACHMENT_BYTES = 50 * 1024 * 1024;
 const MAX_AUDIO_ATTACHMENT_BYTES = 25 * 1024 * 1024;
@@ -538,6 +539,27 @@ const conversationSelect = {
 
 type ConversationRecord = Prisma.ConversationGetPayload<{
   select: typeof conversationSelect;
+}>;
+
+const groupInvitationLinkSelect = {
+  id: true,
+  conversationId: true,
+  token: true,
+  createdByAccountId: true,
+  revokedByAccountId: true,
+  revokedAt: true,
+  createdAt: true,
+  updatedAt: true,
+  createdBy: {
+    select: messagingAccountSelect,
+  },
+  revokedBy: {
+    select: messagingAccountSelect,
+  },
+} satisfies Prisma.GroupInvitationLinkSelect;
+
+type GroupInvitationLinkRecord = Prisma.GroupInvitationLinkGetPayload<{
+  select: typeof groupInvitationLinkSelect;
 }>;
 
 const messageRequestSelect = {
@@ -1866,6 +1888,25 @@ export class ConversationsService {
         read: recipients.filter((receipt) => receipt.readAt !== null).length,
         readHidden: recipients.filter((receipt) => receipt.readHidden).length,
       },
+    };
+  }
+
+  private createGroupInvitationToken(): string {
+    return randomBytes(GROUP_INVITATION_TOKEN_BYTES).toString('hex');
+  }
+
+  private serializeGroupInvitationLink(link: GroupInvitationLinkRecord) {
+    return {
+      id: link.id,
+      conversationId: link.conversationId,
+      token: link.token,
+      createdByAccountId: link.createdByAccountId,
+      revokedByAccountId: link.revokedByAccountId,
+      createdBy: this.serializeAccount(link.createdBy),
+      revokedBy: link.revokedBy ? this.serializeAccount(link.revokedBy) : null,
+      revokedAt: link.revokedAt,
+      createdAt: link.createdAt,
+      updatedAt: link.updatedAt,
     };
   }
 
@@ -4329,6 +4370,349 @@ export class ConversationsService {
       conversationId,
       created: existingConversation === null,
       data: serializedConversation,
+    };
+  }
+
+  async getGroupInvitationLink(
+    user: AuthenticatedUser,
+    conversationId: string,
+  ) {
+    const viewer = await this.getMessagingViewer(user);
+    const access = await this.getActiveGroupAccess(
+      viewer.accountId,
+      conversationId,
+    );
+
+    if (access.conversation.groupKind === GroupKind.OFFICIAL) {
+      throw new ForbiddenException(
+        'Official groups do not support manual invitation links.',
+      );
+    }
+
+    this.assertGroupManager(access.viewerParticipant.role);
+
+    const link = await this.prisma.groupInvitationLink.findFirst({
+      where: {
+        conversationId,
+        revokedAt: null,
+      },
+      orderBy: {
+        createdAt: 'desc',
+      },
+      select: groupInvitationLinkSelect,
+    });
+
+    return {
+      data: link ? this.serializeGroupInvitationLink(link) : null,
+    };
+  }
+
+  async createGroupInvitationLink(
+    user: AuthenticatedUser,
+    conversationId: string,
+  ) {
+    const viewer = await this.getMessagingViewer(user);
+    const access = await this.getActiveGroupAccess(
+      viewer.accountId,
+      conversationId,
+    );
+
+    if (access.conversation.groupKind === GroupKind.OFFICIAL) {
+      throw new ForbiddenException(
+        'Official groups do not support manual invitation links.',
+      );
+    }
+
+    this.assertGroupManager(access.viewerParticipant.role);
+
+    const now = new Date();
+    const link = await this.prisma.$transaction(async (transaction) => {
+      // Reset keeps only one active invitation link for a personal group.
+      await transaction.groupInvitationLink.updateMany({
+        where: {
+          conversationId,
+          revokedAt: null,
+        },
+        data: {
+          revokedAt: now,
+          revokedByAccountId: viewer.accountId,
+        },
+      });
+
+      const created = await transaction.groupInvitationLink.create({
+        data: {
+          conversationId,
+          token: this.createGroupInvitationToken(),
+          createdByAccountId: viewer.accountId,
+        },
+        select: groupInvitationLinkSelect,
+      });
+
+      await transaction.conversation.update({
+        where: {
+          id: conversationId,
+        },
+        data: {
+          updatedAt: now,
+        },
+      });
+
+      return created;
+    });
+
+    this.messagingEventsService.emitConversationUpdated(
+      access.conversation.participants.map((participant) => participant.accountId),
+      {
+        conversationId,
+        reason: 'GROUP_UPDATED',
+        occurredAt: now.toISOString(),
+      },
+    );
+
+    return {
+      message: 'Group invitation link is ready.',
+      data: this.serializeGroupInvitationLink(link),
+    };
+  }
+
+  async revokeGroupInvitationLink(
+    user: AuthenticatedUser,
+    conversationId: string,
+  ) {
+    const viewer = await this.getMessagingViewer(user);
+    const access = await this.getActiveGroupAccess(
+      viewer.accountId,
+      conversationId,
+    );
+
+    if (access.conversation.groupKind === GroupKind.OFFICIAL) {
+      throw new ForbiddenException(
+        'Official groups do not support manual invitation links.',
+      );
+    }
+
+    this.assertGroupManager(access.viewerParticipant.role);
+
+    const now = new Date();
+    const result = await this.prisma.$transaction(async (transaction) => {
+      const update = await transaction.groupInvitationLink.updateMany({
+        where: {
+          conversationId,
+          revokedAt: null,
+        },
+        data: {
+          revokedAt: now,
+          revokedByAccountId: viewer.accountId,
+        },
+      });
+
+      if (update.count > 0) {
+        await transaction.conversation.update({
+          where: {
+            id: conversationId,
+          },
+          data: {
+            updatedAt: now,
+          },
+        });
+      }
+
+      return update;
+    });
+
+    if (result.count > 0) {
+      this.messagingEventsService.emitConversationUpdated(
+        access.conversation.participants.map((participant) => participant.accountId),
+        {
+          conversationId,
+          reason: 'GROUP_UPDATED',
+          occurredAt: now.toISOString(),
+        },
+      );
+    }
+
+    return {
+      message: result.count > 0
+        ? 'Group invitation link revoked.'
+        : 'There is no active invitation link to revoke.',
+      revokedCount: result.count,
+      revokedAt: result.count > 0 ? now : null,
+    };
+  }
+
+  async previewGroupInvitation(
+    user: AuthenticatedUser,
+    token: string,
+  ) {
+    const viewer = await this.getMessagingViewer(user);
+    const invitation = await this.prisma.groupInvitationLink.findFirst({
+      where: {
+        token,
+        revokedAt: null,
+        conversation: {
+          type: ConversationType.GROUP,
+          groupKind: GroupKind.PERSONAL,
+        },
+      },
+      select: {
+        id: true,
+        token: true,
+        createdAt: true,
+        createdBy: {
+          select: messagingAccountSelect,
+        },
+        conversation: {
+          select: {
+            id: true,
+            title: true,
+            description: true,
+            groupPhotoKey: true,
+            participants: {
+              where: {
+                leftAt: null,
+              },
+              select: {
+                accountId: true,
+              },
+            },
+          },
+        },
+      },
+    });
+
+    if (!invitation) {
+      throw new NotFoundException('Invitation link is invalid or revoked.');
+    }
+
+    return {
+      data: {
+        token: invitation.token,
+        conversationId: invitation.conversation.id,
+        title: invitation.conversation.title,
+        description: invitation.conversation.description,
+        groupPhotoKey: invitation.conversation.groupPhotoKey,
+        memberCount: invitation.conversation.participants.length,
+        alreadyMember: invitation.conversation.participants.some(
+          (participant) => participant.accountId === viewer.accountId,
+        ),
+        createdBy: this.serializeAccount(invitation.createdBy),
+        createdAt: invitation.createdAt,
+      },
+    };
+  }
+
+  async joinGroupInvitation(
+    user: AuthenticatedUser,
+    token: string,
+  ) {
+    const viewer = await this.getMessagingViewer(user);
+    const invitation = await this.prisma.groupInvitationLink.findFirst({
+      where: {
+        token,
+        revokedAt: null,
+        conversation: {
+          type: ConversationType.GROUP,
+          groupKind: GroupKind.PERSONAL,
+        },
+      },
+      select: {
+        id: true,
+        conversationId: true,
+        conversation: {
+          select: {
+            participants: {
+              where: {
+                leftAt: null,
+              },
+              select: {
+                accountId: true,
+              },
+            },
+          },
+        },
+      },
+    });
+
+    if (!invitation) {
+      throw new NotFoundException('Invitation link is invalid or revoked.');
+    }
+
+    const activeAccountIds = invitation.conversation.participants.map(
+      (participant) => participant.accountId,
+    );
+
+    if (activeAccountIds.includes(viewer.accountId)) {
+      const conversation = await this.getConversationRecord(invitation.conversationId);
+
+      return {
+        message: 'You are already a member of this group.',
+        joined: false,
+        alreadyMember: true,
+        data: this.serializeConversation(conversation, viewer.accountId, 0),
+      };
+    }
+
+    if (activeAccountIds.length >= 100) {
+      throw new ConflictException(
+        'This personal group already has the maximum 100 active members.',
+      );
+    }
+
+    await this.assertNoPersonalGroupBlocks([
+      ...activeAccountIds,
+      viewer.accountId,
+    ]);
+
+    const now = new Date();
+
+    await this.prisma.$transaction([
+      this.prisma.conversationParticipant.upsert({
+        where: {
+          conversationId_accountId: {
+            conversationId: invitation.conversationId,
+            accountId: viewer.accountId,
+          },
+        },
+        update: {
+          joinedAt: now,
+          leftAt: null,
+          role: ConversationParticipantRole.MEMBER,
+          isArchived: false,
+        },
+        create: {
+          conversationId: invitation.conversationId,
+          accountId: viewer.accountId,
+          joinedAt: now,
+          role: ConversationParticipantRole.MEMBER,
+        },
+      }),
+      this.prisma.conversation.update({
+        where: {
+          id: invitation.conversationId,
+        },
+        data: {
+          updatedAt: now,
+        },
+      }),
+    ]);
+
+    const conversation = await this.getConversationRecord(invitation.conversationId);
+    const participantAccountIds = [
+      ...activeAccountIds,
+      viewer.accountId,
+    ];
+
+    this.messagingEventsService.emitConversationUpdated(participantAccountIds, {
+      conversationId: invitation.conversationId,
+      reason: 'MEMBERS_CHANGED',
+      occurredAt: now.toISOString(),
+    });
+
+    return {
+      message: 'You joined the group from the invitation link.',
+      joined: true,
+      alreadyMember: false,
+      data: this.serializeConversation(conversation, viewer.accountId, 0),
     };
   }
 

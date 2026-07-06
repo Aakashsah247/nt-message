@@ -267,6 +267,8 @@ model Account {
   actedNotifications           MessagingNotification[]      @relation("MessagingNotificationsActor")
   blocksCreated                MessagingAccountBlock[]      @relation("MessagingAccountBlocksCreated")
   blocksReceived               MessagingAccountBlock[]      @relation("MessagingAccountBlocksReceived")
+  createdGroupInvitationLinks  GroupInvitationLink[]        @relation("GroupInvitationLinksCreatedBy")
+  revokedGroupInvitationLinks  GroupInvitationLink[]        @relation("GroupInvitationLinksRevokedBy")
 
   @@index([role], map: "accounts_role_idx")
   @@index([isEnabled], map: "accounts_is_enabled_idx")
@@ -521,6 +523,7 @@ model Conversation {
   officialAuditLogs  OfficialGroupAuditLog[]
   notifications      MessagingNotification[]
   messagePins        MessagePin[]
+  invitationLinks    GroupInvitationLink[]
 
   @@index([type, lastMessageAt], map: "conversations_type_last_message_idx")
   @@index([groupKind, updatedAt], map: "conversations_group_kind_idx")
@@ -566,6 +569,30 @@ model ConversationParticipant {
 }
 
 
+
+
+model GroupInvitationLink {
+  id String @id @default(uuid()) @db.Uuid
+
+  conversationId String @map("conversation_id") @db.Uuid
+  token          String @unique @db.VarChar(96)
+
+  createdByAccountId String  @map("created_by_account_id") @db.Uuid
+  revokedByAccountId String? @map("revoked_by_account_id") @db.Uuid
+
+  revokedAt DateTime? @map("revoked_at") @db.Timestamptz(3)
+  createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt DateTime  @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  conversation Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  createdBy    Account      @relation("GroupInvitationLinksCreatedBy", fields: [createdByAccountId], references: [id], onDelete: Restrict)
+  revokedBy    Account?     @relation("GroupInvitationLinksRevokedBy", fields: [revokedByAccountId], references: [id], onDelete: Restrict)
+
+  @@index([conversationId, revokedAt, createdAt], map: "group_invitation_links_conversation_active_idx")
+  @@index([createdByAccountId, createdAt], map: "group_invitation_links_created_by_idx")
+  @@index([revokedByAccountId, revokedAt], map: "group_invitation_links_revoked_by_idx")
+  @@map("group_invitation_links")
+}
 
 model OfficialGroupAuditLog {
   id String @id @default(uuid()) @db.Uuid

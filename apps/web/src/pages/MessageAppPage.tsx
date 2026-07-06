@@ -12,7 +12,7 @@ import type {
   MouseEvent,
   ReactNode,
 } from "react";
-import { useNavigate } from "react-router";
+import { useLocation, useNavigate } from "react-router";
 
 import { DirectoryButton } from "../components/DirectoryButton";
 import { useAuth } from "../context/AuthContext";
@@ -22,6 +22,7 @@ import {
   blockMessageRequest,
   blockMessagingAccount,
   createGroupConversation,
+  createGroupInvitationLink,
   createOfficialGroupConversation,
   createPrivateConversation,
   createMessagingProfilePhotoObjectUrl,
@@ -32,6 +33,7 @@ import {
   deleteMessagingNotification,
   getConversationMessageInformation,
   getConversationSharedContent,
+  getGroupInvitationLink,
   getMessagingPrivacySettings,
   getMessagingProfile,
   getMyMessagingProfile,
@@ -42,6 +44,7 @@ import {
   downloadConversationAttachment,
   editConversationTextMessage,
   forwardConversationMessage,
+  joinGroupInvitation,
   leaveGroupConversation,
   listConversationMessages,
   listConversationPinnedMessages,
@@ -57,6 +60,7 @@ import {
   pinConversationMessage,
   reconcileOfficialGroups,
   removeGroupMember,
+  revokeGroupInvitationLink,
   reactToMessage,
   searchMessagingContacts,
   starConversationMessage,
@@ -95,6 +99,7 @@ import type {
   MessagingTypingUpdatedPayload,
 } from "../services/messaging-socket.service";
 import type {
+  GroupInvitationLink,
   GroupKind,
   MessageRequestListResponse,
   MessagingAccount,
@@ -181,6 +186,35 @@ const DEFAULT_MESSAGING_CUSTOMIZATION: MessagingCustomization = {
   wallpaper: "CLEAN",
   density: "COMFORTABLE",
 };
+
+function buildGroupInviteUrl(token: string): string {
+  const encodedToken = encodeURIComponent(token);
+
+  if (typeof window === "undefined") {
+    return `/messages?invite=${encodedToken}`;
+  }
+
+  return `${window.location.origin}/messages?invite=${encodedToken}`;
+}
+
+// Copies text to the clipboard with a browser-safe fallback.
+async function copyTextToClipboard(text: string): Promise<void> {
+  if (navigator.clipboard?.writeText) {
+    await navigator.clipboard.writeText(text);
+    return;
+  }
+
+  // Fallback keeps copy working in older browsers or non-secure localhost contexts.
+  const textArea = document.createElement("textarea");
+  textArea.value = text;
+  textArea.setAttribute("readonly", "true");
+  textArea.style.position = "fixed";
+  textArea.style.left = "-9999px";
+  document.body.appendChild(textArea);
+  textArea.select();
+  document.execCommand("copy");
+  document.body.removeChild(textArea);
+}
 
 const THEME_OPTIONS: Array<{ value: MessagingTheme; label: string }> = [
   { value: "NT_BLUE", label: "NT Blue" },
@@ -1490,28 +1524,6 @@ function messagePreview(
   return `${prefix}${message.forwardedFrom ? "Forwarded: " : ""}${attachmentLabel(message)}`;
 }
 
-async function copyTextToClipboard(text: string): Promise<void> {
-  if (navigator.clipboard?.writeText) {
-    await navigator.clipboard.writeText(text);
-    return;
-  }
-
-  const textArea = document.createElement("textarea");
-  textArea.value = text;
-  textArea.setAttribute("readonly", "");
-  textArea.style.position = "fixed";
-  textArea.style.opacity = "0";
-  document.body.appendChild(textArea);
-  textArea.select();
-
-  const copied = document.execCommand("copy");
-  document.body.removeChild(textArea);
-
-  if (!copied) {
-    throw new Error("The browser could not copy this message.");
-  }
-}
-
 function playGeneratedNotificationFallback(): void {
   const audioWindow = window as Window & typeof globalThis & {
     webkitAudioContext?: typeof AudioContext;
@@ -1557,6 +1569,7 @@ function notificationTimestampLabel(value: string): string {
 
 export function MessageAppPage() {
   const navigate = useNavigate();
+  const location = useLocation();
   const {
     account,
     accessToken,
@@ -1646,6 +1659,12 @@ export function MessageAppPage() {
   const [groupSubmitting, setGroupSubmitting] = useState(false);
   const [groupActionAccountId, setGroupActionAccountId] = useState<string | null>(null);
   const [groupError, setGroupError] = useState<string | null>(null);
+  const [groupInviteLink, setGroupInviteLink] = useState<GroupInvitationLink | null>(null);
+  const [groupInviteLoading, setGroupInviteLoading] = useState(false);
+  const [groupInviteNotice, setGroupInviteNotice] = useState<string | null>(null);
+  const [groupInviteError, setGroupInviteError] = useState<string | null>(null);
+  const [inviteJoinLoading, setInviteJoinLoading] = useState(false);
+  const groupInviteJoinTokenRef = useRef<string | null>(null);
   const [groupPhotoUploading, setGroupPhotoUploading] = useState(false);
   const groupPhotoInputRef = useRef<HTMLInputElement | null>(null);
   const [contactSearch, setContactSearch] = useState("");
@@ -1799,6 +1818,7 @@ export function MessageAppPage() {
   const pendingSearchResultRef = useRef<MessagingSearchMessageResult | null>(null);
   const previousScrollConversationIdRef = useRef<string | null>(null);
   const previousMessageCountRef = useRef(0);
+  const pendingBottomScrollConversationIdRef = useRef<string | null>(selectedConversationId);
   const composerRef = useRef<HTMLTextAreaElement | null>(null);
   const attachmentInputRef = useRef<HTMLInputElement | null>(null);
   const attachmentViewerRequestRef = useRef(0);
@@ -1827,6 +1847,11 @@ export function MessageAppPage() {
       (conversation) => conversation.id === selectedConversationId,
     ) ?? null,
     [conversations, selectedConversationId],
+  );
+
+  const groupInviteUrl = useMemo(
+    () => groupInviteLink ? buildGroupInviteUrl(groupInviteLink.token) : "",
+    [groupInviteLink],
   );
 
   const activeMentionQuery = useMemo(
@@ -3036,8 +3061,16 @@ export function MessageAppPage() {
       setMessages([]);
       setPinnedMessages([]);
       draftConversationIdRef.current = null;
+      pendingBottomScrollConversationIdRef.current = null;
+      previousScrollConversationIdRef.current = null;
+      previousMessageCountRef.current = 0;
       return;
     }
+
+    // New conversations should open from the latest message after messages finish loading.
+    pendingBottomScrollConversationIdRef.current = selectedConversationId;
+    previousScrollConversationIdRef.current = null;
+    previousMessageCountRef.current = 0;
 
     void loadMessages(selectedConversationId);
     void loadPinnedMessages(selectedConversationId);
@@ -3055,6 +3088,15 @@ export function MessageAppPage() {
       return;
     }
 
+    const messagesBelongToSelectedConversation =
+      !selectedConversationId ||
+      messages.length === 0 ||
+      messages.every((message) => message.conversationId === selectedConversationId);
+
+    if (!messagesBelongToSelectedConversation) {
+      return;
+    }
+
     const conversationChanged =
       previousScrollConversationIdRef.current !== selectedConversationId;
     const messageCountIncreased =
@@ -3062,14 +3104,34 @@ export function MessageAppPage() {
     const distanceFromBottom =
       element.scrollHeight - element.scrollTop - element.clientHeight;
     const viewerWasNearBottom = distanceFromBottom < 160;
+    const pendingInitialBottomScroll =
+      Boolean(selectedConversationId) &&
+      pendingBottomScrollConversationIdRef.current === selectedConversationId &&
+      messages.length > 0;
 
-    if (conversationChanged || (messageCountIncreased && viewerWasNearBottom)) {
-      element.scrollTop = element.scrollHeight;
+    const shouldScrollToBottom =
+      pendingInitialBottomScroll ||
+      conversationChanged ||
+      (messageCountIncreased && viewerWasNearBottom);
+
+    if (shouldScrollToBottom) {
+      // Wait for the thread layout to finish before anchoring the user at the latest message.
+      window.requestAnimationFrame(() => {
+        element.scrollTop = element.scrollHeight;
+
+        window.requestAnimationFrame(() => {
+          element.scrollTop = element.scrollHeight;
+        });
+      });
+    }
+
+    if (pendingInitialBottomScroll) {
+      pendingBottomScrollConversationIdRef.current = null;
     }
 
     previousScrollConversationIdRef.current = selectedConversationId;
     previousMessageCountRef.current = messages.length;
-  }, [messageLoading, messages.length, olderMessagesLoading, selectedConversationId]);
+  }, [messageLoading, messages, olderMessagesLoading, selectedConversationId]);
 
   useEffect(() => {
     if (!highlightedMessageId) {
@@ -3283,6 +3345,105 @@ export function MessageAppPage() {
     selectedConversation,
   ]);
 
+  useEffect(() => {
+    if (
+      groupDialogMode !== "MANAGE" ||
+      !accessToken ||
+      selectedConversation?.type !== "GROUP" ||
+      selectedConversation.groupKind !== "PERSONAL" ||
+      !selectedConversation.canManageGroup
+    ) {
+      setGroupInviteLink(null);
+      setGroupInviteError(null);
+      setGroupInviteNotice(null);
+      return undefined;
+    }
+
+    let active = true;
+    setGroupInviteLoading(true);
+
+    // Loads the current active invitation link when an admin opens group info.
+    getGroupInvitationLink(accessToken, selectedConversation.id)
+      .then((response) => {
+        if (active) {
+          setGroupInviteLink(response.data);
+          setGroupInviteError(null);
+        }
+      })
+      .catch((error) => {
+        if (active) {
+          setGroupInviteError(
+            error instanceof Error
+              ? error.message
+              : "Invitation link could not be loaded.",
+          );
+        }
+      })
+      .finally(() => {
+        if (active) {
+          setGroupInviteLoading(false);
+        }
+      });
+
+    return () => {
+      active = false;
+    };
+  }, [
+    accessToken,
+    groupDialogMode,
+    selectedConversation,
+  ]);
+
+  useEffect(() => {
+    if (!accessToken) {
+      return;
+    }
+
+    const token = new URLSearchParams(location.search).get("invite")?.trim();
+
+    if (!token || groupInviteJoinTokenRef.current === token) {
+      return;
+    }
+
+    groupInviteJoinTokenRef.current = token;
+    setInviteJoinLoading(true);
+    setPageError(null);
+
+    // Accepts invitation links opened from copied group invite URLs.
+    joinGroupInvitation(accessToken, token)
+      .then(async (response) => {
+        replaceConversation(response.data);
+        setSelectedConversationId(response.data.id);
+        setMessageNotice(response.message);
+        await loadConversations(true, response.data.id);
+        navigate("/messages", { replace: true });
+      })
+      .catch((error) => {
+        groupInviteJoinTokenRef.current = null;
+        setPageError(
+          error instanceof Error
+            ? error.message
+            : "Group invitation link could not be accepted.",
+        );
+        navigate("/messages", { replace: true });
+      })
+      .finally(() => {
+        setInviteJoinLoading(false);
+      });
+  }, [
+    accessToken,
+    location.search,
+    loadConversations,
+    navigate,
+  ]);
+
+  function resetGroupInviteState(): void {
+    setGroupInviteLink(null);
+    setGroupInviteLoading(false);
+    setGroupInviteNotice(null);
+    setGroupInviteError(null);
+  }
+
   async function handleLogout(): Promise<void> {
     setLoggingOut(true);
 
@@ -3309,6 +3470,7 @@ export function MessageAppPage() {
     setGroupContacts([]);
     setGroupSelectedAccountIds([]);
     setGroupError(null);
+    resetGroupInviteState();
   }
 
   function openManageGroup(): void {
@@ -3325,6 +3487,7 @@ export function MessageAppPage() {
     setGroupContacts([]);
     setGroupSelectedAccountIds([]);
     setGroupError(null);
+    resetGroupInviteState();
   }
 
   function closeGroupDialog(): void {
@@ -3337,6 +3500,7 @@ export function MessageAppPage() {
     setGroupSelectedAccountIds([]);
     setGroupSearch("");
     setGroupError(null);
+    resetGroupInviteState();
   }
 
   function toggleGroupMember(accountId: string): void {
@@ -3491,6 +3655,89 @@ export function MessageAppPage() {
       );
     } finally {
       setGroupSubmitting(false);
+    }
+  }
+
+  async function handleCreateGroupInviteLink(): Promise<void> {
+    if (
+      !accessToken ||
+      !selectedConversation ||
+      selectedConversation.type !== "GROUP" ||
+      groupInviteLoading
+    ) {
+      return;
+    }
+
+    setGroupInviteLoading(true);
+    setGroupInviteNotice(null);
+    setGroupInviteError(null);
+
+    try {
+      // Generate also resets any older active invite link for this group.
+      const response = await createGroupInvitationLink(
+        accessToken,
+        selectedConversation.id,
+      );
+      setGroupInviteLink(response.data);
+      setGroupInviteNotice(response.message);
+    } catch (error) {
+      setGroupInviteError(
+        error instanceof Error
+          ? error.message
+          : "Invitation link could not be generated.",
+      );
+    } finally {
+      setGroupInviteLoading(false);
+    }
+  }
+
+  async function handleCopyGroupInviteLink(): Promise<void> {
+    if (!groupInviteUrl) {
+      return;
+    }
+
+    try {
+      await copyTextToClipboard(groupInviteUrl);
+      setGroupInviteNotice("Invitation link copied.");
+      setGroupInviteError(null);
+    } catch {
+      setGroupInviteError("Invitation link could not be copied automatically.");
+    }
+  }
+
+  async function handleRevokeGroupInviteLink(): Promise<void> {
+    if (
+      !accessToken ||
+      !selectedConversation ||
+      selectedConversation.type !== "GROUP" ||
+      groupInviteLoading
+    ) {
+      return;
+    }
+
+    if (!window.confirm("Revoke this group invitation link?")) {
+      return;
+    }
+
+    setGroupInviteLoading(true);
+    setGroupInviteNotice(null);
+    setGroupInviteError(null);
+
+    try {
+      const response = await revokeGroupInvitationLink(
+        accessToken,
+        selectedConversation.id,
+      );
+      setGroupInviteLink(null);
+      setGroupInviteNotice(response.message);
+    } catch (error) {
+      setGroupInviteError(
+        error instanceof Error
+          ? error.message
+          : "Invitation link could not be revoked.",
+      );
+    } finally {
+      setGroupInviteLoading(false);
     }
   }
 
@@ -6723,6 +6970,12 @@ export function MessageAppPage() {
                 </div>
               )}
 
+              {inviteJoinLoading && (
+                <div className="message-chat-notice">
+                  <span>Joining group from invitation link...</span>
+                </div>
+              )}
+
               {pinnedMessages.length > 0 && (
                 <section className="message-pinned-panel" aria-label="Pinned messages">
                   <div>
@@ -8252,9 +8505,58 @@ export function MessageAppPage() {
                       <small>Notification settings apply only to your own account.</small>
                     </article>
 
-                    <article>
+                    <article className="message-group-invite-panel">
                       <h4>Invitation links</h4>
-                      <p>Invitation link generation is handled in M10. Authorized links will appear here after that module is added.</p>
+
+                      {groupInfoConversation.groupKind === "OFFICIAL" ? (
+                        <p>Official group membership is controlled by organization assignment, so invitation links are disabled.</p>
+                      ) : !groupInfoConversation.canManageGroup ? (
+                        <p>Only the group owner or admins can create and revoke invitation links.</p>
+                      ) : groupInviteLoading ? (
+                        <p>Loading invitation link...</p>
+                      ) : groupInviteLink ? (
+                        <>
+                          <label className="message-group-invite-url">
+                            <span>Active invite URL</span>
+                            <input value={groupInviteUrl} readOnly />
+                          </label>
+
+                          <div className="message-group-invite-actions">
+                            <button type="button" onClick={() => void handleCopyGroupInviteLink()}>
+                              Copy link
+                            </button>
+                            <button type="button" onClick={() => void handleCreateGroupInviteLink()}>
+                              Reset link
+                            </button>
+                            <button
+                              type="button"
+                              className="danger"
+                              onClick={() => void handleRevokeGroupInviteLink()}
+                            >
+                              Revoke
+                            </button>
+                          </div>
+
+                          <small>Created by {groupInviteLink.createdBy.displayName} · {formatConversationTime(groupInviteLink.createdAt)}</small>
+                        </>
+                      ) : (
+                        <>
+                          <p>No active invitation link. Generate one to let authorized employees join this personal group.</p>
+                          <div className="message-group-invite-actions">
+                            <button type="button" onClick={() => void handleCreateGroupInviteLink()}>
+                              Generate invite link
+                            </button>
+                          </div>
+                        </>
+                      )}
+
+                      {groupInviteNotice && (
+                        <small className="message-group-info-success">{groupInviteNotice}</small>
+                      )}
+
+                      {groupInviteError && (
+                        <small className="message-group-info-danger">{groupInviteError}</small>
+                      )}
                     </article>
                   </div>
                 </section>

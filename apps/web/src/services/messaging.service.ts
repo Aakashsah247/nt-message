@@ -15,6 +15,11 @@ import type {
   ForwardMessagesResponse,
   GlobalMessagingSearchResponse,
   GroupConversationResponse,
+  GroupInvitationJoinResponse,
+  GroupInvitationLinkResponse,
+  GroupInvitationMutationResponse,
+  GroupInvitationPreviewResponse,
+  GroupInvitationRevokeResponse,
   LeaveGroupResponse,
   MarkConversationReadResponse,
   MessageRequestActionResponse,
@@ -750,6 +755,69 @@ export function getConversationSharedContent(
   return apiRequest<ConversationSharedContentResponse>(
     `/conversations/${conversationId}/shared-content?ts=${Date.now()}`,
     {
+      headers: authorizationHeaders(accessToken),
+    },
+  );
+}
+
+export function getGroupInvitationLink(
+  accessToken: string,
+  conversationId: string,
+): Promise<GroupInvitationLinkResponse> {
+  return apiRequest<GroupInvitationLinkResponse>(
+    `/conversations/${conversationId}/group/invite-link?ts=${Date.now()}`,
+    {
+      headers: authorizationHeaders(accessToken),
+    },
+  );
+}
+
+export function createGroupInvitationLink(
+  accessToken: string,
+  conversationId: string,
+): Promise<GroupInvitationMutationResponse> {
+  return apiRequest<GroupInvitationMutationResponse>(
+    `/conversations/${conversationId}/group/invite-link`,
+    {
+      method: "POST",
+      headers: authorizationHeaders(accessToken),
+    },
+  );
+}
+
+export function revokeGroupInvitationLink(
+  accessToken: string,
+  conversationId: string,
+): Promise<GroupInvitationRevokeResponse> {
+  return apiRequest<GroupInvitationRevokeResponse>(
+    `/conversations/${conversationId}/group/invite-link`,
+    {
+      method: "DELETE",
+      headers: authorizationHeaders(accessToken),
+    },
+  );
+}
+
+export function previewGroupInvitation(
+  accessToken: string,
+  token: string,
+): Promise<GroupInvitationPreviewResponse> {
+  return apiRequest<GroupInvitationPreviewResponse>(
+    `/conversations/group-invites/${encodeURIComponent(token)}?ts=${Date.now()}`,
+    {
+      headers: authorizationHeaders(accessToken),
+    },
+  );
+}
+
+export function joinGroupInvitation(
+  accessToken: string,
+  token: string,
+): Promise<GroupInvitationJoinResponse> {
+  return apiRequest<GroupInvitationJoinResponse>(
+    `/conversations/group-invites/${encodeURIComponent(token)}/join`,
+    {
+      method: "POST",
       headers: authorizationHeaders(accessToken),
     },
   );

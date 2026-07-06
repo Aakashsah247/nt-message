@@ -452,6 +452,57 @@ export interface RemoveGroupMemberResponse {
   removedAt: string;
 }
 
+export interface GroupInvitationLink {
+  id: string;
+  conversationId: string;
+  token: string;
+  createdByAccountId: string;
+  revokedByAccountId: string | null;
+  createdBy: MessagingAccount;
+  revokedBy: MessagingAccount | null;
+  revokedAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface GroupInvitationLinkResponse {
+  data: GroupInvitationLink | null;
+}
+
+export interface GroupInvitationMutationResponse {
+  message: string;
+  data: GroupInvitationLink;
+}
+
+export interface GroupInvitationRevokeResponse {
+  message: string;
+  revokedCount: number;
+  revokedAt: string | null;
+}
+
+export interface GroupInvitationPreview {
+  token: string;
+  conversationId: string;
+  title: string | null;
+  description: string | null;
+  groupPhotoKey: string | null;
+  memberCount: number;
+  alreadyMember: boolean;
+  createdBy: MessagingAccount;
+  createdAt: string;
+}
+
+export interface GroupInvitationPreviewResponse {
+  data: GroupInvitationPreview;
+}
+
+export interface GroupInvitationJoinResponse {
+  message: string;
+  joined: boolean;
+  alreadyMember: boolean;
+  data: MessagingConversation;
+}
+
 export interface LeaveGroupResponse {
   message: string;
   conversationId: string;

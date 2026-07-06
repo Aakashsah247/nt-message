@@ -399,6 +399,28 @@ export class ConversationsController {
     return this.conversationsService.createGroupConversation(user, dto);
   }
 
+  @Get('group-invites/:token')
+  previewGroupInvitation(
+    @CurrentUser()
+    user: AuthenticatedUser,
+
+    @Param('token')
+    token: string,
+  ) {
+    return this.conversationsService.previewGroupInvitation(user, token);
+  }
+
+  @Post('group-invites/:token/join')
+  joinGroupInvitation(
+    @CurrentUser()
+    user: AuthenticatedUser,
+
+    @Param('token')
+    token: string,
+  ) {
+    return this.conversationsService.joinGroupInvitation(user, token);
+  }
+
   @Post('private')
   createPrivateConversation(
     @CurrentUser()
@@ -455,6 +477,63 @@ export class ConversationsController {
     );
   }
 
+
+  @Get(':id/group/invite-link')
+  getGroupInvitationLink(
+    @CurrentUser()
+    user: AuthenticatedUser,
+
+    @Param(
+      'id',
+      new ParseUUIDPipe({
+        version: '4',
+      }),
+    )
+    conversationId: string,
+  ) {
+    return this.conversationsService.getGroupInvitationLink(
+      user,
+      conversationId,
+    );
+  }
+
+  @Post(':id/group/invite-link')
+  createGroupInvitationLink(
+    @CurrentUser()
+    user: AuthenticatedUser,
+
+    @Param(
+      'id',
+      new ParseUUIDPipe({
+        version: '4',
+      }),
+    )
+    conversationId: string,
+  ) {
+    return this.conversationsService.createGroupInvitationLink(
+      user,
+      conversationId,
+    );
+  }
+
+  @Delete(':id/group/invite-link')
+  revokeGroupInvitationLink(
+    @CurrentUser()
+    user: AuthenticatedUser,
+
+    @Param(
+      'id',
+      new ParseUUIDPipe({
+        version: '4',
+      }),
+    )
+    conversationId: string,
+  ) {
+    return this.conversationsService.revokeGroupInvitationLink(
+      user,
+      conversationId,
+    );
+  }
 
   @Post(':id/group/photo')
   @UseInterceptors(FileInterceptor('file', { limits: { fileSize: 5 * 1024 * 1024 } }))
