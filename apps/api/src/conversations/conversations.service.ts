@@ -115,6 +115,11 @@ interface MessageMentionPayloadItem {
   displayName: string;
 }
 
+interface OfficialAnnouncementPayload {
+  kind: 'OFFICIAL';
+  label: string;
+}
+
 interface MessageLocationPayload {
   kind: 'CURRENT' | 'LIVE';
   latitude: number;
@@ -1610,22 +1615,30 @@ export class ConversationsService {
 
   private buildTextMessagePayload(
     mentions: MessageMentionPayloadItem[],
+    announcement?: OfficialAnnouncementPayload,
   ): Prisma.InputJsonValue | undefined {
-    if (mentions.length === 0) {
+    if (mentions.length === 0 && !announcement) {
       return undefined;
     }
 
-    const mentionPayload: Prisma.InputJsonArray = mentions.map(
-      (mention) =>
-        ({
-          accountId: mention.accountId,
-          displayName: mention.displayName,
-        }) as Prisma.InputJsonObject,
-    );
+    const payload: Record<string, Prisma.InputJsonValue> = {};
 
-    return {
-      mentions: mentionPayload,
-    } as Prisma.InputJsonObject;
+    if (mentions.length > 0) {
+      payload.mentions = mentions.map(
+        (mention) =>
+          ({
+            accountId: mention.accountId,
+            displayName: mention.displayName,
+          }) as Prisma.InputJsonObject,
+      ) as Prisma.InputJsonArray;
+    }
+
+    if (announcement) {
+      // Official announcements stay as text messages while carrying a trusted payload marker.
+      payload.announcement = announcement as unknown as Prisma.InputJsonObject;
+    }
+
+    return payload as Prisma.InputJsonObject;
   }
 
 
@@ -7147,7 +7160,9 @@ export class ConversationsService {
               ? `${actor.displayName} mentioned you`
               : recipientNotificationType === MessagingNotificationType.REPLY
                 ? `${actor.displayName} replied`
-                : `${actor.displayName} sent a message`,
+                : recipientNotificationType === MessagingNotificationType.GROUP_EVENT
+                  ? 'Official announcement'
+                  : `${actor.displayName} sent a message`,
           body: this.buildNotificationBody(input.message),
           metadata: {
             contentType: input.message.contentType,
@@ -7281,6 +7296,7 @@ export class ConversationsService {
 
           select: {
             accountId: true,
+            role: true,
             isMuted: true,
             mutedUntil: true,
             account: {
@@ -7317,6 +7333,39 @@ export class ConversationsService {
         );
       }
     }
+
+    const sendAsAnnouncement = dto.isAnnouncement === true;
+    const viewerParticipant = conversation.participants.find(
+      (participant) => participant.accountId === viewer.accountId,
+    );
+
+    if (sendAsAnnouncement) {
+      // Official announcement authorization is enforced server-side, not only by UI controls.
+      if (
+        conversation.type !== ConversationType.GROUP ||
+        conversation.groupKind !== GroupKind.OFFICIAL
+      ) {
+        throw new BadRequestException(
+          'Official announcements can only be sent inside official groups.',
+        );
+      }
+
+      if (
+        viewerParticipant?.role !== ConversationParticipantRole.OWNER &&
+        viewerParticipant?.role !== ConversationParticipantRole.ADMIN
+      ) {
+        throw new ForbiddenException(
+          'Only official group owners and admins can send announcements.',
+        );
+      }
+    }
+
+    const announcementPayload: OfficialAnnouncementPayload | undefined = sendAsAnnouncement
+      ? {
+          kind: 'OFFICIAL',
+          label: 'Official announcement',
+        }
+      : undefined;
 
     const existingMessage = await this.prisma.message.findUnique({
       where: {
@@ -7392,7 +7441,7 @@ export class ConversationsService {
               contentType: MessageContentType.TEXT,
               textContent,
               replyToMessageId: dto.replyToMessageId ?? null,
-              payload: this.buildTextMessagePayload(mentions),
+              payload: this.buildTextMessagePayload(mentions, announcementPayload),
 
               receipts: {
                 create: recipientAccountIds.map((accountId) => ({
@@ -7456,6 +7505,9 @@ export class ConversationsService {
       await this.createAndEmitMessageNotifications({
         message: createdMessage,
         participants: conversation.participants,
+        notificationType: sendAsAnnouncement
+          ? MessagingNotificationType.GROUP_EVENT
+          : undefined,
         mentionedAccountIds: mentions.map((mention) => mention.accountId),
       });
 

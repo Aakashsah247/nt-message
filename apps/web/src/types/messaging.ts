@@ -232,6 +232,11 @@ export interface MessagingLocationPayload {
   updatedAt: string;
 }
 
+export interface MessagingAnnouncementPayload {
+  kind: "OFFICIAL";
+  label: string;
+}
+
 export interface MessagingMessage {
   id: string;
   conversationId: string;

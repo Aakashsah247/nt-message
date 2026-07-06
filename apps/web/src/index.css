@@ -9309,6 +9309,53 @@
   box-shadow: 0 8px 20px rgba(7, 92, 168, 0.18);
 }
 
+.message-bubble-row.official-announcement {
+  justify-content: center;
+  max-width: 900px;
+  margin-right: auto;
+  margin-left: auto;
+}
+
+.message-bubble-row.official-announcement .message-bubble-wrap {
+  max-width: min(88%, 720px);
+}
+
+.message-bubble-row.official-announcement .message-bubble {
+  border: 1px solid rgba(245, 158, 11, 0.38);
+  border-radius: 18px;
+  color: #2f2607;
+  background: linear-gradient(135deg, #fff7df, #fffdf7);
+  box-shadow: 0 14px 35px rgba(180, 83, 9, 0.14);
+}
+
+.message-bubble-row.official-announcement.own .message-bubble {
+  color: #2f2607;
+  background: linear-gradient(135deg, #fff3c4, #fffaf0);
+}
+
+.message-announcement-label {
+  display: grid;
+  gap: 2px;
+  margin-bottom: 8px;
+  padding: 7px 10px;
+  border: 1px solid rgba(180, 83, 9, 0.24);
+  border-radius: 999px;
+  color: #92400e;
+  background: rgba(255, 255, 255, 0.72);
+}
+
+.message-announcement-label strong {
+  font-size: 10px;
+  font-weight: 950;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.message-announcement-label span {
+  font-size: 9px;
+  font-weight: 800;
+}
+
 .message-bubble p,
 .message-bubble em {
   margin: 0;
@@ -9535,6 +9582,38 @@
   background: white;
   font-size: 17px;
   font-weight: 800;
+}
+
+.message-announcement-toggle {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 2px 8px;
+  align-items: center;
+  padding: 9px 11px;
+  border: 1px solid rgba(245, 158, 11, 0.32);
+  border-radius: 12px;
+  color: #7c4a03;
+  background: #fff8e1;
+}
+
+.message-announcement-toggle input {
+  grid-row: span 2;
+}
+
+.message-announcement-toggle span {
+  font-size: 11px;
+  font-weight: 950;
+}
+
+.message-announcement-toggle small {
+  color: #9a6a16;
+  font-size: 9px;
+  font-weight: 760;
+}
+
+.message-announcement-toggle.active {
+  border-color: #f59e0b;
+  box-shadow: 0 0 0 3px rgba(245, 158, 11, 0.14);
 }
 
 .message-composer textarea {
@@ -14244,6 +14323,23 @@
   padding: 18px;
   background: rgba(15, 23, 42, 0.42);
   backdrop-filter: blur(6px);
+}
+
+.message-app-shell.theme-dark .message-bubble-row.official-announcement .message-bubble {
+  border-color: rgba(245, 158, 11, 0.42);
+  color: #fde68a;
+  background: linear-gradient(135deg, rgba(120, 53, 15, 0.84), rgba(15, 23, 42, 0.94));
+}
+
+.message-app-shell.theme-dark .message-announcement-label,
+.message-app-shell.theme-dark .message-announcement-toggle {
+  color: #fde68a;
+  background: rgba(120, 53, 15, 0.42);
+  border-color: rgba(245, 158, 11, 0.44);
+}
+
+.message-app-shell.theme-dark .message-announcement-toggle small {
+  color: #facc15;
 }
 
 /* M8 SHARED MEDIA DOCUMENTS LINKS START */

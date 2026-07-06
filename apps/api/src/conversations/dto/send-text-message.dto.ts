@@ -1,6 +1,7 @@
 import {
   ArrayUnique,
   IsArray,
+  IsBoolean,
   IsOptional,
   IsString,
   IsUUID,
@@ -33,4 +34,8 @@ export class SendTextMessageDto {
     message: 'Mentioned account IDs must be valid UUIDs.',
   })
   mentionedAccountIds?: string[];
+
+  @IsOptional()
+  @IsBoolean()
+  isAnnouncement?: boolean;
 }

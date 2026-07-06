@@ -888,6 +888,7 @@ export function sendConversationTextMessage(
   text: string,
   replyToMessageId?: string,
   mentionedAccountIds: string[] = [],
+  isAnnouncement = false,
 ): Promise<SendTextMessageResponse> {
   return apiRequest<SendTextMessageResponse>(
     `/conversations/${conversationId}/messages`,
@@ -905,6 +906,11 @@ export function sendConversationTextMessage(
         ...(mentionedAccountIds.length > 0
           ? {
               mentionedAccountIds,
+            }
+          : {}),
+        ...(isAnnouncement
+          ? {
+              isAnnouncement: true,
             }
           : {}),
       }),

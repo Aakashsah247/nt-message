@@ -113,6 +113,7 @@ import type {
   MessageInformation,
   MessagingMessage,
   MessagingMention,
+  MessagingAnnouncementPayload,
   MessagingLocationPayload,
   MessagingMessageRequest,
   MessagingNotification,
@@ -704,6 +705,34 @@ function getMessagePayloadValue(
   }
 
   return (message.payload as Record<string, unknown>)[key];
+}
+
+// Reads the trusted official-announcement marker from a message payload.
+function getOfficialAnnouncementPayload(
+  message: Pick<MessagingMessage, "payload">,
+): MessagingAnnouncementPayload | null {
+  const announcement = getMessagePayloadValue(message, "announcement");
+
+  if (!announcement || typeof announcement !== "object" || Array.isArray(announcement)) {
+    return null;
+  }
+
+  const value = announcement as Record<string, unknown>;
+
+  if (value.kind !== "OFFICIAL") {
+    return null;
+  }
+
+  return {
+    kind: "OFFICIAL",
+    label: typeof value.label === "string" ? value.label : "Official announcement",
+  };
+}
+
+function isOfficialAnnouncementMessage(
+  message: Pick<MessagingMessage, "payload">,
+): boolean {
+  return getOfficialAnnouncementPayload(message) !== null;
 }
 
 function escapeRegExp(value: string): string {
@@ -1521,7 +1550,11 @@ function messagePreview(
       ? "You: "
       : "";
 
-  return `${prefix}${message.forwardedFrom ? "Forwarded: " : ""}${attachmentLabel(message)}`;
+  const announcementPrefix = isOfficialAnnouncementMessage(message)
+    ? "Announcement: "
+    : "";
+
+  return `${prefix}${announcementPrefix}${message.forwardedFrom ? "Forwarded: " : ""}${attachmentLabel(message)}`;
 }
 
 function playGeneratedNotificationFallback(): void {
@@ -1594,6 +1627,7 @@ export function MessageAppPage() {
   const [pinnedMessages, setPinnedMessages] = useState<MessagingMessage[]>([]);
   const [conversationSearch, setConversationSearch] = useState("");
   const [messageText, setMessageText] = useState("");
+  const [announcementMode, setAnnouncementMode] = useState(false);
   const [composerCaretIndex, setComposerCaretIndex] = useState(0);
   const [replyingTo, setReplyingTo] = useState<MessagingMessage | null>(null);
   const [editingMessage, setEditingMessage] = useState<MessagingMessage | null>(null);
@@ -1847,6 +1881,13 @@ export function MessageAppPage() {
       (conversation) => conversation.id === selectedConversationId,
     ) ?? null,
     [conversations, selectedConversationId],
+  );
+
+  // Only official group owners/admins can mark a text message as an announcement.
+  const canSendOfficialAnnouncement = Boolean(
+    selectedConversation?.type === "GROUP" &&
+      selectedConversation.groupKind === "OFFICIAL" &&
+      selectedConversation.canManageGroup,
   );
 
   const groupInviteUrl = useMemo(
@@ -3055,6 +3096,7 @@ export function MessageAppPage() {
   useEffect(() => {
     setReplyingTo(null);
     setEditingMessage(null);
+    setAnnouncementMode(false);
 
     if (!selectedConversationId) {
       setMessageText("");
@@ -5813,6 +5855,14 @@ export function MessageAppPage() {
       return;
     }
 
+    // Announcement mode changes only this outgoing text message, not the normal composer flow.
+    const sendAsAnnouncement = announcementMode && canSendOfficialAnnouncement && !editingMessage;
+
+    if (sendAsAnnouncement && selectedAttachment) {
+      setMessageError("Official announcements must be text-only. Remove the attachment first.");
+      return;
+    }
+
     setSendingMessage(true);
     setMessageError(null);
     stopLocalTyping(selectedConversationId);
@@ -5856,11 +5906,13 @@ export function MessageAppPage() {
             text,
             replyingTo?.id,
             getMentionedAccountIds(text, selectedConversation, account?.id),
+            sendAsAnnouncement,
           );
 
       delete draftCacheRef.current[selectedConversationId];
 
       setMessageText("");
+      setAnnouncementMode(false);
       setReplyingTo(null);
       clearSelectedAttachment();
       updateConversationPreference(accessToken, selectedConversationId, {
@@ -7029,6 +7081,7 @@ export function MessageAppPage() {
                 ) : (
                   messages.map((message) => {
                     const ownMessage = message.senderAccountId === account?.id;
+                    const officialAnnouncement = getOfficialAnnouncementPayload(message);
 
                     return (
                       <article
@@ -7036,7 +7089,7 @@ export function MessageAppPage() {
                         data-message-id={message.id}
                         className={`message-bubble-row${
                           ownMessage ? " own" : ""
-                        }${highlightedMessageId === message.id ? " search-highlight" : ""}`}
+                        }${officialAnnouncement ? " official-announcement" : ""}${highlightedMessageId === message.id ? " search-highlight" : ""}`}
                       >
                         {!ownMessage && renderAccountAvatar(message.sender, "message-avatar small")}
 
@@ -7052,6 +7105,13 @@ export function MessageAppPage() {
                               <div className="message-state-badges" aria-label="Message state">
                                 {message.isPinned && <span>📌 Pinned</span>}
                                 {message.isStarred && <span>★ Starred</span>}
+                              </div>
+                            )}
+
+                            {officialAnnouncement && !message.isDeleted && (
+                              <div className="message-announcement-label">
+                                <strong>{officialAnnouncement.label}</strong>
+                                <span>Official group broadcast</span>
                               </div>
                             )}
 
@@ -7456,7 +7516,7 @@ export function MessageAppPage() {
                   accept={ACCEPTED_ATTACHMENT_TYPES}
                   className="message-attachment-input"
                   onChange={handleAttachmentChange}
-                  disabled={sendingMessage || editingMessage !== null || voiceRecordingState !== "IDLE"}
+                  disabled={sendingMessage || editingMessage !== null || announcementMode || voiceRecordingState !== "IDLE"}
                   aria-label="Choose attachment"
                 />
 
@@ -7480,6 +7540,19 @@ export function MessageAppPage() {
                       </button>
                     ))}
                   </div>
+                )}
+
+                {canSendOfficialAnnouncement && !editingMessage && (
+                  <label className={`message-announcement-toggle${announcementMode ? " active" : ""}`}>
+                    <input
+                      type="checkbox"
+                      checked={announcementMode}
+                      onChange={(event) => setAnnouncementMode(event.target.checked)}
+                      disabled={sendingMessage || selectedAttachment !== null || voiceRecordingState !== "IDLE"}
+                    />
+                    <span>Official announcement</span>
+                    <small>Highlight this text for every member of the official group.</small>
+                  </label>
                 )}
 
                 <textarea
@@ -7514,14 +7587,16 @@ export function MessageAppPage() {
 
                 <div className="message-composer-actions">
                   <span>
-                    Attach image, video, audio or document · Enter to send
+                    {announcementMode
+                      ? "Official announcement mode · Enter to send"
+                      : "Attach image, video, audio or document · Enter to send"}
                   </span>
 
                   <button
                     type="button"
                     className="message-location-button"
                     onClick={() => void handleShareCurrentLocation()}
-                    disabled={sendingMessage || editingMessage !== null || voiceRecordingState !== "IDLE" || locationActionLoading !== null}
+                    disabled={sendingMessage || editingMessage !== null || announcementMode || voiceRecordingState !== "IDLE" || locationActionLoading !== null}
                   >
                     {locationActionLoading === "CURRENT" ? "Sharing..." : "📍 Location"}
                   </button>
@@ -7535,6 +7610,7 @@ export function MessageAppPage() {
                       disabled={
                         sendingMessage ||
                         editingMessage !== null ||
+                        announcementMode ||
                         voiceRecordingState !== "IDLE" ||
                         locationActionLoading !== null
                       }
@@ -7547,7 +7623,7 @@ export function MessageAppPage() {
                       type="button"
                       className="message-live-location-button"
                       onClick={() => void handleStartLiveLocation()}
-                      disabled={sendingMessage || editingMessage !== null || voiceRecordingState !== "IDLE" || locationActionLoading !== null || activeLiveLocation !== null}
+                      disabled={sendingMessage || editingMessage !== null || announcementMode || voiceRecordingState !== "IDLE" || locationActionLoading !== null || activeLiveLocation !== null}
                     >
                       {locationActionLoading === "LIVE" ? "Starting..." : "Live"}
                     </button>
@@ -7568,7 +7644,7 @@ export function MessageAppPage() {
                     type="button"
                     className="message-voice-record-button"
                     onClick={() => void beginVoiceRecording()}
-                    disabled={sendingMessage || editingMessage !== null || selectedAttachment !== null || voiceRecordingState !== "IDLE"}
+                    disabled={sendingMessage || editingMessage !== null || announcementMode || selectedAttachment !== null || voiceRecordingState !== "IDLE"}
                   >
                     🎙 Voice note
                   </button>
