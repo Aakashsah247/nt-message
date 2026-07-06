@@ -1274,6 +1274,14 @@ function mergeSharedContent(
   };
 }
 
+// Estimates visible shared-file storage from currently loaded media and document messages.
+function sharedContentStorageBytes(sharedContent: ConversationSharedContent): number {
+  return [...sharedContent.media, ...sharedContent.documents].reduce(
+    (total, item) => total + item.attachment.fileSizeBytes,
+    0,
+  );
+}
+
 
 function canForwardMessage(message: MessagingMessage): boolean {
   if (message.isDeleted) {
@@ -5755,6 +5763,30 @@ export function MessageAppPage() {
   ].filter((request) => request.status === "BLOCKED");
   const blockedAccountIds = new Set(blockedAccounts.map((block) => block.blockedAccountId));
 
+  const groupInfoConversation = selectedConversation?.type === "GROUP"
+    ? selectedConversation
+    : null;
+  const groupInfoOwner = groupInfoConversation?.participants.find(
+    (participant) => participant.participantRole === "OWNER",
+  ) ?? null;
+  const groupInfoAdmins = groupInfoConversation?.participants.filter(
+    (participant) => participant.participantRole === "ADMIN",
+  ) ?? [];
+  const groupInfoMembers = groupInfoConversation?.participants.filter(
+    (participant) => participant.participantRole === "MEMBER",
+  ) ?? [];
+  const groupInfoSharedContent = useMemo(() => {
+    if (!groupInfoConversation) {
+      return emptySharedContent();
+    }
+
+    // M9 uses the currently loaded messages for an instant group information summary.
+    return collectSharedContentFromMessages(
+      messages.filter((message) => message.conversationId === groupInfoConversation.id),
+    );
+  }, [groupInfoConversation, messages]);
+  const groupInfoStorageBytes = sharedContentStorageBytes(groupInfoSharedContent);
+
   function renderAccountAvatar(
     targetAccount: MessagingAccount,
     className = "message-avatar",
@@ -8127,6 +8159,107 @@ export function MessageAppPage() {
                   </section>
                 )}
 
+              {groupDialogMode === "MANAGE" && groupInfoConversation && (
+                <section className="message-group-information-card">
+                  <header>
+                    {renderGroupAvatar(groupInfoConversation, "message-group-photo-preview")}
+                    <div>
+                      <span>Group information</span>
+                      <h3>{groupInfoConversation.title ?? "Group"}</h3>
+                      <p>
+                        {groupInfoConversation.description ||
+                          (groupInfoConversation.groupKind === "OFFICIAL"
+                            ? officialScopeLabel(groupInfoConversation)
+                            : "No group description added yet.")}
+                      </p>
+                    </div>
+                  </header>
+
+                  <div className="message-group-info-stats">
+                    <article>
+                      <span>Members</span>
+                      <strong>{groupInfoConversation.memberCount}</strong>
+                    </article>
+                    <article>
+                      <span>Owner</span>
+                      <strong>{groupInfoOwner?.displayName ?? "Not assigned"}</strong>
+                    </article>
+                    <article>
+                      <span>Admins</span>
+                      <strong>{groupInfoAdmins.length}</strong>
+                    </article>
+                    <article>
+                      <span>Storage shown</span>
+                      <strong>{formatFileSize(groupInfoStorageBytes)}</strong>
+                    </article>
+                  </div>
+
+                  <div className="message-group-info-sections">
+                    <article>
+                      <h4>Owner and admins</h4>
+                      <div className="message-group-info-chip-list">
+                        {groupInfoOwner && (
+                          <button type="button" onClick={() => openProfile(groupInfoOwner.accountId)}>
+                            Owner · {groupInfoOwner.displayName}
+                          </button>
+                        )}
+                        {groupInfoAdmins.length === 0 ? (
+                          <span>No group admins yet.</span>
+                        ) : (
+                          groupInfoAdmins.map((admin) => (
+                            <button key={admin.accountId} type="button" onClick={() => openProfile(admin.accountId)}>
+                              Admin · {admin.displayName}
+                            </button>
+                          ))
+                        )}
+                      </div>
+                    </article>
+
+                    <article>
+                      <h4>Shared content</h4>
+                      <div className="message-group-info-actions">
+                        <button type="button" onClick={() => void openSharedContentDialog("MEDIA")}>
+                          Media ({groupInfoSharedContent.media.length})
+                        </button>
+                        <button type="button" onClick={() => void openSharedContentDialog("DOCUMENTS")}>
+                          Documents ({groupInfoSharedContent.documents.length})
+                        </button>
+                        <button type="button" onClick={() => void openSharedContentDialog("LINKS")}>
+                          Links ({groupInfoSharedContent.links.length})
+                        </button>
+                      </div>
+                    </article>
+
+                    <article>
+                      <h4>Notification settings</h4>
+                      <select
+                        value={groupInfoConversation.isMuted
+                          ? groupInfoConversation.mutedUntil
+                            ? "8_HOURS"
+                            : "ALWAYS"
+                          : "OFF"}
+                        onChange={(event) => void handleConversationMuteChange(
+                          event.target.value as ConversationMuteSetting,
+                        )}
+                        disabled={conversationPreferenceLoading === groupInfoConversation.id}
+                        aria-label="Mute this group"
+                      >
+                        <option value="OFF">Unmuted</option>
+                        <option value="8_HOURS">Mute 8h</option>
+                        <option value="1_WEEK">Mute 1w</option>
+                        <option value="ALWAYS">Mute always</option>
+                      </select>
+                      <small>Notification settings apply only to your own account.</small>
+                    </article>
+
+                    <article>
+                      <h4>Invitation links</h4>
+                      <p>Invitation link generation is handled in M10. Authorized links will appear here after that module is added.</p>
+                    </article>
+                  </div>
+                </section>
+              )}
+
               {(groupDialogMode === "CREATE" ||
                 selectedConversation?.canManageGroup) && (
                 <section className="message-group-details">
@@ -8215,7 +8348,9 @@ export function MessageAppPage() {
                   <section className="message-group-members-section">
                     <header>
                       <h3>Members</h3>
-                      <span>{selectedConversation.memberCount}</span>
+                      <span>
+                        {selectedConversation.memberCount} total · {groupInfoAdmins.length} admins · {groupInfoMembers.length} members
+                      </span>
                     </header>
 
                     {selectedConversation.groupKind === "OFFICIAL" && (
