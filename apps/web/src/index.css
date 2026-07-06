@@ -11695,7 +11695,8 @@
 
 /* Y25 SEARCH AND FILTERS START */
 .message-search-mini-button,
-.message-search-open-button {
+.message-search-open-button,
+.message-shared-open-button {
   min-height: 34px;
   padding: 0 12px;
   border: 0;
@@ -13457,6 +13458,18 @@
   background: rgba(255, 255, 255, 0.22);
   color: inherit;
 }
+
+.message-text-link {
+  color: #075ca8;
+  font-weight: 800;
+  text-decoration: underline;
+  text-underline-offset: 0.14rem;
+  overflow-wrap: anywhere;
+}
+
+.message-bubble-row.own .message-text-link {
+  color: inherit;
+}
 /* M7 GROUP MENTIONS END */
 
 /* M11 M12 LOCATION SHARING START */
@@ -14048,3 +14061,269 @@
     text-align: left;
   }
 }
+
+
+/* Shared modal backdrop used by message info and shared-content dialogs. */
+.message-dialog-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 2000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 18px;
+  background: rgba(15, 23, 42, 0.42);
+  backdrop-filter: blur(6px);
+}
+
+/* M8 SHARED MEDIA DOCUMENTS LINKS START */
+.message-shared-dialog {
+  display: grid;
+  width: min(760px, calc(100vw - 24px));
+  max-height: min(760px, calc(100vh - 28px));
+  overflow: hidden;
+  border-radius: 22px;
+  background: #ffffff;
+  box-shadow: 0 28px 80px rgba(15, 23, 42, 0.28);
+}
+
+.message-shared-dialog > header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 18px 20px;
+  border-bottom: 1px solid rgba(15, 103, 177, 0.12);
+}
+
+.message-shared-dialog > header span {
+  color: #0f67b1;
+  font-size: 11px;
+  font-weight: 950;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.message-shared-dialog > header h2 {
+  margin: 2px 0 0;
+  color: #09233f;
+  font-size: 22px;
+}
+
+.message-shared-dialog > header button {
+  width: 36px;
+  height: 36px;
+  border: 0;
+  border-radius: 50%;
+  color: #0f2942;
+  background: #edf6ff;
+  font-size: 20px;
+  font-weight: 950;
+}
+
+.message-shared-tabs {
+  display: flex;
+  gap: 8px;
+  padding: 14px 20px;
+  border-bottom: 1px solid rgba(15, 103, 177, 0.1);
+  overflow-x: auto;
+}
+
+.message-shared-tabs button {
+  min-height: 34px;
+  border: 1px solid rgba(15, 103, 177, 0.18);
+  border-radius: 999px;
+  padding: 0 13px;
+  color: #0f2942;
+  background: #f8fbff;
+  font-size: 11px;
+  font-weight: 900;
+  white-space: nowrap;
+}
+
+.message-shared-tabs button.active {
+  color: #ffffff;
+  background: #0f67b1;
+  border-color: #0f67b1;
+}
+
+.message-shared-grid,
+.message-shared-list {
+  min-height: 260px;
+  overflow: auto;
+  padding: 16px 20px 20px;
+}
+
+.message-shared-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  gap: 12px;
+}
+
+.message-shared-list {
+  display: grid;
+  align-content: start;
+  gap: 10px;
+}
+
+.message-shared-media-card,
+.message-shared-document-row,
+.message-shared-link-row {
+  border: 1px solid rgba(15, 103, 177, 0.12);
+  border-radius: 16px;
+  background: #f8fbff;
+}
+
+.message-shared-media-card {
+  display: grid;
+  gap: 6px;
+  min-height: 128px;
+  padding: 14px;
+  text-align: left;
+}
+
+.message-shared-media-card span {
+  justify-self: start;
+  border-radius: 999px;
+  padding: 4px 9px;
+  color: #0f67b1;
+  background: #e6f3ff;
+  font-size: 10px;
+  font-weight: 950;
+}
+
+.message-shared-document-row,
+.message-shared-link-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 10px;
+  align-items: center;
+  padding: 10px;
+}
+
+.message-shared-document-row > button:first-child,
+.message-shared-link-row > button:first-child {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  border: 0;
+  padding: 0;
+  text-align: left;
+  background: transparent;
+}
+
+.message-shared-link-row > button:first-child {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.message-shared-document-row > button:last-child,
+.message-shared-link-row a,
+.message-shared-state button {
+  min-height: 34px;
+  border: 0;
+  border-radius: 999px;
+  padding: 0 12px;
+  color: #ffffff;
+  background: #0f67b1;
+  font-size: 11px;
+  font-weight: 900;
+  text-decoration: none;
+  display: inline-flex;
+  align-items: center;
+}
+
+.message-shared-media-card strong,
+.message-shared-media-card small,
+.message-shared-document-row strong,
+.message-shared-document-row small,
+.message-shared-document-row em,
+.message-shared-link-row strong,
+.message-shared-link-row small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.message-shared-document-row span:last-child {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+.message-shared-media-card strong,
+.message-shared-document-row strong,
+.message-shared-link-row strong {
+  color: #0f2942;
+  font-size: 13px;
+}
+
+.message-shared-media-card small,
+.message-shared-document-row small,
+.message-shared-link-row small,
+.message-shared-document-row em {
+  color: #64748b;
+  font-size: 11px;
+  font-style: normal;
+  font-weight: 750;
+}
+
+.message-shared-state {
+  display: grid;
+  place-items: center;
+  gap: 8px;
+  padding: 36px 20px;
+  text-align: center;
+}
+
+.message-shared-state strong {
+  color: #0f2942;
+  font-size: 15px;
+}
+
+.message-shared-state p {
+  margin: 0;
+  color: #64748b;
+}
+
+.message-app-shell.theme-dark .message-shared-dialog,
+.message-app-shell.theme-dark .message-shared-media-card,
+.message-app-shell.theme-dark .message-shared-document-row,
+.message-app-shell.theme-dark .message-shared-link-row {
+  border-color: rgba(148, 163, 184, 0.28);
+  background: rgba(15, 23, 42, 0.94);
+}
+
+.message-app-shell.theme-dark .message-shared-tabs,
+.message-app-shell.theme-dark .message-shared-dialog > header {
+  border-color: rgba(148, 163, 184, 0.22);
+}
+
+.message-app-shell.theme-dark .message-shared-dialog > header h2,
+.message-app-shell.theme-dark .message-shared-media-card strong,
+.message-app-shell.theme-dark .message-shared-document-row strong,
+.message-app-shell.theme-dark .message-shared-link-row strong,
+.message-app-shell.theme-dark .message-shared-state strong {
+  color: #e5eefb;
+}
+
+@media (max-width: 560px) {
+  .message-shared-dialog {
+    width: 100vw;
+    height: 100vh;
+    max-height: 100vh;
+    border-radius: 0;
+  }
+
+  .message-shared-document-row,
+  .message-shared-link-row {
+    grid-template-columns: 1fr;
+  }
+
+  .message-shared-document-row > button:last-child,
+  .message-shared-link-row a {
+    justify-content: center;
+  }
+}
+/* M8 SHARED MEDIA DOCUMENTS LINKS END */

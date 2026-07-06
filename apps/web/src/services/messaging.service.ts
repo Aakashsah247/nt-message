@@ -8,6 +8,7 @@ import type {
   ConversationMuteSetting,
   ConversationPreferenceResponse,
   ConversationMessageSearchResponse,
+  ConversationSharedContentResponse,
   CreatePrivateConversationResponse,
   DeleteMessageForMeResponse,
   DeleteMessageResponse,
@@ -735,6 +736,19 @@ export function searchConversationMessages(
 
   return apiRequest<ConversationMessageSearchResponse>(
     `/conversations/${conversationId}/messages/search?${params.toString()}`,
+    {
+      headers: authorizationHeaders(accessToken),
+    },
+  );
+}
+
+export function getConversationSharedContent(
+  accessToken: string,
+  conversationId: string,
+): Promise<ConversationSharedContentResponse> {
+  // Prevent browser cache from returning stale shared-content results.
+  return apiRequest<ConversationSharedContentResponse>(
+    `/conversations/${conversationId}/shared-content?ts=${Date.now()}`,
     {
       headers: authorizationHeaders(accessToken),
     },

@@ -645,6 +645,25 @@ export class ConversationsController {
     );
   }
 
+  @Get(':id/shared-content')
+  getConversationSharedContent(
+    @CurrentUser()
+    user: AuthenticatedUser,
+
+    @Param(
+      'id',
+      new ParseUUIDPipe({
+        version: '4',
+      }),
+    )
+    conversationId: string,
+  ) {
+    return this.conversationsService.getConversationSharedContent(
+      user,
+      conversationId,
+    );
+  }
+
   @Get(':id/messages/search')
   searchConversationMessages(
     @CurrentUser()

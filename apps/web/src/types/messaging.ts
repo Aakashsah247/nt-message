@@ -595,6 +595,39 @@ export interface ConversationMessageSearchResponse {
   };
 }
 
+export interface SharedContentAttachmentItem {
+  id: string;
+  messageId: string;
+  conversationId: string;
+  attachment: MessagingAttachment;
+  message: MessagingMessage;
+  sender: MessagingAccount;
+  sharedAt: string;
+}
+
+export interface SharedContentLinkItem {
+  url: string;
+  label: string;
+  message: MessagingMessage;
+  sender: MessagingAccount;
+  sharedAt: string;
+}
+
+export interface ConversationSharedContent {
+  media: SharedContentAttachmentItem[];
+  documents: SharedContentAttachmentItem[];
+  links: SharedContentLinkItem[];
+}
+
+export interface ConversationSharedContentResponse {
+  data: ConversationSharedContent;
+  counts: {
+    media: number;
+    documents: number;
+    links: number;
+  };
+}
+
 export interface GlobalMessagingSearchResponse {
   messages: MessagingSearchMessageResult[];
   conversations: MessagingConversation[];

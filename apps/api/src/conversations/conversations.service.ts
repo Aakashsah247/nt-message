@@ -129,6 +129,12 @@ interface MessageLocationPayload {
   updatedAt: string;
 }
 
+interface SharedContentLinkItem {
+  url: string;
+  label: string;
+  message: MessageRecord;
+}
+
 export interface AnalyticsScopeSummary {
   role: AccountRole;
   label: string;
@@ -404,6 +410,27 @@ const messageSelect = {
 
 type MessageRecord = Prisma.MessageGetPayload<{
   select: typeof messageSelect;
+}>;
+
+const sharedContentAttachmentSelect = {
+  id: true,
+  messageId: true,
+  storageKey: true,
+  originalFileName: true,
+  mimeType: true,
+  fileSizeBytes: true,
+  contentType: true,
+  scanStatus: true,
+  createdAt: true,
+  updatedAt: true,
+
+  message: {
+    select: messageSelect,
+  },
+} satisfies Prisma.MessageAttachmentSelect;
+
+type SharedContentAttachmentRecord = Prisma.MessageAttachmentGetPayload<{
+  select: typeof sharedContentAttachmentSelect;
 }>;
 
 const messageInformationSelect = {
@@ -1839,6 +1866,67 @@ export class ConversationsService {
         read: recipients.filter((receipt) => receipt.readAt !== null).length,
         readHidden: recipients.filter((receipt) => receipt.readHidden).length,
       },
+    };
+  }
+
+  private extractSharedLinks(text: string | null): string[] {
+    if (!text) {
+      return [];
+    }
+
+    const matches = text.match(/\b(?:https?:\/\/|www\.)[^\s<>()"']+/gi) ?? [];
+    const uniqueUrls = new Set<string>();
+
+    matches.forEach((match) => {
+      // Keep links clean when a sentence ends with punctuation.
+      const cleanUrl = match.replace(/[.,;:!?]+$/g, '');
+      const url = cleanUrl.toLowerCase().startsWith('www.')
+        ? `https://${cleanUrl}`
+        : cleanUrl;
+
+      if (url) {
+        uniqueUrls.add(url);
+      }
+    });
+
+    return [...uniqueUrls];
+  }
+
+  private serializeSharedAttachment(
+    attachment: SharedContentAttachmentRecord,
+    viewerAccountId: string,
+  ) {
+    return {
+      id: attachment.id,
+      messageId: attachment.messageId,
+      conversationId: attachment.message.conversationId,
+      attachment: {
+        id: attachment.id,
+        messageId: attachment.messageId,
+        originalFileName: attachment.originalFileName,
+        mimeType: attachment.mimeType,
+        fileSizeBytes: attachment.fileSizeBytes,
+        contentType: attachment.contentType,
+        scanStatus: attachment.scanStatus,
+        createdAt: attachment.createdAt,
+        updatedAt: attachment.updatedAt,
+      },
+      message: this.serializeMessage(attachment.message, viewerAccountId),
+      sender: this.serializeAccount(attachment.message.sender),
+      sharedAt: attachment.message.sentAt,
+    };
+  }
+
+  private serializeSharedLink(
+    item: SharedContentLinkItem,
+    viewerAccountId: string,
+  ) {
+    return {
+      url: item.url,
+      label: item.label,
+      message: this.serializeMessage(item.message, viewerAccountId),
+      sender: this.serializeAccount(item.message.sender),
+      sharedAt: item.message.sentAt,
     };
   }
 
@@ -4241,6 +4329,93 @@ export class ConversationsService {
       conversationId,
       created: existingConversation === null,
       data: serializedConversation,
+    };
+  }
+
+  async getConversationSharedContent(
+    user: AuthenticatedUser,
+    conversationId: string,
+  ) {
+    const viewer = await this.getMessagingViewer(user);
+
+    await this.assertActiveParticipant(viewer.accountId, conversationId);
+
+    const attachments = await this.prisma.messageAttachment.findMany({
+      where: {
+        scanStatus: {
+          notIn: ['FAILED', 'QUARANTINED'],
+        },
+        message: {
+          conversationId,
+          deletedAt: null,
+          hiddenForAccounts: {
+            none: {
+              accountId: viewer.accountId,
+            },
+          },
+        },
+      },
+      orderBy: {
+        createdAt: 'desc',
+      },
+      take: 240,
+      select: sharedContentAttachmentSelect,
+    });
+
+    const linkMessages = await this.prisma.message.findMany({
+      where: {
+        conversationId,
+        deletedAt: null,
+        textContent: {
+          contains: 'http',
+          mode: 'insensitive',
+        },
+        hiddenForAccounts: {
+          none: {
+            accountId: viewer.accountId,
+          },
+        },
+      },
+      orderBy: {
+        sentAt: 'desc',
+      },
+      take: 240,
+      select: messageSelect,
+    });
+
+    const media = attachments
+      .filter((attachment) =>
+        attachment.contentType === MessageContentType.IMAGE ||
+        attachment.contentType === MessageContentType.VIDEO,
+      )
+      .map((attachment) => this.serializeSharedAttachment(attachment, viewer.accountId));
+
+    const documents = attachments
+      .filter((attachment) =>
+        attachment.contentType !== MessageContentType.IMAGE &&
+        attachment.contentType !== MessageContentType.VIDEO,
+      )
+      .map((attachment) => this.serializeSharedAttachment(attachment, viewer.accountId));
+
+    const links = linkMessages.flatMap((message) =>
+      this.extractSharedLinks(message.textContent).map((url) => ({
+        url,
+        label: url,
+        message,
+      })),
+    ).map((item) => this.serializeSharedLink(item, viewer.accountId));
+
+    return {
+      data: {
+        media,
+        documents,
+        links,
+      },
+      counts: {
+        media: media.length,
+        documents: documents.length,
+        links: links.length,
+      },
     };
   }
 

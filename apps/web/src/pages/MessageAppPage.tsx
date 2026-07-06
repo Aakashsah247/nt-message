@@ -31,6 +31,7 @@ import {
   declineMessageRequest,
   deleteMessagingNotification,
   getConversationMessageInformation,
+  getConversationSharedContent,
   getMessagingPrivacySettings,
   getMessagingProfile,
   getMyMessagingProfile,
@@ -102,6 +103,7 @@ import type {
   MessagingAttachment,
   MessagingConversation,
   ConversationListView,
+  ConversationSharedContent,
   ConversationMuteSetting,
   MessageInformation,
   MessagingMessage,
@@ -122,6 +124,8 @@ type RealtimeConnectionStatus =
   | "CONNECTED"
   | "RECONNECTING"
   | "DISCONNECTED";
+
+type SharedContentTab = "MEDIA" | "DOCUMENTS" | "LINKS";
 const SELECTED_CONVERSATION_STORAGE_KEY =
   "nt-message:selected-conversation";
 const HIGHLIGHT_MESSAGE_STORAGE_KEY =
@@ -753,47 +757,136 @@ function getMessageMentions(message: MessagingMessage): MessagingMention[] {
     .filter((mention): mention is MessagingMention => Boolean(mention));
 }
 
+const MESSAGE_TEXT_LINK_PATTERN = /\b(?:https?:\/\/|www\.)[^\s<>()"']+/gi;
+
+function normalizeMessageLink(value: string): string {
+  const cleanUrl = value.replace(/[.,;:!?]+$/g, "");
+
+  return cleanUrl.toLowerCase().startsWith("www.")
+    ? `https://${cleanUrl}`
+    : cleanUrl;
+}
+
+function extractMessageLinks(text: string | null): string[] {
+  if (!text) {
+    return [];
+  }
+
+  const links = new Set<string>();
+  const matches = text.match(MESSAGE_TEXT_LINK_PATTERN) ?? [];
+
+  matches.forEach((match) => {
+    const url = normalizeMessageLink(match);
+
+    if (url) {
+      links.add(url);
+    }
+  });
+
+  return [...links];
+}
+
 function renderMessageTextWithMentions(message: MessagingMessage): ReactNode[] {
   const text = message.textContent ?? "";
-  const mentions = getMessageMentions(message);
 
-  if (!text || mentions.length === 0) {
+  if (!text) {
     return [text];
   }
 
-  const mentionPattern = new RegExp(
-    `@(${mentions
-      .map((mention) => escapeRegExp(mention.displayName))
-      .sort((first, second) => second.length - first.length)
-      .join("|")})(?=\\s|$|[.,!?;:])`,
-    "gi",
-  );
-  const nodes: ReactNode[] = [];
-  let lastIndex = 0;
-  let match: RegExpExecArray | null;
+  const mentions = getMessageMentions(message);
+  const tokens: Array<{
+    start: number;
+    end: number;
+    node: ReactNode;
+  }> = [];
 
-  while ((match = mentionPattern.exec(text)) !== null) {
-    if (match.index > lastIndex) {
-      nodes.push(text.slice(lastIndex, match.index));
+  if (mentions.length > 0) {
+    const mentionPattern = new RegExp(
+      `@(${mentions
+        .map((mention) => escapeRegExp(mention.displayName))
+        .sort((first, second) => second.length - first.length)
+        .join("|")})(?=\\s|$|[.,!?;:])`,
+      "gi",
+    );
+
+    let mentionMatch: RegExpExecArray | null;
+
+    while ((mentionMatch = mentionPattern.exec(text)) !== null) {
+      const matchedText = mentionMatch[0];
+      const displayName = matchedText.slice(1);
+      const mention = mentions.find(
+        (item) => item.displayName.toLowerCase() === displayName.toLowerCase(),
+      );
+
+      tokens.push({
+        start: mentionMatch.index,
+        end: mentionMatch.index + matchedText.length,
+        node: (
+          <span
+            key={`${mention?.accountId ?? displayName}-${mentionMatch.index}`}
+            className="message-mention-highlight"
+          >
+            {matchedText}
+          </span>
+        ),
+      });
+    }
+  }
+
+  let linkMatch: RegExpExecArray | null;
+  MESSAGE_TEXT_LINK_PATTERN.lastIndex = 0;
+
+  while ((linkMatch = MESSAGE_TEXT_LINK_PATTERN.exec(text)) !== null) {
+    const displayUrl = linkMatch[0].replace(/[.,;:!?]+$/g, "");
+    const normalizedUrl = normalizeMessageLink(displayUrl);
+
+    if (!normalizedUrl) {
+      continue;
     }
 
-    const matchedText = match[0];
-    const displayName = matchedText.slice(1);
-    const mention = mentions.find(
-      (item) => item.displayName.toLowerCase() === displayName.toLowerCase(),
-    );
+    const start = linkMatch.index;
+    const end = start + displayUrl.length;
 
-    nodes.push(
-      <span
-        key={`${mention?.accountId ?? displayName}-${match.index}`}
-        className="message-mention-highlight"
-      >
-        {matchedText}
-      </span>,
-    );
-
-    lastIndex = match.index + matchedText.length;
+    tokens.push({
+      start,
+      end,
+      node: (
+        <a
+          key={`link-${start}-${normalizedUrl}`}
+          className="message-text-link"
+          href={normalizedUrl}
+          target="_blank"
+          rel="noreferrer"
+          onClick={(event) => event.stopPropagation()}
+        >
+          {displayUrl}
+        </a>
+      ),
+    });
   }
+
+  if (tokens.length === 0) {
+    return [text];
+  }
+
+  const nodes: ReactNode[] = [];
+  let lastIndex = 0;
+
+  tokens
+    .sort((first, second) => first.start - second.start || second.end - first.end)
+    .forEach((token) => {
+      // Avoid overlapping tokens when a mention and link are adjacent.
+      if (token.start < lastIndex) {
+        return;
+      }
+
+      if (token.start > lastIndex) {
+        nodes.push(text.slice(lastIndex, token.start));
+      }
+
+      nodes.push(token.node);
+      lastIndex = token.end;
+    });
 
   if (lastIndex < text.length) {
     nodes.push(text.slice(lastIndex));
@@ -801,7 +894,6 @@ function renderMessageTextWithMentions(message: MessagingMessage): ReactNode[] {
 
   return nodes;
 }
-
 
 function getMessageLocationPayload(message: MessagingMessage): MessagingLocationPayload | null {
   const location = getMessagePayloadValue(message, "location");
@@ -1093,6 +1185,95 @@ function attachmentLabel(message: Pick<MessagingMessage, "contentType" | "attach
 
   return `File: ${firstAttachment.originalFileName}`;
 }
+
+// Creates an empty shared-content result for media, documents and links.
+function emptySharedContent(): ConversationSharedContent {
+  return {
+    media: [],
+    documents: [],
+    links: [],
+  };
+}
+
+function sortSharedContent<T extends { sharedAt: string }>(items: T[]): T[] {
+  return [...items].sort(
+    (first, second) => new Date(second.sharedAt).getTime() - new Date(first.sharedAt).getTime(),
+  );
+}
+
+// Collects shared media, documents and links from loaded chat messages.
+function collectSharedContentFromMessages(messages: MessagingMessage[]): ConversationSharedContent {
+  const shared = emptySharedContent();
+
+  messages.forEach((message) => {
+    if (message.isDeleted) {
+      return;
+    }
+
+    message.attachments
+      .filter((attachment) => attachment.scanStatus !== "FAILED")
+      .forEach((attachment) => {
+        const item = {
+          id: attachment.id,
+          messageId: message.id,
+          conversationId: message.conversationId,
+          attachment,
+          message,
+          sender: message.sender,
+          sharedAt: message.sentAt,
+        };
+
+        if (isImageAttachment(attachment) || isVideoAttachment(attachment)) {
+          shared.media.push(item);
+          return;
+        }
+
+        shared.documents.push(item);
+      });
+
+    extractMessageLinks(message.textContent).forEach((url) => {
+      shared.links.push({
+        url,
+        label: url,
+        message,
+        sender: message.sender,
+        sharedAt: message.sentAt,
+      });
+    });
+  });
+
+  return {
+    media: sortSharedContent(shared.media),
+    documents: sortSharedContent(shared.documents),
+    links: sortSharedContent(shared.links),
+  };
+}
+
+// Merges backend shared-content results with currently loaded local messages.
+function mergeSharedContent(
+  primary: ConversationSharedContent,
+  fallback: ConversationSharedContent,
+): ConversationSharedContent {
+  const mediaIds = new Set(primary.media.map((item) => item.id));
+  const documentIds = new Set(primary.documents.map((item) => item.id));
+  const linkIds = new Set(primary.links.map((item) => `${item.message.id}:${item.url}`));
+
+  return {
+    media: sortSharedContent([
+      ...primary.media,
+      ...fallback.media.filter((item) => !mediaIds.has(item.id)),
+    ]),
+    documents: sortSharedContent([
+      ...primary.documents,
+      ...fallback.documents.filter((item) => !documentIds.has(item.id)),
+    ]),
+    links: sortSharedContent([
+      ...primary.links,
+      ...fallback.links.filter((item) => !linkIds.has(`${item.message.id}:${item.url}`)),
+    ]),
+  };
+}
+
 
 function canForwardMessage(message: MessagingMessage): boolean {
   if (message.isDeleted) {
@@ -1422,6 +1603,11 @@ export function MessageAppPage() {
     expiresAt: string;
   } | null>(null);
   const [attachmentViewer, setAttachmentViewer] = useState<AttachmentViewerState | null>(null);
+  const [sharedContentOpen, setSharedContentOpen] = useState(false);
+  const [sharedContentTab, setSharedContentTab] = useState<SharedContentTab>("MEDIA");
+  const [sharedContent, setSharedContent] = useState<ConversationSharedContent | null>(null);
+  const [sharedContentLoading, setSharedContentLoading] = useState(false);
+  const [sharedContentError, setSharedContentError] = useState<string | null>(null);
   const [messageCursor, setMessageCursor] = useState<string | null>(null);
   const [hasOlderMessages, setHasOlderMessages] = useState(false);
   const [pageError, setPageError] = useState<string | null>(null);
@@ -4898,6 +5084,71 @@ export function MessageAppPage() {
     setHighlightedMessageId(message.id);
   }
 
+  // Closes the shared dialog and highlights the original message in the chat.
+  function focusSharedContentMessage(message: MessagingMessage): void {
+    setSharedContentOpen(false);
+
+    if (message.conversationId !== selectedConversationId) {
+      setSelectedConversationId(message.conversationId);
+    }
+
+    // Older shared items may not be present in the current paginated message window.
+    setMessages((current) => {
+      if (current.some((item) => item.id === message.id)) {
+        return current;
+      }
+
+      return [...current, message].sort(
+        (first, second) => new Date(first.sentAt).getTime() - new Date(second.sentAt).getTime(),
+      );
+    });
+
+    setHighlightedMessageId(message.id);
+  }
+
+  // Opens the shared-content dialog and loads media, documents and links.
+  async function openSharedContentDialog(tab: SharedContentTab = "MEDIA"): Promise<void> {
+    if (!accessToken || !selectedConversationId) {
+      return;
+    }
+
+    const localSharedContent = collectSharedContentFromMessages(
+      messages.filter((message) => message.conversationId === selectedConversationId),
+    );
+
+    setSharedContentOpen(true);
+    setSharedContentTab(tab);
+    setSharedContent(localSharedContent);
+    setSharedContentLoading(true);
+    setSharedContentError(null);
+
+    try {
+      const response = await getConversationSharedContent(accessToken, selectedConversationId);
+      setSharedContent(mergeSharedContent(response.data, localSharedContent));
+    } catch (error) {
+      const hasLocalSharedContent =
+        localSharedContent.media.length > 0 ||
+        localSharedContent.documents.length > 0 ||
+        localSharedContent.links.length > 0;
+
+      // The local fallback keeps recently loaded shared content usable if the API request fails.
+      if (!hasLocalSharedContent) {
+        setSharedContentError(
+          error instanceof Error
+            ? error.message
+            : "Shared content could not be loaded.",
+        );
+      }
+    } finally {
+      setSharedContentLoading(false);
+    }
+  }
+
+  function closeSharedContentDialog(): void {
+    setSharedContentOpen(false);
+    setSharedContentError(null);
+  }
+
   function closeMessageInformationDialog(): void {
     setMessageInformation(null);
     setMessageInformationError(null);
@@ -6344,6 +6595,14 @@ export function MessageAppPage() {
                   Search
                 </button>
 
+                <button
+                  type="button"
+                  className="message-shared-open-button"
+                  onClick={() => void openSharedContentDialog()}
+                >
+                  Shared
+                </button>
+
                 <div className="message-conversation-controls" aria-label="Conversation controls">
                   <button
                     type="button"
@@ -7241,6 +7500,135 @@ export function MessageAppPage() {
                 </>
               )}
             </div>
+          </section>
+        </div>
+      )}
+
+      {sharedContentOpen && (
+        <div className="message-dialog-backdrop" role="presentation">
+          <section
+            className="message-shared-dialog"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="message-shared-title"
+          >
+            <header>
+              <div>
+                <span>Shared content</span>
+                <h2 id="message-shared-title">Media, documents and links</h2>
+              </div>
+              <button
+                type="button"
+                onClick={closeSharedContentDialog}
+                aria-label="Close shared content"
+              >
+                ×
+              </button>
+            </header>
+
+            <div className="message-shared-tabs" role="tablist" aria-label="Shared content views">
+              {([
+                ["MEDIA", `Media (${sharedContent?.media.length ?? 0})`],
+                ["DOCUMENTS", `Documents (${sharedContent?.documents.length ?? 0})`],
+                ["LINKS", `Links (${sharedContent?.links.length ?? 0})`],
+              ] as Array<[SharedContentTab, string]>).map(([tab, label]) => (
+                <button
+                  key={tab}
+                  type="button"
+                  className={sharedContentTab === tab ? "active" : undefined}
+                  onClick={() => setSharedContentTab(tab)}
+                  aria-pressed={sharedContentTab === tab}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+
+            {sharedContentLoading ? (
+              <div className="message-shared-state">
+                <strong>Loading shared content...</strong>
+                <p>Checking authorized media, documents and links.</p>
+              </div>
+            ) : sharedContentError ? (
+              <div className="message-shared-state">
+                <strong>Shared content unavailable</strong>
+                <p>{sharedContentError}</p>
+                <button type="button" onClick={() => void openSharedContentDialog(sharedContentTab)}>
+                  Retry
+                </button>
+              </div>
+            ) : sharedContentTab === "MEDIA" ? (
+              <div className="message-shared-grid">
+                {(sharedContent?.media ?? []).length === 0 ? (
+                  <div className="message-shared-state">
+                    <strong>No media yet</strong>
+                    <p>Photos and videos shared in this conversation will appear here.</p>
+                  </div>
+                ) : (
+                  sharedContent?.media.map((item) => (
+                    <button
+                      key={item.id}
+                      type="button"
+                      className="message-shared-media-card"
+                      onClick={() => focusSharedContentMessage(item.message)}
+                    >
+                      <span>{isImageAttachment(item.attachment) ? "Photo" : "Video"}</span>
+                      <strong>{item.attachment.originalFileName}</strong>
+                      <small>{item.sender.displayName} · {formatConversationTime(item.sharedAt)}</small>
+                    </button>
+                  ))
+                )}
+              </div>
+            ) : sharedContentTab === "DOCUMENTS" ? (
+              <div className="message-shared-list">
+                {(sharedContent?.documents ?? []).length === 0 ? (
+                  <div className="message-shared-state">
+                    <strong>No documents yet</strong>
+                    <p>Files shared in this conversation will appear here.</p>
+                  </div>
+                ) : (
+                  sharedContent?.documents.map((item) => (
+                    <article key={item.id} className="message-shared-document-row">
+                      <button type="button" onClick={() => focusSharedContentMessage(item.message)}>
+                        <span>{documentIcon(item.attachment)}</span>
+                        <span>
+                          <strong>{item.attachment.originalFileName}</strong>
+                          <small>
+                            {attachmentTypeLabel(item.attachment)} · {formatFileSize(item.attachment.fileSizeBytes)} · {item.sender.displayName}
+                          </small>
+                          <em>{formatConversationTime(item.sharedAt)}</em>
+                        </span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => void handleDownloadAttachment(item.message, item.attachment)}
+                      >
+                        Download
+                      </button>
+                    </article>
+                  ))
+                )}
+              </div>
+            ) : (
+              <div className="message-shared-list">
+                {(sharedContent?.links ?? []).length === 0 ? (
+                  <div className="message-shared-state">
+                    <strong>No links yet</strong>
+                    <p>Links shared in text messages will appear here.</p>
+                  </div>
+                ) : (
+                  sharedContent?.links.map((item) => (
+                    <article key={`${item.message.id}:${item.url}`} className="message-shared-link-row">
+                      <button type="button" onClick={() => focusSharedContentMessage(item.message)}>
+                        <strong>{item.label}</strong>
+                        <small>{item.sender.displayName} · {formatConversationTime(item.sharedAt)}</small>
+                      </button>
+                      <a href={item.url} target="_blank" rel="noreferrer">Open</a>
+                    </article>
+                  ))
+                )}
+              </div>
+            )}
           </section>
         </div>
       )}
