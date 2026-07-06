@@ -351,6 +351,34 @@ const messageSelect = {
     ],
   },
 
+  stars: {
+    select: {
+      accountId: true,
+      starredAt: true,
+    },
+  },
+
+  pins: {
+    where: {
+      unpinnedAt: null,
+    },
+
+    take: 1,
+
+    orderBy: {
+      pinnedAt: 'desc',
+    },
+
+    select: {
+      pinnedByAccountId: true,
+      pinnedAt: true,
+
+      pinnedBy: {
+        select: messagingAccountSelect,
+      },
+    },
+  },
+
   attachments: {
     select: {
       id: true,
@@ -1715,6 +1743,7 @@ export class ConversationsService {
       return null;
     }
 
+
     return {
       id: message.id,
       senderAccountId: message.senderAccountId,
@@ -1740,6 +1769,11 @@ export class ConversationsService {
       ),
     );
 
+    const viewerStar = viewerAccountId
+      ? message.stars?.find((star) => star.accountId === viewerAccountId) ?? null
+      : null;
+    const activePin = message.pins?.[0] ?? null;
+
     return {
       id: message.id,
       conversationId: message.conversationId,
@@ -1752,6 +1786,12 @@ export class ConversationsService {
       replyToMessageId: message.replyToMessageId,
       replyTo: this.serializeReply(message.replyTo),
       forwardedFrom: this.getForwardedMessageMetadata(message.payload),
+      isStarred: viewerStar !== null,
+      starredAt: viewerStar?.starredAt ?? null,
+      isPinned: activePin !== null,
+      pinnedAt: activePin?.pinnedAt ?? null,
+      pinnedByAccountId: activePin?.pinnedByAccountId ?? null,
+      pinnedBy: activePin ? this.serializeAccount(activePin.pinnedBy) : null,
       sentAt: message.sentAt,
       editedAt: message.editedAt,
       deletedAt: message.deletedAt,
@@ -2134,7 +2174,7 @@ export class ConversationsService {
     searchText: string | null,
   ) {
     return {
-      message: this.serializeMessage(message),
+      message: this.serializeMessage(message, viewerAccountId),
       conversation: this.serializeConversation(conversation, viewerAccountId, 0),
       snippet: this.buildSearchSnippet(message, searchText),
       matchedAttachmentFileName:
@@ -2176,6 +2216,41 @@ export class ConversationsService {
       joinedAt: participant.joinedAt,
       role: participant.role,
     };
+  }
+
+  private async findVisibleConversationMessageOrThrow(
+    accountId: string,
+    conversationId: string,
+    messageId: string,
+  ): Promise<MessageRecord> {
+    const participant = await this.assertActiveParticipant(accountId, conversationId);
+
+    const message = await this.prisma.message.findFirst({
+      where: {
+        id: messageId,
+        conversationId,
+        sentAt: {
+          gte: participant.joinedAt,
+        },
+        hiddenForAccounts: {
+          none: {
+            accountId,
+          },
+        },
+      },
+
+      select: messageSelect,
+    });
+
+    if (!message) {
+      throw new NotFoundException('Message was not found.');
+    }
+
+    if (message.deletedAt) {
+      throw new BadRequestException('Deleted messages cannot be used for this action.');
+    }
+
+    return message;
   }
 
   private normalizeAttachmentFileName(fileName: string): string {
@@ -7928,6 +8003,369 @@ export class ConversationsService {
             ? 'Reaction updated.'
             : 'Reaction removed.',
       action: result.action,
+      data: serializedMessage,
+    };
+  }
+
+  async listStarredMessages(user: AuthenticatedUser) {
+    const viewer = await this.getMessagingViewer(user);
+
+    const starredMessages = await this.prisma.messageStar.findMany({
+      where: {
+        accountId: viewer.accountId,
+        message: {
+          deletedAt: null,
+          hiddenForAccounts: {
+            none: {
+              accountId: viewer.accountId,
+            },
+          },
+          conversation: {
+            participants: {
+              some: {
+                accountId: viewer.accountId,
+                leftAt: null,
+              },
+            },
+          },
+        },
+      },
+
+      orderBy: {
+        starredAt: 'desc',
+      },
+
+      take: 100,
+
+      select: {
+        starredAt: true,
+        message: {
+          select: messageSelect,
+        },
+      },
+    });
+
+    const conversationIds = [
+      ...new Set(starredMessages.map((star) => star.message.conversationId)),
+    ];
+
+    const conversations = await this.prisma.conversation.findMany({
+      where: {
+        id: {
+          in: conversationIds,
+        },
+      },
+      select: conversationSelect,
+    });
+
+    const conversationById = new Map(
+      conversations.map((conversation) => [conversation.id, conversation]),
+    );
+
+    return {
+      data: starredMessages.flatMap((star) => {
+        const conversation = conversationById.get(star.message.conversationId);
+
+        if (!conversation) {
+          return [];
+        }
+
+        return [
+          {
+            starredAt: star.starredAt,
+            message: this.serializeMessage(star.message, viewer.accountId),
+            conversation: this.serializeConversation(
+              conversation,
+              viewer.accountId,
+              0,
+            ),
+          },
+        ];
+      }),
+    };
+  }
+
+  async listPinnedMessages(
+    user: AuthenticatedUser,
+    conversationId: string,
+  ) {
+    const viewer = await this.getMessagingViewer(user);
+    await this.assertActiveParticipant(viewer.accountId, conversationId);
+
+    const pinnedMessages = await this.prisma.messagePin.findMany({
+      where: {
+        conversationId,
+        unpinnedAt: null,
+        message: {
+          deletedAt: null,
+          hiddenForAccounts: {
+            none: {
+              accountId: viewer.accountId,
+            },
+          },
+        },
+      },
+
+      orderBy: {
+        pinnedAt: 'desc',
+      },
+
+      take: 20,
+
+      select: {
+        message: {
+          select: messageSelect,
+        },
+      },
+    });
+
+    return {
+      data: pinnedMessages.map((pin) =>
+        this.serializeMessage(pin.message, viewer.accountId),
+      ),
+    };
+  }
+
+  async starMessage(
+    user: AuthenticatedUser,
+    conversationId: string,
+    messageId: string,
+  ) {
+    const viewer = await this.getMessagingViewer(user);
+    await this.findVisibleConversationMessageOrThrow(
+      viewer.accountId,
+      conversationId,
+      messageId,
+    );
+
+    const result = await this.prisma.$transaction(async (transaction) => {
+      await transaction.messageStar.upsert({
+        where: {
+          messageId_accountId: {
+            messageId,
+            accountId: viewer.accountId,
+          },
+        },
+        update: {
+          starredAt: new Date(),
+        },
+        create: {
+          messageId,
+          accountId: viewer.accountId,
+        },
+      });
+
+      const message = await transaction.message.findUnique({
+        where: {
+          id: messageId,
+        },
+        select: messageSelect,
+      });
+
+      if (!message) {
+        throw new NotFoundException('Message was not found.');
+      }
+
+      return message;
+    });
+
+    return {
+      message: 'Message starred.',
+      data: this.serializeMessage(result, viewer.accountId),
+    };
+  }
+
+  async unstarMessage(
+    user: AuthenticatedUser,
+    conversationId: string,
+    messageId: string,
+  ) {
+    const viewer = await this.getMessagingViewer(user);
+    await this.findVisibleConversationMessageOrThrow(
+      viewer.accountId,
+      conversationId,
+      messageId,
+    );
+
+    const result = await this.prisma.$transaction(async (transaction) => {
+      await transaction.messageStar.deleteMany({
+        where: {
+          messageId,
+          accountId: viewer.accountId,
+        },
+      });
+
+      const message = await transaction.message.findUnique({
+        where: {
+          id: messageId,
+        },
+        select: messageSelect,
+      });
+
+      if (!message) {
+        throw new NotFoundException('Message was not found.');
+      }
+
+      return message;
+    });
+
+    return {
+      message: 'Message unstarred.',
+      data: this.serializeMessage(result, viewer.accountId),
+    };
+  }
+
+  async pinMessage(
+    user: AuthenticatedUser,
+    conversationId: string,
+    messageId: string,
+  ) {
+    const viewer = await this.getMessagingViewer(user);
+    await this.findVisibleConversationMessageOrThrow(
+      viewer.accountId,
+      conversationId,
+      messageId,
+    );
+
+    const now = new Date();
+
+    const result = await this.prisma.$transaction(async (transaction) => {
+      await transaction.messagePin.upsert({
+        where: {
+          messageId_conversationId: {
+            messageId,
+            conversationId,
+          },
+        },
+        update: {
+          pinnedByAccountId: viewer.accountId,
+          pinnedAt: now,
+          unpinnedAt: null,
+          unpinnedByAccountId: null,
+        },
+        create: {
+          messageId,
+          conversationId,
+          pinnedByAccountId: viewer.accountId,
+          pinnedAt: now,
+        },
+      });
+
+      const [message, participants] = await Promise.all([
+        transaction.message.findUnique({
+          where: {
+            id: messageId,
+          },
+          select: messageSelect,
+        }),
+        transaction.conversationParticipant.findMany({
+          where: {
+            conversationId,
+            leftAt: null,
+          },
+          select: {
+            accountId: true,
+          },
+        }),
+      ]);
+
+      if (!message) {
+        throw new NotFoundException('Message was not found.');
+      }
+
+      return {
+        message,
+        participantAccountIds: participants.map((participant) => participant.accountId),
+      };
+    });
+
+    const serializedMessage = this.serializeMessage(result.message, viewer.accountId);
+
+    this.messagingEventsService.emitMessageUpdated(
+      result.participantAccountIds,
+      {
+        conversationId,
+        message: this.serializeMessage(result.message),
+        action: 'PINNED',
+        occurredAt: now.toISOString(),
+      },
+    );
+
+    return {
+      message: 'Message pinned.',
+      data: serializedMessage,
+    };
+  }
+
+  async unpinMessage(
+    user: AuthenticatedUser,
+    conversationId: string,
+    messageId: string,
+  ) {
+    const viewer = await this.getMessagingViewer(user);
+    await this.findVisibleConversationMessageOrThrow(
+      viewer.accountId,
+      conversationId,
+      messageId,
+    );
+
+    const now = new Date();
+
+    const result = await this.prisma.$transaction(async (transaction) => {
+      await transaction.messagePin.updateMany({
+        where: {
+          messageId,
+          conversationId,
+          unpinnedAt: null,
+        },
+        data: {
+          unpinnedAt: now,
+          unpinnedByAccountId: viewer.accountId,
+        },
+      });
+
+      const [message, participants] = await Promise.all([
+        transaction.message.findUnique({
+          where: {
+            id: messageId,
+          },
+          select: messageSelect,
+        }),
+        transaction.conversationParticipant.findMany({
+          where: {
+            conversationId,
+            leftAt: null,
+          },
+          select: {
+            accountId: true,
+          },
+        }),
+      ]);
+
+      if (!message) {
+        throw new NotFoundException('Message was not found.');
+      }
+
+      return {
+        message,
+        participantAccountIds: participants.map((participant) => participant.accountId),
+      };
+    });
+
+    const serializedMessage = this.serializeMessage(result.message, viewer.accountId);
+
+    this.messagingEventsService.emitMessageUpdated(
+      result.participantAccountIds,
+      {
+        conversationId,
+        message: this.serializeMessage(result.message),
+        action: 'UNPINNED',
+        occurredAt: now.toISOString(),
+      },
+    );
+
+    return {
+      message: 'Message unpinned.',
       data: serializedMessage,
     };
   }

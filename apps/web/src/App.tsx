@@ -9,6 +9,7 @@ import { ManagerRequestDashboardPage } from "./pages/ManagerRequestDashboardPage
 import { ForgotPasswordPage } from "./pages/ForgotPasswordPage";
 import { LoginPage } from "./pages/LoginPage";
 import { MessageAppPage } from "./pages/MessageAppPage";
+import { StarredMessagesPage } from "./pages/StarredMessagesPage";
 import { DirectoryPage } from "./pages/DirectoryPage";
 
 export default function App() {
@@ -116,6 +117,22 @@ export default function App() {
             ]}
           >
             <MessageAppPage />
+          </ProtectedRoute>
+        }
+      />
+
+      <Route
+        path="/messages/starred"
+        element={
+          <ProtectedRoute
+            roles={[
+              "SUPER_ADMIN",
+              "SENIOR_MANAGEMENT",
+              "TEAM_MANAGER",
+              "EMPLOYEE",
+            ]}
+          >
+            <StarredMessagesPage />
           </ProtectedRoute>
         }
       />

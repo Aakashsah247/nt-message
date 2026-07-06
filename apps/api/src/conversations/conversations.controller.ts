@@ -667,6 +667,30 @@ export class ConversationsController {
     );
   }
 
+  @Get('starred/messages')
+  listStarredMessages(
+    @CurrentUser()
+    user: AuthenticatedUser,
+  ) {
+    return this.conversationsService.listStarredMessages(user);
+  }
+
+  @Get(':id/pinned-messages')
+  listPinnedMessages(
+    @CurrentUser()
+    user: AuthenticatedUser,
+
+    @Param(
+      'id',
+      new ParseUUIDPipe({
+        version: '4',
+      }),
+    )
+    conversationId: string,
+  ) {
+    return this.conversationsService.listPinnedMessages(user, conversationId);
+  }
+
   @Get(':id/messages')
   listMessages(
     @CurrentUser()
@@ -879,6 +903,102 @@ export class ConversationsController {
     );
 
     return new StreamableFile(createReadStream(attachment.absolutePath));
+  }
+
+  @Post(':conversationId/messages/:messageId/star')
+  starMessage(
+    @CurrentUser()
+    user: AuthenticatedUser,
+
+    @Param(
+      'conversationId',
+      new ParseUUIDPipe({
+        version: '4',
+      }),
+    )
+    conversationId: string,
+
+    @Param(
+      'messageId',
+      new ParseUUIDPipe({
+        version: '4',
+      }),
+    )
+    messageId: string,
+  ) {
+    return this.conversationsService.starMessage(user, conversationId, messageId);
+  }
+
+  @Delete(':conversationId/messages/:messageId/star')
+  unstarMessage(
+    @CurrentUser()
+    user: AuthenticatedUser,
+
+    @Param(
+      'conversationId',
+      new ParseUUIDPipe({
+        version: '4',
+      }),
+    )
+    conversationId: string,
+
+    @Param(
+      'messageId',
+      new ParseUUIDPipe({
+        version: '4',
+      }),
+    )
+    messageId: string,
+  ) {
+    return this.conversationsService.unstarMessage(user, conversationId, messageId);
+  }
+
+  @Post(':conversationId/messages/:messageId/pin')
+  pinMessage(
+    @CurrentUser()
+    user: AuthenticatedUser,
+
+    @Param(
+      'conversationId',
+      new ParseUUIDPipe({
+        version: '4',
+      }),
+    )
+    conversationId: string,
+
+    @Param(
+      'messageId',
+      new ParseUUIDPipe({
+        version: '4',
+      }),
+    )
+    messageId: string,
+  ) {
+    return this.conversationsService.pinMessage(user, conversationId, messageId);
+  }
+
+  @Delete(':conversationId/messages/:messageId/pin')
+  unpinMessage(
+    @CurrentUser()
+    user: AuthenticatedUser,
+
+    @Param(
+      'conversationId',
+      new ParseUUIDPipe({
+        version: '4',
+      }),
+    )
+    conversationId: string,
+
+    @Param(
+      'messageId',
+      new ParseUUIDPipe({
+        version: '4',
+      }),
+    )
+    messageId: string,
+  ) {
+    return this.conversationsService.unpinMessage(user, conversationId, messageId);
   }
 
   @Post(':conversationId/messages/:messageId/reactions')

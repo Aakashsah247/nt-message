@@ -31,7 +31,7 @@ export interface MessagingMessageCreatedPayload {
 export interface MessagingMessageUpdatedPayload {
   conversationId: string;
   message: MessagingMessage;
-  action: "EDITED" | "DELETED" | "REACTION_UPDATED" | "LIVE_LOCATION_UPDATED" | "LIVE_LOCATION_STOPPED";
+  action: "EDITED" | "DELETED" | "REACTION_UPDATED" | "LIVE_LOCATION_UPDATED" | "LIVE_LOCATION_STOPPED" | "PINNED" | "UNPINNED";
   occurredAt: string;
 }
 

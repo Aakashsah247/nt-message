@@ -47,7 +47,9 @@ export type MessagingMessageUpdateAction =
   | 'DELETED'
   | 'REACTION_UPDATED'
   | 'LIVE_LOCATION_UPDATED'
-  | 'LIVE_LOCATION_STOPPED';
+  | 'LIVE_LOCATION_STOPPED'
+  | 'PINNED'
+  | 'UNPINNED';
 
 export interface MessagingMessageUpdatedPayload {
   conversationId: string;

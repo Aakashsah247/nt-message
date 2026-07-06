@@ -13582,3 +13582,220 @@
   }
 }
 /* M11 M12 LOCATION SHARING END */
+
+/* M1 starred and pinned messages */
+.message-starred-topbar-button,
+.message-pinned-panel button,
+.message-starred-header button,
+.message-starred-list button {
+  border: 0;
+  border-radius: 999px;
+  font-weight: 900;
+  cursor: pointer;
+}
+
+.message-starred-topbar-button {
+  min-height: 36px;
+  padding: 0 14px;
+  color: var(--message-accent, var(--color-nt-blue));
+  background: rgba(7, 92, 168, 0.08);
+}
+
+.message-starred-topbar-button:hover {
+  background: rgba(7, 92, 168, 0.14);
+}
+
+.message-pinned-panel {
+  display: grid;
+  gap: 0.65rem;
+  margin: 0.75rem 1rem 0;
+  padding: 0.75rem;
+  border: 1px solid rgba(7, 92, 168, 0.14);
+  border-radius: 18px;
+  background: rgba(255, 255, 255, 0.86);
+  box-shadow: 0 16px 34px rgba(15, 23, 42, 0.08);
+}
+
+.message-pinned-panel > div {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+.message-pinned-panel strong {
+  color: var(--color-nt-deep);
+  font-size: 0.86rem;
+}
+
+.message-pinned-panel span {
+  color: var(--color-muted);
+  font-size: 0.76rem;
+  font-weight: 800;
+}
+
+.message-pinned-panel button {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+  width: 100%;
+  padding: 0.6rem 0.75rem;
+  color: var(--color-nt-text);
+  background: rgba(7, 92, 168, 0.06);
+  text-align: left;
+}
+
+.message-pinned-panel button:hover {
+  background: rgba(7, 92, 168, 0.12);
+}
+
+.message-pinned-panel button small {
+  overflow: hidden;
+  color: var(--color-nt-text);
+  font-weight: 800;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.message-state-badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  margin-bottom: 0.45rem;
+}
+
+.message-state-badges span {
+  border-radius: 999px;
+  padding: 0.18rem 0.48rem;
+  color: var(--color-nt-deep);
+  background: rgba(255, 255, 255, 0.68);
+  font-size: 0.68rem;
+  font-weight: 900;
+}
+
+.message-starred-page {
+  min-height: 100vh;
+  padding: 2rem;
+  color: var(--color-nt-text);
+  background: linear-gradient(135deg, #eff6ff, #ffffff 48%, #dbeafe);
+}
+
+.message-starred-header {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  max-width: 980px;
+  margin: 0 auto 1rem;
+}
+
+.message-starred-header button {
+  min-height: 40px;
+  padding: 0 1rem;
+  color: #ffffff;
+  background: var(--color-nt-blue);
+}
+
+.message-starred-header span {
+  color: var(--color-nt-blue);
+  font-size: 0.75rem;
+  font-weight: 900;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.message-starred-header h1 {
+  margin: 0.15rem 0;
+  color: var(--color-nt-deep);
+}
+
+.message-starred-header p {
+  margin: 0;
+  color: var(--color-muted);
+}
+
+.message-starred-state,
+.message-starred-list {
+  max-width: 980px;
+  margin: 0 auto;
+}
+
+.message-starred-state {
+  display: grid;
+  place-items: center;
+  min-height: 320px;
+  border: 1px solid rgba(7, 92, 168, 0.12);
+  border-radius: 24px;
+  background: rgba(255, 255, 255, 0.86);
+  text-align: center;
+}
+
+.message-starred-state.danger {
+  color: #991b1b;
+}
+
+.message-starred-list {
+  display: grid;
+  gap: 0.75rem;
+}
+
+.message-starred-list article {
+  display: grid;
+  gap: 0.65rem;
+  border: 1px solid rgba(7, 92, 168, 0.12);
+  border-radius: 20px;
+  padding: 1rem;
+  background: rgba(255, 255, 255, 0.9);
+  box-shadow: 0 16px 34px rgba(15, 23, 42, 0.08);
+}
+
+.message-starred-list article > div {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+.message-starred-list strong {
+  color: var(--color-nt-deep);
+}
+
+.message-starred-list span {
+  color: var(--color-muted);
+  font-size: 0.78rem;
+  font-weight: 800;
+}
+
+.message-starred-list p {
+  margin: 0;
+  color: var(--color-nt-text);
+  line-height: 1.5;
+}
+
+.message-starred-list button {
+  justify-self: start;
+  min-height: 36px;
+  padding: 0 1rem;
+  color: #ffffff;
+  background: var(--color-nt-blue);
+}
+
+.message-app-shell.theme-dark .message-pinned-panel,
+.message-app-shell.theme-dark .message-pinned-panel button {
+  background: rgba(15, 23, 42, 0.76);
+}
+
+@media (max-width: 760px) {
+  .message-starred-page {
+    padding: 1rem;
+  }
+
+  .message-starred-header {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .message-starred-list article > div {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+}

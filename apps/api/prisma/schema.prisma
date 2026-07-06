@@ -256,6 +256,9 @@ model Account {
   messageReceipts               MessageReceipt[]
   hiddenMessages                MessageHiddenForAccount[]
   messageReactions              MessageReaction[]
+  messageStars                  MessageStar[]
+  pinnedMessages                MessagePin[]              @relation("MessagePinsPinnedBy")
+  unpinnedMessages              MessagePin[]              @relation("MessagePinsUnpinnedBy")
   sentMessageRequests           MessageRequest[]           @relation("MessageRequestsSent")
   receivedMessageRequests       MessageRequest[]           @relation("MessageRequestsReceived")
   blockedMessageRequests        MessageRequest[]           @relation("MessageRequestsBlockedBy")
@@ -517,6 +520,7 @@ model Conversation {
   messageRequest     MessageRequest?
   officialAuditLogs  OfficialGroupAuditLog[]
   notifications      MessagingNotification[]
+  messagePins        MessagePin[]
 
   @@index([type, lastMessageAt], map: "conversations_type_last_message_idx")
   @@index([groupKind, updatedAt], map: "conversations_group_kind_idx")
@@ -636,6 +640,8 @@ model Message {
   receipts          MessageReceipt[]
   hiddenForAccounts MessageHiddenForAccount[]
   reactions MessageReaction[]
+  stars     MessageStar[]
+  pins      MessagePin[]
   attachments MessageAttachment[]
   notifications MessagingNotification[]
 
@@ -723,6 +729,43 @@ model MessageReaction {
   @@index([accountId], map: "message_reactions_account_idx")
 
   @@map("message_reactions")
+}
+
+
+model MessageStar {
+  messageId String @map("message_id") @db.Uuid
+  accountId String @map("account_id") @db.Uuid
+
+  starredAt DateTime @default(now()) @map("starred_at") @db.Timestamptz(3)
+
+  message Message @relation(fields: [messageId], references: [id], onDelete: Cascade)
+  account Account @relation(fields: [accountId], references: [id], onDelete: Cascade)
+
+  @@id([messageId, accountId], map: "message_stars_pkey")
+  @@index([accountId, starredAt], map: "message_stars_account_starred_idx")
+  @@index([messageId], map: "message_stars_message_idx")
+  @@map("message_stars")
+}
+
+model MessagePin {
+  messageId      String  @map("message_id") @db.Uuid
+  conversationId String  @map("conversation_id") @db.Uuid
+  pinnedByAccountId   String  @map("pinned_by_account_id") @db.Uuid
+  unpinnedByAccountId String? @map("unpinned_by_account_id") @db.Uuid
+
+  pinnedAt   DateTime  @default(now()) @map("pinned_at") @db.Timestamptz(3)
+  unpinnedAt DateTime? @map("unpinned_at") @db.Timestamptz(3)
+
+  message    Message      @relation(fields: [messageId], references: [id], onDelete: Cascade)
+  conversation Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  pinnedBy   Account      @relation("MessagePinsPinnedBy", fields: [pinnedByAccountId], references: [id], onDelete: Restrict)
+  unpinnedBy Account?     @relation("MessagePinsUnpinnedBy", fields: [unpinnedByAccountId], references: [id], onDelete: Restrict)
+
+  @@id([messageId, conversationId], map: "message_pins_pkey")
+  @@index([conversationId, unpinnedAt, pinnedAt], map: "message_pins_conversation_active_idx")
+  @@index([pinnedByAccountId, pinnedAt], map: "message_pins_pinned_by_idx")
+  @@index([unpinnedByAccountId, unpinnedAt], map: "message_pins_unpinned_by_idx")
+  @@map("message_pins")
 }
 
 model MessagingAccountBlock {

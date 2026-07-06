@@ -24,7 +24,10 @@ import type {
   MessagingAnalyticsResponse,
   MessagingSearchFilters,
   MessageListResponse,
+  MessagePersonalStateResponse,
   MessageReactionResponse,
+  PinnedMessagesResponse,
+  StarredMessagesResponse,
   MessagingContactsResponse,
   OfficialGroupAuditResponse,
   OfficialGroupScopesResponse,
@@ -744,6 +747,29 @@ export function listConversationMessages(
   );
 }
 
+export function listStarredMessages(
+  accessToken: string,
+): Promise<StarredMessagesResponse> {
+  return apiRequest<StarredMessagesResponse>(
+    "/conversations/starred/messages",
+    {
+      headers: authorizationHeaders(accessToken),
+    },
+  );
+}
+
+export function listConversationPinnedMessages(
+  accessToken: string,
+  conversationId: string,
+): Promise<PinnedMessagesResponse> {
+  return apiRequest<PinnedMessagesResponse>(
+    `/conversations/${conversationId}/pinned-messages`,
+    {
+      headers: authorizationHeaders(accessToken),
+    },
+  );
+}
+
 export function sendConversationTextMessage(
   accessToken: string,
   conversationId: string,
@@ -1078,6 +1104,62 @@ export function markConversationRead(
     `/conversations/${conversationId}/read`,
     {
       method: "PATCH",
+      headers: authorizationHeaders(accessToken),
+    },
+  );
+}
+
+export function starConversationMessage(
+  accessToken: string,
+  conversationId: string,
+  messageId: string,
+): Promise<MessagePersonalStateResponse> {
+  return apiRequest<MessagePersonalStateResponse>(
+    `/conversations/${conversationId}/messages/${messageId}/star`,
+    {
+      method: "POST",
+      headers: authorizationHeaders(accessToken),
+    },
+  );
+}
+
+export function unstarConversationMessage(
+  accessToken: string,
+  conversationId: string,
+  messageId: string,
+): Promise<MessagePersonalStateResponse> {
+  return apiRequest<MessagePersonalStateResponse>(
+    `/conversations/${conversationId}/messages/${messageId}/star`,
+    {
+      method: "DELETE",
+      headers: authorizationHeaders(accessToken),
+    },
+  );
+}
+
+export function pinConversationMessage(
+  accessToken: string,
+  conversationId: string,
+  messageId: string,
+): Promise<MessagePersonalStateResponse> {
+  return apiRequest<MessagePersonalStateResponse>(
+    `/conversations/${conversationId}/messages/${messageId}/pin`,
+    {
+      method: "POST",
+      headers: authorizationHeaders(accessToken),
+    },
+  );
+}
+
+export function unpinConversationMessage(
+  accessToken: string,
+  conversationId: string,
+  messageId: string,
+): Promise<MessagePersonalStateResponse> {
+  return apiRequest<MessagePersonalStateResponse>(
+    `/conversations/${conversationId}/messages/${messageId}/pin`,
+    {
+      method: "DELETE",
       headers: authorizationHeaders(accessToken),
     },
   );

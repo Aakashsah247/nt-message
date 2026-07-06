@@ -244,6 +244,12 @@ export interface MessagingMessage {
   replyToMessageId: string | null;
   replyTo: MessagingReply | null;
   forwardedFrom: MessagingForwardMetadata | null;
+  isStarred: boolean;
+  starredAt: string | null;
+  isPinned: boolean;
+  pinnedAt: string | null;
+  pinnedByAccountId: string | null;
+  pinnedBy: MessagingAccount | null;
   sentAt: string;
   editedAt: string | null;
   deletedAt: string | null;
@@ -568,6 +574,25 @@ export interface MessageReactionResponse {
   message: string;
   action: "ADDED" | "UPDATED" | "REMOVED";
   data: MessagingMessage;
+}
+
+export interface MessagePersonalStateResponse {
+  message: string;
+  data: MessagingMessage;
+}
+
+export interface StarredMessageItem {
+  starredAt: string;
+  message: MessagingMessage;
+  conversation: MessagingConversation;
+}
+
+export interface StarredMessagesResponse {
+  data: StarredMessageItem[];
+}
+
+export interface PinnedMessagesResponse {
+  data: MessagingMessage[];
 }
 
 export interface MessagingAnalyticsCountItem {

@@ -42,6 +42,7 @@ import {
   forwardConversationMessage,
   leaveGroupConversation,
   listConversationMessages,
+  listConversationPinnedMessages,
   listMessageRequests,
   listBlockedMessagingAccounts,
   listMessagingConversations,
@@ -51,10 +52,12 @@ import {
   listOfficialGroupAudit,
   listOfficialGroupScopes,
   markConversationRead,
+  pinConversationMessage,
   reconcileOfficialGroups,
   removeGroupMember,
   reactToMessage,
   searchMessagingContacts,
+  starConversationMessage,
   updateMyMessagingProfile,
   updateMessagingPrivacySettings,
   updateMyMessagingProfilePhoto,
@@ -64,6 +67,8 @@ import {
   searchMessaging,
   sendConversationTextMessage,
   stopConversationLiveLocationMessage,
+  unpinConversationMessage,
+  unstarConversationMessage,
   updateConversationLiveLocationMessage,
   updateGroupConversation,
   unblockMessagingAccount,
@@ -114,6 +119,8 @@ type RealtimeConnectionStatus =
   | "DISCONNECTED";
 const SELECTED_CONVERSATION_STORAGE_KEY =
   "nt-message:selected-conversation";
+const HIGHLIGHT_MESSAGE_STORAGE_KEY =
+  "nt-message:highlight-message";
 const NOTIFICATION_SOUND_STORAGE_KEY = "nt-message:notification-sound-enabled";
 const BROWSER_NOTIFICATION_STORAGE_KEY = "nt-message:browser-notifications-enabled";
 const CUSTOMIZATION_STORAGE_KEY = "nt-message:customization";
@@ -552,6 +559,22 @@ function readStoredConversationId(): string | null {
     return window.sessionStorage.getItem(
       SELECTED_CONVERSATION_STORAGE_KEY,
     );
+  } catch {
+    return null;
+  }
+}
+
+function readStoredHighlightedMessageId(): string | null {
+  try {
+    const messageId = window.sessionStorage.getItem(
+      HIGHLIGHT_MESSAGE_STORAGE_KEY,
+    );
+
+    if (messageId) {
+      window.sessionStorage.removeItem(HIGHLIGHT_MESSAGE_STORAGE_KEY);
+    }
+
+    return messageId;
   } catch {
     return null;
   }
@@ -1199,15 +1222,21 @@ function contactActionLabel(contact: MessagingContact): string {
 function applyMessageUpdate(
   messages: MessagingMessage[],
   updatedMessage: MessagingMessage,
+  options: { preservePersonalState?: boolean } = {},
 ): MessagingMessage[] {
   return messages.map((message) => {
     if (message.id === updatedMessage.id) {
-      return{
+      return {
         ...message,
         ...updatedMessage,
         reactions: updatedMessage.reactions ?? [],
-
-      }
+        isStarred: options.preservePersonalState
+          ? message.isStarred
+          : updatedMessage.isStarred,
+        starredAt: options.preservePersonalState
+          ? message.starredAt
+          : updatedMessage.starredAt,
+      };
     }
 
     if (message.replyTo?.id === updatedMessage.id) {
@@ -1354,6 +1383,7 @@ export function MessageAppPage() {
     readStoredConversationId,
   );
   const [messages, setMessages] = useState<MessagingMessage[]>([]);
+  const [pinnedMessages, setPinnedMessages] = useState<MessagingMessage[]>([]);
   const [conversationSearch, setConversationSearch] = useState("");
   const [messageText, setMessageText] = useState("");
   const [composerCaretIndex, setComposerCaretIndex] = useState(0);
@@ -1364,6 +1394,7 @@ export function MessageAppPage() {
     "ME" | "EVERYONE" | null
   >(null);
   const [reactionActionId, setReactionActionId] = useState<string | null>(null);
+  const [pinActionId, setPinActionId] = useState<string | null>(null);
   const [conversationLoading, setConversationLoading] = useState(true);
   const [messageLoading, setMessageLoading] = useState(false);
   const [olderMessagesLoading, setOlderMessagesLoading] = useState(false);
@@ -1542,7 +1573,9 @@ export function MessageAppPage() {
   const [searchContactResults, setSearchContactResults] = useState<MessagingContact[]>([]);
   const [searchLoading, setSearchLoading] = useState(false);
   const [searchError, setSearchError] = useState<string | null>(null);
-  const [highlightedMessageId, setHighlightedMessageId] = useState<string | null>(null);
+  const [highlightedMessageId, setHighlightedMessageId] = useState<string | null>(
+    readStoredHighlightedMessageId,
+  );
   const [profileAccountId, setProfileAccountId] = useState<string | null>(null);
   const [profileData, setProfileData] = useState<MessagingUserProfile | null>(null);
   const [profileBioDraft, setProfileBioDraft] = useState("");
@@ -2124,6 +2157,23 @@ export function MessageAppPage() {
     }
   }, [accessToken, account?.id]);
 
+  const loadPinnedMessages = useCallback(async (
+    conversationId: string,
+  ): Promise<void> => {
+    if (!accessToken) {
+      setPinnedMessages([]);
+      return;
+    }
+
+    try {
+      const response = await listConversationPinnedMessages(accessToken, conversationId);
+      setPinnedMessages(response.data);
+    } catch {
+      // Pinning is non-blocking; the message thread can still load without the banner.
+      setPinnedMessages([]);
+    }
+  }, [accessToken]);
+
   const stopLocalTyping = useCallback((
     requestedConversationId?: string | null,
   ): void => {
@@ -2446,7 +2496,21 @@ export function MessageAppPage() {
       setMessages((current) => applyMessageUpdate(
         current,
         payload.message,
+        { preservePersonalState: true },
       ));
+
+      setPinnedMessages((current) => {
+        if (payload.action === "PINNED") {
+          const withoutCurrent = current.filter((item) => item.id !== payload.message.id);
+          return [payload.message, ...withoutCurrent];
+        }
+
+        if (payload.action === "UNPINNED" || payload.action === "DELETED") {
+          return current.filter((item) => item.id !== payload.message.id);
+        }
+
+        return applyMessageUpdate(current, payload.message, { preservePersonalState: true });
+      });
 
       setReplyingTo((current) => (
         current?.id === payload.message.id
@@ -2638,11 +2702,13 @@ export function MessageAppPage() {
 
     if (!selectedConversationId) {
       setMessages([]);
+      setPinnedMessages([]);
       return;
     }
 
     void loadMessages(selectedConversationId);
-  }, [loadMessages, selectedConversationId]);
+    void loadPinnedMessages(selectedConversationId);
+  }, [loadMessages, loadPinnedMessages, selectedConversationId]);
 
 
   useEffect(() => {
@@ -4620,6 +4686,79 @@ export function MessageAppPage() {
     }
   }
 
+  async function handleStarMessage(message: MessagingMessage): Promise<void> {
+    if (!accessToken || message.isDeleted || messageActionId !== null) {
+      return;
+    }
+
+    setMessageActionId(message.id);
+    setMessageActionMode(null);
+    setMessageError(null);
+    setMessageNotice(null);
+
+    try {
+      const response = message.isStarred
+        ? await unstarConversationMessage(accessToken, message.conversationId, message.id)
+        : await starConversationMessage(accessToken, message.conversationId, message.id);
+
+      setMessages((current) => applyMessageUpdate(current, response.data));
+      setPinnedMessages((current) => applyMessageUpdate(current, response.data));
+      setMessageNotice(response.message);
+    } catch (error) {
+      setMessageError(
+        error instanceof Error
+          ? error.message
+          : "The starred state could not be updated.",
+      );
+    } finally {
+      setMessageActionId(null);
+      setMessageActionMode(null);
+    }
+  }
+
+  async function handlePinMessage(message: MessagingMessage): Promise<void> {
+    if (!accessToken || message.isDeleted || pinActionId !== null) {
+      return;
+    }
+
+    setPinActionId(message.id);
+    setMessageError(null);
+    setMessageNotice(null);
+
+    try {
+      const response = message.isPinned
+        ? await unpinConversationMessage(accessToken, message.conversationId, message.id)
+        : await pinConversationMessage(accessToken, message.conversationId, message.id);
+
+      setMessages((current) => applyMessageUpdate(current, response.data));
+      setPinnedMessages((current) => {
+        if (response.data.isPinned) {
+          const withoutCurrent = current.filter((item) => item.id !== response.data.id);
+          return [response.data, ...withoutCurrent];
+        }
+
+        return current.filter((item) => item.id !== response.data.id);
+      });
+      setMessageNotice(response.message);
+    } catch (error) {
+      setMessageError(
+        error instanceof Error
+          ? error.message
+          : "The pinned state could not be updated.",
+      );
+    } finally {
+      setPinActionId(null);
+    }
+  }
+
+  function focusPinnedMessage(message: MessagingMessage): void {
+    if (message.conversationId !== selectedConversationId) {
+      setSelectedConversationId(message.conversationId);
+    }
+
+    setHighlightedMessageId(message.id);
+  }
+
   function beginReply(message: MessagingMessage): void {
     if (message.isDeleted) {
       return;
@@ -5513,6 +5652,14 @@ export function MessageAppPage() {
             )}
           </div>
 
+          <button
+            type="button"
+            className="message-starred-topbar-button"
+            onClick={() => navigate("/messages/starred")}
+          >
+            Starred
+          </button>
+
           {account?.role !== "EMPLOYEE" && (
             <DirectoryButton />
           )}
@@ -5969,6 +6116,26 @@ export function MessageAppPage() {
                 </div>
               )}
 
+              {pinnedMessages.length > 0 && (
+                <section className="message-pinned-panel" aria-label="Pinned messages">
+                  <div>
+                    <strong>Pinned messages</strong>
+                    <span>{pinnedMessages.length} pinned</span>
+                  </div>
+
+                  {pinnedMessages.slice(0, 3).map((pinnedMessage) => (
+                    <button
+                      key={pinnedMessage.id}
+                      type="button"
+                      onClick={() => focusPinnedMessage(pinnedMessage)}
+                    >
+                      <span>📌</span>
+                      <small>{attachmentLabel(pinnedMessage)}</small>
+                    </button>
+                  ))}
+                </section>
+              )}
+
               <div
                 className="message-thread"
                 ref={messageListRef}
@@ -6021,6 +6188,13 @@ export function MessageAppPage() {
                           )}
 
                           <div className="message-bubble">
+                            {!message.isDeleted && (message.isStarred || message.isPinned) && (
+                              <div className="message-state-badges" aria-label="Message state">
+                                {message.isPinned && <span>📌 Pinned</span>}
+                                {message.isStarred && <span>★ Starred</span>}
+                              </div>
+                            )}
+
                             {message.forwardedFrom && !message.isDeleted && (
                               <div className="message-forwarded-label">
                                 <strong>Forwarded</strong>
@@ -6169,6 +6343,36 @@ export function MessageAppPage() {
                                   );
                                 })}
                               </div>
+                            )}
+
+                            {!message.isDeleted && (
+                              <button
+                                type="button"
+                                onClick={() => void handleStarMessage(message)}
+                                disabled={messageActionId !== null}
+                                aria-pressed={message.isStarred}
+                              >
+                                {messageActionId === message.id && messageActionMode === null
+                                  ? "Saving..."
+                                  : message.isStarred
+                                    ? "Unstar"
+                                    : "Star"}
+                              </button>
+                            )}
+
+                            {!message.isDeleted && (
+                              <button
+                                type="button"
+                                onClick={() => void handlePinMessage(message)}
+                                disabled={pinActionId !== null}
+                                aria-pressed={message.isPinned}
+                              >
+                                {pinActionId === message.id
+                                  ? "Saving..."
+                                  : message.isPinned
+                                    ? "Unpin"
+                                    : "Pin"}
+                              </button>
                             )}
 
                             {!message.isDeleted && message.textContent && (
