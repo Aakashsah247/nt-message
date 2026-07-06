@@ -3,7 +3,10 @@ import { apiRequest } from "../lib/api";
 import type {
   AcceptMessageRequestResponse,
   AddGroupMembersResponse,
+  ConversationListView,
   ConversationListResponse,
+  ConversationMuteSetting,
+  ConversationPreferenceResponse,
   ConversationMessageSearchResponse,
   CreatePrivateConversationResponse,
   DeleteMessageForMeResponse,
@@ -278,6 +281,7 @@ export function listMessagingConversations(
   accessToken: string,
   cursor?: string,
   limit = 50,
+  view: ConversationListView = "ACTIVE",
 ): Promise<ConversationListResponse> {
   const params = new URLSearchParams({
     limit: String(limit),
@@ -287,10 +291,35 @@ export function listMessagingConversations(
     params.set("cursor", cursor);
   }
 
+  if (view !== "ACTIVE") {
+    params.set("view", view);
+  }
+
   return apiRequest<ConversationListResponse>(
     `/conversations?${params.toString()}`,
     {
       headers: authorizationHeaders(accessToken),
+    },
+  );
+}
+
+export function updateConversationPreference(
+  accessToken: string,
+  conversationId: string,
+  input: {
+    isPinned?: boolean;
+    isArchived?: boolean;
+    markUnread?: boolean;
+    mute?: ConversationMuteSetting;
+    draftText?: string | null;
+  },
+): Promise<ConversationPreferenceResponse> {
+  return apiRequest<ConversationPreferenceResponse>(
+    `/conversations/${conversationId}/preferences`,
+    {
+      method: "PATCH",
+      headers: authorizationHeaders(accessToken),
+      body: JSON.stringify(input),
     },
   );
 }

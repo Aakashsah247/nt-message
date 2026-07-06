@@ -541,6 +541,13 @@ model ConversationParticipant {
   role       ConversationParticipantRole @default(MEMBER)
   isMuted    Boolean @default(false) @map("is_muted")
   isArchived Boolean @default(false) @map("is_archived")
+  isPinned   Boolean @default(false) @map("is_pinned")
+  pinnedAt   DateTime? @map("pinned_at") @db.Timestamptz(3)
+  mutedUntil DateTime? @map("muted_until") @db.Timestamptz(3)
+  archivedAt DateTime? @map("archived_at") @db.Timestamptz(3)
+  markedUnreadAt DateTime? @map("marked_unread_at") @db.Timestamptz(3)
+  draftText String? @map("draft_text") @db.Text
+  draftUpdatedAt DateTime? @map("draft_updated_at") @db.Timestamptz(3)
 
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
@@ -552,6 +559,9 @@ model ConversationParticipant {
   @@index([accountId, leftAt, isArchived], map: "conversation_participants_account_active_idx")
   @@index([conversationId, leftAt], map: "conversation_participants_conversation_active_idx")
   @@index([conversationId, role, leftAt], map: "conversation_participants_conversation_role_idx")
+  @@index([accountId, leftAt, isPinned, pinnedAt], map: "conversation_participants_account_pin_idx")
+  @@index([accountId, isArchived, updatedAt], map: "conversation_participants_account_archive_idx")
+  @@index([accountId, draftUpdatedAt], map: "conversation_participants_account_draft_idx")
   @@map("conversation_participants")
 }
 

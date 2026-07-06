@@ -44,6 +44,8 @@ import { SendLocationMessageDto } from './dto/send-location-message.dto';
 import { SendAttachmentMessageDto } from './dto/send-attachment-message.dto';
 import { UpdateGroupConversationDto } from './dto/update-group-conversation.dto';
 import { UpdateGroupMemberRoleDto } from './dto/update-group-member-role.dto';
+import { UpdateConversationPreferenceDto } from './dto/update-conversation-preference.dto';
+import type { ConversationMuteSetting } from './dto/update-conversation-preference.dto';
 import { UpdateTextMessageDto } from './dto/update-text-message.dto';
 import { UpdateLiveLocationDto } from './dto/update-live-location.dto';
 import { UpdateMessagingProfileDto } from './dto/update-messaging-profile.dto';
@@ -98,6 +100,7 @@ interface MessageSearchFilters {
 interface NotificationParticipant {
   accountId: string;
   isMuted?: boolean;
+  mutedUntil?: Date | null;
 }
 
 interface MessageNotificationInput {
@@ -450,6 +453,13 @@ const conversationSelect = {
       role: true,
       isMuted: true,
       isArchived: true,
+      isPinned: true,
+      pinnedAt: true,
+      mutedUntil: true,
+      archivedAt: true,
+      markedUnreadAt: true,
+      draftText: true,
+      draftUpdatedAt: true,
 
       account: {
         select: messagingAccountSelect,
@@ -1837,6 +1847,28 @@ export class ConversationsService {
     };
   }
 
+  private isMuteActive(
+    participant: {
+      isMuted: boolean;
+      mutedUntil?: Date | null;
+    },
+    now = new Date(),
+  ): boolean {
+    return participant.isMuted && (!participant.mutedUntil || participant.mutedUntil > now);
+  }
+
+  private getMuteUntil(mute: ConversationMuteSetting, now: Date): Date | null {
+    if (mute === '8_HOURS') {
+      return new Date(now.getTime() + 8 * 60 * 60 * 1000);
+    }
+
+    if (mute === '1_WEEK') {
+      return new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000);
+    }
+
+    return null;
+  }
+
   private serializeConversation(
     conversation: ConversationRecord,
     viewerAccountId: string,
@@ -1855,6 +1887,8 @@ export class ConversationsService {
     );
 
     const privatePeer = otherParticipants[0]?.account ?? null;
+    const isMarkedUnread = viewerParticipant?.markedUnreadAt !== null && viewerParticipant?.markedUnreadAt !== undefined;
+    const normalizedUnreadCount = isMarkedUnread && unreadCount === 0 ? 1 : unreadCount;
 
     return {
       id: conversation.id,
@@ -1877,9 +1911,17 @@ export class ConversationsService {
         : null,
       createdByAccountId: conversation.createdByAccountId,
       lastMessageAt: conversation.messages[0]?.sentAt ?? null,
-      unreadCount,
-      isMuted: viewerParticipant?.isMuted ?? false,
+      unreadCount: normalizedUnreadCount,
+      isMuted: viewerParticipant ? this.isMuteActive(viewerParticipant) : false,
+      mutedUntil: viewerParticipant?.mutedUntil ?? null,
       isArchived: viewerParticipant?.isArchived ?? false,
+      archivedAt: viewerParticipant?.archivedAt ?? null,
+      isPinned: viewerParticipant?.isPinned ?? false,
+      pinnedAt: viewerParticipant?.pinnedAt ?? null,
+      isMarkedUnread,
+      markedUnreadAt: viewerParticipant?.markedUnreadAt ?? null,
+      draftText: viewerParticipant?.draftText ?? null,
+      draftUpdatedAt: viewerParticipant?.draftUpdatedAt ?? null,
       viewerParticipantRole: viewerParticipant?.role ?? null,
       canManageGroup:
         conversation.type === ConversationType.GROUP &&
@@ -6113,6 +6155,12 @@ export class ConversationsService {
     );
 
     const take = query.limit + 1;
+    const archivedFilter =
+      query.view === 'ALL'
+        ? {}
+        : {
+            isArchived: query.view === 'ARCHIVED',
+          };
 
     const conversations = await this.prisma.conversation.findMany({
       where: {
@@ -6120,7 +6168,7 @@ export class ConversationsService {
           some: {
             accountId: viewer.accountId,
             leftAt: null,
-            isArchived: false,
+            ...archivedFilter,
           },
         },
       },
@@ -6148,8 +6196,25 @@ export class ConversationsService {
       select: conversationSelect,
     });
 
-    const hasMore = conversations.length > query.limit;
-    const page = hasMore ? conversations.slice(0, query.limit) : conversations;
+    const sortedConversations = [...conversations].sort((first, second) => {
+      const firstParticipant = first.participants.find(
+        (participant) => participant.accountId === viewer.accountId,
+      );
+      const secondParticipant = second.participants.find(
+        (participant) => participant.accountId === viewer.accountId,
+      );
+
+      if ((firstParticipant?.isPinned ?? false) !== (secondParticipant?.isPinned ?? false)) {
+        return firstParticipant?.isPinned ? -1 : 1;
+      }
+
+      return new Date(second.updatedAt).getTime() - new Date(first.updatedAt).getTime();
+    });
+
+    const hasMore = sortedConversations.length > query.limit;
+    const page = hasMore
+      ? sortedConversations.slice(0, query.limit)
+      : sortedConversations;
 
     const conversationIds = page.map((conversation) => conversation.id);
 
@@ -6375,7 +6440,10 @@ export class ConversationsService {
     const recipients = input.participants.filter(
       (participant) =>
         participant.accountId !== input.message.senderAccountId &&
-        !participant.isMuted,
+        !this.isMuteActive({
+          isMuted: participant.isMuted ?? false,
+          mutedUntil: participant.mutedUntil ?? null,
+        }),
     );
 
     if (recipients.length === 0) {
@@ -6537,6 +6605,7 @@ export class ConversationsService {
           select: {
             accountId: true,
             isMuted: true,
+            mutedUntil: true,
             account: {
               select: messagingAccountSelect,
             },
@@ -6786,6 +6855,7 @@ export class ConversationsService {
           select: {
             accountId: true,
             isMuted: true,
+            mutedUntil: true,
           },
         },
       },
@@ -7139,6 +7209,7 @@ export class ConversationsService {
           select: {
             accountId: true,
             isMuted: true,
+            mutedUntil: true,
           },
         },
       },
@@ -7521,6 +7592,7 @@ export class ConversationsService {
           select: {
             accountId: true,
             isMuted: true,
+            mutedUntil: true,
           },
         },
       },
@@ -8533,6 +8605,87 @@ export class ConversationsService {
     };
   }
 
+  async updateConversationPreference(
+    user: AuthenticatedUser,
+    conversationId: string,
+    dto: UpdateConversationPreferenceDto,
+  ) {
+    const viewer = await this.getMessagingViewer(user);
+    await this.assertActiveParticipant(viewer.accountId, conversationId);
+
+    const now = new Date();
+    const data: Prisma.ConversationParticipantUpdateInput = {};
+
+    if (dto.isPinned !== undefined) {
+      data.isPinned = dto.isPinned;
+      data.pinnedAt = dto.isPinned ? now : null;
+    }
+
+    if (dto.isArchived !== undefined) {
+      data.isArchived = dto.isArchived;
+      data.archivedAt = dto.isArchived ? now : null;
+    }
+
+    if (dto.markUnread !== undefined) {
+      // Manual unread is personal and clears the next time the user opens the chat.
+      data.markedUnreadAt = dto.markUnread ? now : null;
+    }
+
+    if (dto.mute !== undefined) {
+      data.isMuted = dto.mute !== 'OFF';
+      data.mutedUntil = dto.mute === 'OFF' ? null : this.getMuteUntil(dto.mute, now);
+    }
+
+    if (dto.draftText !== undefined) {
+      const draftText = dto.draftText?.trim() ? dto.draftText : null;
+
+      // Drafts belong to the viewer and never affect the recipient's composer.
+      data.draftText = draftText;
+      data.draftUpdatedAt = draftText ? now : null;
+    }
+
+    const participant = await this.prisma.conversationParticipant.update({
+      where: {
+        conversationId_accountId: {
+          conversationId,
+          accountId: viewer.accountId,
+        },
+      },
+      data,
+      select: {
+        conversationId: true,
+        accountId: true,
+        isPinned: true,
+        pinnedAt: true,
+        isArchived: true,
+        archivedAt: true,
+        isMuted: true,
+        mutedUntil: true,
+        markedUnreadAt: true,
+        draftText: true,
+        draftUpdatedAt: true,
+      },
+    });
+
+    return {
+      message: 'Conversation preferences updated.',
+      data: {
+        conversationId: participant.conversationId,
+        accountId: participant.accountId,
+        isPinned: participant.isPinned,
+        pinnedAt: participant.pinnedAt,
+        isArchived: participant.isArchived,
+        archivedAt: participant.archivedAt,
+        isMuted: this.isMuteActive(participant),
+        mutedUntil: participant.mutedUntil,
+        isMarkedUnread: participant.markedUnreadAt !== null,
+        markedUnreadAt: participant.markedUnreadAt,
+        draftText: participant.draftText,
+        draftUpdatedAt: participant.draftUpdatedAt,
+      },
+    };
+  }
+
   async markConversationRead(user: AuthenticatedUser, conversationId: string) {
     const viewer = await this.getMessagingViewer(user);
 
@@ -8569,6 +8722,18 @@ export class ConversationsService {
     const now = new Date();
 
     const readResult = await this.prisma.$transaction(async (transaction) => {
+      await transaction.conversationParticipant.update({
+        where: {
+          conversationId_accountId: {
+            conversationId,
+            accountId: viewer.accountId,
+          },
+        },
+        data: {
+          markedUnreadAt: null,
+        },
+      });
+
       await transaction.messageReceipt.updateMany({
         where: {
           accountId: viewer.accountId,

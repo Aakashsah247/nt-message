@@ -9147,12 +9147,21 @@
 }
 
 .message-conversation-meta {
+  display: flex;
+  align-items: center;
+  gap: 5px;
   overflow: hidden;
   color: #91a1b1;
   font-size: 8px;
   font-weight: 700;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.message-conversation-meta span {
+  flex: 0 0 auto;
+  color: var(--message-accent, var(--color-nt-blue));
+  font-weight: 900;
 }
 
 .message-chat-panel {
@@ -13798,4 +13807,76 @@
     align-items: flex-start;
     flex-direction: column;
   }
+}
+
+.message-conversation-view-tabs {
+  display: flex;
+  gap: 8px;
+  padding: 0 20px 12px;
+}
+
+.message-conversation-view-tabs button {
+  min-height: 30px;
+  flex: 1;
+  border: 1px solid #d9e5ef;
+  border-radius: 999px;
+  color: #4d657c;
+  background: #f7fafc;
+  font-size: 9px;
+  font-weight: 900;
+}
+
+.message-conversation-view-tabs button.active {
+  color: #ffffff;
+  background: var(--message-accent, var(--color-nt-blue));
+  border-color: transparent;
+}
+
+
+.message-conversation-controls {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.message-conversation-controls button,
+.message-conversation-controls select {
+  min-height: 32px;
+  border: 1px solid #d8e4ee;
+  border-radius: 999px;
+  color: var(--color-nt-deep);
+  background: #f8fbfd;
+  font-size: 9px;
+  font-weight: 900;
+}
+
+.message-conversation-controls button {
+  padding: 0 10px;
+}
+
+.message-conversation-controls select {
+  padding: 0 8px;
+}
+
+.message-conversation-controls button:hover:not(:disabled),
+.message-conversation-controls select:hover:not(:disabled) {
+  border-color: rgba(7, 92, 168, 0.42);
+  background: #eef6fc;
+}
+
+.message-conversation-controls button:disabled,
+.message-conversation-controls select:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+.message-app-shell.theme-dark .message-conversation-view-tabs button,
+.message-app-shell.theme-dark .message-conversation-controls button,
+.message-app-shell.theme-dark .message-conversation-controls select {
+  color: #dbeafe;
+  background: rgba(15, 23, 42, 0.9);
+  border-color: rgba(148, 163, 184, 0.25);
 }

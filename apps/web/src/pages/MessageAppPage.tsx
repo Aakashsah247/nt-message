@@ -58,6 +58,7 @@ import {
   reactToMessage,
   searchMessagingContacts,
   starConversationMessage,
+  updateConversationPreference,
   updateMyMessagingProfile,
   updateMessagingPrivacySettings,
   updateMyMessagingProfilePhoto,
@@ -99,6 +100,8 @@ import type {
   MessagingContact,
   MessagingAttachment,
   MessagingConversation,
+  ConversationListView,
+  ConversationMuteSetting,
   MessagingMessage,
   MessagingMention,
   MessagingLocationPayload,
@@ -1379,6 +1382,7 @@ export function MessageAppPage() {
     Record<string, string[]>
   >({});
   const [conversations, setConversations] = useState<MessagingConversation[]>([]);
+  const [conversationListView, setConversationListView] = useState<ConversationListView>("ACTIVE");
   const [selectedConversationId, setSelectedConversationId] = useState<string | null>(
     readStoredConversationId,
   );
@@ -1395,6 +1399,7 @@ export function MessageAppPage() {
   >(null);
   const [reactionActionId, setReactionActionId] = useState<string | null>(null);
   const [pinActionId, setPinActionId] = useState<string | null>(null);
+  const [conversationPreferenceLoading, setConversationPreferenceLoading] = useState<string | null>(null);
   const [conversationLoading, setConversationLoading] = useState(true);
   const [messageLoading, setMessageLoading] = useState(false);
   const [olderMessagesLoading, setOlderMessagesLoading] = useState(false);
@@ -1607,6 +1612,9 @@ export function MessageAppPage() {
   const liveLocationWatchIdRef = useRef<number | null>(null);
   const liveLocationExpiryTimerRef = useRef<number | null>(null);
   const liveLocationLastUpdateAtRef = useRef(0);
+  const draftConversationIdRef = useRef<string | null>(null);
+  const draftHydrationRef = useRef(false);
+  const draftCacheRef = useRef<Record<string, string>>({});
   const selectedConversationIdRef = useRef<string | null>(
     selectedConversationId,
   );
@@ -1648,6 +1656,7 @@ export function MessageAppPage() {
       )
       .slice(0, 6);
   }, [account?.id, activeMentionQuery, editingMessage, selectedConversation]);
+
 
   useEffect(() => {
     return () => {
@@ -2015,6 +2024,7 @@ export function MessageAppPage() {
         accessToken,
         undefined,
         100,
+        conversationListView,
       );
 
       setConversations(response.data);
@@ -2045,7 +2055,7 @@ export function MessageAppPage() {
         setConversationLoading(false);
       }
     }
-  }, [accessToken]);
+  }, [accessToken, conversationListView]);
 
   const loadMessageRequests = useCallback(async (
     silent = false,
@@ -2173,6 +2183,129 @@ export function MessageAppPage() {
       setPinnedMessages([]);
     }
   }, [accessToken]);
+
+  const applyConversationPreference = useCallback((
+    preference: Awaited<ReturnType<typeof updateConversationPreference>>["data"],
+  ): void => {
+    setConversations((current) => current.map((conversation) => (
+      conversation.id === preference.conversationId
+        ? {
+            ...conversation,
+            isPinned: preference.isPinned,
+            pinnedAt: preference.pinnedAt,
+            isArchived: preference.isArchived,
+            archivedAt: preference.archivedAt,
+            isMuted: preference.isMuted,
+            mutedUntil: preference.mutedUntil,
+            isMarkedUnread: preference.isMarkedUnread,
+            markedUnreadAt: preference.markedUnreadAt,
+            unreadCount: preference.isMarkedUnread && conversation.unreadCount === 0
+              ? 1
+              : preference.isMarkedUnread
+                ? conversation.unreadCount
+                : conversation.unreadCount,
+            draftText: preference.draftText,
+            draftUpdatedAt: preference.draftUpdatedAt,
+          }
+        : conversation
+    )));
+  }, []);
+
+  async function saveConversationPreference(
+    conversationId: string,
+    input: Parameters<typeof updateConversationPreference>[2],
+    successMessage?: string,
+  ): Promise<void> {
+    if (!accessToken || conversationPreferenceLoading) {
+      return;
+    }
+
+    setConversationPreferenceLoading(conversationId);
+    setMessageError(null);
+
+    try {
+      const response = await updateConversationPreference(
+        accessToken,
+        conversationId,
+        input,
+      );
+
+      applyConversationPreference(response.data);
+
+      if (successMessage) {
+        setMessageNotice(successMessage);
+      }
+    } catch (error) {
+      setMessageError(
+        error instanceof Error
+          ? error.message
+          : "Conversation controls could not be updated.",
+      );
+    } finally {
+      setConversationPreferenceLoading(null);
+    }
+  }
+
+  useEffect(() => {
+    if (!selectedConversation || draftConversationIdRef.current === selectedConversation.id) {
+      return;
+    }
+
+    draftHydrationRef.current = true;
+    draftConversationIdRef.current = selectedConversation.id;
+    const cachedDraft = draftCacheRef.current[selectedConversation.id];
+    const nextDraftText = cachedDraft ?? selectedConversation.draftText ?? "";
+
+    setMessageText(nextDraftText);
+    setComposerCaretIndex(nextDraftText.length);
+
+    window.setTimeout(() => {
+      draftHydrationRef.current = false;
+    }, 0);
+  }, [selectedConversation]);
+
+  useEffect(() => {
+    if (
+      !accessToken ||
+      !selectedConversationId ||
+      draftHydrationRef.current ||
+      editingMessage ||
+      selectedAttachment ||
+      voiceRecordingState !== "IDLE"
+    ) {
+      return;
+    }
+
+    const draftText = messageText;
+    const conversationId = selectedConversationId;
+
+    if (draftText.trim()) {
+      draftCacheRef.current[conversationId] = draftText;
+    } else {
+      delete draftCacheRef.current[conversationId];
+    }
+
+    const timeout = window.setTimeout(() => {
+      updateConversationPreference(accessToken, conversationId, {
+        draftText,
+      })
+        .then((response) => applyConversationPreference(response.data))
+        .catch(() => {
+          // Draft sync is quiet so typing never feels blocked by a failed request.
+        });
+    }, 700);
+
+    return () => window.clearTimeout(timeout);
+  }, [
+    accessToken,
+    applyConversationPreference,
+    editingMessage,
+    messageText,
+    selectedAttachment,
+    selectedConversationId,
+    voiceRecordingState,
+  ]);
+
 
   const stopLocalTyping = useCallback((
     requestedConversationId?: string | null,
@@ -2698,11 +2831,12 @@ export function MessageAppPage() {
   useEffect(() => {
     setReplyingTo(null);
     setEditingMessage(null);
-    setMessageText("");
 
     if (!selectedConversationId) {
+      setMessageText("");
       setMessages([]);
       setPinnedMessages([]);
+      draftConversationIdRef.current = null;
       return;
     }
 
@@ -4759,6 +4893,82 @@ export function MessageAppPage() {
     setHighlightedMessageId(message.id);
   }
 
+  async function handleConversationPinnedToggle(): Promise<void> {
+    if (!selectedConversation) {
+      return;
+    }
+
+    await saveConversationPreference(
+      selectedConversation.id,
+      {
+        isPinned: !selectedConversation.isPinned,
+      },
+      selectedConversation.isPinned
+        ? "Conversation unpinned."
+        : "Conversation pinned.",
+    );
+  }
+
+  async function handleConversationArchiveToggle(): Promise<void> {
+    if (!selectedConversation) {
+      return;
+    }
+
+    await saveConversationPreference(
+      selectedConversation.id,
+      {
+        isArchived: !selectedConversation.isArchived,
+      },
+      selectedConversation.isArchived
+        ? "Conversation restored."
+        : "Conversation archived.",
+    );
+    await loadConversations(true, selectedConversation.id);
+  }
+
+  async function handleConversationMuteChange(
+    mute: ConversationMuteSetting,
+  ): Promise<void> {
+    if (!selectedConversation) {
+      return;
+    }
+
+    await saveConversationPreference(
+      selectedConversation.id,
+      {
+        mute,
+      },
+      mute === "OFF" ? "Conversation unmuted." : "Conversation muted.",
+    );
+  }
+
+  async function handleConversationUnreadToggle(): Promise<void> {
+    if (!accessToken || !selectedConversation) {
+      return;
+    }
+
+    if (selectedConversation.isMarkedUnread || selectedConversation.unreadCount > 0) {
+      await markConversationRead(accessToken, selectedConversation.id);
+      await saveConversationPreference(
+        selectedConversation.id,
+        {
+          markUnread: false,
+        },
+        "Conversation marked as read.",
+      );
+      await loadConversations(true, selectedConversation.id);
+      return;
+    }
+
+    await saveConversationPreference(
+      selectedConversation.id,
+      {
+        markUnread: true,
+      },
+      "Conversation marked as unread.",
+    );
+  }
+
   function beginReply(message: MessagingMessage): void {
     if (message.isDeleted) {
       return;
@@ -5104,9 +5314,18 @@ export function MessageAppPage() {
             getMentionedAccountIds(text, selectedConversation, account?.id),
           );
 
+      delete draftCacheRef.current[selectedConversationId];
+
       setMessageText("");
       setReplyingTo(null);
       clearSelectedAttachment();
+      updateConversationPreference(accessToken, selectedConversationId, {
+        draftText: null,
+      })
+        .then((draftResponse) => applyConversationPreference(draftResponse.data))
+        .catch(() => {
+          // Sending succeeded, so a failed draft cleanup should not block the chat.
+        });
       setMessages((current) => {
         if (current.some((message) => message.id === response.data.id)) {
           return current;
@@ -5852,6 +6071,19 @@ export function MessageAppPage() {
             />
           </label>
 
+          <div className="message-conversation-view-tabs" aria-label="Conversation view">
+            {(["ACTIVE", "ARCHIVED"] as ConversationListView[]).map((view) => (
+              <button
+                key={view}
+                type="button"
+                className={conversationListView === view ? "active" : ""}
+                onClick={() => setConversationListView(view)}
+              >
+                {view === "ACTIVE" ? "Active" : "Archived"}
+              </button>
+            ))}
+          </div>
+
           <div className="message-sidebar-summary">
             <span>{conversations.length} conversations</span>
             <span>{totalUnread} unread</span>
@@ -5962,6 +6194,9 @@ export function MessageAppPage() {
                       </span>
 
                       <span className="message-conversation-meta">
+                        {conversation.isPinned && <span title="Pinned conversation">📌</span>}
+                        {conversation.isMuted && <span title="Muted conversation">🔕</span>}
+                        {conversation.draftText && <span title="Draft message">Draft</span>}
                         {conversation.type === "GROUP"
                           ? `${conversation.memberCount} members · ${
                               conversation.groupKind === "OFFICIAL"
@@ -6070,6 +6305,49 @@ export function MessageAppPage() {
                 >
                   Search
                 </button>
+
+                <div className="message-conversation-controls" aria-label="Conversation controls">
+                  <button
+                    type="button"
+                    onClick={() => void handleConversationPinnedToggle()}
+                    disabled={conversationPreferenceLoading === selectedConversation.id}
+                  >
+                    {selectedConversation.isPinned ? "Unpin chat" : "Pin chat"}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => void handleConversationUnreadToggle()}
+                    disabled={conversationPreferenceLoading === selectedConversation.id}
+                  >
+                    {selectedConversation.isMarkedUnread || selectedConversation.unreadCount > 0
+                      ? "Mark read"
+                      : "Mark unread"}
+                  </button>
+                  <select
+                    value={selectedConversation.isMuted
+                      ? selectedConversation.mutedUntil
+                        ? "8_HOURS"
+                        : "ALWAYS"
+                      : "OFF"}
+                    onChange={(event) => void handleConversationMuteChange(
+                      event.target.value as ConversationMuteSetting,
+                    )}
+                    disabled={conversationPreferenceLoading === selectedConversation.id}
+                    aria-label="Mute conversation"
+                  >
+                    <option value="OFF">Unmuted</option>
+                    <option value="8_HOURS">Mute 8h</option>
+                    <option value="1_WEEK">Mute 1w</option>
+                    <option value="ALWAYS">Mute always</option>
+                  </select>
+                  <button
+                    type="button"
+                    onClick={() => void handleConversationArchiveToggle()}
+                    disabled={conversationPreferenceLoading === selectedConversation.id}
+                  >
+                    {selectedConversation.isArchived ? "Unarchive" : "Archive"}
+                  </button>
+                </div>
 
                 {selectedConversation.type === "GROUP" ? (
                   <button

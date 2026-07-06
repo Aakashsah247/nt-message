@@ -38,6 +38,7 @@ import { SendLocationMessageDto } from './dto/send-location-message.dto';
 import { SendAttachmentMessageDto } from './dto/send-attachment-message.dto';
 import { UpdateGroupConversationDto } from './dto/update-group-conversation.dto';
 import { UpdateGroupMemberRoleDto } from './dto/update-group-member-role.dto';
+import { UpdateConversationPreferenceDto } from './dto/update-conversation-preference.dto';
 import { UpdateTextMessageDto } from './dto/update-text-message.dto';
 import { UpdateLiveLocationDto } from './dto/update-live-location.dto';
 import { UpdateMessagingProfileDto } from './dto/update-messaging-profile.dto';
@@ -689,6 +690,29 @@ export class ConversationsController {
     conversationId: string,
   ) {
     return this.conversationsService.listPinnedMessages(user, conversationId);
+  }
+
+  @Patch(':id/preferences')
+  updateConversationPreference(
+    @CurrentUser()
+    user: AuthenticatedUser,
+
+    @Param(
+      'id',
+      new ParseUUIDPipe({
+        version: '4',
+      }),
+    )
+    conversationId: string,
+
+    @Body()
+    dto: UpdateConversationPreferenceDto,
+  ) {
+    return this.conversationsService.updateConversationPreference(
+      user,
+      conversationId,
+      dto,
+    );
   }
 
   @Get(':id/messages')

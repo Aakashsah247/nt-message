@@ -297,7 +297,15 @@ export interface MessagingConversation {
   lastMessageAt: string | null;
   unreadCount: number;
   isMuted: boolean;
+  mutedUntil: string | null;
   isArchived: boolean;
+  archivedAt: string | null;
+  isPinned: boolean;
+  pinnedAt: string | null;
+  isMarkedUnread: boolean;
+  markedUnreadAt: string | null;
+  draftText: string | null;
+  draftUpdatedAt: string | null;
   viewerParticipantRole: ConversationParticipantRole | null;
   canManageGroup: boolean;
   memberCount: number;
@@ -310,6 +318,30 @@ export interface MessagingConversation {
   lastMessage: MessagingMessage | null;
   createdAt: string;
   updatedAt: string;
+}
+
+export type ConversationListView = "ACTIVE" | "ARCHIVED" | "ALL";
+
+export type ConversationMuteSetting = "OFF" | "8_HOURS" | "1_WEEK" | "ALWAYS";
+
+export interface ConversationPreferenceState {
+  conversationId: string;
+  accountId: string;
+  isPinned: boolean;
+  pinnedAt: string | null;
+  isArchived: boolean;
+  archivedAt: string | null;
+  isMuted: boolean;
+  mutedUntil: string | null;
+  isMarkedUnread: boolean;
+  markedUnreadAt: string | null;
+  draftText: string | null;
+  draftUpdatedAt: string | null;
+}
+
+export interface ConversationPreferenceResponse {
+  message: string;
+  data: ConversationPreferenceState;
 }
 
 export interface CursorPagination {
