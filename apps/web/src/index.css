@@ -9255,11 +9255,20 @@
 }
 
 .message-thread {
+  display: flex;
   min-height: 0;
+  flex-direction: column-reverse;
   overflow-y: auto;
+  overflow-anchor: none;
+  overscroll-behavior: contain;
   padding: 22px clamp(18px, 4vw, 52px) 28px;
   scrollbar-width: thin;
   scrollbar-color: #b8c9d9 transparent;
+}
+
+.message-thread-bottom {
+  height: 1px;
+  flex: 0 0 auto;
 }
 
 .message-bubble-row {
@@ -11330,6 +11339,7 @@
 .message-selected-attachment {
   display: flex;
   align-items: center;
+  flex-wrap: wrap;
   gap: 10px;
   padding: 9px 10px;
   border: 1px solid #d7e4f0;
@@ -11385,6 +11395,73 @@
   background: white;
   font-size: 18px;
   font-weight: 900;
+}
+
+.message-selected-attachment button:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+.message-attachment-upload-state {
+  display: grid;
+  flex: 1 1 180px;
+  min-width: 160px;
+  gap: 5px;
+}
+
+.message-attachment-upload-meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.message-attachment-upload-meta small {
+  color: #4f6d86;
+}
+
+.message-attachment-upload-meta button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: auto;
+  height: auto;
+  flex: 0 0 auto;
+  margin-left: 0;
+  padding: 5px 10px;
+  border: 1px solid #c8d8e8;
+  border-radius: 999px;
+  color: #174a7c;
+  background: #ffffff;
+  font-size: 10px;
+  line-height: 1;
+}
+
+.message-attachment-upload-track {
+  height: 6px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: #d8e6f3;
+}
+
+.message-attachment-upload-track span {
+  display: block;
+  width: 0;
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, #1368b3, #31a7e8);
+  transition: width 160ms ease;
+}
+
+.message-attachment-upload-track.failed span {
+  background: #d84a4a;
+}
+
+.message-attachment-upload-error {
+  color: #b23b3b;
+  overflow: visible;
+  text-overflow: clip;
+  white-space: normal;
 }
 
 .message-attachments {
@@ -13231,6 +13308,25 @@
 .message-app-shell.theme-dark .message-peer-activity,
 .message-app-shell.theme-dark .message-composer-actions span {
   color: var(--message-muted);
+}
+
+.message-app-shell.theme-dark .message-selected-attachment {
+  border-color: rgba(148, 163, 184, 0.24);
+  background: rgba(15, 23, 42, 0.82);
+}
+
+.message-app-shell.theme-dark .message-attachment-upload-meta small {
+  color: #cbd5e1;
+}
+
+.message-app-shell.theme-dark .message-attachment-upload-meta button {
+  border-color: rgba(148, 163, 184, 0.3);
+  color: #dbeafe;
+  background: rgba(30, 41, 59, 0.95);
+}
+
+.message-app-shell.theme-dark .message-attachment-upload-track {
+  background: rgba(71, 85, 105, 0.75);
 }
 
 .message-app-shell.density-compact .message-thread {

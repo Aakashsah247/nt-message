@@ -68,6 +68,16 @@ function messagingApiUrl(path: string): string {
   return `${MESSAGING_API_BASE_URL}${path}`;
 }
 
+export interface AttachmentUploadProgress {
+  loadedBytes: number;
+  totalBytes: number | null;
+  progressPercent: number;
+}
+
+export interface SendAttachmentMessageOptions {
+  onUploadProgress?: (progress: AttachmentUploadProgress) => void;
+}
+
 
 export function getMyMessagingProfile(
   accessToken: string,
@@ -988,6 +998,7 @@ export async function sendConversationAttachmentMessage(
   caption?: string,
   replyToMessageId?: string,
   attachmentKind?: 'VOICE_NOTE',
+  options?: SendAttachmentMessageOptions,
 ): Promise<SendAttachmentMessageResponse> {
   const formData = new FormData();
 
@@ -1005,6 +1016,15 @@ export async function sendConversationAttachmentMessage(
   if (attachmentKind) {
     // Voice-note uploads are still protected attachments, but the backend stores their UI kind.
     formData.set("attachmentKind", attachmentKind);
+  }
+
+  if (options?.onUploadProgress) {
+    return uploadConversationAttachmentWithProgress(
+      accessToken,
+      conversationId,
+      formData,
+      options.onUploadProgress,
+    );
   }
 
   const response = await fetch(
@@ -1034,6 +1054,80 @@ export async function sendConversationAttachmentMessage(
   }
 
   return body as SendAttachmentMessageResponse;
+}
+
+function uploadConversationAttachmentWithProgress(
+  accessToken: string,
+  conversationId: string,
+  formData: FormData,
+  onUploadProgress: (progress: AttachmentUploadProgress) => void,
+): Promise<SendAttachmentMessageResponse> {
+  return new Promise((resolve, reject) => {
+    const request = new XMLHttpRequest();
+
+    request.open("POST", messagingApiUrl(`/conversations/${conversationId}/attachments`));
+    request.setRequestHeader("Authorization", `Bearer ${accessToken}`);
+    request.responseType = "text";
+
+    request.upload.onprogress = (event) => {
+      const totalBytes = event.lengthComputable && event.total > 0
+        ? event.total
+        : null;
+      const progressPercent = totalBytes
+        ? Math.min(99, Math.max(1, Math.round((event.loaded / totalBytes) * 100)))
+        : 0;
+
+      onUploadProgress({
+        loadedBytes: event.loaded,
+        totalBytes,
+        progressPercent,
+      });
+    };
+
+    request.onload = () => {
+      const body = parseMessagingJsonResponse<
+        SendAttachmentMessageResponse | { message?: unknown } | null
+      >(request.responseText);
+
+      if (request.status < 200 || request.status >= 300) {
+        reject(new Error(
+          body && typeof (body as { message?: unknown } | null)?.message === "string"
+            ? String((body as { message?: unknown }).message)
+            : "Attachment could not be uploaded.",
+        ));
+        return;
+      }
+
+      if (!body || !("data" in body)) {
+        reject(new Error("Attachment upload returned an invalid response."));
+        return;
+      }
+
+      onUploadProgress({
+        loadedBytes: formData.get("file") instanceof File
+          ? (formData.get("file") as File).size
+          : 0,
+        totalBytes: formData.get("file") instanceof File
+          ? (formData.get("file") as File).size
+          : null,
+        progressPercent: 100,
+      });
+      resolve(body as SendAttachmentMessageResponse);
+    };
+
+    request.onerror = () => reject(new Error("Attachment upload failed. Check your connection and try again."));
+    request.onabort = () => reject(new Error("Attachment upload was cancelled."));
+
+    request.send(formData);
+  });
+}
+
+function parseMessagingJsonResponse<T>(responseText: string): T | null {
+  try {
+    return JSON.parse(responseText) as T;
+  } catch {
+    return null;
+  }
 }
 
 async function fetchAttachmentBlobWithXhrFallback(

@@ -1,6 +1,7 @@
 import {
   useCallback,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -81,6 +82,9 @@ import {
   unblockMessagingAccount,
   updateGroupMemberRole,
   updateGroupPhoto,
+} from "../services/messaging.service";
+import type {
+  AttachmentUploadProgress,
 } from "../services/messaging.service";
 import {
   createMessagingSocket,
@@ -437,6 +441,24 @@ interface AttachmentViewerState {
   loading: boolean;
   error: string | null;
 }
+
+type AttachmentUploadStatus = "IDLE" | "UPLOADING" | "FAILED";
+
+interface AttachmentUploadState {
+  status: AttachmentUploadStatus;
+  progressPercent: number;
+  loadedBytes: number;
+  totalBytes: number | null;
+  error: string | null;
+}
+
+const EMPTY_ATTACHMENT_UPLOAD_STATE: AttachmentUploadState = {
+  status: "IDLE",
+  progressPercent: 0,
+  loadedBytes: 0,
+  totalBytes: null,
+  error: null,
+};
 
 function MessageAttachmentCard({
   accessToken,
@@ -1647,6 +1669,9 @@ export function MessageAppPage() {
   const [sendingMessage, setSendingMessage] = useState(false);
   const [selectedAttachment, setSelectedAttachment] = useState<File | null>(null);
   const [selectedAttachmentKind, setSelectedAttachmentKind] = useState<"FILE" | "VOICE_NOTE">("FILE");
+  const [attachmentUpload, setAttachmentUpload] = useState<AttachmentUploadState>(
+    EMPTY_ATTACHMENT_UPLOAD_STATE,
+  );
   const [attachmentPreviewUrl, setAttachmentPreviewUrl] = useState<string | null>(null);
   const [voiceRecordingState, setVoiceRecordingState] = useState<"IDLE" | "RECORDING" | "STOPPING">("IDLE");
   const [voiceRecordingSeconds, setVoiceRecordingSeconds] = useState(0);
@@ -1765,6 +1790,20 @@ export function MessageAppPage() {
   }, []);
 
   useEffect(() => {
+    const previousScrollRestoration = window.history.scrollRestoration;
+
+    if ("scrollRestoration" in window.history) {
+      window.history.scrollRestoration = "manual";
+    }
+
+    return () => {
+      if ("scrollRestoration" in window.history) {
+        window.history.scrollRestoration = previousScrollRestoration;
+      }
+    };
+  }, []);
+
+  useEffect(() => {
     if (!accessToken) {
       return;
     }
@@ -1849,6 +1888,7 @@ export function MessageAppPage() {
   const [profileError, setProfileError] = useState<string | null>(null);
 
   const messageListRef = useRef<HTMLDivElement | null>(null);
+  const messageThreadBottomRef = useRef<HTMLDivElement | null>(null);
   const pendingSearchResultRef = useRef<MessagingSearchMessageResult | null>(null);
   const previousScrollConversationIdRef = useRef<string | null>(null);
   const previousMessageCountRef = useRef(0);
@@ -3119,15 +3159,79 @@ export function MessageAppPage() {
   }, [loadMessages, loadPinnedMessages, selectedConversationId]);
 
 
-  useEffect(() => {
-    if (messageLoading || olderMessagesLoading) {
+  function scrollMessageThreadToBottom(): void {
+    const element = messageListRef.current;
+
+    if (!element) {
       return;
+    }
+
+    const renderedMessages = element.querySelectorAll<HTMLElement>("[data-message-id]");
+    const lastMessage = renderedMessages.item(renderedMessages.length - 1);
+
+    element.scrollTop = element.scrollHeight;
+    lastMessage?.scrollIntoView({
+      block: "end",
+      behavior: "auto",
+    });
+    messageThreadBottomRef.current?.scrollIntoView({
+      block: "end",
+      behavior: "auto",
+    });
+
+    element.scrollTop = element.scrollHeight;
+  }
+
+  function scheduleBottomScrollRetries(
+    clearPendingInitialScroll: boolean,
+  ): () => void {
+    const timers: number[] = [];
+    let frameId: number | null = null;
+    let nestedFrameId: number | null = null;
+
+    const run = () => {
+      scrollMessageThreadToBottom();
+    };
+
+    run();
+    frameId = window.requestAnimationFrame(() => {
+      run();
+
+      nestedFrameId = window.requestAnimationFrame(run);
+    });
+
+    [60, 180, 360, 720, 1200].forEach((delay) => {
+      timers.push(window.setTimeout(run, delay));
+    });
+
+    if (clearPendingInitialScroll) {
+      timers.push(window.setTimeout(() => {
+        pendingBottomScrollConversationIdRef.current = null;
+      }, 1250));
+    }
+
+    return () => {
+      if (frameId !== null) {
+        window.cancelAnimationFrame(frameId);
+      }
+
+      if (nestedFrameId !== null) {
+        window.cancelAnimationFrame(nestedFrameId);
+      }
+
+      timers.forEach((timer) => window.clearTimeout(timer));
+    };
+  }
+
+  useLayoutEffect(() => {
+    if (messageLoading || olderMessagesLoading) {
+      return undefined;
     }
 
     const element = messageListRef.current;
 
     if (!element) {
-      return;
+      return undefined;
     }
 
     const messagesBelongToSelectedConversation =
@@ -3136,7 +3240,7 @@ export function MessageAppPage() {
       messages.every((message) => message.conversationId === selectedConversationId);
 
     if (!messagesBelongToSelectedConversation) {
-      return;
+      return undefined;
     }
 
     const conversationChanged =
@@ -3156,27 +3260,30 @@ export function MessageAppPage() {
       conversationChanged ||
       (messageCountIncreased && viewerWasNearBottom);
 
+    let cancelBottomScrollRetries: (() => void) | null = null;
+
     if (shouldScrollToBottom) {
-      // Wait for the thread layout to finish before anchoring the user at the latest message.
-      window.requestAnimationFrame(() => {
-        element.scrollTop = element.scrollHeight;
-
-        window.requestAnimationFrame(() => {
-          element.scrollTop = element.scrollHeight;
-        });
-      });
-    }
-
-    if (pendingInitialBottomScroll) {
-      pendingBottomScrollConversationIdRef.current = null;
+      // Admin refresh can resize after render; repeat the anchor until the shell settles.
+      cancelBottomScrollRetries = scheduleBottomScrollRetries(pendingInitialBottomScroll);
     }
 
     previousScrollConversationIdRef.current = selectedConversationId;
     previousMessageCountRef.current = messages.length;
+
+    return () => {
+      cancelBottomScrollRetries?.();
+    };
   }, [messageLoading, messages, olderMessagesLoading, selectedConversationId]);
 
   useEffect(() => {
     if (!highlightedMessageId) {
+      return undefined;
+    }
+
+    if (
+      selectedConversationId &&
+      pendingBottomScrollConversationIdRef.current === selectedConversationId
+    ) {
       return undefined;
     }
 
@@ -3200,7 +3307,7 @@ export function MessageAppPage() {
       window.clearTimeout(timer);
       window.clearTimeout(clearTimer);
     };
-  }, [highlightedMessageId, messages]);
+  }, [highlightedMessageId, messages, selectedConversationId]);
 
   useEffect(() => {
     if (!newConversationOpen || !accessToken) {
@@ -4819,6 +4926,7 @@ export function MessageAppPage() {
         // Store the recorded audio as a normal attachment with a voice-note marker.
         setSelectedAttachment(file);
         setSelectedAttachmentKind("VOICE_NOTE");
+        resetAttachmentUpload();
         setAttachmentPreviewUrl(URL.createObjectURL(file));
       };
 
@@ -5100,9 +5208,24 @@ export function MessageAppPage() {
     }
   }
 
+  function resetAttachmentUpload(): void {
+    setAttachmentUpload(EMPTY_ATTACHMENT_UPLOAD_STATE);
+  }
+
+  function updateAttachmentUploadProgress(progress: AttachmentUploadProgress): void {
+    setAttachmentUpload({
+      status: "UPLOADING",
+      progressPercent: progress.progressPercent,
+      loadedBytes: progress.loadedBytes,
+      totalBytes: progress.totalBytes,
+      error: null,
+    });
+  }
+
   function clearSelectedAttachment(): void {
     setSelectedAttachment(null);
     setSelectedAttachmentKind("FILE");
+    resetAttachmentUpload();
 
     setAttachmentPreviewUrl((current) => {
       if (current) {
@@ -5154,6 +5277,7 @@ export function MessageAppPage() {
 
     setSelectedAttachment(file);
     setSelectedAttachmentKind("FILE");
+    resetAttachmentUpload();
     setMessageError(null);
 
     setAttachmentPreviewUrl((current) => {
@@ -5863,6 +5987,8 @@ export function MessageAppPage() {
       return;
     }
 
+    const isAttachmentSend = selectedAttachment !== null && !editingMessage;
+
     setSendingMessage(true);
     setMessageError(null);
     stopLocalTyping(selectedConversationId);
@@ -5891,6 +6017,17 @@ export function MessageAppPage() {
         return;
       }
 
+      if (isAttachmentSend && selectedAttachment) {
+        // Show progress immediately; XHR events will refine the exact percentage.
+        setAttachmentUpload({
+          status: "UPLOADING",
+          progressPercent: 0,
+          loadedBytes: 0,
+          totalBytes: selectedAttachment.size,
+          error: null,
+        });
+      }
+
       const response = selectedAttachment
         ? await sendConversationAttachmentMessage(
             accessToken,
@@ -5899,6 +6036,9 @@ export function MessageAppPage() {
             text,
             replyingTo?.id,
             selectedAttachmentKind === "VOICE_NOTE" ? "VOICE_NOTE" : undefined,
+            {
+              onUploadProgress: updateAttachmentUploadProgress,
+            },
           )
         : await sendConversationTextMessage(
             accessToken,
@@ -5943,10 +6083,22 @@ export function MessageAppPage() {
 
       await loadConversations(true);
     } catch (error) {
+      const errorMessage = error instanceof Error
+        ? error.message
+        : "The message could not be sent.";
+
+      if (isAttachmentSend) {
+        setAttachmentUpload((current) => ({
+          status: "FAILED",
+          progressPercent: current.progressPercent,
+          loadedBytes: current.loadedBytes,
+          totalBytes: current.totalBytes,
+          error: errorMessage,
+        }));
+      }
+
       setMessageError(
-        error instanceof Error
-          ? error.message
-          : "The message could not be sent.",
+        errorMessage,
       );
     } finally {
       setSendingMessage(false);
@@ -7052,6 +7204,12 @@ export function MessageAppPage() {
                 className="message-thread"
                 ref={messageListRef}
               >
+                <div
+                  ref={messageThreadBottomRef}
+                  className="message-thread-bottom"
+                  aria-hidden="true"
+                />
+              
                 {hasOlderMessages && (
                   <button
                     type="button"
@@ -7479,9 +7637,50 @@ export function MessageAppPage() {
                       <small>{formatFileSize(selectedAttachment.size)}</small>
                     </span>
 
+                    {attachmentUpload.status !== "IDLE" && (
+                      <div className="message-attachment-upload-state">
+                        <div className="message-attachment-upload-meta">
+                          <small>
+                            {attachmentUpload.status === "FAILED"
+                              ? "Upload failed"
+                              : attachmentUpload.progressPercent > 0
+                                ? attachmentUpload.totalBytes
+                                  ? `Uploading ${attachmentUpload.progressPercent}% · ${formatFileSize(attachmentUpload.loadedBytes)} of ${formatFileSize(attachmentUpload.totalBytes)}`
+                                  : `Uploading ${attachmentUpload.progressPercent}%`
+                                : "Starting upload..."}
+                          </small>
+                          {attachmentUpload.status === "FAILED" && (
+                            <button
+                              type="button"
+                              onClick={() => void handleSendMessage()}
+                              disabled={sendingMessage}
+                            >
+                              Retry
+                            </button>
+                          )}
+                        </div>
+                        <div
+                          className={`message-attachment-upload-track${attachmentUpload.status === "FAILED" ? " failed" : ""}`}
+                          aria-label="Attachment upload progress"
+                          aria-valuemin={0}
+                          aria-valuemax={100}
+                          aria-valuenow={attachmentUpload.progressPercent}
+                          role="progressbar"
+                        >
+                          <span style={{ width: `${attachmentUpload.progressPercent}%` }} />
+                        </div>
+                        {attachmentUpload.error && (
+                          <small className="message-attachment-upload-error">
+                            {attachmentUpload.error}
+                          </small>
+                        )}
+                      </div>
+                    )}
+
                     <button
                       type="button"
                       onClick={clearSelectedAttachment}
+                      disabled={sendingMessage}
                       aria-label="Remove selected attachment"
                     >
                       ×
