@@ -425,10 +425,7 @@ export function ManagerRequestDashboardPage() {
               </article>
             </section>
 
-            {/* Managers see scoped analytics before account-request workspaces. */}
-            <MessagingAnalyticsPanel accessToken={accessToken ?? ""} />
-
-            {/* The form and history remain separate so they can refresh independently. */}
+            {/* Request creation and tracking stay first for management workflows. */}
             <section className="manager-workspace-grid nt-manager-workspace">
               <ManagerAccountRequestForm
                 accessToken={
@@ -462,6 +459,9 @@ export function ManagerRequestDashboardPage() {
                 }
               />
             </section>
+
+            {/* Analytics stays below request work so reports do not hide daily tasks. */}
+            <MessagingAnalyticsPanel accessToken={accessToken ?? ""} />
 
             <section className="manager-scope-notice nt-manager-security-notice">
               <div aria-hidden="true">

@@ -15,20 +15,6 @@ function formatNumber(value: number): string {
   return new Intl.NumberFormat("en-US").format(value);
 }
 
-function formatBytes(value: number): string {
-  if (value <= 0) {
-    return "0 B";
-  }
-
-  const units = ["B", "KB", "MB", "GB", "TB"];
-  const index = Math.min(
-    Math.floor(Math.log(value) / Math.log(1024)),
-    units.length - 1,
-  );
-
-  return `${(value / 1024 ** index).toFixed(index === 0 ? 0 : 1)} ${units[index]}`;
-}
-
 function formatDateTime(value: string | null): string {
   if (!value) {
     return "No activity yet";
@@ -121,26 +107,6 @@ export function MessagingAnalyticsPanel({ accessToken }: MessagingAnalyticsPanel
         value: analytics.totals.activeEmployeeUsers,
         hint: "Activated, employed and enabled users",
       },
-      {
-        label: "Conversations",
-        value: analytics.totals.conversations,
-        hint: "Private, personal and official groups",
-      },
-      {
-        label: "Messages",
-        value: analytics.totals.messages,
-        hint: `${formatNumber(analytics.recentActivity.messagesToday)} sent today`,
-      },
-      {
-        label: "Attachments",
-        value: analytics.totals.attachments,
-        hint: `${formatNumber(analytics.recentActivity.attachmentsToday)} shared today`,
-      },
-      {
-        label: "Unread notifications",
-        value: analytics.totals.unreadNotifications,
-        hint: `${formatNumber(analytics.totals.notifications)} total notifications`,
-      },
     ];
   }, [analytics]);
 
@@ -176,7 +142,7 @@ export function MessagingAnalyticsPanel({ accessToken }: MessagingAnalyticsPanel
     <section className="analytics-panel" aria-label="Admin analytics dashboard">
       <header className="analytics-header">
         <div>
-          <span>Y27 Admin analytics</span>
+          <span>Analytics report</span>
           <h2>{analytics.scope.label}</h2>
           <p>{analytics.privacyNotice}</p>
         </div>
@@ -221,63 +187,6 @@ export function MessagingAnalyticsPanel({ accessToken }: MessagingAnalyticsPanel
 
         <article className="analytics-section-card">
           <header>
-            <h3>Messages by type</h3>
-            <p>Content mix without exposing private message bodies.</p>
-          </header>
-
-          <div className="analytics-metric-list">
-            {analytics.messagesByType.map((item) => (
-              <div className="analytics-metric-row" key={item.key}>
-                <span>{item.label}</span>
-                <strong>{formatNumber(item.count)}</strong>
-              </div>
-            ))}
-          </div>
-        </article>
-      </section>
-
-      <section className="analytics-two-column">
-        <article className="analytics-section-card">
-          <header>
-            <h3>Conversation summary</h3>
-            <p>Private chats and group usage.</p>
-          </header>
-
-          <div className="analytics-metric-list">
-            {analytics.conversationsByType.map((item) => (
-              <div className="analytics-metric-row" key={item.key}>
-                <span>{item.label}</span>
-                <strong>{formatNumber(item.count)}</strong>
-              </div>
-            ))}
-          </div>
-        </article>
-
-        <article className="analytics-section-card">
-          <header>
-            <h3>Attachment storage</h3>
-            <p>Storage usage by approved attachment type.</p>
-          </header>
-
-          <div className="analytics-metric-list">
-            {analytics.attachmentsByType.length === 0 && (
-              <div className="analytics-empty-row">No attachments shared yet.</div>
-            )}
-
-            {analytics.attachmentsByType.map((item) => (
-              <div className="analytics-metric-row" key={item.key}>
-                <span>{item.label}</span>
-                <strong>{formatNumber(item.count)}</strong>
-                <small>{formatBytes(item.totalBytes)}</small>
-              </div>
-            ))}
-          </div>
-        </article>
-      </section>
-
-      <section className="analytics-two-column">
-        <article className="analytics-section-card">
-          <header>
             <h3>Organization spread</h3>
             <p>Top divisions and departments by account count.</p>
           </header>
@@ -316,19 +225,7 @@ export function MessagingAnalyticsPanel({ accessToken }: MessagingAnalyticsPanel
               <span>Active this week</span>
               <strong>{formatNumber(analytics.activeUsers.thisWeek)}</strong>
             </div>
-            <div>
-              <span>Messages this week</span>
-              <strong>{formatNumber(analytics.recentActivity.messagesThisWeek)}</strong>
-            </div>
-            <div>
-              <span>Notifications today</span>
-              <strong>{formatNumber(analytics.recentActivity.notificationsToday)}</strong>
-            </div>
           </div>
-
-          <p className="analytics-latest-activity">
-            Latest message activity: {formatDateTime(analytics.recentActivity.latestMessageAt)}
-          </p>
         </article>
       </section>
     </section>
