@@ -3,6 +3,10 @@ import type { ReactNode } from "react";
 import { loginUser, logoutAuth, refreshAuth } from "../services/auth.service";
 import type { AuthAccount, AuthResponse } from "../types/auth";
 
+const DAILY_LOGOUT_HOUR = 18;
+const DAY_IN_MILLISECONDS = 24 * 60 * 60 * 1000;
+const KATHMANDU_OFFSET_MINUTES = 5 * 60 + 45;
+
 interface AuthContextValue {
   account: AuthAccount | null;
   accessToken: string | null;
@@ -61,6 +65,24 @@ export function AuthProvider({ children }: AuthProviderProps) {
     };
   }, []);
 
+  useEffect(() => {
+    if (!account || !accessToken) {
+      return;
+    }
+
+    const nextLogoutAt = getNextKathmanduDailyLogoutAt();
+    const delay = nextLogoutAt.getTime() - Date.now();
+
+    // The API revokes every device; this timer keeps the current tab in sync.
+    const timeoutId = window.setTimeout(() => {
+      clearSession();
+    }, delay);
+
+    return () => {
+      window.clearTimeout(timeoutId);
+    };
+  }, [account, accessToken]);
+
   async function login(
     identifier: string,
     password: string,
@@ -93,6 +115,31 @@ export function AuthProvider({ children }: AuthProviderProps) {
       {children}
     </AuthContext.Provider>
   );
+}
+
+function getNextKathmanduDailyLogoutAt(now = new Date()): Date {
+  const kathmanduNow = new Date(
+    now.getTime() + KATHMANDU_OFFSET_MINUTES * 60 * 1000,
+  );
+
+  const logoutLocalTimestamp = Date.UTC(
+    kathmanduNow.getUTCFullYear(),
+    kathmanduNow.getUTCMonth(),
+    kathmanduNow.getUTCDate(),
+    DAILY_LOGOUT_HOUR,
+    0,
+    0,
+    0,
+  );
+
+  let logoutUtcTimestamp =
+    logoutLocalTimestamp - KATHMANDU_OFFSET_MINUTES * 60 * 1000;
+
+  if (logoutUtcTimestamp <= now.getTime()) {
+    logoutUtcTimestamp += DAY_IN_MILLISECONDS;
+  }
+
+  return new Date(logoutUtcTimestamp);
 }
 
 // The provider and its hook intentionally share this module.

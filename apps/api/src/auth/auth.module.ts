@@ -6,6 +6,7 @@ import { AuthService } from './auth.service';
 import { AccessTokenGuard } from './guards/access-token.guard';
 import { RolesGuard } from './guards/roles.guard';
 import { AccessTokenValidationService } from './services/access-token-validation.service';
+import { DailySessionLogoutService } from './services/daily-session-logout.service';
 import { AccessTokenStrategy } from './strategies/access-token.strategy';
 
 @Module({
@@ -23,6 +24,7 @@ import { AccessTokenStrategy } from './strategies/access-token.strategy';
   providers: [
     AuthService,
     AccessTokenValidationService,
+    DailySessionLogoutService,
     AccessTokenStrategy,
     AccessTokenGuard,
     RolesGuard,
