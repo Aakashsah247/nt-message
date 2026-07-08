@@ -1,6 +1,7 @@
 import { createContext, useContext, useEffect, useState } from "react";
 import type { ReactNode } from "react";
 import { loginUser, logoutAuth, refreshAuth } from "../services/auth.service";
+import { recordActivityEvent } from "../services/monitoring.service";
 import type { AuthAccount, AuthResponse } from "../types/auth";
 
 const DAILY_LOGOUT_HOUR = 18;
@@ -21,6 +22,21 @@ const AuthContext = createContext<AuthContextValue | null>(null);
 
 interface AuthProviderProps {
   children: ReactNode;
+}
+
+function recordSessionActivity(
+  token: string | null,
+  eventType: "LOGIN" | "LOGOUT" | "SESSION_POLICY_LOGOUT",
+): void {
+  if (!token) {
+    return;
+  }
+
+  // Session events are audit metadata only; no message content is sent.
+  void recordActivityEvent(token, {
+    eventType,
+    pagePath: window.location.pathname,
+  }).catch(() => undefined);
 }
 
 export function AuthProvider({ children }: AuthProviderProps) {
@@ -75,6 +91,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
 
     // The API revokes every device; this timer keeps the current tab in sync.
     const timeoutId = window.setTimeout(() => {
+      recordSessionActivity(accessToken, "SESSION_POLICY_LOGOUT");
       clearSession();
     }, delay);
 
@@ -90,12 +107,14 @@ export function AuthProvider({ children }: AuthProviderProps) {
     const result = await loginUser(identifier, password);
 
     saveSession(result);
+    recordSessionActivity(result.accessToken, "LOGIN");
 
     return result.account;
   }
 
   async function logout(): Promise<void> {
     try {
+      recordSessionActivity(accessToken, "LOGOUT");
       await logoutAuth();
     } finally {
       clearSession();
