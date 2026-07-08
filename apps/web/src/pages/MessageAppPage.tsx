@@ -7209,35 +7209,22 @@ export function MessageAppPage() {
                   className="message-thread-bottom"
                   aria-hidden="true"
                 />
-              
-                {hasOlderMessages && (
-                  <button
-                    type="button"
-                    className="message-load-older"
-                    onClick={() => void handleLoadOlderMessages()}
-                    disabled={olderMessagesLoading}
-                  >
-                    {olderMessagesLoading
-                      ? "Loading..."
-                      : "Load older messages"}
-                  </button>
-                )}
 
-                {messageLoading ? (
+                {messageLoading ?(
                   <div className="message-thread-state">
                     <span className="message-small-spinner" />
                     <p>Loading messages...</p>
-                  </div>
-                ) : messages.length === 0 ? (
+                    </div>
+                ): messages.length === 0 ? (
                   <div className="message-thread-state">
                     <div className="message-empty-icon">Hi</div>
                     <h3>Start the conversation</h3>
                     <p>
                       Send the first message to {selectedConversation.title}.
                     </p>
-                  </div>
-                ) : (
-                  messages.map((message) => {
+                    </div>
+                ):(
+                  [...messages].reverse().map((message) => {
                     const ownMessage = message.senderAccountId === account?.id;
                     const officialAnnouncement = getOfficialAnnouncementPayload(message);
 
@@ -7571,6 +7558,19 @@ export function MessageAppPage() {
                       <small>{peerActivityLabel}</small>
                     </span>
                   </div>
+                )}
+                {hasOlderMessages && (
+                  <button
+                  type="button"
+                  className="message-load-older"
+                  onClick={() => void handleLoadOlderMessages()}
+                  disabled={olderMessagesLoading}
+                  >
+                    {olderMessagesLoading
+                     ? "Loading..." 
+                    : "Load older messages"
+                    }
+                  </button>
                 )}
               </div>
 
