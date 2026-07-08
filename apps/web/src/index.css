@@ -14689,3 +14689,494 @@
   }
 }
 /* M8 SHARED MEDIA DOCUMENTS LINKS END */
+
+/* Y29 privacy-safe system monitoring dashboard. */
+.monitoring-panel {
+  display: grid;
+  gap: 18px;
+}
+
+.monitoring-header,
+.monitoring-table-card {
+  border: 1px solid rgba(15, 103, 177, 0.14);
+  border-radius: 24px;
+  background: rgba(255, 255, 255, 0.94);
+  box-shadow: 0 22px 60px rgba(15, 23, 42, 0.09);
+}
+
+.monitoring-header {
+  display: flex;
+  align-items: stretch;
+  justify-content: space-between;
+  gap: 20px;
+  padding: 22px;
+}
+
+.monitoring-header span {
+  color: #0f67b1;
+  font-size: 12px;
+  font-weight: 950;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.monitoring-header h2 {
+  margin: 6px 0 8px;
+  color: #09233f;
+  font-size: clamp(24px, 3vw, 34px);
+}
+
+.monitoring-header p {
+  max-width: 720px;
+  margin: 0;
+  color: #64748b;
+}
+
+.monitoring-retention-card {
+  display: grid;
+  min-width: 220px;
+  gap: 5px;
+  align-content: center;
+  border-radius: 18px;
+  padding: 16px;
+  background: linear-gradient(135deg, rgba(15, 103, 177, 0.1), rgba(14, 165, 233, 0.08));
+}
+
+.monitoring-retention-card strong {
+  color: #09233f;
+}
+
+.monitoring-retention-card span,
+.monitoring-retention-card small {
+  color: #475569;
+  font-weight: 800;
+}
+
+.monitoring-summary-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 12px;
+}
+
+.monitoring-summary-card {
+  display: grid;
+  gap: 6px;
+  border: 1px solid rgba(15, 103, 177, 0.12);
+  border-radius: 20px;
+  padding: 18px;
+  background: #ffffff;
+}
+
+.monitoring-summary-card span {
+  color: #64748b;
+  font-size: 12px;
+  font-weight: 850;
+  text-transform: uppercase;
+}
+
+.monitoring-summary-card strong {
+  color: #0f2942;
+  font-size: 28px;
+}
+
+.monitoring-table-card {
+  overflow: hidden;
+}
+
+.monitoring-table-card > header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 18px 20px;
+  border-bottom: 1px solid rgba(15, 103, 177, 0.1);
+}
+
+.monitoring-table-card h3 {
+  margin: 0;
+  color: #09233f;
+}
+
+.monitoring-table-card p,
+.monitoring-table-card small {
+  margin: 4px 0 0;
+  color: #64748b;
+}
+
+.monitoring-table-scroll {
+  overflow-x: auto;
+}
+
+.monitoring-table {
+  width: 100%;
+  min-width: 980px;
+  border-collapse: collapse;
+}
+
+.monitoring-table th,
+.monitoring-table td {
+  padding: 14px 16px;
+  border-bottom: 1px solid rgba(15, 103, 177, 0.08);
+  text-align: left;
+  vertical-align: top;
+}
+
+.monitoring-table th {
+  color: #475569;
+  font-size: 11px;
+  font-weight: 950;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.monitoring-table td strong,
+.monitoring-table td span,
+.monitoring-table td small {
+  display: block;
+}
+
+.monitoring-table td strong {
+  color: #0f2942;
+}
+
+.monitoring-table td span,
+.monitoring-table td small {
+  margin-top: 3px;
+  color: #64748b;
+  font-size: 12px;
+  font-weight: 750;
+}
+
+.monitoring-status {
+  display: inline-flex !important;
+  width: fit-content;
+  border-radius: 999px;
+  padding: 5px 10px;
+  font-size: 11px !important;
+  font-weight: 950 !important;
+  text-transform: uppercase;
+}
+
+.monitoring-status.active {
+  color: #047857 !important;
+  background: rgba(16, 185, 129, 0.12);
+}
+
+.monitoring-status.idle {
+  color: #b45309 !important;
+  background: rgba(245, 158, 11, 0.14);
+}
+
+.monitoring-status.offline {
+  color: #64748b !important;
+  background: rgba(100, 116, 139, 0.13);
+}
+
+.monitoring-state {
+  display: grid;
+  place-items: center;
+  min-height: 240px;
+  border: 1px solid rgba(15, 103, 177, 0.14);
+  border-radius: 24px;
+  background: #ffffff;
+  color: #64748b;
+  text-align: center;
+}
+
+.monitoring-state button {
+  min-height: 38px;
+  border: 0;
+  border-radius: 999px;
+  padding: 0 16px;
+  color: #ffffff;
+  background: #0f67b1;
+  font-weight: 900;
+}
+
+.message-app-shell.theme-dark .monitoring-header,
+.message-app-shell.theme-dark .monitoring-table-card,
+.message-app-shell.theme-dark .monitoring-summary-card,
+.message-app-shell.theme-dark .monitoring-state {
+  border-color: rgba(148, 163, 184, 0.22);
+  background: rgba(15, 23, 42, 0.92);
+}
+
+@media (max-width: 760px) {
+  .monitoring-header,
+  .monitoring-table-card > header {
+    display: grid;
+  }
+}
+
+/* Y29 revised audit-log controls for privacy-safe monitoring. */
+.monitoring-view-tabs,
+.monitoring-filter-card,
+.monitoring-employee-detail,
+.monitoring-pagination {
+  border: 1px solid rgba(15, 103, 177, 0.12);
+  border-radius: 20px;
+  background: rgba(255, 255, 255, 0.96);
+  box-shadow: 0 16px 40px rgba(15, 23, 42, 0.06);
+}
+
+.monitoring-view-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 8px;
+}
+
+.monitoring-view-tabs button,
+.monitoring-pagination button {
+  min-height: 38px;
+  border: 0;
+  border-radius: 999px;
+  padding: 0 16px;
+  color: #0f2942;
+  background: #edf6ff;
+  font-weight: 900;
+}
+
+.monitoring-view-tabs button.active,
+.monitoring-pagination button:not(:disabled):hover {
+  color: #ffffff;
+  background: #0f67b1;
+}
+
+.monitoring-filter-card {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
+  padding: 16px;
+}
+
+.monitoring-filter-card label {
+  display: grid;
+  min-width: 0;
+  gap: 6px;
+  color: #475569;
+  font-size: 11px;
+  font-weight: 950;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.monitoring-filter-card input,
+.monitoring-filter-card select {
+  box-sizing: border-box;
+  width: 100%;
+  min-width: 0;
+  min-height: 40px;
+  border: 1px solid rgba(15, 103, 177, 0.18);
+  border-radius: 12px;
+  padding: 0 12px;
+  color: #0f2942;
+  background: #ffffff;
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.monitoring-search-filter {
+  grid-column: span 2;
+}
+
+.monitoring-log-card .monitoring-table {
+  min-width: 1180px;
+}
+
+.monitoring-action-badge {
+  display: inline-flex;
+  width: fit-content;
+  border-radius: 999px;
+  padding: 5px 9px;
+  color: #0f2942;
+  background: rgba(15, 103, 177, 0.1);
+  font-size: 10px;
+  font-weight: 950;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+}
+
+.monitoring-action-badge.login,
+.monitoring-action-badge.active_heartbeat,
+.monitoring-action-badge.active_resumed {
+  color: #047857;
+  background: rgba(16, 185, 129, 0.13);
+}
+
+.monitoring-action-badge.logout,
+.monitoring-action-badge.session_policy_logout {
+  color: #b45309;
+  background: rgba(245, 158, 11, 0.16);
+}
+
+.monitoring-action-badge.emergency_alert_sent {
+  color: #b91c1c;
+  background: rgba(239, 68, 68, 0.13);
+}
+
+.monitoring-action-badge.idle_started,
+.monitoring-action-badge.idle_heartbeat {
+  color: #64748b;
+  background: rgba(100, 116, 139, 0.13);
+}
+
+.monitoring-inline-state {
+  padding: 28px;
+  color: #64748b;
+  font-weight: 850;
+  text-align: center;
+}
+
+.monitoring-pagination {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+  margin: 14px 16px 16px;
+  padding: 10px;
+}
+
+.monitoring-pagination span {
+  color: #475569;
+  font-size: 12px;
+  font-weight: 900;
+}
+
+.monitoring-pagination button:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+
+.monitoring-employee-detail {
+  display: grid;
+  grid-template-columns: minmax(220px, 0.8fr) minmax(320px, 1.2fr);
+  gap: 16px;
+  padding: 18px;
+}
+
+.monitoring-employee-detail.empty {
+  display: block;
+  color: #64748b;
+  font-weight: 850;
+}
+
+.monitoring-employee-detail span {
+  color: #0f67b1;
+  font-size: 11px;
+  font-weight: 950;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.monitoring-employee-detail h3 {
+  margin: 4px 0;
+  color: #09233f;
+  font-size: 24px;
+}
+
+.monitoring-employee-detail p {
+  margin: 0;
+  color: #64748b;
+  font-weight: 800;
+}
+
+.monitoring-employee-detail dl {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(110px, 1fr));
+  gap: 10px;
+  margin: 0;
+}
+
+.monitoring-employee-detail dl div {
+  border-radius: 16px;
+  padding: 12px;
+  background: #edf6ff;
+}
+
+.monitoring-employee-detail dt {
+  color: #64748b;
+  font-size: 11px;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.monitoring-employee-detail dd {
+  margin: 4px 0 0;
+  color: #09233f;
+  font-size: 20px;
+  font-weight: 950;
+}
+.monitoring-employee-profile,
+.monitoring-employee-timeline {
+  align-self: stretch;
+}
+
+.monitoring-employee-timeline {
+  grid-column: 1 / -1;
+  border-radius: 18px;
+  padding: 14px;
+  background: #f8fbff;
+}
+
+.monitoring-employee-timeline > strong {
+  color: #09233f;
+  font-size: 14px;
+}
+
+.monitoring-employee-timeline ol {
+  display: grid;
+  gap: 10px;
+  margin: 12px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.monitoring-employee-timeline li {
+  display: grid;
+  grid-template-columns: 90px minmax(120px, max-content) minmax(0, 1fr);
+  align-items: center;
+  gap: 10px;
+  border-left: 3px solid rgba(15, 103, 177, 0.22);
+  padding-left: 12px;
+}
+
+.monitoring-employee-timeline time {
+  color: #64748b;
+  font-size: 12px;
+  font-weight: 900;
+}
+
+.monitoring-employee-timeline p {
+  color: #334155;
+}
+
+.message-app-shell.theme-dark .monitoring-view-tabs,
+.message-app-shell.theme-dark .monitoring-filter-card,
+.message-app-shell.theme-dark .monitoring-employee-detail,
+.message-app-shell.theme-dark .monitoring-pagination {
+  border-color: rgba(148, 163, 184, 0.22);
+  background: rgba(15, 23, 42, 0.92);
+}
+
+@media (max-width: 1100px) {
+  .monitoring-filter-card {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 760px) {
+  .monitoring-filter-card,
+  .monitoring-employee-detail {
+    grid-template-columns: 1fr;
+  }
+
+  .monitoring-search-filter,
+  .monitoring-employee-detail {
+    grid-column: auto;
+  }
+
+  .monitoring-employee-timeline li {
+    grid-template-columns: 1fr;
+  }
+}

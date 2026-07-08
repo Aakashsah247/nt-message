@@ -6,6 +6,7 @@ import { DirectoryButton } from "../components/DirectoryButton";
 import { ManagementPositionsButton } from "../components/ManagementPositionsButton";
 import { MessageButton } from "../components/MessageButton";
 import { MessagingAnalyticsPanel } from "../components/MessagingAnalyticsPanel";
+import { SuperAdminMonitoringPanel } from "../components/SuperAdminMonitoringPanel";
 import { AdminOrganizationPanel } from "../components/AdminOrganizationPanel";
 
 import { useAuth } from "../context/AuthContext";
@@ -139,7 +140,8 @@ function getRequesterName(request: AdminAccountRequestListItem): string {
 type AdminView =
   | "requests"
   | "organization"
-  | "analytics";
+  | "analytics"
+  | "monitoring";
 
 export function AdminDashboardPage() {
   const navigate = useNavigate();
@@ -422,6 +424,26 @@ export function AdminDashboardPage() {
 
           Analytics
         </button>
+
+        <button
+          type="button"
+          className={
+            view === "monitoring"
+            ? "active"
+            : ""
+          }
+          onClick={() => {
+            setSelectedRequestId(null);
+
+            setView(
+              "monitoring",
+            );
+          }}
+        >
+          <span>04</span>
+
+          Monitoring
+        </button>
         </nav>
         {view === "requests" && (
           <div className="admin-view">
@@ -659,6 +681,13 @@ export function AdminDashboardPage() {
       <div className="admin-view">
         {/* Super Admin analytics are organization-wide and audit-safe. */}
         <MessagingAnalyticsPanel accessToken={accessToken ?? ""} />
+      </div>
+     )}
+
+     {view === "monitoring" && (
+      <div className="admin-view">
+        {/* Monitoring excludes private message content and exact cursor tracking. */}
+        <SuperAdminMonitoringPanel accessToken={accessToken ?? ""} />
       </div>
      )}
 

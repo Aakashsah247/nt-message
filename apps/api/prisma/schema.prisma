@@ -71,6 +71,19 @@ enum AccountRequestActionType {
   ACTIVATED
 }
 
+enum ActivityEventType {
+  LOGIN
+  LOGOUT
+  PAGE_VIEW
+  BUTTON_CLICK
+  ACTIVE_HEARTBEAT
+  IDLE_STARTED
+  IDLE_HEARTBEAT
+  ACTIVE_RESUMED
+  EMERGENCY_ALERT_SENT
+  SESSION_POLICY_LOGOUT
+}
+
 enum ConversationType {
   PRIVATE
   GROUP
@@ -269,6 +282,8 @@ model Account {
   blocksReceived               MessagingAccountBlock[]      @relation("MessagingAccountBlocksReceived")
   createdGroupInvitationLinks  GroupInvitationLink[]        @relation("GroupInvitationLinksCreatedBy")
   revokedGroupInvitationLinks  GroupInvitationLink[]        @relation("GroupInvitationLinksRevokedBy")
+  activityEvents               ActivityEvent[]
+  dailyActivitySummaries       DailyActivitySummary[]
 
   @@index([role], map: "accounts_role_idx")
   @@index([isEnabled], map: "accounts_is_enabled_idx")
@@ -350,6 +365,7 @@ model AuthSession {
   createdAt        DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
 
   account Account @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  activityEvents ActivityEvent[]
 
   @@index([accountId, revokedAt], map: "auth_sessions_account_revoked_idx")
   @@index([expiresAt], map: "auth_sessions_expires_at_idx")
@@ -854,4 +870,55 @@ model MessagingNotification {
   @@index([messageId], map: "messaging_notifications_message_idx")
   @@index([type, createdAt], map: "messaging_notifications_type_created_idx")
   @@map("messaging_notifications")
+}
+
+model ActivityEvent {
+  id String @id @default(uuid()) @db.Uuid
+
+  accountId String  @map("account_id") @db.Uuid
+  sessionId String? @map("session_id") @db.Uuid
+
+  eventType    ActivityEventType @map("event_type")
+  pagePath     String?           @map("page_path") @db.VarChar(180)
+  elementLabel String?           @map("element_label") @db.VarChar(120)
+  metadata     Json?
+
+  occurredAt DateTime @default(now()) @map("occurred_at") @db.Timestamptz(3)
+  createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  account Account      @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  session AuthSession? @relation(fields: [sessionId], references: [id], onDelete: SetNull)
+
+  @@index([accountId, occurredAt], map: "activity_events_account_occurred_idx")
+  @@index([eventType, occurredAt], map: "activity_events_type_occurred_idx")
+  @@index([sessionId, occurredAt], map: "activity_events_session_occurred_idx")
+  @@index([occurredAt], map: "activity_events_occurred_idx")
+  @@map("activity_events")
+}
+
+model DailyActivitySummary {
+  id String @id @default(uuid()) @db.Uuid
+
+  accountId    String   @map("account_id") @db.Uuid
+  activityDate DateTime @map("activity_date") @db.Date
+
+  firstLoginAt        DateTime? @map("first_login_at") @db.Timestamptz(3)
+  lastLogoutAt        DateTime? @map("last_logout_at") @db.Timestamptz(3)
+  lastActiveAt        DateTime? @map("last_active_at") @db.Timestamptz(3)
+  activeMinutes       Int       @default(0) @map("active_minutes")
+  idleMinutes         Int       @default(0) @map("idle_minutes")
+  pagesVisitedCount   Int       @default(0) @map("pages_visited_count")
+  actionsCount        Int       @default(0) @map("actions_count")
+  emergencyAlertsCount Int      @default(0) @map("emergency_alerts_count")
+  afterHoursLoginCount Int      @default(0) @map("after_hours_login_count")
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  account Account @relation(fields: [accountId], references: [id], onDelete: Cascade)
+
+  @@unique([accountId, activityDate], map: "daily_activity_summaries_account_date_key")
+  @@index([activityDate], map: "daily_activity_summaries_activity_date_idx")
+  @@index([accountId, activityDate], map: "daily_activity_summaries_account_date_idx")
+  @@map("daily_activity_summaries")
 }

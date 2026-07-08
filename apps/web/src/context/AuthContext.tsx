@@ -7,6 +7,8 @@ import type { AuthAccount, AuthResponse } from "../types/auth";
 const DAILY_LOGOUT_HOUR = 18;
 const DAY_IN_MILLISECONDS = 24 * 60 * 60 * 1000;
 const KATHMANDU_OFFSET_MINUTES = 5 * 60 + 45;
+const TOKEN_REFRESH_SAFETY_SECONDS = 60;
+const MIN_TOKEN_REFRESH_DELAY_MS = 30 * 1000;
 
 interface AuthContextValue {
   account: AuthAccount | null;
@@ -44,16 +46,20 @@ export function AuthProvider({ children }: AuthProviderProps) {
 
   const [accessToken, setAccessToken] = useState<string | null>(null);
 
+  const [accessTokenExpiresIn, setAccessTokenExpiresIn] = useState<number | null>(null);
+
   const [loading, setLoading] = useState(true);
 
   function saveSession(result: AuthResponse): void {
     setAccount(result.account);
     setAccessToken(result.accessToken);
+    setAccessTokenExpiresIn(result.accessTokenExpiresIn);
   }
 
   function clearSession(): void {
     setAccount(null);
     setAccessToken(null);
+    setAccessTokenExpiresIn(null);
   }
 
   useEffect(() => {
@@ -80,6 +86,30 @@ export function AuthProvider({ children }: AuthProviderProps) {
       active = false;
     };
   }, []);
+
+  useEffect(() => {
+    if (!account || !accessToken || !accessTokenExpiresIn) {
+      return;
+    }
+
+    const refreshDelayMs = Math.max(
+      MIN_TOKEN_REFRESH_DELAY_MS,
+      (accessTokenExpiresIn - TOKEN_REFRESH_SAFETY_SECONDS) * 1000,
+    );
+
+    // Keep long-open dashboards authenticated without waiting for a manual browser refresh.
+    const timeoutId = window.setTimeout(() => {
+      refreshAuth()
+        .then(saveSession)
+        .catch(() => {
+          clearSession();
+        });
+    }, refreshDelayMs);
+
+    return () => {
+      window.clearTimeout(timeoutId);
+    };
+  }, [account, accessToken, accessTokenExpiresIn]);
 
   useEffect(() => {
     if (!account || !accessToken) {

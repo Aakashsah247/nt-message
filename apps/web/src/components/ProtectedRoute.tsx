@@ -4,6 +4,7 @@ import {
 import type {
   ReactNode,
 } from "react";
+import { ActivityTracker } from "./ActivityTracker";
 import { useAuth } from "../context/AuthContext";
 import type {
   AccountRole,
@@ -53,5 +54,10 @@ export function ProtectedRoute({
     );
   }
 
-  return children;
+  return (
+    <>
+      <ActivityTracker />
+      {children}
+    </>
+  );
 }
