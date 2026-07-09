@@ -37,6 +37,8 @@ import type {
   MessagePersonalStateResponse,
   MessageReactionResponse,
   PinnedMessagesResponse,
+  PrivateGroupFromPrivateConversationResponse,
+  PrivateGroupHistoryWindow,
   StarredMessagesResponse,
   MessagingContactsResponse,
   OfficialGroupAuditResponse,
@@ -509,6 +511,25 @@ export async function createGroupPhotoObjectUrl(
 
   const blob = await response.blob();
   return URL.createObjectURL(blob);
+}
+
+export function createPrivateGroupFromPrivateConversation(
+  accessToken: string,
+  conversationId: string,
+  memberAccountIds: string[],
+  historyWindow: PrivateGroupHistoryWindow,
+): Promise<PrivateGroupFromPrivateConversationResponse> {
+  return apiRequest<PrivateGroupFromPrivateConversationResponse>(
+    `/conversations/${conversationId}/private-group`,
+    {
+      method: "POST",
+      headers: authorizationHeaders(accessToken),
+      body: JSON.stringify({
+        memberAccountIds,
+        historyWindow,
+      }),
+    },
+  );
 }
 
 export function addGroupMembers(

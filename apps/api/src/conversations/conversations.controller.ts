@@ -27,6 +27,7 @@ import { AddGroupMembersDto } from './dto/add-group-members.dto';
 import { CreateGroupConversationDto } from './dto/create-group-conversation.dto';
 import { CreateOfficialGroupConversationDto } from './dto/create-official-group-conversation.dto';
 import { CreatePrivateConversationDto } from './dto/create-private-conversation.dto';
+import { CreatePrivateGroupFromPrivateConversationDto } from './dto/create-private-group-from-private-conversation.dto';
 import { ForwardTextMessageDto } from './dto/forward-text-message.dto';
 import { ListConversationsQueryDto } from './dto/list-conversations-query.dto';
 import { ListMessagesQueryDto } from './dto/list-messages-query.dto';
@@ -452,6 +453,29 @@ export class ConversationsController {
     query: SearchMessagesQueryDto,
   ) {
     return this.conversationsService.searchMessaging(user, query);
+  }
+
+  @Post(':id/private-group')
+  createPrivateGroupFromPrivateConversation(
+    @CurrentUser()
+    user: AuthenticatedUser,
+
+    @Param(
+      'id',
+      new ParseUUIDPipe({
+        version: '4',
+      }),
+    )
+    conversationId: string,
+
+    @Body()
+    dto: CreatePrivateGroupFromPrivateConversationDto,
+  ) {
+    return this.conversationsService.createPrivateGroupFromPrivateConversation(
+      user,
+      conversationId,
+      dto,
+    );
   }
 
   @Patch(':id/group')

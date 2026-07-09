@@ -27,6 +27,7 @@ import {
   createGroupInvitationLink,
   createOfficialGroupConversation,
   createPrivateConversation,
+  createPrivateGroupFromPrivateConversation,
   createMessagingProfilePhotoObjectUrl,
   createGroupPhotoObjectUrl,
   deleteGroupPhoto,
@@ -127,6 +128,7 @@ import type {
   MessageContentType,
   OfficialGroupAuditEntry,
   OfficialGroupScopeOption,
+  PrivateGroupHistoryWindow,
 } from "../types/messaging";
 
 
@@ -137,6 +139,33 @@ type RealtimeConnectionStatus =
   | "DISCONNECTED";
 
 type SharedContentTab = "MEDIA" | "DOCUMENTS" | "LINKS";
+
+const PRIVATE_GROUP_HISTORY_OPTIONS: Array<{
+  value: PrivateGroupHistoryWindow;
+  label: string;
+  description: string;
+}> = [
+  {
+    value: "NONE",
+    label: "No previous messages",
+    description: "Only future private-group messages will be visible.",
+  },
+  {
+    value: "LAST_15_MINUTES",
+    label: "Last 15 minutes",
+    description: "Copy only the most recent private-chat context.",
+  },
+  {
+    value: "LAST_1_HOUR",
+    label: "Last 1 hour",
+    description: "Copy private-chat context from the last hour.",
+  },
+  {
+    value: "LAST_24_HOURS",
+    label: "Last 24 hours",
+    description: "Copy private-chat context from the last day only.",
+  },
+];
 const SELECTED_CONVERSATION_STORAGE_KEY =
   "nt-message:selected-conversation";
 const HIGHLIGHT_MESSAGE_STORAGE_KEY =
@@ -1727,6 +1756,15 @@ export function MessageAppPage() {
   const groupInviteJoinTokenRef = useRef<string | null>(null);
   const [groupPhotoUploading, setGroupPhotoUploading] = useState(false);
   const groupPhotoInputRef = useRef<HTMLInputElement | null>(null);
+  const [privateGroupDialogOpen, setPrivateGroupDialogOpen] = useState(false);
+  const [privateGroupSearch, setPrivateGroupSearch] = useState("");
+  const [privateGroupContacts, setPrivateGroupContacts] = useState<MessagingContact[]>([]);
+  const [privateGroupSelectedAccountIds, setPrivateGroupSelectedAccountIds] = useState<string[]>([]);
+  const [privateGroupHistoryWindow, setPrivateGroupHistoryWindow] =
+    useState<PrivateGroupHistoryWindow>("NONE");
+  const [privateGroupContactsLoading, setPrivateGroupContactsLoading] = useState(false);
+  const [privateGroupSubmitting, setPrivateGroupSubmitting] = useState(false);
+  const [privateGroupError, setPrivateGroupError] = useState<string | null>(null);
   const [contactSearch, setContactSearch] = useState("");
   const [contacts, setContacts] = useState<MessagingContact[]>([]);
   const [contactsLoading, setContactsLoading] = useState(false);
@@ -3399,6 +3437,44 @@ export function MessageAppPage() {
   ]);
 
   useEffect(() => {
+    if (!privateGroupDialogOpen || !accessToken) {
+      return undefined;
+    }
+
+    let active = true;
+    const timer = window.setTimeout(() => {
+      setPrivateGroupContactsLoading(true);
+
+      searchMessagingContacts(accessToken, privateGroupSearch, 50)
+        .then((response) => {
+          if (active) {
+            setPrivateGroupContacts(response.data);
+            setPrivateGroupError(null);
+          }
+        })
+        .catch((error) => {
+          if (active) {
+            setPrivateGroupError(
+              error instanceof Error
+                ? error.message
+                : "Private group contacts could not be loaded.",
+            );
+          }
+        })
+        .finally(() => {
+          if (active) {
+            setPrivateGroupContactsLoading(false);
+          }
+        });
+    }, 250);
+
+    return () => {
+      active = false;
+      window.clearTimeout(timer);
+    };
+  }, [accessToken, privateGroupDialogOpen, privateGroupSearch]);
+
+  useEffect(() => {
     if (
       groupDialogMode !== "CREATE" ||
       !accessToken ||
@@ -3653,6 +3729,40 @@ export function MessageAppPage() {
     resetGroupInviteState();
   }
 
+  function openPrivateGroupDialog(): void {
+    if (!selectedConversation || selectedConversation.type !== "PRIVATE") {
+      return;
+    }
+
+    setPrivateGroupDialogOpen(true);
+    setPrivateGroupSearch("");
+    setPrivateGroupContacts([]);
+    setPrivateGroupSelectedAccountIds([]);
+    setPrivateGroupHistoryWindow("NONE");
+    setPrivateGroupError(null);
+  }
+
+  function closePrivateGroupDialog(): void {
+    if (privateGroupSubmitting) {
+      return;
+    }
+
+    setPrivateGroupDialogOpen(false);
+    setPrivateGroupSearch("");
+    setPrivateGroupContacts([]);
+    setPrivateGroupSelectedAccountIds([]);
+    setPrivateGroupHistoryWindow("NONE");
+    setPrivateGroupError(null);
+  }
+
+  function togglePrivateGroupMember(accountId: string): void {
+    setPrivateGroupSelectedAccountIds((current) => (
+      current.includes(accountId)
+        ? current.filter((value) => value !== accountId)
+        : [...current, accountId]
+    ));
+  }
+
   function toggleGroupMember(accountId: string): void {
     setGroupSelectedAccountIds((current) => (
       current.includes(accountId)
@@ -3726,6 +3836,48 @@ export function MessageAppPage() {
       );
     } finally {
       setGroupSubmitting(false);
+    }
+  }
+
+  async function handleCreatePrivateGroup(): Promise<void> {
+    if (
+      !accessToken ||
+      !selectedConversation ||
+      selectedConversation.type !== "PRIVATE" ||
+      privateGroupSelectedAccountIds.length === 0 ||
+      privateGroupSubmitting
+    ) {
+      return;
+    }
+
+    setPrivateGroupSubmitting(true);
+    setPrivateGroupError(null);
+
+    try {
+      // M16 creates a new group instead of converting the existing one-to-one chat.
+      const response = await createPrivateGroupFromPrivateConversation(
+        accessToken,
+        selectedConversation.id,
+        privateGroupSelectedAccountIds,
+        privateGroupHistoryWindow,
+      );
+
+      replaceConversation(response.data);
+      setSelectedConversationId(response.data.id);
+      setMessageNotice(response.message);
+      setPrivateGroupDialogOpen(false);
+      setPrivateGroupSelectedAccountIds([]);
+      setPrivateGroupSearch("");
+      await loadConversations(true, response.data.id);
+      await loadMessages(response.data.id, true);
+    } catch (error) {
+      setPrivateGroupError(
+        error instanceof Error
+          ? error.message
+          : "Private group could not be created.",
+      );
+    } finally {
+      setPrivateGroupSubmitting(false);
     }
   }
 
@@ -6209,6 +6361,14 @@ export function MessageAppPage() {
       : [],
   );
 
+  const privateGroupOriginalMemberIds = new Set(
+    selectedConversation?.type === "PRIVATE"
+      ? selectedConversation.participants.map(
+          (participant) => participant.accountId,
+        )
+      : [],
+  );
+
   const blockedMessageRequests = [
     ...messageRequests.received,
     ...messageRequests.sent,
@@ -7092,6 +7252,16 @@ export function MessageAppPage() {
                 >
                   Shared
                 </button>
+
+                {selectedConversation.type === "PRIVATE" && (
+                  <button
+                    type="button"
+                    className="message-add-member-button"
+                    onClick={openPrivateGroupDialog}
+                  >
+                    Add member
+                  </button>
+                )}
 
                 <div className="message-conversation-controls" aria-label="Conversation controls">
                   <button
@@ -8537,6 +8707,186 @@ export function MessageAppPage() {
                 ))
               )}
             </div>
+          </section>
+        </div>
+      )}
+
+      {privateGroupDialogOpen && selectedConversation?.type === "PRIVATE" && (
+        <div
+          className="message-contact-backdrop"
+          role="presentation"
+          onMouseDown={(event) => {
+            if (event.currentTarget === event.target) {
+              closePrivateGroupDialog();
+            }
+          }}
+        >
+          <section
+            className="message-contact-dialog message-private-group-dialog"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="private-group-title"
+          >
+            <header>
+              <div>
+                <span>Private group</span>
+                <h2 id="private-group-title">Create private group</h2>
+              </div>
+
+              <button
+                type="button"
+                onClick={closePrivateGroupDialog}
+                disabled={privateGroupSubmitting}
+                aria-label="Close private group dialog"
+              >
+                ×
+              </button>
+            </header>
+
+            <div className="message-private-group-notice">
+              <strong>Original private chat stays unchanged.</strong>
+              <p>
+                This creates a new group with the selected members. Future
+                one-to-one messages between the original two users stay only in
+                the private chat.
+              </p>
+            </div>
+
+            {privateGroupError && (
+              <div className="message-inline-error compact">
+                <p>{privateGroupError}</p>
+              </div>
+            )}
+
+            <label className="message-contact-search">
+              <span>Select one or more members to add</span>
+              <input
+                type="search"
+                value={privateGroupSearch}
+                onChange={(event) => setPrivateGroupSearch(event.target.value)}
+                placeholder="Search by name, employee ID or designation"
+                autoFocus
+              />
+            </label>
+
+            <div className="message-group-contact-list">
+              {privateGroupContactsLoading ? (
+                <div className="message-list-state compact">
+                  <span className="message-small-spinner" />
+                  <p>Searching accounts...</p>
+                </div>
+              ) : privateGroupContacts.length === 0 ? (
+                <div className="message-list-state compact">
+                  <p>No matching active accounts.</p>
+                </div>
+              ) : (
+                privateGroupContacts.map((contact) => {
+                  const alreadyOriginalMember = privateGroupOriginalMemberIds.has(
+                    contact.accountId,
+                  );
+                  const selected = privateGroupSelectedAccountIds.includes(
+                    contact.accountId,
+                  );
+                  const eligible =
+                    contact.contactMode === "DIRECT" && !alreadyOriginalMember;
+
+                  return (
+                    <label
+                      key={contact.accountId}
+                      className={`message-group-contact-row${
+                        selected ? " selected" : ""
+                      }${!eligible ? " disabled" : ""}`}
+                    >
+                      <input
+                        type="checkbox"
+                        checked={selected}
+                        onChange={() => togglePrivateGroupMember(contact.accountId)}
+                        disabled={!eligible || privateGroupSubmitting}
+                      />
+
+                      {renderAccountAvatar(contact, "message-avatar small")}
+
+                      <span>
+                        <strong>{contact.displayName}</strong>
+                        <small>
+                          {alreadyOriginalMember
+                            ? "Already in this private chat"
+                            : eligible
+                              ? contact.employee?.designation ?? roleLabel(contact.role)
+                              : contact.contactMode === "BLOCKED"
+                                ? "Blocked private contact"
+                                : "First-contact approval required"}
+                        </small>
+                      </span>
+                    </label>
+                  );
+                })
+              )}
+            </div>
+
+            <section className="message-private-group-history">
+              <header>
+                <h3>Previous private-chat context</h3>
+                <span>{privateGroupSelectedAccountIds.length} selected</span>
+              </header>
+
+              <p>
+                Choose how much previous one-to-one context should be copied
+                into the new private group for every selected member in this
+                batch.
+              </p>
+
+              <div className="message-private-group-history-options">
+                {PRIVATE_GROUP_HISTORY_OPTIONS.map((option) => (
+                  <label
+                    key={option.value}
+                    className={
+                      privateGroupHistoryWindow === option.value ? "active" : ""
+                    }
+                  >
+                    <input
+                      type="radio"
+                      name="private-group-history"
+                      value={option.value}
+                      checked={privateGroupHistoryWindow === option.value}
+                      onChange={() => setPrivateGroupHistoryWindow(option.value)}
+                      disabled={privateGroupSubmitting}
+                    />
+                    <span>
+                      <strong>{option.label}</strong>
+                      <small>{option.description}</small>
+                    </span>
+                  </label>
+                ))}
+              </div>
+            </section>
+
+            <footer className="message-group-dialog-footer">
+              <span>
+                One selected history rule applies to all selected members.
+              </span>
+
+              <div>
+                <button
+                  type="button"
+                  onClick={closePrivateGroupDialog}
+                  disabled={privateGroupSubmitting}
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  className="primary"
+                  onClick={() => void handleCreatePrivateGroup()}
+                  disabled={
+                    privateGroupSelectedAccountIds.length === 0 ||
+                    privateGroupSubmitting
+                  }
+                >
+                  {privateGroupSubmitting ? "Creating..." : "Create private group"}
+                </button>
+              </div>
+            </footer>
           </section>
         </div>
       )}

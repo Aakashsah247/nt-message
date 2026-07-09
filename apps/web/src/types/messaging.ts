@@ -450,6 +450,19 @@ export interface AddGroupMembersResponse
   addedCount: number;
 }
 
+export type PrivateGroupHistoryWindow =
+  | "NONE"
+  | "LAST_15_MINUTES"
+  | "LAST_1_HOUR"
+  | "LAST_24_HOURS";
+
+export interface PrivateGroupFromPrivateConversationResponse {
+  message: string;
+  copiedContextCount: number;
+  historyWindow: PrivateGroupHistoryWindow;
+  data: MessagingConversation;
+}
+
 export interface RemoveGroupMemberResponse {
   message: string;
   conversationId: string;

@@ -33,6 +33,8 @@ import { AddGroupMembersDto } from './dto/add-group-members.dto';
 import { CreateGroupConversationDto } from './dto/create-group-conversation.dto';
 import { CreateOfficialGroupConversationDto } from './dto/create-official-group-conversation.dto';
 import { CreatePrivateConversationDto } from './dto/create-private-conversation.dto';
+import { CreatePrivateGroupFromPrivateConversationDto } from './dto/create-private-group-from-private-conversation.dto';
+import type { PrivateGroupHistoryWindow } from './dto/create-private-group-from-private-conversation.dto';
 import { ForwardTextMessageDto } from './dto/forward-text-message.dto';
 import { ListConversationsQueryDto } from './dto/list-conversations-query.dto';
 import { ListMessagesQueryDto } from './dto/list-messages-query.dto';
@@ -417,6 +419,8 @@ const messageSelect = {
 type MessageRecord = Prisma.MessageGetPayload<{
   select: typeof messageSelect;
 }>;
+
+const PRIVATE_GROUP_CONTEXT_MESSAGE_LIMIT = 100;
 
 const sharedContentAttachmentSelect = {
   id: true,
@@ -1103,6 +1107,41 @@ export class ConversationsService {
     secondAccountId: string,
   ): string {
     return [firstAccountId, secondAccountId].sort().join(':');
+  }
+
+
+  private getPrivateGroupContextSince(
+    historyWindow: PrivateGroupHistoryWindow,
+    now: Date,
+  ): Date | null {
+    switch (historyWindow) {
+      case 'NONE':
+        return null;
+      case 'LAST_15_MINUTES':
+        return new Date(now.getTime() - 15 * 60 * 1000);
+      case 'LAST_1_HOUR':
+        return new Date(now.getTime() - 60 * 60 * 1000);
+      case 'LAST_24_HOURS':
+        return new Date(now.getTime() - 24 * 60 * 60 * 1000);
+      default:
+        throw new BadRequestException('History access selection is invalid.');
+    }
+  }
+
+  private buildPrivateGroupTitle(
+    originalParticipants: MessagingAccountRecord[],
+    newMembers: MessagingAccountRecord[],
+  ): string {
+    const names = [...originalParticipants, ...newMembers]
+      .map((account) => this.serializeAccount(account).displayName)
+      .filter(Boolean);
+
+    const title = names.slice(0, 3).join(', ');
+    const extraCount = names.length - 3;
+
+    return extraCount > 0
+      ? `${title} + ${extraCount}`.slice(0, 150)
+      : title.slice(0, 150);
   }
 
   private isActiveEmployeeAccount(account: MessagingAccountRecord): boolean {
@@ -5605,6 +5644,249 @@ export class ConversationsService {
         search: search || null,
         limit: query.limit,
       },
+    };
+  }
+
+  async createPrivateGroupFromPrivateConversation(
+    user: AuthenticatedUser,
+    conversationId: string,
+    dto: CreatePrivateGroupFromPrivateConversationDto,
+  ) {
+    const viewer = await this.getMessagingViewer(user);
+    const now = new Date();
+    const contextSince = this.getPrivateGroupContextSince(
+      dto.historyWindow,
+      now,
+    );
+
+    const sourceConversation = await this.prisma.conversation.findFirst({
+      where: {
+        id: conversationId,
+        type: ConversationType.PRIVATE,
+        participants: {
+          some: {
+            accountId: viewer.accountId,
+            leftAt: null,
+          },
+        },
+      },
+      select: {
+        id: true,
+        type: true,
+        participants: {
+          where: {
+            leftAt: null,
+          },
+          orderBy: {
+            joinedAt: 'asc',
+          },
+          select: {
+            accountId: true,
+            account: {
+              select: messagingAccountSelect,
+            },
+          },
+        },
+      },
+    });
+
+    if (!sourceConversation) {
+      throw new NotFoundException('Private conversation was not found.');
+    }
+
+    if (sourceConversation.participants.length !== 2) {
+      throw new ConflictException(
+        'Only a one-to-one private conversation can create a private group.',
+      );
+    }
+
+    const originalAccountIds = sourceConversation.participants.map(
+      (participant) => participant.accountId,
+    );
+    const requestedMemberIds = [...new Set(dto.memberAccountIds)];
+
+    if (
+      requestedMemberIds.some((accountId) =>
+        originalAccountIds.includes(accountId),
+      )
+    ) {
+      throw new BadRequestException(
+        'The original private-chat participants are already included.',
+      );
+    }
+
+    const newMembers = await this.getEligibleGroupAccounts(
+      viewer,
+      requestedMemberIds,
+    );
+    const participantAccountIds = [
+      ...originalAccountIds,
+      ...newMembers.map((member) => member.id),
+    ];
+
+    await this.assertNoPersonalGroupBlocks(participantAccountIds);
+
+    const contextVisibleFrom = contextSince ?? now;
+
+    const contextMessages = contextSince
+      ? await this.prisma.message.findMany({
+          where: {
+            conversationId,
+            deletedAt: null,
+            sentAt: {
+              gte: contextSince,
+            },
+            hiddenForAccounts: {
+              none: {
+                accountId: viewer.accountId,
+              },
+            },
+          },
+          orderBy: [
+            {
+              sentAt: 'asc',
+            },
+            {
+              id: 'asc',
+            },
+          ],
+          take: PRIVATE_GROUP_CONTEXT_MESSAGE_LIMIT,
+          select: messageSelect,
+        })
+      : [];
+
+    const conversationIdResult = await this.prisma.$transaction(
+      async (transaction) => {
+        const conversation = await transaction.conversation.create({
+          data: {
+            type: ConversationType.GROUP,
+            title: this.buildPrivateGroupTitle(
+              sourceConversation.participants.map(
+                (participant) => participant.account,
+              ),
+              newMembers,
+            ),
+            description:
+              'Private group created from a one-to-one chat. The original private chat remains separate.',
+            groupKind: GroupKind.PERSONAL,
+            createdByAccountId: viewer.accountId,
+            participants: {
+              create: participantAccountIds.map((accountId) => ({
+                accountId,
+                // M16: copied context keeps original sentAt, so joinedAt must start at the allowed history window.
+                joinedAt: contextVisibleFrom,
+                role:
+                  accountId === viewer.accountId
+                    ? ConversationParticipantRole.OWNER
+                    : ConversationParticipantRole.MEMBER,
+              })),
+            },
+          },
+          select: {
+            id: true,
+          },
+        });
+
+        for (const sourceMessage of contextMessages) {
+          const contextCopy = await transaction.message.create({
+            data: {
+              conversationId: conversation.id,
+              senderAccountId: sourceMessage.senderAccountId,
+              clientMessageId: `context-${conversation.id}-${sourceMessage.id}`,
+              contentType: sourceMessage.contentType,
+              textContent: sourceMessage.textContent,
+              payload:
+                sourceMessage.payload === null
+                  ? undefined
+                  : (sourceMessage.payload as Prisma.InputJsonValue),
+              // Context copies intentionally break reply chains so private-chat reply targets do not leak across conversations.
+              replyToMessageId: null,
+              sentAt: sourceMessage.sentAt,
+              editedAt: sourceMessage.editedAt,
+              attachments: {
+                create: sourceMessage.attachments.map((attachment) => ({
+                  // Attachment files are reused by storage key so the context copy does not duplicate large files.
+                  storageKey: attachment.storageKey,
+                  originalFileName: attachment.originalFileName,
+                  mimeType: attachment.mimeType,
+                  fileSizeBytes: attachment.fileSizeBytes,
+                  contentType: attachment.contentType,
+                  scanStatus: attachment.scanStatus,
+                })),
+              },
+              receipts: {
+                create: participantAccountIds
+                  .filter((accountId) => accountId !== sourceMessage.senderAccountId)
+                  .map((accountId) => ({
+                    accountId,
+                    deliveredAt: now,
+                    readAt: now,
+                  })),
+              },
+            },
+            select: {
+              id: true,
+            },
+          });
+
+          void contextCopy;
+        }
+
+        const systemMessage = await transaction.message.create({
+          data: {
+            conversationId: conversation.id,
+            senderAccountId: viewer.accountId,
+            clientMessageId: `private-group-created-${conversation.id}`,
+            contentType: MessageContentType.SYSTEM,
+            textContent:
+              'Private group created. Your original one-to-one private chat remains unchanged.',
+            payload: {
+              kind: 'PRIVATE_GROUP_CREATED',
+              sourceConversationId: conversationId,
+              historyWindow: dto.historyWindow,
+              contextMessageCount: contextMessages.length,
+            },
+            receipts: {
+              create: participantAccountIds
+                .filter((accountId) => accountId !== viewer.accountId)
+                .map((accountId) => ({
+                  accountId,
+                })),
+            },
+          },
+          select: {
+            id: true,
+            sentAt: true,
+          },
+        });
+
+        await transaction.conversation.update({
+          where: {
+            id: conversation.id,
+          },
+          data: {
+            lastMessageAt: systemMessage.sentAt,
+            updatedAt: now,
+          },
+        });
+
+        return conversation.id;
+      },
+    );
+
+    const conversation = await this.getConversationRecord(conversationIdResult);
+
+    this.messagingEventsService.emitConversationUpdated(participantAccountIds, {
+      conversationId: conversationIdResult,
+      reason: 'PRIVATE_GROUP_CREATED',
+      occurredAt: now.toISOString(),
+    });
+
+    return {
+      message: 'Private group created. The original private chat is still available.',
+      copiedContextCount: contextMessages.length,
+      historyWindow: dto.historyWindow,
+      data: this.serializeConversation(conversation, viewer.accountId, 0),
     };
   }
 
