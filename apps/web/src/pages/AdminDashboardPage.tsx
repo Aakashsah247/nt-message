@@ -3,10 +3,12 @@ import { useNavigate } from "react-router";
 
 import { AdminRequestDetailPanel } from "../components/AdminRequestDetailPanel";
 import { DirectoryButton } from "../components/DirectoryButton";
+import { EmergencyAlertButton } from "../components/EmergencyAlertButton";
 import { ManagementPositionsButton } from "../components/ManagementPositionsButton";
 import { MessageButton } from "../components/MessageButton";
 import { MessagingAnalyticsPanel } from "../components/MessagingAnalyticsPanel";
 import { SuperAdminMonitoringPanel } from "../components/SuperAdminMonitoringPanel";
+import { SuperAdminProfilePanel } from "../components/SuperAdminProfilePanel";
 import { AdminOrganizationPanel } from "../components/AdminOrganizationPanel";
 
 import { useAuth } from "../context/AuthContext";
@@ -141,7 +143,8 @@ type AdminView =
   | "requests"
   | "organization"
   | "analytics"
-  | "monitoring";
+  | "monitoring"
+  | "profile";
 
 export function AdminDashboardPage() {
   const navigate = useNavigate();
@@ -342,13 +345,17 @@ export function AdminDashboardPage() {
 
         <div className="admin-account">
           <div>
-            <span>Signed in as</span>
+            <span>Signed as</span>
 
-            <strong>{account?.username ?? "Super Admin"}</strong>
+            <strong>{account?.displayName ?? "Super Admin"}</strong>
+
+            <small>{account?.positionLabel ?? "Super Admin"}</small>
           </div>
 
           <div className="admin-header-actions">
 <ManagementPositionsButton />
+
+<EmergencyAlertButton />
 
 <MessageButton />
 
@@ -443,6 +450,27 @@ export function AdminDashboardPage() {
           <span>04</span>
 
           Monitoring
+        </button>
+
+
+        <button
+          type="button"
+          className={
+            view === "profile"
+            ? "active"
+            : ""
+          }
+          onClick={() => {
+            setSelectedRequestId(null);
+
+            setView(
+              "profile",
+            );
+          }}
+        >
+          <span>05</span>
+
+          Super Admin Profile
         </button>
         </nav>
         {view === "requests" && (
@@ -688,6 +716,14 @@ export function AdminDashboardPage() {
       <div className="admin-view">
         {/* Monitoring excludes private message content and exact cursor tracking. */}
         <SuperAdminMonitoringPanel accessToken={accessToken ?? ""} />
+      </div>
+     )}
+
+     {view === "profile" &&
+     accessToken && (
+      <div className="admin-view">
+        {/* Super Admin contact details are managed outside emergency sending. */}
+        <SuperAdminProfilePanel accessToken={accessToken} />
       </div>
      )}
 

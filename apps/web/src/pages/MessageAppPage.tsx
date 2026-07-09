@@ -16,6 +16,7 @@ import type {
 import { useLocation, useNavigate } from "react-router";
 
 import { DirectoryButton } from "../components/DirectoryButton";
+import { EmergencyAlertButton } from "../components/EmergencyAlertButton";
 import { useAuth } from "../context/AuthContext";
 import {
   acceptMessageRequest,
@@ -6305,10 +6306,11 @@ export function MessageAppPage() {
 
         <div className="message-app-account">
           <div className="message-app-account-copy">
-            <span>Signed in as</span>
-            <strong>{account?.username ?? "NT Message User"}</strong>
+            <span>Signed as</span>
+            <strong>{account?.displayName ?? "NT Message User"}</strong>
             <small aria-live="polite">
-              {account ? roleLabel(account.role) : "Employee"}
+              {account?.positionLabel ??
+                (account ? roleLabel(account.role) : "Employee")}
               {` · ${realtimeLabel}`}
             </small>
           </div>
@@ -6604,8 +6606,11 @@ export function MessageAppPage() {
                     <section className="message-settings-section">
                       <div className="message-settings-security-card">
                         <span>Signed-in account</span>
-                        <strong>{account?.username ?? "NT Message User"}</strong>
-                        <small>{account ? roleLabel(account.role) : "Employee"} · {realtimeLabel}</small>
+                        <strong>{account?.displayName ?? "NT Message User"}</strong>
+                        <small>
+                          {account?.positionLabel ??
+                            (account ? roleLabel(account.role) : "Employee")} · {realtimeLabel}
+                        </small>
                       </div>
 
                       <div className="message-settings-actions">
@@ -6654,6 +6659,8 @@ export function MessageAppPage() {
           {account?.role !== "EMPLOYEE" && (
             <DirectoryButton />
           )}
+
+          <EmergencyAlertButton />
 
           <div className="message-notification-wrapper">
             <button

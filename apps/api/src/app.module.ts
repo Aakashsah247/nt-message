@@ -11,6 +11,7 @@ import { AuthModule } from './auth/auth.module';
 import { PrismaModule } from './database/prisma.module';
 import { DirectoryModule } from './directory/directory.module';
 import { EmployeesModule } from './employees/employees.module';
+import { EmergencyAlertsModule } from './emergency-alerts/emergency-alerts.module';
 import { ManagementAssignmentsModule } from './management-assignments/management-assignments.module';
 import { MonitoringModule } from './monitoring/monitoring.module';
 import { OrganizationModule } from './organization/organization.module';
@@ -29,6 +30,7 @@ import { OrganizationModule } from './organization/organization.module';
     EmployeesModule,
     ManagementAssignmentsModule,
     MonitoringModule,
+    EmergencyAlertsModule,
     OrganizationModule,
     ActivationModule,
     AccountRequestsModule,

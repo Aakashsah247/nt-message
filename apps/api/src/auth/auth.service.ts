@@ -38,6 +38,8 @@ export interface AccountResult {
   id: string;
   username: string | null;
   role: AccountRole;
+  displayName: string;
+  positionLabel: string;
 }
 
 export interface LoginResult extends TokenResult {
@@ -94,22 +96,43 @@ export class AuthService {
     dto: UnifiedLoginDto,
     metadata: LoginMetadata,
   ): Promise<LoginResult> {
-    const identifier = dto.identifier.trim();
+    const identifier = dto.identifier.trim().toLowerCase();
 
-    // Email identifies an employee account.
-    if (identifier.includes('@')) {
-      return this.loginEmployee(
+    if (!identifier.includes('@')) {
+      const dummyHash = await this.dummyHashPromise;
+
+      await argon2.verify(dummyHash, dto.password);
+
+      throw this.invalidCredentials();
+    }
+
+    // Super Admin now uses the same official-email login field as every other account.
+    const superAdminAccount = await this.prisma.account.findFirst({
+      where: {
+        username: {
+          equals: identifier,
+          mode: 'insensitive',
+        },
+        role: AccountRole.SUPER_ADMIN,
+      },
+      select: {
+        id: true,
+      },
+    });
+
+    if (superAdminAccount) {
+      return this.loginAdmin(
         {
-          officialEmail: identifier,
+          username: identifier,
           password: dto.password,
         },
         metadata,
       );
     }
-    // Non-email identifier is treated as admin username.
-    return this.loginAdmin(
+
+    return this.loginEmployee(
       {
-        username: identifier,
+        officialEmail: identifier,
         password: dto.password,
       },
       metadata,
@@ -208,11 +231,10 @@ export class AuthService {
     return {
       ...tokens,
 
-      account: {
-        id: account.id,
-        username: account.username,
-        role: account.role,
-      },
+      account: await this.buildAccountResult(
+        account.id,
+        account.role,
+      ),
     };
   }
 
@@ -337,11 +359,10 @@ export class AuthService {
     return {
       ...tokens,
 
-      account: {
-        id: account.id,
-        username: account.username,
-        role: effectiveRole,
-      },
+      account: await this.buildAccountResult(
+        account.id,
+        effectiveRole,
+      ),
     };
   }
 
@@ -458,12 +479,21 @@ export class AuthService {
     return {
       ...tokens,
 
-      account: {
-        id: session.account.id,
-        username: session.account.username,
-        role: effectiveRole,
-      },
+      account: await this.buildAccountResult(
+        session.account.id,
+        effectiveRole,
+      ),
     };
+  }
+
+  async getCurrentAccountResult(
+    accountId: string,
+    role: AccountRole,
+  ): Promise<AccountResult> {
+    return this.buildAccountResult(
+      accountId,
+      role,
+    );
   }
 
   async logoutSession(refreshToken: string | undefined): Promise<void> {
@@ -509,6 +539,82 @@ export class AuthService {
     });
 
     return result.count;
+  }
+
+  private async buildAccountResult(
+    accountId: string,
+    effectiveRole: AccountRole,
+  ): Promise<AccountResult> {
+    const account = await this.prisma.account.findUnique({
+      where: {
+        id: accountId,
+      },
+
+      select: {
+        id: true,
+        username: true,
+        role: true,
+
+        employee: {
+          select: {
+            empName: true,
+            designation: true,
+          },
+        },
+
+        superAdminProfile: {
+          select: {
+            fullName: true,
+          },
+        },
+      },
+    });
+
+    if (!account) {
+      throw new UnauthorizedException('Authenticated account was not found.');
+    }
+
+    const fallbackName =
+      account.role === AccountRole.SUPER_ADMIN
+        ? this.configService.get<string>('SUPER_ADMIN_NAME')?.trim()
+        : null;
+
+    return {
+      id: account.id,
+      username: account.username,
+      role: effectiveRole,
+
+      // Headers show official identity, not login email or internal username.
+      displayName:
+        account.superAdminProfile?.fullName ??
+        account.employee?.empName ??
+        fallbackName ??
+        this.formatRoleLabel(effectiveRole),
+
+      // Position stays separate so every header can show name + authority clearly.
+      positionLabel:
+        account.role === AccountRole.SUPER_ADMIN
+          ? 'Super Admin'
+          : account.employee?.designation ??
+            this.formatRoleLabel(effectiveRole),
+    };
+  }
+
+  private formatRoleLabel(role: AccountRole): string {
+    switch (role) {
+      case AccountRole.SUPER_ADMIN:
+        return 'Super Admin';
+
+      case AccountRole.SENIOR_MANAGEMENT:
+        return 'Senior Management';
+
+      case AccountRole.TEAM_MANAGER:
+        return 'Team Manager';
+
+      case AccountRole.EMPLOYEE:
+      default:
+        return 'Employee';
+    }
   }
 
   private async resolveEffectiveEmployeeRole(

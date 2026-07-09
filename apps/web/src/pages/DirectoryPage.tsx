@@ -119,20 +119,21 @@ export function DirectoryPage() {
         <div className="directory-page-account">
           <div>
             <span>
-              Signed in as
+              Signed as
             </span>
 
             <strong>
-              {account?.username ??
+              {account?.displayName ??
                 formatRole(
                   account?.role,
                 )}
             </strong>
 
             <small>
-              {formatRole(
-                account?.role,
-              )}
+              {account?.positionLabel ??
+                formatRole(
+                  account?.role,
+                )}
             </small>
           </div>
 
@@ -169,9 +170,10 @@ export function DirectoryPage() {
         <header className="directory-page-heading">
           <div>
             <span>
-              {formatRole(
-                account?.role,
-              )}
+              {account?.positionLabel ??
+                formatRole(
+                  account?.role,
+                )}
             </span>
 
             <h1>

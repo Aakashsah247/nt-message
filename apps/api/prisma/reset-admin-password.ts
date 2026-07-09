@@ -23,24 +23,37 @@ function getRequiredEnvironmentVariable(
   return value;
 }
 
+function normalizeEmail(value: string): string {
+  const email = value.trim().toLowerCase();
+
+  if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) {
+    throw new Error(
+      "SUPER_ADMIN_EMAIL must be a valid official email address.",
+    );
+  }
+
+  return email;
+}
+
 const connectionString =
   getRequiredEnvironmentVariable(
     "DATABASE_URL",
   );
 
-const adminUsername =
+const superAdminEmail = normalizeEmail(
   getRequiredEnvironmentVariable(
-    "INITIAL_ADMIN_USERNAME",
-  ).toLowerCase();
+    "SUPER_ADMIN_EMAIL",
+  ),
+);
 
-const adminPassword =
+const superAdminPassword =
   getRequiredEnvironmentVariable(
-    "INITIAL_ADMIN_PASSWORD",
+    "SUPER_ADMIN_INITIAL_PASSWORD",
   );
 
-if (adminPassword.length < 16) {
+if (superAdminPassword.length < 16) {
   throw new Error(
-    "INITIAL_ADMIN_PASSWORD must contain at least 16 characters.",
+    "SUPER_ADMIN_INITIAL_PASSWORD must contain at least 16 characters.",
   );
 }
 
@@ -56,19 +69,19 @@ async function main(): Promise<void> {
   const account =
     await prisma.account.findUnique({
       where: {
-        username: adminUsername,
+        username: superAdminEmail,
       },
     });
 
   if (!account) {
     throw new Error(
-      `Admin account "${adminUsername}" does not exist.`,
+      `Super Admin account "${superAdminEmail}" does not exist. Run the seed script first.`,
     );
   }
 
   const passwordHash =
     await argon2.hash(
-      adminPassword,
+      superAdminPassword,
       {
         type: argon2.argon2id,
       },
@@ -105,14 +118,14 @@ async function main(): Promise<void> {
   ]);
 
   console.log(
-    `Password for admin "${adminUsername}" reset successfully.`,
+    `Password for Super Admin "${superAdminEmail}" reset successfully.`,
   );
 }
 
 main()
   .catch((error: unknown) => {
     console.error(
-      "Admin password reset failed:",
+      "Super Admin password reset failed:",
       error,
     );
 

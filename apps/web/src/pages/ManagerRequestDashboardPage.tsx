@@ -249,7 +249,7 @@ export function ManagerRequestDashboardPage() {
       : "Your secure session is not available. Sign in again.";
 
   const managerName =
-    account?.username ??
+    account?.displayName ??
     dashboardContent.roleLabel;
 
   const headingAside = (
@@ -274,6 +274,7 @@ export function ManagerRequestDashboardPage() {
   return (
     <NtDashboardShell
       roleLabel={
+        account?.positionLabel ??
         dashboardContent.roleLabel
       }
       title={

@@ -219,16 +219,17 @@ export class AuthController {
 
   @Get('me')
   @UseGuards(AccessTokenGuard)
-  getCurrentUser(
+  async getCurrentUser(
     @CurrentUser()
     user: AuthenticatedUser,
   ) {
     return {
-      account: {
-        id: user.accountId,
-        username: user.username,
-        role: user.role,
-      },
+      // Account display data is resolved by account ID so disabled or duplicate
+      // records cannot leak stale header names into the frontend.
+      account: await this.authService.getCurrentAccountResult(
+        user.accountId,
+        user.role,
+      ),
 
       session: {
         id: user.sessionId,

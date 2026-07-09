@@ -3,6 +3,7 @@ import type {
 } from "react";
 
 import { DirectoryButton } from "./DirectoryButton";
+import { EmergencyAlertButton } from "./EmergencyAlertButton";
 import { MessageButton } from "./MessageButton";
 
 interface NtDashboardShellProps {
@@ -54,7 +55,7 @@ export function NtDashboardShell({
         <div className="nt-dashboard-account">
           <div className="nt-dashboard-account-info">
             <span>
-              Signed in as
+              Signed as
             </span>
 
             <strong>
@@ -69,6 +70,8 @@ export function NtDashboardShell({
           <div className="nt-dashboard-actions">
             {/* Custom role actions appear before the shared directory button. */}
             {headerActions}
+
+            <EmergencyAlertButton />
 
             <MessageButton />
 

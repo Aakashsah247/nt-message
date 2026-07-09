@@ -486,13 +486,18 @@ export function ManagementPositionsPage() {
         <div className="mgmt-top-actions">
           <div className="mgmt-account">
             <span>
-              Signed in as
+              Signed as
             </span>
 
             <strong>
-              {account?.username ??
+              {account?.displayName ??
                 "Super Admin"}
             </strong>
+
+            <small>
+              {account?.positionLabel ??
+                "Super Admin"}
+            </small>
           </div>
 
           <button

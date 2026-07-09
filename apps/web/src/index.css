@@ -5688,7 +5688,8 @@
   }
 }
 .directory-nav-button,
-.message-nav-button {
+.message-nav-button,
+.emergency-alert-button {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -5711,7 +5712,8 @@
 }
 
 .directory-nav-button:hover,
-.message-nav-button:hover {
+.message-nav-button:hover,
+.emergency-alert-button:hover {
   border-color: #1686d9;
   background: #edf8ff;
   color: #075f9d;
@@ -5719,13 +5721,15 @@
 }
 
 .directory-nav-button:focus-visible,
-.message-nav-button:focus-visible {
+.message-nav-button:focus-visible,
+.emergency-alert-button:focus-visible {
   outline: 3px solid rgba(22, 134, 217, 0.22);
   outline-offset: 2px;
 }
 
 .directory-nav-button span,
-.message-nav-button span {
+.message-nav-button span,
+.emergency-alert-button span {
   display: grid;
   width: 20px;
   height: 20px;
@@ -5734,6 +5738,17 @@
   background: #dff1ff;
   color: #0875c9;
   font-size: 0.65rem;
+}
+
+.emergency-alert-button {
+  border-color: #f4b4b9;
+  color: #bd1f2d;
+}
+
+.emergency-alert-button span {
+  background: #ffe4e7;
+  color: #bd1f2d;
+  font-weight: 900;
 }
 
 .manager-account-actions,
@@ -5764,7 +5779,8 @@
   }
 
   .directory-nav-button,
-  .message-nav-button {
+  .message-nav-button,
+  .emergency-alert-button {
     min-height: 36px;
     padding: 0 12px;
     font-size: 0.75rem;
@@ -5975,7 +5991,8 @@
 }
 
 .nt-dashboard-actions .directory-nav-button,
-.nt-dashboard-actions .message-nav-button {
+.nt-dashboard-actions .message-nav-button,
+.nt-dashboard-actions .emergency-alert-button {
   border-color: rgba(255, 255, 255, 0.65);
   background: rgba(255, 255, 255, 0.13);
   color: #ffffff;
@@ -5983,16 +6000,402 @@
 }
 
 .nt-dashboard-actions .directory-nav-button:hover,
-.nt-dashboard-actions .message-nav-button:hover {
+.nt-dashboard-actions .message-nav-button:hover,
+.nt-dashboard-actions .emergency-alert-button:hover {
   border-color: #ffffff;
   background: rgba(255, 255, 255, 0.23);
   color: #ffffff;
 }
 
 .nt-dashboard-actions .directory-nav-button span,
-.nt-dashboard-actions .message-nav-button span {
+.nt-dashboard-actions .message-nav-button span,
+.nt-dashboard-actions .emergency-alert-button span {
   background: rgba(255, 255, 255, 0.2);
   color: #ffffff;
+}
+
+.emergency-alert-control {
+  position: relative;
+}
+
+.emergency-alert-backdrop {
+  position: fixed;
+  z-index: 90;
+  inset: 0;
+  display: grid;
+  padding: 20px;
+  place-items: center;
+  background: rgba(5, 28, 48, 0.48);
+  backdrop-filter: blur(6px);
+}
+
+.emergency-alert-panel {
+  width: min(520px, 100%);
+  max-height: calc(100dvh - 40px);
+  overflow-y: auto;
+  border: 1px solid rgba(227, 38, 54, 0.18);
+  border-radius: 14px;
+  background: #ffffff;
+  box-shadow: 0 28px 70px rgba(5, 28, 48, 0.28);
+}
+
+.emergency-alert-panel header,
+.emergency-alert-panel footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  padding: 18px;
+}
+
+.emergency-alert-panel header {
+  border-bottom: 1px solid #f5d9dc;
+}
+
+.emergency-alert-panel header span {
+  color: #bd1f2d;
+  font-size: 0.75rem;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.emergency-alert-panel h2 {
+  margin: 4px 0 0;
+  color: #14253a;
+  font-size: 1.18rem;
+}
+
+.emergency-alert-panel header > button {
+  width: 34px;
+  height: 34px;
+  border: 0;
+  border-radius: 50%;
+  background: #fff1f2;
+  color: #bd1f2d;
+  font-size: 1.25rem;
+  cursor: pointer;
+}
+
+.super-admin-profile-panel {
+  display: grid;
+  gap: 18px;
+}
+
+.super-admin-profile-panel > header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 18px;
+}
+
+.super-admin-profile-panel h1 {
+  margin: 4px 0 8px;
+  color: #10233a;
+  font-size: clamp(1.7rem, 3vw, 2.35rem);
+}
+
+.super-admin-profile-panel p {
+  margin: 0;
+  color: #64748b;
+  line-height: 1.55;
+}
+
+.super-admin-profile-card {
+  display: grid;
+  gap: 18px;
+  max-width: 780px;
+  border: 1px solid #d8e7f1;
+  border-radius: 18px;
+  padding: 22px;
+  background: #ffffff;
+  box-shadow: 0 18px 45px rgba(15, 35, 55, 0.08);
+}
+
+.super-admin-profile-copy {
+  display: grid;
+  gap: 5px;
+}
+
+.super-admin-profile-copy span {
+  color: #174a7c;
+  font-size: 0.78rem;
+  font-weight: 900;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.super-admin-profile-grid {
+  display: grid;
+  gap: 14px;
+}
+
+.super-admin-profile-grid label {
+  display: grid;
+  gap: 7px;
+  color: #20374d;
+  font-size: 0.82rem;
+  font-weight: 800;
+}
+
+.super-admin-profile-grid input {
+  width: 100%;
+  border: 1px solid #cbddea;
+  border-radius: 12px;
+  padding: 12px 13px;
+  color: #173552;
+  font: inherit;
+}
+
+.super-admin-profile-error,
+.super-admin-profile-success {
+  margin: 0;
+  border-radius: 12px;
+  padding: 12px 14px;
+  font-size: 0.86rem;
+  font-weight: 800;
+}
+
+.super-admin-profile-error {
+  background: #fff1f2;
+  color: #b4232e;
+}
+
+.super-admin-profile-success {
+  background: #edf8f1;
+  color: #17603a;
+}
+
+.super-admin-profile-card footer {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.super-admin-profile-card footer button {
+  min-height: 42px;
+  border: 0;
+  border-radius: 12px;
+  padding: 0 18px;
+  background: #174a7c;
+  color: #ffffff;
+  font: inherit;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.super-admin-profile-card footer button:disabled {
+  opacity: 0.65;
+  cursor: not-allowed;
+}
+
+
+.super-admin-profile-muted {
+  margin: 0;
+  border-radius: 12px;
+  padding: 12px 14px;
+  background: #eef6ff;
+  color: #325c83;
+  font-size: 0.86rem;
+  font-weight: 800;
+}
+
+.super-admin-profile-readonly-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.super-admin-profile-readonly-item {
+  display: grid;
+  gap: 5px;
+  border: 1px solid #d8e7f1;
+  border-radius: 14px;
+  padding: 14px;
+  background: #f8fbfe;
+}
+
+.super-admin-profile-readonly-item span {
+  color: #64748b;
+  font-size: 0.74rem;
+  font-weight: 900;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.super-admin-profile-readonly-item strong {
+  color: #10233a;
+  font-size: 0.95rem;
+}
+
+.emergency-alert-severity-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+  padding: 18px 18px 0;
+}
+
+.emergency-alert-severity-grid button {
+  min-height: 86px;
+  padding: 12px;
+  border: 1px solid #d8e7f1;
+  border-radius: 10px;
+  background: #f8fbfe;
+  color: #173552;
+  text-align: left;
+  cursor: pointer;
+}
+
+.emergency-alert-severity-grid button.active {
+  border-color: #e32636;
+  background: #fff2f3;
+  color: #ad1d29;
+}
+
+.emergency-alert-severity-grid strong,
+.emergency-alert-severity-grid small {
+  display: block;
+}
+
+.emergency-alert-severity-grid small {
+  margin-top: 5px;
+  color: #61748a;
+  font-size: 0.72rem;
+  line-height: 1.35;
+}
+
+.emergency-alert-contact,
+.emergency-alert-field {
+  display: grid;
+  gap: 8px;
+  padding: 18px;
+}
+
+.emergency-alert-contact span,
+.emergency-alert-field span {
+  color: #20374d;
+  font-size: 0.8rem;
+  font-weight: 800;
+}
+
+.emergency-alert-contact select,
+.emergency-alert-field textarea {
+  width: 100%;
+  border: 1px solid #cbddea;
+  border-radius: 10px;
+  padding: 12px;
+  color: #173552;
+  font: inherit;
+  line-height: 1.5;
+}
+
+.emergency-alert-field textarea {
+  resize: vertical;
+}
+
+.emergency-alert-field small {
+  color: #65798d;
+  font-size: 0.72rem;
+  text-align: right;
+}
+
+.emergency-alert-contact-card,
+.emergency-alert-preview {
+  display: grid;
+  gap: 6px;
+  margin: 0 18px 18px;
+  border: 1px solid #d8e7f1;
+  border-radius: 12px;
+  padding: 13px;
+  background: #f8fbfe;
+  color: #173552;
+}
+
+.emergency-alert-contact-card strong,
+.emergency-alert-contact-card span,
+.emergency-alert-contact-card small,
+.emergency-alert-preview span {
+  display: block;
+}
+
+.emergency-alert-contact-card span,
+.emergency-alert-contact-card small {
+  color: #65798d;
+  font-size: 0.78rem;
+}
+
+.emergency-alert-preview span {
+  color: #bd1f2d;
+  font-size: 0.73rem;
+  font-weight: 900;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.emergency-alert-preview pre {
+  max-height: 220px;
+  overflow: auto;
+  margin: 0;
+  white-space: pre-wrap;
+  color: #173552;
+  font: 0.8rem/1.55 ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+}
+
+.emergency-alert-error,
+.emergency-alert-result {
+  margin: 0 18px 18px;
+  border-radius: 10px;
+  padding: 12px;
+  font-size: 0.82rem;
+}
+
+.emergency-alert-error {
+  background: #fff0f1;
+  color: #a71926;
+}
+
+.emergency-alert-result {
+  display: grid;
+  gap: 4px;
+  background: #edf8f1;
+  color: #17603a;
+}
+
+.emergency-alert-result small {
+  color: #276a46;
+  line-height: 1.45;
+}
+
+.emergency-alert-panel footer {
+  border-top: 1px solid #edf2f7;
+}
+
+.emergency-alert-secondary,
+.emergency-alert-primary {
+  min-height: 40px;
+  border-radius: 10px;
+  padding: 0 16px;
+  font: inherit;
+  font-size: 0.82rem;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.emergency-alert-secondary {
+  border: 1px solid #cbddea;
+  background: #ffffff;
+  color: #31506f;
+}
+
+.emergency-alert-primary {
+  border: 1px solid #e32636;
+  background: #e32636;
+  color: #ffffff;
+}
+
+.emergency-alert-secondary:disabled,
+.emergency-alert-primary:disabled {
+  cursor: not-allowed;
+  opacity: 0.65;
 }
 
 .nt-dashboard-logout {
@@ -8845,6 +9248,7 @@
 }
 
 .message-app-account .directory-button,
+.message-app-account .emergency-alert-button,
 .message-app-logout {
   min-height: 39px;
   padding: 0 14px;
@@ -8857,8 +9261,14 @@
 }
 
 .message-app-account .directory-button:hover,
+.message-app-account .emergency-alert-button:hover,
 .message-app-logout:hover:not(:disabled) {
   background: rgba(255, 255, 255, 0.17);
+}
+
+.message-app-account .emergency-alert-button span {
+  background: rgba(255, 255, 255, 0.18);
+  color: #ffffff;
 }
 
 .message-workspace {
@@ -10157,6 +10567,7 @@
   }
 
   .message-app-account .directory-button,
+  .message-app-account .emergency-alert-button,
   .message-app-logout {
     padding: 0 10px;
     font-size: 9px;
@@ -13074,6 +13485,7 @@
 .message-app-shell.theme-light .message-app-logout,
 .message-app-shell.theme-light .message-profile-topbar-button,
 .message-app-shell.theme-light .message-customization-button,
+.message-app-shell.theme-light .emergency-alert-button,
 .message-app-shell.theme-light .message-notification-button,
 .message-app-shell.theme-light .message-app-account .directory-button {
   color: #0f2744;
@@ -13088,6 +13500,7 @@
 .message-app-shell.theme-light .message-app-logout,
 .message-app-shell.theme-light .message-profile-topbar-button,
 .message-app-shell.theme-light .message-customization-button,
+.message-app-shell.theme-light .emergency-alert-button,
 .message-app-shell.theme-light .message-notification-button,
 .message-app-shell.theme-light .message-app-account .directory-button {
   border-color: #bfd3e8;

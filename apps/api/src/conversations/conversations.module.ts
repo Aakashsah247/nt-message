@@ -22,6 +22,6 @@ import { ConversationsService } from './conversations.service';
     MessagingPresenceService,
   ],
 
-  exports: [ConversationsService],
+  exports: [ConversationsService, MessagingEventsService],
 })
 export class ConversationsModule {}

@@ -8,6 +8,8 @@ export interface AuthAccount {
   id: string;
   username: string | null;
   role: AccountRole;
+  displayName: string;
+  positionLabel: string;
 }
 
 export interface AuthResponse {

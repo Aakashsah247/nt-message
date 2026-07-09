@@ -1,13 +1,13 @@
-import { IsString, Matches, MaxLength, MinLength } from 'class-validator';
+import { IsEmail, IsString, MaxLength, MinLength } from 'class-validator';
 
 export class AdminLoginDto {
-  @IsString()
-  @MinLength(1)
-  @MaxLength(80)
-  @Matches(/^[a-zA-Z0-9._-]+$/, {
-    message:
-      'Username may contain letters, numbers, dots, underscores and hyphens only.',
-  })
+  @IsEmail(
+    {},
+    {
+      message: 'Enter the official Super Admin email address.',
+    },
+  )
+  @MaxLength(255)
   username!: string;
 
   @IsString()

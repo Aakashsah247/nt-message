@@ -116,7 +116,7 @@ export function DashboardPage() {
 
         <h1>
           Welcome,{" "}
-          {account?.username ??
+          {account?.displayName ??
             "NT Message User"}
         </h1>
 
