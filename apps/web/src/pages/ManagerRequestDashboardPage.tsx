@@ -4,12 +4,9 @@ import {
   useState,
 } from "react";
 
-import { useNavigate } from "react-router";
-
 import { ManagerAccountRequestForm } from "../components/ManagerAccountRequestForm";
 import { ManagerRequestHistory } from "../components/ManagerRequestHistory";
 import { MessagingAnalyticsPanel } from "../components/MessagingAnalyticsPanel";
-import { NtDashboardShell } from "../components/NtDashboardShell";
 import { useAuth } from "../context/AuthContext";
 import { getMyRequestContext } from "../services/account-request.service";
 
@@ -90,13 +87,9 @@ function formatRole(
 }
 
 export function ManagerRequestDashboardPage() {
-  const navigate =
-    useNavigate();
-
   const {
     account,
     accessToken,
-    logout,
   } = useAuth();
 
   const [
@@ -119,11 +112,6 @@ export function ManagerRequestDashboardPage() {
   ] =
     useState("");
 
-  const [
-    loggingOut,
-    setLoggingOut,
-  ] =
-    useState(false);
 
   const [
     retryKey,
@@ -221,23 +209,6 @@ export function ManagerRequestDashboardPage() {
     );
   }
 
-  async function handleLogout():
-    Promise<void> {
-    setLoggingOut(true);
-
-    try {
-      await logout();
-
-      navigate(
-        "/login",
-        {
-          replace: true,
-        },
-      );
-    } finally {
-      setLoggingOut(false);
-    }
-  }
 
   const contextLoading =
     Boolean(accessToken) &&
@@ -248,9 +219,6 @@ export function ManagerRequestDashboardPage() {
       ? error
       : "Your secure session is not available. Sign in again.";
 
-  const managerName =
-    account?.displayName ??
-    dashboardContent.roleLabel;
 
   const headingAside = (
     <div className="nt-scope-summary">
@@ -270,32 +238,25 @@ export function ManagerRequestDashboardPage() {
     </div>
   );
 
-  // Both management roles use the same branded dashboard structure.
   return (
-    <NtDashboardShell
-      roleLabel={
-        account?.positionLabel ??
-        dashboardContent.roleLabel
-      }
-      title={
-        dashboardContent.title
-      }
-      description={
-        dashboardContent.description
-      }
-      accountName={
-        managerName
-      }
-      loggingOut={
-        loggingOut
-      }
-      onLogout={
-        handleLogout
-      }
-      headingAside={
-        headingAside
-      }
-    >
+    <main className="management-page manager-dashboard-page">
+      <section className="nt-dashboard-content">
+        <header className="nt-dashboard-heading">
+          <div className="nt-dashboard-heading-text">
+            <span>
+              {account?.positionLabel ?? dashboardContent.roleLabel}
+            </span>
+
+            <h1>{dashboardContent.title}</h1>
+            <p>{dashboardContent.description}</p>
+          </div>
+
+          <div className="nt-dashboard-heading-aside">
+            {headingAside}
+          </div>
+        </header>
+
+        <div className="nt-dashboard-body">
       {contextLoading && (
         <div className="manager-context-loading">
           <div className="spinner" />
@@ -484,6 +445,8 @@ export function ManagerRequestDashboardPage() {
             </section>
           </>
         )}
-    </NtDashboardShell>
+        </div>
+      </section>
+    </main>
   );
 }

@@ -63,7 +63,13 @@ function getProfileSourceLabel(contact: EmergencyAlertContact): string {
     : "Employee profile";
 }
 
-export function EmergencyAlertButton() {
+interface EmergencyAlertButtonProps {
+  variant?: "default" | "sidebar";
+}
+
+export function EmergencyAlertButton({
+  variant = "default",
+}: EmergencyAlertButtonProps) {
   const {
     account,
     accessToken,
@@ -187,7 +193,9 @@ export function EmergencyAlertButton() {
     <div className="emergency-alert-control">
       <button
         type="button"
-        className="emergency-alert-button"
+        className={variant === "sidebar"
+          ? "management-layout__emergency-button"
+          : "emergency-alert-button"}
         onClick={() => {
           setOpen(true);
           setResult(null);
@@ -198,7 +206,13 @@ export function EmergencyAlertButton() {
           !
         </span>
 
-        Emergency
+        {variant === "sidebar" ? (
+          <span className="emergency-alert-label">
+            Emergency
+          </span>
+        ) : (
+          "Emergency"
+        )}
       </button>
 
       {open && (

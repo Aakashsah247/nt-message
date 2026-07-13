@@ -5,10 +5,6 @@ import {
 } from "react";
 
 import {
-  useNavigate,
-} from "react-router";
-
-import {
   useAuth,
 } from "../context/AuthContext";
 
@@ -142,12 +138,8 @@ function getPositionState(
 }
 
 export function ManagementPositionsPage() {
-  const navigate = useNavigate();
-
   const {
-    account,
     accessToken,
-    logout,
   } = useAuth();
 
   const [
@@ -192,10 +184,6 @@ export function ManagementPositionsPage() {
     setDetailLoading,
   ] = useState(false);
 
-  const [
-    loggingOut,
-    setLoggingOut,
-  ] = useState(false);
 
   const [
     error,
@@ -443,86 +431,9 @@ export function ManagementPositionsPage() {
     setError("");
   }
 
-  async function handleLogout():
-    Promise<void> {
-    setLoggingOut(true);
-
-    try {
-      await logout();
-
-      navigate(
-        "/login",
-        {
-          replace: true,
-        },
-      );
-    } finally {
-      setLoggingOut(false);
-    }
-  }
 
   return (
-    <main className="mgmt-page">
-      <header className="mgmt-topbar">
-        <div className="mgmt-brand">
-          <div className="mgmt-logo">
-            <img
-              src="/nt-logo.png"
-              alt="Nepal Telecom"
-            />
-          </div>
-
-          <div>
-            <strong>
-              NT Message
-            </strong>
-
-            <span>
-              Management Position Register
-            </span>
-          </div>
-        </div>
-
-        <div className="mgmt-top-actions">
-          <div className="mgmt-account">
-            <span>
-              Signed as
-            </span>
-
-            <strong>
-              {account?.displayName ??
-                "Super Admin"}
-            </strong>
-
-            <small>
-              {account?.positionLabel ??
-                "Super Admin"}
-            </small>
-          </div>
-
-          <button
-            type="button"
-            className="mgmt-back"
-            onClick={() =>
-              navigate("/super-admin")
-            }
-          >
-            Back to dashboard
-          </button>
-
-          <button
-            type="button"
-            className="mgmt-logout"
-            onClick={handleLogout}
-            disabled={loggingOut}
-          >
-            {loggingOut
-              ? "Signing out..."
-              : "Sign out"}
-          </button>
-        </div>
-      </header>
-
+    <main className="management-page management-positions-page">
       <section className="mgmt-content">
         <header className="mgmt-heading">
           <div>

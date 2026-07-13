@@ -1877,7 +1877,7 @@
 
   .admin-dashboard-content {
     min-height: 0;
-    overflow-y: auto;
+    overflow: visible;
     padding: clamp(24px, 4vh, 42px) clamp(18px, 4vw, 58px) 48px;
   }
 
@@ -4650,56 +4650,78 @@
   z-index: 1000;
   inset: 0;
   display: flex;
+  align-items: stretch;
   justify-content: flex-end;
-  background: rgba(9, 29, 47, 0.48);
-  backdrop-filter: blur(3px);
+  overflow: hidden;
+  background: rgba(4, 25, 48, 0.56);
+  backdrop-filter: blur(5px);
 }
 
 .directory-detail-panel {
-  width: min(520px, 100%);
-  height: 100%;
-  overflow-y: auto;
+  width: min(480px, 100vw);
+  height: 100dvh;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  overflow: hidden;
+  border-left: 1px solid #b9d8ed;
   background: #ffffff;
-  box-shadow: -20px 0 60px rgba(5, 32, 55, 0.2);
+  box-shadow: -24px 0 64px rgba(3, 29, 59, 0.24);
 }
 
 .directory-detail-topbar {
-  position: sticky;
+  position: relative;
   z-index: 2;
-  top: 0;
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 21px 24px;
-  border-bottom: 1px solid #e1eaf3;
-  background: rgba(255, 255, 255, 0.96);
+  min-height: 88px;
+  padding: 20px 24px;
+  border-bottom: 1px solid #dbe8f3;
+  background:
+    linear-gradient(180deg, rgba(246, 251, 255, 0.98), rgba(255, 255, 255, 0.98));
+  box-shadow: 0 8px 24px rgba(5, 47, 95, 0.06);
 }
 
 .directory-detail-topbar span {
   display: block;
-  color: #74879a;
-  font-size: 0.72rem;
-  font-weight: 700;
+  color: #5f7890;
+  font-size: 0.7rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
   text-transform: uppercase;
 }
 
 .directory-detail-topbar strong {
   display: block;
-  margin-top: 3px;
-  color: #173b5a;
+  margin-top: 4px;
+  color: #0a345d;
+  font-size: 1.05rem;
 }
 
 .directory-detail-topbar button {
   display: grid;
-  width: 38px;
-  height: 38px;
+  width: 40px;
+  height: 40px;
   place-items: center;
-  border: 1px solid #d7e2ec;
-  border-radius: 50%;
+  border: 1px solid #cfe0ed;
+  border-radius: 12px;
   background: #ffffff;
-  color: #36566f;
-  font-size: 1.5rem;
+  color: #214d70;
+  box-shadow: 0 6px 16px rgba(5, 47, 95, 0.08);
+  font-size: 1.45rem;
   cursor: pointer;
+  transition:
+    border-color 160ms ease,
+    color 160ms ease,
+    transform 160ms ease,
+    box-shadow 160ms ease;
+}
+
+.directory-detail-topbar button:hover {
+  border-color: #6fb5df;
+  color: #0068b5;
+  box-shadow: 0 8px 20px rgba(5, 47, 95, 0.13);
+  transform: translateY(-1px);
 }
 
 .directory-detail-loading {
@@ -4732,19 +4754,30 @@
 }
 
 .directory-detail-content {
-  padding: 25px;
+  min-height: 0;
+  padding: 24px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-color: #b9cfdf transparent;
+  scrollbar-width: thin;
 }
 
 .directory-detail-profile {
   display: flex;
   align-items: center;
   gap: 17px;
-  padding-bottom: 22px;
+  padding: 18px;
+  border: 1px solid #dce9f3;
+  border-radius: 16px;
+  background:
+    radial-gradient(circle at 90% 0%, rgba(22, 164, 223, 0.12), transparent 42%),
+    linear-gradient(145deg, #f8fcff, #eef7fd);
 }
 
 .directory-detail-avatar {
-  width: 72px;
-  height: 72px;
+  width: 76px;
+  height: 76px;
+  border: 4px solid #ffffff;
   font-size: 1.2rem;
 }
 
@@ -4768,18 +4801,29 @@
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
-  padding-bottom: 22px;
+  padding: 16px 0 4px;
 }
 
 .directory-detail-section {
-  padding: 21px 0;
-  border-top: 1px solid #e7eef5;
+  padding: 22px 0;
+  border-top: 1px solid #e2edf5;
 }
 
 .directory-detail-section h3 {
-  margin: 0 0 14px;
-  color: #1a405f;
-  font-size: 1rem;
+  position: relative;
+  margin: 0 0 15px;
+  padding-left: 12px;
+  color: #123f62;
+  font-size: 0.98rem;
+}
+
+.directory-detail-section h3::before {
+  position: absolute;
+  inset: 2px auto 2px 0;
+  width: 3px;
+  border-radius: 999px;
+  content: "";
+  background: linear-gradient(180deg, #0068b5, #16a4df);
 }
 
 .directory-detail-list {
@@ -4790,21 +4834,27 @@
 
 .directory-detail-list div {
   display: grid;
-  grid-template-columns: 145px 1fr;
-  gap: 14px;
+  grid-template-columns: 138px minmax(0, 1fr);
+  gap: 16px;
+  padding: 8px 0;
+  border-bottom: 1px solid #edf3f8;
+}
+
+.directory-detail-list div:last-child {
+  border-bottom: 0;
 }
 
 .directory-detail-list dt {
-  color: #788a99;
-  font-size: 0.82rem;
+  color: #6f8497;
+  font-size: 0.79rem;
 }
 
 .directory-detail-list dd {
   min-width: 0;
   margin: 0;
   overflow-wrap: anywhere;
-  color: #284a64;
-  font-weight: 700;
+  color: #214765;
+  font-weight: 750;
 }
 
 .directory-contact-limited {
@@ -4824,8 +4874,10 @@
 }
 
 .directory-detail-footer {
-  padding-top: 20px;
-  border-top: 1px solid #e7eef5;
+  margin: 4px -24px -24px;
+  padding: 18px 24px 22px;
+  border-top: 1px solid #dfeaf3;
+  background: #f8fbfe;
 }
 
 .directory-detail-footer button {
@@ -4883,24 +4935,46 @@
     grid-column: auto;
   }
 
+  .directory-detail-panel {
+    width: 100vw;
+    border-left: 0;
+  }
+
+  .directory-detail-topbar {
+    min-height: 76px;
+    padding: 16px 18px;
+  }
+
   .directory-detail-content {
-    padding: 21px;
+    padding: 18px;
+  }
+
+  .directory-detail-profile {
+    align-items: flex-start;
+    padding: 16px;
   }
 
   .directory-detail-list div {
     grid-template-columns: 1fr;
     gap: 4px;
   }
+
+  .directory-detail-footer {
+    margin: 4px -18px -18px;
+    padding: 16px 18px 20px;
+  }
 }
 
-.directory-page-shell {
+.directory-page {
   --nt-blue: #0068b5;
   --nt-deep-blue: #003f73;
   --nt-dark-blue: #062f55;
   --nt-sky: #16a4df;
   --nt-red: #e32636;
   --nt-gold: #f5b822;
+}
 
+.directory-page-shell {
   position: relative;
   isolation: isolate;
   width: 100%;
@@ -5428,8 +5502,7 @@
 }
 
 .directory-detail-panel {
-  border-left: 4px solid var(--nt-red);
-  animation: ntPanelSlide 0.34s ease both;
+  animation: ntPanelSlide 0.3s cubic-bezier(0.2, 0.8, 0.2, 1) both;
 }
 
 .directory-detail-topbar {
@@ -5438,9 +5511,8 @@
 
 .directory-detail-avatar {
   box-shadow:
-    0 0 0 6px rgba(0, 104, 181, 0.09),
-    0 12px 25px rgba(0, 104, 181, 0.17);
-  animation: ntAvatarPulse 3.5s ease-in-out infinite;
+    0 0 0 5px rgba(0, 104, 181, 0.08),
+    0 12px 25px rgba(0, 104, 181, 0.18);
 }
 
 .directory-page-session-error {

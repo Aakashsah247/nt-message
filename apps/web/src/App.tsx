@@ -1,4 +1,5 @@
 import { Navigate, Route, Routes } from "react-router";
+import { ManagementLayout } from "./components/layout/ManagementLayout";
 import { ProtectedRoute } from "./components/ProtectedRoute";
 import { PublicRoute } from "./components/PublicRoute";
 import { RoleHome } from "./components/RoleHome";
@@ -62,7 +63,9 @@ export default function App() {
               "TEAM_MANAGER",
             ]}
           >
-            <DirectoryPage />
+            <ManagementLayout>
+              <DirectoryPage />
+            </ManagementLayout>
           </ProtectedRoute>
         }
       />
@@ -71,7 +74,9 @@ export default function App() {
         path="/super-admin"
         element={
           <ProtectedRoute roles={["SUPER_ADMIN"]}>
-            <AdminDashboardPage />
+            <ManagementLayout>
+              <AdminDashboardPage />
+            </ManagementLayout>
           </ProtectedRoute>
         }
       />
@@ -80,7 +85,9 @@ export default function App() {
         path="/super-admin/management-positions"
         element={
           <ProtectedRoute roles={["SUPER_ADMIN"]}>
-            <ManagementPositionsPage />
+            <ManagementLayout>
+              <ManagementPositionsPage />
+            </ManagementLayout>
           </ProtectedRoute>
         }
       />
@@ -91,7 +98,9 @@ export default function App() {
         path="/senior-management"
         element={
           <ProtectedRoute roles={["SENIOR_MANAGEMENT"]}>
-            <ManagerRequestDashboardPage />
+            <ManagementLayout>
+              <ManagerRequestDashboardPage />
+            </ManagementLayout>
           </ProtectedRoute>
         }
       />
@@ -100,7 +109,9 @@ export default function App() {
         path="/team-manager"
         element={
           <ProtectedRoute roles={["TEAM_MANAGER"]}>
-            <ManagerRequestDashboardPage />
+            <ManagementLayout>
+              <ManagerRequestDashboardPage />
+            </ManagementLayout>
           </ProtectedRoute>
         }
       />

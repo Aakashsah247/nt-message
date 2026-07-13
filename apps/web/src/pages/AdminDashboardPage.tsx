@@ -1,11 +1,8 @@
 import { useEffect, useMemo, useState } from "react";
-import { useNavigate } from "react-router";
+import { useSearchParams } from "react-router";
 
 import { AdminRequestDetailPanel } from "../components/AdminRequestDetailPanel";
-import { DirectoryButton } from "../components/DirectoryButton";
-import { EmergencyAlertButton } from "../components/EmergencyAlertButton";
-import { ManagementPositionsButton } from "../components/ManagementPositionsButton";
-import { MessageButton } from "../components/MessageButton";
+import { getDefaultAdminView } from "../components/layout/management-navigation";
 import { MessagingAnalyticsPanel } from "../components/MessagingAnalyticsPanel";
 import { SuperAdminMonitoringPanel } from "../components/SuperAdminMonitoringPanel";
 import { SuperAdminProfilePanel } from "../components/SuperAdminProfilePanel";
@@ -139,21 +136,10 @@ function getRequesterName(request: AdminAccountRequestListItem): string {
   );
 }
 
-type AdminView =
-  | "requests"
-  | "organization"
-  | "analytics"
-  | "monitoring"
-  | "profile";
-
 export function AdminDashboardPage() {
-  const navigate = useNavigate();
-
-  const { account, accessToken, logout } = useAuth();
-
-  // Controls the main Super Admin workspace.
-  const [view, setView] =
-  useState<AdminView>("requests");
+  const [searchParams] = useSearchParams();
+  const { accessToken } = useAuth();
+  const view = getDefaultAdminView(searchParams.get("view"));
 
   const [selectedStatus, setSelectedStatus] =
     useState<AccountRequestStatus>("PENDING_APPROVAL");
@@ -171,8 +157,6 @@ export function AdminDashboardPage() {
 
   const [error, setError] = useState("");
 
-  const [loggingOut, setLoggingOut] = useState(false);
-
   const [refreshKey, setRefreshKey] = useState(0);
 
   const [selectedRequestId, setSelectedRequestId] = useState<string | null>(
@@ -184,6 +168,12 @@ export function AdminDashboardPage() {
       STATUS_OPTIONS[0],
     [selectedStatus],
   );
+
+  useEffect(() => {
+    if (view !== "requests") {
+      setSelectedRequestId(null);
+    }
+  }, [view]);
 
   useEffect(() => {
     if (!accessToken) {
@@ -314,165 +304,9 @@ export function AdminDashboardPage() {
     setRefreshKey((current) => current + 1);
   }
 
-  async function handleLogout(): Promise<void> {
-    setLoggingOut(true);
-
-    try {
-      await logout();
-
-      navigate("/login", {
-        replace: true,
-      });
-    } finally {
-      setLoggingOut(false);
-    }
-  }
-// Super Admin can open the organization-wide directory from the header.
   return (
-    <main className="admin-dashboard-shell">
-      <header className="admin-topbar">
-        <div className="admin-brand">
-          <div className="admin-logo">
-            <img src="/nt-logo.png" alt="Nepal Telecom" />
-          </div>
-
-          <div>
-            <strong>NT Message</strong>
-
-            <span>Super Admin Portal</span>
-          </div>
-        </div>
-
-        <div className="admin-account">
-          <div>
-            <span>Signed as</span>
-
-            <strong>{account?.displayName ?? "Super Admin"}</strong>
-
-            <small>{account?.positionLabel ?? "Super Admin"}</small>
-          </div>
-
-          <div className="admin-header-actions">
-<ManagementPositionsButton />
-
-<EmergencyAlertButton />
-
-<MessageButton />
-
-<DirectoryButton />
-            <button
-
-            type="button"
-            onClick={handleLogout}
-            disabled={loggingOut}
-            >
-            {loggingOut
-            ? "Signing out..."
-            : "Sign out"}
-            </button>
-          </div>
-        </div>
-      </header>
-
+    <main className="management-page admin-dashboard-page">
       <section className="admin-dashboard-content">
-        <nav
-          className="admin-tabs"
-          aria-label="Super Admin sections"
-        >
-        <button
-          type="button"
-          className={
-            view === "requests" ? "active": ""
-          }
-          onClick={() =>
-            setView("requests")
-          }
-        >
-          <span>01</span>
-          Account Requests
-        </button>
-
-        <button
-          type="button"
-          className={
-            view === "organization"
-            ? "active"
-            : ""
-          }
-          onClick={() => {
-            setSelectedRequestId(null);
-
-            setView(
-              "organization",
-            );
-          }}
-        >
-          <span>02</span>
-
-          Organization Management
-        </button>
-
-        <button
-          type="button"
-          className={
-            view === "analytics"
-            ? "active"
-            : ""
-          }
-          onClick={() => {
-            setSelectedRequestId(null);
-
-            setView(
-              "analytics",
-            );
-          }}
-        >
-          <span>03</span>
-
-          Analytics
-        </button>
-
-        <button
-          type="button"
-          className={
-            view === "monitoring"
-            ? "active"
-            : ""
-          }
-          onClick={() => {
-            setSelectedRequestId(null);
-
-            setView(
-              "monitoring",
-            );
-          }}
-        >
-          <span>04</span>
-
-          Monitoring
-        </button>
-
-
-        <button
-          type="button"
-          className={
-            view === "profile"
-            ? "active"
-            : ""
-          }
-          onClick={() => {
-            setSelectedRequestId(null);
-
-            setView(
-              "profile",
-            );
-          }}
-        >
-          <span>05</span>
-
-          Super Admin Profile
-        </button>
-        </nav>
         {view === "requests" && (
           <div className="admin-view">
 
@@ -742,6 +576,6 @@ export function AdminDashboardPage() {
           onClose={() => setSelectedRequestId(null)}
         />
       )}
-</main>
+    </main>
   );
 }
