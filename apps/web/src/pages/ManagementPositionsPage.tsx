@@ -1,6 +1,8 @@
 import {
   useEffect,
+  useLayoutEffect,
   useMemo,
+  useRef,
   useState,
 } from "react";
 
@@ -103,6 +105,21 @@ function getPositionScope(
     : position.division.name;
 }
 
+function getPositionTitle(
+  position: ManagementPositionListItem,
+): string {
+  if (
+    position.positionType ===
+    "SENIOR_MANAGEMENT"
+  ) {
+    return `${position.division.name} Senior Management`;
+  }
+
+  return position.department
+    ? `${position.department.name} Team Manager`
+    : "Team Manager Position";
+}
+
 function getPositionState(
   position: ManagementPositionListItem,
 ): {
@@ -137,6 +154,53 @@ function getPositionState(
   }
 }
 
+function getInitials(
+  value: string,
+): string {
+  const initials = value
+    .trim()
+    .split(/\s+/)
+    .slice(0, 2)
+    .map((part) => part.charAt(0))
+    .join("")
+    .toUpperCase();
+
+  return initials || "MP";
+}
+
+function matchesSearch(
+  position: ManagementPositionListItem,
+  searchTerm: string,
+): boolean {
+  const normalizedSearch =
+    searchTerm.trim().toLowerCase();
+
+  if (!normalizedSearch) {
+    return true;
+  }
+
+  const searchableValues = [
+    getPositionTitle(position),
+    formatLabel(position.positionType),
+    position.division.name,
+    position.division.code,
+    position.department?.name,
+    position.department?.code,
+    position.currentAssignment?.employee.empName,
+    position.currentAssignment?.employee.empId,
+    position.currentAssignment?.employee.designation,
+    position.reservedByAccountRequest?.empName,
+    position.reservedByAccountRequest?.empId,
+  ];
+
+  return searchableValues.some(
+    (value) =>
+      value
+        ?.toLowerCase()
+        .includes(normalizedSearch),
+  );
+}
+
 export function ManagementPositionsPage() {
   const {
     accessToken,
@@ -167,12 +231,21 @@ export function ManagementPositionsPage() {
   );
 
   const [
+    searchTerm,
+    setSearchTerm,
+  ] = useState("");
+
+  const [
     selectedPosition,
     setSelectedPosition,
   ] = useState<
     ManagementPositionDetail | null
   >(null);
 
+  const detailContentRef =
+    useRef<HTMLDivElement | null>(
+      null,
+    );
 
   const [
     loading,
@@ -183,7 +256,6 @@ export function ManagementPositionsPage() {
     detailLoading,
     setDetailLoading,
   ] = useState(false);
-
 
   const [
     error,
@@ -217,6 +289,7 @@ export function ManagementPositionsPage() {
   const summary = useMemo(() => {
     const result = {
       total: positions.length,
+      occupied: 0,
       vacant: 0,
       reserved: 0,
       inactive: 0,
@@ -224,10 +297,13 @@ export function ManagementPositionsPage() {
 
     positions.forEach((position) => {
       switch (position.occupancy) {
+        case "OCCUPIED":
+          result.occupied += 1;
+          break;
+
         case "RESERVED":
           result.reserved += 1;
           break;
-
 
         case "INACTIVE":
           result.inactive += 1;
@@ -242,6 +318,31 @@ export function ManagementPositionsPage() {
 
     return result;
   }, [positions]);
+
+  const visiblePositions = useMemo(
+    () =>
+      positions.filter((position) =>
+        matchesSearch(
+          position,
+          searchTerm,
+        ),
+      ),
+    [positions, searchTerm],
+  );
+
+  const activeFilterCount = useMemo(
+    () =>
+      [
+        filters.positionType,
+        filters.divisionId,
+        filters.departmentId,
+        filters.occupancy !== "ALL"
+          ? filters.occupancy
+          : "",
+        searchTerm.trim(),
+      ].filter(Boolean).length,
+    [filters, searchTerm],
+  );
 
   useEffect(() => {
     if (!accessToken) {
@@ -364,6 +465,53 @@ export function ManagementPositionsPage() {
     refreshKey,
   ]);
 
+  useLayoutEffect(() => {
+    if (!selectedPosition || !detailContentRef.current) {
+      return;
+    }
+
+    // Reset before paint so a newly selected position never inherits old drawer scroll.
+    detailContentRef.current.scrollTop = 0;
+  }, [selectedPosition?.id]);
+
+  useEffect(() => {
+    if (
+      !selectedPosition &&
+      !detailLoading
+    ) {
+      return;
+    }
+
+    const previousOverflow =
+      document.body.style.overflow;
+
+    document.body.style.overflow =
+      "hidden";
+
+    function handleKeyDown(
+      event: KeyboardEvent,
+    ): void {
+      if (event.key === "Escape") {
+        setSelectedPosition(null);
+      }
+    }
+
+    window.addEventListener(
+      "keydown",
+      handleKeyDown,
+    );
+
+    return () => {
+      document.body.style.overflow =
+        previousOverflow;
+
+      window.removeEventListener(
+        "keydown",
+        handleKeyDown,
+      );
+    };
+  }, [selectedPosition, detailLoading]);
+
   function updateFilter<
     Key extends keyof PositionFilters,
   >(
@@ -428,15 +576,15 @@ export function ManagementPositionsPage() {
 
   function clearFilters(): void {
     setFilters(initialFilters);
+    setSearchTerm("");
     setError("");
   }
-
 
   return (
     <main className="management-page management-positions-page">
       <section className="mgmt-content">
         <header className="mgmt-heading">
-          <div>
+          <div className="mgmt-heading__copy">
             <span>
               Organization authority
             </span>
@@ -446,10 +594,29 @@ export function ManagementPositionsPage() {
             </h1>
 
             <p>
-              Review vacant, reserved and inactive Senior Management and Team
-              Manager positions. Occupied managers are available in the
-              Employee Directory.
+              Review Senior Management and Team Manager positions, current
+              assignments, reservations and organizational availability.
             </p>
+          </div>
+
+          <div
+            className="mgmt-heading__scope"
+            aria-label="Management position scope"
+          >
+            <span aria-hidden="true">
+              ✓
+            </span>
+
+            <div>
+              <strong>
+                Controlled governance
+              </strong>
+
+              <small>
+                Position holders follow the approved account-request and
+                activation workflow.
+              </small>
+            </div>
           </div>
         </header>
 
@@ -475,44 +642,104 @@ export function ManagementPositionsPage() {
           className="mgmt-summary"
           aria-label="Position summary"
         >
-          <article>
-            <span>
-              Positions shown
-            </span>
+          <article className="total">
+            <div className="mgmt-summary__icon" aria-hidden="true">
+              ◫
+            </div>
 
-            <strong>
-              {summary.total}
-            </strong>
+            <div>
+              <span>
+                Positions shown
+              </span>
+
+              <strong>
+                {summary.total}
+              </strong>
+
+              <small>
+                Current filtered register
+              </small>
+            </div>
           </article>
 
-          <article>
-            <span>
-              Vacant
-            </span>
+          <article className="occupied">
+            <div className="mgmt-summary__icon" aria-hidden="true">
+              ✓
+            </div>
 
-            <strong>
-              {summary.vacant}
-            </strong>
+            <div>
+              <span>
+                Occupied
+              </span>
+
+              <strong>
+                {summary.occupied}
+              </strong>
+
+              <small>
+                Active position holders
+              </small>
+            </div>
           </article>
 
-          <article>
-            <span>
-              Reserved
-            </span>
+          <article className="vacant">
+            <div className="mgmt-summary__icon" aria-hidden="true">
+              +
+            </div>
 
-            <strong>
-              {summary.reserved}
-            </strong>
+            <div>
+              <span>
+                Vacant
+              </span>
+
+              <strong>
+                {summary.vacant}
+              </strong>
+
+              <small>
+                Available for approval flow
+              </small>
+            </div>
           </article>
 
-          <article>
-            <span>
-              Inactive
-            </span>
+          <article className="reserved">
+            <div className="mgmt-summary__icon" aria-hidden="true">
+              ◷
+            </div>
 
-            <strong>
-              {summary.inactive}
-            </strong>
+            <div>
+              <span>
+                Reserved
+              </span>
+
+              <strong>
+                {summary.reserved}
+              </strong>
+
+              <small>
+                Pending account activation
+              </small>
+            </div>
+          </article>
+
+          <article className="inactive">
+            <div className="mgmt-summary__icon" aria-hidden="true">
+              —
+            </div>
+
+            <div>
+              <span>
+                Inactive
+              </span>
+
+              <strong>
+                {summary.inactive}
+              </strong>
+
+              <small>
+                Not available for assignment
+              </small>
+            </div>
           </article>
         </section>
 
@@ -524,8 +751,13 @@ export function ManagementPositionsPage() {
               </span>
 
               <h2>
-                Search and filter
+                Search and filter positions
               </h2>
+
+              <p>
+                Use the organizational filters to locate a position or current
+                holder without changing governance rules.
+              </p>
             </div>
 
             <button
@@ -535,9 +767,48 @@ export function ManagementPositionsPage() {
             >
               {loading
                 ? "Refreshing..."
-                : "Refresh"}
+                : "Refresh register"}
             </button>
           </header>
+
+          <div className="mgmt-search-row">
+            <label className="mgmt-search-field">
+              <span>
+                Search positions
+              </span>
+
+              <div>
+                <span aria-hidden="true">
+                  ⌕
+                </span>
+
+                <input
+                  type="search"
+                  value={searchTerm}
+                  onChange={(event) =>
+                    setSearchTerm(
+                      event.target.value,
+                    )
+                  }
+                  placeholder="Position, division, department, employee ID or name"
+                />
+              </div>
+            </label>
+
+            <div className="mgmt-filter-status">
+              <span>
+                Results
+              </span>
+
+              <strong>
+                {visiblePositions.length}
+              </strong>
+
+              <small>
+                of {positions.length} positions
+              </small>
+            </div>
+          </div>
 
           <div className="mgmt-filters">
             <label>
@@ -560,7 +831,7 @@ export function ManagementPositionsPage() {
                 }
               >
                 <option value="">
-                  All types
+                  All position types
                 </option>
 
                 <option value="SENIOR_MANAGEMENT">
@@ -659,7 +930,11 @@ export function ManagementPositionsPage() {
                 }
               >
                 <option value="ALL">
-                  All available positions
+                  All position states
+                </option>
+
+                <option value="OCCUPIED">
+                  Occupied
                 </option>
 
                 <option value="VACANT">
@@ -680,36 +955,63 @@ export function ManagementPositionsPage() {
               type="button"
               className="mgmt-clear"
               onClick={clearFilters}
+              disabled={activeFilterCount === 0}
             >
               Clear filters
+              {activeFilterCount > 0 && (
+                <span>
+                  {activeFilterCount}
+                </span>
+              )}
             </button>
           </div>
 
           {loading && (
-            <div className="mgmt-loading">
-              <div className="spinner" />
-
-              <p>
-                Loading management positions...
-              </p>
+            <div
+              className="mgmt-position-skeleton"
+              aria-label="Loading management positions"
+            >
+              {Array.from({ length: 4 }).map(
+                (_, index) => (
+                  <div key={index}>
+                    <span />
+                    <span />
+                    <span />
+                    <span />
+                  </div>
+                ),
+              )}
             </div>
           )}
 
           {!loading &&
-            positions.length === 0 && (
+            visiblePositions.length === 0 && (
             <div className="mgmt-empty">
+              <div aria-hidden="true">
+                ⌕
+              </div>
+
               <strong>
                 No positions found
               </strong>
 
               <p>
-                No management positions match the selected filters.
+                No management positions match the selected search and filters.
               </p>
+
+              {activeFilterCount > 0 && (
+                <button
+                  type="button"
+                  onClick={clearFilters}
+                >
+                  Clear all filters
+                </button>
+              )}
             </div>
           )}
 
           {!loading &&
-            positions.length > 0 && (
+            visiblePositions.length > 0 && (
             <div className="mgmt-table-wrap">
               <table className="mgmt-table">
                 <thead>
@@ -723,44 +1025,81 @@ export function ManagementPositionsPage() {
                     </th>
 
                     <th>
+                      Holder or reservation
+                    </th>
+
+                    <th>
                       State
                     </th>
 
                     <th>
-                      Created
+                      History
                     </th>
 
                     <th>
-                      Details
+                      Updated
+                    </th>
+
+                    <th>
+                      Action
                     </th>
                   </tr>
                 </thead>
 
                 <tbody>
-                  {positions.map(
+                  {visiblePositions.map(
                     (position) => {
                       const state =
                         getPositionState(
                           position,
                         );
 
+                      const holder =
+                        position.currentAssignment?.employee;
+
+                      const reservation =
+                        position.reservedByAccountRequest;
+
                       return (
                         <tr
                           key={position.id}
+                          className={
+                            selectedPosition?.id ===
+                            position.id
+                              ? "selected"
+                              : undefined
+                          }
                         >
-                          <td>
-                            <strong>
-                              {formatLabel(
-                                position.positionType,
-                              )}
-                            </strong>
+                          <td data-label="Position">
+                            <div className="mgmt-position-cell">
+                              <div
+                                className={`mgmt-position-avatar ${state.className}`}
+                                aria-hidden="true"
+                              >
+                                {getInitials(
+                                  getPositionTitle(
+                                    position,
+                                  ),
+                                )}
+                              </div>
 
-                            <small>
-                              {position.id}
-                            </small>
+                              <div>
+                                <strong>
+                                  {getPositionTitle(
+                                    position,
+                                  )}
+                                </strong>
+
+                                <small>
+                                  {formatLabel(
+                                    position.positionType,
+                                  )}
+                                </small>
+                              </div>
+                            </div>
                           </td>
 
-                          <td>
+                          <td data-label="Organization scope">
                             <strong>
                               {getPositionScope(
                                 position,
@@ -768,16 +1107,54 @@ export function ManagementPositionsPage() {
                             </strong>
 
                             <small>
-                              Division:{" "}
-                              {
-                                position
-                                  .division
-                                  .code
-                              }
+                              {position.department
+                                ? `${position.division.code} / ${position.department.code}`
+                                : `Division ${position.division.code}`}
                             </small>
                           </td>
 
-                          <td>
+                          <td data-label="Holder or reservation">
+                            {holder ? (
+                              <div className="mgmt-holder-cell">
+                                <span aria-hidden="true">
+                                  {getInitials(
+                                    holder.empName,
+                                  )}
+                                </span>
+
+                                <div>
+                                  <strong>
+                                    {holder.empName}
+                                  </strong>
+
+                                  <small>
+                                    {holder.empId}
+                                    {holder.designation
+                                      ? ` · ${holder.designation}`
+                                      : ""}
+                                  </small>
+                                </div>
+                              </div>
+                            ) : reservation ? (
+                              <div className="mgmt-reservation-cell">
+                                <strong>
+                                  {reservation.empName}
+                                </strong>
+
+                                <small>
+                                  {reservation.empId} · {formatLabel(
+                                    reservation.status,
+                                  )}
+                                </small>
+                              </div>
+                            ) : (
+                              <span className="mgmt-no-holder">
+                                No current holder
+                              </span>
+                            )}
+                          </td>
+
+                          <td data-label="State">
                             <span
                               className={`mgmt-badge ${state.className}`}
                             >
@@ -785,22 +1162,34 @@ export function ManagementPositionsPage() {
                             </span>
                           </td>
 
-                          <td>
+                          <td data-label="History">
+                            <strong>
+                              {position._count.assignments}
+                            </strong>
+
+                            <small>
+                              assignment record
+                              {position._count.assignments === 1
+                                ? ""
+                                : "s"}
+                            </small>
+                          </td>
+
+                          <td data-label="Updated">
                             <strong>
                               {formatDate(
-                                position.createdAt,
+                                position.updatedAt,
                               )}
                             </strong>
 
                             <small>
-                              Updated{" "}
-                              {formatDate(
-                                position.updatedAt,
+                              Created {formatDate(
+                                position.createdAt,
                               )}
                             </small>
                           </td>
 
-                          <td>
+                          <td data-label="Action">
                             <button
                               type="button"
                               className="mgmt-view"
@@ -812,8 +1201,11 @@ export function ManagementPositionsPage() {
                               disabled={
                                 detailLoading
                               }
+                              aria-label={`View ${getPositionTitle(
+                                position,
+                              )}`}
                             >
-                              View
+                              View details
                             </button>
                           </td>
                         </tr>
@@ -833,7 +1225,7 @@ export function ManagementPositionsPage() {
           className="mgmt-detail-backdrop"
           role="presentation"
         >
-          <aside className="mgmt-detail-panel">
+          <aside className="mgmt-detail-panel mgmt-position-detail-panel">
             <div className="mgmt-detail-loading">
               <div className="spinner" />
 
@@ -859,7 +1251,7 @@ export function ManagementPositionsPage() {
           }}
         >
           <aside
-            className="mgmt-detail-panel"
+            className="mgmt-detail-panel mgmt-position-detail-panel"
             role="dialog"
             aria-modal="true"
             aria-labelledby="management-position-detail-title"
@@ -871,8 +1263,8 @@ export function ManagementPositionsPage() {
                 </span>
 
                 <strong id="management-position-detail-title">
-                  {formatLabel(
-                    selectedPosition.positionType,
+                  {getPositionTitle(
+                    selectedPosition,
                   )}
                 </strong>
               </div>
@@ -888,58 +1280,227 @@ export function ManagementPositionsPage() {
               </button>
             </header>
 
-            <div className="mgmt-detail-content">
-              <section className="mgmt-detail-summary">
-                <div>
-                  <span>
-                    Division
-                  </span>
-
-                  <strong>
-                    {
-                      selectedPosition
-                        .division.name
-                    }
-                  </strong>
+            <div
+              key={selectedPosition.id}
+              ref={detailContentRef}
+              className="mgmt-detail-content"
+            >
+              <section className="mgmt-position-hero">
+                <div
+                  className={`mgmt-position-avatar ${getPositionState(
+                    selectedPosition,
+                  ).className}`}
+                  aria-hidden="true"
+                >
+                  {getInitials(
+                    getPositionTitle(
+                      selectedPosition,
+                    ),
+                  )}
                 </div>
 
                 <div>
                   <span>
-                    Department
+                    {formatLabel(
+                      selectedPosition.positionType,
+                    )}
                   </span>
 
-                  <strong>
-                    {selectedPosition
-                      .department?.name ??
-                      "Division-wide position"}
-                  </strong>
+                  <h2>
+                    {getPositionTitle(
+                      selectedPosition,
+                    )}
+                  </h2>
+
+                  <p>
+                    {getPositionScope(
+                      selectedPosition,
+                    )}
+                  </p>
                 </div>
 
-                <div>
-                  <span>
-                    Position state
+                <span
+                  className={`mgmt-badge ${getPositionState(
+                    selectedPosition,
+                  ).className}`}
+                >
+                  {getPositionState(
+                    selectedPosition,
+                  ).label}
+                </span>
+              </section>
+
+              <section className="mgmt-detail-section">
+                <header>
+                  <span aria-hidden="true">
+                    ◫
                   </span>
 
-                  <strong>
-                    {
-                      getPositionState(
-                        selectedPosition,
-                      ).label
-                    }
-                  </strong>
+                  <div>
+                    <small>
+                      Organization
+                    </small>
+
+                    <h3>
+                      Position scope
+                    </h3>
+                  </div>
+                </header>
+
+                <div className="mgmt-detail-section__body">
+                  <dl>
+                    <div>
+                      <dt>
+                        Division
+                      </dt>
+
+                      <dd>
+                        {selectedPosition.division.name}
+                      </dd>
+                    </div>
+
+                    <div>
+                      <dt>
+                        Division code
+                      </dt>
+
+                      <dd>
+                        {selectedPosition.division.code}
+                      </dd>
+                    </div>
+
+                    <div>
+                      <dt>
+                        Department
+                      </dt>
+
+                      <dd>
+                        {selectedPosition.department?.name ??
+                          "Division-wide position"}
+                      </dd>
+                    </div>
+
+                    <div>
+                      <dt>
+                        Department code
+                      </dt>
+
+                      <dd>
+                        {selectedPosition.department?.code ??
+                          "Not applicable"}
+                      </dd>
+                    </div>
+                  </dl>
                 </div>
+              </section>
 
-                <div>
-                  <span>
-                    Assignment records
+              <section className="mgmt-detail-section">
+                <header>
+                  <span aria-hidden="true">
+                    ◉
                   </span>
 
-                  <strong>
-                    {
-                      selectedPosition
-                        .assignments.length
-                    }
-                  </strong>
+                  <div>
+                    <small>
+                      Assignment
+                    </small>
+
+                    <h3>
+                      Current holder
+                    </h3>
+                  </div>
+                </header>
+
+                <div
+                  className={`mgmt-detail-section__body mgmt-detail-section__body--${getPositionState(
+                    selectedPosition,
+                  ).className}`}
+                >
+                  {selectedPosition.currentAssignment ? (
+                    <div className="mgmt-current-holder">
+                      <div aria-hidden="true">
+                        {getInitials(
+                          selectedPosition.currentAssignment.employee.empName,
+                        )}
+                      </div>
+
+                      <div>
+                        <strong>
+                          {selectedPosition.currentAssignment.employee.empName}
+                        </strong>
+
+                        <span>
+                          {selectedPosition.currentAssignment.employee.empId}
+                        </span>
+
+                        <small>
+                          {selectedPosition.currentAssignment.employee.designation ??
+                            "Management position holder"}
+                        </small>
+                      </div>
+
+                      <dl>
+                        <div>
+                          <dt>
+                            Started
+                          </dt>
+
+                          <dd>
+                            {formatDate(
+                              selectedPosition.currentAssignment.startedAt,
+                            )}
+                          </dd>
+                        </div>
+
+                        <div>
+                          <dt>
+                            Email
+                          </dt>
+
+                          <dd>
+                            {selectedPosition.currentAssignment.employee.officialEmail}
+                          </dd>
+                        </div>
+                      </dl>
+                    </div>
+                  ) : selectedPosition.reservedByAccountRequest ? (
+                    <div className="mgmt-reservation-detail">
+                      <strong>
+                        Reserved for {selectedPosition.reservedByAccountRequest.empName}
+                      </strong>
+
+                      <p>
+                        Employee ID {selectedPosition.reservedByAccountRequest.empId}
+                        {" · "}
+                        {formatLabel(
+                          selectedPosition.reservedByAccountRequest.status,
+                        )}
+                      </p>
+
+                      <small>
+                        Submitted {formatDate(
+                          selectedPosition.reservedByAccountRequest.submittedAt,
+                        )}
+                      </small>
+                    </div>
+                  ) : (
+                    <div className="mgmt-detail-empty-state">
+                      <span aria-hidden="true">
+                        +
+                      </span>
+
+                      <div>
+                        <strong>
+                          No current holder
+                        </strong>
+
+                        <p>
+                          This position is available only through the approved
+                          account-request and activation workflow.
+                        </p>
+                      </div>
+                    </div>
+                  )}
                 </div>
               </section>
 
@@ -956,8 +1517,8 @@ export function ManagementPositionsPage() {
 
                 <p className="mgmt-history-empty">
                   Management holders are created through the approved
-                  account-request, reservation and activation workflow.
-                  Manual replacement is not exposed on this page.
+                  account-request, reservation and activation workflow. Manual
+                  replacement is not exposed on this page.
                 </p>
               </section>
 
@@ -992,11 +1553,7 @@ export function ManagementPositionsPage() {
                           <div>
                             <header>
                               <strong>
-                                {
-                                  assignment
-                                    .employee
-                                    .empName
-                                }
+                                {assignment.employee.empName}
                               </strong>
 
                               <time>
@@ -1007,16 +1564,9 @@ export function ManagementPositionsPage() {
                             </header>
 
                             <p>
-                              {
-                                assignment
-                                  .employee.empId
-                              }
+                              {assignment.employee.empId}
                               {" · "}
-                              {
-                                assignment
-                                  .employee
-                                  .officialEmail
-                              }
+                              {assignment.employee.officialEmail}
                             </p>
 
                             <small>
@@ -1029,20 +1579,13 @@ export function ManagementPositionsPage() {
 
                             {assignment.assignmentReason && (
                               <blockquote>
-                                {
-                                  assignment
-                                    .assignmentReason
-                                }
+                                {assignment.assignmentReason}
                               </blockquote>
                             )}
 
                             {assignment.endReason && (
                               <blockquote>
-                                End reason:{" "}
-                                {
-                                  assignment
-                                    .endReason
-                                }
+                                End reason: {assignment.endReason}
                               </blockquote>
                             )}
                           </div>
@@ -1053,6 +1596,17 @@ export function ManagementPositionsPage() {
                 )}
               </section>
             </div>
+
+            <footer className="mgmt-detail-footer">
+              <button
+                type="button"
+                onClick={() =>
+                  setSelectedPosition(null)
+                }
+              >
+                Close details
+              </button>
+            </footer>
           </aside>
         </div>
       )}
