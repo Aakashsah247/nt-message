@@ -112,6 +112,9 @@ export function DirectoryPage() {
           reloadKey={
             directoryRefreshKey
           }
+          selectedEmployeeId={
+            selectedEmployeeId
+          }
           accessToken={
             accessToken
           }
