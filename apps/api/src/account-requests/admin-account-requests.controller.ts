@@ -39,6 +39,11 @@ export class AdminAccountRequestsController {
     return this.accountRequestsService.listAdminRequests(user, query);
   }
 
+  @Get('dashboard/summary')
+  getSummary(@CurrentUser() user: AuthenticatedUser) {
+    return this.accountRequestsService.getAdminRequestSummary(user);
+  }
+
   @Get(':id')
   getRequest(
     @CurrentUser() user: AuthenticatedUser,
@@ -94,21 +99,11 @@ export class AdminAccountRequestsController {
     @Req()
     request: Request,
   ) {
-    return this.accountRequestsService.invalidateRequest(
-      user,
-      id,
-      dto.reason,
-      {
-        ipAddress:
-          request.ip ??
-          request.socket.remoteAddress ??
-          null,
+    return this.accountRequestsService.invalidateRequest(user, id, dto.reason, {
+      ipAddress: request.ip ?? request.socket.remoteAddress ?? null,
 
-        userAgent:
-          request.get('user-agent') ??
-          null,
-      },
-    );
+      userAgent: request.get('user-agent') ?? null,
+    });
   }
 
   @Patch(':id/reject')

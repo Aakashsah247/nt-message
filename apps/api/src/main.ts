@@ -4,6 +4,7 @@ import { NestFactory } from '@nestjs/core';
 import cookieParser from 'cookie-parser';
 import helmet from 'helmet';
 import { AppModule } from './app.module';
+import { MessagingSocketAdapter } from './realtime/messaging-socket.adapter';
 
 async function bootstrap(): Promise<void> {
   const app = await NestFactory.create(AppModule);
@@ -15,10 +16,17 @@ async function bootstrap(): Promise<void> {
   const webOrigin =
     configService.get<string>('WEB_ORIGIN') ?? 'http://localhost:5173';
 
+  app.useWebSocketAdapter(new MessagingSocketAdapter(app, configService));
+
   /*
    * Adds secure HTTP response headers.
+   *
+   * The web app and API run on different origins in development
+   * (localhost:5173 -> localhost:4000). Helmet's default
+   * Cross-Origin-Resource-Policy is "same-origin", which blocks
+   * protected media blob downloads even when the API returns 200 OK.
    */
-  app.use(helmet());
+  app.use(helmet({ crossOriginResourcePolicy: false }));
 
   /*
    * Allows NestJS to read cookies from requests.
@@ -32,7 +40,15 @@ async function bootstrap(): Promise<void> {
   app.enableCors({
     origin: webOrigin,
     credentials: true,
-    methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE'],
+    methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+    allowedHeaders: ['Authorization', 'Content-Type', 'Range'],
+    exposedHeaders: [
+      'Accept-Ranges',
+      'Content-Disposition',
+      'Content-Length',
+      'Content-Range',
+      'Content-Type',
+    ],
   });
 
   /*

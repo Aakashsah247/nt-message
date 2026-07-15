@@ -71,6 +71,92 @@ enum AccountRequestActionType {
   ACTIVATED
 }
 
+enum ActivityEventType {
+  LOGIN
+  LOGOUT
+  PAGE_VIEW
+  BUTTON_CLICK
+  ACTIVE_HEARTBEAT
+  IDLE_STARTED
+  IDLE_HEARTBEAT
+  ACTIVE_RESUMED
+  EMERGENCY_ALERT_SENT
+  SESSION_POLICY_LOGOUT
+}
+
+enum ConversationType {
+  PRIVATE
+  GROUP
+  ANNOUNCEMENT
+}
+
+enum GroupKind {
+  PERSONAL
+  OFFICIAL
+}
+
+enum ConversationParticipantRole {
+  OWNER
+  ADMIN
+  MEMBER
+}
+
+enum OfficialGroupScopeType {
+  ORGANIZATION
+  DIVISION
+  DEPARTMENT
+}
+
+enum OfficialGroupAuditAction {
+  CREATED
+  DETAILS_UPDATED
+  MEMBERSHIP_SYNCED
+  RECONCILED
+}
+
+enum MessageContentType {
+  TEXT
+  IMAGE
+  VIDEO
+  AUDIO
+  FILE
+  LOCATION
+  SYSTEM
+}
+
+enum MessageRequestStatus {
+  PENDING
+  ACCEPTED
+  DECLINED
+  BLOCKED
+}
+
+enum MessageRequestReason {
+  PROTECTED_RECIPIENT
+  CROSS_DEPARTMENT
+  CROSS_DIVISION
+}
+
+enum MessagingNotificationType {
+  MESSAGE
+  REPLY
+  REACTION
+  FILE
+  IMAGE
+  VIDEO
+  AUDIO
+  VOICE_NOTE
+  GROUP_EVENT
+  MENTION
+}
+
+enum EmergencyAlertRecipientStatus {
+  PENDING
+  SENT
+  FAILED
+  SKIPPED_NO_PHONE
+}
+
 model Division {
   id        String   @id @default(uuid()) @db.Uuid
   code      String   @unique @db.VarChar(50)
@@ -79,10 +165,11 @@ model Division {
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
 
-  departments         Department[]
-  employees           Employee[]
-  accountRequests     AccountRequest[]
-  managementPositions ManagementPosition[]
+  departments               Department[]
+  employees                 Employee[]
+  accountRequests           AccountRequest[]
+  managementPositions       ManagementPosition[]
+  officialGroupConversations Conversation[] @relation("OfficialGroupDivision")
 
   @@index([isActive], map: "divisions_is_active_idx")
   @@map("divisions")
@@ -97,10 +184,11 @@ model Department {
   createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt  DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
 
-  division            Division             @relation(fields: [divisionId], references: [id], onDelete: Restrict)
-  employees           Employee[]
-  accountRequests     AccountRequest[]
-  managementPositions ManagementPosition[]
+  division                   Division             @relation(fields: [divisionId], references: [id], onDelete: Restrict)
+  employees                  Employee[]
+  accountRequests            AccountRequest[]
+  managementPositions        ManagementPosition[]
+  officialGroupConversations Conversation[]         @relation("OfficialGroupDepartment")
 
   @@unique([divisionId, code], map: "departments_division_id_code_key")
   @@unique([divisionId, name], map: "departments_division_id_name_key")
@@ -131,6 +219,7 @@ model Employee {
 
   isActivated     Boolean @default(false) @map("is_activated")
   profilePhotoKey String? @map("profile_photo_key") @db.VarChar(500)
+  profileBio      String? @map("profile_bio") @db.VarChar(160)
 
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
@@ -157,7 +246,7 @@ model Employee {
 model Account {
   id                  String      @id @default(uuid()) @db.Uuid
   employeeId          String?     @unique @map("employee_id") @db.Uuid
-  username            String?     @unique @db.VarChar(80)
+  username            String?     @unique @db.VarChar(255)
   role                AccountRole
   passwordHash        String      @map("password_hash") @db.VarChar(255)
   isEnabled           Boolean     @default(true) @map("is_enabled")
@@ -165,6 +254,10 @@ model Account {
   lockedUntil         DateTime?   @map("locked_until") @db.Timestamptz(3)
   lastLoginAt         DateTime?   @map("last_login_at") @db.Timestamptz(3)
   passwordChangedAt   DateTime    @default(now()) @map("password_changed_at") @db.Timestamptz(3)
+  profilePhotoKey     String?     @map("profile_photo_key") @db.VarChar(500)
+  profileBio          String?     @map("profile_bio") @db.VarChar(160)
+  showOnlineStatus    Boolean     @default(true) @map("show_online_status")
+  showReadReceipts    Boolean     @default(true) @map("show_read_receipts")
   createdAt           DateTime    @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt           DateTime    @updatedAt @map("updated_at") @db.Timestamptz(3)
 
@@ -176,9 +269,35 @@ model Account {
   employeeLifecycleActions      EmployeeLifecycleAction[] @relation("EmployeeLifecycleActionsByActor")
   assignedManagementAssignments ManagementAssignment[]    @relation("ManagementAssignmentsAssignedBy")
   endedManagementAssignments    ManagementAssignment[]    @relation("ManagementAssignmentsEndedBy")
+  createdConversations           Conversation[]            @relation("ConversationsCreatedBy")
+  conversationParticipants      ConversationParticipant[]
+  sentMessages                  Message[]                 @relation("MessagesSentBy")
+  deletedMessages               Message[]                 @relation("MessagesDeletedBy")
+  messageReceipts               MessageReceipt[]
+  hiddenMessages                MessageHiddenForAccount[]
+  messageReactions              MessageReaction[]
+  messageStars                  MessageStar[]
+  pinnedMessages                MessagePin[]              @relation("MessagePinsPinnedBy")
+  unpinnedMessages              MessagePin[]              @relation("MessagePinsUnpinnedBy")
+  sentMessageRequests           MessageRequest[]           @relation("MessageRequestsSent")
+  receivedMessageRequests       MessageRequest[]           @relation("MessageRequestsReceived")
+  blockedMessageRequests        MessageRequest[]           @relation("MessageRequestsBlockedBy")
+  officialGroupAuditActions    OfficialGroupAuditLog[]      @relation("OfficialGroupAuditActor")
+  receivedNotifications        MessagingNotification[]      @relation("MessagingNotificationsRecipient")
+  actedNotifications           MessagingNotification[]      @relation("MessagingNotificationsActor")
+  blocksCreated                MessagingAccountBlock[]      @relation("MessagingAccountBlocksCreated")
+  blocksReceived               MessagingAccountBlock[]      @relation("MessagingAccountBlocksReceived")
+  createdGroupInvitationLinks  GroupInvitationLink[]        @relation("GroupInvitationLinksCreatedBy")
+  revokedGroupInvitationLinks  GroupInvitationLink[]        @relation("GroupInvitationLinksRevokedBy")
+  activityEvents               ActivityEvent[]
+  dailyActivitySummaries       DailyActivitySummary[]
+  superAdminProfile            SuperAdminProfile?           @relation("SuperAdminProfileAccount")
+  emergencyAlertsSent          EmergencyAlert[]             @relation("EmergencyAlertSender")
+  emergencyAlertRecipients     EmergencyAlertRecipient[]    @relation("EmergencyAlertRecipientAccount")
 
   @@index([role], map: "accounts_role_idx")
   @@index([isEnabled], map: "accounts_is_enabled_idx")
+  @@index([profilePhotoKey], map: "accounts_profile_photo_key_idx")
   @@map("accounts")
 }
 
@@ -256,6 +375,7 @@ model AuthSession {
   createdAt        DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
 
   account Account @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  activityEvents ActivityEvent[]
 
   @@index([accountId, revokedAt], map: "auth_sessions_account_revoked_idx")
   @@index([expiresAt], map: "auth_sessions_expires_at_idx")
@@ -398,4 +518,468 @@ model EmployeeLifecycleAction {
   @@index([actorAccountId, createdAt], map: "employee_lifecycle_actions_actor_created_idx")
   @@index([action], map: "employee_lifecycle_actions_action_idx")
   @@map("employee_lifecycle_actions")
+}
+
+model Conversation {
+  id String @id @default(uuid()) @db.Uuid
+
+  type ConversationType @default(PRIVATE)
+
+  title                 String?                 @db.VarChar(150)
+  description           String?                 @db.VarChar(500)
+  groupPhotoKey         String?                 @map("group_photo_key") @db.VarChar(500)
+  groupKind             GroupKind?              @map("group_kind")
+  officialScopeType     OfficialGroupScopeType? @map("official_scope_type")
+  officialDivisionId   String?                 @map("official_division_id") @db.Uuid
+  officialDepartmentId String?                 @map("official_department_id") @db.Uuid
+  privateParticipantKey String?                @unique(map: "conversations_private_participant_key_key") @map("private_participant_key") @db.VarChar(73)
+
+  createdByAccountId String @map("created_by_account_id") @db.Uuid
+
+  lastMessageAt DateTime? @map("last_message_at") @db.Timestamptz(3)
+  createdAt     DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt     DateTime  @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  createdBy          Account                   @relation("ConversationsCreatedBy", fields: [createdByAccountId], references: [id], onDelete: Restrict)
+  officialDivision   Division?                  @relation("OfficialGroupDivision", fields: [officialDivisionId], references: [id], onDelete: Restrict)
+  officialDepartment Department?                @relation("OfficialGroupDepartment", fields: [officialDepartmentId], references: [id], onDelete: Restrict)
+  participants       ConversationParticipant[]
+  messages           Message[]
+  messageRequest     MessageRequest?
+  officialAuditLogs  OfficialGroupAuditLog[]
+  notifications      MessagingNotification[]
+  messagePins        MessagePin[]
+  invitationLinks    GroupInvitationLink[]
+
+  @@index([type, lastMessageAt], map: "conversations_type_last_message_idx")
+  @@index([groupKind, updatedAt], map: "conversations_group_kind_idx")
+  @@index([groupPhotoKey], map: "conversations_group_photo_key_idx")
+  @@index([officialScopeType, officialDivisionId, officialDepartmentId], map: "conversations_official_scope_idx")
+  @@index([createdByAccountId], map: "conversations_created_by_idx")
+  @@index([lastMessageAt], map: "conversations_last_message_idx")
+  @@map("conversations")
+}
+
+model ConversationParticipant {
+  conversationId String @map("conversation_id") @db.Uuid
+  accountId      String @map("account_id") @db.Uuid
+
+  joinedAt DateTime  @default(now()) @map("joined_at") @db.Timestamptz(3)
+  leftAt   DateTime? @map("left_at") @db.Timestamptz(3)
+
+  role       ConversationParticipantRole @default(MEMBER)
+  isMuted    Boolean @default(false) @map("is_muted")
+  isArchived Boolean @default(false) @map("is_archived")
+  isPinned   Boolean @default(false) @map("is_pinned")
+  pinnedAt   DateTime? @map("pinned_at") @db.Timestamptz(3)
+  mutedUntil DateTime? @map("muted_until") @db.Timestamptz(3)
+  archivedAt DateTime? @map("archived_at") @db.Timestamptz(3)
+  markedUnreadAt DateTime? @map("marked_unread_at") @db.Timestamptz(3)
+  draftText String? @map("draft_text") @db.Text
+  draftUpdatedAt DateTime? @map("draft_updated_at") @db.Timestamptz(3)
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  conversation Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  account      Account      @relation(fields: [accountId], references: [id], onDelete: Restrict)
+
+  @@id([conversationId, accountId], map: "conversation_participants_pkey")
+  @@index([accountId, leftAt, isArchived], map: "conversation_participants_account_active_idx")
+  @@index([conversationId, leftAt], map: "conversation_participants_conversation_active_idx")
+  @@index([conversationId, role, leftAt], map: "conversation_participants_conversation_role_idx")
+  @@index([accountId, leftAt, isPinned, pinnedAt], map: "conversation_participants_account_pin_idx")
+  @@index([accountId, isArchived, updatedAt], map: "conversation_participants_account_archive_idx")
+  @@index([accountId, draftUpdatedAt], map: "conversation_participants_account_draft_idx")
+  @@map("conversation_participants")
+}
+
+
+
+
+model GroupInvitationLink {
+  id String @id @default(uuid()) @db.Uuid
+
+  conversationId String @map("conversation_id") @db.Uuid
+  token          String @unique @db.VarChar(96)
+
+  createdByAccountId String  @map("created_by_account_id") @db.Uuid
+  revokedByAccountId String? @map("revoked_by_account_id") @db.Uuid
+
+  revokedAt DateTime? @map("revoked_at") @db.Timestamptz(3)
+  createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt DateTime  @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  conversation Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  createdBy    Account      @relation("GroupInvitationLinksCreatedBy", fields: [createdByAccountId], references: [id], onDelete: Restrict)
+  revokedBy    Account?     @relation("GroupInvitationLinksRevokedBy", fields: [revokedByAccountId], references: [id], onDelete: Restrict)
+
+  @@index([conversationId, revokedAt, createdAt], map: "group_invitation_links_conversation_active_idx")
+  @@index([createdByAccountId, createdAt], map: "group_invitation_links_created_by_idx")
+  @@index([revokedByAccountId, revokedAt], map: "group_invitation_links_revoked_by_idx")
+  @@map("group_invitation_links")
+}
+
+model OfficialGroupAuditLog {
+  id String @id @default(uuid()) @db.Uuid
+
+  conversationId String  @map("conversation_id") @db.Uuid
+  actorAccountId String? @map("actor_account_id") @db.Uuid
+
+  action OfficialGroupAuditAction
+  metadata Json?
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  conversation Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  actor        Account?     @relation("OfficialGroupAuditActor", fields: [actorAccountId], references: [id], onDelete: Restrict)
+
+  @@index([conversationId, createdAt], map: "official_group_audit_logs_conversation_created_idx")
+  @@index([actorAccountId, createdAt], map: "official_group_audit_logs_actor_created_idx")
+  @@index([action, createdAt], map: "official_group_audit_logs_action_created_idx")
+  @@map("official_group_audit_logs")
+}
+
+model MessageRequest {
+  id String @id @default(uuid()) @db.Uuid
+
+  participantKey String @unique(map: "message_requests_participant_key_key") @map("participant_key") @db.VarChar(73)
+
+  requesterAccountId String @map("requester_account_id") @db.Uuid
+  recipientAccountId String @map("recipient_account_id") @db.Uuid
+  blockedByAccountId String? @map("blocked_by_account_id") @db.Uuid
+  conversationId     String? @unique(map: "message_requests_conversation_id_key") @map("conversation_id") @db.Uuid
+
+  status MessageRequestStatus @default(PENDING)
+  reason MessageRequestReason
+
+  requestCount Int @default(1) @map("request_count")
+  requestedAt DateTime @default(now()) @map("requested_at") @db.Timestamptz(3)
+  respondedAt DateTime? @map("responded_at") @db.Timestamptz(3)
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  requester Account @relation("MessageRequestsSent", fields: [requesterAccountId], references: [id], onDelete: Restrict)
+  recipient Account @relation("MessageRequestsReceived", fields: [recipientAccountId], references: [id], onDelete: Restrict)
+  blockedBy Account? @relation("MessageRequestsBlockedBy", fields: [blockedByAccountId], references: [id], onDelete: Restrict)
+  conversation Conversation? @relation(fields: [conversationId], references: [id], onDelete: SetNull)
+
+  @@index([requesterAccountId, status, requestedAt], map: "message_requests_requester_status_idx")
+  @@index([recipientAccountId, status, requestedAt], map: "message_requests_recipient_status_idx")
+  @@index([blockedByAccountId], map: "message_requests_blocked_by_idx")
+  @@map("message_requests")
+}
+
+model Message {
+  id String @id @default(uuid()) @db.Uuid
+
+  conversationId  String @map("conversation_id") @db.Uuid
+  senderAccountId String @map("sender_account_id") @db.Uuid
+  clientMessageId String @map("client_message_id") @db.VarChar(100)
+
+  contentType MessageContentType @default(TEXT) @map("content_type")
+  textContent String?            @map("text_content") @db.Text
+  payload     Json?
+
+  replyToMessageId String? @map("reply_to_message_id") @db.Uuid
+
+  sentAt   DateTime  @default(now()) @map("sent_at") @db.Timestamptz(3)
+  editedAt DateTime? @map("edited_at") @db.Timestamptz(3)
+
+  deletedAt          DateTime? @map("deleted_at") @db.Timestamptz(3)
+  deletedByAccountId String?   @map("deleted_by_account_id") @db.Uuid
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  conversation Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  sender       Account      @relation("MessagesSentBy", fields: [senderAccountId], references: [id], onDelete: Restrict)
+  deletedBy    Account?     @relation("MessagesDeletedBy", fields: [deletedByAccountId], references: [id], onDelete: Restrict)
+
+  replyTo Message?  @relation("MessageReplies", fields: [replyToMessageId], references: [id], onDelete: SetNull)
+  replies Message[] @relation("MessageReplies")
+
+  receipts          MessageReceipt[]
+  hiddenForAccounts MessageHiddenForAccount[]
+  reactions MessageReaction[]
+  stars     MessageStar[]
+  pins      MessagePin[]
+  attachments MessageAttachment[]
+  notifications MessagingNotification[]
+
+  @@unique([senderAccountId, clientMessageId], map: "messages_sender_client_message_key")
+  @@index([conversationId, sentAt, id], map: "messages_conversation_sent_idx")
+  @@index([senderAccountId, sentAt], map: "messages_sender_sent_idx")
+  @@index([replyToMessageId], map: "messages_reply_to_idx")
+  @@index([deletedAt], map: "messages_deleted_at_idx")
+  @@map("messages")
+}
+
+
+model MessageAttachment {
+  id String @id @default(uuid()) @db.Uuid
+
+  messageId String @map("message_id") @db.Uuid
+
+  storageKey       String             @map("storage_key") @db.VarChar(500)
+  originalFileName String             @map("original_file_name") @db.VarChar(255)
+  mimeType         String             @map("mime_type") @db.VarChar(120)
+  fileSizeBytes    Int                @map("file_size_bytes")
+  contentType      MessageContentType @map("content_type")
+  scanStatus       String             @default("PENDING") @map("scan_status") @db.VarChar(40)
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  message Message @relation(fields: [messageId], references: [id], onDelete: Cascade)
+
+  @@index([messageId], map: "message_attachments_message_idx")
+  @@index([storageKey], map: "message_attachments_storage_key_idx")
+  @@index([contentType], map: "message_attachments_content_type_idx")
+  @@map("message_attachments")
+}
+
+model MessageHiddenForAccount {
+  messageId String @map("message_id") @db.Uuid
+  accountId String @map("account_id") @db.Uuid
+
+  hiddenAt DateTime @default(now()) @map("hidden_at") @db.Timestamptz(3)
+
+  message Message @relation(fields: [messageId], references: [id], onDelete: Cascade)
+  account Account @relation(fields: [accountId], references: [id], onDelete: Cascade)
+
+  @@id([messageId, accountId], map: "message_hidden_for_accounts_pkey")
+  @@index([accountId, hiddenAt], map: "message_hidden_for_accounts_account_hidden_idx")
+  @@map("message_hidden_for_accounts")
+}
+
+model MessageReceipt {
+  messageId String @map("message_id") @db.Uuid
+  accountId String @map("account_id") @db.Uuid
+
+  deliveredAt DateTime? @map("delivered_at") @db.Timestamptz(3)
+  readAt      DateTime? @map("read_at") @db.Timestamptz(3)
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  message Message @relation(fields: [messageId], references: [id], onDelete: Cascade)
+  account Account @relation(fields: [accountId], references: [id], onDelete: Restrict)
+
+  @@id([messageId, accountId], map: "message_receipts_pkey")
+  @@index([accountId, readAt, messageId], map: "message_receipts_account_read_idx")
+  @@index([accountId, deliveredAt, messageId], map: "message_receipts_account_delivered_idx")
+  @@map("message_receipts")
+}
+
+
+model MessageReaction {
+  messageId String @map("message_id") @db.Uuid
+  accountId String @map("account_id") @db.Uuid
+
+  reactionValue String @map("reaction_value") @db.VarChar(20)
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  message Message @relation(fields: [messageId], references: [id], onDelete: Cascade)
+  account Account @relation(fields: [accountId], references: [id], onDelete: Cascade)
+
+  @@id([messageId, accountId], map: "message_reactions_pkey")
+
+  @@index([messageId], map: "message_reactions_message_idx")
+  @@index([accountId], map: "message_reactions_account_idx")
+
+  @@map("message_reactions")
+}
+
+
+model MessageStar {
+  messageId String @map("message_id") @db.Uuid
+  accountId String @map("account_id") @db.Uuid
+
+  starredAt DateTime @default(now()) @map("starred_at") @db.Timestamptz(3)
+
+  message Message @relation(fields: [messageId], references: [id], onDelete: Cascade)
+  account Account @relation(fields: [accountId], references: [id], onDelete: Cascade)
+
+  @@id([messageId, accountId], map: "message_stars_pkey")
+  @@index([accountId, starredAt], map: "message_stars_account_starred_idx")
+  @@index([messageId], map: "message_stars_message_idx")
+  @@map("message_stars")
+}
+
+model MessagePin {
+  messageId      String  @map("message_id") @db.Uuid
+  conversationId String  @map("conversation_id") @db.Uuid
+  pinnedByAccountId   String  @map("pinned_by_account_id") @db.Uuid
+  unpinnedByAccountId String? @map("unpinned_by_account_id") @db.Uuid
+
+  pinnedAt   DateTime  @default(now()) @map("pinned_at") @db.Timestamptz(3)
+  unpinnedAt DateTime? @map("unpinned_at") @db.Timestamptz(3)
+
+  message    Message      @relation(fields: [messageId], references: [id], onDelete: Cascade)
+  conversation Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  pinnedBy   Account      @relation("MessagePinsPinnedBy", fields: [pinnedByAccountId], references: [id], onDelete: Restrict)
+  unpinnedBy Account?     @relation("MessagePinsUnpinnedBy", fields: [unpinnedByAccountId], references: [id], onDelete: Restrict)
+
+  @@id([messageId, conversationId], map: "message_pins_pkey")
+  @@index([conversationId, unpinnedAt, pinnedAt], map: "message_pins_conversation_active_idx")
+  @@index([pinnedByAccountId, pinnedAt], map: "message_pins_pinned_by_idx")
+  @@index([unpinnedByAccountId, unpinnedAt], map: "message_pins_unpinned_by_idx")
+  @@map("message_pins")
+}
+
+model MessagingAccountBlock {
+  blockerAccountId String @map("blocker_account_id") @db.Uuid
+  blockedAccountId String @map("blocked_account_id") @db.Uuid
+
+  reason String? @db.VarChar(240)
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  blocker Account @relation("MessagingAccountBlocksCreated", fields: [blockerAccountId], references: [id], onDelete: Cascade)
+  blocked Account @relation("MessagingAccountBlocksReceived", fields: [blockedAccountId], references: [id], onDelete: Cascade)
+
+  @@id([blockerAccountId, blockedAccountId], map: "messaging_account_blocks_pkey")
+  @@index([blockedAccountId, createdAt], map: "messaging_account_blocks_blocked_created_idx")
+  @@index([blockerAccountId, createdAt], map: "messaging_account_blocks_blocker_created_idx")
+  @@map("messaging_account_blocks")
+}
+
+model MessagingNotification {
+  id String @id @default(uuid()) @db.Uuid
+
+  recipientAccountId String  @map("recipient_account_id") @db.Uuid
+  actorAccountId     String? @map("actor_account_id") @db.Uuid
+  conversationId     String? @map("conversation_id") @db.Uuid
+  messageId          String? @map("message_id") @db.Uuid
+
+  type  MessagingNotificationType
+  title String @db.VarChar(160)
+  body  String @db.VarChar(500)
+
+  isRead Boolean   @default(false) @map("is_read")
+  readAt DateTime? @map("read_at") @db.Timestamptz(3)
+
+  metadata Json?
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  recipient    Account       @relation("MessagingNotificationsRecipient", fields: [recipientAccountId], references: [id], onDelete: Cascade)
+  actor        Account?      @relation("MessagingNotificationsActor", fields: [actorAccountId], references: [id], onDelete: SetNull)
+  conversation Conversation? @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  message      Message?      @relation(fields: [messageId], references: [id], onDelete: Cascade)
+
+  @@index([recipientAccountId, isRead, createdAt], map: "messaging_notifications_recipient_read_created_idx")
+  @@index([recipientAccountId, createdAt], map: "messaging_notifications_recipient_created_idx")
+  @@index([conversationId, createdAt], map: "messaging_notifications_conversation_created_idx")
+  @@index([messageId], map: "messaging_notifications_message_idx")
+  @@index([type, createdAt], map: "messaging_notifications_type_created_idx")
+  @@map("messaging_notifications")
+}
+
+model SuperAdminProfile {
+  id          String   @id @default(uuid()) @db.Uuid
+  accountId   String   @unique @map("account_id") @db.Uuid
+  fullName    String   @map("full_name") @db.VarChar(150)
+  email       String   @unique(map: "super_admin_profiles_email_key") @db.VarChar(255)
+  phoneNumber String   @unique(map: "super_admin_profiles_phone_number_key") @map("phone_number") @db.VarChar(20)
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt   DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  account Account @relation("SuperAdminProfileAccount", fields: [accountId], references: [id], onDelete: Cascade)
+  @@map("super_admin_profiles")
+}
+
+model EmergencyAlert {
+  id              String   @id @default(uuid()) @db.Uuid
+  senderAccountId String   @map("sender_account_id") @db.Uuid
+  messageLong     String   @map("message_long") @db.Text
+  messageShort    String   @map("message_short") @db.VarChar(500)
+  createdAt       DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt       DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  sender     Account                   @relation("EmergencyAlertSender", fields: [senderAccountId], references: [id], onDelete: Restrict)
+  recipients EmergencyAlertRecipient[]
+
+  @@index([senderAccountId, createdAt], map: "emergency_alerts_sender_created_idx")
+  @@index([createdAt], map: "emergency_alerts_created_idx")
+  @@map("emergency_alerts")
+}
+
+model EmergencyAlertRecipient {
+  id                 String                        @id @default(uuid()) @db.Uuid
+  emergencyAlertId   String                        @map("emergency_alert_id") @db.Uuid
+  recipientAccountId String                        @map("recipient_account_id") @db.Uuid
+  phoneNumber        String?                       @map("phone_number") @db.VarChar(20)
+  status             EmergencyAlertRecipientStatus @default(PENDING)
+  providerName       String?                       @map("provider_name") @db.VarChar(80)
+  providerMessageId  String?                       @map("provider_message_id") @db.VarChar(120)
+  failureReason      String?                       @map("failure_reason") @db.VarChar(500)
+  sentAt             DateTime?                     @map("sent_at") @db.Timestamptz(3)
+  createdAt          DateTime                      @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt          DateTime                      @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  emergencyAlert EmergencyAlert @relation(fields: [emergencyAlertId], references: [id], onDelete: Cascade)
+  recipient      Account        @relation("EmergencyAlertRecipientAccount", fields: [recipientAccountId], references: [id], onDelete: Restrict)
+
+  @@index([emergencyAlertId], map: "emergency_alert_recipients_alert_idx")
+  @@index([recipientAccountId, createdAt], map: "emergency_alert_recipients_recipient_created_idx")
+  @@index([status, createdAt], map: "emergency_alert_recipients_status_created_idx")
+  @@map("emergency_alert_recipients")
+}
+
+model ActivityEvent {
+  id String @id @default(uuid()) @db.Uuid
+
+  accountId String  @map("account_id") @db.Uuid
+  sessionId String? @map("session_id") @db.Uuid
+
+  eventType    ActivityEventType @map("event_type")
+  pagePath     String?           @map("page_path") @db.VarChar(180)
+  elementLabel String?           @map("element_label") @db.VarChar(120)
+  metadata     Json?
+
+  occurredAt DateTime @default(now()) @map("occurred_at") @db.Timestamptz(3)
+  createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  account Account      @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  session AuthSession? @relation(fields: [sessionId], references: [id], onDelete: SetNull)
+
+  @@index([accountId, occurredAt], map: "activity_events_account_occurred_idx")
+  @@index([eventType, occurredAt], map: "activity_events_type_occurred_idx")
+  @@index([sessionId, occurredAt], map: "activity_events_session_occurred_idx")
+  @@index([occurredAt], map: "activity_events_occurred_idx")
+  @@map("activity_events")
+}
+
+model DailyActivitySummary {
+  id String @id @default(uuid()) @db.Uuid
+
+  accountId    String   @map("account_id") @db.Uuid
+  activityDate DateTime @map("activity_date") @db.Date
+
+  firstLoginAt        DateTime? @map("first_login_at") @db.Timestamptz(3)
+  lastLogoutAt        DateTime? @map("last_logout_at") @db.Timestamptz(3)
+  lastActiveAt        DateTime? @map("last_active_at") @db.Timestamptz(3)
+  activeMinutes       Int       @default(0) @map("active_minutes")
+  idleMinutes         Int       @default(0) @map("idle_minutes")
+  pagesVisitedCount   Int       @default(0) @map("pages_visited_count")
+  actionsCount        Int       @default(0) @map("actions_count")
+  emergencyAlertsCount Int      @default(0) @map("emergency_alerts_count")
+  afterHoursLoginCount Int      @default(0) @map("after_hours_login_count")
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  account Account @relation(fields: [accountId], references: [id], onDelete: Cascade)
+
+  @@unique([accountId, activityDate], map: "daily_activity_summaries_account_date_key")
+  @@index([activityDate], map: "daily_activity_summaries_activity_date_idx")
+  @@index([accountId, activityDate], map: "daily_activity_summaries_account_date_idx")
+  @@map("daily_activity_summaries")
 }

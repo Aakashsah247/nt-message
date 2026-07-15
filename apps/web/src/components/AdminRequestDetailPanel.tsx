@@ -2,6 +2,8 @@ import { useEffect, useState } from "react";
 
 import type { FormEvent, ReactNode } from "react";
 
+import { ProtectedAvatar } from "./ProtectedAvatar";
+
 import {
   approveAdminAccountRequest,
   getAdminAccountRequest,
@@ -744,10 +746,18 @@ export function AdminRequestDetailPanel({
                 <h4>Linked employee account</h4>
 
                 <div className="admin-linked-employee">
-                  <div>
-                    <strong>{request.employee.empName}</strong>
+                  <div className="admin-linked-employee__identity">
+                    <ProtectedAvatar
+                      employeeId={request.employee.id}
+                      displayName={request.employee.empName}
+                      className="admin-linked-employee__avatar"
+                      ariaLabel={`${request.employee.empName} profile`}
+                    />
 
-                    <span>{request.employee.officialEmail}</span>
+                    <div>
+                      <strong>{request.employee.empName}</strong>
+                      <span>{request.employee.officialEmail}</span>
+                    </div>
                   </div>
 
                   <span

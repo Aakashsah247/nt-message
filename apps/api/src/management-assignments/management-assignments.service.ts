@@ -7,6 +7,7 @@ import {
 } from '@nestjs/common';
 
 import type { AuthenticatedUser } from '../auth/types/auth.types';
+import { ConversationsService } from '../conversations/conversations.service';
 import { PrismaService } from '../database/prisma.service';
 import { AccountRole } from '../generated/prisma/client';
 
@@ -25,7 +26,10 @@ interface RequestMetadata {
 
 @Injectable()
 export class ManagementAssignmentsService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly conversationsService: ConversationsService,
+  ) {}
 
   private assertSuperAdmin(user: AuthenticatedUser): void {
     if (user.role !== AccountRole.SUPER_ADMIN) {
@@ -509,9 +513,17 @@ export class ManagementAssignmentsService {
       return {
         assignment: endedAssignment,
 
+        accountId: assignment.employee.account?.id ?? null,
+
         revokedSessions,
       };
     });
+
+    await this.conversationsService.synchronizeOfficialGroupsForAccountSafely(
+      result.accountId,
+      user.accountId,
+      'MANAGEMENT_ASSIGNMENT_ENDED',
+    );
 
     return {
       message: 'Management assignment ended. The position is now vacant.',
@@ -527,5 +539,4 @@ export class ManagementAssignmentsService {
       },
     };
   }
-
 }

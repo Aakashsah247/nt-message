@@ -27,7 +27,9 @@ export function LoginPage() {
       const account = await login(identifier, password);
 
       navigate(
-        getRoleHomePath(account.role),
+        account.role === "EMPLOYEE"
+          ? "/employee"
+          : getRoleHomePath(account.role),
         {
           replace: true,
         },
@@ -142,8 +144,7 @@ export function LoginPage() {
             <h2>Welcome back</h2>
 
             <span>
-              Sign in using your official employee email or admin
-              username.
+              Sign in using your official email address.
             </span>
           </div>
 
@@ -152,7 +153,7 @@ export function LoginPage() {
             onSubmit={handleSubmit}
           >
             <label>
-              Official email or admin username
+              Official email
 
               <input
                 type="text"
@@ -160,7 +161,7 @@ export function LoginPage() {
                 onChange={(event) =>
                   setIdentifier(event.target.value)
                 }
-                placeholder="name@ntc.net.np or admin"
+                placeholder="name@ntc.net.np"
                 autoComplete="username"
                 required
               />

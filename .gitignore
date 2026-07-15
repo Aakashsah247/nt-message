@@ -36,3 +36,9 @@ generated/
 apps/api/src/generated/
 
 **/.env.local
+apps/api/storage/message-attachments/
+
+# TypeScript build cache
+*.tsbuildinfo
+
+apps/api/storage/profile-photos/

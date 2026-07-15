@@ -1,5 +1,7 @@
 import { useEffect, useState } from "react";
 
+import { ProtectedAvatar } from "./ProtectedAvatar";
+
 import type {
   FormEvent,
 } from "react";
@@ -14,7 +16,6 @@ import {
   listDirectoryOrganizationDivisions,
   updateDirectoryEmployeeStatus,
 } from "../services/directory.service";
-
 import type {
   AccountRole,
 } from "../types/auth";
@@ -142,16 +143,6 @@ function getMetadataString(
   return typeof value === "string"
     ? value
     : null;
-}
-
-function getInitials(name: string): string {
-  return name
-    .split(/\s+/)
-    .filter(Boolean)
-    .slice(0, 2)
-    .map((part) => part.charAt(0))
-    .join("")
-    .toUpperCase();
 }
 
 function getStatusClass(value: string): string {
@@ -1075,11 +1066,13 @@ export function EmployeeDirectoryDetailPanel({
         {employee && (
           <div className="directory-detail-content">
             <section className="directory-detail-profile">
-              <div className="directory-detail-avatar">
-                {getInitials(
-                  employee.empName,
-                )}
-              </div>
+              <ProtectedAvatar
+                employeeId={employee.id}
+                photoKey={employee.profilePhotoKey}
+                displayName={employee.empName}
+                className="directory-detail-avatar"
+                ariaLabel={`${employee.empName} profile`}
+              />
 
               <div>
                 <span>

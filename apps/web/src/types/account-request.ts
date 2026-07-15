@@ -71,6 +71,7 @@ export interface AdminAccountRequestListItem {
   designation: string | null;
   requestedRole: AccountRole;
   managementPositionId: string | null;
+  employeeId?: string | null;
   revisionNumber: number;
   status: AccountRequestStatus;
   rejectionReason: string | null;
@@ -143,11 +144,30 @@ export interface AdminAccountRequestDetail {
   actions: AccountRequestAction[];
 }
 
+
+export interface AdminAccountRequestListQuery {
+  status: AccountRequestStatus;
+  page?: number;
+  limit?: number;
+  requestedRole?: AccountRole;
+  divisionId?: string;
+  departmentId?: string;
+  search?: string;
+  dateFrom?: string;
+  dateTo?: string;
+}
+
 export interface AdminAccountRequestListResponse {
   data: AdminAccountRequestListItem[];
 
   filters: {
     status: AccountRequestStatus;
+    requestedRole?: AccountRole;
+    divisionId?: string;
+    departmentId?: string;
+    search?: string;
+    dateFrom?: string;
+    dateTo?: string;
   };
 
   pagination: {
@@ -156,6 +176,16 @@ export interface AdminAccountRequestListResponse {
     total: number;
     totalPages: number;
   };
+}
+
+export interface AdminAccountRequestSummaryResponse {
+  counts: Record<AccountRequestStatus, number>;
+  totalRequests: number;
+  attentionTotal: number;
+  activationCompletionRate: number;
+  attentionRequests: AdminAccountRequestListItem[];
+  recentActivity: AdminAccountRequestListItem[];
+  generatedAt: string;
 }
 
 export interface AdminAccountRequestDetailResponse {
@@ -401,6 +431,67 @@ export interface MyAccountRequestListResponse {
 
 export interface MyAccountRequestDetailResponse {
   accountRequest: MyAccountRequestDetail;
+}
+
+export interface OwnAccountStatusResponse {
+  account: {
+    id: string;
+    username: string | null;
+    role: AccountRole;
+    isEnabled: boolean;
+    lastLoginAt: string | null;
+    createdAt: string;
+    updatedAt: string;
+
+    employee: {
+      id: string;
+      empId: string;
+      empName: string;
+      officialEmail: string;
+      designation: string | null;
+      status: string;
+      employmentStatus: string;
+      isActivated: boolean;
+      divisionId: string | null;
+      departmentId: string | null;
+      division: AccountRequestDivision | null;
+      departmentUnit: AccountRequestDepartment | null;
+    } | null;
+  };
+
+  accountRequest: (MyAccountRequestDetail & {
+    requestedBy: AccountRequestRequester;
+  }) | null;
+}
+
+export interface ScopedAccountRequestListItem
+  extends MyAccountRequestListItem {
+  requestedBy: AccountRequestRequester;
+}
+
+export interface ScopedAccountRequestDetail
+  extends MyAccountRequestDetail {
+  requestedBy: AccountRequestRequester;
+}
+
+export interface ScopedAccountRequestListResponse {
+  data: ScopedAccountRequestListItem[];
+
+  scope: {
+    divisionId: string;
+    requestedRole: "EMPLOYEE";
+  };
+
+  pagination: {
+    page: number;
+    limit: number;
+    total: number;
+    totalPages: number;
+  };
+}
+
+export interface ScopedAccountRequestDetailResponse {
+  accountRequest: ScopedAccountRequestDetail;
 }
 
 /* MANAGER ACCOUNT REQUEST TYPES END */

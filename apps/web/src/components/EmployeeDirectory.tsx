@@ -7,6 +7,7 @@ import type {
   FormEvent,
 } from "react";
 
+import { ProtectedAvatar } from "./ProtectedAvatar";
 import {
   listDirectoryEmployees,
 } from "../services/directory.service";
@@ -33,6 +34,7 @@ interface EmployeeDirectoryProps {
   onSelectEmployee?: (
     employeeId: string,
   ) => void;
+  selectedEmployeeId?: string | null;
 }
 
 type RoleFilter =
@@ -106,21 +108,6 @@ function formatDate(
   ).format(date);
 }
 
-function getInitials(
-  name: string,
-): string {
-  return name
-    .split(/\s+/)
-    .filter(Boolean)
-    .slice(0, 2)
-    .map(
-      (part) =>
-        part.charAt(0),
-    )
-    .join("")
-    .toUpperCase();
-}
-
 function getStatusClass(
   value: string,
 ): string {
@@ -159,6 +146,7 @@ export function EmployeeDirectory({
   description =
     "Search authorized Nepal Telecom employees within your permitted organization scope.",
   onSelectEmployee,
+  selectedEmployeeId = null,
 }: EmployeeDirectoryProps) {
   const [
     response,
@@ -325,6 +313,18 @@ export function EmployeeDirectory({
     search,
   ]);
 
+  function renderDirectoryAvatar(employee: DirectoryEmployee) {
+    return (
+      <ProtectedAvatar
+        employeeId={employee.id}
+        photoKey={employee.profilePhotoKey}
+        displayName={employee.empName}
+        className="directory-avatar"
+        ariaLabel={`${employee.empName} profile`}
+      />
+    );
+  }
+
   function submitSearch(
     event:
       FormEvent<HTMLFormElement>,
@@ -474,6 +474,23 @@ export function EmployeeDirectory({
   const pagination =
     response?.pagination;
 
+  const firstVisibleRecord =
+    pagination &&
+    pagination.total > 0
+      ? (pagination.page - 1) *
+          PAGE_SIZE +
+        1
+      : 0;
+
+  const lastVisibleRecord =
+    pagination
+      ? Math.min(
+          pagination.page *
+            PAGE_SIZE,
+          pagination.total,
+        )
+      : 0;
+
   const hasActiveFilters =
     Boolean(
       search ||
@@ -492,7 +509,7 @@ export function EmployeeDirectory({
       }
     >
       <header className="directory-header">
-        <div>
+        <div className="directory-header__copy">
           <span>
             Organization directory
           </span>
@@ -507,12 +524,26 @@ export function EmployeeDirectory({
           <p>
             {recordStatus ===
             "ARCHIVED"
-              ? "Review archived Patan Branch employees and their preserved lifecycle records."
+              ? "Review archived Nepal Telecom employees and their preserved lifecycle records."
               : description}
           </p>
         </div>
 
         <div className="directory-total">
+          <span
+            className="directory-total__icon"
+            aria-hidden="true"
+          >
+            <svg
+              viewBox="0 0 24 24"
+              fill="none"
+            >
+              <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" />
+              <circle cx="9" cy="7" r="4" />
+              <path d="M22 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75" />
+            </svg>
+          </span>
+
           <span>
             {recordStatus ===
             "ARCHIVED"
@@ -621,241 +652,263 @@ export function EmployeeDirectory({
         </section>
       )}
 
-      <form
-        className="directory-search"
-        onSubmit={
-          submitSearch
-        }
+      <section
+        className="directory-toolbar"
+        aria-label="Directory search and filters"
       >
-        <label>
-          <span>
-            Search directory
-          </span>
+        <form
+          className="directory-search"
+          onSubmit={
+            submitSearch
+          }
+        >
+          <label>
+            <span>
+              Search directory
+            </span>
 
-          <div>
-            <input
-              type="search"
+            <div className="directory-search__control">
+              <span
+                className="directory-search__icon"
+                aria-hidden="true"
+              >
+                <svg
+                  viewBox="0 0 24 24"
+                  fill="none"
+                >
+                  <circle
+                    cx="11"
+                    cy="11"
+                    r="7"
+                  />
+                  <path d="m20 20-3.5-3.5" />
+                </svg>
+              </span>
+
+              <input
+                type="search"
+                value={
+                  searchInput
+                }
+                onChange={(
+                  event,
+                ) =>
+                  setSearchInput(
+                    event.target.value,
+                  )
+                }
+                maxLength={100}
+                placeholder="Name, employee ID, designation or department"
+              />
+
+              <button
+                type="submit"
+              >
+                Search
+              </button>
+            </div>
+          </label>
+        </form>
+
+        <section className="directory-filters">
+          <label>
+            <span>Role</span>
+
+            <select
+              value={role}
+              onChange={(
+                event,
+              ) =>
+                changeRole(
+                  event.target
+                    .value as
+                    RoleFilter,
+                )
+              }
+            >
+              <option value="">
+                All roles
+              </option>
+
+              <option value="SUPER_ADMIN">
+                Super Admin
+              </option>
+
+              <option value="SENIOR_MANAGEMENT">
+                Senior Management
+              </option>
+
+              <option value="TEAM_MANAGER">
+                Team Manager
+              </option>
+
+              <option value="EMPLOYEE">
+                Employee
+              </option>
+            </select>
+          </label>
+
+          <label>
+            <span>
+              Employee status
+            </span>
+
+            <select
               value={
-                searchInput
+                employeeStatus
               }
               onChange={(
                 event,
               ) =>
-                setSearchInput(
-                  event.target.value,
+                changeEmployeeStatus(
+                  event.target
+                    .value as
+                    EmployeeStatusFilter,
                 )
               }
-              maxLength={100}
-              placeholder="Name, employee ID, designation or department"
-            />
-
-            <button
-              type="submit"
             >
-              Search
-            </button>
-          </div>
-        </label>
-      </form>
+              <option value="">
+                All statuses
+              </option>
 
-      <section className="directory-filters">
-        <label>
-          <span>Role</span>
+              <option value="ACTIVE">
+                Active
+              </option>
 
-          <select
-            value={role}
-            onChange={(
-              event,
-            ) =>
-              changeRole(
-                event.target
-                  .value as
-                  RoleFilter,
-              )
+              <option value="INACTIVE">
+                Inactive
+              </option>
+            </select>
+          </label>
+
+          <label>
+            <span>
+              Employment
+            </span>
+
+            <select
+              value={
+                employmentStatus
+              }
+              onChange={(
+                event,
+              ) =>
+                changeEmploymentStatus(
+                  event.target
+                    .value as
+                    EmploymentStatusFilter,
+                )
+              }
+            >
+              <option value="">
+                All employment states
+              </option>
+
+              <option value="ACTIVE">
+                Active
+              </option>
+
+              <option value="RESIGNED">
+                Resigned
+              </option>
+
+              <option value="RETIRED">
+                Retired
+              </option>
+
+              <option value="TERMINATED">
+                Terminated
+              </option>
+
+              <option value="TRANSFERRED">
+                Transferred
+              </option>
+            </select>
+          </label>
+
+          <label>
+            <span>
+              Account status
+            </span>
+
+            <select
+              value={
+                accountStatus
+              }
+              onChange={(
+                event,
+              ) =>
+                changeAccountStatus(
+                  event.target
+                    .value as
+                    AccountStatusFilter,
+                )
+              }
+            >
+              <option value="">
+                All accounts
+              </option>
+
+              <option value="ENABLED">
+                Enabled
+              </option>
+
+              <option value="DISABLED">
+                Disabled
+              </option>
+
+              <option value="NO_ACCOUNT">
+                No account
+              </option>
+            </select>
+          </label>
+
+          <label>
+            <span>
+              Activation
+            </span>
+
+            <select
+              value={
+                activationStatus
+              }
+              onChange={(
+                event,
+              ) =>
+                changeActivationStatus(
+                  event.target
+                    .value as
+                    ActivationStatusFilter,
+                )
+              }
+            >
+              <option value="">
+                All activation states
+              </option>
+
+              <option value="ACTIVATED">
+                Activated
+              </option>
+
+              <option value="AWAITING_ACTIVATION">
+                Awaiting activation
+              </option>
+            </select>
+          </label>
+
+          <button
+            type="button"
+            className="directory-clear-button"
+            onClick={
+              clearFilters
+            }
+            disabled={
+              !hasActiveFilters
             }
           >
-            <option value="">
-              All roles
-            </option>
-
-            <option value="SUPER_ADMIN">
-              Super Admin
-            </option>
-
-            <option value="SENIOR_MANAGEMENT">
-              Senior Management
-            </option>
-
-            <option value="TEAM_MANAGER">
-              Team Manager
-            </option>
-
-            <option value="EMPLOYEE">
-              Employee
-            </option>
-          </select>
-        </label>
-
-        <label>
-          <span>
-            Employee status
-          </span>
-
-          <select
-            value={
-              employeeStatus
-            }
-            onChange={(
-              event,
-            ) =>
-              changeEmployeeStatus(
-                event.target
-                  .value as
-                  EmployeeStatusFilter,
-              )
-            }
-          >
-            <option value="">
-              All statuses
-            </option>
-
-            <option value="ACTIVE">
-              Active
-            </option>
-
-            <option value="INACTIVE">
-              Inactive
-            </option>
-          </select>
-        </label>
-
-        <label>
-          <span>
-            Employment
-          </span>
-
-          <select
-            value={
-              employmentStatus
-            }
-            onChange={(
-              event,
-            ) =>
-              changeEmploymentStatus(
-                event.target
-                  .value as
-                  EmploymentStatusFilter,
-              )
-            }
-          >
-            <option value="">
-              All employment states
-            </option>
-
-            <option value="ACTIVE">
-              Active
-            </option>
-
-            <option value="RESIGNED">
-              Resigned
-            </option>
-
-            <option value="RETIRED">
-              Retired
-            </option>
-
-            <option value="TERMINATED">
-              Terminated
-            </option>
-
-            <option value="TRANSFERRED">
-              Transferred
-            </option>
-          </select>
-        </label>
-
-        <label>
-          <span>
-            Account status
-          </span>
-
-          <select
-            value={
-              accountStatus
-            }
-            onChange={(
-              event,
-            ) =>
-              changeAccountStatus(
-                event.target
-                  .value as
-                  AccountStatusFilter,
-              )
-            }
-          >
-            <option value="">
-              All accounts
-            </option>
-
-            <option value="ENABLED">
-              Enabled
-            </option>
-
-            <option value="DISABLED">
-              Disabled
-            </option>
-
-            <option value="NO_ACCOUNT">
-              No account
-            </option>
-          </select>
-        </label>
-
-        <label>
-          <span>
-            Activation
-          </span>
-
-          <select
-            value={
-              activationStatus
-            }
-            onChange={(
-              event,
-            ) =>
-              changeActivationStatus(
-                event.target
-                  .value as
-                  ActivationStatusFilter,
-              )
-            }
-          >
-            <option value="">
-              All activation states
-            </option>
-
-            <option value="ACTIVATED">
-              Activated
-            </option>
-
-            <option value="AWAITING_ACTIVATION">
-              Awaiting activation
-            </option>
-          </select>
-        </label>
-
-        <button
-          type="button"
-          className="directory-clear-button"
-          onClick={
-            clearFilters
-          }
-          disabled={
-            !hasActiveFilters
-          }
-        >
-          Clear filters
-        </button>
+            Clear filters
+          </button>
+        </section>
       </section>
 
       {error && (
@@ -923,8 +976,38 @@ export function EmployeeDirectory({
 
       {employees.length >
         0 && (
-        <div className="directory-table-wrap">
+        <>
+          <div className="directory-results-bar">
+            <div>
+              <strong>
+                {recordStatus ===
+                "ARCHIVED"
+                  ? "Archived employees"
+                  : "Employees"}
+              </strong>
+
+              <span>
+                Showing {firstVisibleRecord}–{lastVisibleRecord} of {pagination?.total ?? 0}
+              </span>
+            </div>
+
+            {loading &&
+              response && (
+              <span
+                className="directory-results-bar__updating"
+                role="status"
+              >
+                Updating results…
+              </span>
+            )}
+          </div>
+
+          <div className="directory-table-wrap">
           <table className="directory-table">
+            <caption className="sr-only">
+              Authorized Nepal Telecom employee directory
+            </caption>
+
             <thead>
               <tr>
                 <th>
@@ -961,6 +1044,10 @@ export function EmployeeDirectory({
                     ? "Archived on"
                     : "Last login"}
                 </th>
+
+                <th
+                  aria-label="Profile actions"
+                />
               </tr>
             </thead>
 
@@ -973,8 +1060,14 @@ export function EmployeeDirectory({
                     key={
                       employee.id
                     }
+                    className={
+                      selectedEmployeeId ===
+                      employee.id
+                        ? "is-selected"
+                        : ""
+                    }
                   >
-                    <td>
+                    <td data-label="Employee">
                       <button
                         type="button"
                         className="directory-employee-button"
@@ -984,11 +1077,7 @@ export function EmployeeDirectory({
                           )
                         }
                       >
-                        <span className="directory-avatar">
-                          {getInitials(
-                            employee.empName,
-                          )}
-                        </span>
+                        {renderDirectoryAvatar(employee)}
 
                         <span>
                           <strong>
@@ -1011,7 +1100,7 @@ export function EmployeeDirectory({
                       </button>
                     </td>
 
-                    <td>
+                    <td data-label="Effective role">
                       <span
                         className={`directory-badge role-${getStatusClass(
                           employee.effectiveRole ??
@@ -1026,7 +1115,7 @@ export function EmployeeDirectory({
                       </span>
                     </td>
 
-                    <td>
+                    <td data-label="Current position">
                       <strong>
                         {getCurrentPositionLabel(
                           employee,
@@ -1042,7 +1131,7 @@ export function EmployeeDirectory({
                       </small>
                     </td>
 
-                    <td>
+                    <td data-label="Organization">
                       <strong>
                         {employee.department
                           ?.name ??
@@ -1056,7 +1145,7 @@ export function EmployeeDirectory({
                       </small>
                     </td>
 
-                    <td>
+                    <td data-label="Employment">
                       <span
                         className={`directory-badge ${getStatusClass(
                           employee.employmentStatus,
@@ -1068,7 +1157,7 @@ export function EmployeeDirectory({
                       </span>
                     </td>
 
-                    <td>
+                    <td data-label="Account">
                       <span
                         className={`directory-badge ${getStatusClass(
                           employee.accountStatus,
@@ -1080,7 +1169,7 @@ export function EmployeeDirectory({
                       </span>
                     </td>
 
-                    <td>
+                    <td data-label="Activation">
                       <span
                         className={`directory-badge ${getStatusClass(
                           employee.activationStatus,
@@ -1092,7 +1181,15 @@ export function EmployeeDirectory({
                       </span>
                     </td>
 
-                    <td>
+                    <td
+                      className="directory-date"
+                      data-label={
+                        recordStatus ===
+                        "ARCHIVED"
+                          ? "Archived on"
+                          : "Last login"
+                      }
+                    >
                       <strong>
                         {formatDate(
                           recordStatus ===
@@ -1102,12 +1199,31 @@ export function EmployeeDirectory({
                         )}
                       </strong>
                     </td>
+
+                    <td
+                      className="directory-row-action"
+                      data-label="Profile"
+                    >
+                      <button
+                        type="button"
+                        aria-label={`View ${employee.empName} profile`}
+                        onClick={() =>
+                          selectEmployee(
+                            employee,
+                          )
+                        }
+                      >
+                        <span>View</span>
+                        <span aria-hidden="true">›</span>
+                      </button>
+                    </td>
                   </tr>
                 ),
               )}
             </tbody>
           </table>
-        </div>
+          </div>
+        </>
       )}
 
       {pagination &&

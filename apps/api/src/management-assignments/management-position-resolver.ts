@@ -9,20 +9,16 @@ import {
   ManagementPositionType,
 } from '../generated/prisma/client';
 
-import type {
-  Prisma,
-} from '../generated/prisma/client';
+import type { Prisma } from '../generated/prisma/client';
 
 interface ResolveManagementPositionInput {
   requestedRole: AccountRole;
   divisionId: string;
   departmentId: string | null;
 
-  suppliedManagementPositionId?:
-    string | null;
+  suppliedManagementPositionId?: string | null;
 
-  allowEmployeeId?:
-    string | null;
+  allowEmployeeId?: string | null;
 }
 
 const positionSelect = {
@@ -32,8 +28,7 @@ const positionSelect = {
   departmentId: true,
   isActive: true,
 
-  reservedByAccountRequestId:
-    true,
+  reservedByAccountRequestId: true,
 
   assignments: {
     where: {
@@ -49,9 +44,7 @@ const positionSelect = {
   },
 } as const;
 
-function isUniqueConstraintError(
-  error: unknown,
-): boolean {
+function isUniqueConstraintError(error: unknown): boolean {
   return (
     typeof error === 'object' &&
     error !== null &&
@@ -61,21 +54,15 @@ function isUniqueConstraintError(
 }
 
 export async function resolveOrCreateVacantManagementPosition(
-  transaction:
-    Prisma.TransactionClient,
+  transaction: Prisma.TransactionClient,
 
-  input:
-    ResolveManagementPositionInput,
+  input: ResolveManagementPositionInput,
 ) {
   const requiredPositionType =
-    input.requestedRole ===
-    AccountRole.SENIOR_MANAGEMENT
-      ? ManagementPositionType
-          .SENIOR_MANAGEMENT
-      : input.requestedRole ===
-          AccountRole.TEAM_MANAGER
-        ? ManagementPositionType
-            .TEAM_MANAGER
+    input.requestedRole === AccountRole.SENIOR_MANAGEMENT
+      ? ManagementPositionType.SENIOR_MANAGEMENT
+      : input.requestedRole === AccountRole.TEAM_MANAGER
+        ? ManagementPositionType.TEAM_MANAGER
         : null;
 
   if (!requiredPositionType) {
@@ -85,9 +72,7 @@ export async function resolveOrCreateVacantManagementPosition(
   }
 
   if (
-    requiredPositionType ===
-      ManagementPositionType
-        .TEAM_MANAGER &&
+    requiredPositionType === ManagementPositionType.TEAM_MANAGER &&
     !input.departmentId
   ) {
     throw new BadRequestException(
@@ -96,48 +81,31 @@ export async function resolveOrCreateVacantManagementPosition(
   }
 
   const scopedDepartmentId =
-    requiredPositionType ===
-    ManagementPositionType
-      .SENIOR_MANAGEMENT
+    requiredPositionType === ManagementPositionType.SENIOR_MANAGEMENT
       ? null
       : input.departmentId;
 
-  let position =
-    input.suppliedManagementPositionId
-      ? await transaction
-          .managementPosition
-          .findUnique({
-            where: {
-              id:
-                input
-                  .suppliedManagementPositionId,
-            },
+  let position = input.suppliedManagementPositionId
+    ? await transaction.managementPosition.findUnique({
+        where: {
+          id: input.suppliedManagementPositionId,
+        },
 
-            select:
-              positionSelect,
-          })
-      : await transaction
-          .managementPosition
-          .findFirst({
-            where: {
-              positionType:
-                requiredPositionType,
+        select: positionSelect,
+      })
+    : await transaction.managementPosition.findFirst({
+        where: {
+          positionType: requiredPositionType,
 
-              divisionId:
-                input.divisionId,
+          divisionId: input.divisionId,
 
-              departmentId:
-                scopedDepartmentId,
-            },
+          departmentId: scopedDepartmentId,
+        },
 
-            select:
-              positionSelect,
-          });
+        select: positionSelect,
+      });
 
-  if (
-    !position &&
-    input.suppliedManagementPositionId
-  ) {
+  if (!position && input.suppliedManagementPositionId) {
     throw new NotFoundException(
       'The selected management position was not found.',
     );
@@ -145,32 +113,21 @@ export async function resolveOrCreateVacantManagementPosition(
 
   if (!position) {
     try {
-      position =
-        await transaction
-          .managementPosition
-          .create({
-            data: {
-              positionType:
-                requiredPositionType,
+      position = await transaction.managementPosition.create({
+        data: {
+          positionType: requiredPositionType,
 
-              divisionId:
-                input.divisionId,
+          divisionId: input.divisionId,
 
-              departmentId:
-                scopedDepartmentId,
+          departmentId: scopedDepartmentId,
 
-              isActive: true,
-            },
+          isActive: true,
+        },
 
-            select:
-              positionSelect,
-          });
+        select: positionSelect,
+      });
     } catch (error: unknown) {
-      if (
-        isUniqueConstraintError(
-          error,
-        )
-      ) {
+      if (isUniqueConstraintError(error)) {
         throw new ConflictException(
           'The management position was created by another request. Please submit again.',
         );
@@ -180,28 +137,19 @@ export async function resolveOrCreateVacantManagementPosition(
     }
   }
 
-  if (
-    position.positionType !==
-    requiredPositionType
-  ) {
+  if (position.positionType !== requiredPositionType) {
     throw new BadRequestException(
       'The selected management position does not match the requested role.',
     );
   }
 
-  if (
-    position.divisionId !==
-    input.divisionId
-  ) {
+  if (position.divisionId !== input.divisionId) {
     throw new BadRequestException(
       'The selected management position does not belong to the selected division.',
     );
   }
 
-  if (
-    position.departmentId !==
-    scopedDepartmentId
-  ) {
+  if (position.departmentId !== scopedDepartmentId) {
     throw new BadRequestException(
       'The selected management position does not match the selected organization scope.',
     );
@@ -213,23 +161,17 @@ export async function resolveOrCreateVacantManagementPosition(
     );
   }
 
-  if (
-    position
-      .reservedByAccountRequestId
-  ) {
+  if (position.reservedByAccountRequestId) {
     throw new ConflictException(
       'A management account is already approved and waiting for activation in this organization scope.',
     );
   }
 
-  const activeAssignment =
-    position.assignments[0] ??
-    null;
+  const activeAssignment = position.assignments[0] ?? null;
 
   if (
     activeAssignment &&
-    activeAssignment.employeeId !==
-      input.allowEmployeeId
+    activeAssignment.employeeId !== input.allowEmployeeId
   ) {
     throw new ConflictException(
       'An active management employee already exists in this organization scope.',

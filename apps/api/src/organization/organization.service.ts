@@ -5,6 +5,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 
+import { ConversationsService } from '../conversations/conversations.service';
 import { PrismaService } from '../database/prisma.service';
 
 import type { Prisma } from '../generated/prisma/client';
@@ -16,7 +17,10 @@ import { UpdateDivisionDto } from './dto/update-division.dto';
 
 @Injectable()
 export class OrganizationService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly conversationsService: ConversationsService,
+  ) {}
 
   private normalizeCode(value: string): string {
     return value.trim().toUpperCase();
@@ -318,8 +322,7 @@ export class OrganizationService {
 
       if (protectedManagementPosition) {
         const scopeName =
-          protectedManagementPosition.department?.name ??
-          existingDivision.name;
+          protectedManagementPosition.department?.name ?? existingDivision.name;
 
         throw new ConflictException(
           `Deactivate or release the ${protectedManagementPosition.positionType} management position for ${scopeName} before deactivating this division.`,
@@ -384,6 +387,11 @@ export class OrganizationService {
 
       return updatedDivision;
     });
+
+    await this.conversationsService.synchronizeAllOfficialGroupsSafely(
+      null,
+      'DIVISION_UPDATED',
+    );
 
     return {
       message: 'Division updated successfully.',
@@ -952,6 +960,20 @@ export class OrganizationService {
       });
 
       if (
+        dto.divisionId !== undefined &&
+        dto.divisionId !== existingDepartment.divisionId
+      ) {
+        await transaction.conversation.updateMany({
+          where: {
+            officialDepartmentId: id,
+          },
+          data: {
+            officialDivisionId: dto.divisionId,
+          },
+        });
+      }
+
+      if (
         dto.isActive !== undefined &&
         dto.isActive !== existingDepartment.isActive
       ) {
@@ -968,6 +990,11 @@ export class OrganizationService {
 
       return updatedDepartment;
     });
+
+    await this.conversationsService.synchronizeAllOfficialGroupsSafely(
+      null,
+      'DEPARTMENT_UPDATED',
+    );
 
     return {
       message: 'Department updated successfully.',

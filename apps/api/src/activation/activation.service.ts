@@ -17,6 +17,7 @@ import {
   randomUUID,
   timingSafeEqual,
 } from 'node:crypto';
+import { ConversationsService } from '../conversations/conversations.service';
 import { PrismaService } from '../database/prisma.service';
 
 import {
@@ -185,6 +186,7 @@ export class ActivationService {
 
   constructor(
     private readonly prisma: PrismaService,
+    private readonly conversationsService: ConversationsService,
     private readonly mailService: MailService,
     private readonly jwtService: JwtService,
     configService: ConfigService,
@@ -953,8 +955,7 @@ export class ActivationService {
           }
 
           const requiredPositionType =
-            accountRequest.requestedRole ===
-            AccountRole.SENIOR_MANAGEMENT
+            accountRequest.requestedRole === AccountRole.SENIOR_MANAGEMENT
               ? ManagementPositionType.SENIOR_MANAGEMENT
               : ManagementPositionType.TEAM_MANAGER;
 
@@ -989,12 +990,9 @@ export class ActivationService {
           if (
             !managementPosition ||
             !managementPosition.isActive ||
-            managementPosition.positionType !==
-              requiredPositionType ||
-            managementPosition.divisionId !==
-              accountRequest.divisionId ||
-            managementPosition.reservedByAccountRequestId !==
-              accountRequest.id
+            managementPosition.positionType !== requiredPositionType ||
+            managementPosition.divisionId !== accountRequest.divisionId ||
+            managementPosition.reservedByAccountRequestId !== accountRequest.id
           ) {
             throw new ConflictException(
               'The reserved management position is no longer valid for this activation.',
@@ -1002,8 +1000,7 @@ export class ActivationService {
           }
 
           if (
-            requiredPositionType ===
-              ManagementPositionType.SENIOR_MANAGEMENT &&
+            requiredPositionType === ManagementPositionType.SENIOR_MANAGEMENT &&
             managementPosition.departmentId !== null
           ) {
             throw new ConflictException(
@@ -1012,10 +1009,8 @@ export class ActivationService {
           }
 
           if (
-            requiredPositionType ===
-              ManagementPositionType.TEAM_MANAGER &&
-            managementPosition.departmentId !==
-              accountRequest.departmentId
+            requiredPositionType === ManagementPositionType.TEAM_MANAGER &&
+            managementPosition.departmentId !== accountRequest.departmentId
           ) {
             throw new ConflictException(
               'The reserved Team Manager position does not match the request department.',
@@ -1048,8 +1043,7 @@ export class ActivationService {
 
           managementPositionId = managementPosition.id;
 
-          managementAssignedByAccountId =
-            accountRequest.reviewedByAccountId;
+          managementAssignedByAccountId = accountRequest.reviewedByAccountId;
         } else if (accountRequest.managementPositionId) {
           throw new ConflictException(
             'A normal employee activation must not reference a management position.',
@@ -1171,10 +1165,7 @@ export class ActivationService {
           },
         });
 
-        if (
-          managementPositionId &&
-          managementAssignedByAccountId
-        ) {
+        if (managementPositionId && managementAssignedByAccountId) {
           /*
            * Claim and release the reservation before creating
            * the active assignment. Any later failure rolls the
@@ -1186,8 +1177,7 @@ export class ActivationService {
                 id: managementPositionId,
                 isActive: true,
 
-                reservedByAccountRequestId:
-                  accountRequest.id,
+                reservedByAccountRequestId: accountRequest.id,
 
                 assignments: {
                   none: {
@@ -1214,8 +1204,7 @@ export class ActivationService {
 
                 employeeId: employee.id,
 
-                assignedByAccountId:
-                  managementAssignedByAccountId,
+                assignedByAccountId: managementAssignedByAccountId,
 
                 startedAt: now,
 
@@ -1228,8 +1217,7 @@ export class ActivationService {
               },
             });
 
-          managementAssignmentId =
-            managementAssignment.id;
+          managementAssignmentId = managementAssignment.id;
         }
 
         await transaction.accountRequestAction.create({
@@ -1322,6 +1310,12 @@ export class ActivationService {
         'An account with this username already exists.',
       );
     }
+
+    await this.conversationsService.synchronizeOfficialGroupsForAccountSafely(
+      outcome.account.id,
+      outcome.account.id,
+      'ACCOUNT_ACTIVATED',
+    );
 
     return {
       message: 'Account activated successfully.',

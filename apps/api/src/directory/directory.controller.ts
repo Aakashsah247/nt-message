@@ -25,7 +25,6 @@ import { ListDirectoryQueryDto } from './dto/list-directory-query.dto';
   AccountRole.SUPER_ADMIN,
   AccountRole.SENIOR_MANAGEMENT,
   AccountRole.TEAM_MANAGER,
-  AccountRole.EMPLOYEE,
 )
 export class DirectoryController {
   constructor(private readonly directoryService: DirectoryService) {}

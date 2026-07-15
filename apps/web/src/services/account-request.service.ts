@@ -2,8 +2,10 @@ import { apiRequest } from "../lib/api";
 
 import type {
   AccountRequestStatus,
+  AdminAccountRequestListQuery,
   AdminAccountRequestDetailResponse,
   AdminAccountRequestListResponse,
+  AdminAccountRequestSummaryResponse,
   ApproveAccountRequestResponse,
   CloseAccountRequestResponse,
   CreateMyAccountRequestInput,
@@ -11,10 +13,42 @@ import type {
   ManagerRequestContextResponse,
   MyAccountRequestDetailResponse,
   MyAccountRequestListResponse,
+  OwnAccountStatusResponse,
+  ScopedAccountRequestDetailResponse,
+  ScopedAccountRequestListResponse,
   RejectAccountRequestResponse,
   ResubmitMyAccountRequestInput,
   ResubmitMyAccountRequestResponse,
 } from "../types/account-request";
+
+
+export interface AccountRequestListFilters {
+  search?: string;
+  departmentId?: string;
+  dateFrom?: string;
+  dateTo?: string;
+}
+
+function appendListFilters(
+  query: URLSearchParams,
+  filters: AccountRequestListFilters,
+): void {
+  if (filters.search?.trim()) {
+    query.set("search", filters.search.trim());
+  }
+
+  if (filters.departmentId) {
+    query.set("departmentId", filters.departmentId);
+  }
+
+  if (filters.dateFrom) {
+    query.set("dateFrom", filters.dateFrom);
+  }
+
+  if (filters.dateTo) {
+    query.set("dateTo", filters.dateTo);
+  }
+}
 
 function createAuthorizationHeaders(accessToken: string): HeadersInit {
   return {
@@ -51,6 +85,7 @@ export function listMyAccountRequests(
   status?: AccountRequestStatus,
   page = 1,
   limit = 20,
+  filters: AccountRequestListFilters = {},
 ): Promise<MyAccountRequestListResponse> {
   const query = new URLSearchParams({
     page: String(page),
@@ -61,8 +96,59 @@ export function listMyAccountRequests(
     query.set("status", status);
   }
 
+  appendListFilters(query, filters);
+
   return apiRequest<MyAccountRequestListResponse>(
     `/account-requests/mine?${query.toString()}`,
+    {
+      headers: createAuthorizationHeaders(accessToken),
+    },
+  );
+}
+
+export function getOwnAccountStatus(
+  accessToken: string,
+): Promise<OwnAccountStatusResponse> {
+  return apiRequest<OwnAccountStatusResponse>(
+    "/account-requests/own-status",
+    {
+      headers: createAuthorizationHeaders(accessToken),
+    },
+  );
+}
+
+export function listDivisionEmployeeRequests(
+  accessToken: string,
+  status?: AccountRequestStatus,
+  page = 1,
+  limit = 20,
+  filters: AccountRequestListFilters = {},
+): Promise<ScopedAccountRequestListResponse> {
+  const query = new URLSearchParams({
+    page: String(page),
+    limit: String(limit),
+  });
+
+  if (status) {
+    query.set("status", status);
+  }
+
+  appendListFilters(query, filters);
+
+  return apiRequest<ScopedAccountRequestListResponse>(
+    `/account-requests/division-employees?${query.toString()}`,
+    {
+      headers: createAuthorizationHeaders(accessToken),
+    },
+  );
+}
+
+export function getDivisionEmployeeRequest(
+  accessToken: string,
+  requestId: string,
+): Promise<ScopedAccountRequestDetailResponse> {
+  return apiRequest<ScopedAccountRequestDetailResponse>(
+    `/account-requests/division-employees/${requestId}`,
     {
       headers: createAuthorizationHeaders(accessToken),
     },
@@ -119,18 +205,34 @@ export function cancelMyAccountRequest(
 
 export function listAdminAccountRequests(
   accessToken: string,
-  status: AccountRequestStatus,
-  page = 1,
-  limit = 20,
+  input: AdminAccountRequestListQuery,
 ): Promise<AdminAccountRequestListResponse> {
   const query = new URLSearchParams({
-    status,
-    page: String(page),
-    limit: String(limit),
+    status: input.status,
+    page: String(input.page ?? 1),
+    limit: String(input.limit ?? 20),
   });
+
+  if (input.requestedRole) query.set("requestedRole", input.requestedRole);
+  if (input.divisionId) query.set("divisionId", input.divisionId);
+  if (input.departmentId) query.set("departmentId", input.departmentId);
+  if (input.search) query.set("search", input.search);
+  if (input.dateFrom) query.set("dateFrom", input.dateFrom);
+  if (input.dateTo) query.set("dateTo", input.dateTo);
 
   return apiRequest<AdminAccountRequestListResponse>(
     `/admin/account-requests?${query.toString()}`,
+    {
+      headers: createAuthorizationHeaders(accessToken),
+    },
+  );
+}
+
+export function getAdminAccountRequestSummary(
+  accessToken: string,
+): Promise<AdminAccountRequestSummaryResponse> {
+  return apiRequest<AdminAccountRequestSummaryResponse>(
+    "/admin/account-requests/dashboard/summary",
     {
       headers: createAuthorizationHeaders(accessToken),
     },

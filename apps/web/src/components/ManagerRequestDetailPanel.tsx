@@ -4,6 +4,7 @@ import type { FormEvent } from "react";
 
 import {
   cancelMyAccountRequest,
+  getDivisionEmployeeRequest,
   getMyAccountRequest,
   resubmitMyAccountRequest,
 } from "../services/account-request.service";
@@ -11,6 +12,7 @@ import {
 import type {
   ManagerRequestContextResponse,
   MyAccountRequestDetail,
+  ScopedAccountRequestDetail,
 } from "../types/account-request";
 
 interface ManagerRequestDetailPanelProps {
@@ -18,6 +20,7 @@ interface ManagerRequestDetailPanelProps {
   requestId: string;
   requestContext: ManagerRequestContextResponse;
   onClose: () => void;
+  readOnly?: boolean;
   onCancelled: () => void;
   onResubmitted: (newRequestId: string) => void;
 }
@@ -81,11 +84,14 @@ export function ManagerRequestDetailPanel({
   accessToken,
   requestId,
   requestContext,
+  readOnly = false,
   onClose,
   onCancelled,
   onResubmitted,
 }: ManagerRequestDetailPanelProps) {
-  const [detail, setDetail] = useState<MyAccountRequestDetail | null>(null);
+  const [detail, setDetail] = useState<
+    MyAccountRequestDetail | ScopedAccountRequestDetail | null
+  >(null);
 
   const [form, setForm] = useState<ResubmitFormState>(emptyForm);
 
@@ -117,7 +123,11 @@ export function ManagerRequestDetailPanel({
   useEffect(() => {
     let active = true;
 
-    getMyAccountRequest(accessToken, requestId)
+    const detailRequest = readOnly
+      ? getDivisionEmployeeRequest(accessToken, requestId)
+      : getMyAccountRequest(accessToken, requestId);
+
+    detailRequest
       .then((response) => {
         if (!active) {
           return;
@@ -162,6 +172,7 @@ export function ManagerRequestDetailPanel({
   }, [
     accessToken,
     requestId,
+    readOnly,
     retryKey,
   ]);
 
@@ -228,6 +239,7 @@ export function ManagerRequestDetailPanel({
 
     if (
       !detail ||
+      readOnly ||
       cancelling ||
       submitting ||
       ![
@@ -295,7 +307,7 @@ export function ManagerRequestDetailPanel({
   ): Promise<void> {
     event.preventDefault();
 
-    if (submitting || detail?.status !== "REJECTED") {
+    if (readOnly || submitting || detail?.status !== "REJECTED") {
       return;
     }
 
@@ -358,7 +370,7 @@ export function ManagerRequestDetailPanel({
       >
         <header className="manager-detail-header">
           <div>
-            <span>Account request</span>
+            <span>{readOnly ? "Division employee request" : "Account request"}</span>
 
             <h2 id="manager-request-detail-title">Request details</h2>
           </div>
@@ -467,6 +479,21 @@ export function ManagerRequestDetailPanel({
 
                 <strong>{formatDate(detail.reviewedAt)}</strong>
               </div>
+
+              {"requestedBy" in detail && (
+                <div>
+                  <span>Requested by</span>
+
+                  <strong>
+                    {detail.requestedBy.employee?.empName ??
+                      formatRole(detail.requestedBy.role)}
+                  </strong>
+
+                  <small>
+                    {detail.requestedBy.employee?.empId ?? "Authorized requester"}
+                  </small>
+                </div>
+              )}
             </section>
 
             <section className="manager-history-section">
@@ -493,7 +520,18 @@ export function ManagerRequestDetailPanel({
               </div>
             </section>
 
-            {[
+            {readOnly && (
+              <section className="manager-detail-readonly">
+                <strong>Read-only division oversight</strong>
+                <p>
+                  You can review this Employee request because it was submitted
+                  by a Team Manager inside your assigned division. Only the
+                  original requester and Super Admin can change its lifecycle.
+                </p>
+              </section>
+            )}
+
+            {!readOnly && [
               "PENDING_APPROVAL",
               "APPROVED",
               "ACTIVATION_PENDING",
@@ -586,7 +624,7 @@ export function ManagerRequestDetailPanel({
               </section>
             )}
 
-            {detail.status === "REJECTED" && (
+            {!readOnly && detail.status === "REJECTED" && (
               <form className="manager-resubmit-form" onSubmit={handleResubmit}>
                 <header>
                   <span>Correct and resubmit</span>

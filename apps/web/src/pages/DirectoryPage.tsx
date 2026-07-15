@@ -27,7 +27,6 @@ export function DirectoryPage() {
   const {
     account,
     accessToken,
-    logout,
   } = useAuth();
 
   // This ID controls which employee profile is shown in the details panel.
@@ -41,35 +40,12 @@ export function DirectoryPage() {
     setDirectoryRefreshKey,
   ] = useState(0);
 
-  const [
-    loggingOut,
-    setLoggingOut,
-  ] = useState(false);
 
-  // The root route redirects every role to its correct dashboard.
-  function returnToDashboard(): void {
-    navigate("/");
-  }
-
-  // The shared authentication context safely clears the current session.
-  async function handleLogout(): Promise<void> {
-    setLoggingOut(true);
-
-    try {
-      await logout();
-
-      navigate("/login", {
-        replace: true,
-      });
-    } finally {
-      setLoggingOut(false);
-    }
-  }
 
   // ProtectedRoute normally guarantees the token, but this prevents unsafe requests.
   if (!accessToken) {
     return (
-      <main className="directory-page-shell">
+      <main className="management-page directory-page">
         <section className="directory-page-session-error">
           <strong>
             Secure session unavailable
@@ -95,83 +71,15 @@ export function DirectoryPage() {
   }
   // The details panel is mounted only after an employee is selected.
   return (
-    <main className="directory-page-shell">
-      <header className="directory-page-topbar">
-        <div className="directory-page-brand">
-          <div className="directory-page-logo">
-            <img
-              src="/nt-logo.png"
-              alt="Nepal Telecom"
-            />
-          </div>
-
-          <div>
-            <strong>
-              NT Message
-            </strong>
-
-            <span>
-              Secure Employee Directory
-            </span>
-          </div>
-        </div>
-
-        <div className="directory-page-account">
-          <div>
-            <span>
-              Signed in as
-            </span>
-
-            <strong>
-              {account?.username ??
-                formatRole(
-                  account?.role,
-                )}
-            </strong>
-
-            <small>
-              {formatRole(
-                account?.role,
-              )}
-            </small>
-          </div>
-
-          <div className="directory-page-actions">
-            <button
-              type="button"
-              className="directory-page-back"
-              onClick={
-                returnToDashboard
-              }
-            >
-              Dashboard
-            </button>
-
-            <button
-              type="button"
-              className="directory-page-logout"
-              onClick={
-                handleLogout
-              }
-              disabled={
-                loggingOut
-              }
-            >
-              {loggingOut
-                ? "Signing out..."
-                : "Sign out"}
-            </button>
-          </div>
-        </div>
-      </header>
-
+    <main className="management-page directory-page">
       <section className="directory-page-content">
         <header className="directory-page-heading">
           <div>
             <span>
-              {formatRole(
-                account?.role,
-              )}
+              {account?.positionLabel ??
+                formatRole(
+                  account?.role,
+                )}
             </span>
 
             <h1>
@@ -203,6 +111,9 @@ export function DirectoryPage() {
         <EmployeeDirectory
           reloadKey={
             directoryRefreshKey
+          }
+          selectedEmployeeId={
+            selectedEmployeeId
           }
           accessToken={
             accessToken

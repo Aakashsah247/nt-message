@@ -16,7 +16,7 @@ export function RoleHome() {
 
   return (
     <Navigate
-      to={getRoleHomePath(account.role)}
+      to={account.role === "EMPLOYEE" ? "/employee" : getRoleHomePath(account.role)}
       replace
     />
   );

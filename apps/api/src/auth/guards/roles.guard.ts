@@ -3,12 +3,12 @@ import {
   ExecutionContext,
   ForbiddenException,
   Injectable,
-} from "@nestjs/common";
-import { Reflector } from "@nestjs/core";
-import type { Request } from "express";
-import { AccountRole } from "../../generated/prisma/client";
-import { ROLES_KEY } from "../decorators/roles.decorator";
-import type { AuthenticatedUser } from "../types/auth.types";
+} from '@nestjs/common';
+import { Reflector } from '@nestjs/core';
+import type { Request } from 'express';
+import { AccountRole } from '../../generated/prisma/client';
+import { ROLES_KEY } from '../decorators/roles.decorator';
+import type { AuthenticatedUser } from '../types/auth.types';
 
 /*
  * The normal Express request does not define our custom user property.
@@ -28,14 +28,10 @@ export class RolesGuard implements CanActivate {
      * 1. The individual controller method
      * 2. The complete controller class
      */
-    const requiredRoles =
-      this.reflector.getAllAndOverride<AccountRole[]>(
-        ROLES_KEY,
-        [
-          context.getHandler(),
-          context.getClass(),
-        ],
-      );
+    const requiredRoles = this.reflector.getAllAndOverride<AccountRole[]>(
+      ROLES_KEY,
+      [context.getHandler(), context.getClass()],
+    );
 
     /*
      * When no role is attached to the route,
@@ -45,9 +41,7 @@ export class RolesGuard implements CanActivate {
       return true;
     }
 
-    const request = context
-      .switchToHttp()
-      .getRequest<AuthenticatedRequest>();
+    const request = context.switchToHttp().getRequest<AuthenticatedRequest>();
 
     const user = request.user;
 
@@ -57,17 +51,15 @@ export class RolesGuard implements CanActivate {
      */
     if (!user) {
       throw new ForbiddenException(
-        "Authenticated account information is missing.",
+        'Authenticated account information is missing.',
       );
     }
 
-    const roleIsAllowed = requiredRoles.includes(
-      user.role,
-    );
+    const roleIsAllowed = requiredRoles.includes(user.role);
 
     if (!roleIsAllowed) {
       throw new ForbiddenException(
-        "You do not have permission to perform this action.",
+        'You do not have permission to perform this action.',
       );
     }
 
