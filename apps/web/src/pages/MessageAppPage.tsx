@@ -1,4 +1,5 @@
 import {
+  Fragment,
   useCallback,
   useEffect,
   useLayoutEffect,
@@ -15,9 +16,8 @@ import type {
 } from "react";
 import { useLocation, useNavigate } from "react-router";
 
-import { DirectoryButton } from "../components/DirectoryButton";
-import { EmergencyAlertButton } from "../components/EmergencyAlertButton";
 import { useAuth } from "../context/AuthContext";
+import { useAvatarRegistry } from "../context/AvatarContext";
 import {
   acceptMessageRequest,
   addGroupMembers,
@@ -139,6 +139,7 @@ type RealtimeConnectionStatus =
   | "DISCONNECTED";
 
 type SharedContentTab = "MEDIA" | "DOCUMENTS" | "LINKS";
+type ConversationCategory = "ALL" | "UNREAD" | "GROUPS" | "OFFICIAL";
 
 const PRIVATE_GROUP_HISTORY_OPTIONS: Array<{
   value: PrivateGroupHistoryWindow;
@@ -174,6 +175,7 @@ const NOTIFICATION_SOUND_STORAGE_KEY = "nt-message:notification-sound-enabled";
 const BROWSER_NOTIFICATION_STORAGE_KEY = "nt-message:browser-notifications-enabled";
 const CUSTOMIZATION_STORAGE_KEY = "nt-message:customization";
 const SETTINGS_STORAGE_KEY = "nt-message:settings";
+const MESSAGE_NAVIGATION_STORAGE_KEY = "nt-message:navigation-expanded";
 const NOTIFICATION_SOUND_URL = "/sounds/web-whatsapp.mp3";
 const MESSAGE_EDIT_WINDOW_MS = 15 * 60 * 1000;
 const QUICK_REACTIONS = ["👍", "❤️", "😂", "😮", "😢", "🙏"] as const;
@@ -276,12 +278,14 @@ const DENSITY_OPTIONS: Array<{ value: MessagingDensity; label: string }> = [
   { value: "COMFORTABLE", label: "Comfortable" },
   { value: "COMPACT", label: "Compact" },
 ];
-const ACCEPTED_ATTACHMENT_TYPES = [
+const MEDIA_ATTACHMENT_TYPES = [
   "image/jpeg",
   "image/png",
   "image/webp",
   "video/mp4",
   "video/webm",
+] as const;
+const AUDIO_ATTACHMENT_TYPES = [
   "audio/aac",
   "audio/m4a",
   "audio/mp4",
@@ -290,6 +294,8 @@ const ACCEPTED_ATTACHMENT_TYPES = [
   "audio/wav",
   "audio/webm",
   "audio/x-m4a",
+] as const;
+const DOCUMENT_ATTACHMENT_TYPES = [
   "application/pdf",
   "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
   "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
@@ -297,7 +303,50 @@ const ACCEPTED_ATTACHMENT_TYPES = [
   "text/plain",
   "text/csv",
   "application/zip",
+] as const;
+const ACCEPTED_ATTACHMENT_TYPES = [
+  ...MEDIA_ATTACHMENT_TYPES,
+  ...AUDIO_ATTACHMENT_TYPES,
+  ...DOCUMENT_ATTACHMENT_TYPES,
 ].join(",");
+const COMPOSER_EMOJI_SECTIONS = [
+  {
+    label: "Smileys",
+    emojis: [
+      "😀", "😃", "😄", "😁", "😆", "😅", "😂", "🤣",
+      "😊", "🙂", "😉", "😍", "🥰", "😘", "😎", "🤩",
+      "🤔", "😮", "😢", "😭", "😡", "🥳", "😴", "🤗",
+    ],
+  },
+  {
+    label: "Gestures",
+    emojis: [
+      "👍", "👎", "👌", "✌️", "🤞", "🤟", "🤘", "👏",
+      "🙌", "🙏", "💪", "👋", "🤝", "☝️", "👇", "👉",
+    ],
+  },
+  {
+    label: "Hearts & symbols",
+    emojis: [
+      "❤️", "🩷", "🧡", "💛", "💚", "💙", "💜", "🤍",
+      "🤎", "🖤", "💔", "❣️", "💕", "💯", "✅", "❌",
+    ],
+  },
+  {
+    label: "Celebration",
+    emojis: [
+      "🎉", "🎊", "🎂", "🎁", "🏆", "🥇", "⭐", "🌟",
+      "✨", "🔥", "🚀", "💡", "📌", "📣", "🔔", "💬",
+    ],
+  },
+  {
+    label: "Food & nature",
+    emojis: [
+      "☕", "🍵", "🍕", "🍔", "🍰", "🍎", "🌹", "🌻",
+      "🌈", "☀️", "🌙", "⚡", "🌧️", "❄️", "🐶", "🐱",
+    ],
+  },
+] as const;
 const MAX_IMAGE_ATTACHMENT_BYTES = 20 * 1024 * 1024;
 const MAX_DOCUMENT_ATTACHMENT_BYTES = 50 * 1024 * 1024;
 const MAX_AUDIO_ATTACHMENT_BYTES = 25 * 1024 * 1024;
@@ -460,7 +509,9 @@ interface MessageAttachmentCardProps {
   conversationId: string;
   messageId: string;
   attachment: MessagingAttachment;
-  onDownload: (attachment: MessagingAttachment) => void;
+  isVoiceNote: boolean;
+  senderDisplayName: string;
+  senderPhotoUrl: string | null;
   onPreview: (attachment: MessagingAttachment) => void;
 }
 
@@ -490,25 +541,346 @@ const EMPTY_ATTACHMENT_UPLOAD_STATE: AttachmentUploadState = {
   error: null,
 };
 
+type AttachmentGlyphName =
+  | "audio"
+  | "copy"
+  | "document"
+  | "download"
+  | "edit"
+  | "forward"
+  | "image"
+  | "info"
+  | "location"
+  | "microphone"
+  | "pause"
+  | "pdf"
+  | "pin"
+  | "play"
+  | "retry"
+  | "star"
+  | "trash"
+  | "video";
+
+function AttachmentGlyph({ name }: { name: AttachmentGlyphName }) {
+  const commonProps = {
+    viewBox: "0 0 24 24",
+    fill: "none",
+    stroke: "currentColor",
+    strokeWidth: 1.9,
+    strokeLinecap: "round" as const,
+    strokeLinejoin: "round" as const,
+    "aria-hidden": true,
+  };
+
+  switch (name) {
+    case "image":
+      return (
+        <svg {...commonProps}>
+          <rect x="3" y="4" width="18" height="16" rx="3" />
+          <circle cx="8.5" cy="9" r="1.6" />
+          <path d="m5 17 4.5-4.5 3.2 3.2 2-2L19 18" />
+        </svg>
+      );
+    case "video":
+      return (
+        <svg {...commonProps}>
+          <rect x="3" y="5" width="14" height="14" rx="3" />
+          <path d="m10 9 4 3-4 3Z" />
+          <path d="m17 10 4-2v8l-4-2" />
+        </svg>
+      );
+    case "audio":
+      return (
+        <svg {...commonProps}>
+          <path d="M9 18V6l8-2v12" />
+          <circle cx="6" cy="18" r="3" />
+          <circle cx="14" cy="16" r="3" />
+        </svg>
+      );
+    case "location":
+      return (
+        <svg {...commonProps}>
+          <path d="M20 10c0 5-8 11-8 11S4 15 4 10a8 8 0 1 1 16 0Z" />
+          <circle cx="12" cy="10" r="2.5" />
+        </svg>
+      );
+    case "microphone":
+      return (
+        <svg {...commonProps}>
+          <rect x="9" y="3" width="6" height="11" rx="3" />
+          <path d="M6 11a6 6 0 0 0 12 0M12 17v4M9 21h6" />
+        </svg>
+      );
+    case "pdf":
+      return (
+        <svg {...commonProps}>
+          <path d="M6 3h8l4 4v14H6Z" />
+          <path d="M14 3v5h5" />
+          <path d="M8.5 15h7M8.5 18h5" />
+        </svg>
+      );
+    case "document":
+      return (
+        <svg {...commonProps}>
+          <path d="M6 3h8l4 4v14H6Z" />
+          <path d="M14 3v5h5M9 12h6M9 16h6" />
+        </svg>
+      );
+    case "copy":
+      return (
+        <svg {...commonProps}>
+          <rect x="8" y="8" width="11" height="11" rx="2" />
+          <path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2" />
+        </svg>
+      );
+    case "download":
+      return (
+        <svg {...commonProps}>
+          <path d="M12 3v12" />
+          <path d="m7.5 10.5 4.5 4.5 4.5-4.5" />
+          <path d="M5 21h14" />
+        </svg>
+      );
+    case "edit":
+      return (
+        <svg {...commonProps}>
+          <path d="M4 20h4l10.5-10.5a2.1 2.1 0 0 0-3-3L5 17v3Z" />
+          <path d="m13.5 8.5 3 3" />
+        </svg>
+      );
+    case "forward":
+      return (
+        <svg {...commonProps}>
+          <path d="m14 5 6 7-6 7v-4H9c-3.3 0-5.7 1.1-7 3 1-5.4 4-8 9-8h3V5Z" />
+        </svg>
+      );
+    case "info":
+      return (
+        <svg {...commonProps}>
+          <circle cx="12" cy="12" r="9" />
+          <path d="M12 11v6M12 7h.01" />
+        </svg>
+      );
+    case "pause":
+      return (
+        <svg {...commonProps}>
+          <path d="M9 7v10M15 7v10" />
+        </svg>
+      );
+    case "pin":
+      return (
+        <svg {...commonProps}>
+          <path d="m9 3 6 0-.8 5 3 3H6.8l3-3L9 3Z" />
+          <path d="M12 11v10" />
+        </svg>
+      );
+    case "retry":
+      return (
+        <svg {...commonProps}>
+          <path d="M20 7v5h-5" />
+          <path d="M18.2 16a8 8 0 1 1 .7-8.5L20 12" />
+        </svg>
+      );
+    case "star":
+      return (
+        <svg {...commonProps}>
+          <path d="m12 3 2.8 5.7 6.2.9-4.5 4.4 1.1 6.2-5.6-2.9-5.6 2.9 1.1-6.2L3 9.6l6.2-.9L12 3Z" />
+        </svg>
+      );
+    case "trash":
+      return (
+        <svg {...commonProps}>
+          <path d="M4 7h16M9 7V4h6v3M7 7l1 13h8l1-13M10 11v5M14 11v5" />
+        </svg>
+      );
+    case "play":
+    default:
+      return (
+        <svg {...commonProps}>
+          <path d="m9 7 8 5-8 5Z" />
+        </svg>
+      );
+  }
+}
+
+function CompactAttachmentAudio({
+  src,
+  voiceNote,
+  senderDisplayName,
+  senderPhotoUrl,
+}: {
+  src: string;
+  voiceNote: boolean;
+  senderDisplayName?: string;
+  senderPhotoUrl?: string | null;
+}) {
+  const audioRef = useRef<HTMLAudioElement | null>(null);
+  const [playing, setPlaying] = useState(false);
+  const [duration, setDuration] = useState(0);
+  const [currentTime, setCurrentTime] = useState(0);
+  const waveformBars = voiceNote ? 34 : 24;
+  const progressRatio = duration > 0 ? Math.min(currentTime / duration, 1) : 0;
+
+  useEffect(() => {
+    setPlaying(false);
+    setCurrentTime(0);
+    setDuration(0);
+  }, [src]);
+
+  function togglePlayback() {
+    const audio = audioRef.current;
+
+    if (!audio) {
+      return;
+    }
+
+    if (audio.paused) {
+      void audio.play().catch(() => setPlaying(false));
+      return;
+    }
+
+    audio.pause();
+  }
+
+  function handleSeek(nextTime: number) {
+    const audio = audioRef.current;
+
+    if (!audio) {
+      return;
+    }
+
+    audio.currentTime = nextTime;
+    setCurrentTime(nextTime);
+  }
+
+  return (
+    <div className={`message-audio-player-v3${voiceNote ? " voice-note" : " audio-file"}`}>
+      <span className="message-audio-avatar-v3" aria-hidden="true">
+        <span className="message-audio-avatar-visual-v3">
+          {voiceNote && senderPhotoUrl ? (
+            <img src={senderPhotoUrl} alt="" />
+          ) : voiceNote ? (
+            <span>{initials(senderDisplayName ?? "Voice message")}</span>
+          ) : (
+            <AttachmentGlyph name="audio" />
+          )}
+        </span>
+        {voiceNote && (
+          <span className="message-audio-microphone-v3">
+            <AttachmentGlyph name="microphone" />
+          </span>
+        )}
+      </span>
+
+      <button
+        type="button"
+        className="message-audio-play-v3"
+        onClick={togglePlayback}
+        aria-label={playing ? "Pause audio" : "Play audio"}
+      >
+        <AttachmentGlyph name={playing ? "pause" : "play"} />
+      </button>
+
+      <div className="message-audio-content-v3">
+        <div className="message-audio-waveform-v3" aria-hidden="true">
+          {Array.from({ length: waveformBars }, (_, index) => (
+            <i
+              key={index}
+              className={(index + 1) / waveformBars <= progressRatio ? "is-played" : ""}
+            />
+          ))}
+        </div>
+
+        <input
+          className="message-audio-seek-v3"
+          type="range"
+          min={0}
+          max={Math.max(duration, 1)}
+          step={0.1}
+          value={Math.min(currentTime, Math.max(duration, 1))}
+          onChange={(event) => handleSeek(Number(event.target.value))}
+          aria-label="Audio playback position"
+        />
+
+        <div className="message-audio-meta-v3">
+          <span>
+            {formatRecordingDuration(currentTime > 0 ? currentTime : duration)}
+          </span>
+          <span>{voiceNote ? "Voice message" : "Audio"}</span>
+        </div>
+      </div>
+
+      <audio
+        ref={audioRef}
+        src={src}
+        preload="metadata"
+        onLoadedMetadata={(event) => setDuration(
+          Number.isFinite(event.currentTarget.duration) ? event.currentTarget.duration : 0,
+        )}
+        onTimeUpdate={(event) => setCurrentTime(event.currentTarget.currentTime)}
+        onPlay={() => setPlaying(true)}
+        onPause={() => setPlaying(false)}
+        onEnded={() => {
+          setPlaying(false);
+          setCurrentTime(0);
+        }}
+      />
+    </div>
+  );
+}
+
+function attachmentVisualKind(attachment: MessagingAttachment): AttachmentGlyphName {
+  if (isImageAttachment(attachment)) {
+    return "image";
+  }
+
+  if (isVideoAttachment(attachment)) {
+    return "video";
+  }
+
+  if (isAudioAttachment(attachment)) {
+    return "audio";
+  }
+
+  if (isPdfAttachment(attachment)) {
+    return "pdf";
+  }
+
+  return "document";
+}
+
 function MessageAttachmentCard({
   accessToken,
   conversationId,
   messageId,
   attachment,
-  onDownload,
+  isVoiceNote,
+  senderDisplayName,
+  senderPhotoUrl,
   onPreview,
 }: MessageAttachmentCardProps) {
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [previewError, setPreviewError] = useState<string | null>(null);
+  const [previewRequestVersion, setPreviewRequestVersion] = useState(0);
+  const visualKind = attachmentVisualKind(attachment);
+  const canPreview = canPreviewAttachment(attachment);
+  const mediaPreview = isImageAttachment(attachment) || isVideoAttachment(attachment);
+  const audioPreview = isAudioAttachment(attachment);
+  const needsProtectedPreview = mediaPreview || audioPreview;
 
   useEffect(() => {
-    if (!accessToken || (!isImageAttachment(attachment) && !isAudioAttachment(attachment))) {
+    if (!accessToken || !needsProtectedPreview) {
       return;
     }
 
     let cancelled = false;
     let objectUrl: string | null = null;
 
+    setPreviewUrl(null);
+    setPreviewError(null);
+
+    // Media remains behind the authenticated API; a temporary object URL keeps
+    // access tokens and private attachment endpoints out of the rendered DOM.
     void createConversationAttachmentObjectUrl(
       accessToken,
       conversationId,
@@ -523,7 +895,6 @@ function MessageAttachmentCard({
 
         objectUrl = url;
         setPreviewUrl(url);
-        setPreviewError(null);
       })
       .catch((error) => {
         if (cancelled) {
@@ -533,9 +904,7 @@ function MessageAttachmentCard({
         setPreviewError(
           error instanceof Error
             ? error.message
-            : isAudioAttachment(attachment)
-              ? "Audio preview could not be loaded."
-              : "Image preview could not be loaded.",
+            : "Attachment preview could not be loaded.",
         );
       });
 
@@ -546,59 +915,112 @@ function MessageAttachmentCard({
         URL.revokeObjectURL(objectUrl);
       }
     };
-  }, [accessToken, attachment, conversationId, messageId]);
+  }, [
+    accessToken,
+    attachment.id,
+    conversationId,
+    messageId,
+    needsProtectedPreview,
+    previewRequestVersion,
+  ]);
 
-  const canPreview = canPreviewAttachment(attachment);
+  const displayName = isVoiceNote ? "Voice note" : attachment.originalFileName;
+  const attachmentMeta = `${attachmentTypeLabel(attachment)} · ${formatFileSize(
+    attachment.fileSizeBytes,
+  )}`;
 
   return (
-    <div className="message-attachment-card">
-      {isImageAttachment(attachment) && previewUrl && (
-        <button
-          type="button"
-          className="message-attachment-preview-button"
-          onClick={() => onPreview(attachment)}
-          aria-label={`Open ${attachment.originalFileName}`}
-        >
-          <img
+    <article
+      className={`message-attachment-card-v2 message-attachment-${visualKind}-v2${
+        previewError ? " has-preview-error" : ""
+      }`}
+      aria-label={`${displayName}, ${attachmentMeta}`}
+    >
+      {mediaPreview && (
+        <div className="message-attachment-media-v2">
+          {previewUrl ? (
+            <button
+              type="button"
+              className="message-attachment-media-open-v2"
+              onClick={() => onPreview(attachment)}
+              aria-label={`Preview ${attachment.originalFileName}`}
+            >
+              {isImageAttachment(attachment) ? (
+                <img src={previewUrl} alt={attachment.originalFileName} />
+              ) : (
+                <video src={previewUrl} muted playsInline preload="metadata" />
+              )}
+              {isVideoAttachment(attachment) && (
+                <span className="message-attachment-media-overlay-v2">
+                  <AttachmentGlyph name="play" />
+                </span>
+              )}
+            </button>
+          ) : previewError ? (
+            <div className="message-attachment-preview-state-v2 error">
+              <AttachmentGlyph name="retry" />
+              <strong>Preview unavailable</strong>
+              <button
+                type="button"
+                onClick={() => setPreviewRequestVersion((value) => value + 1)}
+              >
+                Try again
+              </button>
+            </div>
+          ) : (
+            <div
+              className={`message-attachment-preview-state-v2 loading ${visualKind}`}
+              role="status"
+              aria-live="polite"
+            >
+              <span className="message-attachment-loading-icon-v2">
+                <AttachmentGlyph name={visualKind} />
+              </span>
+              <span className="message-small-spinner" />
+              <strong>Loading {isVideoAttachment(attachment) ? "video" : "image"}</strong>
+            </div>
+          )}
+        </div>
+      )}
+
+      {audioPreview && (
+        previewUrl ? (
+          <CompactAttachmentAudio
             src={previewUrl}
-            alt={attachment.originalFileName}
-            className="message-attachment-preview"
+            voiceNote={isVoiceNote}
+            senderDisplayName={senderDisplayName}
+            senderPhotoUrl={senderPhotoUrl}
           />
-        </button>
-      )}
-
-      {isImageAttachment(attachment) && !previewUrl && !previewError && (
-        <div className="message-attachment-preview-placeholder">
-          Loading image...
-        </div>
-      )}
-
-      {isAudioAttachment(attachment) && previewUrl && (
-        <div className="message-audio-card">
-          <div className="message-audio-waveform" aria-hidden="true">
-            <i />
-            <i />
-            <i />
-            <i />
-            <i />
-            <i />
+        ) : previewError ? (
+          <div className="message-attachment-preview-state-v2 error audio">
+            <AttachmentGlyph name="audio" />
+            <span>Audio unavailable</span>
+            <button
+              type="button"
+              onClick={() => setPreviewRequestVersion((value) => value + 1)}
+            >
+              Retry
+            </button>
           </div>
-          <audio src={previewUrl} controls preload="metadata">
-            Your browser does not support audio playback.
-          </audio>
-        </div>
+        ) : (
+          <div
+            className="message-audio-loading-v3"
+            role="status"
+            aria-live="polite"
+          >
+            <span className="message-audio-loading-icon-v3">
+              <AttachmentGlyph name={isVoiceNote ? "microphone" : "audio"} />
+            </span>
+            <span className="message-small-spinner" />
+            <span>{isVoiceNote ? "Loading voice message" : "Loading audio"}</span>
+          </div>
+        )
       )}
 
-      {isAudioAttachment(attachment) && !previewUrl && !previewError && (
-        <div className="message-attachment-preview-placeholder">
-          Loading audio...
-        </div>
-      )}
-
-      {!isImageAttachment(attachment) && !isAudioAttachment(attachment) && (
+      {!needsProtectedPreview && (
         <button
           type="button"
-          className={`message-attachment-file-preview${canPreview ? "" : " disabled"}`}
+          className="message-attachment-document-v2"
           onClick={() => {
             if (canPreview) {
               onPreview(attachment);
@@ -607,46 +1029,17 @@ function MessageAttachmentCard({
           disabled={!canPreview}
           aria-label={canPreview ? `Preview ${attachment.originalFileName}` : undefined}
         >
-          <span aria-hidden="true">
-            {isVideoAttachment(attachment) ? "▶" : documentIcon(attachment)}
+          <span className="message-attachment-document-icon-v2">
+            <AttachmentGlyph name={isPdfAttachment(attachment) ? "pdf" : "document"} />
           </span>
-          <small>
-            {canPreview ? "Tap to preview" : "Download to open"}
-          </small>
+          <span>
+            <strong>{displayName}</strong>
+            <small>{attachmentMeta}</small>
+          </span>
         </button>
       )}
 
-      {previewError && (
-        <div className="message-attachment-preview-placeholder error">
-          {previewError}
-        </div>
-      )}
-
-      <div className="message-attachment-info">
-        <strong>{attachment.originalFileName}</strong>
-        <span>
-          {attachmentTypeLabel(attachment)} · {formatFileSize(attachment.fileSizeBytes)}
-        </span>
-      </div>
-
-      <div className="message-attachment-actions">
-        {canPreview && (
-          <button
-            type="button"
-            onClick={() => onPreview(attachment)}
-          >
-            Preview
-          </button>
-        )}
-
-        <button
-          type="button"
-          onClick={() => onDownload(attachment)}
-        >
-          Download
-        </button>
-      </div>
-    </div>
+    </article>
   );
 }
 
@@ -673,6 +1066,20 @@ function readStoredHighlightedMessageId(): string | null {
     return messageId;
   } catch {
     return null;
+  }
+}
+
+function readStoredNavigationExpanded(): boolean {
+  try {
+    const storedValue = window.localStorage.getItem(
+      MESSAGE_NAVIGATION_STORAGE_KEY,
+    );
+
+    // Keep the labelled navigation open for first-time users. Their choice is
+    // persisted after the first interaction so the workspace stays familiar.
+    return storedValue === null ? true : storedValue === "true";
+  } catch {
+    return true;
   }
 }
 
@@ -718,6 +1125,49 @@ function formatMessageTime(value: string): string {
     hour: "numeric",
     minute: "2-digit",
   }).format(new Date(value));
+}
+
+function isSameCalendarDay(first: string, second: string): boolean {
+  return new Date(first).toDateString() === new Date(second).toDateString();
+}
+
+function messagesBelongToSameVisualGroup(
+  first: MessagingMessage | undefined,
+  second: MessagingMessage | undefined,
+): boolean {
+  if (!first || !second) {
+    return false;
+  }
+
+  // Five minutes keeps rapid exchanges visually connected without merging
+  // messages that were sent as separate parts of the conversation.
+  return (
+    first.senderAccountId === second.senderAccountId &&
+    isSameCalendarDay(first.sentAt, second.sentAt) &&
+    new Date(second.sentAt).getTime() - new Date(first.sentAt).getTime() <
+      5 * 60 * 1000
+  );
+}
+
+function formatMessageDay(value: string): string {
+  const date = new Date(value);
+  const today = new Date();
+  const yesterday = new Date(today);
+  yesterday.setDate(today.getDate() - 1);
+
+  if (date.toDateString() === today.toDateString()) {
+    return "Today";
+  }
+
+  if (date.toDateString() === yesterday.toDateString()) {
+    return "Yesterday";
+  }
+
+  return new Intl.DateTimeFormat(undefined, {
+    weekday: "short",
+    month: "short",
+    day: "numeric",
+  }).format(date);
 }
 
 function formatFileSize(bytes: number): string {
@@ -1130,26 +1580,39 @@ function LocationMessageCard({
 
   const active = isLiveLocationActive(location);
   const ownMessage = message.senderAccountId === viewerAccountId;
+  const statusLabel = location.label ?? locationStatusLabel(location);
 
   return (
-    <div className={`message-location-card${active ? " live" : ""}`}>
-      <div className="message-location-map-preview" aria-hidden="true">
-        <span>📍</span>
-      </div>
+    <article className={`message-location-card-v2${active ? " live" : ""}`}>
+      <a
+        className="message-location-map-v2"
+        href={location.mapUrl}
+        target="_blank"
+        rel="noreferrer"
+        aria-label={`Open ${statusLabel} in maps`}
+      >
+        <span className="message-location-pin-v2">
+          <AttachmentGlyph name="location" />
+        </span>
+        <span className="message-location-grid-v2" aria-hidden="true" />
+      </a>
 
-      <div className="message-location-content">
-        <strong>{location.label ?? locationStatusLabel(location)}</strong>
-        <span>
+      <div className="message-location-body-v2">
+        <div className="message-location-heading-v2">
+          <span className={`message-location-status-v2${active ? " active" : ""}`} />
+          <strong>{statusLabel}</strong>
+        </div>
+        <span className="message-location-coordinates-v2">
           {formatLocationCoordinate(location.latitude)}, {formatLocationCoordinate(location.longitude)}
         </span>
         <small>
-          {formatLocationUpdatedAt(location.updatedAt)}
+          Updated {formatLocationUpdatedAt(location.updatedAt)}
           {location.accuracyMeters !== null
             ? ` · ±${Math.round(location.accuracyMeters)}m`
             : ""}
         </small>
 
-        <div className="message-location-actions">
+        <div className="message-location-actions-v2">
           <a href={location.mapUrl} target="_blank" rel="noreferrer">
             Open map
           </a>
@@ -1160,12 +1623,12 @@ function LocationMessageCard({
               onClick={() => onStop(message)}
               disabled={stopping}
             >
-              {stopping ? "Stopping..." : "Stop sharing"}
+              {stopping ? "Stopping…" : "Stop sharing"}
             </button>
           )}
         </div>
       </div>
-    </div>
+    </article>
   );
 }
 
@@ -1458,6 +1921,266 @@ function roleLabel(value: string): string {
     .join(" ");
 }
 
+
+type MessageNavigationIconName =
+  | "search"
+  | "chats"
+  | "requests"
+  | "groups"
+  | "official"
+  | "appearance"
+  | "settings"
+  | "starred"
+  | "bell"
+  | "profile"
+  | "workspace"
+  | "logout"
+  | "archive"
+  | "newChat"
+  | "newGroup"
+  | "emoji"
+  | "microphone"
+  | "send"
+  | "shared"
+  | "addUser"
+  | "info"
+  | "close"
+  | "pin"
+  | "unread"
+  | "react"
+  | "reply"
+  | "more";
+
+function MessageNavigationIcon({ name }: { name: MessageNavigationIconName }) {
+  const commonProps = {
+    className: "message-nav-svg",
+    viewBox: "0 0 24 24",
+    fill: "none",
+    stroke: "currentColor",
+    strokeWidth: 1.8,
+    strokeLinecap: "round" as const,
+    strokeLinejoin: "round" as const,
+    "aria-hidden": true,
+  };
+
+  switch (name) {
+    case "search":
+      return (
+        <svg {...commonProps}>
+          <circle cx="11" cy="11" r="6.5" />
+          <path d="m16 16 4 4" />
+        </svg>
+      );
+    case "chats":
+      return (
+        <svg {...commonProps}>
+          <path d="M5 17.5 3.5 21l4-1.7c1.2.5 2.6.7 4 .7 4.7 0 8.5-3.2 8.5-7.2S16.2 5.5 11.5 5.5 3 8.7 3 12.8c0 1.8.8 3.4 2 4.7Z" />
+          <path d="M8 11h7M8 14h4.5" />
+        </svg>
+      );
+    case "requests":
+      return (
+        <svg {...commonProps}>
+          <rect x="3.5" y="5" width="17" height="14" rx="2.5" />
+          <path d="m5 7 7 5 7-5" />
+        </svg>
+      );
+    case "groups":
+      return (
+        <svg {...commonProps}>
+          <circle cx="9" cy="9" r="3" />
+          <circle cx="17" cy="10" r="2.5" />
+          <path d="M3.8 19c.5-3.2 2.3-5 5.2-5s4.7 1.8 5.2 5M14.5 15.2c2.7-.5 4.7.8 5.5 3.8" />
+        </svg>
+      );
+    case "official":
+      return (
+        <svg {...commonProps}>
+          <path d="M12 3 5 6v5c0 4.5 2.7 8 7 10 4.3-2 7-5.5 7-10V6l-7-3Z" />
+          <path d="m9 12 2 2 4-4" />
+        </svg>
+      );
+    case "appearance":
+      return (
+        <svg {...commonProps}>
+          <path d="m12 3 1.2 3.3L16.5 7.5l-3.3 1.2L12 12l-1.2-3.3-3.3-1.2 3.3-1.2L12 3Z" />
+          <path d="m18.5 13 .8 2.2 2.2.8-2.2.8-.8 2.2-.8-2.2-2.2-.8 2.2-.8.8-2.2Z" />
+          <path d="m6 14 .7 1.8 1.8.7-1.8.7L6 19l-.7-1.8-1.8-.7 1.8-.7L6 14Z" />
+        </svg>
+      );
+    case "settings":
+      return (
+        <svg {...commonProps}>
+          <circle cx="12" cy="12" r="3" />
+          <path d="M19 13.5v-3l-2-.7a7.5 7.5 0 0 0-.8-1.8l.9-1.9-2.2-2.2-1.9.9a7.5 7.5 0 0 0-1.8-.8L10.5 2h-3L6.8 4a7.5 7.5 0 0 0-1.8.8l-1.9-.9L.9 6.1 1.8 8a7.5 7.5 0 0 0-.8 1.8l-2 .7v3l2 .7a7.5 7.5 0 0 0 .8 1.8l-.9 1.9 2.2 2.2 1.9-.9a7.5 7.5 0 0 0 1.8.8l.7 2h3l.7-2a7.5 7.5 0 0 0 1.8-.8l1.9.9 2.2-2.2-.9-1.9a7.5 7.5 0 0 0 .8-1.8l2-.7Z" transform="translate(2 0) scale(.83)" />
+        </svg>
+      );
+    case "starred":
+      return (
+        <svg {...commonProps}>
+          <path d="m12 3 2.7 5.5 6.1.9-4.4 4.3 1 6.1-5.4-2.9-5.4 2.9 1-6.1-4.4-4.3 6.1-.9L12 3Z" />
+        </svg>
+      );
+    case "bell":
+      return (
+        <svg {...commonProps}>
+          <path d="M18 9a6 6 0 0 0-12 0c0 7-3 7-3 8.5h18C21 16 18 16 18 9Z" />
+          <path d="M10 21h4" />
+        </svg>
+      );
+    case "profile":
+      return (
+        <svg {...commonProps}>
+          <circle cx="12" cy="8" r="3.5" />
+          <path d="M5 20c.7-4 3-6 7-6s6.3 2 7 6" />
+        </svg>
+      );
+    case "workspace":
+      return (
+        <svg {...commonProps}>
+          <path d="M10 5 3 12l7 7" />
+          <path d="M4 12h16" />
+        </svg>
+      );
+    case "logout":
+      return (
+        <svg {...commonProps}>
+          <path d="M10 4H5a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h5" />
+          <path d="m15 8 4 4-4 4M19 12H9" />
+        </svg>
+      );
+    case "archive":
+      return (
+        <svg {...commonProps}>
+          <rect x="4" y="5" width="16" height="4.5" rx="1.5" />
+          <path d="M6.5 9.5V17a2 2 0 0 0 2 2h7a2 2 0 0 0 2-2V9.5" />
+          <path d="M10 13h4" />
+        </svg>
+      );
+    case "newChat":
+      return (
+        <svg {...commonProps}>
+          <path d="M5 19h12a2 2 0 0 0 2-2V9" />
+          <path d="M15.5 4.5 19.5 8.5" />
+          <path d="m8 16 1-4 8-8a1.4 1.4 0 0 1 2 0l1 1a1.4 1.4 0 0 1 0 2l-8 8-4 1Z" />
+        </svg>
+      );
+    case "newGroup":
+      return (
+        <svg {...commonProps}>
+          <circle cx="9" cy="9" r="3" />
+          <circle cx="16.5" cy="10" r="2.5" />
+          <path d="M3.5 19c.5-3.2 2.4-5 5.5-5s5 1.8 5.5 5" />
+          <path d="M18.5 4.5v5M16 7h5" />
+        </svg>
+      );
+    case "emoji":
+      return (
+        <svg {...commonProps}>
+          <circle cx="12" cy="12" r="9" />
+          <path d="M8.5 10h.01M15.5 10h.01M8 14.5c1.1 1.4 2.4 2.1 4 2.1s2.9-.7 4-2.1" />
+        </svg>
+      );
+    case "microphone":
+      return (
+        <svg {...commonProps}>
+          <rect x="8" y="3" width="8" height="12" rx="4" />
+          <path d="M5 11a7 7 0 0 0 14 0M12 18v3M9 21h6" />
+        </svg>
+      );
+    case "send":
+      return (
+        <svg {...commonProps}>
+          <path d="m21 3-7.5 18-3.8-7.7L2 9.5 21 3Z" />
+          <path d="m9.7 13.3 4.8-4.8" />
+        </svg>
+      );
+    case "shared":
+      return (
+        <svg {...commonProps}>
+          <rect x="3.5" y="5" width="17" height="14" rx="2.5" />
+          <circle cx="9" cy="10" r="1.5" />
+          <path d="m5.5 16 4-4 3 3 2.2-2.2L18.5 16" />
+        </svg>
+      );
+    case "addUser":
+      return (
+        <svg {...commonProps}>
+          <circle cx="9" cy="8" r="3" />
+          <path d="M3.5 19c.6-3.6 2.4-5.5 5.5-5.5s4.9 1.9 5.5 5.5" />
+          <path d="M17 7v6M14 10h6" />
+        </svg>
+      );
+    case "info":
+      return (
+        <svg {...commonProps}>
+          <circle cx="12" cy="12" r="9" />
+          <path d="M12 11v5" />
+          <path d="M12 8h.01" />
+        </svg>
+      );
+    case "close":
+      return (
+        <svg {...commonProps}>
+          <path d="m7 7 10 10M17 7 7 17" />
+        </svg>
+      );
+    case "pin":
+      return (
+        <svg {...commonProps}>
+          <path d="m8 4 8 8" />
+          <path d="m14 3 7 7-4 1-5 5-1 4-7-7 4-1 5-5 1-4Z" />
+          <path d="m9 15-5 5" />
+        </svg>
+      );
+    case "unread":
+      return (
+        <svg {...commonProps}>
+          <rect x="3.5" y="5" width="17" height="14" rx="2.5" />
+          <path d="m5 7 7 5 7-5" />
+          <circle cx="18" cy="6" r="2.5" fill="currentColor" stroke="white" strokeWidth="1.2" />
+        </svg>
+      );
+    case "react":
+      return (
+        <svg {...commonProps}>
+          <circle cx="12" cy="12" r="9" />
+          <path d="M8.5 10h.01M15.5 10h.01M8.5 14.5c1 1.2 2.1 1.8 3.5 1.8s2.5-.6 3.5-1.8" />
+        </svg>
+      );
+    case "reply":
+      return (
+        <svg {...commonProps}>
+          <path d="m10 8-5 4 5 4" />
+          <path d="M5 12h8c3.3 0 6 2.7 6 6" />
+        </svg>
+      );
+    case "more":
+      return (
+        <svg {...commonProps}>
+          <circle cx="5" cy="12" r="1" fill="currentColor" stroke="none" />
+          <circle cx="12" cy="12" r="1" fill="currentColor" stroke="none" />
+          <circle cx="19" cy="12" r="1" fill="currentColor" stroke="none" />
+        </svg>
+      );
+  }
+}
+
+function workspacePathForRole(role: string | undefined): string {
+  switch (role) {
+    case "SUPER_ADMIN":
+      return "/super-admin";
+    case "SENIOR_MANAGEMENT":
+      return "/senior-management";
+    case "TEAM_MANAGER":
+      return "/team-manager";
+    case "EMPLOYEE":
+      return "/employee";
+    default:
+      return "/";
+  }
+}
+
 function officialScopeLabel(
   conversation: MessagingConversation,
 ): string {
@@ -1660,6 +2383,8 @@ export function MessageAppPage() {
     accessToken,
     logout,
   } = useAuth();
+  const { refreshAvatar } = useAvatarRegistry();
+  const mainWorkspacePath = workspacePathForRole(account?.role);
 
   const [loggingOut, setLoggingOut] = useState(false);
   const [realtimeStatus, setRealtimeStatus] =
@@ -1672,6 +2397,33 @@ export function MessageAppPage() {
   >({});
   const [conversations, setConversations] = useState<MessagingConversation[]>([]);
   const [conversationListView, setConversationListView] = useState<ConversationListView>("ACTIVE");
+  const [conversationCategory, setConversationCategory] = useState<ConversationCategory>("ALL");
+  const [detailsPanelOpen, setDetailsPanelOpen] = useState(() =>
+    typeof window !== "undefined" &&
+    window.matchMedia("(min-width: 1500px)").matches,
+  );
+  const [navigationExpanded, setNavigationExpanded] = useState(() => {
+    // Mobile navigation always starts closed so the drawer never covers the
+    // initial conversation view after a previous desktop session.
+    if (typeof window !== "undefined" && window.matchMedia("(max-width: 900px)").matches) {
+      return false;
+    }
+
+    return readStoredNavigationExpanded();
+  });
+  const [attachmentMenuOpen, setAttachmentMenuOpen] = useState(false);
+  const [attachmentMenuView, setAttachmentMenuView] = useState<"ROOT" | "LIVE_LOCATION">("ROOT");
+  const [composerEmojiOpen, setComposerEmojiOpen] = useState(false);
+  const [openMessageMenuId, setOpenMessageMenuId] = useState<string | null>(null);
+  const [messageActionMenuPosition, setMessageActionMenuPosition] = useState<{
+    top: number;
+    left: number;
+  } | null>(null);
+  const [openReactionMenuId, setOpenReactionMenuId] = useState<string | null>(null);
+  const [reactionMenuPosition, setReactionMenuPosition] = useState<{
+    top: number;
+    left: number;
+  } | null>(null);
   const [selectedConversationId, setSelectedConversationId] = useState<string | null>(
     readStoredConversationId,
   );
@@ -1684,9 +2436,6 @@ export function MessageAppPage() {
   const [replyingTo, setReplyingTo] = useState<MessagingMessage | null>(null);
   const [editingMessage, setEditingMessage] = useState<MessagingMessage | null>(null);
   const [messageActionId, setMessageActionId] = useState<string | null>(null);
-  const [messageActionMode, setMessageActionMode] = useState<
-    "ME" | "EVERYONE" | null
-  >(null);
   const [reactionActionId, setReactionActionId] = useState<string | null>(null);
   const [pinActionId, setPinActionId] = useState<string | null>(null);
   const [messageInformation, setMessageInformation] = useState<MessageInformation | null>(null);
@@ -1697,6 +2446,7 @@ export function MessageAppPage() {
   const [messageLoading, setMessageLoading] = useState(false);
   const [olderMessagesLoading, setOlderMessagesLoading] = useState(false);
   const [sendingMessage, setSendingMessage] = useState(false);
+  const [sendAttemptFailed, setSendAttemptFailed] = useState(false);
   const [selectedAttachment, setSelectedAttachment] = useState<File | null>(null);
   const [selectedAttachmentKind, setSelectedAttachmentKind] = useState<"FILE" | "VOICE_NOTE">("FILE");
   const [attachmentUpload, setAttachmentUpload] = useState<AttachmentUploadState>(
@@ -1824,6 +2574,119 @@ export function MessageAppPage() {
     );
   }, [messagingSettings]);
 
+  useEffect(() => {
+    try {
+      window.localStorage.setItem(
+        MESSAGE_NAVIGATION_STORAGE_KEY,
+        String(navigationExpanded),
+      );
+    } catch {
+      // The navigation still works when browser storage is unavailable.
+    }
+  }, [navigationExpanded]);
+
+  useEffect(() => {
+    if (!openMessageMenuId && !openReactionMenuId) {
+      return;
+    }
+
+    const closeMenus = () => {
+      setOpenMessageMenuId(null);
+      setMessageActionMenuPosition(null);
+      setOpenReactionMenuId(null);
+      setReactionMenuPosition(null);
+    };
+
+    const handlePointerDown = (event: PointerEvent) => {
+      const target = event.target;
+
+      if (!(target instanceof Element)) {
+        closeMenus();
+        return;
+      }
+
+      const actionTrigger = target.closest<HTMLElement>(
+        "[data-message-action-trigger]",
+      );
+      const reactionTrigger = target.closest<HTMLElement>(
+        "[data-message-reaction-trigger]",
+      );
+      const actionMenu = target.closest<HTMLElement>("[data-message-action-menu]");
+      const reactionMenu = target.closest<HTMLElement>("[data-message-reaction-menu]");
+      const clickedCurrentTrigger =
+        actionTrigger?.dataset.messageActionTrigger === openMessageMenuId ||
+        reactionTrigger?.dataset.messageReactionTrigger === openReactionMenuId;
+
+      if (!clickedCurrentTrigger && !actionMenu && !reactionMenu) {
+        closeMenus();
+      }
+    };
+
+    const handleKeyDown = (event: globalThis.KeyboardEvent) => {
+      if (event.key === "Escape") {
+        closeMenus();
+      }
+    };
+
+    document.addEventListener("pointerdown", handlePointerDown, true);
+    window.addEventListener("keydown", handleKeyDown);
+    window.addEventListener("resize", closeMenus);
+    document.addEventListener("scroll", closeMenus, true);
+
+    return () => {
+      document.removeEventListener("pointerdown", handlePointerDown, true);
+      window.removeEventListener("keydown", handleKeyDown);
+      window.removeEventListener("resize", closeMenus);
+      document.removeEventListener("scroll", closeMenus, true);
+    };
+  }, [openMessageMenuId, openReactionMenuId]);
+
+  useEffect(() => {
+    if (!attachmentMenuOpen && !composerEmojiOpen) {
+      return;
+    }
+
+    const closeComposerPopovers = () => {
+      setAttachmentMenuOpen(false);
+      setAttachmentMenuView("ROOT");
+      setComposerEmojiOpen(false);
+    };
+
+    const handlePointerDown = (event: PointerEvent) => {
+      const target = event.target;
+
+      if (!(target instanceof Node)) {
+        closeComposerPopovers();
+        return;
+      }
+
+      if (
+        attachmentMenuRef.current?.contains(target) ||
+        composerEmojiMenuRef.current?.contains(target)
+      ) {
+        return;
+      }
+
+      closeComposerPopovers();
+    };
+
+    const handleKeyDown = (event: globalThis.KeyboardEvent) => {
+      if (event.key === "Escape") {
+        closeComposerPopovers();
+      }
+    };
+
+    document.addEventListener("pointerdown", handlePointerDown, true);
+    window.addEventListener("keydown", handleKeyDown);
+    window.addEventListener("resize", closeComposerPopovers);
+
+    return () => {
+      document.removeEventListener("pointerdown", handlePointerDown, true);
+      window.removeEventListener("keydown", handleKeyDown);
+      window.removeEventListener("resize", closeComposerPopovers);
+    };
+  }, [attachmentMenuOpen, composerEmojiOpen]);
+
   useEffect(() => () => {
     clearLiveLocationWatch();
   }, []);
@@ -1916,6 +2779,8 @@ export function MessageAppPage() {
   const [profileBioDraft, setProfileBioDraft] = useState("");
   const [profilePhotoUrl, setProfilePhotoUrl] = useState<string | null>(null);
   const [profilePhotoUrls, setProfilePhotoUrls] = useState<Record<string, string>>({});
+  const [profilePhotoCacheKeys, setProfilePhotoCacheKeys] = useState<Record<string, string>>({});
+  const [ownProfileAccount, setOwnProfileAccount] = useState<MessagingUserProfile | null>(null);
   const profilePhotoUrlsRef = useRef<Record<string, string>>({});
   const [groupPhotoUrls, setGroupPhotoUrls] = useState<Record<string, string>>({});
   const [groupPhotoCacheKeys, setGroupPhotoCacheKeys] = useState<Record<string, string>>({});
@@ -1934,6 +2799,8 @@ export function MessageAppPage() {
   const pendingBottomScrollConversationIdRef = useRef<string | null>(selectedConversationId);
   const composerRef = useRef<HTMLTextAreaElement | null>(null);
   const attachmentInputRef = useRef<HTMLInputElement | null>(null);
+  const attachmentMenuRef = useRef<HTMLDivElement | null>(null);
+  const composerEmojiMenuRef = useRef<HTMLDivElement | null>(null);
   const attachmentViewerRequestRef = useRef(0);
   const voiceRecorderRef = useRef<MediaRecorder | null>(null);
   const voiceRecorderStreamRef = useRef<MediaStream | null>(null);
@@ -1968,6 +2835,21 @@ export function MessageAppPage() {
       selectedConversation.groupKind === "OFFICIAL" &&
       selectedConversation.canManageGroup,
   );
+
+  useLayoutEffect(() => {
+    const composer = composerRef.current;
+
+    if (!composer) {
+      return;
+    }
+
+    // Keep the composer compact for one line and grow only until its scroll limit.
+    composer.style.height = "0px";
+    const maximumHeight = 128;
+    const nextHeight = Math.min(maximumHeight, Math.max(44, composer.scrollHeight));
+    composer.style.height = `${nextHeight}px`;
+    composer.style.overflowY = composer.scrollHeight > maximumHeight ? "auto" : "hidden";
+  }, [editingMessage, messageText, replyingTo, selectedConversationId]);
 
   const groupInviteUrl = useMemo(
     () => groupInviteLink ? buildGroupInviteUrl(groupInviteLink.token) : "",
@@ -2034,6 +2916,53 @@ export function MessageAppPage() {
   }, [attachmentViewer]);
 
   useEffect(() => {
+    if (!attachmentViewer) {
+      return;
+    }
+
+    function handleViewerKeyboard(event: globalThis.KeyboardEvent): void {
+      if (event.key === "Escape") {
+        closeAttachmentViewer();
+      }
+    }
+
+    document.body.classList.add("message-attachment-viewer-open");
+    window.addEventListener("keydown", handleViewerKeyboard);
+
+    return () => {
+      document.body.classList.remove("message-attachment-viewer-open");
+      window.removeEventListener("keydown", handleViewerKeyboard);
+    };
+  }, [attachmentViewer]);
+
+  useEffect(() => {
+    if (!accessToken || !account?.id) {
+      setOwnProfileAccount(null);
+      return;
+    }
+
+    let cancelled = false;
+
+    // Load the signed-in user's protected profile once so the navigation avatar
+    // is available even before their own profile dialog is opened.
+    void getMyMessagingProfile(accessToken)
+      .then((response) => {
+        if (!cancelled) {
+          setOwnProfileAccount(response.data);
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setOwnProfileAccount(null);
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [accessToken, account?.id]);
+
+  useEffect(() => {
     if (!accessToken || !profileAccountId) {
       setProfileData(null);
       setProfileBioDraft("");
@@ -2056,6 +2985,10 @@ export function MessageAppPage() {
 
         setProfileData(response.data);
         setProfileBioDraft(response.data.profileBio ?? "");
+
+        if (response.data.isOwnProfile) {
+          setOwnProfileAccount(response.data);
+        }
       })
       .catch((error) => {
         if (cancelled) {
@@ -2117,14 +3050,15 @@ export function MessageAppPage() {
       return;
     }
 
-    const accountsToLoad = new Map<string, MessagingAccount>();
+    const visibleAccounts = new Map<string, MessagingAccount>();
     const collectAccount = (candidate?: MessagingAccount | null) => {
-      if (candidate?.profilePhotoKey) {
-        accountsToLoad.set(candidate.accountId, candidate);
+      if (candidate) {
+        visibleAccounts.set(candidate.accountId, candidate);
       }
     };
 
-    // Collect every visible account so avatars update across conversations, messages and search results.
+    // Keep one protected avatar cache for every account rendered anywhere in
+    // the messaging workspace. A changed photo key refreshes all occurrences.
     conversations.forEach((conversation) => {
       conversation.participants.forEach(collectAccount);
     });
@@ -2137,15 +3071,55 @@ export function MessageAppPage() {
     blockedAccounts.forEach((block) => collectAccount(block.account));
     searchContactResults.forEach(collectAccount);
     searchResults.forEach((result) => collectAccount(result.message.sender));
-    if (profileData) {
-      collectAccount(profileData);
+    messageRequests.received.forEach((request) => collectAccount(request.peer));
+    messageRequests.sent.forEach((request) => collectAccount(request.peer));
+    messageInformation?.recipients.forEach((recipient) => collectAccount(recipient.account));
+    collectAccount(profileData);
+    collectAccount(ownProfileAccount);
+
+    const changedAccounts = [...visibleAccounts.values()].filter((candidate) => {
+      const nextKey = candidate.profilePhotoKey ?? "";
+      const cachedKey = profilePhotoCacheKeys[candidate.accountId] ?? "";
+      const cachedUrl = profilePhotoUrls[candidate.accountId];
+
+      return cachedKey !== nextKey || Boolean(!nextKey && cachedUrl);
+    });
+
+    if (changedAccounts.length === 0) {
+      return;
     }
 
-    const missingAccounts = [...accountsToLoad.values()].filter(
-      (candidate) => !profilePhotoUrls[candidate.accountId],
+    const removedPhotoAccountIds = changedAccounts
+      .filter((candidate) => !candidate.profilePhotoKey)
+      .map((candidate) => candidate.accountId);
+
+    if (removedPhotoAccountIds.length > 0) {
+      setProfilePhotoUrls((current) => {
+        const next = { ...current };
+
+        for (const accountId of removedPhotoAccountIds) {
+          if (next[accountId]) {
+            URL.revokeObjectURL(next[accountId]);
+          }
+          delete next[accountId];
+        }
+
+        return next;
+      });
+
+      setProfilePhotoCacheKeys((current) => {
+        const next = { ...current };
+        removedPhotoAccountIds.forEach((accountId) => delete next[accountId]);
+        return next;
+      });
+    }
+
+    const accountsToLoad = changedAccounts.filter(
+      (candidate): candidate is MessagingAccount & { profilePhotoKey: string } =>
+        Boolean(candidate.profilePhotoKey),
     );
 
-    if (missingAccounts.length === 0) {
+    if (accountsToLoad.length === 0) {
       return;
     }
 
@@ -2153,13 +3127,15 @@ export function MessageAppPage() {
     const loadedUrls: string[] = [];
 
     void Promise.all(
-      missingAccounts.map(async (candidate) => {
+      accountsToLoad.map(async (candidate) => {
         try {
           const url = await createMessagingProfilePhotoObjectUrl(accessToken, candidate.accountId);
           loadedUrls.push(url);
-          return [candidate.accountId, url] as const;
+          return [candidate.accountId, candidate.profilePhotoKey, url] as const;
         } catch {
-          return null;
+          // Cache the attempted key so an unavailable protected photo does not
+          // trigger a request on every unrelated render.
+          return [candidate.accountId, candidate.profilePhotoKey, null] as const;
         }
       }),
     ).then((entries) => {
@@ -2168,16 +3144,31 @@ export function MessageAppPage() {
         return;
       }
 
-      const nextEntries = entries.filter((entry): entry is readonly [string, string] => Boolean(entry));
+      setProfilePhotoCacheKeys((current) => ({
+        ...current,
+        ...Object.fromEntries(entries.map(([accountId, photoKey]) => [accountId, photoKey])),
+      }));
 
-      if (nextEntries.length === 0) {
+      const successfulEntries = entries.filter(
+        (entry): entry is readonly [string, string, string] => Boolean(entry[2]),
+      );
+
+      if (successfulEntries.length === 0) {
         return;
       }
 
-      setProfilePhotoUrls((current) => ({
-        ...current,
-        ...Object.fromEntries(nextEntries),
-      }));
+      setProfilePhotoUrls((current) => {
+        const next = { ...current };
+
+        for (const [accountId, , url] of successfulEntries) {
+          if (next[accountId] && next[accountId] !== url) {
+            URL.revokeObjectURL(next[accountId]);
+          }
+          next[accountId] = url;
+        }
+
+        return next;
+      });
     });
 
     return () => {
@@ -2188,8 +3179,12 @@ export function MessageAppPage() {
     blockedAccounts,
     contacts,
     conversations,
+    messageInformation,
+    messageRequests,
     messages,
+    ownProfileAccount,
     profileData,
+    profilePhotoCacheKeys,
     profilePhotoRefreshKey,
     profilePhotoUrls,
     searchContactResults,
@@ -2286,34 +3281,91 @@ export function MessageAppPage() {
     [officialGroupScopeKey, officialGroupScopes],
   );
 
-  const filteredConversations = useMemo(() => {
-    const search = conversationSearch.trim().toLowerCase();
+  const filteredConversations = useMemo(
+    () => conversations.filter((conversation) =>
+      conversationCategory === "ALL" ||
+      (conversationCategory === "UNREAD" && conversation.unreadCount > 0) ||
+      (conversationCategory === "GROUPS" && conversation.type === "GROUP") ||
+      (conversationCategory === "OFFICIAL" && conversation.groupKind === "OFFICIAL"),
+    ),
+    [conversationCategory, conversations],
+  );
 
-    if (!search) {
-      return conversations;
+  const conversationSearchResults = useMemo(() => {
+    const query = conversationSearch.trim().toLowerCase();
+
+    if (!query) {
+      return {
+        directChats: [] as MessagingConversation[],
+        groupsInCommon: [] as Array<{
+          conversation: MessagingConversation;
+          matchedDisplayName: string | null;
+        }>,
+      };
     }
 
-    return conversations.filter((conversation) => {
-      const participantText = conversation.participants
-        .map((participant) => [
-          participant.displayName,
-          participant.username,
-          participant.employee?.empId,
-          participant.employee?.designation,
-        ].filter(Boolean).join(" "))
-        .join(" ");
-
-      return [
-        conversation.title,
-        participantText,
-        conversation.lastMessage?.textContent,
+    const accountMatches = (participant: MessagingAccount): boolean =>
+      [
+        participant.displayName,
+        participant.username,
+        participant.employee?.empId,
+        participant.employee?.designation,
+        participant.employee?.department?.name,
+        participant.employee?.division?.name,
       ]
         .filter(Boolean)
         .join(" ")
         .toLowerCase()
-        .includes(search);
+        .includes(query);
+
+    const directChats = conversations.filter((conversation) => {
+      if (conversation.type !== "PRIVATE") {
+        return false;
+      }
+
+      const peer = conversation.participants.find(
+        (participant) => participant.accountId !== account?.id,
+      );
+
+      return Boolean(peer && accountMatches(peer));
     });
-  }, [conversationSearch, conversations]);
+
+    const groupsInCommon = conversations.flatMap((conversation) => {
+      if (conversation.type !== "GROUP") {
+        return [];
+      }
+
+      const matchingParticipant = conversation.participants.find(
+        (participant) =>
+          participant.accountId !== account?.id && accountMatches(participant),
+      );
+      const groupMatches = [conversation.title, conversation.description]
+        .filter(Boolean)
+        .join(" ")
+        .toLowerCase()
+        .includes(query);
+
+      if (!matchingParticipant && !groupMatches) {
+        return [];
+      }
+
+      return [{
+        conversation,
+        matchedDisplayName: matchingParticipant?.displayName ?? null,
+      }];
+    });
+
+    return { directChats, groupsInCommon };
+  }, [account?.id, conversationSearch, conversations]);
+
+  const conversationSearchResultCount =
+    conversationSearchResults.directChats.length +
+    conversationSearchResults.groupsInCommon.length;
+
+  const displayMessages = useMemo(
+    () => messages,
+    [messages],
+  );
 
   const filteredForwardConversations = useMemo(() => {
     const search = forwardSearch.trim().toLowerCase();
@@ -4344,6 +5396,7 @@ export function MessageAppPage() {
       // Users can update display bio only; official identity fields remain read-only.
       const response = await updateMyMessagingProfile(accessToken, profileBioDraft);
       setProfileData(response.data);
+      setOwnProfileAccount(response.data);
       setProfileBioDraft(response.data.profileBio ?? "");
       await loadConversations(true, selectedConversationId ?? undefined);
     } catch (error) {
@@ -4371,13 +5424,23 @@ export function MessageAppPage() {
     try {
       // Profile-photo upload uses the same protected API approach as message media.
       const response = await updateMyMessagingProfilePhoto(accessToken, file);
+      refreshAvatar({
+        accountId: response.data.accountId,
+        employeeId: response.data.employee?.id,
+      });
       setProfileData(response.data);
+      setOwnProfileAccount(response.data);
       setProfilePhotoUrls((current) => {
         const previousUrl = current[response.data.accountId];
         if (previousUrl) {
           URL.revokeObjectURL(previousUrl);
         }
 
+        const { [response.data.accountId]: _removed, ...rest } = current;
+        void _removed;
+        return rest;
+      });
+      setProfilePhotoCacheKeys((current) => {
         const { [response.data.accountId]: _removed, ...rest } = current;
         void _removed;
         return rest;
@@ -4409,7 +5472,12 @@ export function MessageAppPage() {
     try {
       // Removing the display photo must update every avatar source without touching official identity.
       const response = await deleteMyMessagingProfilePhoto(accessToken);
+      refreshAvatar({
+        accountId: response.data.accountId,
+        employeeId: response.data.employee?.id,
+      });
       setProfileData(response.data);
+      setOwnProfileAccount(response.data);
       setProfilePhotoUrl(null);
       setProfilePhotoUrls((current) => {
         const previousUrl = current[response.data.accountId];
@@ -4417,6 +5485,11 @@ export function MessageAppPage() {
           URL.revokeObjectURL(previousUrl);
         }
 
+        const { [response.data.accountId]: _removed, ...rest } = current;
+        void _removed;
+        return rest;
+      });
+      setProfilePhotoCacheKeys((current) => {
         const { [response.data.accountId]: _removed, ...rest } = current;
         void _removed;
         return rest;
@@ -5393,6 +6466,42 @@ export function MessageAppPage() {
     }
   }
 
+  function openAttachmentPicker(acceptedTypes: readonly string[]): void {
+    const input = attachmentInputRef.current;
+
+    if (!input) {
+      return;
+    }
+
+    input.accept = acceptedTypes.join(",");
+    input.value = "";
+    input.click();
+    setAttachmentMenuOpen(false);
+    setAttachmentMenuView("ROOT");
+  }
+
+  function insertComposerEmoji(emoji: string): void {
+    const composer = composerRef.current;
+    const startIndex = composer?.selectionStart ?? composerCaretIndex;
+    const endIndex = composer?.selectionEnd ?? startIndex;
+    const nextText = `${messageText.slice(0, startIndex)}${emoji}${messageText.slice(endIndex)}`;
+    const nextCaretIndex = startIndex + emoji.length;
+
+    setMessageText(nextText);
+    setComposerCaretIndex(nextCaretIndex);
+    setSendAttemptFailed(false);
+    setComposerEmojiOpen(false);
+
+    window.requestAnimationFrame(() => {
+      composerRef.current?.focus();
+      composerRef.current?.setSelectionRange(nextCaretIndex, nextCaretIndex);
+    });
+
+    if (selectedConversationId) {
+      updateLocalTyping(selectedConversationId, nextText);
+    }
+  }
+
   function handleAttachmentChange(
     event: ChangeEvent<HTMLInputElement>,
   ): void {
@@ -5432,6 +6541,7 @@ export function MessageAppPage() {
     setSelectedAttachmentKind("FILE");
     resetAttachmentUpload();
     setMessageError(null);
+    setSendAttemptFailed(false);
 
     setAttachmentPreviewUrl((current) => {
       if (current) {
@@ -5466,6 +6576,18 @@ export function MessageAppPage() {
           ? error.message
           : "The attachment could not be downloaded.",
       );
+    }
+  }
+
+  async function handleDownloadMessageAttachments(
+    message: MessagingMessage,
+  ): Promise<void> {
+    const attachments = message.attachments ?? [];
+
+    // Keep bulk downloads behind the same authenticated download service used
+    // by individual files; no protected media URL is exposed to the browser UI.
+    for (const attachment of attachments) {
+      await handleDownloadAttachment(message, attachment);
     }
   }
 
@@ -5591,7 +6713,6 @@ export function MessageAppPage() {
     }
 
     setMessageActionId(message.id);
-    setMessageActionMode(null);
     setMessageError(null);
     setMessageNotice(null);
 
@@ -5611,7 +6732,6 @@ export function MessageAppPage() {
       );
     } finally {
       setMessageActionId(null);
-      setMessageActionMode(null);
     }
   }
 
@@ -6001,7 +7121,6 @@ export function MessageAppPage() {
     }
 
     setMessageActionId(message.id);
-    setMessageActionMode("ME");
     setMessageError(null);
 
     try {
@@ -6028,7 +7147,6 @@ export function MessageAppPage() {
       );
     } finally {
       setMessageActionId(null);
-      setMessageActionMode(null);
     }
   }
 
@@ -6054,7 +7172,6 @@ export function MessageAppPage() {
     }
 
     setMessageActionId(message.id);
-    setMessageActionMode("EVERYONE");
     setMessageError(null);
 
     try {
@@ -6082,7 +7199,6 @@ export function MessageAppPage() {
       );
     } finally {
       setMessageActionId(null);
-      setMessageActionMode(null);
     }
   }
 
@@ -6143,6 +7259,7 @@ export function MessageAppPage() {
     const isAttachmentSend = selectedAttachment !== null && !editingMessage;
 
     setSendingMessage(true);
+    setSendAttemptFailed(false);
     setMessageError(null);
     stopLocalTyping(selectedConversationId);
 
@@ -6250,6 +7367,7 @@ export function MessageAppPage() {
         }));
       }
 
+      setSendAttemptFailed(true);
       setMessageError(
         errorMessage,
       );
@@ -6261,6 +7379,11 @@ export function MessageAppPage() {
   function handleComposerKeyDown(
     event: KeyboardEvent<HTMLTextAreaElement>,
   ): void {
+    // Do not submit while an input method editor is still composing text.
+    if (event.nativeEvent.isComposing) {
+      return;
+    }
+
     if (event.key === "Enter" && !event.shiftKey) {
       event.preventDefault();
       void handleSendMessage();
@@ -6399,26 +7522,137 @@ export function MessageAppPage() {
   }, [groupInfoConversation, messages]);
   const groupInfoStorageBytes = sharedContentStorageBytes(groupInfoSharedContent);
 
-  function renderAccountAvatar(
-    targetAccount: MessagingAccount,
+  function closeMessageActionMenu(): void {
+    setOpenMessageMenuId(null);
+    setMessageActionMenuPosition(null);
+  }
+
+  function closeReactionMenu(): void {
+    setOpenReactionMenuId(null);
+    setReactionMenuPosition(null);
+  }
+
+  function toggleMessageActionMenu(
+    messageId: string,
+    ownMessage: boolean,
+    event: MouseEvent<HTMLButtonElement>,
+  ): void {
+    event.stopPropagation();
+    closeReactionMenu();
+
+    if (openMessageMenuId === messageId) {
+      closeMessageActionMenu();
+      return;
+    }
+
+    const triggerRect = event.currentTarget.getBoundingClientRect();
+    const menuWidth = 194;
+    const estimatedMenuHeight = 316;
+    const viewportPadding = 10;
+    const gap = 8;
+    const availableBelow = window.innerHeight - triggerRect.bottom;
+    const top = availableBelow >= estimatedMenuHeight + gap
+      ? triggerRect.bottom + gap
+      : Math.max(
+          viewportPadding,
+          triggerRect.top - estimatedMenuHeight - gap,
+        );
+    const preferredLeft = ownMessage
+      ? triggerRect.right - menuWidth
+      : triggerRect.left;
+    const left = Math.min(
+      window.innerWidth - menuWidth - viewportPadding,
+      Math.max(viewportPadding, preferredLeft),
+    );
+
+    setMessageActionMenuPosition({ top, left });
+    setOpenMessageMenuId(messageId);
+  }
+
+  function toggleReactionMenu(
+    messageId: string,
+    ownMessage: boolean,
+    event: MouseEvent<HTMLButtonElement>,
+  ): void {
+    event.stopPropagation();
+    closeMessageActionMenu();
+
+    if (openReactionMenuId === messageId) {
+      closeReactionMenu();
+      return;
+    }
+
+    const triggerRect = event.currentTarget.getBoundingClientRect();
+    const menuWidth = 286;
+    const menuHeight = 54;
+    const viewportPadding = 10;
+    const gap = 8;
+    const preferredTop = triggerRect.top - menuHeight - gap;
+    const top = preferredTop >= viewportPadding
+      ? preferredTop
+      : triggerRect.bottom + gap;
+    const preferredLeft = ownMessage
+      ? triggerRect.right - menuWidth
+      : triggerRect.left;
+    const left = Math.min(
+      window.innerWidth - menuWidth - viewportPadding,
+      Math.max(viewportPadding, preferredLeft),
+    );
+
+    setReactionMenuPosition({ top, left });
+    setOpenReactionMenuId(messageId);
+  }
+
+  function handleNavigationClickCapture(event: MouseEvent<HTMLElement>): void {
+    if (
+      typeof window === "undefined" ||
+      !window.matchMedia("(max-width: 900px)").matches
+    ) {
+      return;
+    }
+
+    const target = event.target;
+
+    if (
+      target instanceof Element &&
+      target.closest("button:not(.message-rail-toggle)")
+    ) {
+      setNavigationExpanded(false);
+    }
+  }
+
+  function renderIdentityAvatar(
+    accountId: string,
+    displayName: string,
     className = "message-avatar",
   ) {
-    const photoUrl = profilePhotoUrls[targetAccount.accountId];
+    const photoUrl = profilePhotoUrls[accountId];
 
     return (
-      <span className={className}>
+      <span className={className} aria-hidden="true">
         {photoUrl ? (
           <img
             src={photoUrl}
-            alt={`${targetAccount.displayName} profile`}
+            alt=""
+            draggable={false}
           />
         ) : (
-          initials(targetAccount.displayName)
+          initials(displayName)
         )}
       </span>
     );
   }
 
+  function renderAccountAvatar(
+    targetAccount: MessagingAccount,
+    className = "message-avatar",
+  ) {
+    return renderIdentityAvatar(
+      targetAccount.accountId,
+      targetAccount.displayName,
+      className,
+    );
+  }
 
   function renderGroupAvatar(
     conversation: MessagingConversation,
@@ -6428,11 +7662,12 @@ export function MessageAppPage() {
     const title = conversation.title ?? "Group";
 
     return (
-      <span className={className}>
+      <span className={className} aria-hidden="true">
         {photoUrl ? (
           <img
             src={photoUrl}
-            alt={`${title} group`}
+            alt=""
+            draggable={false}
           />
         ) : (
           initials(title)
@@ -6441,59 +7676,545 @@ export function MessageAppPage() {
     );
   }
 
-  return (
-    <main
-      className={`message-app-shell theme-${customizationToken(messagingCustomization.theme)} accent-${customizationToken(messagingCustomization.accent)} wallpaper-${customizationToken(messagingCustomization.wallpaper)} density-${customizationToken(messagingCustomization.density)}`}
-    >
-      <header className="message-app-topbar">
+  function renderConversationAvatar(
+    conversation: MessagingConversation,
+    className = "message-avatar",
+  ) {
+    const conversationPeer = conversation.type === "PRIVATE"
+      ? conversation.participants.find(
+          (participant) => participant.accountId !== account?.id,
+        )
+      : null;
+
+    return conversationPeer
+      ? renderAccountAvatar(conversationPeer, className)
+      : renderGroupAvatar(conversation, className);
+  }
+
+  const attachmentViewerItems = attachmentViewer
+    ? (attachmentViewer.message.attachments ?? []).filter(canPreviewAttachment)
+    : [];
+  const attachmentViewerIndex = attachmentViewer
+    ? attachmentViewerItems.findIndex(
+        (attachment) => attachment.id === attachmentViewer.attachment.id,
+      )
+    : -1;
+  // Image and video viewers use the header only so native playback controls
+  // never compete with an overlapping metadata footer. Documents keep it.
+  const attachmentViewerShowsFooter = attachmentViewer
+    ? isPdfAttachment(attachmentViewer.attachment) ||
+      isTextPreviewAttachment(attachmentViewer.attachment)
+    : false;
+
+  const composerHasContent = Boolean(messageText.trim() || selectedAttachment);
+  const composerSendState = sendingMessage
+    ? "sending"
+    : sendAttemptFailed
+      ? "failed"
+      : composerHasContent
+        ? "ready"
+        : "disabled";
+
+  const messageActionMenuMessage = openMessageMenuId
+    ? messages.find((message) => message.id === openMessageMenuId) ?? null
+    : null;
+
+  const reactionMenuMessage = openReactionMenuId
+    ? messages.find((message) => message.id === openReactionMenuId) ?? null
+    : null;
+
+  function renderFloatingReactionMenu(message: MessagingMessage) {
+    const viewerReaction = getViewerReaction(message, account?.id);
+
+    return (
+      <div
+        className="message-reaction-picker-floating"
+        data-message-reaction-menu
+        role="toolbar"
+        aria-label="React to message"
+        style={reactionMenuPosition ?? undefined}
+      >
+        {QUICK_REACTIONS.map((emoji) => (
+          <button
+            key={emoji}
+            type="button"
+            className={viewerReaction === emoji ? "is-selected" : ""}
+            onClick={() => {
+              closeReactionMenu();
+              void handleReaction(message, emoji);
+            }}
+            disabled={reactionActionId !== null}
+            aria-pressed={viewerReaction === emoji}
+            aria-label={`React with ${emoji}`}
+          >
+            {emoji}
+          </button>
+        ))}
+      </div>
+    );
+  }
+
+  function renderFloatingMessageActionMenu(message: MessagingMessage) {
+    const ownMessage = message.senderAccountId === account?.id;
+    const attachments = message.attachments ?? [];
+    const previewableAttachment = attachments.find(
+      (attachment) => !isAudioAttachment(attachment) && canPreviewAttachment(attachment),
+    );
+    const attachmentLabel = attachments.length === 1 ? "attachment" : "attachments";
+
+    return (
+      <div
+        className="message-action-menu message-action-menu-floating"
+        data-message-action-menu
+        role="menu"
+        aria-label="Message actions"
+        style={messageActionMenuPosition ?? undefined}
+      >
+        {ownMessage && (
+          <button
+            type="button"
+            role="menuitem"
+            onClick={() => {
+              closeMessageActionMenu();
+              void handleViewMessageInformation(message);
+            }}
+            disabled={messageInformationLoadingId !== null}
+          >
+            <AttachmentGlyph name="info" />
+            <span>Message info</span>
+          </button>
+        )}
+
+        {previewableAttachment && (
+          <button
+            type="button"
+            role="menuitem"
+            onClick={() => {
+              closeMessageActionMenu();
+              void handlePreviewAttachment(message, previewableAttachment);
+            }}
+          >
+            <AttachmentGlyph name={attachmentVisualKind(previewableAttachment)} />
+            <span>View {attachmentLabel}</span>
+          </button>
+        )}
+
+        {attachments.length > 0 && (
+          <button
+            type="button"
+            role="menuitem"
+            onClick={() => {
+              closeMessageActionMenu();
+              void handleDownloadMessageAttachments(message);
+            }}
+          >
+            <AttachmentGlyph name="download" />
+            <span>Download {attachmentLabel}</span>
+          </button>
+        )}
+
+        {!message.isDeleted && message.textContent && (
+          <button
+            type="button"
+            role="menuitem"
+            onClick={() => {
+              closeMessageActionMenu();
+              void handleCopyMessage(message);
+            }}
+          >
+            <AttachmentGlyph name="copy" />
+            <span>Copy</span>
+          </button>
+        )}
+
+        {canForwardMessage(message) && (
+          <button
+            type="button"
+            role="menuitem"
+            onClick={() => {
+              closeMessageActionMenu();
+              beginForward(message);
+            }}
+          >
+            <AttachmentGlyph name="forward" />
+            <span>Forward</span>
+          </button>
+        )}
+
+        {!message.isDeleted && (
+          <button
+            type="button"
+            role="menuitem"
+            onClick={() => {
+              closeMessageActionMenu();
+              void handlePinMessage(message);
+            }}
+            disabled={pinActionId !== null}
+          >
+            <AttachmentGlyph name="pin" />
+            <span>{message.isPinned ? "Unpin" : "Pin"}</span>
+          </button>
+        )}
+
+        {!message.isDeleted && (
+          <button
+            type="button"
+            role="menuitem"
+            onClick={() => {
+              closeMessageActionMenu();
+              void handleStarMessage(message);
+            }}
+            disabled={messageActionId !== null}
+          >
+            <AttachmentGlyph name="star" />
+            <span>{message.isStarred ? "Unstar" : "Star"}</span>
+          </button>
+        )}
+
+        {ownMessage && canEditMessage(message, account?.id) && (
+          <button
+            type="button"
+            role="menuitem"
+            onClick={() => {
+              closeMessageActionMenu();
+              beginEdit(message);
+            }}
+          >
+            <AttachmentGlyph name="edit" />
+            <span>Edit</span>
+          </button>
+        )}
+
         <button
           type="button"
-          className="message-app-brand"
-          onClick={() => navigate("/messages")}
+          role="menuitem"
+          className="message-action-menu-destructive-start"
+          onClick={() => {
+            closeMessageActionMenu();
+            void handleDeleteMessageForMe(message);
+          }}
+          disabled={messageActionId !== null}
         >
-          <span className="message-app-logo">
-            <img
-              src="/nt-logo.png"
-              alt="Nepal Telecom"
-            />
-          </span>
-
-          <span>
-            <strong>NT Message</strong>
-            <small>Secure Internal Communication</small>
-          </span>
+          <AttachmentGlyph name="trash" />
+          <span>Delete for me</span>
         </button>
 
-        <div className="message-app-account">
-          <div className="message-app-account-copy">
-            <span>Signed as</span>
-            <strong>{account?.displayName ?? "NT Message User"}</strong>
-            <small aria-live="polite">
-              {account?.positionLabel ??
-                (account ? roleLabel(account.role) : "Employee")}
-              {` · ${realtimeLabel}`}
-            </small>
+        {ownMessage && !message.isDeleted && (
+          <button
+            type="button"
+            role="menuitem"
+            className="danger"
+            onClick={() => {
+              closeMessageActionMenu();
+              void handleDeleteMessageForEveryone(message);
+            }}
+            disabled={messageActionId !== null}
+          >
+            <AttachmentGlyph name="trash" />
+            <span>Delete for everyone</span>
+          </button>
+        )}
+      </div>
+    );
+  }
+
+  function renderConversationRow(
+    conversation: MessagingConversation,
+  ): ReactNode {
+    const conversationPeer = conversation.type === "PRIVATE"
+      ? conversation.participants.find(
+          (participant) => participant.accountId !== account?.id,
+        )
+      : undefined;
+    const title = conversation.title ?? "Private conversation";
+    const organizationLabel = conversationPeer?.employee?.department?.name ??
+      conversationPeer?.employee?.division?.name;
+    const scopeLabel = conversation.type === "GROUP"
+      ? conversation.groupKind === "OFFICIAL"
+        ? officialScopeLabel(conversation)
+        : `${conversation.memberCount} members · Personal group`
+      : [
+          conversationPeer?.employee?.designation ??
+            roleLabel(conversationPeer?.role ?? "EMPLOYEE"),
+          organizationLabel,
+        ].filter(Boolean).join(" · ");
+
+    return (
+      <button
+        type="button"
+        key={conversation.id}
+        className={`message-conversation-row${
+          conversation.id === selectedConversationId ? " active" : ""
+        }${conversation.unreadCount > 0 ? " unread" : ""}${
+          conversation.groupKind === "OFFICIAL" ? " official" : ""
+        }`}
+        onClick={() => {
+          setSelectedConversationId(conversation.id);
+          setNavigationExpanded(false);
+          setDetailsPanelOpen(
+            typeof window !== "undefined" &&
+              window.matchMedia("(min-width: 1560px)").matches,
+          );
+        }}
+      >
+        <span className="message-avatar-presence">
+          {conversationPeer
+            ? renderAccountAvatar(conversationPeer)
+            : renderGroupAvatar(conversation)}
+
+          {conversationPeer?.showOnlineStatus !== false &&
+            conversationPeer &&
+            presenceByAccountId[conversationPeer.accountId]?.isOnline && (
+              <span
+                className="message-presence-dot"
+                aria-label={`${title} is online`}
+              />
+            )}
+        </span>
+
+        <span className="message-conversation-copy">
+          <span className="message-conversation-title-line">
+            <strong>{title}</strong>
+            <time>
+              {formatConversationTime(
+                conversation.lastMessageAt ?? conversation.updatedAt,
+              )}
+            </time>
+          </span>
+
+          <span className="message-conversation-preview-line">
+            <small>{messagePreview(conversation, account?.id ?? "")}</small>
+
+            {conversation.unreadCount > 0 && (
+              <b aria-label={`${conversation.unreadCount} unread messages`}>
+                {conversation.unreadCount > 99
+                  ? "99+"
+                  : conversation.unreadCount}
+              </b>
+            )}
+          </span>
+
+          <span className="message-conversation-meta">
+            {conversation.groupKind === "OFFICIAL" && (
+              <span className="message-conversation-kind">Official</span>
+            )}
+            {conversation.draftText && (
+              <span className="message-conversation-draft">Draft</span>
+            )}
+            <small>{scopeLabel}</small>
+            <span className="message-conversation-indicators" aria-label="Conversation status">
+              {conversation.isPinned && (
+                <span aria-label="Pinned"><MessageNavigationIcon name="pin" /></span>
+              )}
+              {conversation.isMuted && (
+                <span aria-label="Muted"><MessageNavigationIcon name="bell" /></span>
+              )}
+              {conversation.isArchived && (
+                <span aria-label="Archived"><MessageNavigationIcon name="archive" /></span>
+              )}
+            </span>
+          </span>
+        </span>
+      </button>
+    );
+  }
+
+  function renderGroupSearchResult({
+    conversation,
+    matchedDisplayName,
+  }: {
+    conversation: MessagingConversation;
+    matchedDisplayName: string | null;
+  }): ReactNode {
+    const scopeLabel = conversation.groupKind === "OFFICIAL"
+      ? officialScopeLabel(conversation)
+      : `${conversation.memberCount} members · Personal group`;
+
+    return (
+      <button
+        type="button"
+        key={conversation.id}
+        className={`message-conversation-row message-group-search-result${
+          conversation.id === selectedConversationId ? " active" : ""
+        }${conversation.groupKind === "OFFICIAL" ? " official" : ""}`}
+        onClick={() => {
+          setSelectedConversationId(conversation.id);
+          setNavigationExpanded(false);
+          setDetailsPanelOpen(false);
+        }}
+      >
+        <span className="message-avatar-presence">
+          {renderGroupAvatar(conversation)}
+        </span>
+
+        <span className="message-conversation-copy">
+          <span className="message-conversation-title-line">
+            <strong>{conversation.title ?? "Group conversation"}</strong>
+            <time>
+              {formatConversationTime(
+                conversation.lastMessageAt ?? conversation.updatedAt,
+              )}
+            </time>
+          </span>
+
+          <span className="message-group-common-copy">
+            {matchedDisplayName ? (
+              <>
+                <strong>{matchedDisplayName}</strong> is also in this group
+              </>
+            ) : (
+              `${conversation.memberCount} members`
+            )}
+          </span>
+          <span className="message-group-search-scope">{scopeLabel}</span>
+        </span>
+      </button>
+    );
+  }
+
+  return (
+    <main
+      className={`message-app-shell${navigationExpanded ? " navigation-expanded" : ""} theme-${customizationToken(messagingCustomization.theme)} accent-${customizationToken(messagingCustomization.accent)} wallpaper-${customizationToken(messagingCustomization.wallpaper)} density-${customizationToken(messagingCustomization.density)}`}
+    >
+      <header
+        className="message-app-topbar"
+        onClickCapture={handleNavigationClickCapture}
+      >
+        <div className="message-rail-brand-row">
+          <div className="message-brand-lockup">
+            <button
+              type="button"
+              className="message-app-brand"
+              onClick={() => navigate("/messages")}
+              aria-label="Open NT Message"
+            >
+              <span className="message-app-logo">
+                <img
+                  src="/nt-logo.png"
+                  alt="Nepal Telecom"
+                />
+              </span>
+            </button>
+
+            <span className="message-brand-text" aria-hidden={!navigationExpanded}>
+              <strong>NT Message</strong>
+              <small>NEPAL TELECOM</small>
+            </span>
           </div>
 
           <button
             type="button"
-            className="message-profile-topbar-button"
-            onClick={() => openProfile(account?.id)}
+            className="message-rail-toggle"
+            onClick={() => setNavigationExpanded((current) => !current)}
+            aria-expanded={navigationExpanded}
+            aria-label={navigationExpanded ? "Collapse navigation" : "Expand navigation"}
+            title={navigationExpanded ? "Collapse navigation" : "Expand navigation"}
           >
-            My profile
+            <span aria-hidden="true">{navigationExpanded ? "‹" : "›"}</span>
+          </button>
+        </div>
+
+        <nav className="message-rail-navigation" aria-label="Messaging sections">
+          <button
+            type="button"
+            className={conversationCategory === "ALL" && conversationListView === "ACTIVE" ? "active" : ""}
+            onClick={() => {
+              setConversationCategory("ALL");
+              setConversationListView("ACTIVE");
+            }}
+            aria-label="Chats"
+            title={navigationExpanded ? undefined : "Chats"}
+          >
+            <span className="message-rail-icon"><MessageNavigationIcon name="chats" /></span>
+            <span className="message-rail-label">Chats</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={openMessageRequests}
+            aria-label="Message requests"
+            title={navigationExpanded ? undefined : "Message requests"}
+          >
+            <span className="message-rail-icon"><MessageNavigationIcon name="requests" /></span>
+            <span className="message-rail-label">Message requests</span>
+            {messageRequests.counts.receivedPending > 0 && (
+              <b>{messageRequests.counts.receivedPending}</b>
+            )}
+          </button>
+
+          <button
+            type="button"
+            className={conversationCategory === "GROUPS" ? "active" : ""}
+            onClick={() => {
+              setConversationCategory("GROUPS");
+              setConversationListView("ACTIVE");
+            }}
+            aria-label="Groups"
+            title={navigationExpanded ? undefined : "Groups"}
+          >
+            <span className="message-rail-icon"><MessageNavigationIcon name="groups" /></span>
+            <span className="message-rail-label">Groups</span>
+          </button>
+
+          <button
+            type="button"
+            className={conversationCategory === "OFFICIAL" && conversationListView === "ACTIVE" ? "active" : ""}
+            onClick={() => {
+              setConversationCategory("OFFICIAL");
+              setConversationListView("ACTIVE");
+            }}
+            aria-label="Official groups"
+            title={navigationExpanded ? undefined : "Official groups"}
+          >
+            <span className="message-rail-icon"><MessageNavigationIcon name="official" /></span>
+            <span className="message-rail-label">Official groups</span>
+          </button>
+
+          <button
+            type="button"
+            className={conversationListView === "ARCHIVED" ? "active" : ""}
+            onClick={() => {
+              setConversationCategory("ALL");
+              setConversationListView("ARCHIVED");
+            }}
+            aria-label="Archived conversations"
+            title={navigationExpanded ? undefined : "Archived conversations"}
+          >
+            <span className="message-rail-icon"><MessageNavigationIcon name="archive" /></span>
+            <span className="message-rail-label">Archived</span>
+          </button>
+        </nav>
+
+        <div className="message-app-account">
+
+          <button
+            type="button"
+            className={`message-profile-topbar-button${profileAccountId === account?.id ? " active" : ""}`}
+            onClick={() => openProfile(account?.id)}
+            title="My profile"
+          >
+            {account
+              ? renderIdentityAvatar(account.id, account.displayName, "message-profile-rail-avatar")
+              : <span className="message-profile-rail-avatar" aria-hidden="true">NT</span>}
+            <span className="message-profile-rail-copy">
+              <strong>{account?.displayName ?? "NT Message User"}</strong>
+              <small>{account ? roleLabel(account.role) : "Employee"}</small>
+            </span>
           </button>
 
           <div className="message-customization-wrapper">
             <button
               type="button"
-              className="message-customization-button"
+              className={`message-customization-button${customizationPanelOpen ? " active" : ""}`}
               onClick={() => {
                 setCustomizationPanelOpen((value) => !value);
                 setSettingsPanelOpen(false);
               }}
               aria-expanded={customizationPanelOpen}
+              title="Appearance"
             >
-              Customize
+              <span className="message-rail-icon"><MessageNavigationIcon name="appearance" /></span>
+              <span className="message-rail-label">Appearance</span>
             </button>
 
             {customizationPanelOpen && (
@@ -6591,14 +8312,16 @@ export function MessageAppPage() {
           <div className="message-settings-wrapper">
             <button
               type="button"
-              className="message-settings-button"
+              className={`message-settings-button${settingsPanelOpen ? " active" : ""}`}
               onClick={() => {
                 setSettingsPanelOpen((value) => !value);
                 setCustomizationPanelOpen(false);
               }}
               aria-expanded={settingsPanelOpen}
+              title="Settings"
             >
-              Settings
+              <span className="message-rail-icon"><MessageNavigationIcon name="settings" /></span>
+              <span className="message-rail-label">Settings</span>
             </button>
 
             {settingsPanelOpen && (
@@ -6812,24 +8535,23 @@ export function MessageAppPage() {
             type="button"
             className="message-starred-topbar-button"
             onClick={() => navigate("/messages/starred")}
+            title="Starred messages"
           >
-            Starred
+            <span className="message-rail-icon"><MessageNavigationIcon name="starred" /></span>
+            <span className="message-rail-label">Starred messages</span>
           </button>
 
-          {account?.role !== "EMPLOYEE" && (
-            <DirectoryButton />
-          )}
-
-          <EmergencyAlertButton />
 
           <div className="message-notification-wrapper">
             <button
               type="button"
-              className="message-notification-button"
+              className={`message-notification-button${notificationPanelOpen ? " active" : ""}`}
               onClick={() => setNotificationPanelOpen((value) => !value)}
               aria-label="Open notifications"
+              title="Notifications"
             >
-              🔔
+              <span className="message-rail-icon"><MessageNavigationIcon name="bell" /></span>
+              <span className="message-rail-label">Notifications</span>
               {notificationUnreadCount > 0 && (
                 <b>{notificationUnreadCount > 99 ? "99+" : notificationUnreadCount}</b>
               )}
@@ -6925,14 +8647,37 @@ export function MessageAppPage() {
 
           <button
             type="button"
+            className="message-workspace-return"
+            onClick={() => navigate(mainWorkspacePath)}
+            title="Back to main workspace"
+          >
+            <span className="message-rail-icon"><MessageNavigationIcon name="workspace" /></span>
+            <span className="message-rail-label">Back to workspace</span>
+          </button>
+
+          <button
+            type="button"
             className="message-app-logout"
             onClick={handleLogout}
             disabled={loggingOut}
+            title="Sign out"
           >
-            {loggingOut ? "Signing out..." : "Sign out"}
+            <span className="message-rail-icon"><MessageNavigationIcon name="logout" /></span>
+            <span className="message-rail-label">
+              {loggingOut ? "Signing out..." : "Sign out"}
+            </span>
           </button>
         </div>
       </header>
+
+      {navigationExpanded && (
+        <button
+          type="button"
+          className="message-rail-scrim"
+          onClick={() => setNavigationExpanded(false)}
+          aria-label="Close messaging navigation"
+        />
+      )}
 
       {notificationToast && (
         <button
@@ -6949,13 +8694,29 @@ export function MessageAppPage() {
         </button>
       )}
 
+      {reactionMenuMessage && reactionMenuPosition &&
+        renderFloatingReactionMenu(reactionMenuMessage)}
+
+      {messageActionMenuMessage && messageActionMenuPosition &&
+        renderFloatingMessageActionMenu(messageActionMenuMessage)}
+
       <section
         className={`message-workspace${
           selectedConversation ? " conversation-open" : ""
-        }`}
+        }${detailsPanelOpen && selectedConversation ? " details-open" : ""}`}
       >
         <aside className="message-sidebar">
           <div className="message-sidebar-heading">
+            <button
+              type="button"
+              className="message-mobile-menu-button"
+              onClick={() => setNavigationExpanded(true)}
+              aria-label="Open messaging navigation"
+              title="Open navigation"
+            >
+              <span aria-hidden="true">☰</span>
+            </button>
+
             <div>
               <span>Messages</span>
               <h1>Conversations</h1>
@@ -6964,29 +8725,12 @@ export function MessageAppPage() {
             <div className="message-sidebar-actions">
               <button
                 type="button"
-                className="message-search-mini-button"
-                onClick={() => openSearchDialog("GLOBAL")}
-              >
-                Search
-              </button>
-
-              <button
-                type="button"
-                className="message-requests-button"
-                onClick={openMessageRequests}
-              >
-                Requests
-                {messageRequests.counts.receivedPending > 0 && (
-                  <b>{messageRequests.counts.receivedPending}</b>
-                )}
-              </button>
-
-              <button
-                type="button"
                 className="message-group-new-button"
                 onClick={openCreateGroup}
+                aria-label="Create a new group"
+                title="New group"
               >
-                Group
+                <MessageNavigationIcon name="newGroup" />
               </button>
 
               <button
@@ -6994,38 +8738,72 @@ export function MessageAppPage() {
                 className="message-new-button"
                 onClick={openNewConversation}
                 aria-label="Start a new private conversation"
+                title="New conversation"
               >
-                +
+                <MessageNavigationIcon name="newChat" />
               </button>
             </div>
           </div>
 
           <label className="message-conversation-search">
             <span className="sr-only">Search conversations</span>
+            <span className="message-conversation-search-icon" aria-hidden="true">
+              <MessageNavigationIcon name="search" />
+            </span>
             <input
-              type="search"
+              type="text"
+              inputMode="search"
+              autoComplete="off"
               value={conversationSearch}
               onChange={(event) => setConversationSearch(event.target.value)}
               placeholder="Search conversations"
             />
+            {conversationSearch && (
+              <button
+                type="button"
+                className="message-conversation-search-clear"
+                onClick={() => setConversationSearch("")}
+                aria-label="Clear search"
+                title="Clear search"
+              >
+                ×
+              </button>
+            )}
           </label>
 
-          <div className="message-conversation-view-tabs" aria-label="Conversation view">
-            {(["ACTIVE", "ARCHIVED"] as ConversationListView[]).map((view) => (
+          <div className="message-conversation-category-tabs" aria-label="Conversation filters">
+            {([
+              ["ALL", conversationListView === "ARCHIVED" ? "Archived" : "All"],
+              ["UNREAD", `Unread ${totalUnread > 0 ? totalUnread : ""}`.trim()],
+            ] as Array<[ConversationCategory, string]>).map(([value, label]) => (
               <button
-                key={view}
+                key={value}
                 type="button"
-                className={conversationListView === view ? "active" : ""}
-                onClick={() => setConversationListView(view)}
+                className={conversationCategory === value ? "active" : ""}
+                onClick={() => {
+                  setConversationCategory(value);
+                  if (conversationListView === "ARCHIVED" && value !== "ALL") {
+                    setConversationListView("ACTIVE");
+                  }
+                }}
               >
-                {view === "ACTIVE" ? "Active" : "Archived"}
+                {label}
               </button>
             ))}
           </div>
 
           <div className="message-sidebar-summary">
-            <span>{conversations.length} conversations</span>
-            <span>{totalUnread} unread</span>
+            {conversationSearch.trim() ? (
+              <>
+                <span>{conversationSearchResultCount} results</span>
+                <span>Search</span>
+              </>
+            ) : (
+              <>
+                <span>{conversations.length} conversations</span>
+                <span>{totalUnread} unread</span>
+              </>
+            )}
           </div>
 
           {requestNotice && (
@@ -7053,102 +8831,57 @@ export function MessageAppPage() {
             </div>
           )}
 
-          <div className="message-conversation-list">
+          <div className={`message-conversation-list${
+            conversationSearch.trim() ? " search-results" : ""
+          }`}>
             {conversationLoading ? (
               <div className="message-list-state">
                 <span className="message-small-spinner" />
                 <p>Loading conversations...</p>
               </div>
+            ) : conversationSearch.trim() ? (
+              conversationSearchResultCount === 0 ? (
+                <div className="message-list-state compact">
+                  <div className="message-empty-icon">⌕</div>
+                  <h2>No matching people or groups</h2>
+                  <p>Try a name, employee ID, username or designation.</p>
+                </div>
+              ) : (
+                <div className="message-conversation-search-results">
+                  {conversationSearchResults.directChats.length > 0 && (
+                    <section className="message-search-result-section">
+                      <h2>Chats</h2>
+                      <div className="message-search-result-list">
+                        {conversationSearchResults.directChats.map(
+                          renderConversationRow,
+                        )}
+                      </div>
+                    </section>
+                  )}
+
+                  {conversationSearchResults.groupsInCommon.length > 0 && (
+                    <section className="message-search-result-section">
+                      <h2>Groups in common</h2>
+                      <div className="message-search-result-list">
+                        {conversationSearchResults.groupsInCommon.map(
+                          renderGroupSearchResult,
+                        )}
+                      </div>
+                    </section>
+                  )}
+                </div>
+              )
             ) : filteredConversations.length === 0 ? (
               <div className="message-list-state">
                 <div className="message-empty-icon">M</div>
                 <h2>No conversations found</h2>
-                <p>
-                  Start a private conversation or create a group.
-                </p>
-                <button
-                  type="button"
-                  onClick={openNewConversation}
-                >
+                <p>Start a private conversation or create a group.</p>
+                <button type="button" onClick={openNewConversation}>
                   New conversation
                 </button>
               </div>
             ) : (
-              filteredConversations.map((conversation) => {
-                const conversationPeer = conversation.type === "PRIVATE"
-                  ? conversation.participants.find(
-                      (participant) => participant.accountId !== account?.id,
-                    )
-                  : undefined;
-                const title = conversation.title ?? "Private conversation";
-
-                return (
-                  <button
-                    type="button"
-                    key={conversation.id}
-                    className={`message-conversation-row${
-                      conversation.id === selectedConversationId
-                        ? " active"
-                        : ""
-                    }`}
-                    onClick={() => setSelectedConversationId(conversation.id)}
-                  >
-                    <span className="message-avatar-presence">
-                      {conversationPeer
-                        ? renderAccountAvatar(conversationPeer)
-                        : renderGroupAvatar(conversation)}
-
-                      {conversationPeer?.showOnlineStatus !== false &&
-                        conversationPeer &&
-                        presenceByAccountId[conversationPeer.accountId]?.isOnline && (
-                          <span
-                            className="message-presence-dot"
-                            aria-label={`${title} is online`}
-                          />
-                        )}
-                    </span>
-
-                    <span className="message-conversation-copy">
-                      <span className="message-conversation-title-line">
-                        <strong>{title}</strong>
-                        <time>
-                          {formatConversationTime(
-                            conversation.lastMessageAt ?? conversation.updatedAt,
-                          )}
-                        </time>
-                      </span>
-
-                      <span className="message-conversation-preview-line">
-                        <small>
-                          {messagePreview(conversation, account?.id ?? "")}
-                        </small>
-
-                        {conversation.unreadCount > 0 && (
-                          <b>
-                            {conversation.unreadCount > 99
-                              ? "99+"
-                              : conversation.unreadCount}
-                          </b>
-                        )}
-                      </span>
-
-                      <span className="message-conversation-meta">
-                        {conversation.isPinned && <span title="Pinned conversation">📌</span>}
-                        {conversation.isMuted && <span title="Muted conversation">🔕</span>}
-                        {conversation.draftText && <span title="Draft message">Draft</span>}
-                        {conversation.type === "GROUP"
-                          ? `${conversation.memberCount} members · ${
-                              conversation.groupKind === "OFFICIAL"
-                                ? officialScopeLabel(conversation)
-                                : "Personal group"
-                            }`
-                          : conversationPeer?.employee?.designation ??
-                            roleLabel(conversationPeer?.role ?? "EMPLOYEE")}
-                      </span>
-                    </span>
-                  </button>
-                );
-              })
+              filteredConversations.map(renderConversationRow)
             )}
           </div>
         </aside>
@@ -7156,22 +8889,38 @@ export function MessageAppPage() {
         <section className="message-chat-panel">
           {!selectedConversation ? (
             <div className="message-welcome-state">
-              <div className="message-welcome-mark">NT</div>
-              <span>Secure messaging</span>
-              <h2>Select a conversation</h2>
+              <div className="message-welcome-brand" aria-hidden="true">
+                <img src="/nt-logo.png" alt="" />
+              </div>
+              <span>NT Message</span>
+              <h2>Secure internal communication</h2>
               <p>
-                Choose a private conversation or group, or start a new secure message.
+                Select a conversation, start a private chat, or create a group for your team.
               </p>
-              <button
-                type="button"
-                onClick={openNewConversation}
-              >
-                Start conversation
-              </button>
+              <div className="message-welcome-actions">
+                <button type="button" onClick={openNewConversation}>
+                  <MessageNavigationIcon name="newChat" />
+                  New conversation
+                </button>
+                <button type="button" onClick={openCreateGroup}>
+                  <MessageNavigationIcon name="newGroup" />
+                  New group
+                </button>
+              </div>
+              <small>Private message content remains visible only to authorized participants.</small>
             </div>
           ) : (
             <>
               <header className="message-chat-header">
+                <button
+                  type="button"
+                  className="message-mobile-menu-button message-mobile-menu-button--chat"
+                  onClick={() => setNavigationExpanded(true)}
+                  aria-label="Open messaging navigation"
+                >
+                  <span aria-hidden="true">☰</span>
+                </button>
+
                 <button
                   type="button"
                   className="message-mobile-back"
@@ -7202,26 +8951,19 @@ export function MessageAppPage() {
                     )}
                 </span>
 
-                <div>
-                  <h2>
-                    {selectedConversation.title ?? "Private conversation"}
-                  </h2>
+                <div className="message-chat-identity">
+                  <h2>{selectedConversation.title ?? "Private conversation"}</h2>
                   <p>
                     {selectedConversation.type === "GROUP"
-                      ? selectedConversation.description ||
-                        (selectedConversation.groupKind === "OFFICIAL"
-                          ? officialScopeLabel(selectedConversation)
-                          : "Personal group")
-                      : `${
+                      ? selectedConversation.groupKind === "OFFICIAL"
+                        ? officialScopeLabel(selectedConversation)
+                        : `${selectedConversation.memberCount} members · Personal group`
+                      : [
                           peer?.employee?.designation ??
-                          roleLabel(peer?.role ?? "EMPLOYEE")
-                        }${
-                          peer?.employee?.department?.name
-                            ? ` · ${peer.employee.department.name}`
-                            : peer?.employee?.division?.name
-                              ? ` · ${peer.employee.division.name}`
-                              : ""
-                        }`}
+                            roleLabel(peer?.role ?? "EMPLOYEE"),
+                          peer?.employee?.department?.name ??
+                            peer?.employee?.division?.name,
+                        ].filter(Boolean).join(" · ")}
                   </p>
                   <small
                     className={`message-peer-activity${
@@ -7237,92 +8979,44 @@ export function MessageAppPage() {
                   </small>
                 </div>
 
-                <button
-                  type="button"
-                  className="message-search-open-button"
-                  onClick={() => openSearchDialog("CURRENT")}
-                >
-                  Search
-                </button>
-
-                <button
-                  type="button"
-                  className="message-shared-open-button"
-                  onClick={() => void openSharedContentDialog()}
-                >
-                  Shared
-                </button>
-
-                {selectedConversation.type === "PRIVATE" && (
+                <div className="message-chat-header-actions" aria-label="Conversation actions">
                   <button
                     type="button"
-                    className="message-add-member-button"
-                    onClick={openPrivateGroupDialog}
+                    onClick={() => openSearchDialog("CURRENT")}
+                    aria-label="Search this conversation"
                   >
-                    Add member
+                    <MessageNavigationIcon name="search" />
                   </button>
-                )}
 
-                <div className="message-conversation-controls" aria-label="Conversation controls">
+                  {(selectedConversation.type === "PRIVATE" ||
+                    selectedConversation.canManageGroup) && (
+                    <button
+                      type="button"
+                      onClick={() =>
+                        selectedConversation.type === "PRIVATE"
+                          ? openPrivateGroupDialog()
+                          : openManageGroup()
+                      }
+                      aria-label={
+                        selectedConversation.type === "PRIVATE"
+                          ? "Create a group from this conversation"
+                          : "Manage group members"
+                      }
+                    >
+                      <MessageNavigationIcon name="addUser" />
+                    </button>
+                  )}
+
                   <button
                     type="button"
-                    onClick={() => void handleConversationPinnedToggle()}
-                    disabled={conversationPreferenceLoading === selectedConversation.id}
+                    className={detailsPanelOpen ? "active" : ""}
+                    onClick={() => setDetailsPanelOpen((value) => !value)}
+                    aria-expanded={detailsPanelOpen}
+                    aria-label="Open conversation information"
                   >
-                    {selectedConversation.isPinned ? "Unpin chat" : "Pin chat"}
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => void handleConversationUnreadToggle()}
-                    disabled={conversationPreferenceLoading === selectedConversation.id}
-                  >
-                    {selectedConversation.isMarkedUnread || selectedConversation.unreadCount > 0
-                      ? "Mark read"
-                      : "Mark unread"}
-                  </button>
-                  <select
-                    value={selectedConversation.isMuted
-                      ? selectedConversation.mutedUntil
-                        ? "8_HOURS"
-                        : "ALWAYS"
-                      : "OFF"}
-                    onChange={(event) => void handleConversationMuteChange(
-                      event.target.value as ConversationMuteSetting,
-                    )}
-                    disabled={conversationPreferenceLoading === selectedConversation.id}
-                    aria-label="Mute conversation"
-                  >
-                    <option value="OFF">Unmuted</option>
-                    <option value="8_HOURS">Mute 8h</option>
-                    <option value="1_WEEK">Mute 1w</option>
-                    <option value="ALWAYS">Mute always</option>
-                  </select>
-                  <button
-                    type="button"
-                    onClick={() => void handleConversationArchiveToggle()}
-                    disabled={conversationPreferenceLoading === selectedConversation.id}
-                  >
-                    {selectedConversation.isArchived ? "Unarchive" : "Archive"}
+                    <MessageNavigationIcon name="info" />
                   </button>
                 </div>
-
-                {selectedConversation.type === "GROUP" ? (
-                  <button
-                    type="button"
-                    className="message-group-info-button"
-                    onClick={openManageGroup}
-                  >
-                    Group info
-                  </button>
-                ) : (
-                  <button
-                    type="button"
-                    className="message-group-info-button"
-                    onClick={() => openProfile(peer?.accountId)}
-                  >
-                    View profile
-                  </button>
-                )}
               </header>
 
               {messageError && (
@@ -7381,11 +9075,17 @@ export function MessageAppPage() {
                 className="message-thread"
                 ref={messageListRef}
               >
-                <div
-                  ref={messageThreadBottomRef}
-                  className="message-thread-bottom"
-                  aria-hidden="true"
-                />
+                <div className="message-thread-content">
+                {hasOlderMessages && (
+                  <button
+                    type="button"
+                    className="message-load-older"
+                    onClick={() => void handleLoadOlderMessages()}
+                    disabled={olderMessagesLoading}
+                  >
+                    {olderMessagesLoading ? "Loading…" : "Load older messages"}
+                  </button>
+                )}
 
                 {messageLoading ?(
                   <div className="message-thread-state">
@@ -7401,22 +9101,64 @@ export function MessageAppPage() {
                     </p>
                     </div>
                 ):(
-                  [...messages].reverse().map((message) => {
+                  displayMessages.map((message, index) => {
                     const ownMessage = message.senderAccountId === account?.id;
                     const officialAnnouncement = getOfficialAnnouncementPayload(message);
+                    const previousMessage = displayMessages[index - 1];
+                    const nextMessage = displayMessages[index + 1];
+                    const showDaySeparator =
+                      !previousMessage ||
+                      !isSameCalendarDay(previousMessage.sentAt, message.sentAt);
+                    const groupedWithPrevious = messagesBelongToSameVisualGroup(
+                      previousMessage,
+                      message,
+                    );
+                    const groupedWithNext = messagesBelongToSameVisualGroup(
+                      message,
+                      nextMessage,
+                    );
+                    const hasAttachments = (message.attachments?.length ?? 0) > 0;
+                    const isLocationMessage = message.contentType === "LOCATION";
+                    const attachmentOnlyMessage =
+                      !message.isDeleted &&
+                      !message.textContent &&
+                      (hasAttachments || isLocationMessage) &&
+                      !message.replyTo &&
+                      !message.forwardedFrom &&
+                      !officialAnnouncement;
 
                     return (
-                      <article
-                        key={message.id}
-                        data-message-id={message.id}
-                        className={`message-bubble-row${
-                          ownMessage ? " own" : ""
-                        }${officialAnnouncement ? " official-announcement" : ""}${highlightedMessageId === message.id ? " search-highlight" : ""}`}
-                      >
-                        {!ownMessage && renderAccountAvatar(message.sender, "message-avatar small")}
+                      <Fragment key={message.id}>
+                        {showDaySeparator && (
+                          <div className="message-day-separator" role="separator">
+                            <span>{formatMessageDay(message.sentAt)}</span>
+                          </div>
+                        )}
+
+                        <article
+                          data-message-id={message.id}
+                          className={`message-bubble-row${
+                            ownMessage ? " own" : ""
+                          }${
+                            groupedWithPrevious
+                              ? " grouped grouped-with-previous"
+                              : " group-start"
+                          }${groupedWithNext ? " grouped-with-next" : " group-end"}${officialAnnouncement ? " official-announcement" : ""}${highlightedMessageId === message.id ? " search-highlight" : ""}${
+                            openMessageMenuId === message.id || openReactionMenuId === message.id
+                              ? " actions-open"
+                              : ""
+                          }${hasAttachments ? " has-attachments" : ""}${
+                            isLocationMessage ? " has-location" : ""
+                          }${attachmentOnlyMessage ? " attachment-only" : ""}`}
+                        >
+                          {!ownMessage && !groupedWithPrevious
+                            ? renderAccountAvatar(message.sender, "message-avatar small")
+                            : !ownMessage
+                              ? <span className="message-avatar-spacer" aria-hidden="true" />
+                              : null}
 
                         <div className="message-bubble-wrap">
-                          {!ownMessage && (
+                          {!ownMessage && !groupedWithPrevious && (
                             <strong className="message-sender-name">
                               {message.sender.displayName}
                             </strong>
@@ -7484,7 +9226,7 @@ export function MessageAppPage() {
                                 )}
 
                                 {(message.attachments?.length ?? 0) > 0 && (
-                                  <div className="message-attachments">
+                                  <div className="message-attachments-v2">
                                     {(message.attachments ?? []).map((attachment) => (
                                       <MessageAttachmentCard
                                         key={attachment.id}
@@ -7492,10 +9234,11 @@ export function MessageAppPage() {
                                         conversationId={message.conversationId}
                                         messageId={message.id}
                                         attachment={attachment}
-                                        onDownload={(selected) => void handleDownloadAttachment(
-                                          message,
-                                          selected,
-                                        )}
+                                        isVoiceNote={
+                                          getMessagePayloadValue(message, "attachmentKind") === "VOICE_NOTE"
+                                        }
+                                        senderDisplayName={message.sender.displayName}
+                                        senderPhotoUrl={profilePhotoUrls[message.sender.accountId] ?? null}
                                         onPreview={(selected) => void handlePreviewAttachment(
                                           message,
                                           selected,
@@ -7542,178 +9285,80 @@ export function MessageAppPage() {
                           </div>
 
 
-                          <div className="message-bubble-actions">
-
-                            {!message.isDeleted && (
-                              <div
-                                className="message-quick-reactions"
-                                aria-label="Message reactions"
-                              >
-                                {QUICK_REACTIONS.map((emoji) => {
-                                  const viewerReaction = getViewerReaction(
-                                    message,
-                                    account?.id,
-                                  );
-                                  const isSelected = viewerReaction === emoji;
-
-                                  return (
-                                    <button
-                                      key={emoji}
-                                      type="button"
-                                      className={
-                                        isSelected
-                                          ? "message-quick-reaction is-selected"
-                                          : "message-quick-reaction"
-                                      }
-                                      onClick={() => void handleReaction(
-                                        message,
-                                        emoji,
-                                      )}
-                                      disabled={
-                                        messageActionId !== null ||
-                                        reactionActionId !== null
-                                      }
-                                      aria-pressed={isSelected}
-                                      title={
-                                        isSelected
-                                          ? "Remove reaction"
-                                          : `React with ${emoji}`
-                                      }
-                                    >
-                                      {emoji}
-                                    </button>
-                                  );
-                                })}
-                              </div>
-                            )}
-
+                          <div
+                            className="message-bubble-actions"
+                            data-message-action-root={message.id}
+                          >
                             {!message.isDeleted && (
                               <button
                                 type="button"
-                                onClick={() => void handleStarMessage(message)}
-                                disabled={messageActionId !== null}
-                                aria-pressed={message.isStarred}
+                                className="message-action-react"
+                                data-message-reaction-trigger={message.id}
+                                onClick={(event) => toggleReactionMenu(
+                                  message.id,
+                                  ownMessage,
+                                  event,
+                                )}
+                                disabled={reactionActionId !== null}
+                                aria-expanded={openReactionMenuId === message.id}
+                                aria-haspopup="true"
+                                aria-label="React to message"
                               >
-                                {messageActionId === message.id && messageActionMode === null
-                                  ? "Saving..."
-                                  : message.isStarred
-                                    ? "Unstar"
-                                    : "Star"}
+                                <MessageNavigationIcon name="react" />
                               </button>
                             )}
 
                             {!message.isDeleted && (
                               <button
                                 type="button"
-                                onClick={() => void handlePinMessage(message)}
-                                disabled={pinActionId !== null}
-                                aria-pressed={message.isPinned}
-                              >
-                                {pinActionId === message.id
-                                  ? "Saving..."
-                                  : message.isPinned
-                                    ? "Unpin"
-                                    : "Pin"}
-                              </button>
-                            )}
-
-                            {ownMessage && (
-                              <button
-                                type="button"
-                                onClick={() => void handleViewMessageInformation(message)}
-                                disabled={messageInformationLoadingId !== null}
-                              >
-                                {messageInformationLoadingId === message.id
-                                  ? "Loading..."
-                                  : "Info"}
-                              </button>
-                            )}
-
-                            {!message.isDeleted && message.textContent && (
-                              <button
-                                type="button"
-                                onClick={() => void handleCopyMessage(message)}
-                                disabled={messageActionId !== null}
-                              >
-                                Copy
-                              </button>
-                            )}
-
-                            {canForwardMessage(message) && (
-                              <button
-                                type="button"
-                                onClick={() => beginForward(message)}
-                                disabled={messageActionId !== null}
-                              >
-                                Forward
-                              </button>
-                            )}
-
-                            {!message.isDeleted && (
-                              <button
-                                type="button"
+                                className="message-action-reply"
                                 onClick={() => beginReply(message)}
                                 disabled={messageActionId !== null}
+                                aria-label="Reply to message"
                               >
-                                Reply
-                              </button>
-                            )}
-
-                            {ownMessage && canEditMessage(message, account?.id) && (
-                              <button
-                                type="button"
-                                onClick={() => beginEdit(message)}
-                                disabled={messageActionId !== null}
-                              >
-                                Edit
+                                <MessageNavigationIcon name="reply" />
                               </button>
                             )}
 
                             <button
                               type="button"
-                              onClick={() => void handleDeleteMessageForMe(message)}
-                              disabled={messageActionId !== null}
+                              className="message-action-more"
+                              data-message-action-trigger={message.id}
+                              onClick={(event) => toggleMessageActionMenu(
+                                message.id,
+                                ownMessage,
+                                event,
+                              )}
+                              aria-expanded={openMessageMenuId === message.id}
+                              aria-haspopup="menu"
+                              aria-label="Open more message actions"
                             >
-                              {messageActionId === message.id &&
-                              messageActionMode === "ME"
-                                ? "Deleting..."
-                                : "Delete for me"}
+                              <MessageNavigationIcon name="more" />
                             </button>
-
-                            {ownMessage && !message.isDeleted && (
-                              <button
-                                type="button"
-                                className="danger"
-                                onClick={() => void handleDeleteMessageForEveryone(message)}
-                                disabled={messageActionId !== null}
-                              >
-                                {messageActionId === message.id &&
-                                messageActionMode === "EVERYONE"
-                                  ? "Deleting..."
-                                  : "Delete for everyone"}
-                              </button>
-                            )}
                           </div>
 
-                          <div className="message-bubble-meta">
-                            <time>{formatMessageTime(message.sentAt)}</time>
+                          {(!groupedWithNext || message.editedAt) && (
+                            <div className="message-bubble-meta">
+                              <time>{formatMessageTime(message.sentAt)}</time>
 
-                            {message.editedAt && !message.isDeleted && (
-                              <span>Edited</span>
-                            )}
+                              {message.editedAt && !message.isDeleted && (
+                                <span>Edited</span>
+                              )}
 
-                            {ownMessage && (
-                              <span className={`message-delivery ${message.deliveryStatus.toLowerCase()}`}>
-                                {message.deliveryStatus === "READ"
-                                  ? "Read"
-                                  : message.deliveryStatus === "DELIVERED"
-                                    ? "Delivered"
-                                    : "Sent"}
-                              </span>
-                            )}
-                          </div>
+                              {ownMessage && (
+                                <span className={`message-delivery ${message.deliveryStatus.toLowerCase()}`}>
+                                  {message.deliveryStatus === "READ"
+                                    ? "Read"
+                                    : message.deliveryStatus === "DELIVERED"
+                                      ? "Delivered"
+                                      : "Sent"}
+                                </span>
+                              )}
+                            </div>
+                          )}
                         </div>
                       </article>
+                    </Fragment>
                     );
                   })
                 )}
@@ -7723,9 +9368,7 @@ export function MessageAppPage() {
                     className="message-typing-indicator"
                     aria-live="polite"
                   >
-                    <span className="message-avatar small">
-                      {initials(typingParticipants[0].displayName)}
-                    </span>
+                    {renderAccountAvatar(typingParticipants[0], "message-avatar small")}
                     <span className="message-typing-bubble">
                       <span aria-hidden="true">
                         <i />
@@ -7736,23 +9379,16 @@ export function MessageAppPage() {
                     </span>
                   </div>
                 )}
-                {hasOlderMessages && (
-                  <button
-                  type="button"
-                  className="message-load-older"
-                  onClick={() => void handleLoadOlderMessages()}
-                  disabled={olderMessagesLoading}
-                  >
-                    {olderMessagesLoading
-                     ? "Loading..." 
-                    : "Load older messages"
-                    }
-                  </button>
-                )}
+                <div
+                  ref={messageThreadBottomRef}
+                  className="message-thread-bottom"
+                  aria-hidden="true"
+                />
+                </div>
               </div>
 
               <form
-                className="message-composer"
+                className={`message-composer${announcementMode ? " announcement-mode" : ""}`}
                 onSubmit={(event) => void handleSendMessage(event)}
               >
                 {(replyingTo || editingMessage) && (
@@ -7865,27 +9501,6 @@ export function MessageAppPage() {
                   </div>
                 )}
 
-                {voiceRecordingState !== "IDLE" && (
-                  <div className="message-voice-recorder-bar">
-                    <span className="message-recording-dot" aria-hidden="true" />
-                    <strong>{voiceRecordingState === "STOPPING" ? "Preparing voice note" : "Recording voice note"}</strong>
-                    <small>{formatRecordingDuration(voiceRecordingSeconds)}</small>
-                    <button
-                      type="button"
-                      onClick={finishVoiceRecording}
-                      disabled={voiceRecordingState !== "RECORDING"}
-                    >
-                      Stop
-                    </button>
-                    <button
-                      type="button"
-                      onClick={cancelVoiceRecording}
-                    >
-                      Cancel
-                    </button>
-                  </div>
-                )}
-
                 <input
                   ref={attachmentInputRef}
                   type="file"
@@ -7906,9 +9521,7 @@ export function MessageAppPage() {
                         onMouseDown={(event) => event.preventDefault()}
                         onClick={() => handleMentionSelect(participant)}
                       >
-                        <span className="message-avatar small">
-                          {initials(participant.displayName)}
-                        </span>
+                        {renderAccountAvatar(participant, "message-avatar small")}
                         <span>
                           <strong>{participant.displayName}</strong>
                           <small>{participant.employee?.designation ?? participant.username ?? "Group member"}</small>
@@ -7926,123 +9539,527 @@ export function MessageAppPage() {
                       onChange={(event) => setAnnouncementMode(event.target.checked)}
                       disabled={sendingMessage || selectedAttachment !== null || voiceRecordingState !== "IDLE"}
                     />
-                    <span>Official announcement</span>
-                    <small>Highlight this text for every member of the official group.</small>
+                    <span className="message-announcement-switch" aria-hidden="true">
+                      <span />
+                    </span>
+                    <span className="message-announcement-copy">
+                      <strong>Announcement</strong>
+                      <small>Notify every member prominently</small>
+                    </span>
                   </label>
                 )}
 
-                <textarea
-                  ref={composerRef}
-                  value={messageText}
-                  onChange={(event) => {
-                    const value = event.target.value;
-                    setMessageText(value);
-                    setComposerCaretIndex(event.target.selectionStart ?? value.length);
+                {voiceRecordingState !== "IDLE" ? (
+                  <div className="message-voice-recorder-bar" role="status" aria-live="polite">
+                    <span className="message-recording-indicator" aria-hidden="true">
+                      <span className="message-recording-dot" />
+                    </span>
+                    <span className="message-recording-copy">
+                      <strong>{voiceRecordingState === "STOPPING" ? "Preparing voice note" : "Recording voice note"}</strong>
+                      <small>{formatRecordingDuration(voiceRecordingSeconds)}</small>
+                    </span>
+                    <span className="message-recording-waveform" aria-hidden="true">
+                      {Array.from({ length: 18 }, (_, index) => (
+                        <i key={index} />
+                      ))}
+                    </span>
+                    <button
+                      type="button"
+                      className="message-recording-cancel"
+                      onClick={cancelVoiceRecording}
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      type="button"
+                      className="message-recording-stop"
+                      onClick={finishVoiceRecording}
+                      disabled={voiceRecordingState !== "RECORDING"}
+                    >
+                      {voiceRecordingState === "STOPPING" ? "Preparing…" : "Stop and attach"}
+                    </button>
+                  </div>
+                ) : (
+                  <div className="message-composer-main">
+                    <div
+                      ref={attachmentMenuRef}
+                      className="message-attachment-menu-wrapper"
+                    >
+                      <button
+                        type="button"
+                        className="message-composer-control message-composer-plus"
+                        onClick={() => {
+                          setComposerEmojiOpen(false);
+                          setAttachmentMenuView("ROOT");
+                          setAttachmentMenuOpen((value) => !value);
+                        }}
+                        aria-expanded={attachmentMenuOpen}
+                        aria-label="Open attachment options"
+                        disabled={
+                          sendingMessage ||
+                          editingMessage !== null ||
+                          announcementMode
+                        }
+                      >
+                        <span aria-hidden="true">+</span>
+                      </button>
 
-                    if (selectedConversationId) {
-                      updateLocalTyping(selectedConversationId, value);
-                    }
-                  }}
-                  onSelect={(event) => {
-                    setComposerCaretIndex(event.currentTarget.selectionStart ?? messageText.length);
-                  }}
-                  onBlur={() => stopLocalTyping(selectedConversationId)}
-                  onKeyDown={handleComposerKeyDown}
-                  placeholder={
-                    editingMessage
-                      ? "Edit your message"
-                      : replyingTo
-                        ? "Write a reply"
-                        : `Message ${selectedConversation.title ?? "conversation"}`
-                  }
-                  maxLength={5000}
-                  rows={1}
-                  disabled={sendingMessage || voiceRecordingState !== "IDLE"}
-                  aria-label="Message text"
-                />
+                      {attachmentMenuOpen && (
+                        <div
+                          className={`message-attachment-menu${attachmentMenuView === "LIVE_LOCATION" ? " live-step" : ""}`}
+                          role="dialog"
+                          aria-label="Attachment options"
+                        >
+                          <header className="message-composer-popover-header">
+                            {attachmentMenuView === "LIVE_LOCATION" ? (
+                              <button
+                                type="button"
+                                className="message-popover-back"
+                                onClick={() => setAttachmentMenuView("ROOT")}
+                                aria-label="Back to attachment options"
+                              >
+                                ←
+                              </button>
+                            ) : (
+                              <span className="message-popover-header-spacer" aria-hidden="true" />
+                            )}
+                            <strong>{attachmentMenuView === "LIVE_LOCATION" ? "Live location" : "Attach"}</strong>
+                            <button
+                              type="button"
+                              className="message-popover-close"
+                              onClick={() => {
+                                setAttachmentMenuOpen(false);
+                                setAttachmentMenuView("ROOT");
+                              }}
+                              aria-label="Close attachment options"
+                            >
+                              ×
+                            </button>
+                          </header>
 
-                <div className="message-composer-actions">
-                  <span>
-                    {announcementMode
-                      ? "Official announcement mode · Enter to send"
-                      : "Attach image, video, audio or document · Enter to send"}
-                  </span>
+                          {attachmentMenuView === "ROOT" ? (
+                            <>
+                              <div className="message-attachment-menu-grid">
+                                <button
+                                  type="button"
+                                  onClick={() => openAttachmentPicker(MEDIA_ATTACHMENT_TYPES)}
+                                  disabled={sendingMessage}
+                                >
+                                  <span className="media"><AttachmentGlyph name="image" /></span>
+                                  <strong>Photo & video</strong>
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => openAttachmentPicker(DOCUMENT_ATTACHMENT_TYPES)}
+                                  disabled={sendingMessage}
+                                >
+                                  <span className="document"><AttachmentGlyph name="document" /></span>
+                                  <strong>Document</strong>
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => openAttachmentPicker(AUDIO_ATTACHMENT_TYPES)}
+                                  disabled={sendingMessage}
+                                >
+                                  <span className="audio"><AttachmentGlyph name="audio" /></span>
+                                  <strong>Audio</strong>
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    void handleShareCurrentLocation();
+                                    setAttachmentMenuOpen(false);
+                                  }}
+                                  disabled={locationActionLoading !== null}
+                                >
+                                  <span className="location"><AttachmentGlyph name="location" /></span>
+                                  <strong>Location</strong>
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => setAttachmentMenuView("LIVE_LOCATION")}
+                                  disabled={locationActionLoading !== null || activeLiveLocation !== null}
+                                >
+                                  <span className="live-location"><AttachmentGlyph name="location" /></span>
+                                  <strong>Live location</strong>
+                                </button>
+                              </div>
 
-                  <button
-                    type="button"
-                    className="message-location-button"
-                    onClick={() => void handleShareCurrentLocation()}
-                    disabled={sendingMessage || editingMessage !== null || announcementMode || voiceRecordingState !== "IDLE" || locationActionLoading !== null}
-                  >
-                    {locationActionLoading === "CURRENT" ? "Sharing..." : "📍 Location"}
-                  </button>
+                              {activeLiveLocation && (
+                                <button
+                                  type="button"
+                                  className="message-live-location-stop"
+                                  onClick={() => {
+                                    void handleStopLiveLocation();
+                                    setAttachmentMenuOpen(false);
+                                  }}
+                                  disabled={locationActionLoading === "STOP"}
+                                >
+                                  <span aria-hidden="true">■</span>
+                                  {locationActionLoading === "STOP"
+                                    ? "Stopping live location…"
+                                    : "Stop live location"}
+                                </button>
+                              )}
+                            </>
+                          ) : (
+                            <div className="message-live-location-step">
+                              <span className="message-live-location-illustration" aria-hidden="true">
+                                <AttachmentGlyph name="location" />
+                              </span>
+                              <div>
+                                <strong>Share your live position</strong>
+                                <small>Only participants in this conversation can view updates.</small>
+                              </div>
+                              <div className="message-live-duration-options" role="group" aria-label="Live location duration">
+                                {([15, 60, 480] as const).map((duration) => (
+                                  <button
+                                    key={duration}
+                                    type="button"
+                                    className={locationDurationMinutes === duration ? "active" : ""}
+                                    onClick={() => setLocationDurationMinutes(duration)}
+                                    aria-pressed={locationDurationMinutes === duration}
+                                  >
+                                    {duration === 15 ? "15 min" : duration === 60 ? "1 hour" : "8 hours"}
+                                  </button>
+                                ))}
+                              </div>
+                              <button
+                                type="button"
+                                className="message-live-location-start"
+                                onClick={() => {
+                                  void handleStartLiveLocation();
+                                  setAttachmentMenuOpen(false);
+                                  setAttachmentMenuView("ROOT");
+                                }}
+                                disabled={locationActionLoading !== null || activeLiveLocation !== null}
+                              >
+                                {locationActionLoading === "LIVE" ? "Starting…" : "Start sharing"}
+                              </button>
+                            </div>
+                          )}
+                        </div>
+                      )}
+                    </div>
 
-                  <label className="message-live-location-control">
-                    <span className="sr-only">Live location duration</span>
-                    <select
-                      onChange={(event) =>
-                        setLocationDurationMinutes(Number(event.target.value) as 15 | 60 | 480)
+                    <div
+                      ref={composerEmojiMenuRef}
+                      className="message-composer-emoji-wrapper"
+                    >
+                      <button
+                        type="button"
+                        className="message-composer-control message-composer-emoji"
+                        onClick={() => {
+                          setAttachmentMenuOpen(false);
+                          setAttachmentMenuView("ROOT");
+                          setComposerEmojiOpen((value) => !value);
+                        }}
+                        aria-expanded={composerEmojiOpen}
+                        aria-label="Open emoji picker"
+                        disabled={sendingMessage}
+                      >
+                        <MessageNavigationIcon name="emoji" />
+                      </button>
+
+                      {composerEmojiOpen && (
+                        <div className="message-composer-emoji-menu" role="dialog" aria-label="Quick emojis">
+                          <header className="message-composer-popover-header">
+                            <span className="message-popover-header-spacer" aria-hidden="true" />
+                            <strong>Emoji</strong>
+                            <button
+                              type="button"
+                              className="message-popover-close"
+                              onClick={() => setComposerEmojiOpen(false)}
+                              aria-label="Close emoji picker"
+                            >
+                              ×
+                            </button>
+                          </header>
+                          <div className="message-composer-emoji-body">
+                            {COMPOSER_EMOJI_SECTIONS.map((section) => (
+                              <section
+                                key={section.label}
+                                className="message-composer-emoji-section"
+                                aria-label={section.label}
+                              >
+                                <h4>{section.label}</h4>
+                                <div className="message-composer-emoji-grid">
+                                  {section.emojis.map((emoji) => (
+                                    <button
+                                      key={`${section.label}-${emoji}`}
+                                      type="button"
+                                      onClick={() => insertComposerEmoji(emoji)}
+                                      aria-label={`Insert ${emoji}`}
+                                    >
+                                      {emoji}
+                                    </button>
+                                  ))}
+                                </div>
+                              </section>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+
+                    <textarea
+                      ref={composerRef}
+                      value={messageText}
+                      onChange={(event) => {
+                        const value = event.target.value;
+                        setMessageText(value);
+                        setComposerCaretIndex(event.target.selectionStart ?? value.length);
+                        setSendAttemptFailed(false);
+
+                        if (selectedConversationId) {
+                          updateLocalTyping(selectedConversationId, value);
+                        }
+                      }}
+                      onSelect={(event) => {
+                        setComposerCaretIndex(event.currentTarget.selectionStart ?? messageText.length);
+                      }}
+                      onBlur={() => stopLocalTyping(selectedConversationId)}
+                      onKeyDown={handleComposerKeyDown}
+                      placeholder={
+                        editingMessage
+                          ? "Edit your message"
+                          : replyingTo
+                            ? "Write a reply"
+                            : "Type a message"
                       }
+                      maxLength={5000}
+                      rows={1}
+                      disabled={sendingMessage}
+                      aria-label="Message text"
+                    />
+
+                    <button
+                      type="button"
+                      className="message-composer-control message-voice-record-button"
+                      onClick={() => void beginVoiceRecording()}
                       disabled={
                         sendingMessage ||
                         editingMessage !== null ||
                         announcementMode ||
-                        voiceRecordingState !== "IDLE" ||
-                        locationActionLoading !== null
+                        selectedAttachment !== null
                       }
-                      >
-                       <option value={15}>15m</option>
-                      <option value={60}>1h</option>
-                      <option value={480}>8h</option>
-                    </select>
-                    <button
-                      type="button"
-                      className="message-live-location-button"
-                      onClick={() => void handleStartLiveLocation()}
-                      disabled={sendingMessage || editingMessage !== null || announcementMode || voiceRecordingState !== "IDLE" || locationActionLoading !== null || activeLiveLocation !== null}
+                      aria-label="Record voice note"
                     >
-                      {locationActionLoading === "LIVE" ? "Starting..." : "Live"}
+                      <MessageNavigationIcon name="microphone" />
                     </button>
-                  </label>
 
-                  {activeLiveLocation && (
                     <button
-                      type="button"
-                      className="message-live-stop-button"
-                      onClick={() => void handleStopLiveLocation()}
-                      disabled={locationActionLoading === "STOP"}
+                      type="submit"
+                      className={`message-composer-control message-send-button is-${composerSendState}`}
+                      disabled={!composerHasContent || sendingMessage}
+                      aria-label={
+                        sendingMessage
+                          ? "Sending message"
+                          : sendAttemptFailed
+                            ? "Retry sending message"
+                            : editingMessage
+                              ? "Save message"
+                              : "Send message"
+                      }
+                      title={sendAttemptFailed ? "Retry sending" : undefined}
                     >
-                      {locationActionLoading === "STOP" ? "Stopping..." : "Stop live"}
+                      {sendingMessage ? (
+                        <span className="message-send-spinner" aria-hidden="true" />
+                      ) : sendAttemptFailed ? (
+                        <span className="message-send-retry" aria-hidden="true">↻</span>
+                      ) : editingMessage ? (
+                        <span aria-hidden="true">✓</span>
+                      ) : (
+                        <MessageNavigationIcon name="send" />
+                      )}
                     </button>
-                  )}
-
-                  <button
-                    type="button"
-                    className="message-voice-record-button"
-                    onClick={() => void beginVoiceRecording()}
-                    disabled={sendingMessage || editingMessage !== null || announcementMode || selectedAttachment !== null || voiceRecordingState !== "IDLE"}
-                  >
-                    🎙 Voice note
-                  </button>
-
-                  <button
-                    type="submit"
-                    className="message-send-button"
-                    disabled={(!messageText.trim() && !selectedAttachment) || sendingMessage || voiceRecordingState !== "IDLE"}
-                  >
-                    {sendingMessage
-                      ? editingMessage
-                        ? "Saving..."
-                        : "Sending..."
-                      : editingMessage
-                        ? "Save"
-                        : "Send"}
-                  </button>
-                </div>
+                  </div>
+                )}
               </form>
             </>
           )}
         </section>
+
+        <aside
+          className={`message-conversation-details${
+            selectedConversation && detailsPanelOpen ? " is-open" : ""
+          }`}
+          aria-label="Conversation information"
+          aria-hidden={!selectedConversation || !detailsPanelOpen}
+        >
+          {!selectedConversation ? (
+            <div className="message-details-empty">
+              <MessageNavigationIcon name="info" />
+              <strong>Conversation information</strong>
+              <small>Select a conversation to review its profile and preferences.</small>
+            </div>
+          ) : (
+            <>
+              <div className="message-details-header">
+                <div>
+                  <span>Conversation</span>
+                  <strong>Information</strong>
+                </div>
+                <button
+                  type="button"
+                  className="message-details-close"
+                  onClick={(event) => {
+                    // Move focus before hiding the drawer from assistive technology.
+                    event.currentTarget.blur();
+                    setDetailsPanelOpen(false);
+                  }}
+                  aria-label="Close conversation information"
+                >
+                  <MessageNavigationIcon name="close" />
+                </button>
+              </div>
+
+              <header className="message-details-profile">
+                <span className="message-avatar-presence large">
+                  {selectedConversation.type === "PRIVATE" && peer
+                    ? renderAccountAvatar(peer, "message-avatar large")
+                    : renderGroupAvatar(selectedConversation, "message-avatar large")}
+                  {peer?.showOnlineStatus !== false && peerPresence?.isOnline && (
+                    <span className="message-presence-dot" aria-label="Online" />
+                  )}
+                </span>
+
+                <strong>{selectedConversation.title ?? "Private conversation"}</strong>
+                <small>
+                  {selectedConversation.type === "GROUP"
+                    ? selectedConversation.groupKind === "OFFICIAL"
+                      ? officialScopeLabel(selectedConversation)
+                      : `${selectedConversation.memberCount} members · Personal group`
+                    : [
+                        peer?.employee?.designation ?? roleLabel(peer?.role ?? "EMPLOYEE"),
+                        peer?.employee?.department?.name ?? peer?.employee?.division?.name,
+                      ].filter(Boolean).join(" · ")}
+                </small>
+
+                <div className="message-details-status-row">
+                  {selectedConversation.groupKind === "OFFICIAL" && (
+                    <span className="message-details-badge">Official group</span>
+                  )}
+                  {selectedConversation.type === "PRIVATE" && (
+                    <span className={`message-details-presence${peerPresence?.isOnline ? " online" : ""}`}>
+                      {peerPresence?.isOnline ? "Online" : "Offline"}
+                    </span>
+                  )}
+                </div>
+              </header>
+
+              <div className="message-details-primary-actions">
+                <button
+                  type="button"
+                  onClick={() =>
+                    selectedConversation.type === "GROUP"
+                      ? openManageGroup()
+                      : openProfile(peer?.accountId)
+                  }
+                >
+                  <MessageNavigationIcon name="profile" />
+                  <span>{selectedConversation.type === "GROUP" ? "Group info" : "Profile"}</span>
+                </button>
+                <button type="button" onClick={() => void openSharedContentDialog()}>
+                  <MessageNavigationIcon name="shared" />
+                  <span>Shared</span>
+                </button>
+                <button type="button" onClick={() => openSearchDialog("CURRENT")}>
+                  <MessageNavigationIcon name="search" />
+                  <span>Search</span>
+                </button>
+              </div>
+
+              <section className="message-details-summary" aria-label="Conversation summary">
+                <div>
+                  <span>Type</span>
+                  <strong>{selectedConversation.type === "GROUP" ? "Group" : "Private"}</strong>
+                </div>
+                <div>
+                  <span>{selectedConversation.type === "GROUP" ? "Members" : "Presence"}</span>
+                  <strong>
+                    {selectedConversation.type === "GROUP"
+                      ? selectedConversation.memberCount
+                      : peerPresence?.isOnline
+                        ? "Online"
+                        : "Offline"}
+                  </strong>
+                </div>
+                <div>
+                  <span>Unread</span>
+                  <strong>{selectedConversation.unreadCount}</strong>
+                </div>
+              </section>
+
+              {selectedConversation.description && (
+                <section className="message-details-about">
+                  <span>About</span>
+                  <p>{selectedConversation.description}</p>
+                </section>
+              )}
+
+              <section className="message-details-preferences">
+                <span>Conversation preferences</span>
+
+                <button
+                  type="button"
+                  onClick={() => void handleConversationPinnedToggle()}
+                  disabled={conversationPreferenceLoading === selectedConversation.id}
+                >
+                  <MessageNavigationIcon name="pin" />
+                  <span>{selectedConversation.isPinned ? "Unpin conversation" : "Pin conversation"}</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => void handleConversationUnreadToggle()}
+                  disabled={conversationPreferenceLoading === selectedConversation.id}
+                >
+                  <MessageNavigationIcon name="unread" />
+                  <span>
+                    {selectedConversation.isMarkedUnread || selectedConversation.unreadCount > 0
+                      ? "Mark as read"
+                      : "Mark as unread"}
+                  </span>
+                </button>
+
+                <label>
+                  <MessageNavigationIcon name="bell" />
+                  <select
+                    value={selectedConversation.isMuted
+                      ? selectedConversation.mutedUntil
+                        ? "8_HOURS"
+                        : "ALWAYS"
+                      : "OFF"}
+                    onChange={(event) => void handleConversationMuteChange(
+                      event.target.value as ConversationMuteSetting,
+                    )}
+                    disabled={conversationPreferenceLoading === selectedConversation.id}
+                    aria-label="Mute conversation"
+                  >
+                    <option value="OFF">Notifications on</option>
+                    <option value="8_HOURS">Mute for 8 hours</option>
+                    <option value="1_WEEK">Mute for 1 week</option>
+                    <option value="ALWAYS">Mute always</option>
+                  </select>
+                </label>
+
+                <button
+                  type="button"
+                  onClick={() => void handleConversationArchiveToggle()}
+                  disabled={conversationPreferenceLoading === selectedConversation.id}
+                >
+                  <MessageNavigationIcon name="archive" />
+                  <span>{selectedConversation.isArchived ? "Unarchive conversation" : "Archive conversation"}</span>
+                </button>
+              </section>
+
+              <p className="message-details-privacy">
+                Private message content is visible only to authorized conversation participants.
+              </p>
+            </>
+          )}
+        </aside>
       </section>
 
       {searchDialogOpen && (
@@ -8173,9 +10190,7 @@ export function MessageAppPage() {
                           className="message-search-result-row"
                           onClick={() => openSearchMessageResult(result)}
                         >
-                          <span className="message-avatar small">
-                            {initials(result.message.sender.displayName)}
-                          </span>
+                          {renderAccountAvatar(result.message.sender, "message-avatar small")}
                           <span>
                             <strong>{result.conversation.title ?? "Conversation"}</strong>
                             <small>{result.snippet}</small>
@@ -8198,9 +10213,7 @@ export function MessageAppPage() {
                           className="message-search-result-row"
                           onClick={() => openSearchConversationResult(conversation)}
                         >
-                          <span className="message-avatar small">
-                            {initials(conversation.title ?? "NT")}
-                          </span>
+                          {renderConversationAvatar(conversation, "message-avatar small")}
                           <span>
                             <strong>{conversation.title ?? "Private conversation"}</strong>
                             <small>{conversation.description ?? messagePreview(conversation, account?.id ?? "")}</small>
@@ -9677,9 +11690,7 @@ export function MessageAppPage() {
                         }
                       />
 
-                      <span className="message-avatar small">
-                        {initials(conversation.title ?? "NT")}
-                      </span>
+                      {renderConversationAvatar(conversation, "message-avatar small")}
 
                       <span>
                         <strong>
@@ -9791,9 +11802,7 @@ export function MessageAppPage() {
                   ) : (
                     messageInformation.recipients.map((recipient) => (
                       <article key={recipient.accountId} className="message-info-recipient">
-                        <span className="message-avatar small">
-                          {initials(recipient.account.displayName)}
-                        </span>
+                        {renderAccountAvatar(recipient.account, "message-avatar small")}
 
                         <div>
                           <strong>{recipient.account.displayName}</strong>
@@ -9837,33 +11846,42 @@ export function MessageAppPage() {
           }}
         >
           <section
-            className="message-media-viewer"
+            className={`message-media-viewer${
+              isPdfAttachment(attachmentViewer.attachment) ||
+              isTextPreviewAttachment(attachmentViewer.attachment)
+                ? " document-viewer"
+                : ""
+            }${attachmentViewerShowsFooter ? " with-footer" : " without-footer"}`}
             role="dialog"
             aria-modal="true"
             aria-labelledby="message-media-viewer-title"
           >
-            <header>
-              <div>
-                <strong id="message-media-viewer-title">
-                  {attachmentViewer.attachment.originalFileName}
-                </strong>
-                <span>
-                  {attachmentTypeLabel(attachmentViewer.attachment)} · {formatFileSize(attachmentViewer.attachment.fileSizeBytes)}
-                </span>
+            <header className="message-media-viewer-header">
+              <div className="message-media-viewer-identity">
+                {renderAccountAvatar(attachmentViewer.message.sender, "message-avatar small")}
+                <div>
+                  <strong>{attachmentViewer.message.sender.displayName}</strong>
+                  <span id="message-media-viewer-title">
+                    {notificationTimestampLabel(attachmentViewer.message.sentAt)} · {attachmentViewer.attachment.originalFileName}
+                  </span>
+                </div>
               </div>
 
-              <div>
+              <div className="message-media-viewer-actions">
                 <button
                   type="button"
                   onClick={() => void handleDownloadAttachment(
                     attachmentViewer.message,
                     attachmentViewer.attachment,
                   )}
+                  aria-label={`Download ${attachmentViewer.attachment.originalFileName}`}
                 >
-                  Download
+                  <AttachmentGlyph name="download" />
+                  <span>Download</span>
                 </button>
                 <button
                   type="button"
+                  className="close"
                   onClick={closeAttachmentViewer}
                   aria-label="Close attachment preview"
                 >
@@ -9881,12 +11899,26 @@ export function MessageAppPage() {
                     : isAudioAttachment(attachmentViewer.attachment)
                       ? "is-audio"
                       : isPdfAttachment(attachmentViewer.attachment)
-                      ? "is-pdf"
-                      : isTextPreviewAttachment(attachmentViewer.attachment)
-                        ? "is-text"
-                        : ""
+                        ? "is-pdf"
+                        : isTextPreviewAttachment(attachmentViewer.attachment)
+                          ? "is-text"
+                          : ""
               }`}
             >
+              {attachmentViewerIndex > 0 && (
+                <button
+                  type="button"
+                  className="message-media-viewer-navigation previous"
+                  onClick={() => void handlePreviewAttachment(
+                    attachmentViewer.message,
+                    attachmentViewerItems[attachmentViewerIndex - 1],
+                  )}
+                  aria-label="View previous attachment"
+                >
+                  ‹
+                </button>
+              )}
+
               {attachmentViewer.loading && (
                 <div className="message-media-viewer-state">
                   <span className="message-small-spinner" />
@@ -9896,6 +11928,8 @@ export function MessageAppPage() {
 
               {!attachmentViewer.loading && attachmentViewer.error && (
                 <div className="message-media-viewer-state error">
+                  <AttachmentGlyph name="retry" />
+                  <strong>Preview unavailable</strong>
                   <p>{attachmentViewer.error}</p>
                 </div>
               )}
@@ -9917,6 +11951,7 @@ export function MessageAppPage() {
                   <video
                     src={attachmentViewer.objectUrl}
                     controls
+                    autoPlay
                     playsInline
                   >
                     Your browser does not support video preview.
@@ -9928,19 +11963,19 @@ export function MessageAppPage() {
                 attachmentViewer.objectUrl &&
                 isAudioAttachment(attachmentViewer.attachment) && (
                   <div className="message-media-viewer-audio">
-                    <div className="message-audio-waveform large" aria-hidden="true">
-                      <i />
-                      <i />
-                      <i />
-                      <i />
-                      <i />
-                      <i />
-                      <i />
-                      <i />
-                    </div>
-                    <audio src={attachmentViewer.objectUrl} controls preload="metadata">
-                      Your browser does not support audio playback.
-                    </audio>
+                    <CompactAttachmentAudio
+                      src={attachmentViewer.objectUrl}
+                      voiceNote={
+                        getMessagePayloadValue(
+                          attachmentViewer.message,
+                          "attachmentKind",
+                        ) === "VOICE_NOTE"
+                      }
+                      senderDisplayName={attachmentViewer.message.sender.displayName}
+                      senderPhotoUrl={
+                        profilePhotoUrls[attachmentViewer.message.sender.accountId] ?? null
+                      }
+                    />
                   </div>
                 )}
 
@@ -9954,7 +11989,42 @@ export function MessageAppPage() {
                     src={attachmentViewer.objectUrl}
                   />
                 )}
+
+              {attachmentViewerIndex >= 0 &&
+                attachmentViewerIndex < attachmentViewerItems.length - 1 && (
+                  <button
+                    type="button"
+                    className="message-media-viewer-navigation next"
+                    onClick={() => void handlePreviewAttachment(
+                      attachmentViewer.message,
+                      attachmentViewerItems[attachmentViewerIndex + 1],
+                    )}
+                    aria-label="View next attachment"
+                  >
+                    ›
+                  </button>
+                )}
             </div>
+
+            {attachmentViewerShowsFooter && (
+              <footer className="message-media-viewer-footer">
+                <div>
+                  <strong>
+                    {attachmentViewer.attachment.originalFileName}
+                  </strong>
+                  <span>
+                    {attachmentTypeLabel(attachmentViewer.attachment)} · {formatFileSize(
+                      attachmentViewer.attachment.fileSizeBytes,
+                    )}
+                  </span>
+                </div>
+                {attachmentViewerItems.length > 1 && attachmentViewerIndex >= 0 && (
+                  <span>
+                    {attachmentViewerIndex + 1} / {attachmentViewerItems.length}
+                  </span>
+                )}
+              </footer>
+            )}
           </section>
         </div>
       )}
@@ -10024,9 +12094,7 @@ export function MessageAppPage() {
                           key={request.id}
                           className="message-request-card"
                         >
-                          <span className="message-avatar">
-                            {initials(request.peer.displayName)}
-                          </span>
+                          {renderAccountAvatar(request.peer)}
 
                           <div>
                             <strong>{request.peer.displayName}</strong>
@@ -10087,9 +12155,7 @@ export function MessageAppPage() {
                           key={request.id}
                           className="message-request-card sent"
                         >
-                          <span className="message-avatar">
-                            {initials(request.peer.displayName)}
-                          </span>
+                          {renderAccountAvatar(request.peer)}
 
                           <div>
                             <strong>{request.peer.displayName}</strong>

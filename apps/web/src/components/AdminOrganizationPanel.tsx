@@ -41,6 +41,20 @@ interface DepartmentForm {
   name: string;
 }
 
+type OrganizationStatusFilter = "ALL" | "ACTIVE" | "INACTIVE";
+type CreateTarget = "division" | "department" | null;
+
+type DetailTarget =
+  | {
+      kind: "division";
+      item: AdminDivision;
+    }
+  | {
+      kind: "department";
+      item: AdminDepartment;
+    }
+  | null;
+
 type EditTarget =
   | {
       kind: "division";
@@ -119,41 +133,45 @@ function normalizeName(
     .replace(/\s+/g, " ");
 }
 
+function formatOrganizationDate(
+  value?: string,
+): string {
+  if (!value) {
+    return "Not available";
+  }
+
+  const date = new Date(value);
+
+  if (Number.isNaN(date.getTime())) {
+    return "Not available";
+  }
+
+  return new Intl.DateTimeFormat("en-GB", {
+    day: "2-digit",
+    month: "short",
+    year: "numeric",
+  }).format(date);
+}
+
 function getDivisionBlockers(
   division: AdminDivision,
 ): string[] {
   const blockers: string[] = [];
 
-  if (
-    division._count.departments > 0
-  ) {
-    blockers.push(
-      `${division._count.departments} department(s)`,
-    );
+  if (division._count.departments > 0) {
+    blockers.push(`${division._count.departments} department(s)`);
   }
 
-  if (
-    division._count.employees > 0
-  ) {
-    blockers.push(
-      `${division._count.employees} employee(s)`,
-    );
+  if (division._count.employees > 0) {
+    blockers.push(`${division._count.employees} employee(s)`);
   }
 
-  if (
-    division._count.accountRequests > 0
-  ) {
-    blockers.push(
-      `${division._count.accountRequests} account request(s)`,
-    );
+  if (division._count.accountRequests > 0) {
+    blockers.push(`${division._count.accountRequests} account request(s)`);
   }
 
-  if (
-    division._count.managementPositions > 0
-  ) {
-    blockers.push(
-      `${division._count.managementPositions} management position(s)`,
-    );
+  if (division._count.managementPositions > 0) {
+    blockers.push(`${division._count.managementPositions} management position(s)`);
   }
 
   return blockers;
@@ -164,31 +182,40 @@ function getDepartmentBlockers(
 ): string[] {
   const blockers: string[] = [];
 
-  if (
-    department._count.employees > 0
-  ) {
-    blockers.push(
-      `${department._count.employees} employee(s)`,
-    );
+  if (department._count.employees > 0) {
+    blockers.push(`${department._count.employees} employee(s)`);
   }
 
-  if (
-    department._count.accountRequests > 0
-  ) {
-    blockers.push(
-      `${department._count.accountRequests} account request(s)`,
-    );
+  if (department._count.accountRequests > 0) {
+    blockers.push(`${department._count.accountRequests} account request(s)`);
   }
 
-  if (
-    department._count.managementPositions > 0
-  ) {
-    blockers.push(
-      `${department._count.managementPositions} management position(s)`,
-    );
+  if (department._count.managementPositions > 0) {
+    blockers.push(`${department._count.managementPositions} management position(s)`);
   }
 
   return blockers;
+}
+
+function getDepartmentDependencyCount(
+  department: AdminDepartment,
+): number {
+  return (
+    department._count.employees +
+    department._count.accountRequests +
+    department._count.managementPositions
+  );
+}
+
+function getDivisionDependencyCount(
+  division: AdminDivision,
+): number {
+  return (
+    division._count.departments +
+    division._count.employees +
+    division._count.accountRequests +
+    division._count.managementPositions
+  );
 }
 
 export function AdminOrganizationPanel({
@@ -207,16 +234,27 @@ export function AdminOrganizationPanel({
   const [
     divisionForm,
     setDivisionForm,
-  ] = useState<DivisionForm>(
-    emptyDivision,
-  );
+  ] = useState<DivisionForm>(emptyDivision);
 
   const [
     departmentForm,
     setDepartmentForm,
-  ] = useState<DepartmentForm>(
-    emptyDepartment,
-  );
+  ] = useState<DepartmentForm>(emptyDepartment);
+
+  const [
+    createTarget,
+    setCreateTarget,
+  ] = useState<CreateTarget>(null);
+
+  const [
+    showCreateAccount,
+    setShowCreateAccount,
+  ] = useState(false);
+
+  const [
+    detailTarget,
+    setDetailTarget,
+  ] = useState<DetailTarget>(null);
 
   const [
     editTarget,
@@ -274,66 +312,132 @@ export function AdminOrganizationPanel({
   ] = useState(0);
 
   const [
-    showCreateAccount,
-    setShowCreateAccount,
-  ] = useState(false);
+    searchTerm,
+    setSearchTerm,
+  ] = useState("");
 
-  const activeDivisions =
-    useMemo(
-      () =>
-        divisions.filter(
-          (division) =>
-            division.isActive,
-        ),
-      [divisions],
+  const [
+    statusFilter,
+    setStatusFilter,
+  ] = useState<OrganizationStatusFilter>("ALL");
+
+  const [
+    expandedDivisionId,
+    setExpandedDivisionId,
+  ] = useState<string | null>(null);
+
+  const activeDivisions = useMemo(
+    () => divisions.filter((division) => division.isActive),
+    [divisions],
+  );
+
+  const normalizedSearch = searchTerm.trim().toLowerCase();
+
+  function matchesStatus(
+    isActive: boolean,
+  ): boolean {
+    return (
+      statusFilter === "ALL" ||
+      (statusFilter === "ACTIVE" && isActive) ||
+      (statusFilter === "INACTIVE" && !isActive)
     );
+  }
 
-  // Loads the latest organization structure.
+  const filteredDepartments = useMemo(
+    () =>
+      departments.filter((department) => {
+        const matchesSearch =
+          normalizedSearch.length === 0 ||
+          department.name.toLowerCase().includes(normalizedSearch) ||
+          department.code.toLowerCase().includes(normalizedSearch) ||
+          department.division.name.toLowerCase().includes(normalizedSearch) ||
+          department.division.code.toLowerCase().includes(normalizedSearch);
+
+        return matchesSearch && matchesStatus(department.isActive);
+      }),
+    [departments, normalizedSearch, statusFilter],
+  );
+
+  const directMatchingDivisionIds = useMemo(
+    () =>
+      new Set(
+        divisions
+          .filter((division) => {
+            const matchesSearch =
+              normalizedSearch.length === 0 ||
+              division.name.toLowerCase().includes(normalizedSearch) ||
+              division.code.toLowerCase().includes(normalizedSearch);
+
+            return matchesSearch && matchesStatus(division.isActive);
+          })
+          .map((division) => division.id),
+      ),
+    [divisions, normalizedSearch, statusFilter],
+  );
+
+  const parentDivisionIds = useMemo(
+    () =>
+      new Set(
+        filteredDepartments.map((department) => department.division.id),
+      ),
+    [filteredDepartments],
+  );
+
+  // A division remains visible when one of its departments matches the filters.
+  // This preserves the hierarchy instead of presenting an orphan department.
+  const filteredDivisions = useMemo(
+    () =>
+      divisions.filter(
+        (division) =>
+          directMatchingDivisionIds.has(division.id) ||
+          parentDivisionIds.has(division.id),
+      ),
+    [divisions, directMatchingDivisionIds, parentDivisionIds],
+  );
+
+  const organizationSummary = useMemo(() => {
+    const activeUnits =
+      divisions.filter((division) => division.isActive).length +
+      departments.filter((department) => department.isActive).length;
+
+    const protectedUnits =
+      divisions.filter((division) => getDivisionBlockers(division).length > 0).length +
+      departments.filter((department) => getDepartmentBlockers(department).length > 0).length;
+
+    return {
+      divisions: divisions.length,
+      departments: departments.length,
+      activeUnits,
+      protectedUnits,
+    };
+  }, [departments, divisions]);
+
+  const matchingUnitCount =
+    directMatchingDivisionIds.size + filteredDepartments.length;
+
   useEffect(() => {
     let active = true;
 
     Promise.all([
-      getAdminDivisions(
-        accessToken,
-      ),
-
-      getAdminDepartments(
-        accessToken,
-      ),
+      getAdminDivisions(accessToken),
+      getAdminDepartments(accessToken),
     ])
-      .then(
-        ([
-          divisionResponse,
-          departmentResponse,
-        ]) => {
-          if (!active) {
-            return;
-          }
+      .then(([divisionResponse, departmentResponse]) => {
+        if (!active) {
+          return;
+        }
 
-          setDivisions(
-            divisionResponse.data,
-          );
+        setDivisions(divisionResponse.data);
+        setDepartments(departmentResponse.data);
+        setError("");
+      })
+      .catch((requestError: unknown) => {
+        if (!active) {
+          return;
+        }
 
-          setDepartments(
-            departmentResponse.data,
-          );
-
-          setError("");
-        },
-      )
-      .catch(
-        (requestError: unknown) => {
-          if (!active) {
-            return;
-          }
-
-          setError(
-            getErrorMessage(
-              requestError,
-            ),
-          );
-        },
-      )
+        setError(getErrorMessage(requestError));
+      })
       .finally(() => {
         if (active) {
           setLoading(false);
@@ -343,20 +447,12 @@ export function AdminOrganizationPanel({
     return () => {
       active = false;
     };
-  }, [
-    accessToken,
-    refreshKey,
-  ]);
+  }, [accessToken, refreshKey]);
 
-  function refreshOrganization():
-    void {
+  function refreshOrganization(): void {
     setLoading(true);
     setError("");
-
-    setRefreshKey(
-      (current) =>
-        current + 1,
-    );
+    setRefreshKey((current) => current + 1);
   }
 
   function clearMessages(): void {
@@ -365,138 +461,82 @@ export function AdminOrganizationPanel({
     setDialogError("");
   }
 
+  function closeCreateDialog(): void {
+    setCreateTarget(null);
+    setDialogError("");
+  }
+
   async function submitDivision(
-    event:
-      FormEvent<HTMLFormElement>,
+    event: FormEvent<HTMLFormElement>,
   ): Promise<void> {
     event.preventDefault();
 
-    const code =
-      normalizeCode(
-        divisionForm.code,
-      );
+    const code = normalizeCode(divisionForm.code);
+    const name = normalizeName(divisionForm.name);
 
-    const name =
-      normalizeName(
-        divisionForm.name,
-      );
-
-    if (
-      code.length < 2 ||
-      name.length < 2
-    ) {
-      setError(
-        "Enter a valid division code and name.",
-      );
-
+    if (code.length < 2 || name.length < 2) {
+      setDialogError("Enter a valid division code and name.");
       return;
     }
 
     setSavingDivision(true);
-    clearMessages();
+    setDialogError("");
+    setError("");
+    setSuccess("");
 
     try {
-      const response =
-        await createAdminDivision(
-          accessToken,
-          {
-            code,
-            name,
-          },
-        );
+      const response = await createAdminDivision(accessToken, {
+        code,
+        name,
+      });
 
-      setSuccess(
-        response.message,
-      );
-
-      setDivisionForm(
-        emptyDivision,
-      );
-
+      setSuccess(response.message);
+      setDivisionForm(emptyDivision);
+      closeCreateDialog();
       refreshOrganization();
-    } catch (
-      requestError: unknown
-    ) {
-      setError(
-        getErrorMessage(
-          requestError,
-        ),
-      );
+    } catch (requestError: unknown) {
+      setDialogError(getErrorMessage(requestError));
     } finally {
       setSavingDivision(false);
     }
   }
 
   async function submitDepartment(
-    event:
-      FormEvent<HTMLFormElement>,
+    event: FormEvent<HTMLFormElement>,
   ): Promise<void> {
     event.preventDefault();
 
-    const code =
-      normalizeCode(
-        departmentForm.code,
-      );
+    const code = normalizeCode(departmentForm.code);
+    const name = normalizeName(departmentForm.name);
 
-    const name =
-      normalizeName(
-        departmentForm.name,
-      );
-
-    if (
-      !departmentForm.divisionId
-    ) {
-      setError(
-        "Select a division.",
-      );
-
+    if (!departmentForm.divisionId) {
+      setDialogError("Select a division.");
       return;
     }
 
-    if (
-      code.length < 2 ||
-      name.length < 2
-    ) {
-      setError(
-        "Enter a valid department code and name.",
-      );
-
+    if (code.length < 2 || name.length < 2) {
+      setDialogError("Enter a valid department code and name.");
       return;
     }
 
     setSavingDepartment(true);
-    clearMessages();
+    setDialogError("");
+    setError("");
+    setSuccess("");
 
     try {
-      const response =
-        await createAdminDepartment(
-          accessToken,
-          {
-            divisionId:
-              departmentForm.divisionId,
+      const response = await createAdminDepartment(accessToken, {
+        divisionId: departmentForm.divisionId,
+        code,
+        name,
+      });
 
-            code,
-            name,
-          },
-        );
-
-      setSuccess(
-        response.message,
-      );
-
-      setDepartmentForm(
-        emptyDepartment,
-      );
-
+      setSuccess(response.message);
+      setDepartmentForm(emptyDepartment);
+      closeCreateDialog();
       refreshOrganization();
-    } catch (
-      requestError: unknown
-    ) {
-      setError(
-        getErrorMessage(
-          requestError,
-        ),
-      );
+    } catch (requestError: unknown) {
+      setDialogError(getErrorMessage(requestError));
     } finally {
       setSavingDepartment(false);
     }
@@ -506,14 +546,13 @@ export function AdminOrganizationPanel({
     division: AdminDivision,
   ): void {
     clearMessages();
-
+    setDetailTarget(null);
     setEditTarget({
       kind: "division",
       id: division.id,
       code: division.code,
       name: division.name,
-      isActive:
-        division.isActive,
+      isActive: division.isActive,
     });
   }
 
@@ -521,22 +560,19 @@ export function AdminOrganizationPanel({
     department: AdminDepartment,
   ): void {
     clearMessages();
-
+    setDetailTarget(null);
     setEditTarget({
       kind: "department",
       id: department.id,
-      divisionId:
-        department.division.id,
+      divisionId: department.division.id,
       code: department.code,
       name: department.name,
-      isActive:
-        department.isActive,
+      isActive: department.isActive,
     });
   }
 
   async function submitEdit(
-    event:
-      FormEvent<HTMLFormElement>,
+    event: FormEvent<HTMLFormElement>,
   ): Promise<void> {
     event.preventDefault();
 
@@ -544,24 +580,11 @@ export function AdminOrganizationPanel({
       return;
     }
 
-    const code =
-      normalizeCode(
-        editTarget.code,
-      );
+    const code = normalizeCode(editTarget.code);
+    const name = normalizeName(editTarget.name);
 
-    const name =
-      normalizeName(
-        editTarget.name,
-      );
-
-    if (
-      code.length < 2 ||
-      name.length < 2
-    ) {
-      setDialogError(
-        "Enter a valid code and name.",
-      );
-
+    if (code.length < 2 || name.length < 2) {
+      setDialogError("Enter a valid code and name.");
       return;
     }
 
@@ -571,70 +594,43 @@ export function AdminOrganizationPanel({
     setSuccess("");
 
     try {
-      if (
-        editTarget.kind ===
-        "division"
-      ) {
-        const response =
-          await updateAdminDivision(
-            accessToken,
-            editTarget.id,
-            {
-              code,
-              name,
-
-              isActive:
-                editTarget.isActive,
-            },
-          );
-
-        setSuccess(
-          response.message,
+      if (editTarget.kind === "division") {
+        const response = await updateAdminDivision(
+          accessToken,
+          editTarget.id,
+          {
+            code,
+            name,
+            isActive: editTarget.isActive,
+          },
         );
-      } else {
-        if (
-          !editTarget.divisionId
-        ) {
-          setDialogError(
-            "Select a division.",
-          );
 
+        setSuccess(response.message);
+      } else {
+        if (!editTarget.divisionId) {
+          setDialogError("Select a division.");
           return;
         }
 
-        const response =
-          await updateAdminDepartment(
-            accessToken,
-            editTarget.id,
-            {
-              divisionId:
-                editTarget.divisionId,
-
-              code,
-              name,
-
-              isActive:
-                editTarget.isActive,
-            },
-          );
-
-        setSuccess(
-          response.message,
+        const response = await updateAdminDepartment(
+          accessToken,
+          editTarget.id,
+          {
+            divisionId: editTarget.divisionId,
+            code,
+            name,
+            isActive: editTarget.isActive,
+          },
         );
+
+        setSuccess(response.message);
       }
 
-      // Existing IDs keep linked records stable.
+      // Updating preserves the database identity and all linked history.
       setEditTarget(null);
-
       refreshOrganization();
-    } catch (
-      requestError: unknown
-    ) {
-      setDialogError(
-        getErrorMessage(
-          requestError,
-        ),
-      );
+    } catch (requestError: unknown) {
+      setDialogError(getErrorMessage(requestError));
     } finally {
       setSavingAction(false);
     }
@@ -643,23 +639,18 @@ export function AdminOrganizationPanel({
   function requestDivisionDelete(
     division: AdminDivision,
   ): void {
-    const blockers =
-      getDivisionBlockers(
-        division,
-      );
+    const blockers = getDivisionBlockers(division);
 
     if (blockers.length > 0) {
       setError(
         `Cannot delete ${division.name}. It has ${blockers.join(", ")}. Edit or deactivate it instead.`,
       );
-
       return;
     }
 
     clearMessages();
-
+    setDetailTarget(null);
     setDeleteConfirmation("");
-
     setDeleteTarget({
       kind: "division",
       id: division.id,
@@ -670,23 +661,18 @@ export function AdminOrganizationPanel({
   function requestDepartmentDelete(
     department: AdminDepartment,
   ): void {
-    const blockers =
-      getDepartmentBlockers(
-        department,
-      );
+    const blockers = getDepartmentBlockers(department);
 
     if (blockers.length > 0) {
       setError(
         `Cannot delete ${department.name}. It has ${blockers.join(", ")}. Edit or deactivate it instead.`,
       );
-
       return;
     }
 
     clearMessages();
-
+    setDetailTarget(null);
     setDeleteConfirmation("");
-
     setDeleteTarget({
       kind: "department",
       id: department.id,
@@ -694,20 +680,13 @@ export function AdminOrganizationPanel({
     });
   }
 
-  async function confirmDelete():
-    Promise<void> {
+  async function confirmDelete(): Promise<void> {
     if (!deleteTarget) {
       return;
     }
 
-    if (
-      deleteConfirmation !==
-      "DELETE"
-    ) {
-      setDialogError(
-        "Type DELETE exactly to confirm permanent deletion.",
-      );
-
+    if (deleteConfirmation !== "DELETE") {
+      setDialogError("Type DELETE exactly to confirm permanent deletion.");
       return;
     }
 
@@ -717,856 +696,805 @@ export function AdminOrganizationPanel({
     setSuccess("");
 
     try {
-      // The backend remains the final authority for safe deletion.
+      // The backend remains the final authority if a dependency was added
+      // after the current organization snapshot was loaded.
       const response =
-        deleteTarget.kind ===
-        "division"
-          ? await deleteAdminDivision(
-              accessToken,
-              deleteTarget.id,
-            )
-          : await deleteAdminDepartment(
-              accessToken,
-              deleteTarget.id,
-            );
+        deleteTarget.kind === "division"
+          ? await deleteAdminDivision(accessToken, deleteTarget.id)
+          : await deleteAdminDepartment(accessToken, deleteTarget.id);
 
-      setSuccess(
-        response.message,
-      );
-
+      setSuccess(response.message);
       setDeleteTarget(null);
       setDeleteConfirmation("");
-
       refreshOrganization();
-    } catch (
-      requestError: unknown
-    ) {
-      setDialogError(
-        getErrorMessage(
-          requestError,
-        ),
-      );
+    } catch (requestError: unknown) {
+      setDialogError(getErrorMessage(requestError));
     } finally {
       setSavingAction(false);
     }
   }
 
+  const detailBlockers = detailTarget
+    ? detailTarget.kind === "division"
+      ? getDivisionBlockers(detailTarget.item)
+      : getDepartmentBlockers(detailTarget.item)
+    : [];
+
   return (
-    <section className="grid gap-6">
-      <header className="flex flex-col gap-4 xl:flex-row xl:items-end xl:justify-between">
+    <section className="organization-workspace">
+      <header className="organization-workspace__hero">
         <div>
-          <span className="text-[11px] font-black uppercase tracking-[0.1em] text-blue-700">
-            Organization control
-          </span>
-
-          <h2 className="mt-2 text-3xl font-black tracking-tight text-slate-900">
-            Organization Management
-          </h2>
-
-          <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-600">
-            Create, edit, deactivate and safely delete Nepal Telecom divisions and departments.
+          <span className="organization-eyebrow">Organization control</span>
+          <h2>Organization Management</h2>
+          <p>
+            Maintain Nepal Telecom divisions and departments with protected,
+            dependency-aware administration.
           </p>
         </div>
 
-        <div className="flex flex-col gap-2 sm:flex-row">
+        <div className="organization-workspace__hero-actions">
           <button
             type="button"
             className={primaryButtonClass}
-            onClick={() =>
-              setShowCreateAccount(
-                true,
-              )
-            }
+            onClick={() => {
+              // Direct account creation remains an explicit Super Admin action.
+              // The existing form and backend rules remain the source of truth.
+              clearMessages();
+              setShowCreateAccount(true);
+            }}
           >
             Create account
           </button>
 
           <button
             type="button"
+            className={primaryButtonClass}
+            onClick={() => {
+              clearMessages();
+              setCreateTarget("division");
+            }}
+          >
+            Create division
+          </button>
+
+          <button
+            type="button"
+            className={primaryButtonClass}
+            onClick={() => {
+              clearMessages();
+              setCreateTarget("department");
+            }}
+            disabled={activeDivisions.length === 0}
+          >
+            Create department
+          </button>
+
+          <button
+            type="button"
             className={secondaryButtonClass}
-            onClick={
-              refreshOrganization
-            }
+            onClick={refreshOrganization}
             disabled={loading}
           >
-            {loading
-              ? "Refreshing..."
-              : "Refresh"}
+            {loading ? "Refreshing..." : "Refresh"}
           </button>
         </div>
       </header>
 
       {success && (
-        <div
-          className="rounded-xl border border-emerald-300 bg-emerald-50 px-4 py-3 text-sm font-bold text-emerald-800"
-          role="status"
-        >
+        <div className="organization-feedback organization-feedback--success" role="status">
           {success}
         </div>
       )}
 
       {error && (
-        <div
-          className="flex items-start justify-between gap-4 rounded-xl border border-red-300 bg-red-50 px-4 py-3 text-sm font-bold text-red-800"
-          role="alert"
-        >
-          <span>
-            {error}
-          </span>
-
-          <button
-            type="button"
-            className="shrink-0 text-xs font-black underline"
-            onClick={() =>
-              setError("")
-            }
-          >
-            Close
-          </button>
+        <div className="organization-feedback organization-feedback--error" role="alert">
+          <span>{error}</span>
+          <button type="button" onClick={() => setError("")}>Close</button>
         </div>
       )}
 
-      <div className="grid gap-5 xl:grid-cols-2">
-        <article className="overflow-hidden rounded-2xl border border-blue-200 bg-white shadow-lg shadow-blue-950/5">
-          <header className="border-b border-slate-200 bg-gradient-to-r from-slate-50 to-blue-50 px-5 py-4">
-            <span className="text-[10px] font-black uppercase tracking-widest text-blue-700">
-              Division
-            </span>
-
-            <h3 className="mt-1 text-xl font-black text-slate-900">
-              Create Division
-            </h3>
-          </header>
-
-          <form
-            className="grid gap-4 p-5"
-            onSubmit={
-              submitDivision
-            }
-          >
-            <label className={labelClass}>
-              Division code
-
-              <input
-                className={fieldClass}
-                type="text"
-                value={
-                  divisionForm.code
-                }
-                onChange={(
-                  event,
-                ) => {
-                  setDivisionForm(
-                    (current) => ({
-                      ...current,
-
-                      code:
-                        event.target.value
-                          .toUpperCase(),
-                    }),
-                  );
-
-                  clearMessages();
-                }}
-                placeholder="Example: TECH"
-                maxLength={50}
-                disabled={
-                  savingDivision
-                }
-                required
-              />
-            </label>
-
-            <label className={labelClass}>
-              Division name
-
-              <input
-                className={fieldClass}
-                type="text"
-                value={
-                  divisionForm.name
-                }
-                onChange={(
-                  event,
-                ) => {
-                  setDivisionForm(
-                    (current) => ({
-                      ...current,
-
-                      name:
-                        event.target.value,
-                    }),
-                  );
-
-                  clearMessages();
-                }}
-                placeholder="Technical Division"
-                maxLength={120}
-                disabled={
-                  savingDivision
-                }
-                required
-              />
-            </label>
-
-            <button
-              type="submit"
-              className={primaryButtonClass}
-              disabled={
-                savingDivision
-              }
-            >
-              {savingDivision
-                ? "Creating..."
-                : "Create division"}
-            </button>
-          </form>
+      <section className="organization-summary-grid" aria-label="Organization summary">
+        <article className="organization-summary-card organization-summary-card--blue">
+          <span>Divisions</span>
+          <strong>{organizationSummary.divisions}</strong>
+          <small>Top-level organization units</small>
         </article>
 
-        <article className="overflow-hidden rounded-2xl border border-blue-200 bg-white shadow-lg shadow-blue-950/5">
-          <header className="border-b border-slate-200 bg-gradient-to-r from-slate-50 to-blue-50 px-5 py-4">
-            <span className="text-[10px] font-black uppercase tracking-widest text-blue-700">
-              Department
-            </span>
+        <article className="organization-summary-card organization-summary-card--green">
+          <span>Departments</span>
+          <strong>{organizationSummary.departments}</strong>
+          <small>Operational units across divisions</small>
+        </article>
 
-            <h3 className="mt-1 text-xl font-black text-slate-900">
-              Create Department
-            </h3>
-          </header>
+        <article className="organization-summary-card organization-summary-card--gold">
+          <span>Active units</span>
+          <strong>{organizationSummary.activeUnits}</strong>
+          <small>Divisions and departments currently enabled</small>
+        </article>
 
-          <form
-            className="grid gap-4 p-5"
-            onSubmit={
-              submitDepartment
+        <article className="organization-summary-card organization-summary-card--red">
+          <span>Deletion-protected units</span>
+          <strong>{organizationSummary.protectedUnits}</strong>
+          <small>Units that contain linked organization records</small>
+        </article>
+      </section>
+
+      <section className="organization-control-bar" aria-label="Organization filters">
+        <label>
+          <span>Search organization</span>
+          <input
+            type="search"
+            value={searchTerm}
+            onChange={(event) => setSearchTerm(event.target.value)}
+            placeholder="Division, department or code"
+          />
+        </label>
+
+        <label>
+          <span>Status</span>
+          <select
+            value={statusFilter}
+            onChange={(event) =>
+              setStatusFilter(event.target.value as OrganizationStatusFilter)
             }
           >
-            <label className={labelClass}>
-              Division
+            <option value="ALL">All statuses</option>
+            <option value="ACTIVE">Active</option>
+            <option value="INACTIVE">Inactive</option>
+          </select>
+        </label>
 
-              <select
-                className={fieldClass}
-                value={
-                  departmentForm.divisionId
-                }
-                onChange={(
-                  event,
-                ) => {
-                  setDepartmentForm(
-                    (current) => ({
-                      ...current,
+        <div className="organization-control-bar__result">
+          <strong>{matchingUnitCount}</strong>
+          <span>matching units</span>
+        </div>
 
-                      divisionId:
-                        event.target.value,
-                    }),
-                  );
+        {(searchTerm || statusFilter !== "ALL") && (
+          <button
+            type="button"
+            className="organization-control-bar__clear"
+            onClick={() => {
+              setSearchTerm("");
+              setStatusFilter("ALL");
+            }}
+          >
+            Clear filters
+          </button>
+        )}
+      </section>
 
-                  clearMessages();
-                }}
-                disabled={
-                  savingDepartment
-                }
-                required
-              >
-                <option value="">
-                  Select division
-                </option>
+      <section className="organization-hierarchy-panel">
+        <header>
+          <div>
+            <span>Organization hierarchy</span>
+            <h3>Division and department structure</h3>
+            <p>
+              Use the explicit controls to view departments or manage a unit.
+              The row itself is not clickable, and destructive actions stay inside the management drawer.
+            </p>
+          </div>
+        </header>
 
-                {activeDivisions.map(
-                  (division) => (
-                    <option
-                      key={
-                        division.id
-                      }
-                      value={
-                        division.id
+        {loading && divisions.length === 0 ? (
+          <div className="organization-empty-state">
+            <strong>Loading organization structure</strong>
+            <span>Please wait while the latest organization units are loaded.</span>
+          </div>
+        ) : filteredDivisions.length === 0 ? (
+          <div className="organization-empty-state">
+            <strong>No matching organization units</strong>
+            <span>Change the search or status filter to view divisions and departments.</span>
+          </div>
+        ) : (
+          <div className="organization-hierarchy-list">
+            {filteredDivisions.map((division) => {
+              const childDepartments = filteredDepartments.filter(
+                (department) => department.division.id === division.id,
+              );
+              const isExpanded = expandedDivisionId === division.id;
+              const hasVisibleDepartments = childDepartments.length > 0;
+              const blockerCount = getDivisionDependencyCount(division);
+
+              return (
+                <article key={division.id} className="organization-hierarchy-item">
+                  <div className="organization-hierarchy-item__summary">
+                    <span className="organization-hierarchy-item__badge" aria-hidden="true">
+                      {division.code.slice(0, 2)}
+                    </span>
+
+                    <span className="organization-hierarchy-item__identity">
+                      <strong>{division.name}</strong>
+                      <small>
+                        {division.code} · {division._count.departments} departments · {division._count.employees} employees
+                      </small>
+                    </span>
+
+                    <span
+                      className={
+                        division.isActive
+                          ? "organization-status organization-status--active"
+                          : "organization-status"
                       }
                     >
-                      {division.name} ({division.code})
-                    </option>
-                  ),
-                )}
-              </select>
-            </label>
+                      {division.isActive ? "Active" : "Inactive"}
+                    </span>
 
-            <label className={labelClass}>
-              Department code
+                    <div className="organization-hierarchy-item__row-actions">
+                      <button
+                        type="button"
+                        className="organization-action organization-action--quiet"
+                        onClick={() => setDetailTarget({ kind: "division", item: division })}
+                      >
+                        Manage unit
+                      </button>
 
-              <input
-                className={fieldClass}
-                type="text"
-                value={
-                  departmentForm.code
-                }
-                onChange={(
-                  event,
-                ) => {
-                  setDepartmentForm(
-                    (current) => ({
-                      ...current,
+                      <button
+                        type="button"
+                        className="organization-action organization-action--quiet"
+                        onClick={() => openDivisionEdit(division)}
+                      >
+                        Edit
+                      </button>
 
-                      code:
-                        event.target.value
-                          .toUpperCase(),
-                    }),
-                  );
-
-                  clearMessages();
-                }}
-                placeholder="Example: NETWORK"
-                maxLength={50}
-                disabled={
-                  savingDepartment
-                }
-                required
-              />
-            </label>
-
-            <label className={labelClass}>
-              Department name
-
-              <input
-                className={fieldClass}
-                type="text"
-                value={
-                  departmentForm.name
-                }
-                onChange={(
-                  event,
-                ) => {
-                  setDepartmentForm(
-                    (current) => ({
-                      ...current,
-
-                      name:
-                        event.target.value,
-                    }),
-                  );
-
-                  clearMessages();
-                }}
-                placeholder="Network Department"
-                maxLength={120}
-                disabled={
-                  savingDepartment
-                }
-                required
-              />
-            </label>
-
-            <button
-              type="submit"
-              className={primaryButtonClass}
-              disabled={
-                savingDepartment ||
-                activeDivisions.length ===
-                  0
-              }
-            >
-              {savingDepartment
-                ? "Creating..."
-                : "Create department"}
-            </button>
-          </form>
-        </article>
-      </div>
-
-      <div className="grid gap-5 xl:grid-cols-2">
-        <article className="overflow-hidden rounded-2xl border border-blue-200 bg-white shadow-lg shadow-blue-950/5">
-          <header className="flex items-center justify-between border-b border-slate-200 bg-gradient-to-r from-slate-50 to-blue-50 px-5 py-4">
-            <div>
-              <span className="text-[10px] font-black uppercase tracking-widest text-blue-700">
-                Divisions
-              </span>
-
-              <h3 className="mt-1 text-xl font-black text-slate-900">
-                Division List
-              </h3>
-            </div>
-
-            <strong className="grid h-11 min-w-11 place-items-center rounded-xl bg-blue-700 px-3 text-white">
-              {divisions.length}
-            </strong>
-          </header>
-
-          {loading &&
-          divisions.length === 0 ? (
-            <div className="grid min-h-40 place-items-center text-sm text-slate-500">
-              Loading divisions...
-            </div>
-          ) : divisions.length ===
-            0 ? (
-            <div className="grid min-h-40 place-items-center text-sm text-slate-500">
-              No divisions created.
-            </div>
-          ) : (
-            <div className="divide-y divide-slate-200">
-              {divisions.map(
-                (division) => {
-                  const blockers =
-                    getDivisionBlockers(
-                      division,
-                    );
-
-                  const deleteAllowed =
-                    blockers.length === 0;
-
-                  return (
-                    <div
-                      key={
-                        division.id
-                      }
-                      className="grid gap-4 p-4 transition hover:bg-blue-50/60"
-                    >
-                      <div className="flex items-start justify-between gap-4">
-                        <div className="min-w-0">
-                          <strong className="block truncate text-sm font-black text-slate-900">
-                            {division.name}
-                          </strong>
-
-                          <span className="mt-1 block text-xs font-bold text-slate-500">
-                            {division.code}
-                          </span>
-                        </div>
-
-                        <span
-                          className={
-                            division.isActive
-                              ? "rounded-full bg-emerald-100 px-3 py-1 text-[10px] font-black uppercase text-emerald-700"
-                              : "rounded-full bg-slate-200 px-3 py-1 text-[10px] font-black uppercase text-slate-600"
-                          }
-                        >
-                          {division.isActive
-                            ? "Active"
-                            : "Inactive"}
-                        </span>
-                      </div>
-
-                      <div className="grid grid-cols-2 gap-2 text-[11px] sm:grid-cols-4">
-                        <span className="rounded-lg bg-slate-100 px-2 py-2 text-center font-bold text-slate-600">
-                          {division._count.departments} departments
-                        </span>
-
-                        <span className="rounded-lg bg-slate-100 px-2 py-2 text-center font-bold text-slate-600">
-                          {division._count.employees} employees
-                        </span>
-
-                        <span className="rounded-lg bg-slate-100 px-2 py-2 text-center font-bold text-slate-600">
-                          {division._count.accountRequests} requests
-                        </span>
-
-                        <span className="rounded-lg bg-slate-100 px-2 py-2 text-center font-bold text-slate-600">
-                          {division._count.managementPositions} positions
-                        </span>
-                      </div>
-
-                      <div className="flex flex-col gap-2 sm:flex-row">
-                        <button
-                          type="button"
-                          className="min-h-9 flex-1 rounded-lg border border-blue-300 bg-blue-50 px-3 text-xs font-black text-blue-700 transition hover:bg-blue-100"
-                          onClick={() =>
-                            openDivisionEdit(
-                              division,
-                            )
-                          }
-                        >
-                          Edit
-                        </button>
-
-                        <button
-                          type="button"
-                          className="min-h-9 flex-1 rounded-lg border border-red-300 bg-red-50 px-3 text-xs font-black text-red-700 transition hover:bg-red-100 disabled:cursor-not-allowed disabled:border-slate-200 disabled:bg-slate-100 disabled:text-slate-400"
-                          onClick={() =>
-                            requestDivisionDelete(
-                              division,
-                            )
-                          }
-                          disabled={
-                            !deleteAllowed
-                          }
-                          title={
-                            deleteAllowed
-                              ? "Delete this unused division"
-                              : `Cannot delete: ${blockers.join(", ")}`
-                          }
-                        >
-                          {deleteAllowed
-                            ? "Delete"
-                            : "Delete unavailable"}
-                        </button>
-                      </div>
-
-                      {!deleteAllowed && (
-                        <p className="m-0 text-[10px] leading-4 text-amber-700">
-                          Delete blocked: {blockers.join(", ")}. Use Edit to deactivate this division.
-                        </p>
-                      )}
+                      <button
+                        type="button"
+                        className="organization-action organization-action--toggle"
+                        onClick={() =>
+                          setExpandedDivisionId(isExpanded ? null : division.id)
+                        }
+                        aria-expanded={isExpanded}
+                        aria-controls={`division-${division.id}-departments`}
+                        disabled={!hasVisibleDepartments}
+                      >
+                        {hasVisibleDepartments
+                          ? isExpanded
+                            ? "Hide departments ↑"
+                            : `View departments (${childDepartments.length}) ↓`
+                          : normalizedSearch || statusFilter !== "ALL"
+                            ? "No matching departments"
+                            : "No departments"}
+                      </button>
                     </div>
-                  );
-                },
-              )}
-            </div>
-          )}
-        </article>
+                  </div>
 
-        <article className="overflow-hidden rounded-2xl border border-blue-200 bg-white shadow-lg shadow-blue-950/5">
-          <header className="flex items-center justify-between border-b border-slate-200 bg-gradient-to-r from-slate-50 to-blue-50 px-5 py-4">
-            <div>
-              <span className="text-[10px] font-black uppercase tracking-widest text-blue-700">
-                Departments
-              </span>
+                  <div className="organization-hierarchy-item__context">
+                    <span>
+                      <strong>{division._count.accountRequests}</strong> account requests
+                    </span>
+                    <span>
+                      <strong>{division._count.managementPositions}</strong> management positions
+                    </span>
+                    <span className={blockerCount > 0 ? "organization-protection-badge" : ""}>
+                      {blockerCount > 0
+                        ? `Protected by ${blockerCount} linked records`
+                        : "Eligible for deletion"}
+                    </span>
+                  </div>
 
-              <h3 className="mt-1 text-xl font-black text-slate-900">
-                Department List
-              </h3>
-            </div>
-
-            <strong className="grid h-11 min-w-11 place-items-center rounded-xl bg-blue-700 px-3 text-white">
-              {departments.length}
-            </strong>
-          </header>
-
-          {loading &&
-          departments.length ===
-            0 ? (
-            <div className="grid min-h-40 place-items-center text-sm text-slate-500">
-              Loading departments...
-            </div>
-          ) : departments.length ===
-            0 ? (
-            <div className="grid min-h-40 place-items-center text-sm text-slate-500">
-              No departments created.
-            </div>
-          ) : (
-            <div className="divide-y divide-slate-200">
-              {departments.map(
-                (department) => {
-                  const blockers =
-                    getDepartmentBlockers(
-                      department,
-                    );
-
-                  const deleteAllowed =
-                    blockers.length === 0;
-
-                  return (
+                  {isExpanded && (
                     <div
-                      key={
-                        department.id
-                      }
-                      className="grid gap-4 p-4 transition hover:bg-blue-50/60"
+                      className="organization-hierarchy-item__details"
+                      id={`division-${division.id}-departments`}
                     >
-                      <div className="flex items-start justify-between gap-4">
-                        <div className="min-w-0">
-                          <strong className="block truncate text-sm font-black text-slate-900">
-                            {department.name}
-                          </strong>
+                      <div className="organization-department-grid">
+                        {childDepartments.map((department) => {
+                          const departmentDependencies =
+                            getDepartmentDependencyCount(department);
 
-                          <span className="mt-1 block text-xs font-bold text-slate-500">
-                            {department.code} · {department.division.name}
-                          </span>
-                        </div>
+                          return (
+                            <article
+                              key={department.id}
+                              className="organization-department-card"
+                            >
+                              <div className="organization-department-card__identity">
+                                <strong>{department.name}</strong>
+                                <small>
+                                  {department.code} · {department._count.employees} employees
+                                </small>
+                              </div>
 
-                        <span
-                          className={
-                            department.isActive
-                              ? "rounded-full bg-emerald-100 px-3 py-1 text-[10px] font-black uppercase text-emerald-700"
-                              : "rounded-full bg-slate-200 px-3 py-1 text-[10px] font-black uppercase text-slate-600"
-                          }
-                        >
-                          {department.isActive
-                            ? "Active"
-                            : "Inactive"}
-                        </span>
+                              <span
+                                className={
+                                  department.isActive
+                                    ? "organization-status organization-status--active"
+                                    : "organization-status"
+                                }
+                              >
+                                {department.isActive ? "Active" : "Inactive"}
+                              </span>
+
+                              <span className="organization-department-card__protection">
+                                {departmentDependencies > 0
+                                  ? `${departmentDependencies} linked records`
+                                  : "No dependencies"}
+                              </span>
+
+                              <div className="organization-department-card__actions">
+                                <button
+                                  type="button"
+                                  className="organization-action organization-action--quiet"
+                                  onClick={() =>
+                                    setDetailTarget({ kind: "department", item: department })
+                                  }
+                                >
+                                  Manage unit
+                                </button>
+
+                                <button
+                                  type="button"
+                                  className="organization-action organization-action--quiet"
+                                  onClick={() => openDepartmentEdit(department)}
+                                >
+                                  Edit
+                                </button>
+                              </div>
+                            </article>
+                          );
+                        })}
                       </div>
-
-                      <div className="grid grid-cols-3 gap-2 text-[11px]">
-                        <span className="rounded-lg bg-slate-100 px-2 py-2 text-center font-bold text-slate-600">
-                          {department._count.employees} employees
-                        </span>
-
-                        <span className="rounded-lg bg-slate-100 px-2 py-2 text-center font-bold text-slate-600">
-                          {department._count.accountRequests} requests
-                        </span>
-
-                        <span className="rounded-lg bg-slate-100 px-2 py-2 text-center font-bold text-slate-600">
-                          {department._count.managementPositions} positions
-                        </span>
-                      </div>
-
-                      <div className="flex flex-col gap-2 sm:flex-row">
-                        <button
-                          type="button"
-                          className="min-h-9 flex-1 rounded-lg border border-blue-300 bg-blue-50 px-3 text-xs font-black text-blue-700 transition hover:bg-blue-100"
-                          onClick={() =>
-                            openDepartmentEdit(
-                              department,
-                            )
-                          }
-                        >
-                          Edit
-                        </button>
-
-                        <button
-                          type="button"
-                          className="min-h-9 flex-1 rounded-lg border border-red-300 bg-red-50 px-3 text-xs font-black text-red-700 transition hover:bg-red-100 disabled:cursor-not-allowed disabled:border-slate-200 disabled:bg-slate-100 disabled:text-slate-400"
-                          onClick={() =>
-                            requestDepartmentDelete(
-                              department,
-                            )
-                          }
-                          disabled={
-                            !deleteAllowed
-                          }
-                          title={
-                            deleteAllowed
-                              ? "Delete this unused department"
-                              : `Cannot delete: ${blockers.join(", ")}`
-                          }
-                        >
-                          {deleteAllowed
-                            ? "Delete"
-                            : "Delete unavailable"}
-                        </button>
-                      </div>
-
-                      {!deleteAllowed && (
-                        <p className="m-0 text-[10px] leading-4 text-amber-700">
-                          Delete blocked: {blockers.join(", ")}. Use Edit to deactivate this department.
-                        </p>
-                      )}
                     </div>
-                  );
-                },
-              )}
-            </div>
-          )}
-        </article>
-      </div>
+                  )}
+                </article>
+              );
+            })}
+          </div>
+        )}
+      </section>
 
-      {editTarget && (
-        <div
-          className="fixed inset-0 z-[1100] grid place-items-center overflow-y-auto bg-slate-950/60 p-4 backdrop-blur-sm"
-          role="presentation"
-          onMouseDown={(
-            event,
-          ) => {
-            if (
-              event.target ===
-              event.currentTarget &&
-              !savingAction
-            ) {
-              setEditTarget(null);
-              setDialogError("");
-            }
-          }}
-        >
-          <form
-            className="my-8 w-full max-w-xl overflow-hidden rounded-3xl border border-white/20 bg-white shadow-2xl"
-            onSubmit={
-              submitEdit
-            }
+      {createTarget && (
+        <div className="organization-dialog-backdrop" role="presentation">
+          <section
+            className="organization-dialog"
+            role="dialog"
+            aria-modal="true"
+            aria-label={`Create ${createTarget}`}
           >
-            <header className="flex items-start justify-between gap-4 border-b-[3px] border-red-500 bg-gradient-to-r from-[#042f5d] via-[#073a70] to-[#075ca8] px-6 py-5 text-white">
+            <header>
               <div>
-                <span className="text-[10px] font-black uppercase tracking-widest text-white/70">
-                  Organization editor
-                </span>
-
-                <h3 className="mt-1 text-xl font-black">
-                  Edit {editTarget.kind}
+                <span>Create organization unit</span>
+                <h3>
+                  {createTarget === "division"
+                    ? "Create Division"
+                    : "Create Department"}
                 </h3>
               </div>
+              <button type="button" onClick={closeCreateDialog} aria-label="Close create dialog">
+                ×
+              </button>
+            </header>
+
+            {createTarget === "division" ? (
+              <form onSubmit={submitDivision}>
+                <div className="organization-dialog__body">
+                  {dialogError && (
+                    <div className="organization-dialog__error" role="alert">
+                      {dialogError}
+                    </div>
+                  )}
+
+                  <label className={labelClass}>
+                    Division code
+                    <input
+                      className={fieldClass}
+                      type="text"
+                      value={divisionForm.code}
+                      onChange={(event) => {
+                        setDivisionForm((current) => ({
+                          ...current,
+                          code: event.target.value.toUpperCase(),
+                        }));
+                        setDialogError("");
+                      }}
+                      placeholder="Example: TECH"
+                      maxLength={50}
+                      disabled={savingDivision}
+                      required
+                    />
+                  </label>
+
+                  <label className={labelClass}>
+                    Division name
+                    <input
+                      className={fieldClass}
+                      type="text"
+                      value={divisionForm.name}
+                      onChange={(event) => {
+                        setDivisionForm((current) => ({
+                          ...current,
+                          name: event.target.value,
+                        }));
+                        setDialogError("");
+                      }}
+                      placeholder="Technical Division"
+                      maxLength={120}
+                      disabled={savingDivision}
+                      required
+                    />
+                  </label>
+                </div>
+
+                <footer>
+                  <button
+                    type="button"
+                    className={secondaryButtonClass}
+                    onClick={closeCreateDialog}
+                    disabled={savingDivision}
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    className={primaryButtonClass}
+                    disabled={savingDivision}
+                  >
+                    {savingDivision ? "Creating..." : "Create division"}
+                  </button>
+                </footer>
+              </form>
+            ) : (
+              <form onSubmit={submitDepartment}>
+                <div className="organization-dialog__body">
+                  {dialogError && (
+                    <div className="organization-dialog__error" role="alert">
+                      {dialogError}
+                    </div>
+                  )}
+
+                  <label className={labelClass}>
+                    Division
+                    <select
+                      className={fieldClass}
+                      value={departmentForm.divisionId}
+                      onChange={(event) => {
+                        setDepartmentForm((current) => ({
+                          ...current,
+                          divisionId: event.target.value,
+                        }));
+                        setDialogError("");
+                      }}
+                      disabled={savingDepartment}
+                      required
+                    >
+                      <option value="">Select division</option>
+                      {activeDivisions.map((division) => (
+                        <option key={division.id} value={division.id}>
+                          {division.name} ({division.code})
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+
+                  <label className={labelClass}>
+                    Department code
+                    <input
+                      className={fieldClass}
+                      type="text"
+                      value={departmentForm.code}
+                      onChange={(event) => {
+                        setDepartmentForm((current) => ({
+                          ...current,
+                          code: event.target.value.toUpperCase(),
+                        }));
+                        setDialogError("");
+                      }}
+                      placeholder="Example: NETWORK"
+                      maxLength={50}
+                      disabled={savingDepartment}
+                      required
+                    />
+                  </label>
+
+                  <label className={labelClass}>
+                    Department name
+                    <input
+                      className={fieldClass}
+                      type="text"
+                      value={departmentForm.name}
+                      onChange={(event) => {
+                        setDepartmentForm((current) => ({
+                          ...current,
+                          name: event.target.value,
+                        }));
+                        setDialogError("");
+                      }}
+                      placeholder="Network Department"
+                      maxLength={120}
+                      disabled={savingDepartment}
+                      required
+                    />
+                  </label>
+                </div>
+
+                <footer>
+                  <button
+                    type="button"
+                    className={secondaryButtonClass}
+                    onClick={closeCreateDialog}
+                    disabled={savingDepartment}
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    className={primaryButtonClass}
+                    disabled={savingDepartment}
+                  >
+                    {savingDepartment ? "Creating..." : "Create department"}
+                  </button>
+                </footer>
+              </form>
+            )}
+          </section>
+        </div>
+      )}
+
+      {detailTarget && (
+        <div className="organization-drawer-backdrop" role="presentation">
+          <aside
+            className="organization-drawer"
+            role="dialog"
+            aria-modal="true"
+            aria-label={`${detailTarget.kind} details`}
+          >
+            <header>
+              <div>
+                <span>{detailTarget.kind}</span>
+                <h3>{detailTarget.item.name}</h3>
+                <p>{detailTarget.item.code}</p>
+              </div>
+              <button type="button" onClick={() => setDetailTarget(null)} aria-label="Close details">
+                ×
+              </button>
+            </header>
+
+            <div className="organization-drawer__body">
+              <div className="organization-drawer__status-row">
+                <span
+                  className={
+                    detailTarget.item.isActive
+                      ? "organization-status organization-status--active"
+                      : "organization-status"
+                  }
+                >
+                  {detailTarget.item.isActive ? "Active" : "Inactive"}
+                </span>
+                <span className={detailBlockers.length > 0 ? "organization-protection-badge" : ""}>
+                  {detailBlockers.length > 0
+                    ? "Deletion protected"
+                    : "Eligible for deletion"}
+                </span>
+              </div>
+
+              {detailTarget.kind === "department" && (
+                <section className="organization-drawer__section">
+                  <span>Parent division</span>
+                  <strong>{detailTarget.item.division.name}</strong>
+                  <small>{detailTarget.item.division.code}</small>
+                </section>
+              )}
+
+              <section className="organization-drawer__metrics">
+                {detailTarget.kind === "division" && (
+                  <article>
+                    <span>Departments</span>
+                    <strong>{detailTarget.item._count.departments}</strong>
+                  </article>
+                )}
+                <article>
+                  <span>Employees</span>
+                  <strong>{detailTarget.item._count.employees}</strong>
+                </article>
+                <article>
+                  <span>Requests</span>
+                  <strong>{detailTarget.item._count.accountRequests}</strong>
+                </article>
+                <article>
+                  <span>Positions</span>
+                  <strong>{detailTarget.item._count.managementPositions}</strong>
+                </article>
+              </section>
+
+              <section className="organization-drawer__section">
+                <span>Dependency protection</span>
+                {detailBlockers.length > 0 ? (
+                  <ul>
+                    {detailBlockers.map((blocker) => (
+                      <li key={blocker}>{blocker}</li>
+                    ))}
+                  </ul>
+                ) : (
+                  <p>No linked records currently prevent permanent deletion.</p>
+                )}
+              </section>
+
+              <section className="organization-drawer__dates">
+                <div>
+                  <span>Created</span>
+                  <strong>{formatOrganizationDate(detailTarget.item.createdAt)}</strong>
+                </div>
+                <div>
+                  <span>Last updated</span>
+                  <strong>{formatOrganizationDate(detailTarget.item.updatedAt)}</strong>
+                </div>
+              </section>
+
+              <div className="organization-drawer__notice">
+                Deactivation preserves employees, requests, positions and history.
+                Permanent deletion is only available for a completely unused unit.
+              </div>
+            </div>
+
+            <footer>
+              <button
+                type="button"
+                className={secondaryButtonClass}
+                onClick={() =>
+                  detailTarget.kind === "division"
+                    ? openDivisionEdit(detailTarget.item)
+                    : openDepartmentEdit(detailTarget.item)
+                }
+              >
+                Edit unit
+              </button>
 
               <button
                 type="button"
-                className="grid h-9 w-9 place-items-center rounded-full border border-white/30 bg-white/10 text-xl"
+                className="organization-danger-button"
+                onClick={() =>
+                  detailTarget.kind === "division"
+                    ? requestDivisionDelete(detailTarget.item)
+                    : requestDepartmentDelete(detailTarget.item)
+                }
+                disabled={detailBlockers.length > 0}
+                title={
+                  detailBlockers.length > 0
+                    ? `Cannot delete: ${detailBlockers.join(", ")}`
+                    : "Delete this unused organization unit"
+                }
+              >
+                {detailBlockers.length > 0
+                  ? "Delete unavailable"
+                  : "Delete permanently"}
+              </button>
+            </footer>
+          </aside>
+        </div>
+      )}
+
+      {editTarget && (
+        <div className="organization-dialog-backdrop" role="presentation">
+          <form
+            className="organization-dialog"
+            onSubmit={submitEdit}
+            role="dialog"
+            aria-modal="true"
+            aria-label={`Edit ${editTarget.kind}`}
+          >
+            <header>
+              <div>
+                <span>Organization maintenance</span>
+                <h3>Edit {editTarget.kind}</h3>
+              </div>
+              <button
+                type="button"
                 onClick={() => {
                   setEditTarget(null);
                   setDialogError("");
                 }}
-                disabled={
-                  savingAction
-                }
-                aria-label="Close edit form"
+                aria-label="Close edit dialog"
               >
                 ×
               </button>
             </header>
 
-            <div className="grid gap-4 p-6">
+            <div className="organization-dialog__body">
               {dialogError && (
-                <div
-                  className="rounded-xl border border-red-300 bg-red-50 px-4 py-3 text-sm font-bold text-red-800"
-                  role="alert"
-                >
+                <div className="organization-dialog__error" role="alert">
                   {dialogError}
                 </div>
               )}
 
-              {editTarget.kind ===
-                "department" && (
+              {editTarget.kind === "department" && (
                 <label className={labelClass}>
                   Division
-
                   <select
                     className={fieldClass}
-                    value={
-                      editTarget.divisionId
-                    }
-                    onChange={(
-                      event,
-                    ) =>
-                      setEditTarget(
-                        (current) =>
-                          current?.kind ===
-                          "department"
-                            ? {
-                                ...current,
-
-                                divisionId:
-                                  event.target.value,
-                              }
-                            : current,
+                    value={editTarget.divisionId}
+                    onChange={(event) =>
+                      setEditTarget((current) =>
+                        current && current.kind === "department"
+                          ? {
+                              ...current,
+                              divisionId: event.target.value,
+                            }
+                          : current,
                       )
                     }
-                    disabled={
-                      savingAction
-                    }
+                    disabled={savingAction}
                     required
                   >
-                    {activeDivisions.map(
-                      (division) => (
-                        <option
-                          key={
-                            division.id
-                          }
-                          value={
-                            division.id
-                          }
-                        >
-                          {division.name} ({division.code})
-                        </option>
-                      ),
-                    )}
+                    {activeDivisions.map((division) => (
+                      <option key={division.id} value={division.id}>
+                        {division.name} ({division.code})
+                      </option>
+                    ))}
                   </select>
-
-                  <small className="normal-case tracking-normal text-slate-500">
-                    Moving a used department will be blocked by the backend.
-                  </small>
                 </label>
               )}
 
               <label className={labelClass}>
                 Code
-
                 <input
                   className={fieldClass}
                   type="text"
-                  value={
-                    editTarget.code
-                  }
-                  onChange={(
-                    event,
-                  ) =>
-                    setEditTarget(
-                      (current) =>
-                        current
-                          ? {
-                              ...current,
-
-                              code:
-                                event.target.value
-                                  .toUpperCase(),
-                            }
-                          : current,
+                  value={editTarget.code}
+                  onChange={(event) =>
+                    setEditTarget((current) =>
+                      current
+                        ? {
+                            ...current,
+                            code: event.target.value.toUpperCase(),
+                          }
+                        : current,
                     )
                   }
                   maxLength={50}
-                  disabled={
-                    savingAction
-                  }
+                  disabled={savingAction}
                   required
                 />
               </label>
 
               <label className={labelClass}>
                 Name
-
                 <input
                   className={fieldClass}
                   type="text"
-                  value={
-                    editTarget.name
-                  }
-                  onChange={(
-                    event,
-                  ) =>
-                    setEditTarget(
-                      (current) =>
-                        current
-                          ? {
-                              ...current,
-
-                              name:
-                                event.target.value,
-                            }
-                          : current,
+                  value={editTarget.name}
+                  onChange={(event) =>
+                    setEditTarget((current) =>
+                      current
+                        ? {
+                            ...current,
+                            name: event.target.value,
+                          }
+                        : current,
                     )
                   }
                   maxLength={120}
-                  disabled={
-                    savingAction
-                  }
+                  disabled={savingAction}
                   required
                 />
               </label>
 
               <label className={labelClass}>
                 Status
-
                 <select
                   className={fieldClass}
-                  value={
-                    editTarget.isActive
-                      ? "ACTIVE"
-                      : "INACTIVE"
-                  }
-                  onChange={(
-                    event,
-                  ) =>
-                    setEditTarget(
-                      (current) =>
-                        current
-                          ? {
-                              ...current,
-
-                              isActive:
-                                event.target.value ===
-                                "ACTIVE",
-                            }
-                          : current,
+                  value={editTarget.isActive ? "ACTIVE" : "INACTIVE"}
+                  onChange={(event) =>
+                    setEditTarget((current) =>
+                      current
+                        ? {
+                            ...current,
+                            isActive: event.target.value === "ACTIVE",
+                          }
+                        : current,
                     )
                   }
-                  disabled={
-                    savingAction
-                  }
+                  disabled={savingAction}
                 >
-                  <option value="ACTIVE">
-                    Active
-                  </option>
-
-                  <option value="INACTIVE">
-                    Inactive
-                  </option>
+                  <option value="ACTIVE">Active</option>
+                  <option value="INACTIVE">Inactive</option>
                 </select>
               </label>
 
-              <div className="rounded-xl border border-amber-300 bg-amber-50 px-4 py-3 text-xs leading-5 text-amber-800">
-                Deactivation preserves employees, requests, positions and history. Permanent deletion is only for completely unused records.
+              <div className="organization-dialog__notice">
+                Deactivation is the safe option for a unit that already contains
+                employees, account requests, management positions or history.
               </div>
             </div>
 
-            <footer className="flex flex-col-reverse gap-3 border-t border-slate-200 px-6 py-5 sm:flex-row sm:justify-end">
+            <footer>
               <button
                 type="button"
                 className={secondaryButtonClass}
@@ -1574,23 +1502,16 @@ export function AdminOrganizationPanel({
                   setEditTarget(null);
                   setDialogError("");
                 }}
-                disabled={
-                  savingAction
-                }
+                disabled={savingAction}
               >
                 Cancel
               </button>
-
               <button
                 type="submit"
                 className={primaryButtonClass}
-                disabled={
-                  savingAction
-                }
+                disabled={savingAction}
               >
-                {savingAction
-                  ? "Saving..."
-                  : "Save changes"}
+                {savingAction ? "Saving..." : "Save changes"}
               </button>
             </footer>
           </form>
@@ -1598,76 +1519,66 @@ export function AdminOrganizationPanel({
       )}
 
       {deleteTarget && (
-        <div
-          className="fixed inset-0 z-[1100] grid place-items-center overflow-y-auto bg-slate-950/70 p-4 backdrop-blur-sm"
-          role="presentation"
-        >
+        <div className="organization-dialog-backdrop" role="presentation">
           <section
-            className="w-full max-w-lg overflow-hidden rounded-3xl border border-red-200 bg-white shadow-2xl"
+            className="organization-dialog organization-dialog--danger"
             role="dialog"
             aria-modal="true"
             aria-label={`Delete ${deleteTarget.kind}`}
           >
-            <header className="border-b-[3px] border-red-600 bg-gradient-to-r from-red-800 to-red-600 px-6 py-5 text-white">
-              <span className="text-[10px] font-black uppercase tracking-widest text-white/70">
-                Permanent deletion
-              </span>
-
-              <h3 className="mt-1 text-xl font-black">
-                Delete {deleteTarget.kind}
-              </h3>
+            <header>
+              <div>
+                <span>Permanent deletion</span>
+                <h3>Delete {deleteTarget.kind}</h3>
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  setDeleteTarget(null);
+                  setDeleteConfirmation("");
+                  setDialogError("");
+                }}
+                aria-label="Close delete dialog"
+              >
+                ×
+              </button>
             </header>
 
-            <div className="grid gap-4 p-6">
+            <div className="organization-dialog__body">
               {dialogError && (
-                <div
-                  className="rounded-xl border border-red-300 bg-red-50 px-4 py-3 text-sm font-bold text-red-800"
-                  role="alert"
-                >
+                <div className="organization-dialog__error" role="alert">
                   {dialogError}
                 </div>
               )}
 
-              <p className="m-0 text-sm leading-6 text-slate-700">
-                You are permanently deleting{" "}
-                <strong>
-                  {deleteTarget.name}
-                </strong>
-                . This action cannot be undone.
+              <p className="organization-dialog__copy">
+                You are permanently deleting <strong>{deleteTarget.name}</strong>.
+                This action cannot be undone.
               </p>
 
-              <div className="rounded-xl border border-amber-300 bg-amber-50 px-4 py-3 text-xs leading-5 text-amber-800">
-                The server will reject deletion if another employee, department, request or management position started using this record.
+              <div className="organization-dialog__notice">
+                The server will reject deletion if another record started using
+                this unit after the current organization snapshot was loaded.
               </div>
 
               <label className={labelClass}>
                 Type DELETE to confirm
-
                 <input
                   className={fieldClass}
                   type="text"
-                  value={
-                    deleteConfirmation
-                  }
-                  onChange={(
-                    event,
-                  ) => {
-                    setDeleteConfirmation(
-                      event.target.value,
-                    );
-
+                  value={deleteConfirmation}
+                  onChange={(event) => {
+                    setDeleteConfirmation(event.target.value);
                     setDialogError("");
                   }}
                   placeholder="DELETE"
                   autoComplete="off"
-                  disabled={
-                    savingAction
-                  }
+                  disabled={savingAction}
                 />
               </label>
             </div>
 
-            <footer className="flex flex-col-reverse gap-3 border-t border-slate-200 px-6 py-5 sm:flex-row sm:justify-end">
+            <footer>
               <button
                 type="button"
                 className={secondaryButtonClass}
@@ -1676,28 +1587,17 @@ export function AdminOrganizationPanel({
                   setDeleteConfirmation("");
                   setDialogError("");
                 }}
-                disabled={
-                  savingAction
-                }
+                disabled={savingAction}
               >
                 Cancel
               </button>
-
               <button
                 type="button"
-                className="min-h-10 rounded-xl border-0 bg-red-600 px-5 text-xs font-black text-white shadow-lg transition hover:bg-red-700 disabled:cursor-not-allowed disabled:opacity-60"
-                onClick={
-                  confirmDelete
-                }
-                disabled={
-                  savingAction ||
-                  deleteConfirmation !==
-                    "DELETE"
-                }
+                className="organization-danger-button"
+                onClick={confirmDelete}
+                disabled={savingAction || deleteConfirmation !== "DELETE"}
               >
-                {savingAction
-                  ? "Deleting..."
-                  : "Delete permanently"}
+                {savingAction ? "Deleting..." : "Delete permanently"}
               </button>
             </footer>
           </section>
@@ -1706,19 +1606,10 @@ export function AdminOrganizationPanel({
 
       {showCreateAccount && (
         <AdminAccountForm
-          accessToken={
-            accessToken
-          }
-          onClose={() =>
-            setShowCreateAccount(
-              false,
-            )
-          }
+          accessToken={accessToken}
+          onClose={() => setShowCreateAccount(false)}
           onCreated={() => {
-            setShowCreateAccount(
-              false,
-            );
-
+            setShowCreateAccount(false);
             refreshOrganization();
           }}
         />

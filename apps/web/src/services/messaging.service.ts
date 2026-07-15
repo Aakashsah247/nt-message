@@ -37,6 +37,7 @@ import type {
   MessagePersonalStateResponse,
   MessageReactionResponse,
   PinnedMessagesResponse,
+  PersonalDashboardSummaryResponse,
   PrivateGroupFromPrivateConversationResponse,
   PrivateGroupHistoryWindow,
   StarredMessagesResponse,
@@ -615,6 +616,17 @@ export function listMessageRequests(
 ): Promise<MessageRequestListResponse> {
   return apiRequest<MessageRequestListResponse>(
     "/conversations/requests",
+    {
+      headers: authorizationHeaders(accessToken),
+    },
+  );
+}
+
+export function getPersonalDashboardSummary(
+  accessToken: string,
+): Promise<PersonalDashboardSummaryResponse> {
+  return apiRequest<PersonalDashboardSummaryResponse>(
+    "/conversations/dashboard-summary",
     {
       headers: authorizationHeaders(accessToken),
     },

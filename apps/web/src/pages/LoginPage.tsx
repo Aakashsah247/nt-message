@@ -27,7 +27,9 @@ export function LoginPage() {
       const account = await login(identifier, password);
 
       navigate(
-        getRoleHomePath(account.role),
+        account.role === "EMPLOYEE"
+          ? "/employee"
+          : getRoleHomePath(account.role),
         {
           replace: true,
         },

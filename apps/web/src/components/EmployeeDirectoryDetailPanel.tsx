@@ -1,5 +1,7 @@
 import { useEffect, useState } from "react";
 
+import { ProtectedAvatar } from "./ProtectedAvatar";
+
 import type {
   FormEvent,
 } from "react";
@@ -14,10 +16,6 @@ import {
   listDirectoryOrganizationDivisions,
   updateDirectoryEmployeeStatus,
 } from "../services/directory.service";
-import {
-  createDirectoryProfilePhotoObjectUrl,
-} from "../services/messaging.service";
-
 import type {
   AccountRole,
 } from "../types/auth";
@@ -147,16 +145,6 @@ function getMetadataString(
     : null;
 }
 
-function getInitials(name: string): string {
-  return name
-    .split(/\s+/)
-    .filter(Boolean)
-    .slice(0, 2)
-    .map((part) => part.charAt(0))
-    .join("")
-    .toUpperCase();
-}
-
 function getStatusClass(value: string): string {
   return value
     .toLowerCase()
@@ -219,11 +207,6 @@ export function EmployeeDirectoryDetailPanel({
     actionMessage,
     setActionMessage,
   ] = useState("");
-
-  const [
-    profilePhotoUrl,
-    setProfilePhotoUrl,
-  ] = useState<string | null>(null);
 
   const [
     pendingEmploymentStatus,
@@ -387,46 +370,6 @@ export function EmployeeDirectoryDetailPanel({
     accessToken,
     employeeId,
     retryKey,
-  ]);
-
-  useEffect(() => {
-    const employee = response?.employee;
-
-    if (!employee?.id) {
-      setProfilePhotoUrl(null);
-      return;
-    }
-
-    let active = true;
-    let objectUrl: string | null = null;
-
-    // Detail drawer avatars use the same protected photo route as the directory list.
-    void createDirectoryProfilePhotoObjectUrl(accessToken, employee.id)
-      .then((url) => {
-        if (!active) {
-          URL.revokeObjectURL(url);
-          return;
-        }
-
-        objectUrl = url;
-        setProfilePhotoUrl(url);
-      })
-      .catch(() => {
-        if (active) {
-          setProfilePhotoUrl(null);
-        }
-      });
-
-    return () => {
-      active = false;
-
-      if (objectUrl) {
-        URL.revokeObjectURL(objectUrl);
-      }
-    };
-  }, [
-    accessToken,
-    response?.employee.id,
   ]);
 
   useEffect(() => {
@@ -1123,18 +1066,13 @@ export function EmployeeDirectoryDetailPanel({
         {employee && (
           <div className="directory-detail-content">
             <section className="directory-detail-profile">
-              <div className="directory-detail-avatar">
-                {profilePhotoUrl ? (
-                  <img
-                    src={profilePhotoUrl}
-                    alt={`${employee.empName} profile`}
-                  />
-                ) : (
-                  getInitials(
-                    employee.empName,
-                  )
-                )}
-              </div>
+              <ProtectedAvatar
+                employeeId={employee.id}
+                photoKey={employee.profilePhotoKey}
+                displayName={employee.empName}
+                className="directory-detail-avatar"
+                ariaLabel={`${employee.empName} profile`}
+              />
 
               <div>
                 <span>

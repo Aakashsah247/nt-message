@@ -3384,6 +3384,103 @@ export class ConversationsService {
     }
   }
 
+  async getPersonalDashboardSummary(user: AuthenticatedUser) {
+    const viewer = await this.getMessagingViewer(user);
+    const now = new Date();
+    const todayStart = new Date(now);
+    todayStart.setHours(0, 0, 0, 0);
+
+    const weekStart = new Date(now);
+    weekStart.setDate(weekStart.getDate() - 7);
+
+    const personalMessageWhere: Prisma.MessageWhereInput = {
+      senderAccountId: viewer.accountId,
+      deletedAt: null,
+    };
+
+    const [
+      activeConversations,
+      unreadNotifications,
+      messagesToday,
+      messagesThisWeek,
+      attachmentsTotal,
+      attachmentsToday,
+      attachmentStorage,
+      latestMessageActivity,
+    ] = await Promise.all([
+      this.prisma.conversation.count({
+        where: {
+          participants: {
+            some: {
+              accountId: viewer.accountId,
+              leftAt: null,
+              isArchived: false,
+            },
+          },
+        },
+      }),
+      this.prisma.messagingNotification.count({
+        where: {
+          recipientAccountId: viewer.accountId,
+          isRead: false,
+        },
+      }),
+      this.prisma.message.count({
+        where: {
+          ...personalMessageWhere,
+          sentAt: { gte: todayStart },
+        },
+      }),
+      this.prisma.message.count({
+        where: {
+          ...personalMessageWhere,
+          sentAt: { gte: weekStart },
+        },
+      }),
+      this.prisma.messageAttachment.count({
+        where: {
+          message: { is: personalMessageWhere },
+        },
+      }),
+      this.prisma.messageAttachment.count({
+        where: {
+          createdAt: { gte: todayStart },
+          message: { is: personalMessageWhere },
+        },
+      }),
+      this.prisma.messageAttachment.aggregate({
+        where: {
+          message: { is: personalMessageWhere },
+        },
+        _sum: {
+          fileSizeBytes: true,
+        },
+      }),
+      this.prisma.message.aggregate({
+        where: personalMessageWhere,
+        _max: {
+          sentAt: true,
+        },
+      }),
+    ]);
+
+    return {
+      generatedAt: now.toISOString(),
+      totals: {
+        activeConversations,
+        unreadNotifications,
+        messagesToday,
+        messagesThisWeek,
+        attachmentsTotal,
+        attachmentsToday,
+        attachmentStorageBytes: attachmentStorage._sum.fileSizeBytes ?? 0,
+      },
+      latestMessageAt: latestMessageActivity._max.sentAt?.toISOString() ?? null,
+      privacyNotice:
+        'This dashboard contains only the authenticated account communication totals.',
+    };
+  }
+
   async getMessagingAnalytics(user: AuthenticatedUser) {
     const viewer = await this.getMessagingViewer(user);
 
@@ -3406,15 +3503,16 @@ export class ConversationsService {
     const scopedAccountIds = scopedAccounts.map((account) => account.id);
     const scopedAccountFilter: Prisma.StringFilter = { in: scopedAccountIds };
 
-    const scopedMessageWhere: Prisma.MessageWhereInput = {
-      senderAccountId: scopedAccountFilter,
+    // Communication analytics are always personal, even for management accounts.
+    const personalMessageWhere: Prisma.MessageWhereInput = {
+      senderAccountId: viewer.accountId,
       deletedAt: null,
     };
 
-    const scopedConversationWhere: Prisma.ConversationWhereInput = {
+    const personalConversationWhere: Prisma.ConversationWhereInput = {
       participants: {
         some: {
-          accountId: scopedAccountFilter,
+          accountId: viewer.accountId,
           leftAt: null,
         },
       },
@@ -3483,32 +3581,32 @@ export class ConversationsService {
           departmentUnit: { select: { id: true, name: true, code: true } },
         },
       }),
-      this.prisma.conversation.count({ where: scopedConversationWhere }),
+      this.prisma.conversation.count({ where: personalConversationWhere }),
       this.prisma.conversation.groupBy({
         by: ['type', 'groupKind'],
-        where: scopedConversationWhere,
+        where: personalConversationWhere,
         _count: { _all: true },
       }),
-      this.prisma.message.count({ where: scopedMessageWhere }),
+      this.prisma.message.count({ where: personalMessageWhere }),
       this.prisma.message.groupBy({
         by: ['contentType'],
-        where: scopedMessageWhere,
+        where: personalMessageWhere,
         _count: { _all: true },
       }),
       this.prisma.messageAttachment.count({
-        where: { message: { is: scopedMessageWhere } },
+        where: { message: { is: personalMessageWhere } },
       }),
       this.prisma.messageAttachment.groupBy({
         by: ['contentType'],
-        where: { message: { is: scopedMessageWhere } },
+        where: { message: { is: personalMessageWhere } },
         _count: { _all: true },
         _sum: { fileSizeBytes: true },
       }),
       this.prisma.messagingNotification.count({
-        where: { recipientAccountId: scopedAccountFilter },
+        where: { recipientAccountId: viewer.accountId },
       }),
       this.prisma.messagingNotification.count({
-        where: { recipientAccountId: scopedAccountFilter, isRead: false },
+        where: { recipientAccountId: viewer.accountId, isRead: false },
       }),
       this.prisma.account.count({
         where: { ...accountWhere, lastLoginAt: { gte: todayStart } },
@@ -3517,25 +3615,25 @@ export class ConversationsService {
         where: { ...accountWhere, lastLoginAt: { gte: weekStart } },
       }),
       this.prisma.message.count({
-        where: { ...scopedMessageWhere, sentAt: { gte: todayStart } },
+        where: { ...personalMessageWhere, sentAt: { gte: todayStart } },
       }),
       this.prisma.message.count({
-        where: { ...scopedMessageWhere, sentAt: { gte: weekStart } },
+        where: { ...personalMessageWhere, sentAt: { gte: weekStart } },
       }),
       this.prisma.messageAttachment.count({
         where: {
           createdAt: { gte: todayStart },
-          message: { is: scopedMessageWhere },
+          message: { is: personalMessageWhere },
         },
       }),
       this.prisma.messagingNotification.count({
         where: {
-          recipientAccountId: scopedAccountFilter,
+          recipientAccountId: viewer.accountId,
           createdAt: { gte: todayStart },
         },
       }),
       this.prisma.message.aggregate({
-        where: scopedMessageWhere,
+        where: personalMessageWhere,
         _max: { sentAt: true },
       }),
     ]);
@@ -3646,7 +3744,7 @@ export class ConversationsService {
         latestMessageAt: latestMessageActivity._max.sentAt?.toISOString() ?? null,
       },
       privacyNotice:
-        'Analytics are limited to aggregated counts and do not expose private message content.',
+        'Account and workforce totals follow your authorized organization scope. Communication totals belong only to your authenticated account and never expose message content.',
     };
   }
 

@@ -244,6 +244,14 @@ export class ConversationsController {
     return this.conversationsService.listMessageRequests(user);
   }
 
+  @Get('dashboard-summary')
+  getPersonalDashboardSummary(
+    @CurrentUser()
+    user: AuthenticatedUser,
+  ) {
+    return this.conversationsService.getPersonalDashboardSummary(user);
+  }
+
   @Get('analytics')
   getMessagingAnalytics(
     @CurrentUser()

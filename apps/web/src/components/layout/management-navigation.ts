@@ -2,6 +2,7 @@ import type { AccountRole } from "../../types/auth";
 import type { ManagementIconName } from "./ManagementIcon";
 
 export type AdminWorkspaceView =
+  | "dashboard"
   | "requests"
   | "organization"
   | "analytics"
@@ -28,7 +29,11 @@ const SUPER_ADMIN_NAVIGATION: ManagementNavigationSection[] = [
         icon: "dashboard",
         label: "Dashboard",
         path: "/super-admin",
-        view: "requests",
+      },
+      {
+        icon: "requests",
+        label: "Account requests",
+        path: "/super-admin/account-requests",
       },
       {
         icon: "directory",
@@ -83,6 +88,29 @@ const SUPER_ADMIN_NAVIGATION: ManagementNavigationSection[] = [
   },
 ];
 
+const EMPLOYEE_NAVIGATION: ManagementNavigationSection[] = [
+  {
+    label: "Workspace",
+    items: [
+      {
+        icon: "dashboard",
+        label: "Dashboard",
+        path: "/employee",
+      },
+      {
+        icon: "messages",
+        label: "Messages",
+        path: "/messages",
+      },
+      {
+        icon: "messages",
+        label: "Starred messages",
+        path: "/messages/starred",
+      },
+    ],
+  },
+];
+
 function getManagerNavigation(
   role: "SENIOR_MANAGEMENT" | "TEAM_MANAGER",
 ): ManagementNavigationSection[] {
@@ -103,6 +131,11 @@ function getManagerNavigation(
           icon: "directory",
           label: "Directory",
           path: "/directory",
+        },
+        {
+          icon: "requests",
+          label: "Account requests",
+          path: `${dashboardPath}/account-requests`,
         },
       ],
     },
@@ -131,6 +164,10 @@ export function getManagementNavigation(
     return getManagerNavigation(role);
   }
 
+  if (role === "EMPLOYEE") {
+    return EMPLOYEE_NAVIGATION;
+  }
+
   return [];
 }
 
@@ -146,6 +183,6 @@ export function getDefaultAdminView(
 
     case "requests":
     default:
-      return "requests";
+      return "dashboard";
   }
 }

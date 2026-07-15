@@ -808,3 +808,18 @@ export interface MessagingAnalyticsResponse {
   };
   privacyNotice: string;
 }
+
+export interface PersonalDashboardSummaryResponse {
+  generatedAt: string;
+  totals: {
+    activeConversations: number;
+    unreadNotifications: number;
+    messagesToday: number;
+    messagesThisWeek: number;
+    attachmentsTotal: number;
+    attachmentsToday: number;
+    attachmentStorageBytes: number;
+  };
+  latestMessageAt: string | null;
+  privacyNotice: string;
+}

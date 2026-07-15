@@ -1,9 +1,7 @@
 import { useState } from "react";
-
 import type { FormEvent } from "react";
 
 import { createMyAccountRequest } from "../services/account-request.service";
-
 import type { ManagerRequestContextResponse } from "../types/account-request";
 
 interface ManagerAccountRequestFormProps {
@@ -50,20 +48,14 @@ export function ManagerAccountRequestForm({
   onSubmitted,
 }: ManagerAccountRequestFormProps) {
   const [form, setForm] = useState<RequestFormState>(initialFormState);
-
   const [submitting, setSubmitting] = useState(false);
-
   const [error, setError] = useState("");
-
   const [success, setSuccess] = useState("");
 
   const isSeniorManagement = requestContext.role === "SENIOR_MANAGEMENT";
-
   const selectedDepartment =
     requestContext.departments.find(
-      (department) =>
-        department.id ===
-        form.departmentId,
+      (department) => department.id === form.departmentId,
     ) ?? null;
 
   function updateField(field: keyof RequestFormState, value: string): void {
@@ -71,19 +63,25 @@ export function ManagerAccountRequestForm({
       ...current,
       [field]: value,
     }));
-
     setError("");
     setSuccess("");
   }
 
-  // Validates employee information before sending it to the backend.
+  function resetForm(): void {
+    if (submitting) {
+      return;
+    }
+
+    setForm(initialFormState);
+    setError("");
+    setSuccess("");
+  }
+
+  // Validate identity fields before the protected request reaches the backend.
   function validateForm(): string | null {
     const empId = form.empId.trim();
-
     const empName = form.empName.trim();
-
     const phoneNumber = form.phoneNumber.trim();
-
     const officialEmail = form.officialEmail.trim();
 
     if (empId.length < 2) {
@@ -106,10 +104,7 @@ export function ManagerAccountRequestForm({
       return "Enter a valid official email address.";
     }
 
-    if (
-      isSeniorManagement &&
-      !form.departmentId
-    ) {
+    if (isSeniorManagement && !form.departmentId) {
       return "Select the department this Team Manager will manage.";
     }
 
@@ -129,7 +124,6 @@ export function ManagerAccountRequestForm({
 
     if (validationError) {
       setError(validationError);
-
       return;
     }
 
@@ -138,25 +132,18 @@ export function ManagerAccountRequestForm({
     setSuccess("");
 
     try {
-      // Normalizes employee data before submitting the protected request.
+      // Normalize employee data consistently before submitting the protected request.
       const response = await createMyAccountRequest(accessToken, {
         empId: form.empId.trim().toUpperCase(),
-
         empName: form.empName.trim().replace(/\s+/g, " "),
-
         phoneNumber: form.phoneNumber.trim(),
-
         officialEmail: form.officialEmail.trim().toLowerCase(),
-
         designation: form.designation.trim() || undefined,
-
         departmentId: isSeniorManagement ? form.departmentId : undefined,
       });
 
       setSuccess(response.message);
-
       setForm(initialFormState);
-
       onSubmitted?.();
     } catch (requestError: unknown) {
       setError(getErrorMessage(requestError));
@@ -165,208 +152,236 @@ export function ManagerAccountRequestForm({
     }
   }
 
+  const requestedRole = formatRole(requestContext.requestedRole);
+  const formTitle = isSeniorManagement
+    ? "Request a Team Manager"
+    : "Request an Employee";
+  const formDescription = isSeniorManagement
+    ? "Enter the approved leadership candidate and select the department they will manage."
+    : "Enter the approved employee identity for onboarding inside your assigned department.";
+
   return (
-    <article className="req-card">
-      <header className="req-head">
+    <article className="manager-request-form-card">
+      <header className="manager-request-form-card__header">
         <div>
           <span>New account request</span>
-
-          <h2>Request {formatRole(requestContext.requestedRole)}</h2>
-
-          <p>
-            Enter information exactly as it appears in the employee’s official
-            employment record.
-          </p>
+          <h2>{formTitle}</h2>
+          <p>{formDescription}</p>
         </div>
 
-        <div className="req-role">
-          <span>Requested role</span>
-
-          <strong>{formatRole(requestContext.requestedRole)}</strong>
+        <div
+          className={`manager-request-form-card__role manager-request-form-card__role--${requestContext.requestedRole
+            .toLowerCase()
+            .replaceAll("_", "-")}`}
+        >
+          <span className="manager-request-form-card__role-icon" aria-hidden="true">
+            {isSeniorManagement ? "TM" : "EM"}
+          </span>
+          <div>
+            <small>Requested role</small>
+            <strong>{requestedRole}</strong>
+            <p>
+              {isSeniorManagement
+                ? "Division-approved leadership onboarding"
+                : "Department employee onboarding"}
+            </p>
+          </div>
         </div>
       </header>
 
       {success && (
-        <div className="req-ok" role="status">
+        <div className="manager-request-form-card__message manager-request-form-card__message--success" role="status">
           {success}
         </div>
       )}
 
       {error && (
-        <div className="req-err" role="alert">
+        <div className="manager-request-form-card__message manager-request-form-card__message--error" role="alert">
           {error}
         </div>
       )}
 
-      <form className="req-form" onSubmit={handleSubmit}>
-        <div className="req-grid">
-          <label>
-            <span>Employee full name</span>
+      <form className="manager-request-form" onSubmit={handleSubmit}>
+        <section className="manager-request-form__section">
+          <header>
+            <span>01</span>
+            <div>
+              <h3>{isSeniorManagement ? "Leadership candidate" : "Employee identity"}</h3>
+              <p>Use the same information recorded in the official employment record.</p>
+            </div>
+          </header>
 
-            <input
-              type="text"
-              value={form.empName}
-              onChange={(event) => updateField("empName", event.target.value)}
-              minLength={2}
-              maxLength={150}
-              placeholder="Enter official full name"
-              autoComplete="name"
-              disabled={submitting}
-              required
-            />
-          </label>
-
-          <label>
-            <span>Employee ID</span>
-
-            <input
-              type="text"
-              value={form.empId}
-              onChange={(event) =>
-                updateField("empId", event.target.value.toUpperCase())
-              }
-              minLength={2}
-              maxLength={50}
-              placeholder="Example: NTC-1025"
-              autoComplete="off"
-              disabled={submitting}
-              required
-            />
-          </label>
-
-          <label>
-            <span>Phone number</span>
-
-            <input
-              type="tel"
-              value={form.phoneNumber}
-              onChange={(event) =>
-                updateField("phoneNumber", event.target.value)
-              }
-              placeholder="+97798XXXXXXXX"
-              autoComplete="tel"
-              disabled={submitting}
-              required
-            />
-          </label>
-
-          <label>
-            <span>Official email</span>
-
-            <input
-              type="email"
-              value={form.officialEmail}
-              onChange={(event) =>
-                updateField("officialEmail", event.target.value)
-              }
-              maxLength={255}
-              placeholder="employee@ntc.net.np"
-              autoComplete="email"
-              disabled={submitting}
-              required
-            />
-          </label>
-
-          <label>
-            <span>Designation</span>
-
-            <input
-              type="text"
-              value={form.designation}
-              onChange={(event) =>
-                updateField("designation", event.target.value)
-              }
-              maxLength={120}
-              placeholder="Optional designation"
-              disabled={submitting}
-            />
-          </label>
-
-          {isSeniorManagement ? (
+          <div className="manager-request-form__grid">
             <label>
-              <span>Managed department</span>
-
-              <select
-                value={form.departmentId}
-                onChange={(event) =>
-                  updateField(
-                    "departmentId",
-                    event.target.value,
-                  )
-                }
+              <span>Employee full name</span>
+              <input
+                type="text"
+                value={form.empName}
+                onChange={(event) => updateField("empName", event.target.value)}
+                minLength={2}
+                maxLength={150}
+                placeholder="Enter official full name"
+                autoComplete="name"
                 disabled={submitting}
                 required
-              >
-                <option value="">
-                  Select department
-                </option>
+              />
+            </label>
 
-                {requestContext.departments.map(
-                  (department) => (
-                    <option
-                      key={department.id}
-                      value={department.id}
-                    >
+            <label>
+              <span>Employee ID</span>
+              <input
+                type="text"
+                value={form.empId}
+                onChange={(event) =>
+                  updateField("empId", event.target.value.toUpperCase())
+                }
+                minLength={2}
+                maxLength={50}
+                placeholder="Example: NTC-1025"
+                autoComplete="off"
+                disabled={submitting}
+                required
+              />
+            </label>
+
+            <label>
+              <span>Phone number</span>
+              <input
+                type="tel"
+                value={form.phoneNumber}
+                onChange={(event) =>
+                  updateField("phoneNumber", event.target.value)
+                }
+                placeholder="9801234567"
+                autoComplete="tel"
+                disabled={submitting}
+                required
+              />
+            </label>
+
+            <label>
+              <span>Official email</span>
+              <input
+                type="email"
+                value={form.officialEmail}
+                onChange={(event) =>
+                  updateField("officialEmail", event.target.value.toLowerCase())
+                }
+                maxLength={255}
+                placeholder="employee@ntc.net.np"
+                autoComplete="email"
+                disabled={submitting}
+                required
+              />
+            </label>
+
+            <label>
+              <span>Designation</span>
+              <input
+                type="text"
+                value={form.designation}
+                onChange={(event) =>
+                  updateField("designation", event.target.value)
+                }
+                maxLength={120}
+                placeholder="Optional designation"
+                disabled={submitting}
+              />
+            </label>
+
+            {isSeniorManagement ? (
+              <label>
+                <span>Managed department</span>
+                <select
+                  value={form.departmentId}
+                  onChange={(event) =>
+                    updateField("departmentId", event.target.value)
+                  }
+                  disabled={submitting}
+                  required
+                >
+                  <option value="">Select department</option>
+                  {requestContext.departments.map((department) => (
+                    <option key={department.id} value={department.id}>
                       {department.name} ({department.code})
                     </option>
-                  ),
-                )}
-              </select>
-
-              <small>
-                The Team Manager authority position is created automatically.
-              </small>
-            </label>
-          ) : (
-            <div className="req-fixed">
-              <span>Assigned department</span>
-
-              <strong>
-                {requestContext.scope.department?.name ?? "Not assigned"}
-              </strong>
-
-              <small>Department is fixed by your account scope.</small>
-            </div>
-          )}
-        </div>
-
-        <section className="req-review">
-          <div>
-            <span>Division</span>
-
-            <strong>{requestContext.scope.division.name}</strong>
-          </div>
-
-          <div>
-            <span>Department</span>
-
-            <strong>
-              {isSeniorManagement
-                ? (selectedDepartment?.name ?? "Select a department")
-                : (requestContext.scope.department?.name ?? "Not assigned")}
-            </strong>
-          </div>
-
-          <div>
-            <span>Account role</span>
-
-            <strong>{formatRole(requestContext.requestedRole)}</strong>
+                  ))}
+                </select>
+                <small>The Team Manager position is controlled by the selected department.</small>
+              </label>
+            ) : (
+              <div className="manager-request-form__fixed-field">
+                <span>Assigned department</span>
+                <strong>
+                  {requestContext.scope.department?.name ?? "Not assigned"}
+                </strong>
+                <small>Department is fixed by your authenticated scope.</small>
+              </div>
+            )}
           </div>
         </section>
 
-        <footer className="req-foot">
+        <section className="manager-request-form__section">
+          <header>
+            <span>02</span>
+            <div>
+              <h3>Organizational assignment</h3>
+              <p>Role and organizational scope are enforced by the backend after submission.</p>
+            </div>
+          </header>
+
+          <div className="manager-request-form__review">
+            <div>
+              <span>Division</span>
+              <strong>{requestContext.scope.division.name}</strong>
+              <small>{requestContext.scope.division.code}</small>
+            </div>
+
+            <div>
+              <span>Department</span>
+              <strong>
+                {isSeniorManagement
+                  ? selectedDepartment?.name ?? "Select a department"
+                  : requestContext.scope.department?.name ?? "Not assigned"}
+              </strong>
+              <small>
+                {isSeniorManagement
+                  ? selectedDepartment?.code ?? "Required for Team Manager authority"
+                  : requestContext.scope.department?.code ?? "Scope unavailable"}
+              </small>
+            </div>
+
+            <div>
+              <span>Account role</span>
+              <strong>{requestedRole}</strong>
+              <small>Approval authority: Super Admin</small>
+            </div>
+          </div>
+        </section>
+
+        <footer className="manager-request-form__footer">
           <p>
-            Every request is reviewed by the Super Admin before account
-            activation is allowed.
+            The person cannot activate the account until the Super Admin approves this request.
           </p>
 
-          <button
-            type="submit"
-            className="req-btn"
-            disabled={submitting}
-          >
-            {submitting ? "Submitting request..." : "Submit account request"}
-          </button>
+          <div>
+            <button
+              type="button"
+              className="manager-request-form__clear"
+              onClick={resetForm}
+              disabled={submitting}
+            >
+              Clear form
+            </button>
+
+            <button
+              type="submit"
+              className="manager-request-form__submit"
+              disabled={submitting}
+            >
+              {submitting ? "Submitting request..." : "Submit account request"}
+            </button>
+          </div>
         </footer>
       </form>
     </article>

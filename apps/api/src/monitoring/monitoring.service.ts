@@ -159,43 +159,35 @@ export class MonitoringService implements OnModuleInit, OnModuleDestroy {
         },
       });
 
-      const existingSummary = await transaction.dailyActivitySummary.findUnique({
+      // Use one atomic upsert so simultaneous browser activity events cannot both
+      // attempt to create the same account-and-date summary row.
+      await transaction.dailyActivitySummary.upsert({
         where: {
           accountId_activityDate: {
             accountId: user.accountId,
             activityDate,
           },
         },
-      });
-
-      if (!existingSummary) {
-        await transaction.dailyActivitySummary.create({
-          data: {
-            accountId: user.accountId,
-            activityDate,
-            firstLoginAt: counters.firstLoginAt,
-            lastLogoutAt: counters.lastLogoutAt,
-            lastActiveAt: counters.lastActiveAt,
-            activeMinutes: counters.activeMinutes ?? 0,
-            idleMinutes: counters.idleMinutes ?? 0,
-            pagesVisitedCount: counters.pagesVisitedCount ?? 0,
-            actionsCount: counters.actionsCount ?? 0,
-            emergencyAlertsCount: counters.emergencyAlertsCount ?? 0,
-            afterHoursLoginCount: counters.afterHoursLoginCount ?? 0,
-          },
-        });
-
-        return;
-      }
-
-      await transaction.dailyActivitySummary.update({
-        where: {
-          id: existingSummary.id,
+        create: {
+          accountId: user.accountId,
+          activityDate,
+          firstLoginAt: counters.firstLoginAt,
+          lastLogoutAt: counters.lastLogoutAt,
+          lastActiveAt: counters.lastActiveAt,
+          activeMinutes: counters.activeMinutes ?? 0,
+          idleMinutes: counters.idleMinutes ?? 0,
+          pagesVisitedCount: counters.pagesVisitedCount ?? 0,
+          actionsCount: counters.actionsCount ?? 0,
+          emergencyAlertsCount: counters.emergencyAlertsCount ?? 0,
+          afterHoursLoginCount: counters.afterHoursLoginCount ?? 0,
         },
-        data: {
-          firstLoginAt: existingSummary.firstLoginAt ?? counters.firstLoginAt,
-          lastLogoutAt: counters.lastLogoutAt ?? existingSummary.lastLogoutAt,
-          lastActiveAt: counters.lastActiveAt ?? existingSummary.lastActiveAt,
+        update: {
+          ...(counters.lastLogoutAt
+            ? { lastLogoutAt: counters.lastLogoutAt }
+            : {}),
+          ...(counters.lastActiveAt
+            ? { lastActiveAt: counters.lastActiveAt }
+            : {}),
           activeMinutes: {
             increment: counters.activeMinutes ?? 0,
           },
@@ -216,6 +208,21 @@ export class MonitoringService implements OnModuleInit, OnModuleDestroy {
           },
         },
       });
+
+      if (counters.firstLoginAt) {
+        // Preserve the first login of the Kathmandu calendar day. The null guard
+        // also makes concurrent LOGIN events safe without overwriting the winner.
+        await transaction.dailyActivitySummary.updateMany({
+          where: {
+            accountId: user.accountId,
+            activityDate,
+            firstLoginAt: null,
+          },
+          data: {
+            firstLoginAt: counters.firstLoginAt,
+          },
+        });
+      }
     });
 
     return {

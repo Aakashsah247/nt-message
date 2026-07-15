@@ -39,6 +39,11 @@ export class AdminAccountRequestsController {
     return this.accountRequestsService.listAdminRequests(user, query);
   }
 
+  @Get('dashboard/summary')
+  getSummary(@CurrentUser() user: AuthenticatedUser) {
+    return this.accountRequestsService.getAdminRequestSummary(user);
+  }
+
   @Get(':id')
   getRequest(
     @CurrentUser() user: AuthenticatedUser,

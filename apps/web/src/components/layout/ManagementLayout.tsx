@@ -12,6 +12,7 @@ import {
 } from "react-router";
 
 import { EmergencyAlertButton } from "../EmergencyAlertButton";
+import { ProtectedAvatar } from "../ProtectedAvatar";
 import { useAuth } from "../../context/AuthContext";
 import { getRoleHomePath } from "../../utils/get-role-home-path";
 import { ManagementIcon } from "./ManagementIcon";
@@ -54,6 +55,12 @@ function isItemActive(
 ): boolean {
   if (pathname !== item.path) {
     return false;
+  }
+
+  // The base Super Admin route represents the dashboard only when no
+  // governance sub-view is selected through the query string.
+  if (item.path === "/super-admin" && !item.view) {
+    return adminView === "dashboard";
   }
 
   return item.view ? item.view === adminView : true;
@@ -160,7 +167,9 @@ export function ManagementLayout({
         <div className="management-layout__brand-row">
           <Link
             className="management-layout__brand"
-            to={getRoleHomePath(account.role)}
+            to={account.role === "EMPLOYEE"
+              ? "/employee"
+              : getRoleHomePath(account.role)}
             aria-label="NT Message dashboard"
           >
             <span className="management-layout__logo">
@@ -232,9 +241,11 @@ export function ManagementLayout({
         </nav>
 
         <div className="management-layout__account">
-          <span className="management-layout__avatar" aria-hidden="true">
-            {account.displayName.charAt(0).toUpperCase()}
-          </span>
+          <ProtectedAvatar
+            accountId={account.id}
+            displayName={account.displayName}
+            className="management-layout__avatar"
+          />
 
           <span className="management-layout__account-copy">
             <small>Signed as</small>

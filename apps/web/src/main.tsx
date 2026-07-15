@@ -4,6 +4,7 @@ import { BrowserRouter } from "react-router";
 
 import App from "./App";
 import { AuthProvider } from "./context/AuthContext";
+import { AvatarProvider } from "./context/AvatarContext";
 import "./index.css";
 import "./styles/management-layout.css";
 
@@ -11,7 +12,9 @@ createRoot(document.getElementById("root")!).render(
   <StrictMode>
     <BrowserRouter>
       <AuthProvider>
-        <App />
+        <AvatarProvider>
+          <App />
+        </AvatarProvider>
       </AuthProvider>
     </BrowserRouter>
   </StrictMode>,

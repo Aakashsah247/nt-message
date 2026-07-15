@@ -1,6 +1,5 @@
 import {
   useEffect,
-  useRef,
   useState,
 } from "react";
 
@@ -8,12 +7,10 @@ import type {
   FormEvent,
 } from "react";
 
+import { ProtectedAvatar } from "./ProtectedAvatar";
 import {
   listDirectoryEmployees,
 } from "../services/directory.service";
-import {
-  createDirectoryProfilePhotoObjectUrl,
-} from "../services/messaging.service";
 
 import type {
   AccountRole,
@@ -109,21 +106,6 @@ function formatDate(
       timeStyle: "short",
     },
   ).format(date);
-}
-
-function getInitials(
-  name: string,
-): string {
-  return name
-    .split(/\s+/)
-    .filter(Boolean)
-    .slice(0, 2)
-    .map(
-      (part) =>
-        part.charAt(0),
-    )
-    .join("")
-    .toUpperCase();
 }
 
 function getStatusClass(
@@ -242,10 +224,6 @@ export function EmployeeDirectory({
   ] =
     useState(0);
 
-  const [profilePhotoUrls, setProfilePhotoUrls] = useState<Record<string, string>>({});
-  const [profilePhotoCacheKeys, setProfilePhotoCacheKeys] = useState<Record<string, string>>({});
-  const profilePhotoUrlsRef = useRef<Record<string, string>>({});
-
   useEffect(() => {
     let active = true;
 
@@ -335,89 +313,15 @@ export function EmployeeDirectory({
     search,
   ]);
 
-  useEffect(() => {
-    const employeesWithPhotos = (response?.data ?? []).filter((employee) => {
-      const cacheKey = employee.profilePhotoKey ?? "__account-photo-check__";
-      return profilePhotoCacheKeys[employee.id] !== cacheKey;
-    });
-
-    if (employeesWithPhotos.length === 0) {
-      return;
-    }
-
-    let cancelled = false;
-    const loadedUrls: string[] = [];
-
-    // Directory avatars use protected blob URLs. Try by employee id even when the list response
-    // does not include profilePhotoKey, because messaging profile photos are stored on accounts.
-    void Promise.all(
-      employeesWithPhotos.map(async (employee) => {
-        const cacheKey = employee.profilePhotoKey ?? "__account-photo-check__";
-
-        try {
-          const url = await createDirectoryProfilePhotoObjectUrl(accessToken, employee.id);
-          loadedUrls.push(url);
-          return [employee.id, cacheKey, url] as const;
-        } catch {
-          return [employee.id, cacheKey, null] as const;
-        }
-      }),
-    ).then((entries) => {
-      if (cancelled) {
-        loadedUrls.forEach((url) => URL.revokeObjectURL(url));
-        return;
-      }
-
-      setProfilePhotoUrls((current) => {
-        const next = { ...current };
-
-        for (const [employeeId, , url] of entries) {
-          if (next[employeeId]) {
-            URL.revokeObjectURL(next[employeeId]);
-            delete next[employeeId];
-          }
-
-          if (url) {
-            next[employeeId] = url;
-          }
-        }
-
-        return next;
-      });
-
-      setProfilePhotoCacheKeys((current) => ({
-        ...current,
-        ...Object.fromEntries(entries.map(([employeeId, photoKey]) => [employeeId, photoKey])),
-      }));
-    });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [accessToken, response?.data, profilePhotoCacheKeys]);
-
-  useEffect(() => {
-    profilePhotoUrlsRef.current = profilePhotoUrls;
-  }, [profilePhotoUrls]);
-
-  useEffect(() => () => {
-    Object.values(profilePhotoUrlsRef.current).forEach((url) => URL.revokeObjectURL(url));
-  }, []);
-
   function renderDirectoryAvatar(employee: DirectoryEmployee) {
-    const photoUrl = profilePhotoUrls[employee.id] ?? null;
-
     return (
-      <span className="directory-avatar">
-        {photoUrl ? (
-          <img
-            src={photoUrl}
-            alt={`${employee.empName} profile`}
-          />
-        ) : (
-          getInitials(employee.empName)
-        )}
-      </span>
+      <ProtectedAvatar
+        employeeId={employee.id}
+        photoKey={employee.profilePhotoKey}
+        displayName={employee.empName}
+        className="directory-avatar"
+        ariaLabel={`${employee.empName} profile`}
+      />
     );
   }
 

@@ -175,6 +175,118 @@ export class AccountRequestsService {
     return requester;
   }
 
+  private buildRequestListFilters(
+    query: ListAccountRequestsQueryDto,
+  ): Prisma.AccountRequestWhereInput {
+    const search = query.search?.trim();
+    const dateFrom = query.dateFrom ? new Date(query.dateFrom) : null;
+    const dateTo = query.dateTo ? new Date(query.dateTo) : null;
+
+    if (dateFrom && dateTo && dateFrom.getTime() > dateTo.getTime()) {
+      throw new BadRequestException(
+        'The request start date cannot be after the end date.',
+      );
+    }
+
+    return {
+      ...(query.status ? { status: query.status } : {}),
+      ...(query.requestedRole ? { requestedRole: query.requestedRole } : {}),
+      ...(query.divisionId ? { divisionId: query.divisionId } : {}),
+      ...(query.departmentId ? { departmentId: query.departmentId } : {}),
+      ...(dateFrom || dateTo
+        ? {
+            submittedAt: {
+              ...(dateFrom ? { gte: dateFrom } : {}),
+              ...(dateTo ? { lte: dateTo } : {}),
+            },
+          }
+        : {}),
+      ...(search
+        ? {
+            OR: [
+              { empName: { contains: search, mode: 'insensitive' } },
+              { empId: { contains: search, mode: 'insensitive' } },
+              { officialEmail: { contains: search, mode: 'insensitive' } },
+              {
+                requestedBy: {
+                  is: {
+                    employee: {
+                      is: {
+                        OR: [
+                          { empName: { contains: search, mode: 'insensitive' } },
+                          { empId: { contains: search, mode: 'insensitive' } },
+                        ],
+                      },
+                    },
+                  },
+                },
+              },
+            ],
+          }
+        : {}),
+    };
+  }
+
+  private async getCurrentAccountIdentity(user: AuthenticatedUser) {
+    const account = await this.prisma.account.findUnique({
+      where: {
+        id: user.accountId,
+      },
+
+      select: {
+        id: true,
+        username: true,
+        role: true,
+        isEnabled: true,
+        lastLoginAt: true,
+        createdAt: true,
+        updatedAt: true,
+
+        employee: {
+          select: {
+            id: true,
+            empId: true,
+            empName: true,
+            officialEmail: true,
+            designation: true,
+            status: true,
+            employmentStatus: true,
+            isActivated: true,
+            divisionId: true,
+            departmentId: true,
+
+            division: {
+              select: {
+                id: true,
+                code: true,
+                name: true,
+                isActive: true,
+              },
+            },
+
+            departmentUnit: {
+              select: {
+                id: true,
+                divisionId: true,
+                code: true,
+                name: true,
+                isActive: true,
+              },
+            },
+          },
+        },
+      },
+    });
+
+    if (!account || account.role !== user.role) {
+      throw new ForbiddenException(
+        'Your authenticated account identity is unavailable.',
+      );
+    }
+
+    return account;
+  }
+
   private async validateManagementPositionVacancy(
     transaction: Prisma.TransactionClient,
     managementPositionId: string,
@@ -302,6 +414,106 @@ export class AccountRequestsService {
     );
 
     return position.id;
+  }
+
+  async getOwnAccountStatus(user: AuthenticatedUser) {
+    const account = await this.getCurrentAccountIdentity(user);
+
+    const accountRequest = account.employee
+      ? await this.prisma.accountRequest.findFirst({
+          where: {
+            OR: [
+              { employeeId: account.employee.id },
+              {
+                empId: account.employee.empId,
+                officialEmail: account.employee.officialEmail,
+              },
+            ],
+          },
+
+          orderBy: [
+            { revisionNumber: 'desc' },
+            { createdAt: 'desc' },
+          ],
+
+          select: {
+            id: true,
+            empId: true,
+            empName: true,
+            officialEmail: true,
+            designation: true,
+            requestedRole: true,
+            revisionNumber: true,
+            status: true,
+            rejectionReason: true,
+            submittedAt: true,
+            reviewedAt: true,
+            createdAt: true,
+            updatedAt: true,
+
+            division: {
+              select: {
+                id: true,
+                code: true,
+                name: true,
+                isActive: true,
+              },
+            },
+
+            department: {
+              select: {
+                id: true,
+                divisionId: true,
+                code: true,
+                name: true,
+                isActive: true,
+              },
+            },
+
+            requestedBy: {
+              select: {
+                id: true,
+                username: true,
+                role: true,
+
+                employee: {
+                  select: {
+                    empId: true,
+                    empName: true,
+                    officialEmail: true,
+                  },
+                },
+              },
+            },
+
+            reviewedBy: {
+              select: {
+                id: true,
+                username: true,
+                role: true,
+              },
+            },
+
+            actions: {
+              orderBy: {
+                createdAt: 'asc',
+              },
+
+              select: {
+                id: true,
+                action: true,
+                reason: true,
+                createdAt: true,
+              },
+            },
+          },
+        })
+      : null;
+
+    return {
+      account,
+      accountRequest,
+    };
   }
 
   async getRequestContext(user: AuthenticatedUser) {
@@ -1129,6 +1341,162 @@ export class AccountRequestsService {
     };
   }
 
+  async getAdminRequestSummary(user: AuthenticatedUser) {
+    this.assertSuperAdmin(user);
+
+    const requestListSelect = {
+      id: true,
+      empId: true,
+      empName: true,
+      officialEmail: true,
+      designation: true,
+      requestedRole: true,
+      managementPositionId: true,
+      revisionNumber: true,
+      status: true,
+      rejectionReason: true,
+      submittedAt: true,
+      reviewedAt: true,
+      createdAt: true,
+      updatedAt: true,
+
+      division: {
+        select: {
+          id: true,
+          code: true,
+          name: true,
+          isActive: true,
+        },
+      },
+
+      department: {
+        select: {
+          id: true,
+          code: true,
+          name: true,
+          isActive: true,
+        },
+      },
+
+      requestedBy: {
+        select: {
+          id: true,
+          username: true,
+          role: true,
+
+          employee: {
+            select: {
+              empId: true,
+              empName: true,
+              officialEmail: true,
+            },
+          },
+        },
+      },
+
+      reviewedBy: {
+        select: {
+          id: true,
+          username: true,
+          role: true,
+        },
+      },
+    } satisfies Prisma.AccountRequestSelect;
+
+    /*
+     * A dedicated aggregate query keeps the Dashboard and status tabs
+     * consistent without issuing one list request for every status.
+     * Only governance metadata is returned; message content is never queried.
+     */
+    const [countRows, attentionRequests, recentActivity] =
+      await this.prisma.$transaction([
+        this.prisma.accountRequest.groupBy({
+          by: ['status'],
+          orderBy: {
+            status: 'asc',
+          },
+          _count: {
+            id: true,
+          },
+        }),
+
+        this.prisma.accountRequest.findMany({
+          where: {
+            status: {
+              in: [
+                AccountRequestStatus.PENDING_APPROVAL,
+                AccountRequestStatus.ACTIVATION_PENDING,
+                AccountRequestStatus.REJECTED,
+              ],
+            },
+          },
+          orderBy: {
+            updatedAt: 'desc',
+          },
+          take: 6,
+          select: requestListSelect,
+        }),
+
+        this.prisma.accountRequest.findMany({
+          where: {
+            status: {
+              not: AccountRequestStatus.DRAFT,
+            },
+          },
+          orderBy: {
+            updatedAt: 'desc',
+          },
+          take: 6,
+          select: requestListSelect,
+        }),
+      ]);
+
+    const counts: Record<AccountRequestStatus, number> = {
+      [AccountRequestStatus.DRAFT]: 0,
+      [AccountRequestStatus.PENDING_APPROVAL]: 0,
+      [AccountRequestStatus.APPROVED]: 0,
+      [AccountRequestStatus.REJECTED]: 0,
+      [AccountRequestStatus.ACTIVATION_PENDING]: 0,
+      [AccountRequestStatus.ACTIVATED]: 0,
+    };
+
+    countRows.forEach((row) => {
+      // Prisma's generated groupBy type permits `_count` to be `true`,
+      // so narrow it before reading the requested `id` aggregate.
+      const statusCount =
+        typeof row._count === 'object' && row._count !== null
+          ? row._count.id ?? 0
+          : 0;
+
+      counts[row.status] = statusCount;
+    });
+
+    const activationTotal =
+      counts[AccountRequestStatus.ACTIVATED] +
+      counts[AccountRequestStatus.ACTIVATION_PENDING];
+
+    return {
+      counts,
+      totalRequests: Object.values(counts).reduce(
+        (total, count) => total + count,
+        0,
+      ),
+      attentionTotal:
+        counts[AccountRequestStatus.PENDING_APPROVAL] +
+        counts[AccountRequestStatus.ACTIVATION_PENDING] +
+        counts[AccountRequestStatus.REJECTED],
+      activationCompletionRate:
+        activationTotal === 0
+          ? 100
+          : Math.round(
+              (counts[AccountRequestStatus.ACTIVATED] / activationTotal) * 100,
+            ),
+      attentionRequests,
+      recentActivity,
+      generatedAt: new Date().toISOString(),
+    };
+  }
+
   async listAdminRequests(
     user: AuthenticatedUser,
     query: ListAccountRequestsQueryDto,
@@ -1145,7 +1513,8 @@ export class AccountRequestsService {
      */
     const status = query.status ?? AccountRequestStatus.PENDING_APPROVAL;
 
-    const where = {
+    const where: Prisma.AccountRequestWhereInput = {
+      ...this.buildRequestListFilters(query),
       status,
     };
 
@@ -2164,6 +2533,245 @@ export class AccountRequestsService {
     };
   }
 
+  async listDivisionEmployeeRequests(
+    user: AuthenticatedUser,
+    query: ListAccountRequestsQueryDto,
+  ) {
+    const requester = await this.getRequester(user);
+    const divisionId = requester.employee?.divisionId;
+
+    if (requester.role !== AccountRole.SENIOR_MANAGEMENT || !divisionId) {
+      throw new ForbiddenException(
+        'Only Senior Management can view employee requests inside its assigned division.',
+      );
+    }
+
+    const page = query.page;
+    const limit = query.limit;
+    const skip = (page - 1) * limit;
+
+    // The authenticated division is the security boundary. Frontend filters can only narrow it.
+    const where: Prisma.AccountRequestWhereInput = {
+      ...this.buildRequestListFilters(query),
+      requestedRole: AccountRole.EMPLOYEE,
+      divisionId,
+      requestedBy: {
+        is: {
+          role: AccountRole.TEAM_MANAGER,
+          employee: {
+            is: {
+              divisionId,
+            },
+          },
+        },
+      },
+    };
+
+    const [accountRequests, total] = await this.prisma.$transaction([
+      this.prisma.accountRequest.findMany({
+        where,
+        skip,
+        take: limit,
+
+        orderBy: {
+          createdAt: 'desc',
+        },
+
+        select: {
+          id: true,
+          empId: true,
+          empName: true,
+          officialEmail: true,
+          designation: true,
+          requestedRole: true,
+          managementPositionId: true,
+          revisionNumber: true,
+          status: true,
+          rejectionReason: true,
+          submittedAt: true,
+          reviewedAt: true,
+          createdAt: true,
+          updatedAt: true,
+
+          division: {
+            select: {
+              id: true,
+              code: true,
+              name: true,
+            },
+          },
+
+          department: {
+            select: {
+              id: true,
+              code: true,
+              name: true,
+            },
+          },
+
+          requestedBy: {
+            select: {
+              id: true,
+              username: true,
+              role: true,
+
+              employee: {
+                select: {
+                  empId: true,
+                  empName: true,
+                  officialEmail: true,
+                },
+              },
+            },
+          },
+
+          reviewedBy: {
+            select: {
+              id: true,
+              username: true,
+              role: true,
+            },
+          },
+        },
+      }),
+
+      this.prisma.accountRequest.count({
+        where,
+      }),
+    ]);
+
+    return {
+      data: accountRequests,
+      scope: {
+        divisionId,
+        requestedRole: AccountRole.EMPLOYEE,
+      },
+      pagination: {
+        page,
+        limit,
+        total,
+        totalPages: total === 0 ? 0 : Math.ceil(total / limit),
+      },
+    };
+  }
+
+  async getDivisionEmployeeRequest(
+    user: AuthenticatedUser,
+    id: string,
+  ) {
+    const requester = await this.getRequester(user);
+    const divisionId = requester.employee?.divisionId;
+
+    if (requester.role !== AccountRole.SENIOR_MANAGEMENT || !divisionId) {
+      throw new ForbiddenException(
+        'Only Senior Management can view employee requests inside its assigned division.',
+      );
+    }
+
+    const accountRequest = await this.prisma.accountRequest.findFirst({
+      where: {
+        id,
+        requestedRole: AccountRole.EMPLOYEE,
+        divisionId,
+        requestedBy: {
+          is: {
+            role: AccountRole.TEAM_MANAGER,
+            employee: {
+              is: {
+                divisionId,
+              },
+            },
+          },
+        },
+      },
+
+      select: {
+        id: true,
+        empId: true,
+        empName: true,
+        phoneNumber: true,
+        officialEmail: true,
+        designation: true,
+        requestedRole: true,
+        divisionId: true,
+        departmentId: true,
+        managementPositionId: true,
+        employeeId: true,
+        previousRequestId: true,
+        revisionNumber: true,
+        status: true,
+        rejectionReason: true,
+        submittedAt: true,
+        reviewedAt: true,
+        createdAt: true,
+        updatedAt: true,
+
+        division: {
+          select: {
+            id: true,
+            code: true,
+            name: true,
+          },
+        },
+
+        department: {
+          select: {
+            id: true,
+            code: true,
+            name: true,
+          },
+        },
+
+        requestedBy: {
+          select: {
+            id: true,
+            username: true,
+            role: true,
+
+            employee: {
+              select: {
+                empId: true,
+                empName: true,
+                officialEmail: true,
+              },
+            },
+          },
+        },
+
+        reviewedBy: {
+          select: {
+            id: true,
+            username: true,
+            role: true,
+          },
+        },
+
+        actions: {
+          orderBy: {
+            createdAt: 'asc',
+          },
+
+          select: {
+            id: true,
+            action: true,
+            reason: true,
+            createdAt: true,
+          },
+        },
+      },
+    });
+
+    if (!accountRequest) {
+      throw new NotFoundException(
+        'The employee request was not found inside your assigned division.',
+      );
+    }
+
+    return {
+      accountRequest,
+    };
+  }
+
   async listMyRequests(
     user: AuthenticatedUser,
     query: ListAccountRequestsQueryDto,
@@ -2172,14 +2780,9 @@ export class AccountRequestsService {
     const limit = query.limit;
     const skip = (page - 1) * limit;
 
-    const where = {
+    const where: Prisma.AccountRequestWhereInput = {
       requestedByAccountId: user.accountId,
-
-      ...(query.status
-        ? {
-            status: query.status,
-          }
-        : {}),
+      ...this.buildRequestListFilters(query),
     };
 
     const [accountRequests, total] = await this.prisma.$transaction([

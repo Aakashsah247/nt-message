@@ -35,7 +35,8 @@ test-results/
 generated/
 apps/api/src/generated/
 
-**/.env.localapps/api/storage/message-attachments/
+**/.env.local
+apps/api/storage/message-attachments/
 
 # TypeScript build cache
 *.tsbuildinfo

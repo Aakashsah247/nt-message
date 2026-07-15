@@ -25,15 +25,36 @@ import { CreateAccountRequestDto } from './dto/create-account-request.dto';
 import { ListAccountRequestsQueryDto } from './dto/list-account-requests-query.dto';
 import { ResubmitAccountRequestDto } from './dto/resubmit-account-request.dto';
 
+const ALL_ACCOUNT_ROLES = [
+  AccountRole.SUPER_ADMIN,
+  AccountRole.SENIOR_MANAGEMENT,
+  AccountRole.TEAM_MANAGER,
+  AccountRole.EMPLOYEE,
+] as const;
+
+const REQUEST_CREATOR_ROLES = [
+  AccountRole.SENIOR_MANAGEMENT,
+  AccountRole.TEAM_MANAGER,
+] as const;
+
 @Controller('account-requests')
 @UseGuards(AccessTokenGuard, RolesGuard)
-@Roles(AccountRole.SENIOR_MANAGEMENT, AccountRole.TEAM_MANAGER)
 export class AccountRequestsController {
   constructor(
     private readonly accountRequestsService: AccountRequestsService,
   ) {}
 
+  @Get('own-status')
+  @Roles(...ALL_ACCOUNT_ROLES)
+  getOwnAccountStatus(
+    @CurrentUser()
+    user: AuthenticatedUser,
+  ) {
+    return this.accountRequestsService.getOwnAccountStatus(user);
+  }
+
   @Get('context')
+  @Roles(...REQUEST_CREATOR_ROLES)
   getRequestContext(
     @CurrentUser()
     user: AuthenticatedUser,
@@ -42,6 +63,7 @@ export class AccountRequestsController {
   }
 
   @Post()
+  @Roles(...REQUEST_CREATOR_ROLES)
   createRequest(
     @CurrentUser() user: AuthenticatedUser,
     @Body() dto: CreateAccountRequestDto,
@@ -54,7 +76,36 @@ export class AccountRequestsController {
     });
   }
 
+  @Get('division-employees')
+  @Roles(AccountRole.SENIOR_MANAGEMENT)
+  listDivisionEmployeeRequests(
+    @CurrentUser() user: AuthenticatedUser,
+    @Query() query: ListAccountRequestsQueryDto,
+  ) {
+    return this.accountRequestsService.listDivisionEmployeeRequests(
+      user,
+      query,
+    );
+  }
+
+  @Get('division-employees/:id')
+  @Roles(AccountRole.SENIOR_MANAGEMENT)
+  getDivisionEmployeeRequest(
+    @CurrentUser() user: AuthenticatedUser,
+
+    @Param(
+      'id',
+      new ParseUUIDPipe({
+        version: '4',
+      }),
+    )
+    id: string,
+  ) {
+    return this.accountRequestsService.getDivisionEmployeeRequest(user, id);
+  }
+
   @Get('mine')
+  @Roles(...REQUEST_CREATOR_ROLES)
   listMyRequests(
     @CurrentUser() user: AuthenticatedUser,
     @Query() query: ListAccountRequestsQueryDto,
@@ -63,6 +114,7 @@ export class AccountRequestsController {
   }
 
   @Post('mine/:id/resubmit')
+  @Roles(...REQUEST_CREATOR_ROLES)
   resubmitRequest(
     @CurrentUser() user: AuthenticatedUser,
 
@@ -88,6 +140,7 @@ export class AccountRequestsController {
   }
 
   @Patch('mine/:id/cancel')
+  @Roles(...REQUEST_CREATOR_ROLES)
   cancelRequest(
     @CurrentUser()
     user: AuthenticatedUser,
@@ -114,6 +167,7 @@ export class AccountRequestsController {
   }
 
   @Get('mine/:id')
+  @Roles(...REQUEST_CREATOR_ROLES)
   getMyRequest(
     @CurrentUser() user: AuthenticatedUser,
 
