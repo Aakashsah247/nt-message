@@ -9,6 +9,7 @@ import {
   getAdminAccountRequest,
   invalidateAdminAccountRequest,
   rejectAdminAccountRequest,
+  resendActivationEmail,
 } from "../services/account-request.service";
 
 import type {
@@ -29,14 +30,9 @@ interface DetailFieldProps {
   secondary?: ReactNode;
 }
 
-type ActionType =
-  | "approve"
-  | "reject"
-  | "invalidate"
-  | null;
+type ActionType = "approve" | "reject" | "invalidate" | "resend" | null;
 
 function DetailField({ label, value, secondary }: DetailFieldProps) {
-
   return (
     <div>
       <span>{label}</span>
@@ -238,6 +234,28 @@ export function AdminRequestDetailPanel({
     }
   }
 
+  async function handleActivationEmailResend(): Promise<void> {
+    if (!request || actionLoading) {
+      return;
+    }
+
+    setActionLoading("resend");
+    setActionError("");
+    setActionMessage("");
+
+    try {
+      const response = await resendActivationEmail(accessToken, request.id);
+
+      setActionMessage(response.message);
+      onRequestUpdated();
+      setRetryKey((current) => current + 1);
+    } catch (resendError: unknown) {
+      setActionError(getErrorMessage(resendError));
+    } finally {
+      setActionLoading(null);
+    }
+  }
+
   async function handleReject(
     event: FormEvent<HTMLFormElement>,
   ): Promise<void> {
@@ -297,31 +315,21 @@ export function AdminRequestDetailPanel({
     if (
       !request ||
       actionLoading ||
-      ![
-        "APPROVED",
-        "ACTIVATION_PENDING",
-      ].includes(request.status)
+      !["APPROVED", "ACTIVATION_PENDING"].includes(request.status)
     ) {
       return;
     }
 
-    const reason =
-      invalidationReason
-        .trim()
-        .replace(/\s+/g, " ");
+    const reason = invalidationReason.trim().replace(/\s+/g, " ");
 
     if (reason.length < 3) {
-      setActionError(
-        "Enter an invalidation reason of at least 3 characters.",
-      );
+      setActionError("Enter an invalidation reason of at least 3 characters.");
 
       return;
     }
 
     if (reason.length > 500) {
-      setActionError(
-        "The invalidation reason cannot exceed 500 characters.",
-      );
+      setActionError("The invalidation reason cannot exceed 500 characters.");
 
       return;
     }
@@ -331,12 +339,11 @@ export function AdminRequestDetailPanel({
     setActionMessage("");
 
     try {
-      const response =
-        await invalidateAdminAccountRequest(
-          accessToken,
-          request.id,
-          reason,
-        );
+      const response = await invalidateAdminAccountRequest(
+        accessToken,
+        request.id,
+        reason,
+      );
 
       setActionMessage(response.message);
       setShowInvalidateForm(false);
@@ -344,18 +351,13 @@ export function AdminRequestDetailPanel({
 
       onRequestUpdated();
 
-      setRetryKey(
-        (current) => current + 1,
-      );
+      setRetryKey((current) => current + 1);
     } catch (invalidateError: unknown) {
-      setActionError(
-        getErrorMessage(invalidateError),
-      );
+      setActionError(getErrorMessage(invalidateError));
     } finally {
       setActionLoading(null);
     }
   }
-
 
   return (
     <div
@@ -447,6 +449,45 @@ export function AdminRequestDetailPanel({
                 </div>
               )}
             </div>
+
+            <section className="activation-delivery-card">
+              <div>
+                <span>Activation email</span>
+                <strong
+                  className={`activation-delivery-status activation-delivery-status--${request.activationEmailStatus.toLowerCase()}`}
+                >
+                  {formatLabel(request.activationEmailStatus)}
+                </strong>
+              </div>
+
+              <div>
+                <span>Last attempt</span>
+                <strong>
+                  {formatDate(request.activationEmailLastAttemptAt)}
+                </strong>
+              </div>
+
+              <div>
+                <span>Sent</span>
+                <strong>{formatDate(request.activationEmailSentAt)}</strong>
+              </div>
+
+              {["APPROVED", "ACTIVATION_PENDING"].includes(request.status) &&
+                request.employee &&
+                !request.employee.isActivated && (
+                  <button
+                    type="button"
+                    onClick={() => void handleActivationEmailResend()}
+                    disabled={Boolean(actionLoading)}
+                  >
+                    {actionLoading === "resend"
+                      ? "Sending..."
+                      : request.activationEmailStatus === "NOT_SENT"
+                        ? "Send activation email"
+                        : "Resend activation email"}
+                  </button>
+                )}
+            </section>
 
             {request.status === "PENDING_APPROVAL" && (
               <section className="admin-detail-actions">
@@ -571,17 +612,14 @@ export function AdminRequestDetailPanel({
               </section>
             )}
 
-            {[
-              "APPROVED",
-              "ACTIVATION_PENDING",
-            ].includes(request.status) && (
+            {["APPROVED", "ACTIVATION_PENDING"].includes(request.status) && (
               <section className="admin-detail-actions admin-invalidate-section">
                 <div>
                   <h4>Invalidate request</h4>
 
                   <p>
-                    Use this when an approved request must not continue.
-                    Its reserved management position will become vacant.
+                    Use this when an approved request must not continue. Its
+                    reserved management position will become vacant.
                   </p>
                 </div>
 

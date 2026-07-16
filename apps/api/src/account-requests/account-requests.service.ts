@@ -2,20 +2,23 @@ import {
   BadRequestException,
   ConflictException,
   ForbiddenException,
+  HttpException,
+  HttpStatus,
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
 
+import { ActivationInvitationsService } from '../activation-invitations/activation-invitations.service';
 import type { AuthenticatedUser } from '../auth/types/auth.types';
-import {
-  normalizeAccountIdentity,
-} from '../common/normalization/account-identity-normalization';
+import { normalizeAccountIdentity } from '../common/normalization/account-identity-normalization';
 import { PrismaService } from '../database/prisma.service';
 import {
   AccountRequestActionType,
   AccountRequestStatus,
   AccountRole,
+  ActivationEmailDeliveryStatus,
   EmployeeStatus,
+  EmploymentStatus,
   ManagementPositionType,
 } from '../generated/prisma/client';
 
@@ -23,6 +26,7 @@ import type { Prisma } from '../generated/prisma/client';
 
 import { resolveOrCreateVacantManagementPosition } from '../management-assignments/management-position-resolver';
 
+import { getActivationEmailResendPolicyViolation } from './account-request-activation-email-policy';
 import { CreateAccountRequestDto } from './dto/create-account-request.dto';
 import { ListAccountRequestsQueryDto } from './dto/list-account-requests-query.dto';
 import { ResubmitAccountRequestDto } from './dto/resubmit-account-request.dto';
@@ -32,9 +36,19 @@ interface RequestMetadata {
   userAgent: string | null;
 }
 
+const activationEmailDeliverySelect = {
+  activationEmailStatus: true,
+  activationEmailLastAttemptAt: true,
+  activationEmailSentAt: true,
+  activationEmailFailureCategory: true,
+} as const;
+
 @Injectable()
 export class AccountRequestsService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly activationInvitationsService: ActivationInvitationsService,
+  ) {}
 
   private assertSuperAdmin(user: AuthenticatedUser) {
     if (user.role !== AccountRole.SUPER_ADMIN) {
@@ -59,6 +73,8 @@ export class AccountRequestsService {
           select: {
             id: true,
             status: true,
+            employmentStatus: true,
+            archivedAt: true,
             divisionId: true,
             departmentId: true,
 
@@ -133,7 +149,9 @@ export class AccountRequestsService {
 
     if (
       !requester.employee ||
-      requester.employee.status !== EmployeeStatus.ACTIVE
+      requester.employee.status !== EmployeeStatus.ACTIVE ||
+      requester.employee.employmentStatus !== EmploymentStatus.ACTIVE ||
+      requester.employee.archivedAt
     ) {
       throw new ForbiddenException(
         'Your account does not have an active employee identity.',
@@ -216,7 +234,9 @@ export class AccountRequestsService {
                     employee: {
                       is: {
                         OR: [
-                          { empName: { contains: search, mode: 'insensitive' } },
+                          {
+                            empName: { contains: search, mode: 'insensitive' },
+                          },
                           { empId: { contains: search, mode: 'insensitive' } },
                         ],
                       },
@@ -434,10 +454,7 @@ export class AccountRequestsService {
             ],
           },
 
-          orderBy: [
-            { revisionNumber: 'desc' },
-            { createdAt: 'desc' },
-          ],
+          orderBy: [{ revisionNumber: 'desc' }, { createdAt: 'desc' }],
 
           select: {
             id: true,
@@ -448,6 +465,7 @@ export class AccountRequestsService {
             requestedRole: true,
             revisionNumber: true,
             status: true,
+            ...activationEmailDeliverySelect,
             rejectionReason: true,
             submittedAt: true,
             reviewedAt: true,
@@ -870,6 +888,7 @@ export class AccountRequestsService {
             requestedByAccountId: true,
             revisionNumber: true,
             status: true,
+            ...activationEmailDeliverySelect,
             submittedAt: true,
             createdAt: true,
             updatedAt: true,
@@ -1303,6 +1322,7 @@ export class AccountRequestsService {
             previousRequestId: true,
             revisionNumber: true,
             status: true,
+            ...activationEmailDeliverySelect,
             submittedAt: true,
             createdAt: true,
             updatedAt: true,
@@ -1375,6 +1395,7 @@ export class AccountRequestsService {
       managementPositionId: true,
       revisionNumber: true,
       status: true,
+      ...activationEmailDeliverySelect,
       rejectionReason: true,
       submittedAt: true,
       reviewedAt: true,
@@ -1486,7 +1507,7 @@ export class AccountRequestsService {
       // so narrow it before reading the requested `id` aggregate.
       const statusCount =
         typeof row._count === 'object' && row._count !== null
-          ? row._count.id ?? 0
+          ? (row._count.id ?? 0)
           : 0;
 
       counts[row.status] = statusCount;
@@ -1559,6 +1580,7 @@ export class AccountRequestsService {
           managementPositionId: true,
           revisionNumber: true,
           status: true,
+          ...activationEmailDeliverySelect,
           rejectionReason: true,
           submittedAt: true,
           reviewedAt: true,
@@ -1653,6 +1675,7 @@ export class AccountRequestsService {
         previousRequestId: true,
         revisionNumber: true,
         status: true,
+        ...activationEmailDeliverySelect,
         rejectionReason: true,
         submittedAt: true,
         reviewedAt: true,
@@ -1759,6 +1782,13 @@ export class AccountRequestsService {
     const ipAddress = metadata.ipAddress?.slice(0, 45) || null;
     const userAgent = metadata.userAgent?.slice(0, 500) || null;
 
+    /*
+     * The raw invitation token is never stored. Only its SHA-256 hash is
+     * committed with the approval transaction before email delivery begins.
+     */
+    const preparedInvitation =
+      this.activationInvitationsService.prepareInvitation(reviewedAt);
+
     try {
       const accountRequest = await this.prisma.$transaction(
         async (transaction) => {
@@ -1783,6 +1813,7 @@ export class AccountRequestsService {
               division: {
                 select: {
                   id: true,
+                  name: true,
                   isActive: true,
                 },
               },
@@ -2039,6 +2070,7 @@ export class AccountRequestsService {
               employeeId: true,
               revisionNumber: true,
               status: true,
+              ...activationEmailDeliverySelect,
               rejectionReason: true,
               submittedAt: true,
               reviewedAt: true,
@@ -2080,17 +2112,58 @@ export class AccountRequestsService {
             },
           });
 
+          const invitation =
+            await this.activationInvitationsService.queueInvitation(
+              transaction,
+              {
+                accountRequestId: request.id,
+                employeeId: employee.id,
+                actorAccountId: user.accountId,
+                source: 'SUPER_ADMIN_APPROVAL',
+                ipAddress,
+                userAgent,
+              },
+              preparedInvitation,
+            );
+
           return {
             approvedRequest,
             employee,
+            invitation,
+            divisionName: request.division.name,
+            departmentName: request.department.name,
           };
         },
       );
 
+      /*
+       * The request and employee are already committed. Email failure changes
+       * only delivery state and must never reverse the approval decision.
+       */
+      const activationEmailDelivery =
+        await this.activationInvitationsService.deliverQueuedInvitation({
+          ...accountRequest.invitation,
+          employeeName: accountRequest.employee.empName,
+          employeeCode: accountRequest.employee.empId,
+          officialEmail: accountRequest.employee.officialEmail,
+          phoneNumber: accountRequest.employee.phoneNumber,
+          divisionName: accountRequest.divisionName,
+          departmentName: accountRequest.departmentName,
+          requestedRole: accountRequest.approvedRequest.requestedRole,
+        });
+
       return {
         message: 'Account request approved successfully.',
-        accountRequest: accountRequest.approvedRequest,
+        accountRequest: {
+          ...accountRequest.approvedRequest,
+          activationEmailStatus: activationEmailDelivery.status,
+          activationEmailLastAttemptAt: activationEmailDelivery.attemptedAt,
+          activationEmailSentAt: activationEmailDelivery.sentAt,
+          activationEmailFailureCategory:
+            activationEmailDelivery.failureCategory,
+        },
         employee: accountRequest.employee,
+        activationEmailDelivery,
       };
     } catch (error: unknown) {
       if (
@@ -2106,6 +2179,282 @@ export class AccountRequestsService {
 
       throw error;
     }
+  }
+
+  async resendActivationEmail(
+    user: AuthenticatedUser,
+    id: string,
+    metadata: RequestMetadata,
+  ) {
+    const requester =
+      user.role === AccountRole.SUPER_ADMIN
+        ? null
+        : await this.getRequester(user);
+
+    const now = new Date();
+    const ipAddress = metadata.ipAddress?.slice(0, 45) || null;
+    const userAgent = metadata.userAgent?.slice(0, 500) || null;
+    const preparedInvitation =
+      this.activationInvitationsService.prepareInvitation(now);
+
+    /*
+     * The usable token remains in process memory only. The transaction stores
+     * its one-way hash and safe identifiers, never the raw token or email body.
+     */
+    const queued = await this.prisma.$transaction(async (transaction) => {
+      const request = await transaction.accountRequest.findUnique({
+        where: {
+          id,
+        },
+        select: {
+          id: true,
+          empId: true,
+          empName: true,
+          phoneNumber: true,
+          officialEmail: true,
+          requestedRole: true,
+          requestedByAccountId: true,
+          status: true,
+          divisionId: true,
+          departmentId: true,
+          employeeId: true,
+          activationEmailStatus: true,
+          activationEmailLastAttemptAt: true,
+          division: {
+            select: {
+              name: true,
+              isActive: true,
+            },
+          },
+          department: {
+            select: {
+              name: true,
+              divisionId: true,
+              isActive: true,
+            },
+          },
+          employee: {
+            select: {
+              id: true,
+              empId: true,
+              empName: true,
+              phoneNumber: true,
+              officialEmail: true,
+              status: true,
+              employmentStatus: true,
+              archivedAt: true,
+              isActivated: true,
+              account: {
+                select: {
+                  id: true,
+                },
+              },
+            },
+          },
+        },
+      });
+
+      if (!request) {
+        throw new NotFoundException('Account request was not found.');
+      }
+
+      /*
+       * Authorization is derived from authenticated and persisted records.
+       * No requester identity, role, division, or department from the browser
+       * is trusted for this decision.
+       */
+      const policyViolation = getActivationEmailResendPolicyViolation(
+        requester
+          ? {
+              accountId: requester.id,
+              role: requester.role,
+              divisionId: requester.employee!.divisionId,
+              departmentId: requester.employee!.departmentId,
+            }
+          : {
+              accountId: user.accountId,
+              role: user.role,
+              divisionId: null,
+              departmentId: null,
+            },
+        request,
+      );
+
+      if (policyViolation) {
+        throw new ForbiddenException(
+          'You are not authorized to resend this activation email.',
+        );
+      }
+
+      if (
+        request.status !== AccountRequestStatus.APPROVED &&
+        request.status !== AccountRequestStatus.ACTIVATION_PENDING
+      ) {
+        throw new ConflictException(
+          'Activation email can be resent only for an approved, unactivated request.',
+        );
+      }
+
+      if (
+        !request.employee ||
+        !request.employeeId ||
+        request.employee.id !== request.employeeId ||
+        request.employee.status !== EmployeeStatus.ACTIVE ||
+        request.employee.employmentStatus !== EmploymentStatus.ACTIVE ||
+        request.employee.archivedAt ||
+        request.employee.isActivated ||
+        request.employee.account
+      ) {
+        throw new ConflictException(
+          'The linked employee is not eligible for account activation.',
+        );
+      }
+
+      if (
+        !request.divisionId ||
+        !request.division ||
+        !request.division.isActive ||
+        (request.departmentId
+          ? !request.department ||
+            !request.department.isActive ||
+            request.department.divisionId !== request.divisionId
+          : request.requestedRole !== AccountRole.SENIOR_MANAGEMENT)
+      ) {
+        throw new ConflictException(
+          'The request organization assignment is not eligible for activation.',
+        );
+      }
+
+      const cooldownRemaining =
+        this.activationInvitationsService.getResendCooldownRemainingSeconds(
+          request.activationEmailLastAttemptAt,
+          now,
+        );
+
+      if (cooldownRemaining > 0) {
+        throw new HttpException(
+          `Wait ${cooldownRemaining} seconds before resending the activation email.`,
+          HttpStatus.TOO_MANY_REQUESTS,
+        );
+      }
+
+      /*
+       * Optimistically claim the resend before invalidating the previous link.
+       * Concurrent requests cannot both deliver separate activation emails.
+       */
+      const resendClaim = await transaction.accountRequest.updateMany({
+        where: {
+          id: request.id,
+          employeeId: request.employee.id,
+          status: request.status,
+          activationEmailStatus: request.activationEmailStatus,
+          activationEmailLastAttemptAt: request.activationEmailLastAttemptAt,
+        },
+        data: {
+          activationEmailStatus: ActivationEmailDeliveryStatus.PENDING,
+          activationEmailLastAttemptAt: now,
+          activationEmailSentAt: null,
+          activationEmailFailureCategory: null,
+        },
+      });
+
+      if (resendClaim.count !== 1) {
+        throw new ConflictException(
+          'The activation email state changed before the resend could begin.',
+        );
+      }
+
+      const invitation =
+        await this.activationInvitationsService.queueInvitation(
+          transaction,
+          {
+            accountRequestId: request.id,
+            employeeId: request.employee.id,
+            actorAccountId: user.accountId,
+            source: 'AUTHORIZED_RESEND',
+            ipAddress,
+            userAgent,
+          },
+          preparedInvitation,
+        );
+
+      /*
+       * Audit metadata contains only internal identifiers and delivery state.
+       * It intentionally excludes raw tokens, OTPs, passwords, SMTP payloads,
+       * provider stack traces, and complete phone numbers.
+       */
+      await transaction.accountRequestAction.create({
+        data: {
+          accountRequestId: request.id,
+          actorAccountId: user.accountId,
+          action: AccountRequestActionType.ACTIVATION_EMAIL_RESENT,
+          ipAddress,
+          userAgent,
+          metadata: {
+            source: 'AUTHORIZED_RESEND',
+            authorization:
+              user.role === AccountRole.SUPER_ADMIN
+                ? 'SUPER_ADMIN'
+                : 'ORIGINAL_REQUESTER',
+            employeeId: request.employee.id,
+            invitationId: invitation.id,
+            previousDeliveryStatus: request.activationEmailStatus,
+            requestedRole: request.requestedRole,
+            expiresAt: invitation.expiresAt.toISOString(),
+          },
+        },
+      });
+
+      return {
+        invitation,
+        request: {
+          id: request.id,
+          status: request.status,
+          requestedRole: request.requestedRole,
+        },
+        employee: request.employee,
+        divisionName: request.division.name,
+        departmentName: request.department?.name ?? null,
+      };
+    });
+
+    /*
+     * Delivery is deliberately outside the approval/resend transaction. SMTP
+     * failure is recorded as FAILED and cannot roll back the approved employee
+     * or the authoritative account-request state.
+     */
+    const activationEmailDelivery =
+      await this.activationInvitationsService.deliverQueuedInvitation({
+        ...queued.invitation,
+        employeeName: queued.employee.empName,
+        employeeCode: queued.employee.empId,
+        officialEmail: queued.employee.officialEmail,
+        phoneNumber: queued.employee.phoneNumber,
+        divisionName: queued.divisionName,
+        departmentName: queued.departmentName,
+        requestedRole: queued.request.requestedRole,
+      });
+
+    return {
+      message:
+        activationEmailDelivery.status === ActivationEmailDeliveryStatus.SENT
+          ? 'Activation email sent successfully.'
+          : activationEmailDelivery.status ===
+              ActivationEmailDeliveryStatus.FAILED
+            ? 'The account remains approved, but activation email delivery failed.'
+            : 'Activation email delivery is still being confirmed.',
+      accountRequest: {
+        ...queued.request,
+        activationEmailStatus: activationEmailDelivery.status,
+        activationEmailLastAttemptAt: activationEmailDelivery.attemptedAt,
+        activationEmailSentAt: activationEmailDelivery.sentAt,
+        activationEmailFailureCategory: activationEmailDelivery.failureCategory,
+      },
+      activationEmailDelivery,
+      resendAvailableAt: this.activationInvitationsService.getResendAvailableAt(
+        activationEmailDelivery.attemptedAt,
+      ),
+    };
   }
 
   async rejectRequest(
@@ -2204,6 +2553,7 @@ export class AccountRequestsService {
             employeeId: true,
             revisionNumber: true,
             status: true,
+            ...activationEmailDeliverySelect,
             rejectionReason: true,
             submittedAt: true,
             reviewedAt: true,
@@ -2384,6 +2734,15 @@ export class AccountRequestsService {
           rejectionReason: reason,
 
           employeeId: null,
+
+          /*
+           * Closing an unactivated request removes its usable invitation.
+           * Historical delivery events remain available in the audit trail.
+           */
+          activationEmailStatus: ActivationEmailDeliveryStatus.NOT_SENT,
+          activationEmailLastAttemptAt: null,
+          activationEmailSentAt: null,
+          activationEmailFailureCategory: null,
         },
       });
 
@@ -2489,6 +2848,7 @@ export class AccountRequestsService {
           employeeId: true,
           revisionNumber: true,
           status: true,
+          ...activationEmailDeliverySelect,
           rejectionReason: true,
           submittedAt: true,
           reviewedAt: true,
@@ -2638,6 +2998,7 @@ export class AccountRequestsService {
           managementPositionId: true,
           revisionNumber: true,
           status: true,
+          ...activationEmailDeliverySelect,
           rejectionReason: true,
           submittedAt: true,
           reviewedAt: true,
@@ -2706,10 +3067,7 @@ export class AccountRequestsService {
     };
   }
 
-  async getDivisionEmployeeRequest(
-    user: AuthenticatedUser,
-    id: string,
-  ) {
+  async getDivisionEmployeeRequest(user: AuthenticatedUser, id: string) {
     const requester = await this.getRequester(user);
     const divisionId = requester.employee?.divisionId;
 
@@ -2751,6 +3109,7 @@ export class AccountRequestsService {
         previousRequestId: true,
         revisionNumber: true,
         status: true,
+        ...activationEmailDeliverySelect,
         rejectionReason: true,
         submittedAt: true,
         reviewedAt: true,
@@ -2856,6 +3215,7 @@ export class AccountRequestsService {
           managementPositionId: true,
           revisionNumber: true,
           status: true,
+          ...activationEmailDeliverySelect,
           rejectionReason: true,
           submittedAt: true,
           reviewedAt: true,
@@ -2927,6 +3287,7 @@ export class AccountRequestsService {
         previousRequestId: true,
         revisionNumber: true,
         status: true,
+        ...activationEmailDeliverySelect,
         rejectionReason: true,
         submittedAt: true,
         reviewedAt: true,

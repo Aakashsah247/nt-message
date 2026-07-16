@@ -6,6 +6,7 @@ import {
   cancelMyAccountRequest,
   getDivisionEmployeeRequest,
   getMyAccountRequest,
+  resendActivationEmail,
   resubmitMyAccountRequest,
 } from "../services/account-request.service";
 
@@ -101,6 +102,9 @@ export function ManagerRequestDetailPanel({
 
   const [cancelling, setCancelling] = useState(false);
 
+  const [resendingActivationEmail, setResendingActivationEmail] =
+    useState(false);
+
   const [showCancelForm, setShowCancelForm] = useState(false);
 
   const [cancelReason, setCancelReason] = useState("");
@@ -115,9 +119,7 @@ export function ManagerRequestDetailPanel({
 
   const selectedDepartment =
     requestContext.departments.find(
-      (department) =>
-        department.id ===
-        form.departmentId,
+      (department) => department.id === form.departmentId,
     ) ?? null;
 
   useEffect(() => {
@@ -169,12 +171,7 @@ export function ManagerRequestDetailPanel({
     return () => {
       active = false;
     };
-  }, [
-    accessToken,
-    requestId,
-    readOnly,
-    retryKey,
-  ]);
+  }, [accessToken, requestId, readOnly, retryKey]);
 
   function updateField(field: keyof ResubmitFormState, value: string): void {
     setForm((current) => ({
@@ -222,14 +219,32 @@ export function ManagerRequestDetailPanel({
       return "Enter a valid official email address.";
     }
 
-    if (
-      isSeniorManagement &&
-      !form.departmentId
-    ) {
+    if (isSeniorManagement && !form.departmentId) {
       return "Select the department this Team Manager will manage.";
     }
 
     return null;
+  }
+
+  async function handleActivationEmailResend(): Promise<void> {
+    if (!detail || readOnly || resendingActivationEmail) {
+      return;
+    }
+
+    setResendingActivationEmail(true);
+    setError("");
+    setSuccess("");
+
+    try {
+      const response = await resendActivationEmail(accessToken, detail.id);
+
+      setSuccess(response.message);
+      setRetryKey((current) => current + 1);
+    } catch (resendError: unknown) {
+      setError(getErrorMessage(resendError));
+    } finally {
+      setResendingActivationEmail(false);
+    }
   }
 
   async function handleCancel(
@@ -242,32 +257,23 @@ export function ManagerRequestDetailPanel({
       readOnly ||
       cancelling ||
       submitting ||
-      ![
-        "PENDING_APPROVAL",
-        "APPROVED",
-        "ACTIVATION_PENDING",
-      ].includes(detail.status)
+      !["PENDING_APPROVAL", "APPROVED", "ACTIVATION_PENDING"].includes(
+        detail.status,
+      )
     ) {
       return;
     }
 
-    const reason =
-      cancelReason
-        .trim()
-        .replace(/\s+/g, " ");
+    const reason = cancelReason.trim().replace(/\s+/g, " ");
 
     if (reason.length < 3) {
-      setError(
-        "Enter a cancellation reason of at least 3 characters.",
-      );
+      setError("Enter a cancellation reason of at least 3 characters.");
 
       return;
     }
 
     if (reason.length > 500) {
-      setError(
-        "The cancellation reason cannot exceed 500 characters.",
-      );
+      setError("The cancellation reason cannot exceed 500 characters.");
 
       return;
     }
@@ -277,12 +283,11 @@ export function ManagerRequestDetailPanel({
     setSuccess("");
 
     try {
-      const response =
-        await cancelMyAccountRequest(
-          accessToken,
-          requestId,
-          reason,
-        );
+      const response = await cancelMyAccountRequest(
+        accessToken,
+        requestId,
+        reason,
+      );
 
       setSuccess(response.message);
       setShowCancelForm(false);
@@ -290,13 +295,9 @@ export function ManagerRequestDetailPanel({
 
       onCancelled();
 
-      setRetryKey(
-        (current) => current + 1,
-      );
+      setRetryKey((current) => current + 1);
     } catch (requestError: unknown) {
-      setError(
-        getErrorMessage(requestError),
-      );
+      setError(getErrorMessage(requestError));
     } finally {
       setCancelling(false);
     }
@@ -370,7 +371,9 @@ export function ManagerRequestDetailPanel({
       >
         <header className="manager-detail-header">
           <div>
-            <span>{readOnly ? "Division employee request" : "Account request"}</span>
+            <span>
+              {readOnly ? "Division employee request" : "Account request"}
+            </span>
 
             <h2 id="manager-request-detail-title">Request details</h2>
           </div>
@@ -435,6 +438,59 @@ export function ManagerRequestDetailPanel({
               </div>
             </section>
 
+            {(success || error) && (
+              <div className="manager-detail-feedback" aria-live="polite">
+                {success && (
+                  <div className="manager-form-success" role="status">
+                    {success}
+                  </div>
+                )}
+                {error && (
+                  <div className="manager-form-error" role="alert">
+                    {error}
+                  </div>
+                )}
+              </div>
+            )}
+
+            <section className="activation-delivery-card">
+              <div>
+                <span>Activation email</span>
+                <strong
+                  className={`activation-delivery-status activation-delivery-status--${detail.activationEmailStatus.toLowerCase()}`}
+                >
+                  {formatStatus(detail.activationEmailStatus)}
+                </strong>
+              </div>
+
+              <div>
+                <span>Last attempt</span>
+                <strong>
+                  {formatDate(detail.activationEmailLastAttemptAt)}
+                </strong>
+              </div>
+
+              <div>
+                <span>Sent</span>
+                <strong>{formatDate(detail.activationEmailSentAt)}</strong>
+              </div>
+
+              {!readOnly &&
+                ["APPROVED", "ACTIVATION_PENDING"].includes(detail.status) && (
+                  <button
+                    type="button"
+                    onClick={() => void handleActivationEmailResend()}
+                    disabled={resendingActivationEmail}
+                  >
+                    {resendingActivationEmail
+                      ? "Sending..."
+                      : detail.activationEmailStatus === "NOT_SENT"
+                        ? "Send activation email"
+                        : "Resend activation email"}
+                  </button>
+                )}
+            </section>
+
             {detail.rejectionReason && (
               <section className="manager-rejection-box" role="alert">
                 <strong>Rejection reason</strong>
@@ -490,7 +546,8 @@ export function ManagerRequestDetailPanel({
                   </strong>
 
                   <small>
-                    {detail.requestedBy.employee?.empId ?? "Authorized requester"}
+                    {detail.requestedBy.employee?.empId ??
+                      "Authorized requester"}
                   </small>
                 </div>
               )}
@@ -531,98 +588,97 @@ export function ManagerRequestDetailPanel({
               </section>
             )}
 
-            {!readOnly && [
-              "PENDING_APPROVAL",
-              "APPROVED",
-              "ACTIVATION_PENDING",
-            ].includes(detail.status) && (
-              <section className="manager-close-section">
-                <header>
-                  <span>Request control</span>
+            {!readOnly &&
+              ["PENDING_APPROVAL", "APPROVED", "ACTIVATION_PENDING"].includes(
+                detail.status,
+              ) && (
+                <section className="manager-close-section">
+                  <header>
+                    <span>Request control</span>
 
-                  <h3>Cancel this request</h3>
+                    <h3>Cancel this request</h3>
 
-                  <p>
-                    Cancelling an approved management request releases its
-                    reserved position and removes the unactivated employee
-                    identity.
-                  </p>
-                </header>
+                    <p>
+                      Cancelling an approved management request releases its
+                      reserved position and removes the unactivated employee
+                      identity.
+                    </p>
+                  </header>
 
-                {!showCancelForm ? (
-                  <button
-                    className="manager-open-cancel"
-                    type="button"
-                    onClick={() => {
-                      setShowCancelForm(true);
-                      setError("");
-                      setSuccess("");
-                    }}
-                    disabled={submitting || cancelling}
-                  >
-                    Cancel request
-                  </button>
-                ) : (
-                  <form
-                    className="manager-cancel-form"
-                    onSubmit={handleCancel}
-                  >
-                    <label htmlFor="manager-request-cancel-reason">
-                      Cancellation reason
-                    </label>
-
-                    <textarea
-                      id="manager-request-cancel-reason"
-                      value={cancelReason}
-                      onChange={(event) => {
-                        setCancelReason(event.target.value);
+                  {!showCancelForm ? (
+                    <button
+                      className="manager-open-cancel"
+                      type="button"
+                      onClick={() => {
+                        setShowCancelForm(true);
                         setError("");
+                        setSuccess("");
                       }}
-                      minLength={3}
-                      maxLength={500}
-                      rows={4}
-                      placeholder="Explain why this request should be cancelled."
-                      disabled={cancelling}
-                      required
-                    />
+                      disabled={submitting || cancelling}
+                    >
+                      Cancel request
+                    </button>
+                  ) : (
+                    <form
+                      className="manager-cancel-form"
+                      onSubmit={handleCancel}
+                    >
+                      <label htmlFor="manager-request-cancel-reason">
+                        Cancellation reason
+                      </label>
 
-                    <div className="manager-cancel-meta">
-                      <span>Minimum 3 characters</span>
-
-                      <span>
-                        {cancelReason.length}
-                        /500
-                      </span>
-                    </div>
-
-                    <div className="manager-cancel-buttons">
-                      <button
-                        className="manager-confirm-cancel"
-                        type="submit"
-                        disabled={cancelling}
-                      >
-                        {cancelling
-                          ? "Cancelling..."
-                          : "Confirm cancellation"}
-                      </button>
-
-                      <button
-                        className="manager-dismiss-cancel"
-                        type="button"
-                        onClick={() => {
-                          setShowCancelForm(false);
-                          setCancelReason("");
+                      <textarea
+                        id="manager-request-cancel-reason"
+                        value={cancelReason}
+                        onChange={(event) => {
+                          setCancelReason(event.target.value);
                           setError("");
                         }}
+                        minLength={3}
+                        maxLength={500}
+                        rows={4}
+                        placeholder="Explain why this request should be cancelled."
                         disabled={cancelling}
-                      >
-                        Keep request
-                      </button>
-                    </div>
-                  </form>
-                )}
-              </section>
-            )}
+                        required
+                      />
+
+                      <div className="manager-cancel-meta">
+                        <span>Minimum 3 characters</span>
+
+                        <span>
+                          {cancelReason.length}
+                          /500
+                        </span>
+                      </div>
+
+                      <div className="manager-cancel-buttons">
+                        <button
+                          className="manager-confirm-cancel"
+                          type="submit"
+                          disabled={cancelling}
+                        >
+                          {cancelling
+                            ? "Cancelling..."
+                            : "Confirm cancellation"}
+                        </button>
+
+                        <button
+                          className="manager-dismiss-cancel"
+                          type="button"
+                          onClick={() => {
+                            setShowCancelForm(false);
+                            setCancelReason("");
+                            setError("");
+                          }}
+                          disabled={cancelling}
+                        >
+                          Keep request
+                        </button>
+                      </div>
+                    </form>
+                  )}
+                </section>
+              )}
 
             {!readOnly && detail.status === "REJECTED" && (
               <form className="manager-resubmit-form" onSubmit={handleResubmit}>
@@ -726,32 +782,23 @@ export function ManagerRequestDetailPanel({
                       <select
                         value={form.departmentId}
                         onChange={(event) =>
-                          updateField(
-                            "departmentId",
-                            event.target.value,
-                          )
+                          updateField("departmentId", event.target.value)
                         }
                         disabled={submitting}
                         required
                       >
-                        <option value="">
-                          Select department
-                        </option>
+                        <option value="">Select department</option>
 
-                        {requestContext.departments.map(
-                          (department) => (
-                            <option
-                              key={department.id}
-                              value={department.id}
-                            >
-                              {department.name} ({department.code})
-                            </option>
-                          ),
-                        )}
+                        {requestContext.departments.map((department) => (
+                          <option key={department.id} value={department.id}>
+                            {department.name} ({department.code})
+                          </option>
+                        ))}
                       </select>
 
                       <small>
-                        The Team Manager authority position is created automatically.
+                        The Team Manager authority position is created
+                        automatically.
                       </small>
                     </label>
                   ) : (
@@ -780,10 +827,7 @@ export function ManagerRequestDetailPanel({
                 </div>
 
                 <footer>
-                  <button
-                    type="submit"
-                    disabled={submitting}
-                  >
+                  <button type="submit" disabled={submitting}>
                     {submitting ? "Resubmitting..." : "Resubmit request"}
                   </button>
                 </footer>

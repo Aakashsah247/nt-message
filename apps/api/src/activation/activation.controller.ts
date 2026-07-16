@@ -1,12 +1,17 @@
 import {
   Body,
   Controller,
+  Get,
   HttpCode,
   HttpStatus,
   Post,
+  Query,
   Req,
 } from '@nestjs/common';
 import type { Request } from 'express';
+
+import { ActivationInvitationsService } from '../activation-invitations/activation-invitations.service';
+import { GetActivationInvitationDto } from '../activation-invitations/dto/get-activation-invitation.dto';
 
 import {
   ActivationService,
@@ -20,7 +25,15 @@ import { VerifyActivationOtpDto } from './dto/verify-activation-otp.dto';
 
 @Controller('activation')
 export class ActivationController {
-  constructor(private readonly activationService: ActivationService) {}
+  constructor(
+    private readonly activationService: ActivationService,
+    private readonly activationInvitationsService: ActivationInvitationsService,
+  ) {}
+
+  @Get('invitation')
+  getInvitationPreview(@Query() dto: GetActivationInvitationDto) {
+    return this.activationInvitationsService.getInvitationPreview(dto.token);
+  }
 
   @Post('request-otp')
   @HttpCode(HttpStatus.OK)

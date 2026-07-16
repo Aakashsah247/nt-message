@@ -97,7 +97,6 @@ function getLifecycleText(request: AdminAccountRequestListItem): string {
   }
 }
 
-
 function RequestEmployeeAvatar({
   request,
 }: {
@@ -105,7 +104,10 @@ function RequestEmployeeAvatar({
 }) {
   if (request.status !== "ACTIVATED") {
     return (
-      <span className="admin-account-requests-page__request-avatar" aria-hidden="true">
+      <span
+        className="admin-account-requests-page__request-avatar"
+        aria-hidden="true"
+      >
         {request.empName.charAt(0).toUpperCase()}
       </span>
     );
@@ -410,23 +412,31 @@ export function AdminAccountRequestsPage() {
           >
             <span>{option.label}</span>
             <strong>
-              {summaryLoading && !summary ? "—" : summary?.counts[option.value] ?? 0}
+              {summaryLoading && !summary
+                ? "—"
+                : (summary?.counts[option.value] ?? 0)}
             </strong>
           </button>
         ))}
       </nav>
 
-      <section className="admin-account-requests-page__filters" aria-label="Request filters">
+      <section
+        className="admin-account-requests-page__filters"
+        aria-label="Request filters"
+      >
         <div className="admin-account-requests-page__filter-heading">
           <div>
             <ManagementIcon name="requests" />
             <span>
               <strong>Search and filters</strong>
-              <small>Narrow the current {formatValue(status).toLowerCase()} queue.</small>
+              <small>
+                Narrow the current {formatValue(status).toLowerCase()} queue.
+              </small>
             </span>
           </div>
           <span className="admin-account-requests-page__filter-count">
-            {activeFilterCount} active filter{activeFilterCount === 1 ? "" : "s"}
+            {activeFilterCount} active filter
+            {activeFilterCount === 1 ? "" : "s"}
           </span>
         </div>
 
@@ -470,7 +480,8 @@ export function AdminAccountRequestsPage() {
                 !departments.some(
                   (department) =>
                     department.id === departmentId &&
-                    (!nextDivisionId || department.division.id === nextDivisionId),
+                    (!nextDivisionId ||
+                      department.division.id === nextDivisionId),
                 )
               ) {
                 setDepartmentId("");
@@ -541,8 +552,12 @@ export function AdminAccountRequestsPage() {
         </button>
 
         {organizationError && (
-          <p className="admin-account-requests-page__filter-warning" role="status">
-            Organization filters are temporarily unavailable: {organizationError}
+          <p
+            className="admin-account-requests-page__filter-warning"
+            role="status"
+          >
+            Organization filters are temporarily unavailable:{" "}
+            {organizationError}
           </p>
         )}
       </section>
@@ -572,7 +587,10 @@ export function AdminAccountRequestsPage() {
         {error && <div className="admin-request-error">{error}</div>}
         {loading && (
           <div className="admin-account-requests-page__state">
-            <span className="admin-account-requests-page__loader" aria-hidden="true" />
+            <span
+              className="admin-account-requests-page__loader"
+              aria-hidden="true"
+            />
             Loading account requests…
           </div>
         )}
@@ -611,6 +629,7 @@ export function AdminAccountRequestsPage() {
                     <th>Organization</th>
                     <th>Requested by</th>
                     <th>Lifecycle</th>
+                    <th>Activation email</th>
                     <th>Submitted</th>
                     <th aria-label="Actions" />
                   </tr>
@@ -633,7 +652,9 @@ export function AdminAccountRequestsPage() {
                         <span>Revision {request.revisionNumber}</span>
                       </td>
                       <td>
-                        <strong>{request.department?.name ?? "No department"}</strong>
+                        <strong>
+                          {request.department?.name ?? "No department"}
+                        </strong>
                         <span>{request.division?.name ?? "No division"}</span>
                       </td>
                       <td>
@@ -649,6 +670,22 @@ export function AdminAccountRequestsPage() {
                         <small>{getLifecycleText(request)}</small>
                       </td>
                       <td>
+                        <strong
+                          className={`activation-delivery-status activation-delivery-status--${request.activationEmailStatus.toLowerCase()}`}
+                        >
+                          {formatValue(request.activationEmailStatus)}
+                        </strong>
+                        <span>
+                          {request.activationEmailSentAt
+                            ? `Sent ${formatDate(request.activationEmailSentAt)}`
+                            : request.activationEmailLastAttemptAt
+                              ? `Attempted ${formatDate(
+                                  request.activationEmailLastAttemptAt,
+                                )}`
+                              : "Not attempted"}
+                        </span>
+                      </td>
+                      <td>
                         <strong>{formatDate(request.submittedAt)}</strong>
                         <span>
                           {request.reviewedAt
@@ -657,7 +694,10 @@ export function AdminAccountRequestsPage() {
                         </span>
                       </td>
                       <td>
-                        <button type="button" onClick={() => openRequest(request.id)}>
+                        <button
+                          type="button"
+                          onClick={() => openRequest(request.id)}
+                        >
                           View details <span aria-hidden="true">→</span>
                         </button>
                       </td>
@@ -696,6 +736,10 @@ export function AdminAccountRequestsPage() {
                           request.division?.name ??
                           "Unassigned"}
                       </dd>
+                    </div>
+                    <div>
+                      <dt>Activation email</dt>
+                      <dd>{formatValue(request.activationEmailStatus)}</dd>
                     </div>
                     <div>
                       <dt>Requested by</dt>

@@ -784,10 +784,91 @@
   overflow-x: auto;
 }
 
+/* Keep one canonical eight-column layout in the original table section.
+   The final column is reserved for the action button so it cannot overlap
+   Activation email or Submitted content when long values wrap. */
 .admin-account-requests-page__table-wrap table {
   width: 100%;
-  min-width: 1120px;
+  min-width: 1360px;
   border-collapse: collapse;
+  table-layout: fixed;
+}
+
+.admin-account-requests-page__table-wrap th:nth-child(1),
+.admin-account-requests-page__table-wrap td:nth-child(1) {
+  width: 15%;
+}
+
+.admin-account-requests-page__table-wrap th:nth-child(2),
+.admin-account-requests-page__table-wrap td:nth-child(2) {
+  width: 11%;
+}
+
+.admin-account-requests-page__table-wrap th:nth-child(3),
+.admin-account-requests-page__table-wrap td:nth-child(3) {
+  width: 13%;
+}
+
+.admin-account-requests-page__table-wrap th:nth-child(4),
+.admin-account-requests-page__table-wrap td:nth-child(4) {
+  width: 16%;
+}
+
+.admin-account-requests-page__table-wrap th:nth-child(5),
+.admin-account-requests-page__table-wrap td:nth-child(5) {
+  width: 14%;
+}
+
+.admin-account-requests-page__table-wrap th:nth-child(6),
+.admin-account-requests-page__table-wrap td:nth-child(6) {
+  width: 11%;
+}
+
+.admin-account-requests-page__table-wrap th:nth-child(7),
+.admin-account-requests-page__table-wrap td:nth-child(7) {
+  width: 10%;
+}
+
+.admin-account-requests-page__table-wrap th:nth-child(8),
+.admin-account-requests-page__table-wrap td:nth-child(8) {
+  width: 10%;
+}
+
+.admin-account-requests-page__table-wrap td,
+.admin-account-requests-page__employee-cell,
+.admin-account-requests-page__employee-cell > span:last-child {
+  min-width: 0;
+}
+
+.admin-account-requests-page__table-wrap td strong,
+.admin-account-requests-page__table-wrap td span,
+.admin-account-requests-page__table-wrap td small {
+  max-width: 100%;
+  overflow-wrap: anywhere;
+  word-break: normal;
+}
+
+.admin-account-requests-page__table-wrap th:last-child,
+.admin-account-requests-page__table-wrap td:last-child {
+  padding-right: 1.15rem;
+  text-align: right;
+}
+
+.admin-account-requests-page__table-wrap td:last-child button,
+.admin-account-requests-page__table-wrap td:last-child a {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.45rem;
+  width: auto;
+  max-width: 100%;
+  min-width: 122px;
+  padding-inline: 0.8rem;
+  white-space: nowrap;
+}
+
+.admin-account-requests-page__table-wrap td:last-child svg {
+  flex: 0 0 auto;
 }
 
 .admin-account-requests-page__table-wrap th {
@@ -1218,194 +1299,3 @@
     transition: none;
   }
 }
-
-/* UI-07.2: Stable account-request table column sizing
-   Long names and email addresses must wrap inside their own cells instead
-   of shrinking adjacent request and organization columns. */
-.admin-account-requests-page__table-wrap table {
-  width: 100%;
-  min-width: 1240px;
-  table-layout: fixed;
-}
-
-.admin-account-requests-page__table-wrap th:nth-child(1),
-.admin-account-requests-page__table-wrap td:nth-child(1) {
-  width: 17%;
-}
-
-.admin-account-requests-page__table-wrap th:nth-child(2),
-.admin-account-requests-page__table-wrap td:nth-child(2) {
-  width: 14%;
-}
-
-.admin-account-requests-page__table-wrap th:nth-child(3),
-.admin-account-requests-page__table-wrap td:nth-child(3) {
-  width: 14%;
-}
-
-.admin-account-requests-page__table-wrap th:nth-child(4),
-.admin-account-requests-page__table-wrap td:nth-child(4) {
-  width: 19%;
-}
-
-.admin-account-requests-page__table-wrap th:nth-child(5),
-.admin-account-requests-page__table-wrap td:nth-child(5) {
-  width: 16%;
-}
-
-.admin-account-requests-page__table-wrap th:nth-child(6),
-.admin-account-requests-page__table-wrap td:nth-child(6) {
-  width: 12%;
-}
-
-.admin-account-requests-page__table-wrap th:nth-child(7),
-.admin-account-requests-page__table-wrap td:nth-child(7) {
-  width: 8%;
-}
-
-.admin-account-requests-page__table-wrap td,
-.admin-account-requests-page__employee-cell,
-.admin-account-requests-page__employee-cell > span:last-child {
-  min-width: 0;
-}
-
-.admin-account-requests-page__table-wrap td strong,
-.admin-account-requests-page__table-wrap td span,
-.admin-account-requests-page__table-wrap td small {
-  max-width: 100%;
-  overflow-wrap: anywhere;
-  word-break: normal;
-}
-
-.admin-account-requests-page__employee-cell {
-  align-items: flex-start;
-}
-
-.admin-account-requests-page__table-wrap td:last-child {
-  text-align: right;
-}
-
-.admin-account-requests-page__table-wrap td:last-child button {
-  max-width: 100%;
-}
-
-/* Switch to the existing request-card presentation before the table
-   becomes too narrow inside the management sidebar layout. */
-@media (max-width: 1180px) {
-  .admin-account-requests-page__table-wrap {
-    display: none;
-  }
-
-  .admin-account-requests-page__cards {
-    display: grid;
-    gap: 0.85rem;
-    padding: 1rem;
-  }
-
-  .admin-account-requests-page__cards article {
-    padding: 1rem;
-    border: 1px solid #dbe7ef;
-    border-radius: 1rem;
-    background: #fff;
-    box-shadow: 0 8px 20px rgba(20, 58, 92, 0.055);
-  }
-
-  .admin-account-requests-page__cards article header {
-    display: flex;
-    align-items: flex-start;
-    justify-content: space-between;
-    gap: 1rem;
-  }
-
-  .admin-account-requests-page__mobile-identity {
-    display: flex;
-    align-items: center;
-    gap: 0.7rem;
-    min-width: 0;
-  }
-
-  .admin-account-requests-page__mobile-identity > span:last-child {
-    min-width: 0;
-  }
-
-  .admin-account-requests-page__mobile-identity strong,
-  .admin-account-requests-page__mobile-identity small {
-    display: block;
-    overflow-wrap: anywhere;
-  }
-
-  .admin-account-requests-page__mobile-identity small {
-    margin-top: 0.15rem;
-    color: #71879a;
-  }
-
-  .admin-account-requests-page__cards dl {
-    display: grid;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-    gap: 0.75rem;
-    margin: 1rem 0;
-  }
-
-  .admin-account-requests-page__cards dt {
-    color: #70879a;
-    font-size: 0.68rem;
-    font-weight: 850;
-    text-transform: uppercase;
-  }
-
-  .admin-account-requests-page__cards dd {
-    min-width: 0;
-    margin: 0.2rem 0 0;
-    color: #173a58;
-    overflow-wrap: anywhere;
-  }
-
-  .admin-account-requests-page__cards article > p {
-    margin: 0 0 0.9rem;
-    border-radius: 0.75rem;
-    padding: 0.7rem;
-    background: #f5f9fc;
-    color: #607b90;
-    font-size: 0.8rem;
-  }
-
-  .admin-account-requests-page__cards article > button {
-    width: 100%;
-  }
-}
-
-/* UI-07.3: Account request action button spacing
-   Reserve enough room for the action control so its label and arrow never
-   collide with the card edge or become clipped at narrower desktop widths. */
-.admin-account-requests-page__table-wrap th:nth-child(7),
-.admin-account-requests-page__table-wrap td:nth-child(7) {
-  width: 11%;
-  min-width: 150px;
-  padding-right: 1.25rem;
-}
-
-.admin-account-requests-page__table-wrap td:last-child {
-  display: flex;
-  align-items: center;
-  justify-content: flex-end;
-  overflow: visible;
-}
-
-.admin-account-requests-page__table-wrap td:last-child button,
-.admin-account-requests-page__table-wrap td:last-child a {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 0.45rem;
-  min-width: 136px;
-  max-width: 100%;
-  padding-inline: 1rem;
-  white-space: nowrap;
-  overflow: visible;
-  flex-shrink: 0;
-}
-
-.admin-account-requests-page__table-wrap td:last-child svg {
-  flex: 0 0 auto;
-}
-

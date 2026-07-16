@@ -9,6 +9,29 @@ interface ActivationOtpEmail {
   expiresInMinutes: number;
 }
 
+export interface ActivationInvitationEmail {
+  to: string;
+  employeeName: string;
+  employeeId: string;
+  officialEmail: string;
+  divisionName: string;
+  departmentName: string;
+  roleName: string;
+  maskedPhoneNumber: string;
+  activationUrl: string;
+}
+
+export type MailDeliveryFailureCategory = 'SMTP_DELIVERY_FAILED';
+
+export class MailDeliveryError extends Error {
+  constructor(
+    public readonly category: MailDeliveryFailureCategory,
+  ) {
+    super('The email provider could not deliver the message.');
+    this.name = 'MailDeliveryError';
+  }
+}
+
 @Injectable()
 export class MailService {
   private readonly transporter: nodemailer.Transporter;
@@ -55,6 +78,60 @@ export class MailService {
       throw new ServiceUnavailableException(
         'The activation email could not be sent.',
       );
+    }
+  }
+
+  async sendActivationInvitation(
+    email: ActivationInvitationEmail,
+  ): Promise<void> {
+    try {
+      await this.transporter.sendMail({
+        from: this.fromAddress,
+        to: email.to,
+        subject: 'Your NT Message account is ready for activation',
+
+        /*
+         * Keep this message aligned with the approved activation template.
+         * Never add an OTP, password, database identifier or unmasked phone.
+         */
+        text: [
+          `Dear ${email.employeeName},`,
+          '',
+          'Your NT Message account has been approved.',
+          '',
+          'Approved account details:',
+          '',
+          `Employee name: ${email.employeeName}`,
+          `Employee ID: ${email.employeeId}`,
+          `Role: ${email.roleName}`,
+          `Division: ${email.divisionName}`,
+          `Department: ${email.departmentName}`,
+          `Official email: ${email.officialEmail}`,
+          `Registered phone: ${email.maskedPhoneNumber}`,
+          '',
+          'To activate your account:',
+          '',
+          '1. Open the NT Message activation page.',
+          '2. Enter the approved account information shown above.',
+          '3. Verify the OTP sent to your official email.',
+          '4. Create a secure password.',
+          '5. Log in to NT Message using your official email and password.',
+          '',
+          'Activation page:',
+          email.activationUrl,
+          '',
+          'Important:',
+          'The information entered on the activation page must match the approved account details. Capitalization, unnecessary spaces, email capitalization and accepted Nepal phone-number formats will be normalized automatically.',
+          '',
+          'Do not share your OTP or password with anyone. Nepal Telecom administrators will never ask you to provide your password or OTP.',
+        ].join('\n'),
+      });
+    } catch {
+      /*
+       * Expose only a stable provider category. SMTP responses and transport
+       * errors can contain infrastructure details and must not enter audits.
+       */
+      throw new MailDeliveryError('SMTP_DELIVERY_FAILED');
     }
   }
 }

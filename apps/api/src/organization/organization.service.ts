@@ -627,6 +627,30 @@ export class OrganizationService {
     };
   }
 
+  async listPublicDivisions() {
+    /*
+     * Activation is unauthenticated, so expose only active organization labels
+     * required for identity confirmation—never employee or management data.
+     */
+    const divisions = await this.prisma.division.findMany({
+      where: {
+        isActive: true,
+      },
+      orderBy: {
+        name: 'asc',
+      },
+      select: {
+        id: true,
+        code: true,
+        name: true,
+      },
+    });
+
+    return {
+      data: divisions,
+    };
+  }
+
   async listPublicDepartments() {
     const departments = await this.prisma.department.findMany({
       where: {

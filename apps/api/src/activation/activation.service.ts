@@ -238,10 +238,19 @@ export class ActivationService {
     const phoneLookupValues = getNepalPhoneLookupVariants(phoneNumber);
 
     const officialEmail = sanitizeOfficialEmail(dto.officialEmail);
-    const officialEmailLookup =
-      normalizeOfficialEmailForLookup(officialEmail);
+    const officialEmailLookup = normalizeOfficialEmailForLookup(officialEmail);
 
-    const departmentId = dto.departmentId.trim();
+    /*
+     * Organization identifiers are matched exactly against the approved
+     * employee record. A null department is valid only for a division-level
+     * role because department-scoped records cannot match that value.
+     */
+    /*
+     * Repeat the exact organization match during OTP verification so changing
+     * division or department after OTP issuance cannot bypass identity checks.
+     */
+    const divisionId = dto.divisionId.trim();
+    const departmentId = dto.departmentId?.trim() || null;
 
     const now = new Date();
 
@@ -267,6 +276,7 @@ export class ActivationService {
               equals: officialEmailLookup,
               mode: 'insensitive',
             },
+            divisionId,
             departmentId,
 
             empName: {
@@ -540,10 +550,10 @@ export class ActivationService {
     const phoneLookupValues = getNepalPhoneLookupVariants(phoneNumber);
 
     const officialEmail = sanitizeOfficialEmail(dto.officialEmail);
-    const officialEmailLookup =
-      normalizeOfficialEmailForLookup(officialEmail);
+    const officialEmailLookup = normalizeOfficialEmailForLookup(officialEmail);
 
-    const departmentId = dto.departmentId.trim();
+    const divisionId = dto.divisionId.trim();
+    const departmentId = dto.departmentId?.trim() || null;
 
     const otp = dto.otp.trim();
 
@@ -561,6 +571,7 @@ export class ActivationService {
               equals: officialEmailLookup,
               mode: 'insensitive',
             },
+            divisionId,
             departmentId,
 
             empName: {
@@ -1300,6 +1311,22 @@ export class ActivationService {
             consumedAt: null,
           },
 
+          data: {
+            consumedAt: now,
+          },
+        });
+
+        /*
+         * A successful activation consumes every still-active invitation for
+         * this approved request. Raw tokens are never stored or logged.
+         */
+        await transaction.activationInvitation.updateMany({
+          where: {
+            accountRequestId: accountRequest.id,
+            employeeId: employee.id,
+            consumedAt: null,
+            invalidatedAt: null,
+          },
           data: {
             consumedAt: now,
           },

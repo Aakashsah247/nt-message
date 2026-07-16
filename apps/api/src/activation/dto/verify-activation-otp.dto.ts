@@ -1,5 +1,6 @@
 import {
   IsEmail,
+  IsOptional,
   IsString,
   IsUUID,
   Matches,
@@ -23,8 +24,7 @@ export class VerifyActivationOtpDto {
 
   @IsString()
   @Matches(/^(?:9\d{9}|9779\d{9}|\+9779\d{9})$/, {
-    message:
-      'Use 98XXXXXXXX, 97798XXXXXXXX or +97798XXXXXXXX format.',
+    message: 'Use 98XXXXXXXX, 97798XXXXXXXX or +97798XXXXXXXX format.',
   })
   phoneNumber!: string;
 
@@ -38,9 +38,17 @@ export class VerifyActivationOtpDto {
   officialEmail!: string;
 
   @IsUUID('4', {
+    message: 'Division ID must be a valid UUID.',
+  })
+  divisionId!: string;
+
+  // Senior Management is division-scoped; all department-scoped roles are
+  // rejected later unless this value exactly matches the approved record.
+  @IsOptional()
+  @IsUUID('4', {
     message: 'Department ID must be a valid UUID.',
   })
-  departmentId!: string;
+  departmentId?: string | null;
 
   @IsString()
   @Matches(/^[0-9]{6}$/, {

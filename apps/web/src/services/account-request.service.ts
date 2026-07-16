@@ -17,10 +17,10 @@ import type {
   ScopedAccountRequestDetailResponse,
   ScopedAccountRequestListResponse,
   RejectAccountRequestResponse,
+  ResendActivationEmailResponse,
   ResubmitMyAccountRequestInput,
   ResubmitMyAccountRequestResponse,
 } from "../types/account-request";
-
 
 export interface AccountRequestListFilters {
   search?: string;
@@ -109,12 +109,9 @@ export function listMyAccountRequests(
 export function getOwnAccountStatus(
   accessToken: string,
 ): Promise<OwnAccountStatusResponse> {
-  return apiRequest<OwnAccountStatusResponse>(
-    "/account-requests/own-status",
-    {
-      headers: createAuthorizationHeaders(accessToken),
-    },
-  );
+  return apiRequest<OwnAccountStatusResponse>("/account-requests/own-status", {
+    headers: createAuthorizationHeaders(accessToken),
+  });
 }
 
 export function listDivisionEmployeeRequests(
@@ -299,6 +296,19 @@ export function rejectAdminAccountRequest(
       body: JSON.stringify({
         reason,
       }),
+    },
+  );
+}
+
+export function resendActivationEmail(
+  accessToken: string,
+  requestId: string,
+): Promise<ResendActivationEmailResponse> {
+  return apiRequest<ResendActivationEmailResponse>(
+    `/account-requests/${requestId}/activation-email/resend`,
+    {
+      method: "POST",
+      headers: createAuthorizationHeaders(accessToken),
     },
   );
 }

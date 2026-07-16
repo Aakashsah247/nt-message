@@ -1,18 +1,22 @@
 import { useEffect, useMemo, useState } from "react";
 import type { FormEvent } from "react";
-import { Link } from "react-router";
+import { Link, useSearchParams } from "react-router";
 
 import {
   completeActivation,
+  getActivationInvitationPreview,
   getPublicDepartments,
+  getPublicDivisions,
   requestActivationOtp,
   verifyActivationOtp,
 } from "../services/activation.service";
 
 import type {
   ActivationIdentity,
+  ActivationInvitationPreview,
   CompleteActivationResponse,
   PublicDepartment,
+  PublicDivision,
   VerifyActivationOtpResponse,
 } from "../types/activation";
 
@@ -23,7 +27,8 @@ const emptyIdentity: ActivationIdentity = {
   empId: "",
   phoneNumber: "",
   officialEmail: "",
-  departmentId: "",
+  divisionId: "",
+  departmentId: null,
 };
 
 function getErrorMessage(error: unknown, fallback: string): string {
@@ -38,125 +43,160 @@ function formatRole(role: string): string {
     .join(" ");
 }
 
+function formatDate(value: string): string {
+  const date = new Date(value);
+
+  if (Number.isNaN(date.getTime())) {
+    return "the stated expiry time";
+  }
+
+  return new Intl.DateTimeFormat("en-GB", {
+    dateStyle: "medium",
+    timeStyle: "short",
+  }).format(date);
+}
+
 export function ActivationPage() {
+  const [searchParams] = useSearchParams();
+  // The bearer token is read only from the invitation URL and is never copied
+  // into localStorage, sessionStorage, analytics state, or visible form fields.
+  const invitationToken = searchParams.get("invitation")?.trim() ?? "";
+
   const [stage, setStage] = useState<ActivationStage>("identity");
-
   const [identity, setIdentity] = useState<ActivationIdentity>(emptyIdentity);
-
+  const [divisions, setDivisions] = useState<PublicDivision[]>([]);
   const [departments, setDepartments] = useState<PublicDepartment[]>([]);
-
-  const [departmentsLoading, setDepartmentsLoading] = useState(true);
-
-  const [departmentError, setDepartmentError] = useState("");
-
+  const [organizationLoading, setOrganizationLoading] = useState(true);
+  const [organizationError, setOrganizationError] = useState("");
+  const [invitation, setInvitation] =
+    useState<ActivationInvitationPreview | null>(null);
+  const [invitationLoading, setInvitationLoading] = useState(
+    Boolean(invitationToken),
+  );
+  const [invitationError, setInvitationError] = useState("");
+  const [manualMode, setManualMode] = useState(!invitationToken);
   const [otp, setOtp] = useState("");
-
   const [verifiedResult, setVerifiedResult] =
     useState<VerifyActivationOtpResponse | null>(null);
-
   const [password, setPassword] = useState("");
-
   const [confirmPassword, setConfirmPassword] = useState("");
-
   const [showPassword, setShowPassword] = useState(false);
-
   const [completionResult, setCompletionResult] =
     useState<CompleteActivationResponse | null>(null);
-
   const [error, setError] = useState("");
-
   const [notice, setNotice] = useState("");
-
   const [submitting, setSubmitting] = useState(false);
 
-  async function loadDepartments(): Promise<void> {
-    setDepartmentsLoading(true);
-    setDepartmentError("");
+  const usingInvitation = Boolean(invitation && !manualMode);
+
+  async function loadOrganization(): Promise<void> {
+    setOrganizationLoading(true);
+    setOrganizationError("");
 
     try {
-      const response = await getPublicDepartments();
+      const [divisionResponse, departmentResponse] = await Promise.all([
+        getPublicDivisions(),
+        getPublicDepartments(),
+      ]);
 
-      setDepartments(response.data);
+      setDivisions(divisionResponse.data);
+      setDepartments(departmentResponse.data);
     } catch (requestError) {
-      setDepartmentError(
-        getErrorMessage(requestError, "Departments could not be loaded."),
+      setOrganizationError(
+        getErrorMessage(
+          requestError,
+          "Organization information could not be loaded.",
+        ),
       );
     } finally {
-      setDepartmentsLoading(false);
+      setOrganizationLoading(false);
     }
   }
 
   useEffect(() => {
-    let active = true;
+    void loadOrganization();
+  }, []);
 
-    getPublicDepartments()
-      .then((response) => {
+  useEffect(() => {
+    if (!invitationToken) {
+      setInvitationLoading(false);
+      setManualMode(true);
+      return;
+    }
+
+    let active = true;
+    setInvitationLoading(true);
+    setInvitationError("");
+
+    getActivationInvitationPreview(invitationToken)
+      .then((preview) => {
         if (!active) {
           return;
         }
 
-        setDepartments(response.data);
-
-        setDepartmentError("");
+        /*
+         * Approved identity and organization values remain read-only. The user
+         * confirms only Employee ID and phone before the existing OTP flow.
+         */
+        setInvitation(preview);
+        setIdentity({
+          empName: preview.employee.empName,
+          empId: "",
+          phoneNumber: "",
+          officialEmail: preview.employee.officialEmail,
+          divisionId: preview.organization.divisionId,
+          departmentId: preview.organization.departmentId,
+        });
+        setManualMode(false);
       })
       .catch((requestError: unknown) => {
         if (!active) {
           return;
         }
 
-        setDepartmentError(
-          getErrorMessage(requestError, "Departments could not be loaded."),
+        setInvitation(null);
+        setInvitationError(
+          getErrorMessage(
+            requestError,
+            "The activation invitation is invalid or expired.",
+          ),
         );
       })
       .finally(() => {
         if (active) {
-          setDepartmentsLoading(false);
+          setInvitationLoading(false);
         }
       });
 
     return () => {
       active = false;
     };
-  }, []);
+  }, [invitationToken]);
 
-  const departmentGroups = useMemo(() => {
-    const groups = new Map<
-      string,
-      {
-        id: string;
-        label: string;
-        departments: PublicDepartment[];
-      }
-    >();
+  const visibleDepartments = useMemo(
+    () =>
+      departments.filter(
+        (department) => department.divisionId === identity.divisionId,
+      ),
+    [departments, identity.divisionId],
+  );
 
-    for (const department of departments) {
-      const divisionId = department.division.id;
+  const selectedDivision = useMemo(
+    () => divisions.find((division) => division.id === identity.divisionId),
+    [divisions, identity.divisionId],
+  );
 
-      const existing = groups.get(divisionId);
-
-      if (existing) {
-        existing.departments.push(department);
-
-        continue;
-      }
-
-      groups.set(divisionId, {
-        id: divisionId,
-
-        label: department.division.name,
-
-        departments: [department],
-      });
-    }
-
-    return Array.from(groups.values());
-  }, [departments]);
+  const selectedDepartment = useMemo(
+    () =>
+      departments.find((department) => department.id === identity.departmentId),
+    [departments, identity.departmentId],
+  );
 
   const currentStep = stage === "identity" ? 1 : stage === "otp" ? 2 : 3;
 
   function updateIdentity(
     field: keyof ActivationIdentity,
-    value: string,
+    value: string | null,
   ): void {
     setIdentity((current) => ({
       ...current,
@@ -164,47 +204,42 @@ export function ActivationPage() {
     }));
   }
 
+  function switchToManualActivation(): void {
+    setManualMode(true);
+    setInvitation(null);
+    setInvitationError("");
+    setIdentity(emptyIdentity);
+    setError("");
+    setNotice("");
+  }
+
   async function handleIdentitySubmit(
     event: FormEvent<HTMLFormElement>,
   ): Promise<void> {
     event.preventDefault();
-
     setError("");
     setNotice("");
 
-    if (!identity.departmentId) {
-      setError("Select your official department.");
-
+    if (!identity.divisionId) {
+      setError("Select your official division.");
       return;
     }
+
+    const normalizedIdentity: ActivationIdentity = {
+      empName: identity.empName.trim(),
+      empId: identity.empId.trim().toUpperCase(),
+      phoneNumber: identity.phoneNumber.trim(),
+      officialEmail: identity.officialEmail.trim(),
+      divisionId: identity.divisionId,
+      departmentId: identity.departmentId || null,
+    };
 
     setSubmitting(true);
 
     try {
-      const response = await requestActivationOtp({
-        empName: identity.empName.trim(),
+      const response = await requestActivationOtp(normalizedIdentity);
 
-        empId: identity.empId.trim().toUpperCase(),
-
-        phoneNumber: identity.phoneNumber.trim(),
-
-        officialEmail: identity.officialEmail.trim().toLowerCase(),
-
-        departmentId: identity.departmentId,
-      });
-
-      setIdentity((current) => ({
-        ...current,
-
-        empName: current.empName.trim(),
-
-        empId: current.empId.trim().toUpperCase(),
-
-        phoneNumber: current.phoneNumber.trim(),
-
-        officialEmail: current.officialEmail.trim().toLowerCase(),
-      }));
-
+      setIdentity(normalizedIdentity);
       setNotice(response.message);
       setStage("otp");
     } catch (requestError) {
@@ -223,13 +258,11 @@ export function ActivationPage() {
     event: FormEvent<HTMLFormElement>,
   ): Promise<void> {
     event.preventDefault();
-
     setError("");
     setNotice("");
 
     if (!/^[0-9]{6}$/.test(otp)) {
       setError("Enter the complete six-digit OTP.");
-
       return;
     }
 
@@ -239,15 +272,12 @@ export function ActivationPage() {
       const response = await verifyActivationOtp(identity, otp);
 
       setVerifiedResult(response);
-
       setNotice(
         "Official email verification completed. Create your secure password.",
       );
-
       setStage("password");
     } catch (requestError) {
       setOtp("");
-
       setError(
         getErrorMessage(
           requestError,
@@ -285,21 +315,17 @@ export function ActivationPage() {
     event: FormEvent<HTMLFormElement>,
   ): Promise<void> {
     event.preventDefault();
-
     setError("");
     setNotice("");
 
     if (!verifiedResult) {
       setError("Verify the activation OTP before creating a password.");
-
       return;
     }
 
     if (password !== confirmPassword) {
       setConfirmPassword("");
-
       setError("Password confirmation does not match.");
-
       return;
     }
 
@@ -310,7 +336,6 @@ export function ActivationPage() {
       setError(
         "Password must contain at least 12 characters, including uppercase, lowercase, number and special character.",
       );
-
       return;
     }
 
@@ -319,9 +344,7 @@ export function ActivationPage() {
     try {
       const response = await completeActivation({
         activationToken: verifiedResult.activationToken,
-
         password,
-
         confirmPassword,
       });
 
@@ -332,7 +355,6 @@ export function ActivationPage() {
     } catch (requestError) {
       setPassword("");
       setConfirmPassword("");
-
       setError(
         getErrorMessage(requestError, "The account could not be activated."),
       );
@@ -351,7 +373,6 @@ export function ActivationPage() {
 
           <div>
             <strong>NEPAL TELECOM MESSAGE</strong>
-
             <span>Secure employee communication</span>
           </div>
         </header>
@@ -371,19 +392,14 @@ export function ActivationPage() {
           <div className="activation-benefits">
             <div>
               <strong>1</strong>
-
               <span>Verify your approved employee information</span>
             </div>
-
             <div>
               <strong>2</strong>
-
               <span>Confirm the OTP sent to your official email</span>
             </div>
-
             <div>
               <strong>3</strong>
-
               <span>Create a secure password and activate access</span>
             </div>
           </div>
@@ -403,7 +419,6 @@ export function ActivationPage() {
 
             <div>
               <span>NT Message</span>
-
               <h2>
                 {stage === "success"
                   ? "Account activated"
@@ -418,18 +433,9 @@ export function ActivationPage() {
               aria-label="Activation progress"
             >
               {[
-                {
-                  number: 1,
-                  label: "Identity",
-                },
-                {
-                  number: 2,
-                  label: "OTP",
-                },
-                {
-                  number: 3,
-                  label: "Password",
-                },
+                { number: 1, label: "Identity" },
+                { number: 2, label: "OTP" },
+                { number: 3, label: "Password" },
               ].map((step) => (
                 <div
                   className={
@@ -440,166 +446,280 @@ export function ActivationPage() {
                   key={step.number}
                 >
                   <span>{step.number}</span>
-
                   <small>{step.label}</small>
                 </div>
               ))}
             </div>
           )}
 
-          {stage === "identity" && (
-            <>
-              <div className="activation-heading">
-                <p>Step 1 of 3</p>
-
-                <h3>Verify employee identity</h3>
-
-                <span>
-                  Enter the same information approved by Nepal Telecom
-                  management.
-                </span>
-              </div>
-
-              <form className="activation-form" onSubmit={handleIdentitySubmit}>
-                <label className="activation-field">
-                  <span>Employee full name</span>
-
-                  <input
-                    type="text"
-                    value={identity.empName}
-                    onChange={(event) =>
-                      updateIdentity("empName", event.target.value)
-                    }
-                    placeholder="Official employee name"
-                    autoComplete="name"
-                    minLength={2}
-                    maxLength={150}
-                    required
-                  />
-                </label>
-
-                <label className="activation-field">
-                  <span>Employee ID</span>
-
-                  <input
-                    type="text"
-                    value={identity.empId}
-                    onChange={(event) =>
-                      updateIdentity("empId", event.target.value.toUpperCase())
-                    }
-                    placeholder="Example: NTC-1001"
-                    minLength={2}
-                    maxLength={50}
-                    pattern="[A-Za-z0-9_-]+"
-                    required
-                  />
-                </label>
-
-                <label className="activation-field">
-                  <span>Phone number</span>
-
-                  <input
-                    type="tel"
-                    value={identity.phoneNumber}
-                    onChange={(event) =>
-                      updateIdentity("phoneNumber", event.target.value)
-                    }
-                    placeholder="+97798XXXXXXXX"
-                    autoComplete="tel"
-                    pattern="\+?[0-9]{7,20}"
-                    required
-                  />
-                </label>
-
-                <label className="activation-field">
-                  <span>Official email</span>
-
-                  <input
-                    type="email"
-                    value={identity.officialEmail}
-                    onChange={(event) =>
-                      updateIdentity("officialEmail", event.target.value)
-                    }
-                    placeholder="name@ntc.net.np"
-                    autoComplete="email"
-                    maxLength={255}
-                    required
-                  />
-                </label>
-
-                <label className="activation-field activation-field-wide">
-                  <span>Division and department</span>
-
-                  <select
-                    value={identity.departmentId}
-                    onChange={(event) =>
-                      updateIdentity("departmentId", event.target.value)
-                    }
-                    disabled={departmentsLoading || Boolean(departmentError)}
-                    required
-                  >
-                    <option value="">
-                      {departmentsLoading
-                        ? "Loading departments..."
-                        : "Select your official department"}
-                    </option>
-
-                    {departmentGroups.map((group) => (
-                      <optgroup key={group.id} label={group.label}>
-                        {group.departments.map((department) => (
-                          <option key={department.id} value={department.id}>
-                            {department.name} ({department.code})
-                          </option>
-                        ))}
-                      </optgroup>
-                    ))}
-                  </select>
-                </label>
-
-                {departmentError && (
-                  <div className="activation-load-error activation-field-wide">
-                    <span>{departmentError}</span>
-
-                    <button
-                      type="button"
-                      onClick={() => void loadDepartments()}
-                    >
-                      Try again
-                    </button>
-                  </div>
-                )}
-
-                {error && (
-                  <div
-                    className="activation-error activation-field-wide"
-                    role="alert"
-                  >
-                    {error}
-                  </div>
-                )}
-
-                <button
-                  className="activation-primary activation-field-wide"
-                  type="submit"
-                  disabled={
-                    submitting || departmentsLoading || Boolean(departmentError)
-                  }
-                >
-                  {submitting
-                    ? "Verifying information..."
-                    : "Verify identity and send OTP"}
-                </button>
-              </form>
-            </>
+          {stage === "identity" && invitationLoading && (
+            <div className="activation-invitation-state" aria-live="polite">
+              <div className="spinner" aria-hidden="true" />
+              <strong>Checking activation invitation</strong>
+              <p>Verifying that this secure link is active and unused.</p>
+            </div>
           )}
+
+          {stage === "identity" && !invitationLoading && invitationError && (
+            <div className="activation-invitation-state" role="alert">
+              <strong>Invitation unavailable</strong>
+              <p>{invitationError}</p>
+              <button type="button" onClick={switchToManualActivation}>
+                Continue with manual activation
+              </button>
+            </div>
+          )}
+
+          {stage === "identity" &&
+            !invitationLoading &&
+            (!invitationError || manualMode) && (
+              <>
+                <div className="activation-heading">
+                  <p>Step 1 of 3</p>
+                  <h3>Verify employee identity</h3>
+                  <span>
+                    {usingInvitation
+                      ? `This invitation is valid until ${formatDate(
+                          invitation!.expiresAt,
+                        )}. Confirm your Employee ID and phone number.`
+                      : "Enter the same information approved by Nepal Telecom management."}
+                  </span>
+                </div>
+
+                {usingInvitation && (
+                  <section className="activation-invitation-summary">
+                    <div>
+                      <span>Approved role</span>
+                      <strong>{formatRole(invitation!.requestedRole)}</strong>
+                    </div>
+                    <div>
+                      <span>Official division</span>
+                      <strong>{invitation!.organization.divisionName}</strong>
+                    </div>
+                    <div>
+                      <span>Official department</span>
+                      <strong>
+                        {invitation!.organization.departmentName ??
+                          "Division-level role"}
+                      </strong>
+                    </div>
+                  </section>
+                )}
+
+                <form
+                  className="activation-form"
+                  onSubmit={handleIdentitySubmit}
+                >
+                  <label className="activation-field">
+                    <span>Employee full name</span>
+                    <input
+                      type="text"
+                      value={identity.empName}
+                      onChange={(event) =>
+                        updateIdentity("empName", event.target.value)
+                      }
+                      placeholder="Official employee name"
+                      autoComplete="name"
+                      minLength={2}
+                      maxLength={150}
+                      readOnly={usingInvitation}
+                      required
+                    />
+                  </label>
+
+                  <label className="activation-field">
+                    <span>Employee ID</span>
+                    <input
+                      type="text"
+                      value={identity.empId}
+                      onChange={(event) =>
+                        updateIdentity(
+                          "empId",
+                          event.target.value.toUpperCase(),
+                        )
+                      }
+                      placeholder="Example: NTC-1001"
+                      minLength={2}
+                      maxLength={50}
+                      pattern="[A-Za-z0-9_-]+"
+                      required
+                    />
+                  </label>
+
+                  <label className="activation-field">
+                    <span>Phone number</span>
+                    <input
+                      type="tel"
+                      value={identity.phoneNumber}
+                      onChange={(event) =>
+                        updateIdentity("phoneNumber", event.target.value)
+                      }
+                      placeholder="+97798XXXXXXXX"
+                      autoComplete="tel"
+                      pattern="(?:9[0-9]{9}|9779[0-9]{9}|\+9779[0-9]{9})"
+                      required
+                    />
+                  </label>
+
+                  <label className="activation-field">
+                    <span>Official email</span>
+                    <input
+                      type="email"
+                      value={identity.officialEmail}
+                      onChange={(event) =>
+                        updateIdentity("officialEmail", event.target.value)
+                      }
+                      placeholder="name@ntc.net.np"
+                      autoComplete="email"
+                      maxLength={255}
+                      readOnly={usingInvitation}
+                      required
+                    />
+                  </label>
+
+                  {usingInvitation ? (
+                    <>
+                      <label className="activation-field">
+                        <span>Official division</span>
+                        <input
+                          type="text"
+                          value={invitation!.organization.divisionName}
+                          readOnly
+                        />
+                      </label>
+
+                      <label className="activation-field">
+                        <span>Official department</span>
+                        <input
+                          type="text"
+                          value={
+                            invitation!.organization.departmentName ??
+                            "No department — division-level role"
+                          }
+                          readOnly
+                        />
+                      </label>
+                    </>
+                  ) : (
+                    <>
+                      <label className="activation-field">
+                        <span>Official division</span>
+                        <select
+                          value={identity.divisionId}
+                          onChange={(event) => {
+                            updateIdentity("divisionId", event.target.value);
+                            updateIdentity("departmentId", null);
+                          }}
+                          disabled={
+                            organizationLoading || Boolean(organizationError)
+                          }
+                          required
+                        >
+                          <option value="">
+                            {organizationLoading
+                              ? "Loading divisions..."
+                              : "Select your official division"}
+                          </option>
+                          {divisions.map((division) => (
+                            <option key={division.id} value={division.id}>
+                              {division.name} ({division.code})
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+
+                      <label className="activation-field">
+                        <span>Official department</span>
+                        <select
+                          value={identity.departmentId ?? ""}
+                          onChange={(event) =>
+                            updateIdentity(
+                              "departmentId",
+                              event.target.value || null,
+                            )
+                          }
+                          disabled={
+                            organizationLoading ||
+                            Boolean(organizationError) ||
+                            !identity.divisionId
+                          }
+                        >
+                          <option value="">
+                            No department — division-level role
+                          </option>
+                          {visibleDepartments.map((department) => (
+                            <option key={department.id} value={department.id}>
+                              {department.name} ({department.code})
+                            </option>
+                          ))}
+                        </select>
+                        {selectedDivision && (
+                          <small>
+                            Division: {selectedDivision.name}
+                            {selectedDepartment
+                              ? ` · Department: ${selectedDepartment.name}`
+                              : ""}
+                          </small>
+                        )}
+                      </label>
+                    </>
+                  )}
+
+                  {organizationError && !usingInvitation && (
+                    <div className="activation-load-error activation-field-wide">
+                      <span>{organizationError}</span>
+                      <button
+                        type="button"
+                        onClick={() => void loadOrganization()}
+                      >
+                        Try again
+                      </button>
+                    </div>
+                  )}
+
+                  {error && (
+                    <div
+                      className="activation-error activation-field-wide"
+                      role="alert"
+                    >
+                      {error}
+                    </div>
+                  )}
+
+                  <button
+                    className="activation-primary activation-field-wide"
+                    type="submit"
+                    disabled={
+                      submitting ||
+                      (!usingInvitation &&
+                        (organizationLoading || Boolean(organizationError)))
+                    }
+                  >
+                    {submitting
+                      ? "Verifying information..."
+                      : "Verify identity and send OTP"}
+                  </button>
+
+                  {usingInvitation && (
+                    <div className="activation-secondary-actions activation-field-wide">
+                      <button
+                        type="button"
+                        onClick={switchToManualActivation}
+                        disabled={submitting}
+                      >
+                        Use manual activation instead
+                      </button>
+                    </div>
+                  )}
+                </form>
+              </>
+            )}
 
           {stage === "otp" && (
             <>
               <div className="activation-heading">
                 <p>Step 2 of 3</p>
-
                 <h3>Verify official email</h3>
-
                 <span>
                   Enter the six-digit code sent to{" "}
                   <strong>{identity.officialEmail}</strong>.
@@ -618,7 +738,6 @@ export function ActivationPage() {
 
                 <label className="activation-field activation-field-wide">
                   <span>Six-digit activation code</span>
-
                   <input
                     className="activation-otp-input"
                     type="text"
@@ -680,9 +799,7 @@ export function ActivationPage() {
             <>
               <div className="activation-heading">
                 <p>Step 3 of 3</p>
-
                 <h3>Create secure password</h3>
-
                 <span>
                   Activating <strong>{verifiedResult.employee.empName}</strong>{" "}
                   as{" "}
@@ -705,7 +822,6 @@ export function ActivationPage() {
 
                 <label className="activation-field activation-field-wide">
                   <span>New password</span>
-
                   <div className="activation-password-field">
                     <input
                       type={showPassword ? "text" : "password"}
@@ -717,7 +833,6 @@ export function ActivationPage() {
                       maxLength={128}
                       required
                     />
-
                     <button
                       type="button"
                       onClick={() => setShowPassword((current) => !current)}
@@ -732,7 +847,6 @@ export function ActivationPage() {
 
                 <label className="activation-field activation-field-wide">
                   <span>Confirm password</span>
-
                   <input
                     type={showPassword ? "text" : "password"}
                     value={confirmPassword}
@@ -774,18 +888,14 @@ export function ActivationPage() {
               <div className="activation-success-icon" aria-hidden="true">
                 ✓
               </div>
-
               <p>Activation completed</p>
-
               <h3>Welcome to NT Message</h3>
-
               <span>
                 The account for{" "}
                 <strong>{completionResult.employee.empName}</strong> has been
                 activated as{" "}
                 <strong>{formatRole(completionResult.account.role)}</strong>.
               </span>
-
               <Link
                 className="activation-primary activation-login-link"
                 to="/login"

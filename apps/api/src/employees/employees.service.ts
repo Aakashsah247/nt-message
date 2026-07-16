@@ -6,6 +6,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 
+import { ActivationInvitationsService } from '../activation-invitations/activation-invitations.service';
 import type { AuthenticatedUser } from '../auth/types/auth.types';
 import {
   getNepalPhoneLookupVariants,
@@ -54,6 +55,7 @@ export class EmployeesService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly conversationsService: ConversationsService,
+    private readonly activationInvitationsService: ActivationInvitationsService,
   ) {}
 
   private async synchronizeOfficialGroups(
@@ -287,6 +289,14 @@ export class EmployeesService {
 
     const userAgent = metadata.userAgent?.slice(0, 500) || null;
 
+    /*
+     * Generate the opaque token before the transaction, but persist only its
+     * hash with the employee and approved request. The raw token exists only
+     * long enough to build the post-commit email.
+     */
+    const preparedInvitation =
+      this.activationInvitationsService.prepareInvitation(now);
+
     const result = await this.prisma.$transaction(async (transaction) => {
       let managementPositionId: string | null = null;
 
@@ -512,18 +522,58 @@ export class EmployeesService {
         ],
       });
 
+      const invitation =
+        await this.activationInvitationsService.queueInvitation(
+          transaction,
+          {
+            accountRequestId: accountRequest.id,
+            employeeId: employee.id,
+            actorAccountId: user.accountId,
+            source: 'SUPER_ADMIN_DIRECT_CREATION',
+            ipAddress,
+            userAgent,
+          },
+          preparedInvitation,
+        );
+
       return {
         employee,
         accountRequest,
+        invitation,
       };
     });
+
+    /*
+     * SMTP delivery occurs only after the identity transaction commits. A
+     * provider failure is recorded but never rolls back the approved account.
+     */
+    const activationEmailDelivery =
+      await this.activationInvitationsService.deliverQueuedInvitation({
+        ...result.invitation,
+        employeeName: result.employee.empName,
+        employeeCode: result.employee.empId,
+        officialEmail: result.employee.officialEmail,
+        phoneNumber: result.employee.phoneNumber,
+        divisionName: division.name,
+        departmentName: department?.name ?? null,
+        requestedRole,
+      });
 
     return {
       message: 'Account identity created successfully.',
 
       employee: result.employee,
 
-      accountRequest: result.accountRequest,
+      accountRequest: {
+        ...result.accountRequest,
+        activationEmailStatus: activationEmailDelivery.status,
+        activationEmailLastAttemptAt: activationEmailDelivery.attemptedAt,
+        activationEmailSentAt: activationEmailDelivery.sentAt,
+        activationEmailFailureCategory:
+          activationEmailDelivery.failureCategory,
+      },
+
+      activationEmailDelivery,
     };
   }
 

@@ -104,6 +104,27 @@ export class AccountRequestsController {
     return this.accountRequestsService.getDivisionEmployeeRequest(user, id);
   }
 
+  // The route guard limits eligible role classes; the service performs the
+  // authoritative requester-ownership and organization-scope checks.
+  @Post(':id/activation-email/resend')
+  @Roles(AccountRole.SUPER_ADMIN, ...REQUEST_CREATOR_ROLES)
+  resendActivationEmail(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param(
+      'id',
+      new ParseUUIDPipe({
+        version: '4',
+      }),
+    )
+    id: string,
+    @Req() request: Request,
+  ) {
+    return this.accountRequestsService.resendActivationEmail(user, id, {
+      ipAddress: request.ip ?? request.socket.remoteAddress ?? null,
+      userAgent: request.get('user-agent') ?? null,
+    });
+  }
+
   @Get('mine')
   @Roles(...REQUEST_CREATOR_ROLES)
   listMyRequests(

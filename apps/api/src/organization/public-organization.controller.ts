@@ -6,6 +6,11 @@ import { OrganizationService } from './organization.service';
 export class PublicOrganizationController {
   constructor(private readonly organizationService: OrganizationService) {}
 
+  @Get('divisions')
+  listDivisions() {
+    return this.organizationService.listPublicDivisions();
+  }
+
   @Get('departments')
   listDepartments() {
     return this.organizationService.listPublicDepartments();

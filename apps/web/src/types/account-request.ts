@@ -8,6 +8,12 @@ export type AccountRequestStatus =
   | "ACTIVATION_PENDING"
   | "ACTIVATED";
 
+export type ActivationEmailDeliveryStatus =
+  | "NOT_SENT"
+  | "PENDING"
+  | "SENT"
+  | "FAILED";
+
 export type AccountRequestActionType =
   | "CREATED"
   | "SUBMITTED"
@@ -15,7 +21,11 @@ export type AccountRequestActionType =
   | "REJECTED"
   | "RESUBMITTED"
   | "ACTIVATION_STARTED"
-  | "ACTIVATED";
+  | "ACTIVATED"
+  | "ACTIVATION_EMAIL_QUEUED"
+  | "ACTIVATION_EMAIL_SENT"
+  | "ACTIVATION_EMAIL_FAILED"
+  | "ACTIVATION_EMAIL_RESENT";
 
 export interface AccountRequestDivision {
   id: string;
@@ -32,9 +42,7 @@ export interface AccountRequestDepartment {
   isActive?: boolean;
 }
 
-export type ManagementPositionType =
-  | "SENIOR_MANAGEMENT"
-  | "TEAM_MANAGER";
+export type ManagementPositionType = "SENIOR_MANAGEMENT" | "TEAM_MANAGER";
 
 export interface AvailableManagementPosition {
   id: string;
@@ -79,6 +87,10 @@ export interface AdminAccountRequestListItem {
   reviewedAt: string | null;
   createdAt: string;
   updatedAt: string;
+  activationEmailStatus: ActivationEmailDeliveryStatus;
+  activationEmailLastAttemptAt: string | null;
+  activationEmailSentAt: string | null;
+  activationEmailFailureCategory: string | null;
 
   division: AccountRequestDivision | null;
 
@@ -130,6 +142,10 @@ export interface AdminAccountRequestDetail {
   reviewedAt: string | null;
   createdAt: string;
   updatedAt: string;
+  activationEmailStatus: ActivationEmailDeliveryStatus;
+  activationEmailLastAttemptAt: string | null;
+  activationEmailSentAt: string | null;
+  activationEmailFailureCategory: string | null;
 
   division: AccountRequestDivision | null;
 
@@ -143,7 +159,6 @@ export interface AdminAccountRequestDetail {
 
   actions: AccountRequestAction[];
 }
-
 
 export interface AdminAccountRequestListQuery {
   status: AccountRequestStatus;
@@ -211,6 +226,10 @@ export interface ApproveAccountRequestResponse {
     submittedAt: string;
     reviewedAt: string | null;
     updatedAt: string;
+    activationEmailStatus: ActivationEmailDeliveryStatus;
+    activationEmailLastAttemptAt: string | null;
+    activationEmailSentAt: string | null;
+    activationEmailFailureCategory: string | null;
     division: AccountRequestDivision | null;
     department: AccountRequestDepartment | null;
   };
@@ -250,6 +269,10 @@ export interface CloseAccountRequestResponse {
     submittedAt: string;
     reviewedAt: string | null;
     updatedAt: string;
+    activationEmailStatus: ActivationEmailDeliveryStatus;
+    activationEmailLastAttemptAt: string | null;
+    activationEmailSentAt: string | null;
+    activationEmailFailureCategory: string | null;
     division: AccountRequestDivision | null;
     department: AccountRequestDepartment | null;
   };
@@ -274,10 +297,37 @@ export interface RejectAccountRequestResponse {
     submittedAt: string;
     reviewedAt: string | null;
     updatedAt: string;
+    activationEmailStatus: ActivationEmailDeliveryStatus;
+    activationEmailLastAttemptAt: string | null;
+    activationEmailSentAt: string | null;
+    activationEmailFailureCategory: string | null;
     division: AccountRequestDivision | null;
     department: AccountRequestDepartment | null;
     reviewedBy: AccountRequestActor | null;
   };
+}
+
+export interface ResendActivationEmailResponse {
+  message: string;
+
+  accountRequest: {
+    id: string;
+    status: AccountRequestStatus;
+    requestedRole: AccountRole;
+    activationEmailStatus: ActivationEmailDeliveryStatus;
+    activationEmailLastAttemptAt: string;
+    activationEmailSentAt: string | null;
+    activationEmailFailureCategory: string | null;
+  };
+
+  activationEmailDelivery: {
+    status: ActivationEmailDeliveryStatus;
+    attemptedAt: string;
+    sentAt: string | null;
+    failureCategory: string | null;
+  };
+
+  resendAvailableAt: string;
 }
 
 /* MANAGER ACCOUNT REQUEST TYPES START */
@@ -340,6 +390,10 @@ export interface SubmittedAccountRequest {
   submittedAt: string;
   createdAt: string;
   updatedAt: string;
+  activationEmailStatus: ActivationEmailDeliveryStatus;
+  activationEmailLastAttemptAt: string | null;
+  activationEmailSentAt: string | null;
+  activationEmailFailureCategory: string | null;
 
   division: AccountRequestDivision | null;
 
@@ -373,6 +427,10 @@ export interface MyAccountRequestListItem {
   reviewedAt: string | null;
   createdAt: string;
   updatedAt: string;
+  activationEmailStatus: ActivationEmailDeliveryStatus;
+  activationEmailLastAttemptAt: string | null;
+  activationEmailSentAt: string | null;
+  activationEmailFailureCategory: string | null;
 
   division: AccountRequestDivision | null;
 
@@ -408,6 +466,10 @@ export interface MyAccountRequestDetail {
   reviewedAt: string | null;
   createdAt: string;
   updatedAt: string;
+  activationEmailStatus: ActivationEmailDeliveryStatus;
+  activationEmailLastAttemptAt: string | null;
+  activationEmailSentAt: string | null;
+  activationEmailFailureCategory: string | null;
 
   division: AccountRequestDivision | null;
 
@@ -459,18 +521,18 @@ export interface OwnAccountStatusResponse {
     } | null;
   };
 
-  accountRequest: (MyAccountRequestDetail & {
-    requestedBy: AccountRequestRequester;
-  }) | null;
+  accountRequest:
+    | (MyAccountRequestDetail & {
+        requestedBy: AccountRequestRequester;
+      })
+    | null;
 }
 
-export interface ScopedAccountRequestListItem
-  extends MyAccountRequestListItem {
+export interface ScopedAccountRequestListItem extends MyAccountRequestListItem {
   requestedBy: AccountRequestRequester;
 }
 
-export interface ScopedAccountRequestDetail
-  extends MyAccountRequestDetail {
+export interface ScopedAccountRequestDetail extends MyAccountRequestDetail {
   requestedBy: AccountRequestRequester;
 }
 

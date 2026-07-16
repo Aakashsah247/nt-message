@@ -262,7 +262,8 @@ export function ManagerRequestHistory({
   }
 
   const activeFilterLabel =
-    statusFilters.find((filter) => filter.value === statusFilter)?.label ?? "All";
+    statusFilters.find((filter) => filter.value === statusFilter)?.label ??
+    "All";
   const hasAdvancedFilters = Boolean(
     appliedFilters.search ||
       appliedFilters.departmentId ||
@@ -315,7 +316,10 @@ export function ManagerRequestHistory({
           })}
         </nav>
 
-        <form className="manager-request-history__advanced" onSubmit={applyFilters}>
+        <form
+          className="manager-request-history__advanced"
+          onSubmit={applyFilters}
+        >
           <label className="manager-request-history__search">
             <span>Search records</span>
             <input
@@ -327,9 +331,11 @@ export function ManagerRequestHistory({
                   search: event.target.value,
                 }))
               }
-              placeholder={isDivisionEmployeeView
-                ? "Employee, ID, email or Team Manager"
-                : "Employee name, ID or official email"}
+              placeholder={
+                isDivisionEmployeeView
+                  ? "Employee, ID, email or Team Manager"
+                  : "Employee name, ID or official email"
+              }
             />
           </label>
 
@@ -388,7 +394,9 @@ export function ManagerRequestHistory({
             <button
               type="button"
               onClick={clearFilters}
-              disabled={!hasDraftFilters && !hasAdvancedFilters && !statusFilter}
+              disabled={
+                !hasDraftFilters && !hasAdvancedFilters && !statusFilter
+              }
             >
               Clear
             </button>
@@ -396,7 +404,10 @@ export function ManagerRequestHistory({
         </form>
 
         {error && (
-          <div className="manager-request-history__state manager-request-history__state--error" role="alert">
+          <div
+            className="manager-request-history__state manager-request-history__state--error"
+            role="alert"
+          >
             <div>
               <strong>Request history unavailable</strong>
               <p>{error}</p>
@@ -441,6 +452,7 @@ export function ManagerRequestHistory({
                   <th>Department</th>
                   {isDivisionEmployeeView && <th>Requested by</th>}
                   <th>Status</th>
+                  <th>Activation email</th>
                   <th>Submitted</th>
                   <th>Action</th>
                 </tr>
@@ -450,9 +462,11 @@ export function ManagerRequestHistory({
                 {requests.map((request) => (
                   <tr
                     key={request.id}
-                    className={selectedRequestId === request.id
-                      ? "manager-request-history__row manager-request-history__row--selected"
-                      : "manager-request-history__row"}
+                    className={
+                      selectedRequestId === request.id
+                        ? "manager-request-history__row manager-request-history__row--selected"
+                        : "manager-request-history__row"
+                    }
                   >
                     <td data-label="Employee">
                       <strong>{request.empName}</strong>
@@ -466,7 +480,9 @@ export function ManagerRequestHistory({
                     </td>
 
                     <td data-label="Department">
-                      <strong>{request.department?.name ?? "Not assigned"}</strong>
+                      <strong>
+                        {request.department?.name ?? "Not assigned"}
+                      </strong>
                       <small>{request.division?.name ?? "Not assigned"}</small>
                     </td>
 
@@ -474,12 +490,14 @@ export function ManagerRequestHistory({
                       <td data-label="Requested by">
                         <strong>
                           {isScopedRequest(request)
-                            ? request.requestedBy.employee?.empName ?? "Team Manager"
+                            ? (request.requestedBy.employee?.empName ??
+                              "Team Manager")
                             : "Team Manager"}
                         </strong>
                         <small>
                           {isScopedRequest(request)
-                            ? request.requestedBy.employee?.empId ?? "Authorized requester"
+                            ? (request.requestedBy.employee?.empId ??
+                              "Authorized requester")
                             : "Authorized requester"}
                         </small>
                       </td>
@@ -498,6 +516,23 @@ export function ManagerRequestHistory({
                           {request.rejectionReason}
                         </small>
                       )}
+                    </td>
+
+                    <td data-label="Activation email">
+                      <strong
+                        className={`activation-delivery-status activation-delivery-status--${request.activationEmailStatus.toLowerCase()}`}
+                      >
+                        {formatStatus(request.activationEmailStatus)}
+                      </strong>
+                      <small>
+                        {request.activationEmailSentAt
+                          ? `Sent ${formatDate(request.activationEmailSentAt)}`
+                          : request.activationEmailLastAttemptAt
+                            ? `Attempted ${formatDate(
+                                request.activationEmailLastAttemptAt,
+                              )}`
+                            : "Not attempted"}
+                      </small>
                     </td>
 
                     <td data-label="Submitted">
