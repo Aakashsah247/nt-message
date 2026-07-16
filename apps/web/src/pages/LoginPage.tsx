@@ -205,8 +205,9 @@ export function LoginPage() {
             </label>
                                                                 
             <div className="login-options">
-              <Link className="forgot-link"to="/forgot-password">
-              Forgot password?</Link>
+              <Link className="forgot-link" to="/forgot-password">
+                Forgot password?
+              </Link>
             </div>
 
             {securityNotice && (

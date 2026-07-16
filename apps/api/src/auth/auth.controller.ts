@@ -17,10 +17,14 @@ import { AuthService } from './auth.service';
 import { CurrentUser } from './decorators/current-user.decorator';
 import { AdminLoginDto } from './dto/admin-login.dto';
 import { ChangePasswordDto } from './dto/change-password.dto';
+import { CompletePasswordResetDto } from './dto/complete-password-reset.dto';
+import { RequestPasswordResetDto } from './dto/request-password-reset.dto';
+import { VerifyPasswordResetOtpDto } from './dto/verify-password-reset-otp.dto';
 import { EmployeeLoginDto } from './dto/employee-login.dto';
 import { UnifiedLoginDto } from './dto/unified-login.dto';
 import { AccessTokenGuard } from './guards/access-token.guard';
 import { PasswordManagementService } from './services/password-management.service';
+import { PasswordRecoveryService } from './services/password-recovery.service';
 import type { AuthenticatedUser } from './types/auth.types';
 
 @Controller('auth')
@@ -31,6 +35,7 @@ export class AuthController {
   constructor(
     private readonly authService: AuthService,
     private readonly passwordManagementService: PasswordManagementService,
+    private readonly passwordRecoveryService: PasswordRecoveryService,
 
     configService: ConfigService,
   ) {
@@ -172,6 +177,56 @@ export class AuthController {
 
       account: result.account,
     };
+  }
+
+  @Post('forgot-password/request')
+  @HttpCode(HttpStatus.OK)
+  requestPasswordReset(
+    @Body()
+    dto: RequestPasswordResetDto,
+  ) {
+    /*
+     * The service returns the same response for eligible and unknown email
+     * addresses so this public endpoint cannot enumerate NT accounts.
+     */
+    return this.passwordRecoveryService.requestPasswordReset(
+      dto.officialEmail,
+    );
+  }
+
+  @Post('forgot-password/verify')
+  @HttpCode(HttpStatus.OK)
+  verifyPasswordResetOtp(
+    @Body()
+    dto: VerifyPasswordResetOtpDto,
+  ) {
+    return this.passwordRecoveryService.verifyPasswordResetOtp(
+      dto.officialEmail,
+      dto.otp,
+    );
+  }
+
+  @Post('forgot-password/complete')
+  @HttpCode(HttpStatus.OK)
+  async completePasswordReset(
+    @Body()
+    dto: CompletePasswordResetDto,
+
+    @Res({
+      passthrough: true,
+    })
+    response: Response,
+  ) {
+    const result =
+      await this.passwordRecoveryService.completePasswordReset(dto);
+
+    /*
+     * A browser may still hold an older refresh cookie. Every persisted
+     * session was revoked, and clearing the cookie completes local cleanup.
+     */
+    this.clearRefreshCookie(response);
+
+    return result;
   }
 
   @Post('change-password')

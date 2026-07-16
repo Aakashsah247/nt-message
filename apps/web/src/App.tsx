@@ -6,6 +6,7 @@ import "./styles/monitoring-workspace.css";
 import "./styles/official-profile-workspace.css";
 import "./styles/messaging-workspace.css";
 import "./styles/security-workspace.css";
+import "./styles/password-recovery.css";
 import { Navigate, Route, Routes } from "react-router";
 import { ManagementLayout } from "./components/layout/ManagementLayout";
 import { ProtectedRoute } from "./components/ProtectedRoute";

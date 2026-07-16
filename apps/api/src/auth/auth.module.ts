@@ -10,6 +10,7 @@ import { RolesGuard } from './guards/roles.guard';
 import { AccessTokenValidationService } from './services/access-token-validation.service';
 import { DailySessionLogoutService } from './services/daily-session-logout.service';
 import { PasswordManagementService } from './services/password-management.service';
+import { PasswordRecoveryService } from './services/password-recovery.service';
 import { AccessTokenStrategy } from './strategies/access-token.strategy';
 
 @Module({
@@ -30,6 +31,7 @@ import { AccessTokenStrategy } from './strategies/access-token.strategy';
     AccessTokenValidationService,
     DailySessionLogoutService,
     PasswordManagementService,
+    PasswordRecoveryService,
     AccessTokenStrategy,
     AccessTokenGuard,
     RolesGuard,

@@ -94,6 +94,7 @@ enum ActivityEventType {
   EMERGENCY_ALERT_SENT
   SESSION_POLICY_LOGOUT
   PASSWORD_CHANGED
+  PASSWORD_RESET_COMPLETED
 }
 
 enum ConversationType {
@@ -308,11 +309,38 @@ model Account {
   superAdminProfile            SuperAdminProfile?           @relation("SuperAdminProfileAccount")
   emergencyAlertsSent          EmergencyAlert[]             @relation("EmergencyAlertSender")
   emergencyAlertRecipients     EmergencyAlertRecipient[]    @relation("EmergencyAlertRecipientAccount")
+  passwordResetChallenges      PasswordResetChallenge[]
 
   @@index([role], map: "accounts_role_idx")
   @@index([isEnabled], map: "accounts_is_enabled_idx")
   @@index([profilePhotoKey], map: "accounts_profile_photo_key_idx")
   @@map("accounts")
+}
+
+
+model PasswordResetChallenge {
+  id        String @id @default(uuid()) @db.Uuid
+  accountId String @map("account_id") @db.Uuid
+
+  otpHash      String @map("otp_hash") @db.VarChar(64)
+  attemptCount Int    @default(0) @map("attempt_count")
+  maxAttempts  Int    @default(5) @map("max_attempts")
+
+  expiresAt  DateTime  @map("expires_at") @db.Timestamptz(3)
+  verifiedAt DateTime? @map("verified_at") @db.Timestamptz(3)
+
+  resetTokenHash      String?   @unique @map("reset_token_hash") @db.VarChar(64)
+  resetTokenExpiresAt DateTime? @map("reset_token_expires_at") @db.Timestamptz(3)
+
+  consumedAt DateTime? @map("consumed_at") @db.Timestamptz(3)
+  createdAt  DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  account Account @relation(fields: [accountId], references: [id], onDelete: Cascade)
+
+  @@index([accountId, createdAt], map: "password_reset_challenges_account_created_idx")
+  @@index([expiresAt], map: "password_reset_challenges_expires_at_idx")
+  @@index([resetTokenExpiresAt], map: "password_reset_challenges_token_expires_idx")
+  @@map("password_reset_challenges")
 }
 
 model ManagementPosition {

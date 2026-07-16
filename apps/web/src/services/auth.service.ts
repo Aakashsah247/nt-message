@@ -3,6 +3,9 @@ import type {
   AuthResponse,
   ChangePasswordInput,
   ChangePasswordResponse,
+  PasswordResetCompletionResponse,
+  PasswordResetRequestResponse,
+  PasswordResetVerificationResponse,
 } from "../types/auth";
 
 let refreshPromise:
@@ -63,4 +66,52 @@ export function changePassword(
     },
     body: JSON.stringify(payload),
   });
+}
+
+export function requestPasswordReset(
+  officialEmail: string,
+): Promise<PasswordResetRequestResponse> {
+  return apiRequest<PasswordResetRequestResponse>(
+    "/auth/forgot-password/request",
+    {
+      method: "POST",
+      body: JSON.stringify({
+        officialEmail,
+      }),
+    },
+  );
+}
+
+export function verifyPasswordResetOtp(
+  officialEmail: string,
+  otp: string,
+): Promise<PasswordResetVerificationResponse> {
+  return apiRequest<PasswordResetVerificationResponse>(
+    "/auth/forgot-password/verify",
+    {
+      method: "POST",
+      body: JSON.stringify({
+        officialEmail,
+        otp,
+      }),
+    },
+  );
+}
+
+export function completePasswordReset(
+  resetToken: string,
+  newPassword: string,
+  confirmPassword: string,
+): Promise<PasswordResetCompletionResponse> {
+  return apiRequest<PasswordResetCompletionResponse>(
+    "/auth/forgot-password/complete",
+    {
+      method: "POST",
+      body: JSON.stringify({
+        resetToken,
+        newPassword,
+        confirmPassword,
+      }),
+    },
+  );
 }

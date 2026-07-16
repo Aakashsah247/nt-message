@@ -29,6 +29,22 @@ export interface ChangePasswordResponse {
   revokedSessions: number;
 }
 
+export interface PasswordResetRequestResponse {
+  message: string;
+  resendAfterSeconds: number;
+}
+
+export interface PasswordResetVerificationResponse {
+  message: string;
+  resetToken: string;
+  expiresInSeconds: number;
+}
+
+export interface PasswordResetCompletionResponse {
+  message: string;
+  revokedSessions: number;
+}
+
 export interface ApiErrorResponse {
   message?: string | string[];
   error?: string;

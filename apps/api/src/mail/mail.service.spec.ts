@@ -115,4 +115,52 @@ describe('MailService security messages', () => {
       /old password|new password:|password hash|otp:|session token/i,
     );
   });
+
+it('sends a one-time password recovery code without password data', async () => {
+  const service = createService();
+
+  await service.sendPasswordResetOtp({
+    to: 'employee@ntc.net.np',
+    displayName: 'Employee User',
+    otp: '123456',
+    expiresInMinutes: 10,
+  });
+
+  const message = sendMail.mock.calls[0]?.[0] as {
+    subject: string;
+    text: string;
+  };
+
+  expect(message.subject).toBe('NT Message password recovery code');
+  expect(message.text).toContain('Recovery code: 123456');
+  expect(message.text).toContain('expires in 10 minutes');
+  expect(message.text).not.toMatch(
+    /current password:|new password:|password hash|reset token/i,
+  );
+});
+
+it('sends a privacy-safe password reset confirmation', async () => {
+  const service = createService();
+  const changedAt = new Date('2026-07-17T10:00:00.000Z');
+
+  await service.sendPasswordResetNotification({
+    to: 'employee@ntc.net.np',
+    displayName: 'Employee User',
+    changedAt,
+  });
+
+  const message = sendMail.mock.calls[0]?.[0] as {
+    subject: string;
+    text: string;
+  };
+
+  expect(message.subject).toBe('Your NT Message password was reset');
+  expect(message.text).toContain(
+    'All active NT Message sessions were signed out.',
+  );
+  expect(message.text).not.toMatch(
+    /otp:|password:|password hash|reset token/i,
+  );
+});
+
 });

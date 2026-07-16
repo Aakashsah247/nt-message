@@ -560,6 +560,7 @@ export class MonitoringService implements OnModuleInit, OnModuleDestroy {
         };
       case ActivityEventType.BUTTON_CLICK:
       case ActivityEventType.PASSWORD_CHANGED:
+      case ActivityEventType.PASSWORD_RESET_COMPLETED:
         return {
           lastActiveAt: occurredAt,
           actionsCount: 1,
@@ -625,6 +626,10 @@ export class MonitoringService implements OnModuleInit, OnModuleDestroy {
 
     if (eventType === ActivityEventType.PASSWORD_CHANGED) {
       return 'Account password changed. Password values and hashes are not recorded.';
+    }
+
+    if (eventType === ActivityEventType.PASSWORD_RESET_COMPLETED) {
+      return 'Account password recovered through email OTP. Password, OTP and token values are not recorded.';
     }
 
     if (eventType === ActivityEventType.SESSION_POLICY_LOGOUT) {
