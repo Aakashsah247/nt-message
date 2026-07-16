@@ -17,6 +17,14 @@ import {
   randomUUID,
   timingSafeEqual,
 } from 'node:crypto';
+import {
+  getNepalPhoneLookupVariants,
+  normalizeEmployeeId,
+  normalizeEmployeeName,
+  normalizeNepalPhoneNumber,
+  normalizeOfficialEmailForLookup,
+  sanitizeOfficialEmail,
+} from '../common/normalization/account-identity-normalization';
 import { ConversationsService } from '../conversations/conversations.service';
 import { PrismaService } from '../database/prisma.service';
 
@@ -222,13 +230,16 @@ export class ActivationService {
     dto: RequestActivationOtpDto,
     metadata: ActivationAuditMetadata,
   ): Promise<RequestOtpResult> {
-    const empName = dto.empName.trim().replace(/\s+/g, ' ');
+    const empName = normalizeEmployeeName(dto.empName);
 
-    const empId = dto.empId.trim().toUpperCase();
+    const empId = normalizeEmployeeId(dto.empId);
 
-    const phoneNumber = dto.phoneNumber.trim();
+    const phoneNumber = normalizeNepalPhoneNumber(dto.phoneNumber);
+    const phoneLookupValues = getNepalPhoneLookupVariants(phoneNumber);
 
-    const officialEmail = dto.officialEmail.trim().toLowerCase();
+    const officialEmail = sanitizeOfficialEmail(dto.officialEmail);
+    const officialEmailLookup =
+      normalizeOfficialEmailForLookup(officialEmail);
 
     const departmentId = dto.departmentId.trim();
 
@@ -249,8 +260,13 @@ export class ActivationService {
         const employee = await transaction.employee.findFirst({
           where: {
             empId,
-            phoneNumber,
-            officialEmail,
+            phoneNumber: {
+              in: phoneLookupValues,
+            },
+            officialEmail: {
+              equals: officialEmailLookup,
+              mode: 'insensitive',
+            },
             departmentId,
 
             empName: {
@@ -293,8 +309,13 @@ export class ActivationService {
             employeeId: employee.id,
 
             empId,
-            phoneNumber,
-            officialEmail,
+            phoneNumber: {
+              in: phoneLookupValues,
+            },
+            officialEmail: {
+              equals: officialEmailLookup,
+              mode: 'insensitive',
+            },
 
             empName: {
               equals: empName,
@@ -511,13 +532,16 @@ export class ActivationService {
   }
 
   async verifyOtp(dto: VerifyActivationOtpDto): Promise<VerifyOtpResult> {
-    const empName = dto.empName.trim().replace(/\s+/g, ' ');
+    const empName = normalizeEmployeeName(dto.empName);
 
-    const empId = dto.empId.trim().toUpperCase();
+    const empId = normalizeEmployeeId(dto.empId);
 
-    const phoneNumber = dto.phoneNumber.trim();
+    const phoneNumber = normalizeNepalPhoneNumber(dto.phoneNumber);
+    const phoneLookupValues = getNepalPhoneLookupVariants(phoneNumber);
 
-    const officialEmail = dto.officialEmail.trim().toLowerCase();
+    const officialEmail = sanitizeOfficialEmail(dto.officialEmail);
+    const officialEmailLookup =
+      normalizeOfficialEmailForLookup(officialEmail);
 
     const departmentId = dto.departmentId.trim();
 
@@ -530,8 +554,13 @@ export class ActivationService {
         const employee = await transaction.employee.findFirst({
           where: {
             empId,
-            phoneNumber,
-            officialEmail,
+            phoneNumber: {
+              in: phoneLookupValues,
+            },
+            officialEmail: {
+              equals: officialEmailLookup,
+              mode: 'insensitive',
+            },
             departmentId,
 
             empName: {
@@ -575,8 +604,13 @@ export class ActivationService {
             employeeId: employee.id,
 
             empId,
-            phoneNumber,
-            officialEmail,
+            phoneNumber: {
+              in: phoneLookupValues,
+            },
+            officialEmail: {
+              equals: officialEmailLookup,
+              mode: 'insensitive',
+            },
 
             empName: {
               equals: empName,

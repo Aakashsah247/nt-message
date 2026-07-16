@@ -7,6 +7,9 @@ import {
 } from '@nestjs/common';
 
 import type { AuthenticatedUser } from '../auth/types/auth.types';
+import {
+  normalizeAccountIdentity,
+} from '../common/normalization/account-identity-normalization';
 import { PrismaService } from '../database/prisma.service';
 import {
   AccountRequestActionType,
@@ -625,10 +628,14 @@ export class AccountRequestsService {
       );
     }
 
-    const empId = dto.empId.trim().toUpperCase();
-    const empName = dto.empName.trim().replace(/\s+/g, ' ');
-    const phoneNumber = dto.phoneNumber.trim();
-    const officialEmail = dto.officialEmail.trim().toLowerCase();
+    const {
+      empId,
+      empName,
+      phoneNumber,
+      phoneLookupValues,
+      officialEmail,
+      officialEmailLookup,
+    } = normalizeAccountIdentity(dto);
     const designation = dto.designation?.trim() || null;
 
     if (empName.length < 2) {
@@ -757,10 +764,15 @@ export class AccountRequestsService {
             empId,
           },
           {
-            officialEmail,
+            officialEmail: {
+              equals: officialEmailLookup,
+              mode: 'insensitive',
+            },
           },
           {
-            phoneNumber,
+            phoneNumber: {
+              in: phoneLookupValues,
+            },
           },
         ],
       },
@@ -787,10 +799,15 @@ export class AccountRequestsService {
             empId,
           },
           {
-            officialEmail,
+            officialEmail: {
+              equals: officialEmailLookup,
+              mode: 'insensitive',
+            },
           },
           {
-            phoneNumber,
+            phoneNumber: {
+              in: phoneLookupValues,
+            },
           },
         ],
       },
@@ -950,25 +967,19 @@ export class AccountRequestsService {
       );
     }
 
-    const empId =
-      dto.empId !== undefined
-        ? dto.empId.trim().toUpperCase()
-        : rejectedRequest.empId;
-
-    const empName =
-      dto.empName !== undefined
-        ? dto.empName.trim().replace(/\s+/g, ' ')
-        : rejectedRequest.empName;
-
-    const phoneNumber =
-      dto.phoneNumber !== undefined
-        ? dto.phoneNumber.trim()
-        : rejectedRequest.phoneNumber;
-
-    const officialEmail =
-      dto.officialEmail !== undefined
-        ? dto.officialEmail.trim().toLowerCase()
-        : rejectedRequest.officialEmail;
+    const {
+      empId,
+      empName,
+      phoneNumber,
+      phoneLookupValues,
+      officialEmail,
+      officialEmailLookup,
+    } = normalizeAccountIdentity({
+      empId: dto.empId ?? rejectedRequest.empId,
+      empName: dto.empName ?? rejectedRequest.empName,
+      phoneNumber: dto.phoneNumber ?? rejectedRequest.phoneNumber,
+      officialEmail: dto.officialEmail ?? rejectedRequest.officialEmail,
+    });
 
     const designation =
       dto.designation !== undefined
@@ -1193,10 +1204,15 @@ export class AccountRequestsService {
                 empId,
               },
               {
-                officialEmail,
+                officialEmail: {
+                  equals: officialEmailLookup,
+                  mode: 'insensitive',
+                },
               },
               {
-                phoneNumber,
+                phoneNumber: {
+                  in: phoneLookupValues,
+                },
               },
             ],
           },
@@ -1224,10 +1240,15 @@ export class AccountRequestsService {
                   empId,
                 },
                 {
-                  officialEmail,
+                  officialEmail: {
+                    equals: officialEmailLookup,
+                    mode: 'insensitive',
+                  },
                 },
                 {
-                  phoneNumber,
+                  phoneNumber: {
+                    in: phoneLookupValues,
+                  },
                 },
               ],
             },
@@ -1819,6 +1840,15 @@ export class AccountRequestsService {
             );
           }
 
+          const {
+            empId,
+            empName,
+            phoneNumber,
+            phoneLookupValues,
+            officialEmail,
+            officialEmailLookup,
+          } = normalizeAccountIdentity(request);
+
           let managementPositionId: string | null = null;
 
           if (request.requestedRole === AccountRole.TEAM_MANAGER) {
@@ -1843,14 +1873,27 @@ export class AccountRequestsService {
             );
           }
 
+          /*
+           * A request may contain an older approved phone representation or
+           * mixed-case email. Normalize once and check all unique identities
+           * in one query before the employee row is created.
+           */
           const duplicateEmployee = await transaction.employee.findFirst({
             where: {
               OR: [
                 {
-                  empId: request.empId,
+                  empId,
                 },
                 {
-                  officialEmail: request.officialEmail,
+                  officialEmail: {
+                    equals: officialEmailLookup,
+                    mode: 'insensitive',
+                  },
+                },
+                {
+                  phoneNumber: {
+                    in: phoneLookupValues,
+                  },
                 },
               ],
             },
@@ -1924,10 +1967,10 @@ export class AccountRequestsService {
 
           const employee = await transaction.employee.create({
             data: {
-              empId: request.empId,
-              empName: request.empName,
-              phoneNumber: request.phoneNumber,
-              officialEmail: request.officialEmail,
+              empId,
+              empName,
+              phoneNumber,
+              officialEmail,
               designation: request.designation,
 
               /*
@@ -1973,6 +2016,14 @@ export class AccountRequestsService {
             },
 
             data: {
+              /*
+               * Keep the approved request aligned with the canonical identity
+               * written to Employee, including older request records.
+               */
+              empId,
+              empName,
+              phoneNumber,
+              officialEmail,
               employeeId: employee.id,
             },
 

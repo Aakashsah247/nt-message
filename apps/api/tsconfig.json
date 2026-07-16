@@ -20,13 +20,16 @@
     "noImplicitAny": true,
     "strictBindCallApply": true,
     "noFallthroughCasesInSwitch": true,
-    "rootDir": "./src"
+    "rootDir": "./src",
+    "types": [
+      "node",
+      "jest"
+    ]
   },
   "include": [
     "src/**/*.ts"
   ],
   "exclude": [
-    "**/*.spec.ts",
     "dist",
     "node_modules",
     "prisma.config.ts",

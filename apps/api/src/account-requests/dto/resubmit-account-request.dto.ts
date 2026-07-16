@@ -27,13 +27,19 @@ export class ResubmitAccountRequestDto {
 
   @IsOptional()
   @IsString()
-  @Matches(/^\+?[0-9]{7,20}$/, {
-    message: 'Phone number must contain 7 to 20 digits and may start with +.',
+  @Matches(/^(?:9\d{9}|9779\d{9}|\+9779\d{9})$/, {
+    message:
+      'Use 98XXXXXXXX, 97798XXXXXXXX or +97798XXXXXXXX format.',
   })
   phoneNumber?: string;
 
   @IsOptional()
-  @IsEmail()
+  @IsEmail(
+    {},
+    {
+      message: 'Enter a valid official email address.',
+    },
+  )
   @MaxLength(255)
   officialEmail?: string;
 

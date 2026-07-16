@@ -7,6 +7,15 @@ import {
 } from '@nestjs/common';
 
 import type { AuthenticatedUser } from '../auth/types/auth.types';
+import {
+  getNepalPhoneLookupVariants,
+  normalizeAccountIdentity,
+  normalizeEmployeeId,
+  normalizeEmployeeName,
+  normalizeNepalPhoneNumber,
+  normalizeOfficialEmailForLookup,
+  sanitizeOfficialEmail,
+} from '../common/normalization/account-identity-normalization';
 import { ConversationsService } from '../conversations/conversations.service';
 import { PrismaService } from '../database/prisma.service';
 import {
@@ -162,13 +171,14 @@ export class EmployeesService {
       );
     }
 
-    const empId = dto.empId.trim().toUpperCase();
-
-    const officialEmail = dto.officialEmail.trim().toLowerCase();
-
-    const empName = dto.empName.trim().replace(/\s+/g, ' ');
-
-    const phoneNumber = dto.phoneNumber.trim();
+    const {
+      empId,
+      empName,
+      phoneNumber,
+      phoneLookupValues,
+      officialEmail,
+      officialEmailLookup,
+    } = normalizeAccountIdentity(dto);
 
     const designation = dto.designation?.trim() || null;
 
@@ -182,6 +192,11 @@ export class EmployeesService {
         dto.departmentId,
       );
 
+    /*
+     * Check every unique employee identity in one database round trip.
+     * Email matching is case-insensitive while new values preserve the
+     * approved casing for display and delivery.
+     */
     const existingEmployee = await this.prisma.employee.findFirst({
       where: {
         OR: [
@@ -189,13 +204,22 @@ export class EmployeesService {
             empId,
           },
           {
-            officialEmail,
+            officialEmail: {
+              equals: officialEmailLookup,
+              mode: 'insensitive',
+            },
+          },
+          {
+            phoneNumber: {
+              in: phoneLookupValues,
+            },
           },
         ],
       },
 
       select: {
         empId: true,
+        phoneNumber: true,
         officialEmail: true,
       },
     });
@@ -207,8 +231,17 @@ export class EmployeesService {
         );
       }
 
+      if (
+        normalizeOfficialEmailForLookup(existingEmployee.officialEmail) ===
+        officialEmailLookup
+      ) {
+        throw new ConflictException(
+          'An employee with this official email already exists.',
+        );
+      }
+
       throw new ConflictException(
-        'An employee with this official email already exists.',
+        'An employee with this phone number already exists.',
       );
     }
 
@@ -223,7 +256,15 @@ export class EmployeesService {
             empId,
           },
           {
-            officialEmail,
+            officialEmail: {
+              equals: officialEmailLookup,
+              mode: 'insensitive',
+            },
+          },
+          {
+            phoneNumber: {
+              in: phoneLookupValues,
+            },
           },
         ],
       },
@@ -236,7 +277,7 @@ export class EmployeesService {
 
     if (existingRequest) {
       throw new ConflictException(
-        'An active account request already exists for this employee ID or official email.',
+        'An active account request already exists for this employee ID, phone number, or official email.',
       );
     }
 
@@ -763,19 +804,31 @@ export class EmployeesService {
     }
 
     const empId =
-      dto.empId !== undefined ? dto.empId.trim().toUpperCase() : undefined;
+      dto.empId !== undefined ? normalizeEmployeeId(dto.empId) : undefined;
 
     const empName =
       dto.empName !== undefined
-        ? dto.empName.trim().replace(/\s+/g, ' ')
+        ? normalizeEmployeeName(dto.empName)
         : undefined;
 
     const phoneNumber =
-      dto.phoneNumber !== undefined ? dto.phoneNumber.trim() : undefined;
+      dto.phoneNumber !== undefined
+        ? normalizeNepalPhoneNumber(dto.phoneNumber)
+        : undefined;
+
+    const phoneLookupValues =
+      phoneNumber !== undefined
+        ? getNepalPhoneLookupVariants(phoneNumber)
+        : undefined;
 
     const officialEmail =
       dto.officialEmail !== undefined
-        ? dto.officialEmail.trim().toLowerCase()
+        ? sanitizeOfficialEmail(dto.officialEmail)
+        : undefined;
+
+    const officialEmailLookup =
+      officialEmail !== undefined
+        ? normalizeOfficialEmailForLookup(officialEmail)
         : undefined;
 
     const designation =
@@ -789,12 +842,18 @@ export class EmployeesService {
       );
     }
 
+    /*
+     * Activated accounts may correct formatting or email capitalization, but
+     * they cannot change the underlying approved employee identity.
+     */
     const identityChanged =
       employee.isActivated &&
       ((empId !== undefined && empId !== employee.empId) ||
-        (phoneNumber !== undefined && phoneNumber !== employee.phoneNumber) ||
-        (officialEmail !== undefined &&
-          officialEmail !== employee.officialEmail));
+        (phoneNumber !== undefined &&
+          phoneNumber !== normalizeNepalPhoneNumber(employee.phoneNumber)) ||
+        (officialEmailLookup !== undefined &&
+          officialEmailLookup !==
+            normalizeOfficialEmailForLookup(employee.officialEmail)));
 
     if (identityChanged) {
       throw new ConflictException(
@@ -810,13 +869,28 @@ export class EmployeesService {
       });
     }
 
-    if (officialEmail !== undefined) {
+    if (officialEmailLookup !== undefined) {
       duplicateConditions.push({
-        officialEmail,
+        officialEmail: {
+          equals: officialEmailLookup,
+          mode: 'insensitive',
+        },
+      });
+    }
+
+    if (phoneLookupValues !== undefined) {
+      duplicateConditions.push({
+        phoneNumber: {
+          in: phoneLookupValues,
+        },
       });
     }
 
     if (duplicateConditions.length > 0) {
+      /*
+       * Keep duplicate detection as one OR query so adding phone validation
+       * does not add another database round trip.
+       */
       const duplicate = await this.prisma.employee.findFirst({
         where: {
           id: {
@@ -828,6 +902,7 @@ export class EmployeesService {
 
         select: {
           empId: true,
+          phoneNumber: true,
           officialEmail: true,
         },
       });
@@ -838,9 +913,20 @@ export class EmployeesService {
         );
       }
 
-      if (duplicate?.officialEmail === officialEmail) {
+      if (
+        duplicate &&
+        officialEmailLookup !== undefined &&
+        normalizeOfficialEmailForLookup(duplicate.officialEmail) ===
+          officialEmailLookup
+      ) {
         throw new ConflictException(
           'An employee with this official email already exists.',
+        );
+      }
+
+      if (duplicate && phoneLookupValues?.includes(duplicate.phoneNumber)) {
+        throw new ConflictException(
+          'An employee with this phone number already exists.',
         );
       }
     }

@@ -19,6 +19,10 @@ import { JwtService } from '@nestjs/jwt';
 import * as argon2 from 'argon2';
 
 import { createHash, randomUUID, timingSafeEqual } from 'node:crypto';
+import {
+  normalizeOfficialEmailForLookup,
+  sanitizeOfficialEmail,
+} from '../common/normalization/account-identity-normalization';
 import { PrismaService } from '../database/prisma.service';
 import type { RefreshTokenPayload } from './types/auth.types';
 
@@ -242,11 +246,16 @@ export class AuthService {
     dto: EmployeeLoginDto,
     metadata: LoginMetadata,
   ): Promise<LoginResult> {
-    const officialEmail = dto.officialEmail.trim().toLowerCase();
+    const officialEmail = sanitizeOfficialEmail(dto.officialEmail);
+    const officialEmailLookup =
+      normalizeOfficialEmailForLookup(officialEmail);
 
-    const employee = await this.prisma.employee.findUnique({
+    const employee = await this.prisma.employee.findFirst({
       where: {
-        officialEmail,
+        officialEmail: {
+          equals: officialEmailLookup,
+          mode: 'insensitive',
+        },
       },
 
       select: {
