@@ -93,6 +93,7 @@ enum ActivityEventType {
   ACTIVE_RESUMED
   EMERGENCY_ALERT_SENT
   SESSION_POLICY_LOGOUT
+  PASSWORD_CHANGED
 }
 
 enum ConversationType {

@@ -19,6 +19,12 @@ import type {
   PublicDivision,
   VerifyActivationOtpResponse,
 } from "../types/activation";
+import {
+  PASSWORD_MAX_LENGTH,
+  PASSWORD_MIN_LENGTH,
+  PASSWORD_REQUIREMENTS_MESSAGE,
+  isSecurePassword,
+} from "../utils/password-policy";
 
 type ActivationStage = "identity" | "otp" | "password" | "success";
 
@@ -329,13 +335,8 @@ export function ActivationPage() {
       return;
     }
 
-    const securePassword =
-      /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[^A-Za-z0-9]).{12,128}$/;
-
-    if (!securePassword.test(password)) {
-      setError(
-        "Password must contain at least 12 characters, including uppercase, lowercase, number and special character.",
-      );
+    if (!isSecurePassword(password)) {
+      setError(PASSWORD_REQUIREMENTS_MESSAGE);
       return;
     }
 
@@ -829,8 +830,8 @@ export function ActivationPage() {
                       onChange={(event) => setPassword(event.target.value)}
                       placeholder="Create a secure password"
                       autoComplete="new-password"
-                      minLength={12}
-                      maxLength={128}
+                      minLength={PASSWORD_MIN_LENGTH}
+                      maxLength={PASSWORD_MAX_LENGTH}
                       required
                     />
                     <button
@@ -853,15 +854,14 @@ export function ActivationPage() {
                     onChange={(event) => setConfirmPassword(event.target.value)}
                     placeholder="Enter the password again"
                     autoComplete="new-password"
-                    minLength={12}
-                    maxLength={128}
+                    minLength={PASSWORD_MIN_LENGTH}
+                    maxLength={PASSWORD_MAX_LENGTH}
                     required
                   />
                 </label>
 
                 <div className="activation-password-rules">
-                  Use at least 12 characters with uppercase, lowercase, number
-                  and special character.
+                  {PASSWORD_REQUIREMENTS_MESSAGE}
                 </div>
 
                 {error && (

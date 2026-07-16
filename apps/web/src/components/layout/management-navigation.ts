@@ -21,6 +21,17 @@ export interface ManagementNavigationSection {
   items: ManagementNavigationItem[];
 }
 
+const ACCOUNT_SECURITY_SECTION: ManagementNavigationSection = {
+  label: "Account",
+  items: [
+    {
+      icon: "security",
+      label: "Security",
+      path: "/settings/security",
+    },
+  ],
+};
+
 const SUPER_ADMIN_NAVIGATION: ManagementNavigationSection[] = [
   {
     label: "Workspace",
@@ -157,15 +168,15 @@ export function getManagementNavigation(
   role: AccountRole,
 ): ManagementNavigationSection[] {
   if (role === "SUPER_ADMIN") {
-    return SUPER_ADMIN_NAVIGATION;
+    return [...SUPER_ADMIN_NAVIGATION, ACCOUNT_SECURITY_SECTION];
   }
 
   if (role === "SENIOR_MANAGEMENT" || role === "TEAM_MANAGER") {
-    return getManagerNavigation(role);
+    return [...getManagerNavigation(role), ACCOUNT_SECURITY_SECTION];
   }
 
   if (role === "EMPLOYEE") {
-    return EMPLOYEE_NAVIGATION;
+    return [...EMPLOYEE_NAVIGATION, ACCOUNT_SECURITY_SECTION];
   }
 
   return [];

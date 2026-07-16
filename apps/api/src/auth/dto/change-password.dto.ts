@@ -7,11 +7,11 @@ import {
   PASSWORD_REQUIREMENTS_MESSAGE,
 } from '../../common/security/password-policy';
 
-export class CompleteActivationDto {
+export class ChangePasswordDto {
   @IsString()
-  @MinLength(20)
-  @MaxLength(4096)
-  activationToken!: string;
+  @MinLength(1)
+  @MaxLength(PASSWORD_MAX_LENGTH)
+  currentPassword!: string;
 
   @IsString()
   @MinLength(PASSWORD_MIN_LENGTH)
@@ -19,7 +19,7 @@ export class CompleteActivationDto {
   @Matches(PASSWORD_COMPLEXITY_PATTERN, {
     message: PASSWORD_REQUIREMENTS_MESSAGE,
   })
-  password!: string;
+  newPassword!: string;
 
   @IsString()
   @MinLength(PASSWORD_MIN_LENGTH)

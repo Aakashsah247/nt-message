@@ -7,7 +7,7 @@ jest.mock('nodemailer', () => ({
   createTransport: jest.fn(),
 }));
 
-describe('MailService activation invitation', () => {
+describe('MailService security messages', () => {
   const sendMail = jest.fn();
 
   beforeEach(() => {
@@ -18,7 +18,7 @@ describe('MailService activation invitation', () => {
     } as unknown as nodemailer.Transporter);
   });
 
-  it('uses the approved activation email template and privacy-safe fields', async () => {
+  function createService(): MailService {
     const values: Record<string, string> = {
       SMTP_HOST: 'localhost',
       SMTP_PORT: '1025',
@@ -31,7 +31,11 @@ describe('MailService activation invitation', () => {
       get: jest.fn((key: string) => values[key]),
     } as unknown as ConfigService;
 
-    const service = new MailService(configService);
+    return new MailService(configService);
+  }
+
+  it('uses the approved activation email template and privacy-safe fields', async () => {
+    const service = createService();
 
     await service.sendActivationInvitation({
       to: 'Test6@gmail.com',
@@ -83,5 +87,32 @@ describe('MailService activation invitation', () => {
         'Do not share your OTP or password with anyone. Nepal Telecom administrators will never ask you to provide your password or OTP.',
       ].join('\n'),
     });
+  });
+
+  it('sends a privacy-safe password-changed notification', async () => {
+    const service = createService();
+    const changedAt = new Date('2026-07-17T06:30:00.000Z');
+
+    await service.sendPasswordChangedNotification({
+      to: 'employee@ntc.net.np',
+      displayName: 'Employee User',
+      changedAt,
+    });
+
+    expect(sendMail).toHaveBeenCalledTimes(1);
+
+    const message = sendMail.mock.calls[0]?.[0] as {
+      subject: string;
+      text: string;
+    };
+
+    expect(message.subject).toBe('Your NT Message password was changed');
+    expect(message.text).toContain(
+      'All active NT Message sessions were signed out.',
+    );
+    expect(message.text).toContain(changedAt.toISOString());
+    expect(message.text).not.toMatch(
+      /old password|new password:|password hash|otp:|session token/i,
+    );
   });
 });

@@ -18,6 +18,17 @@ export interface AuthResponse {
   account: AuthAccount;
 }
 
+export interface ChangePasswordInput {
+  currentPassword: string;
+  newPassword: string;
+  confirmPassword: string;
+}
+
+export interface ChangePasswordResponse {
+  message: string;
+  revokedSessions: number;
+}
+
 export interface ApiErrorResponse {
   message?: string | string[];
   error?: string;

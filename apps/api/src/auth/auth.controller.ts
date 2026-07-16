@@ -10,14 +10,17 @@ import {
   UseGuards,
 } from '@nestjs/common';
 
-import { UnifiedLoginDto } from './dto/unified-login.dto';
 import { ConfigService } from '@nestjs/config';
 import type { Request, Response } from 'express';
+
 import { AuthService } from './auth.service';
 import { CurrentUser } from './decorators/current-user.decorator';
-import { EmployeeLoginDto } from './dto/employee-login.dto';
 import { AdminLoginDto } from './dto/admin-login.dto';
+import { ChangePasswordDto } from './dto/change-password.dto';
+import { EmployeeLoginDto } from './dto/employee-login.dto';
+import { UnifiedLoginDto } from './dto/unified-login.dto';
 import { AccessTokenGuard } from './guards/access-token.guard';
+import { PasswordManagementService } from './services/password-management.service';
 import type { AuthenticatedUser } from './types/auth.types';
 
 @Controller('auth')
@@ -27,6 +30,7 @@ export class AuthController {
 
   constructor(
     private readonly authService: AuthService,
+    private readonly passwordManagementService: PasswordManagementService,
 
     configService: ConfigService,
   ) {
@@ -168,6 +172,40 @@ export class AuthController {
 
       account: result.account,
     };
+  }
+
+  @Post('change-password')
+  @UseGuards(AccessTokenGuard)
+  @HttpCode(HttpStatus.OK)
+  async changePassword(
+    @CurrentUser()
+    user: AuthenticatedUser,
+
+    @Body()
+    dto: ChangePasswordDto,
+
+    @Res({
+      passthrough: true,
+    })
+    response: Response,
+  ) {
+    /*
+     * Account and session identifiers come only from the verified access
+     * token; the request body cannot select another user's account.
+     */
+    const result = await this.passwordManagementService.changePassword(
+      user.accountId,
+      user.sessionId,
+      dto,
+    );
+
+    /*
+     * The service revoked every persisted session. Clearing the browser
+     * cookie completes the forced fresh-login boundary for this device.
+     */
+    this.clearRefreshCookie(response);
+
+    return result;
   }
 
   @Post('logout')

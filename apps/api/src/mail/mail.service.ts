@@ -21,6 +21,12 @@ export interface ActivationInvitationEmail {
   activationUrl: string;
 }
 
+export interface PasswordChangedNotificationEmail {
+  to: string;
+  displayName: string;
+  changedAt: Date;
+}
+
 export type MailDeliveryFailureCategory = 'SMTP_DELIVERY_FAILED';
 
 export class MailDeliveryError extends Error {
@@ -131,6 +137,38 @@ export class MailService {
        * Expose only a stable provider category. SMTP responses and transport
        * errors can contain infrastructure details and must not enter audits.
        */
+      throw new MailDeliveryError('SMTP_DELIVERY_FAILED');
+    }
+  }
+
+  async sendPasswordChangedNotification(
+    email: PasswordChangedNotificationEmail,
+  ): Promise<void> {
+    try {
+      await this.transporter.sendMail({
+        from: this.fromAddress,
+        to: email.to,
+        subject: 'Your NT Message password was changed',
+
+        /*
+         * Security notifications confirm the event only. Never include the
+         * old password, new password, password hash, OTP or session token.
+         */
+        text: [
+          `Dear ${email.displayName},`,
+          '',
+          'The password for your NT Message account was changed successfully.',
+          '',
+          `Changed at: ${email.changedAt.toISOString()}`,
+          '',
+          'All active NT Message sessions were signed out. Sign in again using your new password.',
+          '',
+          'If you did not make this change, contact the authorized Nepal Telecom system administrator immediately.',
+          '',
+          'Do not share your password or OTP with anyone. Nepal Telecom administrators will never ask you to provide them.',
+        ].join('\n'),
+      });
+    } catch {
       throw new MailDeliveryError('SMTP_DELIVERY_FAILED');
     }
   }

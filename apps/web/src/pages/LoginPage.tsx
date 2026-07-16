@@ -1,13 +1,20 @@
 import { useState } from "react";
 import type { FormEvent } from "react";
-import { Link, useNavigate } from "react-router";
+import { Link, useLocation, useNavigate } from "react-router";
 import { useAuth } from "../context/AuthContext";
 
-import { getRoleHomePath,} from "../utils/get-role-home-path";
+import { getRoleHomePath } from "../utils/get-role-home-path";
 
 export function LoginPage() {
   const navigate = useNavigate();
+  const location = useLocation();
   const { login } = useAuth();
+
+  const locationState = location.state as { notice?: unknown } | null;
+  const securityNotice =
+    typeof locationState?.notice === "string"
+      ? locationState.notice
+      : "";
 
   const [identifier, setIdentifier] = useState("");
   const [password, setPassword] = useState("");
@@ -201,6 +208,12 @@ export function LoginPage() {
               <Link className="forgot-link"to="/forgot-password">
               Forgot password?</Link>
             </div>
+
+            {securityNotice && (
+              <div className="login-security-notice" role="status">
+                {securityNotice}
+              </div>
+            )}
 
             {error && (
               <div className="login-error" role="alert">

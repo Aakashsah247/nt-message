@@ -5,6 +5,7 @@ import "./styles/organization-workspace.css";
 import "./styles/monitoring-workspace.css";
 import "./styles/official-profile-workspace.css";
 import "./styles/messaging-workspace.css";
+import "./styles/security-workspace.css";
 import { Navigate, Route, Routes } from "react-router";
 import { ManagementLayout } from "./components/layout/ManagementLayout";
 import { ProtectedRoute } from "./components/ProtectedRoute";
@@ -22,6 +23,7 @@ import { MessageAppPage } from "./pages/MessageAppPage";
 import { StarredMessagesPage } from "./pages/StarredMessagesPage";
 import { DirectoryPage } from "./pages/DirectoryPage";
 import { EmployeeDashboardPage } from "./pages/EmployeeDashboardPage";
+import { SecurityPage } from "./pages/SecurityPage";
 
 export default function App() {
   return (
@@ -166,6 +168,24 @@ export default function App() {
           <ProtectedRoute roles={["EMPLOYEE"]}>
             <ManagementLayout>
               <EmployeeDashboardPage />
+            </ManagementLayout>
+          </ProtectedRoute>
+        }
+      />
+
+      <Route
+        path="/settings/security"
+        element={
+          <ProtectedRoute
+            roles={[
+              "SUPER_ADMIN",
+              "SENIOR_MANAGEMENT",
+              "TEAM_MANAGER",
+              "EMPLOYEE",
+            ]}
+          >
+            <ManagementLayout>
+              <SecurityPage />
             </ManagementLayout>
           </ProtectedRoute>
         }

@@ -79,13 +79,14 @@ async function main(): Promise<void> {
     );
   }
 
-  const passwordHash =
-    await argon2.hash(
-      superAdminPassword,
-      {
-        type: argon2.argon2id,
-      },
-    );
+  /*
+   * BREAK-GLASS ONLY: this maintenance script intentionally replaces the
+   * database password from the protected deployment secret. It must never
+   * run during application startup, normal seeding or routine Y31 flows.
+   */
+  const passwordHash = await argon2.hash(superAdminPassword, {
+    type: argon2.argon2id,
+  });
 
   const now = new Date();
 

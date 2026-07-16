@@ -1,6 +1,8 @@
 import { apiRequest } from "../lib/api";
 import type {
   AuthResponse,
+  ChangePasswordInput,
+  ChangePasswordResponse,
 } from "../types/auth";
 
 let refreshPromise:
@@ -47,5 +49,18 @@ export function logoutAuth():
     message: string;
   }>("/auth/logout", {
     method: "POST",
+  });
+}
+
+export function changePassword(
+  accessToken: string,
+  payload: ChangePasswordInput,
+): Promise<ChangePasswordResponse> {
+  return apiRequest<ChangePasswordResponse>("/auth/change-password", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+    },
+    body: JSON.stringify(payload),
   });
 }

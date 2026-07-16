@@ -228,6 +228,11 @@ async function main(): Promise<void> {
   const existingAdmin = await findSuperAdminAccount();
 
   if (existingAdmin) {
+    /*
+     * SECURITY: passwordHash is intentionally omitted for existing accounts.
+     * SUPER_ADMIN_INITIAL_PASSWORD is bootstrap-only and must never overwrite
+     * a password changed through authenticated or recovery workflows.
+     */
     await prisma.$transaction([
       prisma.account.update({
         where: {

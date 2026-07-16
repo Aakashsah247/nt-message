@@ -9,7 +9,8 @@ export type ManagementIconName =
   | "monitoring"
   | "organization"
   | "profile"
-  | "requests";
+  | "requests"
+  | "security";
 
 interface ManagementIconProps extends SVGProps<SVGSVGElement> {
   name: ManagementIconName;
@@ -99,6 +100,13 @@ export function ManagementIcon({
         </svg>
       );
 
+    case "security":
+      return (
+        <svg {...commonProps}>
+          <path d="M12 3 5 6v5c0 4.7 2.7 8 7 10 4.3-2 7-5.3 7-10V6z" />
+          <path d="M9.5 12.2 11.2 14l3.7-4" />
+        </svg>
+      );
 
     case "requests":
       return (
