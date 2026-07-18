@@ -23,6 +23,7 @@ import {
   addGroupMembers,
   blockMessageRequest,
   blockMessagingAccount,
+  clearMessagingConversation,
   createGroupConversation,
   createGroupInvitationLink,
   createOfficialGroupConversation,
@@ -42,6 +43,7 @@ import {
   getMyMessagingProfile,
   deleteReadMessagingNotifications,
   deleteConversationMessage,
+  deleteMessagingConversation,
   createConversationAttachmentObjectUrl,
   deleteConversationMessageForMe,
   downloadConversationAttachment,
@@ -140,6 +142,7 @@ type RealtimeConnectionStatus =
 
 type SharedContentTab = "MEDIA" | "DOCUMENTS" | "LINKS";
 type ConversationCategory = "ALL" | "UNREAD" | "GROUPS" | "OFFICIAL";
+type PersonalConversationHistoryAction = "CLEAR" | "DELETE";
 
 const PRIVATE_GROUP_HISTORY_OPTIONS: Array<{
   value: PrivateGroupHistoryWindow;
@@ -1949,7 +1952,8 @@ type MessageNavigationIconName =
   | "unread"
   | "react"
   | "reply"
-  | "more";
+  | "more"
+  | "trash";
 
 function MessageNavigationIcon({ name }: { name: MessageNavigationIconName }) {
   const commonProps = {
@@ -2161,6 +2165,15 @@ function MessageNavigationIcon({ name }: { name: MessageNavigationIconName }) {
           <circle cx="5" cy="12" r="1" fill="currentColor" stroke="none" />
           <circle cx="12" cy="12" r="1" fill="currentColor" stroke="none" />
           <circle cx="19" cy="12" r="1" fill="currentColor" stroke="none" />
+        </svg>
+      );
+    case "trash":
+      return (
+        <svg {...commonProps}>
+          <path d="M4.5 7h15" />
+          <path d="M9 7V4.5h6V7" />
+          <path d="m7 7 .7 12h8.6L17 7" />
+          <path d="M10 10.5v5M14 10.5v5" />
         </svg>
       );
   }
@@ -2413,6 +2426,16 @@ export function MessageAppPage() {
   });
   const [attachmentMenuOpen, setAttachmentMenuOpen] = useState(false);
   const [attachmentMenuView, setAttachmentMenuView] = useState<"ROOT" | "LIVE_LOCATION">("ROOT");
+  const [conversationActionMenuOpen, setConversationActionMenuOpen] =
+    useState(false);
+  const [conversationHistoryAction, setConversationHistoryAction] =
+    useState<PersonalConversationHistoryAction | null>(null);
+  const [conversationHistorySubmitting, setConversationHistorySubmitting] =
+    useState(false);
+  const [conversationHistoryError, setConversationHistoryError] =
+    useState<string | null>(null);
+  const [conversationHistoryToast, setConversationHistoryToast] =
+    useState<string | null>(null);
   const [composerEmojiOpen, setComposerEmojiOpen] = useState(false);
   const [openMessageMenuId, setOpenMessageMenuId] = useState<string | null>(null);
   const [messageActionMenuPosition, setMessageActionMenuPosition] = useState<{
@@ -2793,6 +2816,12 @@ export function MessageAppPage() {
 
   const messageListRef = useRef<HTMLDivElement | null>(null);
   const messageThreadBottomRef = useRef<HTMLDivElement | null>(null);
+  const conversationActionButtonRef = useRef<HTMLButtonElement | null>(null);
+  const conversationActionMenuRef = useRef<HTMLDivElement | null>(null);
+  const conversationHistoryDialogRef = useRef<HTMLElement | null>(null);
+  const conversationHistoryCancelRef = useRef<HTMLButtonElement | null>(null);
+  const conversationHistoryToastTimerRef = useRef<number | null>(null);
+  const conversationsRef = useRef<MessagingConversation[]>([]);
   const pendingSearchResultRef = useRef<MessagingSearchMessageResult | null>(null);
   const previousScrollConversationIdRef = useRef<string | null>(null);
   const previousMessageCountRef = useRef(0);
@@ -3776,6 +3805,10 @@ export function MessageAppPage() {
   }, [stopLocalTyping]);
 
   useEffect(() => {
+    conversationsRef.current = conversations;
+  }, [conversations]);
+
+  useEffect(() => {
     selectedConversationIdRef.current = selectedConversationId;
 
     const activeTypingConversationId =
@@ -3807,7 +3840,122 @@ export function MessageAppPage() {
     if (notificationToastTimerRef.current !== null) {
       window.clearTimeout(notificationToastTimerRef.current);
     }
+
+    if (conversationHistoryToastTimerRef.current !== null) {
+      window.clearTimeout(conversationHistoryToastTimerRef.current);
+    }
   }, []);
+
+  useEffect(() => {
+    setConversationActionMenuOpen(false);
+    setConversationHistoryAction(null);
+    setConversationHistoryError(null);
+  }, [selectedConversationId]);
+
+  useEffect(() => {
+    if (!conversationActionMenuOpen) {
+      return undefined;
+    }
+
+    const firstMenuItem =
+      conversationActionMenuRef.current?.querySelector<HTMLElement>(
+        '[role="menuitem"]',
+      );
+
+    window.requestAnimationFrame(() => firstMenuItem?.focus());
+
+    const handlePointerDown = (event: PointerEvent): void => {
+      const target = event.target;
+
+      if (!(target instanceof Node)) {
+        return;
+      }
+
+      if (
+        conversationActionMenuRef.current?.contains(target) ||
+        conversationActionButtonRef.current?.contains(target)
+      ) {
+        return;
+      }
+
+      setConversationActionMenuOpen(false);
+    };
+
+    const handleKeyDown = (event: globalThis.KeyboardEvent): void => {
+      if (event.key !== "Escape") {
+        return;
+      }
+
+      event.preventDefault();
+      setConversationActionMenuOpen(false);
+      conversationActionButtonRef.current?.focus();
+    };
+
+    document.addEventListener("pointerdown", handlePointerDown);
+    document.addEventListener("keydown", handleKeyDown);
+
+    return () => {
+      document.removeEventListener("pointerdown", handlePointerDown);
+      document.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [conversationActionMenuOpen]);
+
+  useEffect(() => {
+    if (!conversationHistoryAction) {
+      return undefined;
+    }
+
+    window.requestAnimationFrame(() => {
+      conversationHistoryCancelRef.current?.focus();
+    });
+
+    const handleKeyDown = (event: globalThis.KeyboardEvent): void => {
+      if (event.key === "Escape" && !conversationHistorySubmitting) {
+        event.preventDefault();
+        setConversationHistoryAction(null);
+        setConversationHistoryError(null);
+        conversationActionButtonRef.current?.focus();
+        return;
+      }
+
+      if (event.key !== "Tab") {
+        return;
+      }
+
+      const dialog = conversationHistoryDialogRef.current;
+
+      if (!dialog) {
+        return;
+      }
+
+      const focusable = Array.from(
+        dialog.querySelectorAll<HTMLElement>(
+          'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])',
+        ),
+      );
+
+      if (focusable.length === 0) {
+        return;
+      }
+
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first.focus();
+      }
+    };
+
+    document.addEventListener("keydown", handleKeyDown);
+
+    return () => {
+      document.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [conversationHistoryAction, conversationHistorySubmitting]);
 
   const loadNotifications = useCallback(async () => {
     if (!accessToken) {
@@ -3837,6 +3985,89 @@ export function MessageAppPage() {
   useEffect(() => {
     void loadNotifications();
   }, [loadNotifications]);
+
+  const applyPersonalConversationHistoryLocally = useCallback((
+    conversationId: string,
+    action: PersonalConversationHistoryAction,
+    occurredAt: string,
+  ): void => {
+    const currentConversations = conversationsRef.current;
+
+    if (action === "DELETE") {
+      const selectedIndex = currentConversations.findIndex(
+        (conversation) => conversation.id === conversationId,
+      );
+      const remaining = currentConversations.filter(
+        (conversation) => conversation.id !== conversationId,
+      );
+
+      conversationsRef.current = remaining;
+      setConversations(remaining);
+
+      if (selectedConversationIdRef.current === conversationId) {
+        const nextConversation =
+          remaining[selectedIndex] ??
+          remaining[Math.max(0, selectedIndex - 1)] ??
+          null;
+
+        setSelectedConversationId(nextConversation?.id ?? null);
+        setDetailsPanelOpen(false);
+      }
+    } else {
+      const updated = currentConversations.map((conversation) =>
+        conversation.id === conversationId
+          ? {
+              ...conversation,
+              historyClearedAt: occurredAt,
+              deletedFromListAt: null,
+              lastMessage: null,
+              lastMessageAt: null,
+              unreadCount: 0,
+              isMarkedUnread: false,
+              markedUnreadAt: null,
+            }
+          : conversation,
+      );
+
+      conversationsRef.current = updated;
+      setConversations(updated);
+    }
+
+    if (selectedConversationIdRef.current !== conversationId) {
+      return;
+    }
+
+    /*
+     * Clear every local surface that may still hold authorized content from
+     * before the personal history boundary. The server remains authoritative.
+     */
+    stopLocalTyping(conversationId);
+    setMessages([]);
+    setPinnedMessages([]);
+    setMessageCursor(null);
+    setHasOlderMessages(false);
+    setMessageError(null);
+    setReplyingTo(null);
+    setEditingMessage(null);
+    setForwardingMessage(null);
+    setMessageInformation(null);
+    setMessageInformationError(null);
+    setOpenMessageMenuId(null);
+    setOpenReactionMenuId(null);
+    setSharedContent(null);
+    setSharedContentError(null);
+    setSharedContentOpen(false);
+    setHighlightedMessageId(null);
+    pendingSearchResultRef.current = null;
+    closeAttachmentViewer();
+
+    if (action === "DELETE") {
+      delete draftCacheRef.current[conversationId];
+      setMessageText("");
+      setAnnouncementMode(false);
+      clearSelectedAttachment();
+    }
+  }, [stopLocalTyping]);
 
   useEffect(() => {
     if (!accessToken) {
@@ -4029,16 +4260,25 @@ export function MessageAppPage() {
       ));
 
       setPinnedMessages((current) => {
-        if (payload.action === "PINNED") {
-          const withoutCurrent = current.filter((item) => item.id !== payload.message.id);
-          return [payload.message, ...withoutCurrent];
+        if (
+          payload.action === "PINNED" ||
+          payload.action === "UNPINNED" ||
+          payload.action === "DELETED"
+        ) {
+          /*
+           * A shared pin event cannot determine this viewer's personal clear
+           * boundary. Reload the server-authorized pinned-message list.
+           */
+          void loadPinnedMessages(payload.conversationId);
+
+          return payload.action === "DELETED"
+            ? current.filter((item) => item.id !== payload.message.id)
+            : current;
         }
 
-        if (payload.action === "UNPINNED" || payload.action === "DELETED") {
-          return current.filter((item) => item.id !== payload.message.id);
-        }
-
-        return applyMessageUpdate(current, payload.message, { preservePersonalState: true });
+        return applyMessageUpdate(current, payload.message, {
+          preservePersonalState: true,
+        });
       });
 
       setReplyingTo((current) => (
@@ -4093,11 +4333,31 @@ export function MessageAppPage() {
     };
 
     const handleConversationUpdated = (
-      _payload: MessagingConversationUpdatedPayload,
+      payload: MessagingConversationUpdatedPayload,
     ): void => {
+      if (
+        payload.reason === "CLEARED_FOR_ACCOUNT" ||
+        payload.reason === "DELETED_FOR_ACCOUNT"
+      ) {
+        /*
+         * M19 events are delivered only to this account's sessions. Applying
+         * them immediately prevents another tab from retaining stale text,
+         * pins, shared content or attachment previews.
+         */
+        applyPersonalConversationHistoryLocally(
+          payload.conversationId,
+          payload.reason === "DELETED_FOR_ACCOUNT" ? "DELETE" : "CLEAR",
+          payload.occurredAt,
+        );
+
+        void loadNotifications();
+      }
+
       void loadConversations(
         true,
-        selectedConversationIdRef.current ?? undefined,
+        payload.reason === "DELETED_FOR_ACCOUNT"
+          ? undefined
+          : selectedConversationIdRef.current ?? undefined,
       );
     };
 
@@ -4189,9 +4449,12 @@ export function MessageAppPage() {
     };
   }, [
     accessToken,
+    applyPersonalConversationHistoryLocally,
     loadConversations,
     loadMessageRequests,
     loadMessages,
+    loadNotifications,
+    loadPinnedMessages,
     browserNotificationsEnabled,
     messagingSettings.muteAllNotifications,
     messagingSettings.notificationPreview,
@@ -6876,6 +7139,87 @@ export function MessageAppPage() {
     }
   }
 
+  function showConversationHistoryToast(message: string): void {
+    setConversationHistoryToast(message);
+
+    if (conversationHistoryToastTimerRef.current !== null) {
+      window.clearTimeout(conversationHistoryToastTimerRef.current);
+    }
+
+    conversationHistoryToastTimerRef.current = window.setTimeout(() => {
+      setConversationHistoryToast(null);
+    }, 5000);
+  }
+
+  function openConversationHistoryConfirmation(
+    action: PersonalConversationHistoryAction,
+  ): void {
+    setConversationActionMenuOpen(false);
+    setConversationHistoryError(null);
+    setConversationHistoryAction(action);
+  }
+
+  function closeConversationHistoryConfirmation(): void {
+    if (conversationHistorySubmitting) {
+      return;
+    }
+
+    setConversationHistoryAction(null);
+    setConversationHistoryError(null);
+    conversationActionButtonRef.current?.focus();
+  }
+
+  async function handlePersonalConversationHistoryAction(): Promise<void> {
+    if (
+      !accessToken ||
+      !selectedConversation ||
+      !conversationHistoryAction ||
+      conversationHistorySubmitting
+    ) {
+      return;
+    }
+
+    const conversationId = selectedConversation.id;
+    const action = conversationHistoryAction;
+
+    setConversationHistorySubmitting(true);
+    setConversationHistoryError(null);
+
+    try {
+      const response =
+        action === "DELETE"
+          ? await deleteMessagingConversation(accessToken, conversationId)
+          : await clearMessagingConversation(accessToken, conversationId);
+
+      applyPersonalConversationHistoryLocally(
+        conversationId,
+        action,
+        response.data.historyClearedAt ?? new Date().toISOString(),
+      );
+
+      setConversationHistoryAction(null);
+      showConversationHistoryToast(response.message);
+
+      await Promise.all([
+        loadConversations(
+          true,
+          action === "CLEAR" ? conversationId : undefined,
+        ),
+        loadNotifications(),
+      ]);
+    } catch (error) {
+      setConversationHistoryError(
+        error instanceof Error
+          ? error.message
+          : `${
+              action === "DELETE" ? "Delete chat" : "Clear chat"
+            } could not be completed.`,
+      );
+    } finally {
+      setConversationHistorySubmitting(false);
+    }
+  }
+
   async function handleConversationPinnedToggle(): Promise<void> {
     if (!selectedConversation) {
       return;
@@ -8679,6 +9023,24 @@ export function MessageAppPage() {
         />
       )}
 
+      {conversationHistoryToast && (
+        <div
+          className="message-conversation-history-toast"
+          role="status"
+          aria-live="polite"
+        >
+          <span aria-hidden="true">✓</span>
+          <strong>{conversationHistoryToast}</strong>
+          <button
+            type="button"
+            onClick={() => setConversationHistoryToast(null)}
+            aria-label="Dismiss conversation action confirmation"
+          >
+            ×
+          </button>
+        </div>
+      )}
+
       {notificationToast && (
         <button
           type="button"
@@ -9009,13 +9371,195 @@ export function MessageAppPage() {
 
                   <button
                     type="button"
-                    className={detailsPanelOpen ? "active" : ""}
+                    className={`message-chat-info-action${
+                      detailsPanelOpen ? " active" : ""
+                    }`}
                     onClick={() => setDetailsPanelOpen((value) => !value)}
                     aria-expanded={detailsPanelOpen}
                     aria-label="Open conversation information"
                   >
                     <MessageNavigationIcon name="info" />
                   </button>
+
+                  <div className="message-conversation-menu-anchor">
+                    <button
+                      ref={conversationActionButtonRef}
+                      type="button"
+                      className={conversationActionMenuOpen ? "active" : ""}
+                      onClick={() =>
+                        setConversationActionMenuOpen((current) => !current)
+                      }
+                      aria-haspopup="menu"
+                      aria-expanded={conversationActionMenuOpen}
+                      aria-label="More conversation actions"
+                    >
+                      <MessageNavigationIcon name="more" />
+                    </button>
+
+                    {conversationActionMenuOpen && (
+                      <div
+                        ref={conversationActionMenuRef}
+                        className="message-conversation-action-menu"
+                        role="menu"
+                        aria-label="Conversation actions"
+                      >
+                        <button
+                          type="button"
+                          role="menuitem"
+                          onClick={() => {
+                            setConversationActionMenuOpen(false);
+                            setDetailsPanelOpen(true);
+                          }}
+                        >
+                          <MessageNavigationIcon name="info" />
+                          <span>Conversation information</span>
+                        </button>
+
+                        <button
+                          type="button"
+                          role="menuitem"
+                          onClick={() => {
+                            setConversationActionMenuOpen(false);
+                            openSearchDialog("CURRENT");
+                          }}
+                        >
+                          <MessageNavigationIcon name="search" />
+                          <span>Search messages</span>
+                        </button>
+
+                        <button
+                          type="button"
+                          role="menuitem"
+                          onClick={() => {
+                            setConversationActionMenuOpen(false);
+                            void openSharedContentDialog();
+                          }}
+                        >
+                          <MessageNavigationIcon name="shared" />
+                          <span>Media, links and documents</span>
+                        </button>
+
+                        <div
+                          className="message-conversation-action-menu-divider"
+                          role="separator"
+                        />
+
+                        <button
+                          type="button"
+                          role="menuitem"
+                          disabled={
+                            conversationPreferenceLoading ===
+                            selectedConversation.id
+                          }
+                          onClick={() => {
+                            setConversationActionMenuOpen(false);
+                            void handleConversationPinnedToggle();
+                          }}
+                        >
+                          <MessageNavigationIcon name="pin" />
+                          <span>
+                            {selectedConversation.isPinned
+                              ? "Unpin conversation"
+                              : "Pin conversation"}
+                          </span>
+                        </button>
+
+                        <button
+                          type="button"
+                          role="menuitem"
+                          disabled={
+                            conversationPreferenceLoading ===
+                            selectedConversation.id
+                          }
+                          onClick={() => {
+                            setConversationActionMenuOpen(false);
+                            void handleConversationUnreadToggle();
+                          }}
+                        >
+                          <MessageNavigationIcon name="unread" />
+                          <span>
+                            {selectedConversation.isMarkedUnread ||
+                            selectedConversation.unreadCount > 0
+                              ? "Mark as read"
+                              : "Mark as unread"}
+                          </span>
+                        </button>
+
+                        <button
+                          type="button"
+                          role="menuitem"
+                          disabled={
+                            conversationPreferenceLoading ===
+                            selectedConversation.id
+                          }
+                          onClick={() => {
+                            setConversationActionMenuOpen(false);
+                            void handleConversationMuteChange(
+                              selectedConversation.isMuted ? "OFF" : "ALWAYS",
+                            );
+                          }}
+                        >
+                          <MessageNavigationIcon name="bell" />
+                          <span>
+                            {selectedConversation.isMuted
+                              ? "Unmute notifications"
+                              : "Mute notifications"}
+                          </span>
+                        </button>
+
+                        <button
+                          type="button"
+                          role="menuitem"
+                          disabled={
+                            conversationPreferenceLoading ===
+                            selectedConversation.id
+                          }
+                          onClick={() => {
+                            setConversationActionMenuOpen(false);
+                            void handleConversationArchiveToggle();
+                          }}
+                        >
+                          <MessageNavigationIcon name="archive" />
+                          <span>
+                            {selectedConversation.isArchived
+                              ? "Unarchive conversation"
+                              : "Archive conversation"}
+                          </span>
+                        </button>
+
+                        <div
+                          className="message-conversation-action-menu-divider"
+                          role="separator"
+                        />
+
+                        <button
+                          type="button"
+                          role="menuitem"
+                          className="message-conversation-history-action"
+                          onClick={() =>
+                            openConversationHistoryConfirmation("CLEAR")
+                          }
+                        >
+                          <MessageNavigationIcon name="close" />
+                          <span>Clear chat</span>
+                        </button>
+
+                        {selectedConversation.type === "PRIVATE" && (
+                          <button
+                            type="button"
+                            role="menuitem"
+                            className="message-conversation-history-action destructive"
+                            onClick={() =>
+                              openConversationHistoryConfirmation("DELETE")
+                            }
+                          >
+                            <MessageNavigationIcon name="trash" />
+                            <span>Delete chat</span>
+                          </button>
+                        )}
+                      </div>
+                    )}
+                  </div>
                 </div>
               </header>
 
@@ -9093,13 +9637,27 @@ export function MessageAppPage() {
                     <p>Loading messages...</p>
                     </div>
                 ): messages.length === 0 ? (
-                  <div className="message-thread-state">
-                    <div className="message-empty-icon">Hi</div>
-                    <h3>Start the conversation</h3>
-                    <p>
-                      Send the first message to {selectedConversation.title}.
-                    </p>
+                  <div
+                    className={`message-thread-state${
+                      selectedConversation.historyClearedAt
+                        ? " cleared-history"
+                        : ""
+                    }`}
+                  >
+                    <div className="message-empty-icon">
+                      {selectedConversation.historyClearedAt ? "✓" : "Hi"}
                     </div>
+                    <h3>
+                      {selectedConversation.historyClearedAt
+                        ? "This chat was cleared for you"
+                        : "Start the conversation"}
+                    </h3>
+                    <p>
+                      {selectedConversation.historyClearedAt
+                        ? "New messages will appear here. Other participants were not affected."
+                        : `Send the first message to ${selectedConversation.title}.`}
+                    </p>
+                  </div>
                 ):(
                   displayMessages.map((message, index) => {
                     const ownMessage = message.senderAccountId === account?.id;
@@ -10250,6 +10808,99 @@ export function MessageAppPage() {
                 </>
               )}
             </div>
+          </section>
+        </div>
+      )}
+
+      {conversationHistoryAction && selectedConversation && (
+        <div
+          className="message-dialog-backdrop message-conversation-history-backdrop"
+          role="presentation"
+          onMouseDown={(event) => {
+            if (event.currentTarget === event.target) {
+              closeConversationHistoryConfirmation();
+            }
+          }}
+        >
+          <section
+            ref={conversationHistoryDialogRef}
+            className={`message-conversation-history-dialog${
+              conversationHistoryAction === "DELETE" ? " destructive" : ""
+            }`}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="message-conversation-history-title"
+            aria-describedby="message-conversation-history-description"
+          >
+            <div className="message-conversation-history-icon" aria-hidden="true">
+              <MessageNavigationIcon
+                name={
+                  conversationHistoryAction === "DELETE"
+                    ? "trash"
+                    : "close"
+                }
+              />
+            </div>
+
+            <div className="message-conversation-history-copy">
+              <span>Personal conversation action</span>
+              <h2 id="message-conversation-history-title">
+                {conversationHistoryAction === "DELETE"
+                  ? "Delete this chat?"
+                  : "Clear this chat?"}
+              </h2>
+              <p id="message-conversation-history-description">
+                {conversationHistoryAction === "DELETE"
+                  ? "This chat and its previous history will be removed from your account only. Other participants will not be affected. It may reappear when a new message is sent, but earlier history will remain hidden."
+                  : "Previous messages, pinned messages and shared content will be hidden from your account. Other participants will not be affected."}
+              </p>
+            </div>
+
+            <section className="message-conversation-history-scope">
+              <strong>What remains unchanged</strong>
+              <ul>
+                <li>No message is deleted for another participant.</li>
+                <li>Shared attachments remain stored for authorized users.</li>
+                <li>Group membership and privacy settings are unchanged.</li>
+              </ul>
+            </section>
+
+            {conversationHistoryError && (
+              <div className="message-conversation-history-error" role="alert">
+                <strong>Action could not be completed</strong>
+                <span>{conversationHistoryError}</span>
+              </div>
+            )}
+
+            <footer>
+              <button
+                ref={conversationHistoryCancelRef}
+                type="button"
+                className="secondary"
+                onClick={closeConversationHistoryConfirmation}
+                disabled={conversationHistorySubmitting}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                className={
+                  conversationHistoryAction === "DELETE"
+                    ? "danger"
+                    : "primary"
+                }
+                onClick={() =>
+                  void handlePersonalConversationHistoryAction()
+                }
+                disabled={conversationHistorySubmitting}
+              >
+                {conversationHistorySubmitting
+                  ? "Applying..."
+                  : conversationHistoryAction === "DELETE"
+                    ? "Delete chat"
+                    : "Clear chat"}
+              </button>
+            </footer>
           </section>
         </div>
       )}

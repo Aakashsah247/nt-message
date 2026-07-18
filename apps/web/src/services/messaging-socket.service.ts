@@ -60,7 +60,9 @@ export interface MessagingConversationUpdatedPayload {
     | "MEMBERS_CHANGED"
     | "OFFICIAL_GROUP_CREATED"
     | "OFFICIAL_GROUP_SYNCED"
-    | "LEFT";
+    | "LEFT"
+    | "CLEARED_FOR_ACCOUNT"
+    | "DELETED_FOR_ACCOUNT";
   occurredAt: string;
 }
 

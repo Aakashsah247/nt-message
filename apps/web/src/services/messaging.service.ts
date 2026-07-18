@@ -37,6 +37,7 @@ import type {
   MessagePersonalStateResponse,
   MessageReactionResponse,
   PinnedMessagesResponse,
+  PersonalConversationHistoryActionResponse,
   PersonalDashboardSummaryResponse,
   PrivateGroupFromPrivateConversationResponse,
   PrivateGroupHistoryWindow,
@@ -340,6 +341,36 @@ export function updateConversationPreference(
       method: "PATCH",
       headers: authorizationHeaders(accessToken),
       body: JSON.stringify(input),
+    },
+  );
+}
+
+export function clearMessagingConversation(
+  accessToken: string,
+  conversationId: string,
+): Promise<PersonalConversationHistoryActionResponse> {
+  return apiRequest<PersonalConversationHistoryActionResponse>(
+    `/conversations/${conversationId}/clear`,
+    {
+      method: "POST",
+      headers: authorizationHeaders(accessToken),
+    },
+  );
+}
+
+export function deleteMessagingConversation(
+  accessToken: string,
+  conversationId: string,
+): Promise<PersonalConversationHistoryActionResponse> {
+  /*
+   * This route deletes only the caller's participant/list state. It must never
+   * be treated as canonical conversation or message deletion.
+   */
+  return apiRequest<PersonalConversationHistoryActionResponse>(
+    `/conversations/${conversationId}`,
+    {
+      method: "DELETE",
+      headers: authorizationHeaders(accessToken),
     },
   );
 }

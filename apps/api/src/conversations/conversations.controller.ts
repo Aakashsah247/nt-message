@@ -822,6 +822,48 @@ export class ConversationsController {
     return this.conversationsService.listPinnedMessages(user, conversationId);
   }
 
+  @Post(':id/clear')
+  clearConversationForAccount(
+    @CurrentUser()
+    user: AuthenticatedUser,
+
+    @Param(
+      'id',
+      new ParseUUIDPipe({
+        version: '4',
+      }),
+    )
+    conversationId: string,
+  ) {
+    return this.conversationsService.clearConversationForAccount(
+      user,
+      conversationId,
+    );
+  }
+
+  @Delete(':id')
+  deleteConversationForAccount(
+    @CurrentUser()
+    user: AuthenticatedUser,
+
+    @Param(
+      'id',
+      new ParseUUIDPipe({
+        version: '4',
+      }),
+    )
+    conversationId: string,
+  ) {
+    /*
+     * This route deletes only the caller's list/history state. The service is
+     * intentionally named "ForAccount" to prevent accidental canonical delete.
+     */
+    return this.conversationsService.deleteConversationForAccount(
+      user,
+      conversationId,
+    );
+  }
+
   @Patch(':id/preferences')
   updateConversationPreference(
     @CurrentUser()

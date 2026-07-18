@@ -95,6 +95,8 @@ enum ActivityEventType {
   SESSION_POLICY_LOGOUT
   PASSWORD_CHANGED
   PASSWORD_RESET_COMPLETED
+  CHAT_CLEARED
+  CHAT_DELETED
 }
 
 enum ConversationType {
@@ -651,6 +653,11 @@ model ConversationParticipant {
   mutedUntil DateTime? @map("muted_until") @db.Timestamptz(3)
   archivedAt DateTime? @map("archived_at") @db.Timestamptz(3)
   markedUnreadAt DateTime? @map("marked_unread_at") @db.Timestamptz(3)
+
+  // M19: these boundaries hide history/list state only for this participant.
+  historyClearedAt   DateTime? @map("history_cleared_at") @db.Timestamptz(3)
+  deletedFromListAt DateTime? @map("deleted_from_list_at") @db.Timestamptz(3)
+
   draftText String? @map("draft_text") @db.Text
   draftUpdatedAt DateTime? @map("draft_updated_at") @db.Timestamptz(3)
 
@@ -667,6 +674,8 @@ model ConversationParticipant {
   @@index([accountId, leftAt, isPinned, pinnedAt], map: "conversation_participants_account_pin_idx")
   @@index([accountId, isArchived, updatedAt], map: "conversation_participants_account_archive_idx")
   @@index([accountId, draftUpdatedAt], map: "conversation_participants_account_draft_idx")
+  @@index([accountId, leftAt, deletedFromListAt], map: "conversation_participants_account_deleted_idx")
+  @@index([conversationId, historyClearedAt], map: "conversation_participants_history_cleared_idx")
   @@map("conversation_participants")
 }
 

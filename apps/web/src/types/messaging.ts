@@ -311,6 +311,8 @@ export interface MessagingConversation {
   markedUnreadAt: string | null;
   draftText: string | null;
   draftUpdatedAt: string | null;
+  historyClearedAt: string | null;
+  deletedFromListAt: string | null;
   viewerParticipantRole: ConversationParticipantRole | null;
   canManageGroup: boolean;
   memberCount: number;
@@ -347,6 +349,17 @@ export interface ConversationPreferenceState {
 export interface ConversationPreferenceResponse {
   message: string;
   data: ConversationPreferenceState;
+}
+
+export interface PersonalConversationHistoryState
+  extends ConversationPreferenceState {
+  historyClearedAt: string | null;
+  deletedFromListAt: string | null;
+}
+
+export interface PersonalConversationHistoryActionResponse {
+  message: string;
+  data: PersonalConversationHistoryState;
 }
 
 export interface CursorPagination {

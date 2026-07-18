@@ -1702,6 +1702,94 @@
   outline: none;
 }
 
+/* M19 — canonical personal conversation action menu. */
+.message-app-shell .message-conversation-menu-anchor {
+  position: relative;
+  display: grid;
+}
+
+.message-app-shell .message-conversation-action-menu {
+  position: absolute;
+  z-index: 80;
+  top: calc(100% + 8px);
+  right: 0;
+  display: grid;
+  width: min(292px, calc(100vw - 28px));
+  padding: 7px;
+  border: 1px solid #d5e2eb;
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.99);
+  box-shadow: 0 20px 52px rgba(12, 44, 68, 0.22);
+  backdrop-filter: blur(12px);
+}
+
+.message-app-shell .message-conversation-action-menu button {
+  display: grid;
+  width: 100%;
+  min-width: 0;
+  height: auto;
+  min-height: 40px;
+  grid-template-columns: 22px minmax(0, 1fr);
+  gap: 10px;
+  place-items: center start;
+  padding: 8px 10px;
+  border: 0;
+  border-radius: 9px;
+  color: #294d67;
+  background: transparent;
+  box-shadow: none;
+  text-align: left;
+}
+
+.message-app-shell .message-conversation-action-menu button:hover,
+.message-app-shell .message-conversation-action-menu button:focus-visible {
+  color: #0a6ba8;
+  background: #eef7fc;
+  outline: none;
+}
+
+.message-app-shell .message-conversation-action-menu button:disabled {
+  opacity: 0.52;
+  cursor: wait;
+}
+
+.message-app-shell .message-conversation-action-menu button > span {
+  overflow: hidden;
+  font-size: 12px;
+  font-weight: 720;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.message-app-shell .message-conversation-action-menu .message-nav-svg {
+  width: 17px;
+  height: 17px;
+}
+
+.message-app-shell .message-conversation-action-menu-divider {
+  height: 1px;
+  margin: 5px 7px;
+  background: #e4ecf2;
+}
+
+.message-app-shell .message-conversation-action-menu
+  .message-conversation-history-action {
+  color: #6d5663;
+}
+
+.message-app-shell .message-conversation-action-menu
+  .message-conversation-history-action.destructive {
+  color: #b2293d;
+}
+
+.message-app-shell .message-conversation-action-menu
+  .message-conversation-history-action.destructive:hover,
+.message-app-shell .message-conversation-action-menu
+  .message-conversation-history-action.destructive:focus-visible {
+  color: #9e1e32;
+  background: #fff0f2;
+}
+
 .message-app-shell .message-pinned-panel {
   position: relative;
   z-index: 9;
@@ -2033,6 +2121,24 @@
   color: #607584;
   background: transparent;
   text-align: center;
+}
+
+.message-app-shell .message-thread-state.cleared-history {
+  border: 1px solid #d7e8e0;
+  border-radius: 16px;
+  padding: 28px 32px;
+  background: linear-gradient(145deg, #f7fcf9, #eef7f2);
+  box-shadow: 0 14px 34px rgba(21, 95, 61, 0.08);
+}
+
+.message-app-shell .message-thread-state.cleared-history .message-empty-icon {
+  color: #14794b;
+  background: #dff4e8;
+  box-shadow: 0 0 0 7px rgba(20, 121, 75, 0.08);
+}
+
+.message-app-shell .message-thread-state.cleared-history h3 {
+  color: #24523d;
 }
 
 /* UI-13 Phase 3: canonical composer and popover system. Earlier composer
@@ -3401,6 +3507,214 @@
   backdrop-filter: blur(5px);
 }
 
+/* M19 confirmation dialog and success feedback. */
+.message-app-shell .message-conversation-history-backdrop {
+  display: grid;
+  place-items: center;
+  padding: 18px;
+}
+
+.message-app-shell .message-conversation-history-dialog {
+  display: grid;
+  width: min(510px, calc(100vw - 32px));
+  gap: 18px;
+  padding: 26px;
+  border: 1px solid #d5e3ec;
+  border-radius: 20px;
+  background: #fff;
+  box-shadow: 0 30px 82px rgba(3, 30, 51, 0.3);
+}
+
+.message-app-shell .message-conversation-history-icon {
+  display: grid;
+  width: 50px;
+  height: 50px;
+  place-items: center;
+  border-radius: 15px;
+  color: #0a6fae;
+  background: #e9f5fc;
+  box-shadow: 0 0 0 7px rgba(10, 111, 174, 0.07);
+}
+
+.message-app-shell
+  .message-conversation-history-dialog.destructive
+  .message-conversation-history-icon {
+  color: #b3293d;
+  background: #fff0f2;
+  box-shadow: 0 0 0 7px rgba(179, 41, 61, 0.07);
+}
+
+.message-app-shell .message-conversation-history-icon .message-nav-svg {
+  width: 24px;
+  height: 24px;
+}
+
+.message-app-shell .message-conversation-history-copy > span {
+  display: block;
+  margin-bottom: 5px;
+  color: #718697;
+  font-size: 10px;
+  font-weight: 850;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+}
+
+.message-app-shell .message-conversation-history-copy h2 {
+  margin: 0;
+  color: #193b56;
+  font-size: 23px;
+  letter-spacing: -0.025em;
+}
+
+.message-app-shell .message-conversation-history-copy p {
+  margin: 9px 0 0;
+  color: #5e7486;
+  font-size: 12px;
+  line-height: 1.65;
+}
+
+.message-app-shell .message-conversation-history-scope {
+  padding: 13px 14px;
+  border: 1px solid #dce8ef;
+  border-radius: 12px;
+  background: #f7fafc;
+}
+
+.message-app-shell .message-conversation-history-scope strong {
+  display: block;
+  color: #365871;
+  font-size: 11px;
+}
+
+.message-app-shell .message-conversation-history-scope ul {
+  display: grid;
+  gap: 5px;
+  margin: 8px 0 0;
+  padding: 0;
+  color: #647c8d;
+  font-size: 10.5px;
+  line-height: 1.5;
+  list-style: none;
+}
+
+.message-app-shell .message-conversation-history-scope li::before {
+  margin-right: 7px;
+  color: #198152;
+  content: "✓";
+}
+
+.message-app-shell .message-conversation-history-error {
+  display: grid;
+  gap: 3px;
+  padding: 11px 13px;
+  border: 1px solid #efb8c1;
+  border-radius: 11px;
+  color: #9f2538;
+  background: #fff1f3;
+  font-size: 11px;
+}
+
+.message-app-shell .message-conversation-history-dialog footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 9px;
+}
+
+.message-app-shell .message-conversation-history-dialog footer button {
+  min-height: 40px;
+  padding: 0 17px;
+  border: 1px solid transparent;
+  border-radius: 10px;
+  font-size: 11px;
+  font-weight: 850;
+}
+
+.message-app-shell
+  .message-conversation-history-dialog
+  footer
+  button.secondary {
+  border-color: #d4e0e8;
+  color: #3e5d73;
+  background: #fff;
+}
+
+.message-app-shell
+  .message-conversation-history-dialog
+  footer
+  button.primary {
+  color: #fff;
+  background: #0a70ae;
+}
+
+.message-app-shell
+  .message-conversation-history-dialog
+  footer
+  button.danger {
+  color: #fff;
+  background: #b1263b;
+}
+
+.message-app-shell
+  .message-conversation-history-dialog
+  footer
+  button:focus-visible {
+  outline: 3px solid rgba(24, 130, 194, 0.25);
+  outline-offset: 2px;
+}
+
+.message-app-shell
+  .message-conversation-history-dialog
+  footer
+  button:disabled {
+  opacity: 0.62;
+  cursor: wait;
+}
+
+.message-app-shell .message-conversation-history-toast {
+  position: fixed;
+  z-index: 600;
+  right: 18px;
+  bottom: 18px;
+  display: grid;
+  min-width: min(340px, calc(100vw - 28px));
+  max-width: 420px;
+  grid-template-columns: 30px minmax(0, 1fr) 28px;
+  align-items: center;
+  gap: 9px;
+  padding: 11px 12px;
+  border: 1px solid #bcdcc9;
+  border-radius: 13px;
+  color: #285d43;
+  background: rgba(245, 252, 248, 0.98);
+  box-shadow: 0 18px 45px rgba(17, 78, 50, 0.2);
+  backdrop-filter: blur(10px);
+}
+
+.message-app-shell .message-conversation-history-toast > span {
+  display: grid;
+  width: 28px;
+  height: 28px;
+  place-items: center;
+  border-radius: 50%;
+  color: #fff;
+  background: #188451;
+  font-weight: 900;
+}
+
+.message-app-shell .message-conversation-history-toast strong {
+  font-size: 11px;
+}
+
+.message-app-shell .message-conversation-history-toast button {
+  width: 28px;
+  height: 28px;
+  border: 0;
+  border-radius: 8px;
+  color: #557363;
+  background: transparent;
+  font-size: 18px;
+}
+
 body.message-attachment-viewer-open {
   overflow: hidden;
 }
@@ -3714,6 +4028,56 @@ body.message-attachment-viewer-open {
 .message-app-shell.theme-dark .message-details-preferences button,
 .message-app-shell.theme-dark .message-details-preferences label {
   color: #edf2f4;
+}
+
+.message-app-shell.theme-dark .message-conversation-action-menu {
+  border-color: #314858;
+  background: rgba(18, 37, 50, 0.99);
+}
+
+.message-app-shell.theme-dark .message-conversation-action-menu button {
+  color: #c6d8e5;
+}
+
+.message-app-shell.theme-dark .message-conversation-action-menu button:hover,
+.message-app-shell.theme-dark
+  .message-conversation-action-menu
+  button:focus-visible {
+  color: #91d4ff;
+  background: #203d50;
+}
+
+.message-app-shell.theme-dark
+  .message-conversation-action-menu-divider {
+  background: #344b5b;
+}
+
+.message-app-shell.theme-dark .message-conversation-history-dialog {
+  border-color: #314958;
+  background: #132837;
+}
+
+.message-app-shell.theme-dark .message-conversation-history-copy h2 {
+  color: #ecf5fb;
+}
+
+.message-app-shell.theme-dark .message-conversation-history-copy p,
+.message-app-shell.theme-dark .message-conversation-history-scope {
+  color: #acc0ce;
+}
+
+.message-app-shell.theme-dark .message-conversation-history-scope {
+  border-color: #314958;
+  background: #182f3f;
+}
+
+.message-app-shell.theme-dark
+  .message-conversation-history-dialog
+  footer
+  button.secondary {
+  border-color: #3c5667;
+  color: #d2e0e9;
+  background: #193243;
 }
 
 .message-app-shell.theme-dark .message-details-summary > div,
@@ -7377,8 +7741,39 @@ body.message-attachment-viewer-open {
     min-height: 31px;
   }
 
-  .message-app-shell .message-chat-header-actions button[aria-label*="group"] {
+  .message-app-shell .message-chat-header-actions button[aria-label*="group"],
+  .message-app-shell .message-chat-info-action {
     display: none;
+  }
+
+  .message-app-shell .message-conversation-action-menu {
+    position: fixed;
+    top: 68px;
+    right: 10px;
+    left: 10px;
+    width: auto;
+    max-height: calc(100dvh - 86px);
+    overflow-y: auto;
+  }
+
+  .message-app-shell .message-conversation-history-dialog {
+    width: min(100%, 510px);
+    max-height: calc(100dvh - 20px);
+    overflow-y: auto;
+    padding: 22px;
+  }
+
+  .message-app-shell .message-conversation-history-dialog footer {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .message-app-shell .message-conversation-history-toast {
+    right: 10px;
+    bottom: max(10px, env(safe-area-inset-bottom));
+    left: 10px;
+    min-width: 0;
+    max-width: none;
   }
 
   .message-app-shell .message-chat-header h2 {

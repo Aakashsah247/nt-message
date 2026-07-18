@@ -16,7 +16,10 @@ export type MessagingConversationUpdateReason =
   | 'MEMBERS_CHANGED'
   | 'OFFICIAL_GROUP_CREATED'
   | 'OFFICIAL_GROUP_SYNCED'
-  | 'LEFT';
+  | 'LEFT'
+  // M19: personal events are emitted only to the affected account room.
+  | 'CLEARED_FOR_ACCOUNT'
+  | 'DELETED_FOR_ACCOUNT';
 
 export type MessagingMessageRequestStatus =
   | 'PENDING'

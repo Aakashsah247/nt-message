@@ -14,6 +14,7 @@ import type { AuthenticatedUser } from '../auth/types/auth.types';
 import { PrismaService } from '../database/prisma.service';
 import {
   AccountRole,
+  ActivityEventType,
   ConversationParticipantRole,
   ConversationType,
   EmployeeStatus,
@@ -26,9 +27,17 @@ import {
   OfficialGroupAuditAction,
   OfficialGroupScopeType,
 } from '../generated/prisma/client';
+
 import type { Prisma } from '../generated/prisma/client';
 import { MessagingEventsService } from '../realtime/messaging-events.service';
+import type { MessagingMessageUpdateAction } from '../realtime/messaging-events.service';
 
+import {
+  buildMembershipMessageVisibilityWhere,
+  buildViewerMessageVisibilityWhere,
+  isMessageVisibleToParticipant,
+} from './conversation-visibility';
+import type { ConversationVisibilityParticipant } from './conversation-visibility';
 import { AddGroupMembersDto } from './dto/add-group-members.dto';
 import { CreateGroupConversationDto } from './dto/create-group-conversation.dto';
 import { CreateOfficialGroupConversationDto } from './dto/create-official-group-conversation.dto';
@@ -323,6 +332,12 @@ const messageSelect = {
       deletedAt: true,
       sentAt: true,
 
+      hiddenForAccounts: {
+        select: {
+          accountId: true,
+        },
+      },
+
       sender: {
         select: messagingAccountSelect,
       },
@@ -343,6 +358,12 @@ const messageSelect = {
 
     orderBy: {
       accountId: 'asc',
+    },
+  },
+
+  hiddenForAccounts: {
+    select: {
+      accountId: true,
     },
   },
 
@@ -521,6 +542,8 @@ const conversationSelect = {
       mutedUntil: true,
       archivedAt: true,
       markedUnreadAt: true,
+      historyClearedAt: true,
+      deletedFromListAt: true,
       draftText: true,
       draftUpdatedAt: true,
 
@@ -1875,11 +1898,50 @@ export class ConversationsService {
     return 'SENT';
   }
 
-  private serializeReply(message: MessageRecord['replyTo']) {
+  private serializeReply(
+    message: MessageRecord['replyTo'],
+    viewerAccountId?: string,
+    viewerParticipant?: ConversationVisibilityParticipant,
+  ) {
     if (!message) {
       return null;
     }
 
+    const unavailableForViewer =
+      viewerAccountId && viewerParticipant
+        ? !isMessageVisibleToParticipant(message.sentAt, viewerParticipant) ||
+          message.hiddenForAccounts.some(
+            (hidden) => hidden.accountId === viewerAccountId,
+          )
+        : false;
+
+    if (unavailableForViewer) {
+      /*
+       * A new reply can remain visible without revealing the old parent that
+       * this account cleared or deleted. The synthetic sender is deliberately
+       * identity-free so current clients can render the placeholder safely.
+       */
+      return {
+        id: message.id,
+        senderAccountId: '00000000-0000-0000-0000-000000000000',
+        sender: {
+          accountId: '00000000-0000-0000-0000-000000000000',
+          username: null,
+          role: AccountRole.EMPLOYEE,
+          profilePhotoKey: null,
+          profileBio: null,
+          showOnlineStatus: false,
+          showReadReceipts: false,
+          displayName: 'Earlier message',
+          employee: null,
+        },
+        contentType: MessageContentType.TEXT,
+        textContent: 'Earlier message is unavailable',
+        sentAt: message.sentAt,
+        isDeleted: false,
+        isUnavailable: true,
+      };
+    }
 
     return {
       id: message.id,
@@ -1889,6 +1951,7 @@ export class ConversationsService {
       textContent: message.deletedAt ? null : message.textContent,
       sentAt: message.sentAt,
       isDeleted: message.deletedAt !== null,
+      isUnavailable: false,
     };
   }
 
@@ -1908,6 +1971,7 @@ export class ConversationsService {
   private serializeMessageInformation(
     message: MessageInformationRecord,
     viewerAccountId: string,
+    viewerParticipant: ConversationVisibilityParticipant,
   ) {
     const recipients = message.receipts.map((receipt) => {
       const readAt = this.getVisibleMessageInformationReadAt(
@@ -1928,7 +1992,11 @@ export class ConversationsService {
     });
 
     return {
-      message: this.serializeMessage(message, viewerAccountId),
+      message: this.serializeMessage(
+        message,
+        viewerAccountId,
+        viewerParticipant,
+      ),
       sender: this.serializeAccount(message.sender),
       sentAt: message.sentAt,
       editedAt: message.editedAt,
@@ -1988,6 +2056,7 @@ export class ConversationsService {
   private serializeSharedAttachment(
     attachment: SharedContentAttachmentRecord,
     viewerAccountId: string,
+    viewerParticipant: ConversationVisibilityParticipant,
   ) {
     return {
       id: attachment.id,
@@ -2004,7 +2073,11 @@ export class ConversationsService {
         createdAt: attachment.createdAt,
         updatedAt: attachment.updatedAt,
       },
-      message: this.serializeMessage(attachment.message, viewerAccountId),
+      message: this.serializeMessage(
+        attachment.message,
+        viewerAccountId,
+        viewerParticipant,
+      ),
       sender: this.serializeAccount(attachment.message.sender),
       sharedAt: attachment.message.sentAt,
     };
@@ -2013,11 +2086,16 @@ export class ConversationsService {
   private serializeSharedLink(
     item: SharedContentLinkItem,
     viewerAccountId: string,
+    viewerParticipant: ConversationVisibilityParticipant,
   ) {
     return {
       url: item.url,
       label: item.label,
-      message: this.serializeMessage(item.message, viewerAccountId),
+      message: this.serializeMessage(
+        item.message,
+        viewerAccountId,
+        viewerParticipant,
+      ),
       sender: this.serializeAccount(item.message.sender),
       sharedAt: item.message.sentAt,
     };
@@ -2026,6 +2104,7 @@ export class ConversationsService {
   private serializeMessage(
     message: MessageRecord,
     viewerAccountId?: string,
+    viewerParticipant?: ConversationVisibilityParticipant,
   ) {
     const deliveredAt = this.getAggregateReceiptDate(
       message.receipts.map((receipt) => receipt.deliveredAt),
@@ -2052,7 +2131,11 @@ export class ConversationsService {
       textContent: message.deletedAt ? null : message.textContent,
       payload: message.deletedAt ? null : message.payload,
       replyToMessageId: message.replyToMessageId,
-      replyTo: this.serializeReply(message.replyTo),
+      replyTo: this.serializeReply(
+        message.replyTo,
+        viewerAccountId,
+        viewerParticipant,
+      ),
       forwardedFrom: this.getForwardedMessageMetadata(message.payload),
       isStarred: viewerStar !== null,
       starredAt: viewerStar?.starredAt ?? null,
@@ -2145,8 +2228,19 @@ export class ConversationsService {
     );
 
     const privatePeer = otherParticipants[0]?.account ?? null;
-    const isMarkedUnread = viewerParticipant?.markedUnreadAt !== null && viewerParticipant?.markedUnreadAt !== undefined;
+    const isMarkedUnread =
+      viewerParticipant?.markedUnreadAt !== null &&
+      viewerParticipant?.markedUnreadAt !== undefined;
     const normalizedUnreadCount = isMarkedUnread && unreadCount === 0 ? 1 : unreadCount;
+    const visibleLastMessage = viewerParticipant
+      ? conversation.messages.find(
+          (message) =>
+            isMessageVisibleToParticipant(message.sentAt, viewerParticipant) &&
+            !message.hiddenForAccounts.some(
+              (hidden) => hidden.accountId === viewerAccountId,
+            ),
+        ) ?? null
+      : null;
 
     return {
       id: conversation.id,
@@ -2168,7 +2262,7 @@ export class ConversationsService {
           }
         : null,
       createdByAccountId: conversation.createdByAccountId,
-      lastMessageAt: conversation.messages[0]?.sentAt ?? null,
+      lastMessageAt: visibleLastMessage?.sentAt ?? null,
       unreadCount: normalizedUnreadCount,
       isMuted: viewerParticipant ? this.isMuteActive(viewerParticipant) : false,
       mutedUntil: viewerParticipant?.mutedUntil ?? null,
@@ -2178,6 +2272,8 @@ export class ConversationsService {
       pinnedAt: viewerParticipant?.pinnedAt ?? null,
       isMarkedUnread,
       markedUnreadAt: viewerParticipant?.markedUnreadAt ?? null,
+      historyClearedAt: viewerParticipant?.historyClearedAt ?? null,
+      deletedFromListAt: viewerParticipant?.deletedFromListAt ?? null,
       draftText: viewerParticipant?.draftText ?? null,
       draftUpdatedAt: viewerParticipant?.draftUpdatedAt ?? null,
       viewerParticipantRole: viewerParticipant?.role ?? null,
@@ -2191,8 +2287,12 @@ export class ConversationsService {
         joinedAt: participant.joinedAt,
         participantRole: participant.role,
       })),
-      lastMessage: conversation.messages[0]
-        ? this.serializeMessage(conversation.messages[0], viewerAccountId)
+      lastMessage: visibleLastMessage
+        ? this.serializeMessage(
+            visibleLastMessage,
+            viewerAccountId,
+            viewerParticipant ?? undefined,
+          )
         : null,
       createdAt: conversation.createdAt,
       updatedAt: conversation.updatedAt,
@@ -2471,10 +2571,15 @@ export class ConversationsService {
     message: MessageRecord,
     conversation: ConversationRecord,
     viewerAccountId: string,
+    viewerParticipant: ConversationVisibilityParticipant,
     searchText: string | null,
   ) {
     return {
-      message: this.serializeMessage(message, viewerAccountId),
+      message: this.serializeMessage(
+        message,
+        viewerAccountId,
+        viewerParticipant,
+      ),
       conversation: this.serializeConversation(conversation, viewerAccountId, 0),
       snippet: this.buildSearchSnippet(message, searchText),
       matchedAttachmentFileName:
@@ -2489,10 +2594,13 @@ export class ConversationsService {
   private async assertActiveParticipant(
     accountId: string,
     conversationId: string,
-  ): Promise<{
-    joinedAt: Date;
-    role: ConversationParticipantRole;
-  }> {
+  ): Promise<
+    ConversationVisibilityParticipant & {
+      role: ConversationParticipantRole;
+      deletedFromListAt: Date | null;
+      updatedAt: Date;
+    }
+  > {
     const participant = await this.prisma.conversationParticipant.findUnique({
       where: {
         conversationId_accountId: {
@@ -2505,6 +2613,9 @@ export class ConversationsService {
         joinedAt: true,
         leftAt: true,
         role: true,
+        historyClearedAt: true,
+        deletedFromListAt: true,
+        updatedAt: true,
       },
     });
 
@@ -2515,6 +2626,9 @@ export class ConversationsService {
     return {
       joinedAt: participant.joinedAt,
       role: participant.role,
+      historyClearedAt: participant.historyClearedAt,
+      deletedFromListAt: participant.deletedFromListAt,
+      updatedAt: participant.updatedAt,
     };
   }
 
@@ -2522,21 +2636,20 @@ export class ConversationsService {
     accountId: string,
     conversationId: string,
     messageId: string,
+    participantInput?: ConversationVisibilityParticipant,
+    options?: {
+      allowDeleted?: boolean;
+    },
   ): Promise<MessageRecord> {
-    const participant = await this.assertActiveParticipant(accountId, conversationId);
+    const participant =
+      participantInput ??
+      (await this.assertActiveParticipant(accountId, conversationId));
 
     const message = await this.prisma.message.findFirst({
       where: {
         id: messageId,
         conversationId,
-        sentAt: {
-          gte: participant.joinedAt,
-        },
-        hiddenForAccounts: {
-          none: {
-            accountId,
-          },
-        },
+        ...buildViewerMessageVisibilityWhere(accountId, participant),
       },
 
       select: messageSelect,
@@ -2546,11 +2659,109 @@ export class ConversationsService {
       throw new NotFoundException('Message was not found.');
     }
 
-    if (message.deletedAt) {
-      throw new BadRequestException('Deleted messages cannot be used for this action.');
+    if (message.deletedAt && options?.allowDeleted !== true) {
+      throw new BadRequestException(
+        'Deleted messages cannot be used for this action.',
+      );
     }
 
     return message;
+  }
+
+  private assertIdempotentMessageIsVisible(
+    message: Pick<MessageRecord, 'sentAt' | 'hiddenForAccounts'>,
+    accountId: string,
+    participant: ConversationVisibilityParticipant,
+  ): void {
+    const isVisible =
+      isMessageVisibleToParticipant(message.sentAt, participant) &&
+      !message.hiddenForAccounts.some(
+        (hidden) => hidden.accountId === accountId,
+      );
+
+    if (!isVisible) {
+      /*
+       * Reusing an old client-generated ID after Clear/Delete must not return
+       * the hidden canonical message through an idempotency response.
+       */
+      throw new ConflictException(
+        'This client message ID belongs to hidden chat history. Send the message again.',
+      );
+    }
+  }
+
+  private emitMessageCreatedForVisibleParticipants(
+    conversationId: string,
+    message: MessageRecord,
+    participants: Array<
+      NotificationParticipant & ConversationVisibilityParticipant
+    >,
+    occurredAt: string,
+  ): void {
+    for (const participant of participants) {
+      const isVisible =
+        isMessageVisibleToParticipant(message.sentAt, participant) &&
+        !message.hiddenForAccounts.some(
+          (hidden) => hidden.accountId === participant.accountId,
+        );
+
+      if (!isVisible) {
+        continue;
+      }
+
+      /*
+       * Message payloads are serialized per account because a reply parent can
+       * be visible to one participant and cleared for another participant.
+       */
+      this.messagingEventsService.emitMessageCreated(
+        [participant.accountId],
+        {
+          conversationId,
+          message: this.serializeMessage(
+            message,
+            participant.accountId,
+            participant,
+          ),
+          occurredAt,
+        },
+      );
+    }
+  }
+
+  private emitMessageUpdatedForVisibleParticipants(
+    conversationId: string,
+    message: MessageRecord,
+    participants: Array<
+      NotificationParticipant & ConversationVisibilityParticipant
+    >,
+    action: MessagingMessageUpdateAction,
+    occurredAt: string,
+  ): void {
+    for (const participant of participants) {
+      const isVisible =
+        isMessageVisibleToParticipant(message.sentAt, participant) &&
+        !message.hiddenForAccounts.some(
+          (hidden) => hidden.accountId === participant.accountId,
+        );
+
+      if (!isVisible) {
+        continue;
+      }
+
+      this.messagingEventsService.emitMessageUpdated(
+        [participant.accountId],
+        {
+          conversationId,
+          message: this.serializeMessage(
+            message,
+            participant.accountId,
+            participant,
+          ),
+          action,
+          occurredAt,
+        },
+      );
+    }
   }
 
   private normalizeAttachmentFileName(fileName: string): string {
@@ -4228,16 +4439,34 @@ export class ConversationsService {
       return 0;
     }
 
+    const memberships = await this.prisma.conversationParticipant.findMany({
+      where: {
+        accountId,
+        leftAt: null,
+        conversationId: {
+          in: conversationIds,
+        },
+      },
+      select: {
+        conversationId: true,
+        joinedAt: true,
+        historyClearedAt: true,
+      },
+    });
+
+    if (memberships.length === 0) {
+      return 0;
+    }
+
     const pendingReceipts = await this.prisma.messageReceipt.findMany({
       where: {
         accountId,
         deliveredAt: null,
-
         message: {
           is: {
-            conversationId: {
-              in: conversationIds,
-            },
+            OR: memberships.map((membership) =>
+              buildMembershipMessageVisibilityWhere(membership),
+            ),
             hiddenForAccounts: {
               none: {
                 accountId,
@@ -4293,7 +4522,6 @@ export class ConversationsService {
         receipt.message.conversationId,
         receipt.message.senderAccountId,
       ].join(':');
-
       const group = receiptsByConversationAndSender.get(key) ?? {
         conversationId: receipt.message.conversationId,
         senderAccountId: receipt.message.senderAccountId,
@@ -4461,6 +4689,8 @@ export class ConversationsService {
         }
 
         for (const accountId of [viewer.accountId, target.id]) {
+          const isRequester = accountId === viewer.accountId;
+
           await transaction.conversationParticipant.upsert({
             where: {
               conversationId_accountId: {
@@ -4469,9 +4699,20 @@ export class ConversationsService {
               },
             },
 
+            /*
+             * Reopening from Directory is personal. It may restore only the
+             * requesting user's list/archive state; the peer's deletion,
+             * archive and history boundary must remain untouched.
+             */
             update: {
               leftAt: null,
-              isArchived: false,
+              ...(isRequester
+                ? {
+                    isArchived: false,
+                    archivedAt: null,
+                    deletedFromListAt: null,
+                  }
+                : {}),
             },
 
             create: {
@@ -4872,7 +5113,10 @@ export class ConversationsService {
   ) {
     const viewer = await this.getMessagingViewer(user);
 
-    await this.assertActiveParticipant(viewer.accountId, conversationId);
+    const viewerParticipant = await this.assertActiveParticipant(
+      viewer.accountId,
+      conversationId,
+    );
 
     const attachments = await this.prisma.messageAttachment.findMany({
       where: {
@@ -4882,11 +5126,10 @@ export class ConversationsService {
         message: {
           conversationId,
           deletedAt: null,
-          hiddenForAccounts: {
-            none: {
-              accountId: viewer.accountId,
-            },
-          },
+          ...buildViewerMessageVisibilityWhere(
+            viewer.accountId,
+            viewerParticipant,
+          ),
         },
       },
       orderBy: {
@@ -4904,11 +5147,10 @@ export class ConversationsService {
           contains: 'http',
           mode: 'insensitive',
         },
-        hiddenForAccounts: {
-          none: {
-            accountId: viewer.accountId,
-          },
-        },
+        ...buildViewerMessageVisibilityWhere(
+          viewer.accountId,
+          viewerParticipant,
+        ),
       },
       orderBy: {
         sentAt: 'desc',
@@ -4922,22 +5164,42 @@ export class ConversationsService {
         attachment.contentType === MessageContentType.IMAGE ||
         attachment.contentType === MessageContentType.VIDEO,
       )
-      .map((attachment) => this.serializeSharedAttachment(attachment, viewer.accountId));
+      .map((attachment) =>
+        this.serializeSharedAttachment(
+          attachment,
+          viewer.accountId,
+          viewerParticipant,
+        ),
+      );
 
     const documents = attachments
       .filter((attachment) =>
         attachment.contentType !== MessageContentType.IMAGE &&
         attachment.contentType !== MessageContentType.VIDEO,
       )
-      .map((attachment) => this.serializeSharedAttachment(attachment, viewer.accountId));
+      .map((attachment) =>
+        this.serializeSharedAttachment(
+          attachment,
+          viewer.accountId,
+          viewerParticipant,
+        ),
+      );
 
-    const links = linkMessages.flatMap((message) =>
-      this.extractSharedLinks(message.textContent).map((url) => ({
-        url,
-        label: url,
-        message,
-      })),
-    ).map((item) => this.serializeSharedLink(item, viewer.accountId));
+    const links = linkMessages
+      .flatMap((message) =>
+        this.extractSharedLinks(message.textContent).map((url) => ({
+          url,
+          label: url,
+          message,
+        })),
+      )
+      .map((item) =>
+        this.serializeSharedLink(
+          item,
+          viewer.accountId,
+          viewerParticipant,
+        ),
+      );
 
     return {
       data: {
@@ -4973,14 +5235,10 @@ export class ConversationsService {
         AND: [
           {
             conversationId,
-            sentAt: {
-              gte: viewerParticipant.joinedAt,
-            },
-            hiddenForAccounts: {
-              none: {
-                accountId: viewer.accountId,
-              },
-            },
+            ...buildViewerMessageVisibilityWhere(
+              viewer.accountId,
+              viewerParticipant,
+            ),
           },
           ...this.buildMessageSearchConditions(filters),
         ],
@@ -5005,6 +5263,7 @@ export class ConversationsService {
           message,
           conversation,
           viewer.accountId,
+          viewerParticipant,
           filters.searchText,
         ),
       ),
@@ -5037,20 +5296,25 @@ export class ConversationsService {
         accountId: viewer.accountId,
         leftAt: null,
         isArchived: false,
+        deletedFromListAt: null,
       },
       select: {
         conversationId: true,
         joinedAt: true,
+        historyClearedAt: true,
       },
     });
 
     const conversationIds = memberships.map((membership) => membership.conversationId);
-    const visibilityConditions = memberships.map((membership) => ({
-      conversationId: membership.conversationId,
-      sentAt: {
-        gte: membership.joinedAt,
-      },
-    }));
+    const visibilityConditions = memberships.map((membership) =>
+      buildMembershipMessageVisibilityWhere(membership),
+    );
+    const membershipByConversationId = new Map(
+      memberships.map((membership) => [
+        membership.conversationId,
+        membership,
+      ]),
+    );
 
     const messages = visibilityConditions.length === 0
       ? []
@@ -5196,12 +5460,23 @@ export class ConversationsService {
         return [];
       }
 
-      return [this.buildMessageSearchResult(
-        message,
-        conversation,
-        viewer.accountId,
-        filters.searchText,
-      )];
+      const membership = membershipByConversationId.get(
+        message.conversationId,
+      );
+
+      if (!membership) {
+        return [];
+      }
+
+      return [
+        this.buildMessageSearchResult(
+          message,
+          conversation,
+          viewer.accountId,
+          membership,
+          filters.searchText,
+        ),
+      ];
     });
 
     return {
@@ -5798,6 +6073,11 @@ export class ConversationsService {
       );
     }
 
+    const sourceViewerParticipant = await this.assertActiveParticipant(
+      viewer.accountId,
+      conversationId,
+    );
+
     const originalAccountIds = sourceConversation.participants.map(
       (participant) => participant.accountId,
     );
@@ -5831,14 +6111,17 @@ export class ConversationsService {
           where: {
             conversationId,
             deletedAt: null,
-            sentAt: {
-              gte: contextSince,
-            },
-            hiddenForAccounts: {
-              none: {
-                accountId: viewer.accountId,
+            AND: [
+              {
+                sentAt: {
+                  gte: contextSince,
+                },
               },
-            },
+              buildViewerMessageVisibilityWhere(
+                viewer.accountId,
+                sourceViewerParticipant,
+              ),
+            ],
           },
           orderBy: [
             {
@@ -7197,6 +7480,7 @@ export class ConversationsService {
           some: {
             accountId: viewer.accountId,
             leftAt: null,
+            deletedFromListAt: null,
             ...archivedFilter,
           },
         },
@@ -7252,9 +7536,13 @@ export class ConversationsService {
     const [unreadCounts, visibleLastMessages] = await Promise.all([
       Promise.all(
         page.map((conversation) => {
-          const joinedAt = conversation.participants.find(
-            (participant) => participant.accountId === viewer.accountId,
-          )?.joinedAt;
+          const participant = conversation.participants.find(
+            (item) => item.accountId === viewer.accountId,
+          );
+
+          if (!participant) {
+            return 0;
+          }
 
           return this.prisma.messageReceipt.count({
             where: {
@@ -7265,18 +7553,10 @@ export class ConversationsService {
                 is: {
                   conversationId: conversation.id,
                   deletedAt: null,
-                  ...(joinedAt
-                    ? {
-                        sentAt: {
-                          gte: joinedAt,
-                        },
-                      }
-                    : {}),
-                  hiddenForAccounts: {
-                    none: {
-                      accountId: viewer.accountId,
-                    },
-                  },
+                  ...buildViewerMessageVisibilityWhere(
+                    viewer.accountId,
+                    participant,
+                  ),
                 },
               },
             },
@@ -7285,25 +7565,21 @@ export class ConversationsService {
       ),
       Promise.all(
         page.map((conversation) => {
-          const joinedAt = conversation.participants.find(
-            (participant) => participant.accountId === viewer.accountId,
-          )?.joinedAt;
+          const participant = conversation.participants.find(
+            (item) => item.accountId === viewer.accountId,
+          );
+
+          if (!participant) {
+            return null;
+          }
 
           return this.prisma.message.findFirst({
             where: {
               conversationId: conversation.id,
-              ...(joinedAt
-                ? {
-                    sentAt: {
-                      gte: joinedAt,
-                    },
-                  }
-                : {}),
-              hiddenForAccounts: {
-                none: {
-                  accountId: viewer.accountId,
-                },
-              },
+              ...buildViewerMessageVisibilityWhere(
+                viewer.accountId,
+                participant,
+              ),
             },
             orderBy: [
               {
@@ -7358,14 +7634,10 @@ export class ConversationsService {
     const messages = await this.prisma.message.findMany({
       where: {
         conversationId,
-        sentAt: {
-          gte: viewerParticipant.joinedAt,
-        },
-        hiddenForAccounts: {
-          none: {
-            accountId: viewer.accountId,
-          },
-        },
+        ...buildViewerMessageVisibilityWhere(
+          viewer.accountId,
+          viewerParticipant,
+        ),
       },
 
       orderBy: [
@@ -7401,7 +7673,13 @@ export class ConversationsService {
     return {
       data: [...pageDescending]
         .reverse()
-        .map((message) => this.serializeMessage(message, viewer.accountId)),
+        .map((message) =>
+          this.serializeMessage(
+            message,
+            viewer.accountId,
+            viewerParticipant,
+          ),
+        ),
       pagination: {
         limit: query.limit,
         hasMore,
@@ -7425,14 +7703,10 @@ export class ConversationsService {
       where: {
         id: messageId,
         conversationId,
-        sentAt: {
-          gte: participant.joinedAt,
-        },
-        hiddenForAccounts: {
-          none: {
-            accountId: viewer.accountId,
-          },
-        },
+        ...buildViewerMessageVisibilityWhere(
+          viewer.accountId,
+          participant,
+        ),
       },
 
       select: messageInformationSelect,
@@ -7447,7 +7721,11 @@ export class ConversationsService {
     }
 
     return {
-      data: this.serializeMessageInformation(message, viewer.accountId),
+      data: this.serializeMessageInformation(
+        message,
+        viewer.accountId,
+        participant,
+      ),
     };
   }
 
@@ -7590,10 +7868,19 @@ export class ConversationsService {
       },
       select: {
         accountId: true,
+        joinedAt: true,
+        historyClearedAt: true,
       },
     });
 
-    if (!recipient) {
+    if (
+      !recipient ||
+      !isMessageVisibleToParticipant(message.sentAt, recipient) ||
+      message.hiddenForAccounts.some(
+        (hidden) => hidden.accountId === recipient.accountId,
+      )
+    ) {
+      // Hidden history must not leak back through reaction notification text.
       return;
     }
 
@@ -7677,6 +7964,8 @@ export class ConversationsService {
           select: {
             accountId: true,
             role: true,
+            joinedAt: true,
+            historyClearedAt: true,
             isMuted: true,
             mutedUntil: true,
             account: {
@@ -7718,6 +8007,10 @@ export class ConversationsService {
     const viewerParticipant = conversation.participants.find(
       (participant) => participant.accountId === viewer.accountId,
     );
+
+    if (!viewerParticipant) {
+      throw new NotFoundException('Conversation was not found.');
+    }
 
     if (sendAsAnnouncement) {
       // Official announcement authorization is enforced server-side, not only by UI controls.
@@ -7765,24 +8058,41 @@ export class ConversationsService {
         );
       }
 
+      if (!viewerParticipant) {
+        throw new NotFoundException('Conversation was not found.');
+      }
+
+      this.assertIdempotentMessageIsVisible(
+        existingMessage,
+        viewer.accountId,
+        viewerParticipant,
+      );
+
       return {
         message: 'Message was already accepted.',
         duplicate: true,
-        data: this.serializeMessage(existingMessage),
+        data: this.serializeMessage(
+          existingMessage,
+          viewer.accountId,
+          viewerParticipant,
+        ),
       };
     }
 
     if (dto.replyToMessageId) {
+      if (!viewerParticipant) {
+        throw new NotFoundException('Conversation was not found.');
+      }
+
       const replyTarget = await this.prisma.message.findFirst({
         where: {
           id: dto.replyToMessageId,
           conversationId,
           deletedAt: null,
-          hiddenForAccounts: {
-            none: {
-              accountId: viewer.accountId,
-            },
-          },
+          ...buildViewerMessageVisibilityWhere(
+            viewer.accountId,
+            viewerParticipant,
+          ),
         },
 
         select: {
@@ -7857,7 +8167,13 @@ export class ConversationsService {
             },
 
             data: {
+              /*
+               * New activity restores list visibility for every active
+               * participant but never restores history hidden by M19.
+               */
               isArchived: false,
+              archivedAt: null,
+              deletedFromListAt: null,
             },
           });
 
@@ -7871,16 +8187,19 @@ export class ConversationsService {
         },
       );
 
-      const serializedMessage = this.serializeMessage(createdMessage);
-      const participantAccountIds = conversation.participants.map(
-        (participant) => participant.accountId,
+      const serializedMessage = this.serializeMessage(
+        createdMessage,
+        viewer.accountId,
+        viewerParticipant,
       );
+      const occurredAt = new Date().toISOString();
 
-      this.messagingEventsService.emitMessageCreated(participantAccountIds, {
+      this.emitMessageCreatedForVisibleParticipants(
         conversationId,
-        message: serializedMessage,
-        occurredAt: new Date().toISOString(),
-      });
+        createdMessage,
+        conversation.participants,
+        occurredAt,
+      );
 
       await this.createAndEmitMessageNotifications({
         message: createdMessage,
@@ -7922,10 +8241,24 @@ export class ConversationsService {
         );
       }
 
+      if (!viewerParticipant) {
+        throw new NotFoundException('Conversation was not found.');
+      }
+
+      this.assertIdempotentMessageIsVisible(
+        duplicateMessage,
+        viewer.accountId,
+        viewerParticipant,
+      );
+
       return {
         message: 'Message was already accepted.',
         duplicate: true,
-        data: this.serializeMessage(duplicateMessage),
+        data: this.serializeMessage(
+          duplicateMessage,
+          viewer.accountId,
+          viewerParticipant,
+        ),
       };
     }
   }
@@ -7963,6 +8296,8 @@ export class ConversationsService {
           },
           select: {
             accountId: true,
+            joinedAt: true,
+            historyClearedAt: true,
             isMuted: true,
             mutedUntil: true,
           },
@@ -7997,6 +8332,14 @@ export class ConversationsService {
       }
     }
 
+    const viewerParticipant = conversation.participants.find(
+      (participant) => participant.accountId === viewer.accountId,
+    );
+
+    if (!viewerParticipant) {
+      throw new NotFoundException('Conversation was not found.');
+    }
+
     const existingMessage = await this.prisma.message.findUnique({
       where: {
         senderAccountId_clientMessageId: {
@@ -8014,10 +8357,20 @@ export class ConversationsService {
         );
       }
 
+      this.assertIdempotentMessageIsVisible(
+        existingMessage,
+        viewer.accountId,
+        viewerParticipant,
+      );
+
       return {
         message: 'Location message was already accepted.',
         duplicate: true,
-        data: this.serializeMessage(existingMessage),
+        data: this.serializeMessage(
+          existingMessage,
+          viewer.accountId,
+          viewerParticipant,
+        ),
       };
     }
 
@@ -8069,7 +8422,10 @@ export class ConversationsService {
           },
         },
         data: {
+          // New activity restores the list entry without restoring old history.
           isArchived: false,
+          archivedAt: null,
+          deletedFromListAt: null,
         },
       });
 
@@ -8081,16 +8437,19 @@ export class ConversationsService {
       });
     });
 
-    const serializedMessage = this.serializeMessage(createdMessage);
-    const participantAccountIds = conversation.participants.map(
-      (participant) => participant.accountId,
+    const serializedMessage = this.serializeMessage(
+      createdMessage,
+      viewer.accountId,
+      viewerParticipant,
     );
+    const occurredAt = new Date().toISOString();
 
-    this.messagingEventsService.emitMessageCreated(participantAccountIds, {
+    this.emitMessageCreatedForVisibleParticipants(
       conversationId,
-      message: serializedMessage,
-      occurredAt: new Date().toISOString(),
-    });
+      createdMessage,
+      conversation.participants,
+      occurredAt,
+    );
 
     await this.createAndEmitMessageNotifications({
       message: createdMessage,
@@ -8114,26 +8473,17 @@ export class ConversationsService {
   ) {
     const viewer = await this.getMessagingViewer(user);
 
-    const message = await this.prisma.message.findFirst({
-      where: {
-        id: messageId,
-        conversationId,
-        senderAccountId: viewer.accountId,
-        contentType: MessageContentType.LOCATION,
-        deletedAt: null,
-        conversation: {
-          participants: {
-            some: {
-              accountId: viewer.accountId,
-              leftAt: null,
-            },
-          },
-        },
-      },
-      select: messageSelect,
-    });
+    const message = await this.findVisibleConversationMessageOrThrow(
+      viewer.accountId,
+      conversationId,
+      messageId,
+    );
 
-    if (!message) {
+    if (
+      message.senderAccountId !== viewer.accountId ||
+      message.contentType !== MessageContentType.LOCATION ||
+      message.deletedAt
+    ) {
       throw new NotFoundException('Live location message was not found.');
     }
 
@@ -8167,19 +8517,27 @@ export class ConversationsService {
       },
       select: {
         accountId: true,
+        joinedAt: true,
+        historyClearedAt: true,
       },
     });
 
-    const serializedMessage = this.serializeMessage(updatedMessage);
+    const viewerParticipant = participants.find(
+      (participant) => participant.accountId === viewer.accountId,
+    );
+    const serializedMessage = this.serializeMessage(
+      updatedMessage,
+      viewer.accountId,
+      viewerParticipant,
+    );
+    const occurredAt = new Date().toISOString();
 
-    this.messagingEventsService.emitMessageUpdated(
-      participants.map((participant) => participant.accountId),
-      {
-        conversationId,
-        message: serializedMessage,
-        action: 'LIVE_LOCATION_UPDATED',
-        occurredAt: new Date().toISOString(),
-      },
+    this.emitMessageUpdatedForVisibleParticipants(
+      conversationId,
+      updatedMessage,
+      participants,
+      'LIVE_LOCATION_UPDATED',
+      occurredAt,
     );
 
     return {
@@ -8195,26 +8553,17 @@ export class ConversationsService {
   ) {
     const viewer = await this.getMessagingViewer(user);
 
-    const message = await this.prisma.message.findFirst({
-      where: {
-        id: messageId,
-        conversationId,
-        senderAccountId: viewer.accountId,
-        contentType: MessageContentType.LOCATION,
-        deletedAt: null,
-        conversation: {
-          participants: {
-            some: {
-              accountId: viewer.accountId,
-              leftAt: null,
-            },
-          },
-        },
-      },
-      select: messageSelect,
-    });
+    const message = await this.findVisibleConversationMessageOrThrow(
+      viewer.accountId,
+      conversationId,
+      messageId,
+    );
 
-    if (!message) {
+    if (
+      message.senderAccountId !== viewer.accountId ||
+      message.contentType !== MessageContentType.LOCATION ||
+      message.deletedAt
+    ) {
       throw new NotFoundException('Live location message was not found.');
     }
 
@@ -8256,19 +8605,27 @@ export class ConversationsService {
       },
       select: {
         accountId: true,
+        joinedAt: true,
+        historyClearedAt: true,
       },
     });
 
-    const serializedMessage = this.serializeMessage(updatedMessage);
+    const viewerParticipant = participants.find(
+      (participant) => participant.accountId === viewer.accountId,
+    );
+    const serializedMessage = this.serializeMessage(
+      updatedMessage,
+      viewer.accountId,
+      viewerParticipant,
+    );
+    const occurredAt = new Date().toISOString();
 
-    this.messagingEventsService.emitMessageUpdated(
-      participants.map((participant) => participant.accountId),
-      {
-        conversationId,
-        message: serializedMessage,
-        action: 'LIVE_LOCATION_STOPPED',
-        occurredAt: new Date().toISOString(),
-      },
+    this.emitMessageUpdatedForVisibleParticipants(
+      conversationId,
+      updatedMessage,
+      participants,
+      'LIVE_LOCATION_STOPPED',
+      occurredAt,
     );
 
     return {
@@ -8317,6 +8674,8 @@ export class ConversationsService {
 
           select: {
             accountId: true,
+            joinedAt: true,
+            historyClearedAt: true,
             isMuted: true,
             mutedUntil: true,
           },
@@ -8351,6 +8710,14 @@ export class ConversationsService {
       }
     }
 
+    const viewerParticipant = conversation.participants.find(
+      (participant) => participant.accountId === viewer.accountId,
+    );
+
+    if (!viewerParticipant) {
+      throw new NotFoundException('Conversation was not found.');
+    }
+
     const existingMessage = await this.prisma.message.findUnique({
       where: {
         senderAccountId_clientMessageId: {
@@ -8369,24 +8736,37 @@ export class ConversationsService {
         );
       }
 
+      this.assertIdempotentMessageIsVisible(
+        existingMessage,
+        viewer.accountId,
+        viewerParticipant,
+      );
+
       return {
         message: 'Attachment message was already accepted.',
         duplicate: true,
-        data: this.serializeMessage(existingMessage),
+        data: this.serializeMessage(
+          existingMessage,
+          viewer.accountId,
+          viewerParticipant,
+        ),
       };
     }
 
     if (dto.replyToMessageId) {
+      if (!viewerParticipant) {
+        throw new NotFoundException('Conversation was not found.');
+      }
+
       const replyTarget = await this.prisma.message.findFirst({
         where: {
           id: dto.replyToMessageId,
           conversationId,
           deletedAt: null,
-          hiddenForAccounts: {
-            none: {
-              accountId: viewer.accountId,
-            },
-          },
+          ...buildViewerMessageVisibilityWhere(
+            viewer.accountId,
+            viewerParticipant,
+          ),
         },
 
         select: {
@@ -8474,7 +8854,13 @@ export class ConversationsService {
             },
 
             data: {
+              /*
+               * New activity restores list visibility for every active
+               * participant but never restores history hidden by M19.
+               */
               isArchived: false,
+              archivedAt: null,
+              deletedFromListAt: null,
             },
           });
 
@@ -8488,16 +8874,19 @@ export class ConversationsService {
         },
       );
 
-      const serializedMessage = this.serializeMessage(createdMessage);
-      const participantAccountIds = conversation.participants.map(
-        (participant) => participant.accountId,
+      const serializedMessage = this.serializeMessage(
+        createdMessage,
+        viewer.accountId,
+        viewerParticipant,
       );
+      const occurredAt = new Date().toISOString();
 
-      this.messagingEventsService.emitMessageCreated(participantAccountIds, {
+      this.emitMessageCreatedForVisibleParticipants(
         conversationId,
-        message: serializedMessage,
-        occurredAt: new Date().toISOString(),
-      });
+        createdMessage,
+        conversation.participants,
+        occurredAt,
+      );
 
       await this.createAndEmitMessageNotifications({
         message: createdMessage,
@@ -8537,10 +8926,20 @@ export class ConversationsService {
         );
       }
 
+      this.assertIdempotentMessageIsVisible(
+        duplicateMessage,
+        viewer.accountId,
+        viewerParticipant,
+      );
+
       return {
         message: 'Attachment message was already accepted.',
         duplicate: true,
-        data: this.serializeMessage(duplicateMessage),
+        data: this.serializeMessage(
+          duplicateMessage,
+          viewer.accountId,
+          viewerParticipant,
+        ),
       };
     }
   }
@@ -8551,7 +8950,10 @@ export class ConversationsService {
     messageId: string,
     attachmentId: string,
   ) {
-    await this.assertActiveParticipant(user.accountId, conversationId);
+    const participant = await this.assertActiveParticipant(
+      user.accountId,
+      conversationId,
+    );
 
     const attachment = await this.prisma.messageAttachment.findFirst({
       where: {
@@ -8561,11 +8963,7 @@ export class ConversationsService {
           id: messageId,
           conversationId,
           deletedAt: null,
-          hiddenForAccounts: {
-            none: {
-              accountId: user.accountId,
-            },
-          },
+          ...buildViewerMessageVisibilityWhere(user.accountId, participant),
         },
       },
 
@@ -8610,18 +9008,20 @@ export class ConversationsService {
   ) {
     const viewer = await this.getMessagingViewer(user);
 
-    await this.assertActiveParticipant(viewer.accountId, sourceConversationId);
+    const sourceParticipant = await this.assertActiveParticipant(
+      viewer.accountId,
+      sourceConversationId,
+    );
 
     const sourceMessage = await this.prisma.message.findFirst({
       where: {
         id: sourceMessageId,
         conversationId: sourceConversationId,
         deletedAt: null,
-        hiddenForAccounts: {
-          none: {
-            accountId: viewer.accountId,
-          },
-        },
+        ...buildViewerMessageVisibilityWhere(
+          viewer.accountId,
+          sourceParticipant,
+        ),
       },
       select: messageSelect,
     });
@@ -8700,6 +9100,8 @@ export class ConversationsService {
           },
           select: {
             accountId: true,
+            joinedAt: true,
+            historyClearedAt: true,
             isMuted: true,
             mutedUntil: true,
           },
@@ -8757,13 +9159,25 @@ export class ConversationsService {
           message: MessageRecord;
           duplicate: boolean;
           participantAccountIds: string[];
-          participants: NotificationParticipant[];
+          participants: Array<
+            NotificationParticipant & ConversationVisibilityParticipant
+          >;
         }> = [];
 
         for (const conversation of destinationConversations) {
           const clientMessageId = [dto.clientForwardId, conversation.id].join(
             ':',
           );
+          const viewerParticipant = conversation.participants.find(
+            (participant) => participant.accountId === viewer.accountId,
+          );
+
+          if (!viewerParticipant) {
+            throw new BadRequestException(
+              'A forwarding destination is unavailable.',
+            );
+          }
+
           const participantAccountIds = conversation.participants.map(
             (participant) => participant.accountId,
           );
@@ -8794,6 +9208,12 @@ export class ConversationsService {
                 'This forwarding request ID was already used for different content.',
               );
             }
+
+            this.assertIdempotentMessageIsVisible(
+              existingMessage,
+              viewer.accountId,
+              viewerParticipant,
+            );
 
             results.push({
               message: existingMessage,
@@ -8866,7 +9286,13 @@ export class ConversationsService {
               },
             },
             data: {
+              /*
+               * New activity restores list visibility for every active
+               * participant but never restores history hidden by M19.
+               */
               isArchived: false,
+              archivedAt: null,
+              deletedFromListAt: null,
             },
           });
 
@@ -8887,13 +9313,11 @@ export class ConversationsService {
         continue;
       }
 
-      this.messagingEventsService.emitMessageCreated(
-        result.participantAccountIds,
-        {
-          conversationId: result.message.conversationId,
-          message: this.serializeMessage(result.message),
-          occurredAt: new Date().toISOString(),
-        },
+      this.emitMessageCreatedForVisibleParticipants(
+        result.message.conversationId,
+        result.message,
+        result.participants,
+        new Date().toISOString(),
       );
 
       await this.createAndEmitMessageNotifications({
@@ -8916,9 +9340,17 @@ export class ConversationsService {
             }.`,
       createdCount,
       duplicateCount,
-      data: forwardedMessages.map((result) =>
-        this.serializeMessage(result.message),
-      ),
+      data: forwardedMessages.map((result) => {
+        const viewerParticipant = result.participants.find(
+          (participant) => participant.accountId === viewer.accountId,
+        );
+
+        return this.serializeMessage(
+          result.message,
+          viewer.accountId,
+          viewerParticipant,
+        );
+      }),
     };
   }
 
@@ -8935,20 +9367,11 @@ export class ConversationsService {
       throw new BadRequestException('Message text cannot be empty.');
     }
 
-    await this.assertActiveParticipant(viewer.accountId, conversationId);
-
-    const message = await this.prisma.message.findFirst({
-      where: {
-        id: messageId,
-        conversationId,
-      },
-
-      select: messageSelect,
-    });
-
-    if (!message) {
-      throw new NotFoundException('Message was not found.');
-    }
+    const message = await this.findVisibleConversationMessageOrThrow(
+      viewer.accountId,
+      conversationId,
+      messageId,
+    );
 
     if (message.senderAccountId !== viewer.accountId) {
       throw new ForbiddenException('You can edit only messages that you sent.');
@@ -8993,20 +9416,28 @@ export class ConversationsService {
 
         select: {
           accountId: true,
+          joinedAt: true,
+          historyClearedAt: true,
         },
       }),
     ]);
 
-    const serializedMessage = this.serializeMessage(updatedMessage);
+    const viewerParticipant = participants.find(
+      (item) => item.accountId === viewer.accountId,
+    );
+    const serializedMessage = this.serializeMessage(
+      updatedMessage,
+      viewer.accountId,
+      viewerParticipant,
+    );
+    const occurredAt = new Date().toISOString();
 
-    this.messagingEventsService.emitMessageUpdated(
-      participants.map((participant) => participant.accountId),
-      {
-        conversationId,
-        message: serializedMessage,
-        action: 'EDITED',
-        occurredAt: new Date().toISOString(),
-      },
+    this.emitMessageUpdatedForVisibleParticipants(
+      conversationId,
+      updatedMessage,
+      participants,
+      'EDITED',
+      occurredAt,
     );
 
     return {
@@ -9043,18 +9474,17 @@ export class ConversationsService {
     messageId: string,
     reactionValue: ReactMessageDto['reaction'] | null,
   ) {
-    await this.assertActiveParticipant(user.accountId, conversationId);
+    const participant = await this.assertActiveParticipant(
+      user.accountId,
+      conversationId,
+    );
 
     const message = await this.prisma.message.findFirst({
       where: {
         id: messageId,
         conversationId,
         deletedAt: null,
-        hiddenForAccounts: {
-          none: {
-            accountId: user.accountId,
-          },
-        },
+        ...buildViewerMessageVisibilityWhere(user.accountId, participant),
       },
 
       select: {
@@ -9140,6 +9570,8 @@ export class ConversationsService {
 
           select: {
             accountId: true,
+            joinedAt: true,
+            historyClearedAt: true,
           },
         }),
       ]);
@@ -9151,22 +9583,22 @@ export class ConversationsService {
       return {
         action,
         message: updatedMessage,
-        participantAccountIds: participants.map(
-          (participant) => participant.accountId,
-        ),
+        participants,
       };
     });
 
-    const serializedMessage = this.serializeMessage(result.message);
+    const serializedMessage = this.serializeMessage(
+      result.message,
+      user.accountId,
+      participant,
+    );
 
-    this.messagingEventsService.emitMessageUpdated(
-      result.participantAccountIds,
-      {
-        conversationId,
-        message: serializedMessage,
-        action: 'REACTION_UPDATED',
-        occurredAt: now.toISOString(),
-      },
+    this.emitMessageUpdatedForVisibleParticipants(
+      conversationId,
+      result.message,
+      result.participants,
+      'REACTION_UPDATED',
+      now.toISOString(),
     );
 
     await this.createAndEmitReactionNotification(
@@ -9191,22 +9623,43 @@ export class ConversationsService {
   async listStarredMessages(user: AuthenticatedUser) {
     const viewer = await this.getMessagingViewer(user);
 
+    const memberships = await this.prisma.conversationParticipant.findMany({
+      where: {
+        accountId: viewer.accountId,
+        leftAt: null,
+        deletedFromListAt: null,
+      },
+      select: {
+        conversationId: true,
+        joinedAt: true,
+        historyClearedAt: true,
+      },
+    });
+
+    if (memberships.length === 0) {
+      return {
+        data: [],
+      };
+    }
+
+    const membershipByConversationId = new Map(
+      memberships.map((membership) => [
+        membership.conversationId,
+        membership,
+      ]),
+    );
+
     const starredMessages = await this.prisma.messageStar.findMany({
       where: {
         accountId: viewer.accountId,
         message: {
           deletedAt: null,
+          OR: memberships.map((membership) =>
+            buildMembershipMessageVisibilityWhere(membership),
+          ),
           hiddenForAccounts: {
             none: {
               accountId: viewer.accountId,
-            },
-          },
-          conversation: {
-            participants: {
-              some: {
-                accountId: viewer.accountId,
-                leftAt: null,
-              },
             },
           },
         },
@@ -9246,15 +9699,22 @@ export class ConversationsService {
     return {
       data: starredMessages.flatMap((star) => {
         const conversation = conversationById.get(star.message.conversationId);
+        const membership = membershipByConversationId.get(
+          star.message.conversationId,
+        );
 
-        if (!conversation) {
+        if (!conversation || !membership) {
           return [];
         }
 
         return [
           {
             starredAt: star.starredAt,
-            message: this.serializeMessage(star.message, viewer.accountId),
+            message: this.serializeMessage(
+              star.message,
+              viewer.accountId,
+              membership,
+            ),
             conversation: this.serializeConversation(
               conversation,
               viewer.accountId,
@@ -9271,7 +9731,10 @@ export class ConversationsService {
     conversationId: string,
   ) {
     const viewer = await this.getMessagingViewer(user);
-    await this.assertActiveParticipant(viewer.accountId, conversationId);
+    const participant = await this.assertActiveParticipant(
+      viewer.accountId,
+      conversationId,
+    );
 
     const pinnedMessages = await this.prisma.messagePin.findMany({
       where: {
@@ -9279,11 +9742,10 @@ export class ConversationsService {
         unpinnedAt: null,
         message: {
           deletedAt: null,
-          hiddenForAccounts: {
-            none: {
-              accountId: viewer.accountId,
-            },
-          },
+          ...buildViewerMessageVisibilityWhere(
+            viewer.accountId,
+            participant,
+          ),
         },
       },
 
@@ -9302,7 +9764,11 @@ export class ConversationsService {
 
     return {
       data: pinnedMessages.map((pin) =>
-        this.serializeMessage(pin.message, viewer.accountId),
+        this.serializeMessage(
+          pin.message,
+          viewer.accountId,
+          participant,
+        ),
       ),
     };
   }
@@ -9313,10 +9779,15 @@ export class ConversationsService {
     messageId: string,
   ) {
     const viewer = await this.getMessagingViewer(user);
+    const participant = await this.assertActiveParticipant(
+      viewer.accountId,
+      conversationId,
+    );
     await this.findVisibleConversationMessageOrThrow(
       viewer.accountId,
       conversationId,
       messageId,
+      participant,
     );
 
     const result = await this.prisma.$transaction(async (transaction) => {
@@ -9352,7 +9823,11 @@ export class ConversationsService {
 
     return {
       message: 'Message starred.',
-      data: this.serializeMessage(result, viewer.accountId),
+      data: this.serializeMessage(
+        result,
+        viewer.accountId,
+        participant,
+      ),
     };
   }
 
@@ -9362,10 +9837,15 @@ export class ConversationsService {
     messageId: string,
   ) {
     const viewer = await this.getMessagingViewer(user);
+    const participant = await this.assertActiveParticipant(
+      viewer.accountId,
+      conversationId,
+    );
     await this.findVisibleConversationMessageOrThrow(
       viewer.accountId,
       conversationId,
       messageId,
+      participant,
     );
 
     const result = await this.prisma.$transaction(async (transaction) => {
@@ -9392,7 +9872,11 @@ export class ConversationsService {
 
     return {
       message: 'Message unstarred.',
-      data: this.serializeMessage(result, viewer.accountId),
+      data: this.serializeMessage(
+        result,
+        viewer.accountId,
+        participant,
+      ),
     };
   }
 
@@ -9446,6 +9930,8 @@ export class ConversationsService {
           },
           select: {
             accountId: true,
+            joinedAt: true,
+            historyClearedAt: true,
           },
         }),
       ]);
@@ -9456,20 +9942,25 @@ export class ConversationsService {
 
       return {
         message,
-        participantAccountIds: participants.map((participant) => participant.accountId),
+        participants,
       };
     });
 
-    const serializedMessage = this.serializeMessage(result.message, viewer.accountId);
+    const viewerParticipant = result.participants.find(
+      (participant) => participant.accountId === viewer.accountId,
+    );
+    const serializedMessage = this.serializeMessage(
+      result.message,
+      viewer.accountId,
+      viewerParticipant,
+    );
 
-    this.messagingEventsService.emitMessageUpdated(
-      result.participantAccountIds,
-      {
-        conversationId,
-        message: this.serializeMessage(result.message),
-        action: 'PINNED',
-        occurredAt: now.toISOString(),
-      },
+    this.emitMessageUpdatedForVisibleParticipants(
+      conversationId,
+      result.message,
+      result.participants,
+      'PINNED',
+      now.toISOString(),
     );
 
     return {
@@ -9519,6 +10010,8 @@ export class ConversationsService {
           },
           select: {
             accountId: true,
+            joinedAt: true,
+            historyClearedAt: true,
           },
         }),
       ]);
@@ -9529,20 +10022,25 @@ export class ConversationsService {
 
       return {
         message,
-        participantAccountIds: participants.map((participant) => participant.accountId),
+        participants,
       };
     });
 
-    const serializedMessage = this.serializeMessage(result.message, viewer.accountId);
+    const viewerParticipant = result.participants.find(
+      (participant) => participant.accountId === viewer.accountId,
+    );
+    const serializedMessage = this.serializeMessage(
+      result.message,
+      viewer.accountId,
+      viewerParticipant,
+    );
 
-    this.messagingEventsService.emitMessageUpdated(
-      result.participantAccountIds,
-      {
-        conversationId,
-        message: this.serializeMessage(result.message),
-        action: 'UNPINNED',
-        occurredAt: now.toISOString(),
-      },
+    this.emitMessageUpdatedForVisibleParticipants(
+      conversationId,
+      result.message,
+      result.participants,
+      'UNPINNED',
+      now.toISOString(),
     );
 
     return {
@@ -9558,22 +10056,15 @@ export class ConversationsService {
   ) {
     const viewer = await this.getMessagingViewer(user);
 
-    await this.assertActiveParticipant(viewer.accountId, conversationId);
-
-    const message = await this.prisma.message.findFirst({
-      where: {
-        id: messageId,
-        conversationId,
-      },
-      select: {
-        id: true,
-        senderAccountId: true,
-      },
-    });
-
-    if (!message) {
-      throw new NotFoundException('Message was not found.');
-    }
+    const visibleMessage = await this.findVisibleConversationMessageOrThrow(
+      viewer.accountId,
+      conversationId,
+      messageId,
+    );
+    const message = {
+      id: visibleMessage.id,
+      senderAccountId: visibleMessage.senderAccountId,
+    };
 
     const now = new Date();
 
@@ -9641,21 +10132,20 @@ export class ConversationsService {
     messageId: string,
   ) {
     const viewer = await this.getMessagingViewer(user);
+    const viewerParticipant = await this.assertActiveParticipant(
+      viewer.accountId,
+      conversationId,
+    );
 
-    await this.assertActiveParticipant(viewer.accountId, conversationId);
-
-    const message = await this.prisma.message.findFirst({
-      where: {
-        id: messageId,
-        conversationId,
+    const message = await this.findVisibleConversationMessageOrThrow(
+      viewer.accountId,
+      conversationId,
+      messageId,
+      viewerParticipant,
+      {
+        allowDeleted: true,
       },
-
-      select: messageSelect,
-    });
-
-    if (!message) {
-      throw new NotFoundException('Message was not found.');
-    }
+    );
 
     if (message.senderAccountId !== viewer.accountId) {
       throw new ForbiddenException(
@@ -9666,7 +10156,11 @@ export class ConversationsService {
     if (message.deletedAt) {
       return {
         message: 'Message was already deleted.',
-        data: this.serializeMessage(message),
+        data: this.serializeMessage(
+          message,
+          viewer.accountId,
+          viewerParticipant,
+        ),
       };
     }
 
@@ -9692,25 +10186,332 @@ export class ConversationsService {
 
         select: {
           accountId: true,
+          joinedAt: true,
+          historyClearedAt: true,
         },
       }),
     ]);
 
-    const serializedMessage = this.serializeMessage(deletedMessage);
+    /*
+     * Reuse the participant state already authorized at method entry. Looking
+     * it up again from the realtime recipient list is redundant and previously
+     * redeclared the same block-scoped identifier.
+     */
+    const serializedMessage = this.serializeMessage(
+      deletedMessage,
+      viewer.accountId,
+      viewerParticipant,
+    );
 
-    this.messagingEventsService.emitMessageUpdated(
-      participants.map((participant) => participant.accountId),
-      {
-        conversationId,
-        message: serializedMessage,
-        action: 'DELETED',
-        occurredAt: now.toISOString(),
-      },
+    this.emitMessageUpdatedForVisibleParticipants(
+      conversationId,
+      deletedMessage,
+      participants,
+      'DELETED',
+      now.toISOString(),
     );
 
     return {
       message: 'Message deleted for everyone.',
       data: serializedMessage,
+    };
+  }
+
+  async clearConversationForAccount(
+    user: AuthenticatedUser,
+    conversationId: string,
+  ) {
+    return this.applyPersonalConversationHistoryAction(
+      user,
+      conversationId,
+      'CLEAR',
+    );
+  }
+
+  async deleteConversationForAccount(
+    user: AuthenticatedUser,
+    conversationId: string,
+  ) {
+    return this.applyPersonalConversationHistoryAction(
+      user,
+      conversationId,
+      'DELETE',
+    );
+  }
+
+  private async applyPersonalConversationHistoryAction(
+    user: AuthenticatedUser,
+    conversationId: string,
+    action: 'CLEAR' | 'DELETE',
+  ) {
+    const viewer = await this.getMessagingViewer(user);
+
+    const conversation = await this.prisma.conversation.findFirst({
+      where: {
+        id: conversationId,
+        participants: {
+          some: {
+            accountId: viewer.accountId,
+            leftAt: null,
+          },
+        },
+      },
+      select: {
+        id: true,
+        type: true,
+        groupKind: true,
+      },
+    });
+
+    if (!conversation) {
+      throw new NotFoundException('Conversation was not found.');
+    }
+
+    if (action === 'DELETE' && conversation.type !== ConversationType.PRIVATE) {
+      throw new ForbiddenException(
+        'Delete chat is available only for private conversations. Clear chat or leave the group instead.',
+      );
+    }
+
+    const currentParticipant = await this.assertActiveParticipant(
+      viewer.accountId,
+      conversationId,
+    );
+    const currentVisibility = buildViewerMessageVisibilityWhere(
+      viewer.accountId,
+      currentParticipant,
+    );
+    const now = new Date();
+
+    const pendingReceipts = await this.prisma.messageReceipt.findMany({
+      where: {
+        accountId: viewer.accountId,
+        readAt: null,
+        message: {
+          is: {
+            AND: [
+              {
+                conversationId,
+                ...currentVisibility,
+              },
+              {
+                sentAt: {
+                  lte: now,
+                },
+              },
+            ],
+          },
+        },
+      },
+      select: {
+        messageId: true,
+        message: {
+          select: {
+            senderAccountId: true,
+          },
+        },
+      },
+    });
+
+    const participant = await this.prisma.$transaction(async (transaction) => {
+      const participantUpdate =
+        await transaction.conversationParticipant.updateMany({
+          where: {
+            conversationId,
+            accountId: viewer.accountId,
+            leftAt: null,
+            updatedAt: currentParticipant.updatedAt,
+          },
+          data:
+            action === 'DELETE'
+              ? {
+                  /*
+                   * Delete chat is personal list state. The canonical
+                   * conversation, messages, shared pins and attachment files
+                   * must remain available to every other participant.
+                   */
+                  historyClearedAt: now,
+                  deletedFromListAt: now,
+                  isPinned: false,
+                  pinnedAt: null,
+                  isArchived: false,
+                  archivedAt: null,
+                  markedUnreadAt: null,
+                  draftText: null,
+                  draftUpdatedAt: null,
+                }
+              : {
+                  /*
+                   * Clear chat keeps the conversation row and personal
+                   * preference state, while hiding every message at or before
+                   * this participant-specific boundary.
+                   */
+                  historyClearedAt: now,
+                  markedUnreadAt: null,
+                },
+        });
+
+      /*
+       * Membership, preferences or new-message activity can change while the
+       * confirmation dialog is open. The optimistic updatedAt guard prevents
+       * this action from overwriting a newer list-restoration update.
+       */
+      if (participantUpdate.count !== 1) {
+        throw new ConflictException(
+          'The conversation changed while this action was being applied. Please try again.',
+        );
+      }
+
+      const updatedParticipant =
+        await transaction.conversationParticipant.findUnique({
+          where: {
+            conversationId_accountId: {
+              conversationId,
+              accountId: viewer.accountId,
+            },
+          },
+          select: {
+            conversationId: true,
+            accountId: true,
+            historyClearedAt: true,
+            deletedFromListAt: true,
+            isPinned: true,
+            pinnedAt: true,
+            isArchived: true,
+            archivedAt: true,
+            isMuted: true,
+            mutedUntil: true,
+            markedUnreadAt: true,
+            draftText: true,
+            draftUpdatedAt: true,
+          },
+        });
+
+      if (!updatedParticipant) {
+        throw new NotFoundException('Conversation was not found.');
+      }
+
+      /*
+       * Hidden history must not continue contributing unread badges. This
+       * updates only the requesting account's receipts; sender messages and
+       * every other participant's receipt state remain unchanged.
+       */
+      if (pendingReceipts.length > 0) {
+        await transaction.messageReceipt.updateMany({
+          where: {
+            accountId: viewer.accountId,
+            messageId: {
+              in: pendingReceipts.map((receipt) => receipt.messageId),
+            },
+          },
+          data: {
+            deliveredAt: now,
+            readAt: now,
+          },
+        });
+      }
+
+      /*
+       * Notification bodies can contain message previews. Removing the
+       * requester's old rows prevents cleared content from leaking outside the
+       * conversation while preserving every other recipient's notifications.
+       */
+      await transaction.messagingNotification.deleteMany({
+        where: {
+          recipientAccountId: viewer.accountId,
+          conversationId,
+          createdAt: {
+            lte: now,
+          },
+        },
+      });
+
+      await transaction.activityEvent.create({
+        data: {
+          accountId: viewer.accountId,
+          sessionId: user.sessionId,
+          eventType:
+            action === 'DELETE'
+              ? ActivityEventType.CHAT_DELETED
+              : ActivityEventType.CHAT_CLEARED,
+          pagePath: 'Messages',
+          elementLabel:
+            action === 'DELETE' ? 'Delete chat' : 'Clear chat',
+          /*
+           * Audit metadata intentionally excludes participant identity,
+           * message text, attachment names and all credential material.
+           */
+          metadata: {
+            conversationId,
+            conversationType: conversation.type,
+            groupKind: conversation.groupKind,
+          },
+          occurredAt: now,
+        },
+      });
+
+      return updatedParticipant;
+    });
+
+    const receiptsBySender = new Map<string, string[]>();
+
+    for (const receipt of pendingReceipts) {
+      const messageIds =
+        receiptsBySender.get(receipt.message.senderAccountId) ?? [];
+      messageIds.push(receipt.messageId);
+      receiptsBySender.set(receipt.message.senderAccountId, messageIds);
+    }
+
+    if (viewer.showReadReceipts) {
+      for (const [senderAccountId, messageIds] of receiptsBySender) {
+        if (senderAccountId === viewer.accountId) {
+          continue;
+        }
+
+        this.messagingEventsService.emitReceiptUpdated([senderAccountId], {
+          conversationId,
+          messageIds,
+          accountId: viewer.accountId,
+          status: 'READ',
+          occurredAt: now.toISOString(),
+        });
+      }
+    }
+
+    /*
+     * M19 synchronization is account-scoped. The peer must never receive a
+     * clear/delete event or infer that this personal action occurred.
+     */
+    this.messagingEventsService.emitConversationUpdated([viewer.accountId], {
+      conversationId,
+      reason:
+        action === 'DELETE'
+          ? 'DELETED_FOR_ACCOUNT'
+          : 'CLEARED_FOR_ACCOUNT',
+      occurredAt: now.toISOString(),
+    });
+
+    return {
+      message:
+        action === 'DELETE'
+          ? 'Chat deleted from your account.'
+          : 'Chat cleared for your account.',
+      data: {
+        conversationId: participant.conversationId,
+        accountId: participant.accountId,
+        historyClearedAt: participant.historyClearedAt,
+        deletedFromListAt: participant.deletedFromListAt,
+        isPinned: participant.isPinned,
+        pinnedAt: participant.pinnedAt,
+        isArchived: participant.isArchived,
+        archivedAt: participant.archivedAt,
+        isMuted: this.isMuteActive(participant),
+        mutedUntil: participant.mutedUntil,
+        isMarkedUnread: participant.markedUnreadAt !== null,
+        markedUnreadAt: participant.markedUnreadAt,
+        draftText: participant.draftText,
+        draftUpdatedAt: participant.draftUpdatedAt,
+      },
     };
   }
 
@@ -9771,6 +10572,8 @@ export class ConversationsService {
         isMuted: true,
         mutedUntil: true,
         markedUnreadAt: true,
+        historyClearedAt: true,
+        deletedFromListAt: true,
         draftText: true,
         draftUpdatedAt: true,
       },
@@ -9789,6 +10592,8 @@ export class ConversationsService {
         mutedUntil: participant.mutedUntil,
         isMarkedUnread: participant.markedUnreadAt !== null,
         markedUnreadAt: participant.markedUnreadAt,
+        historyClearedAt: participant.historyClearedAt,
+        deletedFromListAt: participant.deletedFromListAt,
         draftText: participant.draftText,
         draftUpdatedAt: participant.draftUpdatedAt,
       },
@@ -9798,7 +10603,14 @@ export class ConversationsService {
   async markConversationRead(user: AuthenticatedUser, conversationId: string) {
     const viewer = await this.getMessagingViewer(user);
 
-    await this.assertActiveParticipant(viewer.accountId, conversationId);
+    const participant = await this.assertActiveParticipant(
+      viewer.accountId,
+      conversationId,
+    );
+    const messageVisibility = buildViewerMessageVisibilityWhere(
+      viewer.accountId,
+      participant,
+    );
 
     const pendingReceipts = await this.prisma.messageReceipt.findMany({
       where: {
@@ -9808,11 +10620,7 @@ export class ConversationsService {
         message: {
           is: {
             conversationId,
-            hiddenForAccounts: {
-              none: {
-                accountId: viewer.accountId,
-              },
-            },
+            ...messageVisibility,
           },
         },
       },
@@ -9851,11 +10659,7 @@ export class ConversationsService {
           message: {
             is: {
               conversationId,
-              hiddenForAccounts: {
-                none: {
-                  accountId: viewer.accountId,
-                },
-              },
+              ...messageVisibility,
             },
           },
         },
@@ -9873,11 +10677,7 @@ export class ConversationsService {
           message: {
             is: {
               conversationId,
-              hiddenForAccounts: {
-                none: {
-                  accountId: viewer.accountId,
-                },
-              },
+              ...messageVisibility,
             },
           },
         },
