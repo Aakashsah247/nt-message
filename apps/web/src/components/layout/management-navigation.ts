@@ -113,11 +113,6 @@ const EMPLOYEE_NAVIGATION: ManagementNavigationSection[] = [
         label: "Messages",
         path: "/messages",
       },
-      {
-        icon: "messages",
-        label: "Starred messages",
-        path: "/messages/starred",
-      },
     ],
   },
 ];
