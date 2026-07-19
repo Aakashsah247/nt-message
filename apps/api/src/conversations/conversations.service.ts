@@ -63,6 +63,7 @@ import { UpdateMessagingProfileDto } from './dto/update-messaging-profile.dto';
 import { UpdateMessagingSettingsDto } from './dto/update-messaging-settings.dto';
 import { ReactMessageDto } from './dto/react-message.dto';
 import type { UploadedMessageAttachmentFile } from './types/uploaded-message-attachment-file';
+import { ConversationStorageService } from './conversation-storage.service';
 
 interface MessagingViewer {
   accountId: string;
@@ -223,10 +224,7 @@ const IMAGE_ATTACHMENT_MIME_TYPES = new Set([
 
 const PROFILE_PHOTO_MIME_TYPES = IMAGE_ATTACHMENT_MIME_TYPES;
 
-const VIDEO_ATTACHMENT_MIME_TYPES = new Set([
-  'video/mp4',
-  'video/webm',
-]);
+const VIDEO_ATTACHMENT_MIME_TYPES = new Set(['video/mp4', 'video/webm']);
 
 const AUDIO_ATTACHMENT_MIME_TYPES = new Set([
   'audio/aac',
@@ -249,7 +247,6 @@ const DOCUMENT_ATTACHMENT_MIME_TYPES = new Set([
   'application/zip',
   'application/x-zip-compressed',
 ]);
-
 
 const messagingAccountSelect = {
   id: true,
@@ -657,6 +654,7 @@ const messagingNotificationSelect = {
   actorAccountId: true,
   conversationId: true,
   messageId: true,
+  announcementId: true,
   type: true,
   title: true,
   body: true,
@@ -682,6 +680,7 @@ export class ConversationsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly messagingEventsService: MessagingEventsService,
+    private readonly conversationStorageService: ConversationStorageService,
   ) {}
 
   private getRoleRank(role: AccountRole): number {
@@ -744,7 +743,10 @@ export class ConversationsService {
       throw new BadRequestException('You cannot block your own account.');
     }
 
-    if (target.role === AccountRole.SUPER_ADMIN && viewer.role !== AccountRole.SUPER_ADMIN) {
+    if (
+      target.role === AccountRole.SUPER_ADMIN &&
+      viewer.role !== AccountRole.SUPER_ADMIN
+    ) {
       throw new ForbiddenException(
         'Super Admin cannot be blocked. You can mute private alerts or report the concern.',
       );
@@ -965,8 +967,14 @@ export class ConversationsService {
       select: messagingAccountSelect,
     });
 
-    if (!target || !target.isEnabled || !this.isVisibleMessagingProfile(target)) {
-      throw new NotFoundException('The selected messaging account was not found.');
+    if (
+      !target ||
+      !target.isEnabled ||
+      !this.isVisibleMessagingProfile(target)
+    ) {
+      throw new NotFoundException(
+        'The selected messaging account was not found.',
+      );
     }
 
     this.assertCanBlockAccount(viewer, target);
@@ -1132,7 +1140,6 @@ export class ConversationsService {
     return [firstAccountId, secondAccountId].sort().join(':');
   }
 
-
   private getPrivateGroupContextSince(
     historyWindow: PrivateGroupHistoryWindow,
     now: Date,
@@ -1264,7 +1271,9 @@ export class ConversationsService {
     };
   }
 
-  private getAccountProfilePhotoKey(account: MessagingAccountRecord): string | null {
+  private getAccountProfilePhotoKey(
+    account: MessagingAccountRecord,
+  ): string | null {
     return account.profilePhotoKey ?? account.employee?.profilePhotoKey ?? null;
   }
 
@@ -1311,7 +1320,13 @@ export class ConversationsService {
     account: MessagingAccountRecord,
     viewerAccountId: string,
     sharedGroups: MessagingProfileSharedGroup[],
-    contactMode: 'SELF' | 'DIRECT' | 'REQUEST_REQUIRED' | 'REQUEST_SENT' | 'REQUEST_RECEIVED' | 'BLOCKED',
+    contactMode:
+      | 'SELF'
+      | 'DIRECT'
+      | 'REQUEST_REQUIRED'
+      | 'REQUEST_SENT'
+      | 'REQUEST_RECEIVED'
+      | 'BLOCKED',
     blockDirection: MessagingBlockDirection = null,
   ) {
     const employee = account.employee;
@@ -1383,7 +1398,9 @@ export class ConversationsService {
     await fs.writeFile(absolutePath, file.buffer);
   }
 
-  private async deleteProfilePhotoIfExists(storageKey: string | null): Promise<void> {
+  private async deleteProfilePhotoIfExists(
+    storageKey: string | null,
+  ): Promise<void> {
     if (!storageKey) {
       return;
     }
@@ -1394,7 +1411,6 @@ export class ConversationsService {
       // Profile-photo cleanup is best-effort because the database is the source of truth.
     }
   }
-
 
   private resolveGroupPhotoPath(storageKey: string): string {
     const absolutePath = path.resolve(GROUP_PHOTO_STORAGE_DIR, storageKey);
@@ -1443,7 +1459,9 @@ export class ConversationsService {
     await fs.writeFile(absolutePath, file.buffer);
   }
 
-  private async deleteGroupPhotoIfExists(storageKey: string | null): Promise<void> {
+  private async deleteGroupPhotoIfExists(
+    storageKey: string | null,
+  ): Promise<void> {
     if (!storageKey) {
       return;
     }
@@ -1468,7 +1486,14 @@ export class ConversationsService {
   private async getProfileContactMode(
     viewer: MessagingViewer,
     target: MessagingAccountRecord,
-  ): Promise<'SELF' | 'DIRECT' | 'REQUEST_REQUIRED' | 'REQUEST_SENT' | 'REQUEST_RECEIVED' | 'BLOCKED'> {
+  ): Promise<
+    | 'SELF'
+    | 'DIRECT'
+    | 'REQUEST_REQUIRED'
+    | 'REQUEST_SENT'
+    | 'REQUEST_RECEIVED'
+    | 'BLOCKED'
+  > {
     if (viewer.accountId === target.id) {
       return 'SELF';
     }
@@ -1588,9 +1613,7 @@ export class ConversationsService {
     }));
   }
 
-  private getPlainMessagePayload(
-    payload: unknown,
-  ): Record<string, unknown> {
+  private getPlainMessagePayload(payload: unknown): Record<string, unknown> {
     if (!payload || typeof payload !== 'object' || Array.isArray(payload)) {
       return {};
     }
@@ -1628,7 +1651,9 @@ export class ConversationsService {
           displayName,
         };
       })
-      .filter((mention): mention is MessageMentionPayloadItem => Boolean(mention));
+      .filter((mention): mention is MessageMentionPayloadItem =>
+        Boolean(mention),
+      );
   }
 
   private resolveTextMentions(
@@ -1636,7 +1661,9 @@ export class ConversationsService {
     requestedAccountIds: string[] | undefined,
     participants: Array<{
       accountId: string;
-      account: Prisma.AccountGetPayload<{ select: typeof messagingAccountSelect }>;
+      account: Prisma.AccountGetPayload<{
+        select: typeof messagingAccountSelect;
+      }>;
     }>,
     senderAccountId: string,
   ): MessageMentionPayloadItem[] {
@@ -1659,7 +1686,10 @@ export class ConversationsService {
 
       const wasRequested = uniqueRequestedIds.has(participant.accountId);
       const appearsInText = aliases.some((alias) => {
-        const pattern = new RegExp(`(^|\\s)@${this.escapeRegExp(alias)}(?=\\s|$|[.,!?;:])`, 'i');
+        const pattern = new RegExp(
+          `(^|\\s)@${this.escapeRegExp(alias)}(?=\\s|$|[.,!?;:])`,
+          'i',
+        );
 
         return pattern.test(textContent);
       });
@@ -1703,7 +1733,6 @@ export class ConversationsService {
     return payload as Prisma.InputJsonObject;
   }
 
-
   private roundCoordinate(value: number): number {
     return Number(value.toFixed(8));
   }
@@ -1725,16 +1754,19 @@ export class ConversationsService {
     const latitude = this.roundCoordinate(dto.latitude);
     const longitude = this.roundCoordinate(dto.longitude);
     const now = new Date().toISOString();
-    const label = 'label' in dto && typeof dto.label === 'string'
-      ? dto.label.trim().slice(0, 120) || null
-      : null;
+    const label =
+      'label' in dto && typeof dto.label === 'string'
+        ? dto.label.trim().slice(0, 120) || null
+        : null;
     const location: MessageLocationPayload = {
       kind,
       latitude,
       longitude,
       accuracyMeters: this.normalizeOptionalNumber(dto.accuracyMeters),
       headingDegrees: this.normalizeOptionalNumber(dto.headingDegrees),
-      speedMetersPerSecond: this.normalizeOptionalNumber(dto.speedMetersPerSecond),
+      speedMetersPerSecond: this.normalizeOptionalNumber(
+        dto.speedMetersPerSecond,
+      ),
       label,
       mapUrl: this.buildMapUrl(latitude, longitude),
       liveExpiresAt: liveExpiresAt?.toISOString() ?? null,
@@ -1775,18 +1807,27 @@ export class ConversationsService {
       kind,
       latitude,
       longitude,
-      accuracyMeters: typeof value.accuracyMeters === 'number' ? value.accuracyMeters : null,
-      headingDegrees: typeof value.headingDegrees === 'number' ? value.headingDegrees : null,
-      speedMetersPerSecond: typeof value.speedMetersPerSecond === 'number' ? value.speedMetersPerSecond : null,
+      accuracyMeters:
+        typeof value.accuracyMeters === 'number' ? value.accuracyMeters : null,
+      headingDegrees:
+        typeof value.headingDegrees === 'number' ? value.headingDegrees : null,
+      speedMetersPerSecond:
+        typeof value.speedMetersPerSecond === 'number'
+          ? value.speedMetersPerSecond
+          : null,
       label: typeof value.label === 'string' ? value.label : null,
       mapUrl,
-      liveExpiresAt: typeof value.liveExpiresAt === 'string' ? value.liveExpiresAt : null,
-      liveStoppedAt: typeof value.liveStoppedAt === 'string' ? value.liveStoppedAt : null,
+      liveExpiresAt:
+        typeof value.liveExpiresAt === 'string' ? value.liveExpiresAt : null,
+      liveStoppedAt:
+        typeof value.liveStoppedAt === 'string' ? value.liveStoppedAt : null,
       updatedAt,
     };
   }
 
-  private isLiveLocationActive(location: MessageLocationPayload | null): boolean {
+  private isLiveLocationActive(
+    location: MessageLocationPayload | null,
+  ): boolean {
     if (!location || location.kind !== 'LIVE' || location.liveStoppedAt) {
       return false;
     }
@@ -1885,7 +1926,8 @@ export class ConversationsService {
 
     if (
       message.receipts.every(
-        (receipt) => this.getVisibleReadAt(message, receipt, viewerAccountId) !== null,
+        (receipt) =>
+          this.getVisibleReadAt(message, receipt, viewerAccountId) !== null,
       )
     ) {
       return 'READ';
@@ -2004,7 +2046,8 @@ export class ConversationsService {
       recipients,
       summary: {
         totalRecipients: message.receipts.length,
-        delivered: recipients.filter((receipt) => receipt.deliveredAt !== null).length,
+        delivered: recipients.filter((receipt) => receipt.deliveredAt !== null)
+          .length,
         read: recipients.filter((receipt) => receipt.readAt !== null).length,
         readHidden: recipients.filter((receipt) => receipt.readHidden).length,
       },
@@ -2117,7 +2160,8 @@ export class ConversationsService {
     );
 
     const viewerStar = viewerAccountId
-      ? message.stars?.find((star) => star.accountId === viewerAccountId) ?? null
+      ? (message.stars?.find((star) => star.accountId === viewerAccountId) ??
+        null)
       : null;
     const activePin = message.pins?.[0] ?? null;
 
@@ -2156,7 +2200,8 @@ export class ConversationsService {
           (receipt) => receipt.deliveredAt !== null,
         ).length,
         read: message.receipts.filter(
-          (receipt) => this.getVisibleReadAt(message, receipt, viewerAccountId) !== null,
+          (receipt) =>
+            this.getVisibleReadAt(message, receipt, viewerAccountId) !== null,
         ).length,
       },
 
@@ -2195,7 +2240,10 @@ export class ConversationsService {
     },
     now = new Date(),
   ): boolean {
-    return participant.isMuted && (!participant.mutedUntil || participant.mutedUntil > now);
+    return (
+      participant.isMuted &&
+      (!participant.mutedUntil || participant.mutedUntil > now)
+    );
   }
 
   private getMuteUntil(mute: ConversationMuteSetting, now: Date): Date | null {
@@ -2231,15 +2279,16 @@ export class ConversationsService {
     const isMarkedUnread =
       viewerParticipant?.markedUnreadAt !== null &&
       viewerParticipant?.markedUnreadAt !== undefined;
-    const normalizedUnreadCount = isMarkedUnread && unreadCount === 0 ? 1 : unreadCount;
+    const normalizedUnreadCount =
+      isMarkedUnread && unreadCount === 0 ? 1 : unreadCount;
     const visibleLastMessage = viewerParticipant
-      ? conversation.messages.find(
+      ? (conversation.messages.find(
           (message) =>
             isMessageVisibleToParticipant(message.sentAt, viewerParticipant) &&
             !message.hiddenForAccounts.some(
               (hidden) => hidden.accountId === viewerAccountId,
             ),
-        ) ?? null
+        ) ?? null)
       : null;
 
     return {
@@ -2304,9 +2353,12 @@ export class ConversationsService {
       id: notification.id,
       recipientAccountId: notification.recipientAccountId,
       actorAccountId: notification.actorAccountId,
-      actor: notification.actor ? this.serializeAccount(notification.actor) : null,
+      actor: notification.actor
+        ? this.serializeAccount(notification.actor)
+        : null,
       conversationId: notification.conversationId,
       messageId: notification.messageId,
+      announcementId: notification.announcementId,
       type: notification.type,
       title: notification.title,
       body: notification.body,
@@ -2320,11 +2372,15 @@ export class ConversationsService {
 
   private ensureAnalyticsViewer(viewer: MessagingViewer): void {
     if (viewer.role === AccountRole.EMPLOYEE) {
-      throw new ForbiddenException('Analytics are available only to management accounts.');
+      throw new ForbiddenException(
+        'Analytics are available only to management accounts.',
+      );
     }
   }
 
-  private getAnalyticsEmployeeScopeWhere(viewer: MessagingViewer): Prisma.EmployeeWhereInput {
+  private getAnalyticsEmployeeScopeWhere(
+    viewer: MessagingViewer,
+  ): Prisma.EmployeeWhereInput {
     return {
       divisionId: viewer.divisionId ?? undefined,
       ...(viewer.role === AccountRole.TEAM_MANAGER
@@ -2333,7 +2389,9 @@ export class ConversationsService {
     };
   }
 
-  private getAnalyticsAccountWhere(viewer: MessagingViewer): Prisma.AccountWhereInput {
+  private getAnalyticsAccountWhere(
+    viewer: MessagingViewer,
+  ): Prisma.AccountWhereInput {
     if (viewer.role === AccountRole.SUPER_ADMIN) {
       return {};
     }
@@ -2533,7 +2591,9 @@ export class ConversationsService {
   ): string {
     const attachmentName = message.attachments.find((attachment) =>
       searchText
-        ? attachment.originalFileName.toLowerCase().includes(searchText.toLowerCase())
+        ? attachment.originalFileName
+            .toLowerCase()
+            .includes(searchText.toLowerCase())
         : false,
     )?.originalFileName;
 
@@ -2544,7 +2604,9 @@ export class ConversationsService {
     const text = message.textContent?.trim();
 
     if (!text) {
-      return message.attachments[0]?.originalFileName ?? String(message.contentType);
+      return (
+        message.attachments[0]?.originalFileName ?? String(message.contentType)
+      );
     }
 
     if (!searchText) {
@@ -2580,12 +2642,18 @@ export class ConversationsService {
         viewerAccountId,
         viewerParticipant,
       ),
-      conversation: this.serializeConversation(conversation, viewerAccountId, 0),
+      conversation: this.serializeConversation(
+        conversation,
+        viewerAccountId,
+        0,
+      ),
       snippet: this.buildSearchSnippet(message, searchText),
       matchedAttachmentFileName:
         message.attachments.find((attachment) =>
           searchText
-            ? attachment.originalFileName.toLowerCase().includes(searchText.toLowerCase())
+            ? attachment.originalFileName
+                .toLowerCase()
+                .includes(searchText.toLowerCase())
             : false,
         )?.originalFileName ?? null,
     };
@@ -2713,18 +2781,15 @@ export class ConversationsService {
        * Message payloads are serialized per account because a reply parent can
        * be visible to one participant and cleared for another participant.
        */
-      this.messagingEventsService.emitMessageCreated(
-        [participant.accountId],
-        {
-          conversationId,
-          message: this.serializeMessage(
-            message,
-            participant.accountId,
-            participant,
-          ),
-          occurredAt,
-        },
-      );
+      this.messagingEventsService.emitMessageCreated([participant.accountId], {
+        conversationId,
+        message: this.serializeMessage(
+          message,
+          participant.accountId,
+          participant,
+        ),
+        occurredAt,
+      });
     }
   }
 
@@ -2748,19 +2813,16 @@ export class ConversationsService {
         continue;
       }
 
-      this.messagingEventsService.emitMessageUpdated(
-        [participant.accountId],
-        {
-          conversationId,
-          message: this.serializeMessage(
-            message,
-            participant.accountId,
-            participant,
-          ),
-          action,
-          occurredAt,
-        },
-      );
+      this.messagingEventsService.emitMessageUpdated([participant.accountId], {
+        conversationId,
+        message: this.serializeMessage(
+          message,
+          participant.accountId,
+          participant,
+        ),
+        action,
+        occurredAt,
+      });
     }
   }
 
@@ -2796,7 +2858,9 @@ export class ConversationsService {
 
     if (IMAGE_ATTACHMENT_MIME_TYPES.has(file.mimetype)) {
       if (file.size > MAX_IMAGE_ATTACHMENT_BYTES) {
-        throw new BadRequestException('Image attachments must be 20 MB or smaller.');
+        throw new BadRequestException(
+          'Image attachments must be 20 MB or smaller.',
+        );
       }
 
       return {
@@ -2807,7 +2871,9 @@ export class ConversationsService {
 
     if (VIDEO_ATTACHMENT_MIME_TYPES.has(file.mimetype)) {
       if (file.size > MAX_VIDEO_ATTACHMENT_BYTES) {
-        throw new BadRequestException('Video attachments must be 200 MB or smaller.');
+        throw new BadRequestException(
+          'Video attachments must be 200 MB or smaller.',
+        );
       }
 
       return {
@@ -2819,7 +2885,9 @@ export class ConversationsService {
     if (AUDIO_ATTACHMENT_MIME_TYPES.has(file.mimetype)) {
       // Audio files and browser voice notes share the same secure attachment pipeline.
       if (file.size > MAX_AUDIO_ATTACHMENT_BYTES) {
-        throw new BadRequestException('Audio and voice-note attachments must be 25 MB or smaller.');
+        throw new BadRequestException(
+          'Audio and voice-note attachments must be 25 MB or smaller.',
+        );
       }
 
       return {
@@ -2830,7 +2898,9 @@ export class ConversationsService {
 
     if (DOCUMENT_ATTACHMENT_MIME_TYPES.has(file.mimetype)) {
       if (file.size > MAX_DOCUMENT_ATTACHMENT_BYTES) {
-        throw new BadRequestException('Document attachments must be 50 MB or smaller.');
+        throw new BadRequestException(
+          'Document attachments must be 50 MB or smaller.',
+        );
       }
 
       return {
@@ -2845,9 +2915,14 @@ export class ConversationsService {
   }
 
   private resolveAttachmentPath(storageKey: string): string {
-    const absolutePath = path.resolve(MESSAGE_ATTACHMENT_STORAGE_DIR, storageKey);
+    const absolutePath = path.resolve(
+      MESSAGE_ATTACHMENT_STORAGE_DIR,
+      storageKey,
+    );
 
-    if (!absolutePath.startsWith(`${MESSAGE_ATTACHMENT_STORAGE_DIR}${path.sep}`)) {
+    if (
+      !absolutePath.startsWith(`${MESSAGE_ATTACHMENT_STORAGE_DIR}${path.sep}`)
+    ) {
       throw new BadRequestException('Attachment storage key is invalid.');
     }
 
@@ -2867,7 +2942,9 @@ export class ConversationsService {
     await fs.writeFile(absolutePath, file.buffer);
   }
 
-  private async deleteAttachmentFileIfExists(storageKey: string): Promise<void> {
+  private async deleteAttachmentFileIfExists(
+    storageKey: string,
+  ): Promise<void> {
     try {
       await fs.unlink(this.resolveAttachmentPath(storageKey));
     } catch {
@@ -3755,8 +3832,12 @@ export class ConversationsService {
     ] = await Promise.all([
       this.buildAnalyticsScopeSummary(viewer),
       this.prisma.account.count({ where: accountWhere }),
-      this.prisma.account.count({ where: { ...accountWhere, isEnabled: true } }),
-      this.prisma.account.count({ where: { ...accountWhere, isEnabled: false } }),
+      this.prisma.account.count({
+        where: { ...accountWhere, isEnabled: true },
+      }),
+      this.prisma.account.count({
+        where: { ...accountWhere, isEnabled: false },
+      }),
       this.prisma.account.count({
         where: {
           ...accountWhere,
@@ -3898,16 +3979,18 @@ export class ConversationsService {
       );
     }
 
-    const attachmentCounts: AnalyticsAttachmentItem[] = attachmentGroups.map((item) => ({
-      key: item.contentType,
-      label: item.contentType
-        .toLowerCase()
-        .split('_')
-        .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
-        .join(' '),
-      count: item._count._all,
-      totalBytes: item._sum.fileSizeBytes ?? 0,
-    }));
+    const attachmentCounts: AnalyticsAttachmentItem[] = attachmentGroups.map(
+      (item) => ({
+        key: item.contentType,
+        label: item.contentType
+          .toLowerCase()
+          .split('_')
+          .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+          .join(' '),
+        count: item._count._all,
+        totalBytes: item._sum.fileSizeBytes ?? 0,
+      }),
+    );
 
     // Keep analytics audit-safe by returning counts only, never message bodies or file previews.
     return {
@@ -3952,7 +4035,8 @@ export class ConversationsService {
         messagesThisWeek,
         attachmentsToday,
         notificationsToday,
-        latestMessageAt: latestMessageActivity._max.sentAt?.toISOString() ?? null,
+        latestMessageAt:
+          latestMessageActivity._max.sentAt?.toISOString() ?? null,
       },
       privacyNotice:
         'Account and workforce totals follow your authorized organization scope. Communication totals belong only to your authenticated account and never expose message content.',
@@ -4852,7 +4936,9 @@ export class ConversationsService {
     });
 
     this.messagingEventsService.emitConversationUpdated(
-      access.conversation.participants.map((participant) => participant.accountId),
+      access.conversation.participants.map(
+        (participant) => participant.accountId,
+      ),
       {
         conversationId,
         reason: 'GROUP_UPDATED',
@@ -4913,7 +4999,9 @@ export class ConversationsService {
 
     if (result.count > 0) {
       this.messagingEventsService.emitConversationUpdated(
-        access.conversation.participants.map((participant) => participant.accountId),
+        access.conversation.participants.map(
+          (participant) => participant.accountId,
+        ),
         {
           conversationId,
           reason: 'GROUP_UPDATED',
@@ -4923,18 +5011,16 @@ export class ConversationsService {
     }
 
     return {
-      message: result.count > 0
-        ? 'Group invitation link revoked.'
-        : 'There is no active invitation link to revoke.',
+      message:
+        result.count > 0
+          ? 'Group invitation link revoked.'
+          : 'There is no active invitation link to revoke.',
       revokedCount: result.count,
       revokedAt: result.count > 0 ? now : null,
     };
   }
 
-  async previewGroupInvitation(
-    user: AuthenticatedUser,
-    token: string,
-  ) {
+  async previewGroupInvitation(user: AuthenticatedUser, token: string) {
     const viewer = await this.getMessagingViewer(user);
     const invitation = await this.prisma.groupInvitationLink.findFirst({
       where: {
@@ -4992,10 +5078,7 @@ export class ConversationsService {
     };
   }
 
-  async joinGroupInvitation(
-    user: AuthenticatedUser,
-    token: string,
-  ) {
+  async joinGroupInvitation(user: AuthenticatedUser, token: string) {
     const viewer = await this.getMessagingViewer(user);
     const invitation = await this.prisma.groupInvitationLink.findFirst({
       where: {
@@ -5033,7 +5116,9 @@ export class ConversationsService {
     );
 
     if (activeAccountIds.includes(viewer.accountId)) {
-      const conversation = await this.getConversationRecord(invitation.conversationId);
+      const conversation = await this.getConversationRecord(
+        invitation.conversationId,
+      );
 
       return {
         message: 'You are already a member of this group.',
@@ -5087,11 +5172,10 @@ export class ConversationsService {
       }),
     ]);
 
-    const conversation = await this.getConversationRecord(invitation.conversationId);
-    const participantAccountIds = [
-      ...activeAccountIds,
-      viewer.accountId,
-    ];
+    const conversation = await this.getConversationRecord(
+      invitation.conversationId,
+    );
+    const participantAccountIds = [...activeAccountIds, viewer.accountId];
 
     this.messagingEventsService.emitConversationUpdated(participantAccountIds, {
       conversationId: invitation.conversationId,
@@ -5160,9 +5244,10 @@ export class ConversationsService {
     });
 
     const media = attachments
-      .filter((attachment) =>
-        attachment.contentType === MessageContentType.IMAGE ||
-        attachment.contentType === MessageContentType.VIDEO,
+      .filter(
+        (attachment) =>
+          attachment.contentType === MessageContentType.IMAGE ||
+          attachment.contentType === MessageContentType.VIDEO,
       )
       .map((attachment) =>
         this.serializeSharedAttachment(
@@ -5173,9 +5258,10 @@ export class ConversationsService {
       );
 
     const documents = attachments
-      .filter((attachment) =>
-        attachment.contentType !== MessageContentType.IMAGE &&
-        attachment.contentType !== MessageContentType.VIDEO,
+      .filter(
+        (attachment) =>
+          attachment.contentType !== MessageContentType.IMAGE &&
+          attachment.contentType !== MessageContentType.VIDEO,
       )
       .map((attachment) =>
         this.serializeSharedAttachment(
@@ -5194,11 +5280,7 @@ export class ConversationsService {
         })),
       )
       .map((item) =>
-        this.serializeSharedLink(
-          item,
-          viewer.accountId,
-          viewerParticipant,
-        ),
+        this.serializeSharedLink(item, viewer.accountId, viewerParticipant),
       );
 
     return {
@@ -5305,143 +5387,148 @@ export class ConversationsService {
       },
     });
 
-    const conversationIds = memberships.map((membership) => membership.conversationId);
+    const conversationIds = memberships.map(
+      (membership) => membership.conversationId,
+    );
     const visibilityConditions = memberships.map((membership) =>
       buildMembershipMessageVisibilityWhere(membership),
     );
     const membershipByConversationId = new Map(
-      memberships.map((membership) => [
-        membership.conversationId,
-        membership,
-      ]),
+      memberships.map((membership) => [membership.conversationId, membership]),
     );
 
-    const messages = visibilityConditions.length === 0
-      ? []
-      : await this.prisma.message.findMany({
-          where: {
-            AND: [
-              {
-                OR: visibilityConditions,
-                hiddenForAccounts: {
-                  none: {
-                    accountId: viewer.accountId,
+    const messages =
+      visibilityConditions.length === 0
+        ? []
+        : await this.prisma.message.findMany({
+            where: {
+              AND: [
+                {
+                  OR: visibilityConditions,
+                  hiddenForAccounts: {
+                    none: {
+                      accountId: viewer.accountId,
+                    },
                   },
                 },
+                ...this.buildMessageSearchConditions(filters),
+              ],
+            },
+
+            orderBy: [
+              {
+                sentAt: 'desc',
               },
-              ...this.buildMessageSearchConditions(filters),
+              {
+                id: 'desc',
+              },
             ],
-          },
 
-          orderBy: [
-            {
-              sentAt: 'desc',
-            },
-            {
-              id: 'desc',
-            },
-          ],
-
-          take: filters.limit,
-          select: messageSelect,
-        });
+            take: filters.limit,
+            select: messageSelect,
+          });
 
     const searchedConversationIds = [
       ...new Set(messages.map((message) => message.conversationId)),
     ];
 
-    const messageConversations = searchedConversationIds.length === 0
-      ? []
-      : await this.prisma.conversation.findMany({
-          where: {
-            id: {
-              in: searchedConversationIds,
+    const messageConversations =
+      searchedConversationIds.length === 0
+        ? []
+        : await this.prisma.conversation.findMany({
+            where: {
+              id: {
+                in: searchedConversationIds,
+              },
             },
-          },
-          select: conversationSelect,
-        });
+            select: conversationSelect,
+          });
 
     const conversationById = new Map(
-      messageConversations.map((conversation) => [conversation.id, conversation]),
+      messageConversations.map((conversation) => [
+        conversation.id,
+        conversation,
+      ]),
     );
 
-    const conversationMatches = filters.searchText && conversationIds.length > 0
-      ? await this.prisma.conversation.findMany({
-          where: {
-            id: {
-              in: conversationIds,
-            },
-            OR: [
-              {
-                title: {
-                  contains: filters.searchText,
-                  mode: 'insensitive',
-                },
+    const conversationMatches =
+      filters.searchText && conversationIds.length > 0
+        ? await this.prisma.conversation.findMany({
+            where: {
+              id: {
+                in: conversationIds,
               },
-              {
-                description: {
-                  contains: filters.searchText,
-                  mode: 'insensitive',
+              OR: [
+                {
+                  title: {
+                    contains: filters.searchText,
+                    mode: 'insensitive',
+                  },
                 },
-              },
-              {
-                participants: {
-                  some: {
-                    account: {
-                      is: {
-                        OR: [
-                          {
-                            username: {
-                              contains: filters.searchText,
-                              mode: 'insensitive',
-                            },
-                          },
-                          {
-                            employee: {
-                              is: {
-                                OR: [
-                                  {
-                                    empName: {
-                                      contains: filters.searchText,
-                                      mode: 'insensitive',
-                                    },
-                                  },
-                                  {
-                                    empId: {
-                                      contains: filters.searchText,
-                                      mode: 'insensitive',
-                                    },
-                                  },
-                                  {
-                                    designation: {
-                                      contains: filters.searchText,
-                                      mode: 'insensitive',
-                                    },
-                                  },
-                                ],
+                {
+                  description: {
+                    contains: filters.searchText,
+                    mode: 'insensitive',
+                  },
+                },
+                {
+                  participants: {
+                    some: {
+                      account: {
+                        is: {
+                          OR: [
+                            {
+                              username: {
+                                contains: filters.searchText,
+                                mode: 'insensitive',
                               },
                             },
-                          },
-                        ],
+                            {
+                              employee: {
+                                is: {
+                                  OR: [
+                                    {
+                                      empName: {
+                                        contains: filters.searchText,
+                                        mode: 'insensitive',
+                                      },
+                                    },
+                                    {
+                                      empId: {
+                                        contains: filters.searchText,
+                                        mode: 'insensitive',
+                                      },
+                                    },
+                                    {
+                                      designation: {
+                                        contains: filters.searchText,
+                                        mode: 'insensitive',
+                                      },
+                                    },
+                                  ],
+                                },
+                              },
+                            },
+                          ],
+                        },
                       },
                     },
                   },
                 },
+              ],
+            },
+            orderBy: [
+              {
+                updatedAt: 'desc',
+              },
+              {
+                id: 'desc',
               },
             ],
-          },
-          orderBy: [
-            {
-              updatedAt: 'desc',
-            },
-            {
-              id: 'desc',
-            },
-          ],
-          take: 10,
-          select: conversationSelect,
-        })
-      : [];
+            take: 10,
+            select: conversationSelect,
+          })
+        : [];
 
     // Contact results reuse the existing protected directory rules and message-request policy.
     const contactResponse = filters.searchText
@@ -5460,9 +5547,7 @@ export class ConversationsService {
         return [];
       }
 
-      const membership = membershipByConversationId.get(
-        message.conversationId,
-      );
+      const membership = membershipByConversationId.get(message.conversationId);
 
       if (!membership) {
         return [];
@@ -5496,7 +5581,6 @@ export class ConversationsService {
     };
   }
 
-
   async getMyMessagingProfile(user: AuthenticatedUser) {
     const viewer = await this.getMessagingViewer(user);
 
@@ -5516,10 +5600,7 @@ export class ConversationsService {
     };
   }
 
-  async getMessagingProfile(
-    user: AuthenticatedUser,
-    accountId: string,
-  ) {
+  async getMessagingProfile(user: AuthenticatedUser, accountId: string) {
     const viewer = await this.getMessagingViewer(user);
 
     const account = await this.prisma.account.findUnique({
@@ -5626,7 +5707,10 @@ export class ConversationsService {
 
     const storageKey = `${viewer.accountId}/${randomUUID()}-${photo.originalFileName}`;
 
-    await this.writeProfilePhotoFile(storageKey, file as UploadedMessageAttachmentFile);
+    await this.writeProfilePhotoFile(
+      storageKey,
+      file as UploadedMessageAttachmentFile,
+    );
 
     // Store the display photo on Account so Super Admins without employee rows can also use it.
     await this.prisma.$transaction(async (transaction) => {
@@ -5654,7 +5738,9 @@ export class ConversationsService {
     await this.deleteProfilePhotoIfExists(account.profilePhotoKey ?? null);
 
     if (account.employee?.profilePhotoKey !== account.profilePhotoKey) {
-      await this.deleteProfilePhotoIfExists(account.employee?.profilePhotoKey ?? null);
+      await this.deleteProfilePhotoIfExists(
+        account.employee?.profilePhotoKey ?? null,
+      );
     }
 
     return this.getMyMessagingProfile(user);
@@ -5709,7 +5795,9 @@ export class ConversationsService {
     await this.deleteProfilePhotoIfExists(account.profilePhotoKey ?? null);
 
     if (account.employee?.profilePhotoKey !== account.profilePhotoKey) {
-      await this.deleteProfilePhotoIfExists(account.employee?.profilePhotoKey ?? null);
+      await this.deleteProfilePhotoIfExists(
+        account.employee?.profilePhotoKey ?? null,
+      );
     }
 
     return this.getMyMessagingProfile(user);
@@ -5744,7 +5832,9 @@ export class ConversationsService {
     try {
       await fs.access(absolutePath);
     } catch {
-      throw new NotFoundException('Profile photo file was not found in storage.');
+      throw new NotFoundException(
+        'Profile photo file was not found in storage.',
+      );
     }
 
     return {
@@ -5907,58 +5997,61 @@ export class ConversationsService {
       this.buildPrivateParticipantKey(viewer.accountId, account.id),
     );
 
-    const candidateAccountIds = selectedCandidates.map((candidate) => candidate.id);
+    const candidateAccountIds = selectedCandidates.map(
+      (candidate) => candidate.id,
+    );
 
-    const [existingConversations, existingRequests, existingBlocks] = await Promise.all([
-      this.prisma.conversation.findMany({
-        where: {
-          privateParticipantKey: {
-            in: participantKeys,
-          },
-        },
-
-        select: {
-          privateParticipantKey: true,
-        },
-      }),
-      this.prisma.messageRequest.findMany({
-        where: {
-          participantKey: {
-            in: participantKeys,
-          },
-        },
-
-        select: {
-          participantKey: true,
-          requesterAccountId: true,
-          recipientAccountId: true,
-          status: true,
-          reason: true,
-        },
-      }),
-      this.prisma.messagingAccountBlock.findMany({
-        where: {
-          OR: [
-            {
-              blockerAccountId: viewer.accountId,
-              blockedAccountId: {
-                in: candidateAccountIds,
-              },
+    const [existingConversations, existingRequests, existingBlocks] =
+      await Promise.all([
+        this.prisma.conversation.findMany({
+          where: {
+            privateParticipantKey: {
+              in: participantKeys,
             },
-            {
-              blockerAccountId: {
-                in: candidateAccountIds,
-              },
-              blockedAccountId: viewer.accountId,
+          },
+
+          select: {
+            privateParticipantKey: true,
+          },
+        }),
+        this.prisma.messageRequest.findMany({
+          where: {
+            participantKey: {
+              in: participantKeys,
             },
-          ],
-        },
-        select: {
-          blockerAccountId: true,
-          blockedAccountId: true,
-        },
-      }),
-    ]);
+          },
+
+          select: {
+            participantKey: true,
+            requesterAccountId: true,
+            recipientAccountId: true,
+            status: true,
+            reason: true,
+          },
+        }),
+        this.prisma.messagingAccountBlock.findMany({
+          where: {
+            OR: [
+              {
+                blockerAccountId: viewer.accountId,
+                blockedAccountId: {
+                  in: candidateAccountIds,
+                },
+              },
+              {
+                blockerAccountId: {
+                  in: candidateAccountIds,
+                },
+                blockedAccountId: viewer.accountId,
+              },
+            ],
+          },
+          select: {
+            blockerAccountId: true,
+            blockedAccountId: true,
+          },
+        }),
+      ]);
 
     const conversationKeys = new Set(
       existingConversations
@@ -6138,6 +6231,24 @@ export class ConversationsService {
 
     const conversationIdResult = await this.prisma.$transaction(
       async (transaction) => {
+        const copiedAttachments = contextMessages.flatMap(
+          (message) => message.attachments,
+        );
+
+        /*
+         * M18 serializes context copying with final-reference cleanup. The
+         * post-lock recheck prevents a deleted source from creating a new
+         * database reference to an object that is being physically removed.
+         */
+        await this.conversationStorageService.lockStorageKeys(
+          transaction,
+          copiedAttachments.map((attachment) => attachment.storageKey),
+        );
+        await this.conversationStorageService.assertAttachmentReferencesAvailable(
+          transaction,
+          copiedAttachments.map((attachment) => attachment.id),
+        );
+
         const conversation = await transaction.conversation.create({
           data: {
             type: ConversationType.GROUP,
@@ -6197,7 +6308,9 @@ export class ConversationsService {
               },
               receipts: {
                 create: participantAccountIds
-                  .filter((accountId) => accountId !== sourceMessage.senderAccountId)
+                  .filter(
+                    (accountId) => accountId !== sourceMessage.senderAccountId,
+                  )
                   .map((accountId) => ({
                     accountId,
                     deliveredAt: now,
@@ -6264,7 +6377,8 @@ export class ConversationsService {
     });
 
     return {
-      message: 'Private group created. The original private chat is still available.',
+      message:
+        'Private group created. The original private chat is still available.',
       copiedContextCount: contextMessages.length,
       historyWindow: dto.historyWindow,
       data: this.serializeConversation(conversation, viewer.accountId, 0),
@@ -6426,7 +6540,6 @@ export class ConversationsService {
     };
   }
 
-
   private async assertCanUpdateGroupPhoto(
     viewer: MessagingViewer,
     access: {
@@ -6465,7 +6578,10 @@ export class ConversationsService {
     const photo = this.validateGroupPhoto(file);
     const storageKey = `${conversationId}/${randomUUID()}-${photo.originalFileName}`;
 
-    await this.writeGroupPhotoFile(storageKey, file as UploadedMessageAttachmentFile);
+    await this.writeGroupPhotoFile(
+      storageKey,
+      file as UploadedMessageAttachmentFile,
+    );
 
     await this.prisma.conversation.update({
       where: {
@@ -6476,7 +6592,9 @@ export class ConversationsService {
       },
     });
 
-    await this.deleteGroupPhotoIfExists(access.conversation.groupPhotoKey ?? null);
+    await this.deleteGroupPhotoIfExists(
+      access.conversation.groupPhotoKey ?? null,
+    );
 
     const conversation = await this.getConversationRecord(conversationId);
     const participantAccountIds = access.conversation.participants.map(
@@ -6495,10 +6613,7 @@ export class ConversationsService {
     };
   }
 
-  async removeGroupPhoto(
-    user: AuthenticatedUser,
-    conversationId: string,
-  ) {
+  async removeGroupPhoto(user: AuthenticatedUser, conversationId: string) {
     const viewer = await this.getMessagingViewer(user);
     const access = await this.getActiveGroupAccess(
       viewer.accountId,
@@ -6516,7 +6631,9 @@ export class ConversationsService {
       },
     });
 
-    await this.deleteGroupPhotoIfExists(access.conversation.groupPhotoKey ?? null);
+    await this.deleteGroupPhotoIfExists(
+      access.conversation.groupPhotoKey ?? null,
+    );
 
     const conversation = await this.getConversationRecord(conversationId);
     const participantAccountIds = access.conversation.participants.map(
@@ -6535,10 +6652,7 @@ export class ConversationsService {
     };
   }
 
-  async getGroupPhotoDownload(
-    user: AuthenticatedUser,
-    conversationId: string,
-  ) {
+  async getGroupPhotoDownload(user: AuthenticatedUser, conversationId: string) {
     const viewer = await this.getMessagingViewer(user);
 
     const conversation = await this.prisma.conversation.findFirst({
@@ -6628,7 +6742,9 @@ export class ConversationsService {
     );
 
     await this.assertNoPersonalGroupBlocks([
-      ...access.conversation.participants.map((participant) => participant.accountId),
+      ...access.conversation.participants.map(
+        (participant) => participant.accountId,
+      ),
       ...members.map((member) => member.id),
     ]);
 
@@ -7393,50 +7509,52 @@ export class ConversationsService {
     this.assertCanBlockAccount(viewer, request.requester);
 
     const now = new Date();
-    const updatedRequest = await this.prisma.$transaction(async (transaction) => {
-      const updated = await transaction.messageRequest.update({
-        where: {
-          id: request.id,
-        },
+    const updatedRequest = await this.prisma.$transaction(
+      async (transaction) => {
+        const updated = await transaction.messageRequest.update({
+          where: {
+            id: request.id,
+          },
 
-        data: {
-          status: MessageRequestStatus.BLOCKED,
-          respondedAt: now,
-          blockedByAccountId: viewer.accountId,
-        },
+          data: {
+            status: MessageRequestStatus.BLOCKED,
+            respondedAt: now,
+            blockedByAccountId: viewer.accountId,
+          },
 
-        select: messageRequestSelect,
-      });
+          select: messageRequestSelect,
+        });
 
-      await transaction.messagingAccountBlock.upsert({
-        where: {
-          blockerAccountId_blockedAccountId: {
+        await transaction.messagingAccountBlock.upsert({
+          where: {
+            blockerAccountId_blockedAccountId: {
+              blockerAccountId: viewer.accountId,
+              blockedAccountId: request.requesterAccountId,
+            },
+          },
+          create: {
             blockerAccountId: viewer.accountId,
             blockedAccountId: request.requesterAccountId,
           },
-        },
-        create: {
-          blockerAccountId: viewer.accountId,
-          blockedAccountId: request.requesterAccountId,
-        },
-        update: {},
-      });
+          update: {},
+        });
 
-      await transaction.conversationParticipant.updateMany({
-        where: {
-          accountId: viewer.accountId,
-          conversation: {
-            privateParticipantKey: request.participantKey,
+        await transaction.conversationParticipant.updateMany({
+          where: {
+            accountId: viewer.accountId,
+            conversation: {
+              privateParticipantKey: request.participantKey,
+            },
           },
-        },
-        data: {
-          isArchived: true,
-          isMuted: true,
-        },
-      });
+          data: {
+            isArchived: true,
+            isMuted: true,
+          },
+        });
 
-      return updated;
-    });
+        return updated;
+      },
+    );
 
     this.messagingEventsService.emitMessageRequestUpdated(
       [request.requesterAccountId, request.recipientAccountId],
@@ -7517,11 +7635,17 @@ export class ConversationsService {
         (participant) => participant.accountId === viewer.accountId,
       );
 
-      if ((firstParticipant?.isPinned ?? false) !== (secondParticipant?.isPinned ?? false)) {
+      if (
+        (firstParticipant?.isPinned ?? false) !==
+        (secondParticipant?.isPinned ?? false)
+      ) {
         return firstParticipant?.isPinned ? -1 : 1;
       }
 
-      return new Date(second.updatedAt).getTime() - new Date(first.updatedAt).getTime();
+      return (
+        new Date(second.updatedAt).getTime() -
+        new Date(first.updatedAt).getTime()
+      );
     });
 
     const hasMore = sortedConversations.length > query.limit;
@@ -7674,11 +7798,7 @@ export class ConversationsService {
       data: [...pageDescending]
         .reverse()
         .map((message) =>
-          this.serializeMessage(
-            message,
-            viewer.accountId,
-            viewerParticipant,
-          ),
+          this.serializeMessage(message, viewer.accountId, viewerParticipant),
         ),
       pagination: {
         limit: query.limit,
@@ -7703,10 +7823,7 @@ export class ConversationsService {
       where: {
         id: messageId,
         conversationId,
-        ...buildViewerMessageVisibilityWhere(
-          viewer.accountId,
-          participant,
-        ),
+        ...buildViewerMessageVisibilityWhere(viewer.accountId, participant),
       },
 
       select: messageInformationSelect,
@@ -7717,7 +7834,9 @@ export class ConversationsService {
     }
 
     if (message.senderAccountId !== viewer.accountId) {
-      throw new ForbiddenException('Only the sender can view message information.');
+      throw new ForbiddenException(
+        'Only the sender can view message information.',
+      );
     }
 
     return {
@@ -7725,6 +7844,44 @@ export class ConversationsService {
         message,
         viewer.accountId,
         participant,
+      ),
+    };
+  }
+
+  async getConversationMessage(
+    user: AuthenticatedUser,
+    conversationId: string,
+    messageId: string,
+  ) {
+    const viewer = await this.getMessagingViewer(user);
+    const participant = await this.assertActiveParticipant(
+      viewer.accountId,
+      conversationId,
+    );
+
+    const message = await this.prisma.message.findFirst({
+      where: {
+        id: messageId,
+        conversationId,
+        deletedAt: null,
+        ...buildViewerMessageVisibilityWhere(viewer.accountId, participant),
+      },
+      select: messageSelect,
+    });
+
+    // This endpoint powers M18 original-message navigation without exposing hidden history.
+    if (!message) {
+      throw new NotFoundException('Message was not found.');
+    }
+
+    const conversation = await this.getConversationRecord(conversationId);
+
+    return {
+      data: this.serializeMessage(message, viewer.accountId, participant),
+      conversation: this.serializeConversation(
+        conversation,
+        viewer.accountId,
+        0,
       ),
     };
   }
@@ -7779,11 +7936,14 @@ export class ConversationsService {
     input: MessageNotificationInput,
   ): Promise<void> {
     const notificationType =
-      input.notificationType ?? this.getNotificationTypeForMessage(input.message);
+      input.notificationType ??
+      this.getNotificationTypeForMessage(input.message);
     const actor = this.serializeAccount(input.message.sender);
     const mentionedAccountIds = new Set(
       input.mentionedAccountIds ??
-        this.getPayloadMentions(input.message.payload).map((mention) => mention.accountId),
+        this.getPayloadMentions(input.message.payload).map(
+          (mention) => mention.accountId,
+        ),
     );
     const recipients = input.participants.filter(
       (participant) =>
@@ -7801,7 +7961,9 @@ export class ConversationsService {
     const unreadCounts = new Map<string, number>();
 
     for (const recipient of recipients) {
-      const recipientNotificationType = mentionedAccountIds.has(recipient.accountId)
+      const recipientNotificationType = mentionedAccountIds.has(
+        recipient.accountId,
+      )
         ? MessagingNotificationType.MENTION
         : notificationType;
 
@@ -7818,7 +7980,8 @@ export class ConversationsService {
               ? `${actor.displayName} mentioned you`
               : recipientNotificationType === MessagingNotificationType.REPLY
                 ? `${actor.displayName} replied`
-                : recipientNotificationType === MessagingNotificationType.GROUP_EVENT
+                : recipientNotificationType ===
+                    MessagingNotificationType.GROUP_EVENT
                   ? 'Official announcement'
                   : `${actor.displayName} sent a message`,
           body: this.buildNotificationBody(input.message),
@@ -7920,11 +8083,14 @@ export class ConversationsService {
       },
     });
 
-    this.messagingEventsService.emitNotificationCreated(message.senderAccountId, {
-      notification: this.serializeNotification(notification),
-      unreadCount,
-      occurredAt: new Date().toISOString(),
-    });
+    this.messagingEventsService.emitNotificationCreated(
+      message.senderAccountId,
+      {
+        notification: this.serializeNotification(notification),
+        unreadCount,
+        occurredAt: new Date().toISOString(),
+      },
+    );
   }
 
   async sendTextMessage(
@@ -8033,12 +8199,13 @@ export class ConversationsService {
       }
     }
 
-    const announcementPayload: OfficialAnnouncementPayload | undefined = sendAsAnnouncement
-      ? {
-          kind: 'OFFICIAL',
-          label: 'Official announcement',
-        }
-      : undefined;
+    const announcementPayload: OfficialAnnouncementPayload | undefined =
+      sendAsAnnouncement
+        ? {
+            kind: 'OFFICIAL',
+            label: 'Official announcement',
+          }
+        : undefined;
 
     const existingMessage = await this.prisma.message.findUnique({
       where: {
@@ -8107,14 +8274,15 @@ export class ConversationsService {
       }
     }
 
-    const mentions = conversation.type === ConversationType.GROUP
-      ? this.resolveTextMentions(
-          textContent,
-          dto.mentionedAccountIds,
-          conversation.participants,
-          viewer.accountId,
-        )
-      : [];
+    const mentions =
+      conversation.type === ConversationType.GROUP
+        ? this.resolveTextMentions(
+            textContent,
+            dto.mentionedAccountIds,
+            conversation.participants,
+            viewer.accountId,
+          )
+        : [];
 
     const recipientAccountIds = conversation.participants
       .map((participant) => participant.accountId)
@@ -8131,7 +8299,10 @@ export class ConversationsService {
               contentType: MessageContentType.TEXT,
               textContent,
               replyToMessageId: dto.replyToMessageId ?? null,
-              payload: this.buildTextMessagePayload(mentions, announcementPayload),
+              payload: this.buildTextMessagePayload(
+                mentions,
+                announcementPayload,
+              ),
 
               receipts: {
                 create: recipientAccountIds.map((accountId) => ({
@@ -8274,7 +8445,9 @@ export class ConversationsService {
     const liveExpiresAt = isLive
       ? new Date(Date.now() + liveDurationMinutes * 60 * 1000)
       : null;
-    const textContent = isLive ? 'Started live location' : 'Shared current location';
+    const textContent = isLive
+      ? 'Started live location'
+      : 'Shared current location';
 
     const conversation = await this.prisma.conversation.findFirst({
       where: {
@@ -8378,64 +8551,66 @@ export class ConversationsService {
       .map((participant) => participant.accountId)
       .filter((accountId) => accountId !== viewer.accountId);
 
-    const createdMessage = await this.prisma.$transaction(async (transaction) => {
-      const created = await transaction.message.create({
-        data: {
-          conversationId,
-          senderAccountId: viewer.accountId,
-          clientMessageId: dto.clientMessageId,
-          contentType: MessageContentType.LOCATION,
-          textContent,
-          payload: this.buildLocationPayload(
-            dto,
-            isLive ? 'LIVE' : 'CURRENT',
-            liveExpiresAt,
-          ),
-          receipts: {
-            create: recipientAccountIds.map((accountId) => ({
-              accountId,
-            })),
-          },
-        },
-        select: {
-          id: true,
-          sentAt: true,
-        },
-      });
-
-      await transaction.conversation.update({
-        where: {
-          id: conversationId,
-        },
-        data: {
-          lastMessageAt: created.sentAt,
-        },
-      });
-
-      await transaction.conversationParticipant.updateMany({
-        where: {
-          conversationId,
-          accountId: {
-            in: conversation.participants.map(
-              (participant) => participant.accountId,
+    const createdMessage = await this.prisma.$transaction(
+      async (transaction) => {
+        const created = await transaction.message.create({
+          data: {
+            conversationId,
+            senderAccountId: viewer.accountId,
+            clientMessageId: dto.clientMessageId,
+            contentType: MessageContentType.LOCATION,
+            textContent,
+            payload: this.buildLocationPayload(
+              dto,
+              isLive ? 'LIVE' : 'CURRENT',
+              liveExpiresAt,
             ),
+            receipts: {
+              create: recipientAccountIds.map((accountId) => ({
+                accountId,
+              })),
+            },
           },
-        },
-        data: {
-          // New activity restores the list entry without restoring old history.
-          isArchived: false,
-          archivedAt: null,
-          deletedFromListAt: null,
-        },
-      });
+          select: {
+            id: true,
+            sentAt: true,
+          },
+        });
 
-      return transaction.message.findUniqueOrThrow({
-        where: {
-          id: created.id,
-        },
-        select: messageSelect,
-      });
-    });
+        await transaction.conversation.update({
+          where: {
+            id: conversationId,
+          },
+          data: {
+            lastMessageAt: created.sentAt,
+          },
+        });
+
+        await transaction.conversationParticipant.updateMany({
+          where: {
+            conversationId,
+            accountId: {
+              in: conversation.participants.map(
+                (participant) => participant.accountId,
+              ),
+            },
+          },
+          data: {
+            // New activity restores the list entry without restoring old history.
+            isArchived: false,
+            archivedAt: null,
+            deletedFromListAt: null,
+          },
+        });
+
+        return transaction.message.findUniqueOrThrow({
+          where: {
+            id: created.id,
+          },
+          select: messageSelect,
+        });
+      },
+    );
 
     const serializedMessage = this.serializeMessage(
       createdMessage,
@@ -8503,8 +8678,12 @@ export class ConversationsService {
         payload: this.buildLocationPayload(
           dto,
           'LIVE',
-          activeLocation.liveExpiresAt ? new Date(activeLocation.liveExpiresAt) : null,
-          activeLocation.liveStoppedAt ? new Date(activeLocation.liveStoppedAt) : null,
+          activeLocation.liveExpiresAt
+            ? new Date(activeLocation.liveExpiresAt)
+            : null,
+          activeLocation.liveStoppedAt
+            ? new Date(activeLocation.liveStoppedAt)
+            : null,
         ),
       },
       select: messageSelect,
@@ -8588,10 +8767,13 @@ export class ConversationsService {
             longitude: currentLocation.longitude,
             accuracyMeters: currentLocation.accuracyMeters ?? undefined,
             headingDegrees: currentLocation.headingDegrees ?? undefined,
-            speedMetersPerSecond: currentLocation.speedMetersPerSecond ?? undefined,
+            speedMetersPerSecond:
+              currentLocation.speedMetersPerSecond ?? undefined,
           },
           'LIVE',
-          currentLocation.liveExpiresAt ? new Date(currentLocation.liveExpiresAt) : null,
+          currentLocation.liveExpiresAt
+            ? new Date(currentLocation.liveExpiresAt)
+            : null,
           stoppedAt,
         ),
       },
@@ -8646,8 +8828,13 @@ export class ConversationsService {
     const caption = dto.caption?.trim() || null;
     const attachmentKind = dto.attachmentKind ?? null;
 
-    if (attachmentKind === 'VOICE_NOTE' && attachment.contentType !== MessageContentType.AUDIO) {
-      throw new BadRequestException('Voice notes must be uploaded as an audio file.');
+    if (
+      attachmentKind === 'VOICE_NOTE' &&
+      attachment.contentType !== MessageContentType.AUDIO
+    ) {
+      throw new BadRequestException(
+        'Voice notes must be uploaded as an audio file.',
+      );
     }
 
     const conversation = await this.prisma.conversation.findFirst({
@@ -8981,7 +9168,9 @@ export class ConversationsService {
     }
 
     if (attachment.scanStatus === 'FAILED') {
-      throw new ForbiddenException('This attachment is not available for download.');
+      throw new ForbiddenException(
+        'This attachment is not available for download.',
+      );
     }
 
     const absolutePath = this.resolveAttachmentPath(attachment.storageKey);
@@ -8989,7 +9178,9 @@ export class ConversationsService {
     try {
       await fs.access(absolutePath);
     } catch {
-      throw new NotFoundException('Attachment file was not found in storage.');
+      throw new NotFoundException(
+        'This file is currently unavailable. Please contact technical support.',
+      );
     }
 
     return {
@@ -9053,7 +9244,9 @@ export class ConversationsService {
       );
     }
 
-    if (sourceAttachments.some((attachment) => attachment.scanStatus === 'FAILED')) {
+    if (
+      sourceAttachments.some((attachment) => attachment.scanStatus === 'FAILED')
+    ) {
       throw new ForbiddenException(
         'A failed or quarantined attachment cannot be forwarded.',
       );
@@ -9155,6 +9348,19 @@ export class ConversationsService {
 
     const forwardedMessages = await this.prisma.$transaction(
       async (transaction) => {
+        /*
+         * M18 locks shared physical objects before adding forwarded logical
+         * references. Revalidation after the lock closes the deletion race.
+         */
+        await this.conversationStorageService.lockStorageKeys(
+          transaction,
+          sourceAttachments.map((attachment) => attachment.storageKey),
+        );
+        await this.conversationStorageService.assertAttachmentReferencesAvailable(
+          transaction,
+          sourceAttachments.map((attachment) => attachment.id),
+        );
+
         const results: Array<{
           message: MessageRecord;
           duplicate: boolean;
@@ -9643,10 +9849,7 @@ export class ConversationsService {
     }
 
     const membershipByConversationId = new Map(
-      memberships.map((membership) => [
-        membership.conversationId,
-        membership,
-      ]),
+      memberships.map((membership) => [membership.conversationId, membership]),
     );
 
     const starredMessages = await this.prisma.messageStar.findMany({
@@ -9726,10 +9929,7 @@ export class ConversationsService {
     };
   }
 
-  async listPinnedMessages(
-    user: AuthenticatedUser,
-    conversationId: string,
-  ) {
+  async listPinnedMessages(user: AuthenticatedUser, conversationId: string) {
     const viewer = await this.getMessagingViewer(user);
     const participant = await this.assertActiveParticipant(
       viewer.accountId,
@@ -9742,10 +9942,7 @@ export class ConversationsService {
         unpinnedAt: null,
         message: {
           deletedAt: null,
-          ...buildViewerMessageVisibilityWhere(
-            viewer.accountId,
-            participant,
-          ),
+          ...buildViewerMessageVisibilityWhere(viewer.accountId, participant),
         },
       },
 
@@ -9764,11 +9961,7 @@ export class ConversationsService {
 
     return {
       data: pinnedMessages.map((pin) =>
-        this.serializeMessage(
-          pin.message,
-          viewer.accountId,
-          participant,
-        ),
+        this.serializeMessage(pin.message, viewer.accountId, participant),
       ),
     };
   }
@@ -9823,11 +10016,7 @@ export class ConversationsService {
 
     return {
       message: 'Message starred.',
-      data: this.serializeMessage(
-        result,
-        viewer.accountId,
-        participant,
-      ),
+      data: this.serializeMessage(result, viewer.accountId, participant),
     };
   }
 
@@ -9872,11 +10061,7 @@ export class ConversationsService {
 
     return {
       message: 'Message unstarred.',
-      data: this.serializeMessage(
-        result,
-        viewer.accountId,
-        participant,
-      ),
+      data: this.serializeMessage(result, viewer.accountId, participant),
     };
   }
 
@@ -10165,32 +10350,60 @@ export class ConversationsService {
     }
 
     const now = new Date();
-    const [deletedMessage, participants] = await this.prisma.$transaction([
-      this.prisma.message.update({
+    const storageKeys = message.attachments.map(
+      (attachment) => attachment.storageKey,
+    );
+    const result = await this.prisma.$transaction(async (transaction) => {
+      // Lock first so forwarding and final-reference removal are ordered across instances.
+      await this.conversationStorageService.lockStorageKeys(
+        transaction,
+        storageKeys,
+      );
+
+      const updatedMessage = await transaction.message.update({
         where: {
           id: message.id,
         },
-
         data: {
           deletedAt: now,
           deletedByAccountId: viewer.accountId,
         },
-
         select: messageSelect,
-      }),
-      this.prisma.conversationParticipant.findMany({
+      });
+
+      const unreferencedStorageKeys =
+        await this.conversationStorageService.removeDeletedMessageAttachmentReferences(
+          transaction,
+          message.id,
+          storageKeys,
+        );
+      const participants = await transaction.conversationParticipant.findMany({
         where: {
           conversationId,
           leftAt: null,
         },
-
         select: {
           accountId: true,
           joinedAt: true,
           historyClearedAt: true,
         },
-      }),
-    ]);
+      });
+
+      return {
+        // The deleted placeholder must not return attachment metadata whose rows were removed.
+        deletedMessage: {
+          ...updatedMessage,
+          attachments: [],
+        },
+        participants,
+        unreferencedStorageKeys,
+      };
+    });
+
+    // Physical deletion occurs only after the database transaction commits successfully.
+    await this.conversationStorageService.deletePhysicalStorageObjects(
+      result.unreferencedStorageKeys,
+    );
 
     /*
      * Reuse the participant state already authorized at method entry. Looking
@@ -10198,15 +10411,15 @@ export class ConversationsService {
      * redeclared the same block-scoped identifier.
      */
     const serializedMessage = this.serializeMessage(
-      deletedMessage,
+      result.deletedMessage,
       viewer.accountId,
       viewerParticipant,
     );
 
     this.emitMessageUpdatedForVisibleParticipants(
       conversationId,
-      deletedMessage,
-      participants,
+      result.deletedMessage,
+      result.participants,
       'DELETED',
       now.toISOString(),
     );
@@ -10435,8 +10648,7 @@ export class ConversationsService {
               ? ActivityEventType.CHAT_DELETED
               : ActivityEventType.CHAT_CLEARED,
           pagePath: 'Messages',
-          elementLabel:
-            action === 'DELETE' ? 'Delete chat' : 'Clear chat',
+          elementLabel: action === 'DELETE' ? 'Delete chat' : 'Clear chat',
           /*
            * Audit metadata intentionally excludes participant identity,
            * message text, attachment names and all credential material.
@@ -10485,9 +10697,7 @@ export class ConversationsService {
     this.messagingEventsService.emitConversationUpdated([viewer.accountId], {
       conversationId,
       reason:
-        action === 'DELETE'
-          ? 'DELETED_FOR_ACCOUNT'
-          : 'CLEARED_FOR_ACCOUNT',
+        action === 'DELETE' ? 'DELETED_FOR_ACCOUNT' : 'CLEARED_FOR_ACCOUNT',
       occurredAt: now.toISOString(),
     });
 
@@ -10543,7 +10753,8 @@ export class ConversationsService {
 
     if (dto.mute !== undefined) {
       data.isMuted = dto.mute !== 'OFF';
-      data.mutedUntil = dto.mute === 'OFF' ? null : this.getMuteUntil(dto.mute, now);
+      data.mutedUntil =
+        dto.mute === 'OFF' ? null : this.getMuteUntil(dto.mute, now);
     }
 
     if (dto.draftText !== undefined) {

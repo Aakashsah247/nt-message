@@ -209,6 +209,22 @@ export default function App() {
       />
 
       <Route
+        path="/messages/announcements"
+        element={
+          <ProtectedRoute
+            roles={[
+              "SUPER_ADMIN",
+              "SENIOR_MANAGEMENT",
+              "TEAM_MANAGER",
+              "EMPLOYEE",
+            ]}
+          >
+            <MessageAppPage />
+          </ProtectedRoute>
+        }
+      />
+
+      <Route
         path="/messages/starred"
         element={
           <ProtectedRoute

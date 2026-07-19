@@ -22,6 +22,7 @@ import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import { AccessTokenGuard } from '../auth/guards/access-token.guard';
 import type { AuthenticatedUser } from '../auth/types/auth.types';
 
+import { ConversationStorageService } from './conversation-storage.service';
 import { ConversationsService } from './conversations.service';
 import { AddGroupMembersDto } from './dto/add-group-members.dto';
 import { CreateGroupConversationDto } from './dto/create-group-conversation.dto';
@@ -37,6 +38,7 @@ import { SearchMessagesQueryDto } from './dto/search-messages-query.dto';
 import { SendTextMessageDto } from './dto/send-text-message.dto';
 import { SendLocationMessageDto } from './dto/send-location-message.dto';
 import { SendAttachmentMessageDto } from './dto/send-attachment-message.dto';
+import { StorageUsageQueryDto } from './dto/storage-usage-query.dto';
 import { UpdateGroupConversationDto } from './dto/update-group-conversation.dto';
 import { UpdateGroupMemberRoleDto } from './dto/update-group-member-role.dto';
 import { UpdateConversationPreferenceDto } from './dto/update-conversation-preference.dto';
@@ -50,8 +52,10 @@ import type { UploadedMessageAttachmentFile } from './types/uploaded-message-att
 @Controller('conversations')
 @UseGuards(AccessTokenGuard)
 export class ConversationsController {
-  constructor(private readonly conversationsService: ConversationsService) {}
-
+  constructor(
+    private readonly conversationsService: ConversationsService,
+    private readonly conversationStorageService: ConversationStorageService,
+  ) {}
 
   @Get('settings')
   getMessagingSettings(
@@ -132,7 +136,9 @@ export class ConversationsController {
   }
 
   @Post('profiles/me/photo')
-  @UseInterceptors(FileInterceptor('file', { limits: { fileSize: 5 * 1024 * 1024 } }))
+  @UseInterceptors(
+    FileInterceptor('file', { limits: { fileSize: 5 * 1024 * 1024 } }),
+  )
   updateMyMessagingProfilePhoto(
     @CurrentUser()
     user: AuthenticatedUser,
@@ -167,10 +173,11 @@ export class ConversationsController {
     @Res({ passthrough: true })
     response: Response,
   ): Promise<StreamableFile> {
-    const photo = await this.conversationsService.getMessagingProfilePhotoByEmployeeDownload(
-      user,
-      employeeId,
-    );
+    const photo =
+      await this.conversationsService.getMessagingProfilePhotoByEmployeeDownload(
+        user,
+        employeeId,
+      );
 
     // Directory profile photos use the same protected response headers as messaging profile photos.
     response.setHeader('Content-Type', photo.mimeType);
@@ -212,10 +219,11 @@ export class ConversationsController {
     @Res({ passthrough: true })
     response: Response,
   ): Promise<StreamableFile> {
-    const photo = await this.conversationsService.getMessagingProfilePhotoDownload(
-      user,
-      accountId,
-    );
+    const photo =
+      await this.conversationsService.getMessagingProfilePhotoDownload(
+        user,
+        accountId,
+      );
 
     // Profile photos are protected resources, not public object-storage URLs.
     response.setHeader('Content-Type', photo.mimeType);
@@ -258,6 +266,20 @@ export class ConversationsController {
     user: AuthenticatedUser,
   ) {
     return this.conversationsService.getMessagingAnalytics(user);
+  }
+
+  @Get('storage-usage')
+  getUserStorageUsage(
+    @CurrentUser()
+    user: AuthenticatedUser,
+
+    @Query()
+    query: StorageUsageQueryDto,
+  ) {
+    return this.conversationStorageService.getUserStorageUsage(
+      user,
+      query.limit,
+    );
   }
 
   @Get('notifications')
@@ -509,7 +531,6 @@ export class ConversationsController {
     );
   }
 
-
   @Get(':id/group/invite-link')
   getGroupInvitationLink(
     @CurrentUser()
@@ -568,7 +589,9 @@ export class ConversationsController {
   }
 
   @Post(':id/group/photo')
-  @UseInterceptors(FileInterceptor('file', { limits: { fileSize: 5 * 1024 * 1024 } }))
+  @UseInterceptors(
+    FileInterceptor('file', { limits: { fileSize: 5 * 1024 * 1024 } }),
+  )
   updateGroupPhoto(
     @CurrentUser()
     user: AuthenticatedUser,
@@ -772,6 +795,29 @@ export class ConversationsController {
     return this.conversationsService.getConversationSharedContent(
       user,
       conversationId,
+    );
+  }
+
+  @Get(':id/storage-usage')
+  getConversationStorageUsage(
+    @CurrentUser()
+    user: AuthenticatedUser,
+
+    @Param(
+      'id',
+      new ParseUUIDPipe({
+        version: '4',
+      }),
+    )
+    conversationId: string,
+
+    @Query()
+    query: StorageUsageQueryDto,
+  ) {
+    return this.conversationStorageService.getConversationStorageUsage(
+      user,
+      conversationId,
+      query.limit,
     );
   }
 
@@ -1009,7 +1055,9 @@ export class ConversationsController {
   }
 
   @Post(':id/attachments')
-  @UseInterceptors(FileInterceptor('file', { limits: { fileSize: 200 * 1024 * 1024 } }))
+  @UseInterceptors(
+    FileInterceptor('file', { limits: { fileSize: 200 * 1024 * 1024 } }),
+  )
   sendAttachmentMessage(
     @CurrentUser()
     user: AuthenticatedUser,
@@ -1129,6 +1177,34 @@ export class ConversationsController {
     );
   }
 
+  @Get(':conversationId/messages/:messageId')
+  getConversationMessage(
+    @CurrentUser()
+    user: AuthenticatedUser,
+
+    @Param(
+      'conversationId',
+      new ParseUUIDPipe({
+        version: '4',
+      }),
+    )
+    conversationId: string,
+
+    @Param(
+      'messageId',
+      new ParseUUIDPipe({
+        version: '4',
+      }),
+    )
+    messageId: string,
+  ) {
+    return this.conversationsService.getConversationMessage(
+      user,
+      conversationId,
+      messageId,
+    );
+  }
+
   @Post(':conversationId/messages/:messageId/star')
   starMessage(
     @CurrentUser()
@@ -1150,7 +1226,11 @@ export class ConversationsController {
     )
     messageId: string,
   ) {
-    return this.conversationsService.starMessage(user, conversationId, messageId);
+    return this.conversationsService.starMessage(
+      user,
+      conversationId,
+      messageId,
+    );
   }
 
   @Delete(':conversationId/messages/:messageId/star')
@@ -1174,7 +1254,11 @@ export class ConversationsController {
     )
     messageId: string,
   ) {
-    return this.conversationsService.unstarMessage(user, conversationId, messageId);
+    return this.conversationsService.unstarMessage(
+      user,
+      conversationId,
+      messageId,
+    );
   }
 
   @Post(':conversationId/messages/:messageId/pin')
@@ -1198,7 +1282,11 @@ export class ConversationsController {
     )
     messageId: string,
   ) {
-    return this.conversationsService.pinMessage(user, conversationId, messageId);
+    return this.conversationsService.pinMessage(
+      user,
+      conversationId,
+      messageId,
+    );
   }
 
   @Delete(':conversationId/messages/:messageId/pin')
@@ -1222,7 +1310,11 @@ export class ConversationsController {
     )
     messageId: string,
   ) {
-    return this.conversationsService.unpinMessage(user, conversationId, messageId);
+    return this.conversationsService.unpinMessage(
+      user,
+      conversationId,
+      messageId,
+    );
   }
 
   @Post(':conversationId/messages/:messageId/reactions')

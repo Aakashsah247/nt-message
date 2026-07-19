@@ -3,6 +3,7 @@ import {
   type Socket,
 } from "socket.io-client";
 
+import type { AnnouncementRealtimePayload } from "../types/announcements";
 import type {
   MessagingMessage,
   MessagingNotification,
@@ -128,6 +129,11 @@ interface ServerToClientEvents {
   "messaging:notification-created": (
     payload: MessagingNotificationCreatedPayload,
   ) => void;
+  "announcement:published": (payload: AnnouncementRealtimePayload) => void;
+  "announcement:updated": (payload: AnnouncementRealtimePayload) => void;
+  "announcement:withdrawn": (payload: AnnouncementRealtimePayload) => void;
+  "announcement:read": (payload: AnnouncementRealtimePayload) => void;
+  "announcement:acknowledged": (payload: AnnouncementRealtimePayload) => void;
   "messaging:presence-snapshot": (
     payload: MessagingPresenceSnapshotPayload,
   ) => void;

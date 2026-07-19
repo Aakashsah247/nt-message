@@ -8,7 +8,9 @@ import type {
   ConversationMuteSetting,
   ConversationPreferenceResponse,
   ConversationMessageSearchResponse,
+  ConversationMessageResponse,
   ConversationSharedContentResponse,
+  ConversationStorageUsageResponse,
   CreatePrivateConversationResponse,
   DeleteMessageForMeResponse,
   DeleteMessageResponse,
@@ -53,11 +55,10 @@ import type {
   SendTextMessageResponse,
   UpdateLiveLocationMessageResponse,
   UpdateTextMessageResponse,
+  UserStorageUsageResponse,
 } from "../types/messaging";
 
-function authorizationHeaders(
-  accessToken: string,
-): HeadersInit {
+function authorizationHeaders(accessToken: string): HeadersInit {
   return {
     Authorization: `Bearer ${accessToken}`,
   };
@@ -81,7 +82,6 @@ export interface AttachmentUploadProgress {
 export interface SendAttachmentMessageOptions {
   onUploadProgress?: (progress: AttachmentUploadProgress) => void;
 }
-
 
 export function getMyMessagingProfile(
   accessToken: string,
@@ -138,14 +138,15 @@ export async function updateMyMessagingProfilePhoto(
     },
   );
 
-  const body = await response.json().catch(() => null) as
+  const body = (await response.json().catch(() => null)) as
     | MessagingUserProfileResponse
     | { message?: unknown }
     | null;
 
   if (!response.ok) {
     throw new Error(
-      body && typeof (body as { message?: unknown } | null)?.message === "string"
+      body &&
+        typeof (body as { message?: unknown } | null)?.message === "string"
         ? String((body as { message?: unknown }).message)
         : "Profile photo could not be uploaded.",
     );
@@ -243,12 +244,9 @@ export function updateMessagingPrivacySettings(
 export function listBlockedMessagingAccounts(
   accessToken: string,
 ): Promise<MessagingBlockedAccountsResponse> {
-  return apiRequest<MessagingBlockedAccountsResponse>(
-    "/conversations/blocks",
-    {
-      headers: authorizationHeaders(accessToken),
-    },
-  );
+  return apiRequest<MessagingBlockedAccountsResponse>("/conversations/blocks", {
+    headers: authorizationHeaders(accessToken),
+  });
 }
 
 export function blockMessagingAccount(
@@ -441,18 +439,15 @@ export function createGroupConversation(
   description: string,
   memberAccountIds: string[],
 ): Promise<GroupConversationResponse> {
-  return apiRequest<GroupConversationResponse>(
-    "/conversations/groups",
-    {
-      method: "POST",
-      headers: authorizationHeaders(accessToken),
-      body: JSON.stringify({
-        title,
-        description,
-        memberAccountIds,
-      }),
-    },
-  );
+  return apiRequest<GroupConversationResponse>("/conversations/groups", {
+    method: "POST",
+    headers: authorizationHeaders(accessToken),
+    body: JSON.stringify({
+      title,
+      description,
+      memberAccountIds,
+    }),
+  });
 }
 
 export function updateGroupConversation(
@@ -473,7 +468,6 @@ export function updateGroupConversation(
   );
 }
 
-
 export async function updateGroupPhoto(
   accessToken: string,
   conversationId: string,
@@ -491,14 +485,15 @@ export async function updateGroupPhoto(
     },
   );
 
-  const body = await response.json().catch(() => null) as
+  const body = (await response.json().catch(() => null)) as
     | GroupConversationResponse
     | { message?: unknown }
     | null;
 
   if (!response.ok) {
     throw new Error(
-      body && typeof (body as { message?: unknown } | null)?.message === "string"
+      body &&
+        typeof (body as { message?: unknown } | null)?.message === "string"
         ? String((body as { message?: unknown }).message)
         : "Group photo could not be uploaded.",
     );
@@ -645,12 +640,9 @@ export function createPrivateConversation(
 export function listMessageRequests(
   accessToken: string,
 ): Promise<MessageRequestListResponse> {
-  return apiRequest<MessageRequestListResponse>(
-    "/conversations/requests",
-    {
-      headers: authorizationHeaders(accessToken),
-    },
-  );
+  return apiRequest<MessageRequestListResponse>("/conversations/requests", {
+    headers: authorizationHeaders(accessToken),
+  });
 }
 
 export function getPersonalDashboardSummary(
@@ -667,12 +659,9 @@ export function getPersonalDashboardSummary(
 export function getMessagingAnalytics(
   accessToken: string,
 ): Promise<MessagingAnalyticsResponse> {
-  return apiRequest<MessagingAnalyticsResponse>(
-    "/conversations/analytics",
-    {
-      headers: authorizationHeaders(accessToken),
-    },
-  );
+  return apiRequest<MessagingAnalyticsResponse>("/conversations/analytics", {
+    headers: authorizationHeaders(accessToken),
+  });
 }
 
 export function listMessagingNotifications(
@@ -775,7 +764,6 @@ export function blockMessageRequest(
   );
 }
 
-
 function messagingSearchParams(
   filters: MessagingSearchFilters,
 ): URLSearchParams {
@@ -828,6 +816,51 @@ export function getConversationSharedContent(
   // Prevent browser cache from returning stale shared-content results.
   return apiRequest<ConversationSharedContentResponse>(
     `/conversations/${conversationId}/shared-content?ts=${Date.now()}`,
+    {
+      headers: authorizationHeaders(accessToken),
+    },
+  );
+}
+
+export function getUserStorageUsage(
+  accessToken: string,
+  limit = 30,
+): Promise<UserStorageUsageResponse> {
+  // Storage totals must reflect the caller's latest visibility and deletion actions.
+  // Use the Fetch cache policy instead of adding undeclared query parameters.
+  // This preserves the API's strict DTO allowlist for authenticated requests.
+  return apiRequest<UserStorageUsageResponse>(
+    `/conversations/storage-usage?limit=${limit}`,
+    {
+      headers: authorizationHeaders(accessToken),
+      cache: "no-store",
+    },
+  );
+}
+
+export function getConversationStorageUsage(
+  accessToken: string,
+  conversationId: string,
+  limit = 30,
+): Promise<ConversationStorageUsageResponse> {
+  // Conversation totals also require a fresh, authorization-scoped response.
+  // Do not weaken server-side validation with a generic cache-buster field.
+  return apiRequest<ConversationStorageUsageResponse>(
+    `/conversations/${conversationId}/storage-usage?limit=${limit}`,
+    {
+      headers: authorizationHeaders(accessToken),
+      cache: "no-store",
+    },
+  );
+}
+
+export function getConversationMessageById(
+  accessToken: string,
+  conversationId: string,
+  messageId: string,
+): Promise<ConversationMessageResponse> {
+  return apiRequest<ConversationMessageResponse>(
+    `/conversations/${conversationId}/messages/${messageId}`,
     {
       headers: authorizationHeaders(accessToken),
     },
@@ -1061,7 +1094,7 @@ export async function sendConversationAttachmentMessage(
   file: File,
   caption?: string,
   replyToMessageId?: string,
-  attachmentKind?: 'VOICE_NOTE',
+  attachmentKind?: "VOICE_NOTE",
   options?: SendAttachmentMessageOptions,
 ): Promise<SendAttachmentMessageResponse> {
   const formData = new FormData();
@@ -1100,14 +1133,15 @@ export async function sendConversationAttachmentMessage(
     },
   );
 
-  const body = await response.json().catch(() => null) as
+  const body = (await response.json().catch(() => null)) as
     | SendAttachmentMessageResponse
     | { message?: unknown }
     | null;
 
   if (!response.ok) {
     throw new Error(
-      body && typeof (body as { message?: unknown } | null)?.message === "string"
+      body &&
+        typeof (body as { message?: unknown } | null)?.message === "string"
         ? String((body as { message?: unknown }).message)
         : "Attachment could not be uploaded.",
     );
@@ -1129,16 +1163,21 @@ function uploadConversationAttachmentWithProgress(
   return new Promise((resolve, reject) => {
     const request = new XMLHttpRequest();
 
-    request.open("POST", messagingApiUrl(`/conversations/${conversationId}/attachments`));
+    request.open(
+      "POST",
+      messagingApiUrl(`/conversations/${conversationId}/attachments`),
+    );
     request.setRequestHeader("Authorization", `Bearer ${accessToken}`);
     request.responseType = "text";
 
     request.upload.onprogress = (event) => {
-      const totalBytes = event.lengthComputable && event.total > 0
-        ? event.total
-        : null;
+      const totalBytes =
+        event.lengthComputable && event.total > 0 ? event.total : null;
       const progressPercent = totalBytes
-        ? Math.min(99, Math.max(1, Math.round((event.loaded / totalBytes) * 100)))
+        ? Math.min(
+            99,
+            Math.max(1, Math.round((event.loaded / totalBytes) * 100)),
+          )
         : 0;
 
       onUploadProgress({
@@ -1154,11 +1193,15 @@ function uploadConversationAttachmentWithProgress(
       >(request.responseText);
 
       if (request.status < 200 || request.status >= 300) {
-        reject(new Error(
-          body && typeof (body as { message?: unknown } | null)?.message === "string"
-            ? String((body as { message?: unknown }).message)
-            : "Attachment could not be uploaded.",
-        ));
+        reject(
+          new Error(
+            body &&
+              typeof (body as { message?: unknown } | null)?.message ===
+                "string"
+              ? String((body as { message?: unknown }).message)
+              : "Attachment could not be uploaded.",
+          ),
+        );
         return;
       }
 
@@ -1168,19 +1211,27 @@ function uploadConversationAttachmentWithProgress(
       }
 
       onUploadProgress({
-        loadedBytes: formData.get("file") instanceof File
-          ? (formData.get("file") as File).size
-          : 0,
-        totalBytes: formData.get("file") instanceof File
-          ? (formData.get("file") as File).size
-          : null,
+        loadedBytes:
+          formData.get("file") instanceof File
+            ? (formData.get("file") as File).size
+            : 0,
+        totalBytes:
+          formData.get("file") instanceof File
+            ? (formData.get("file") as File).size
+            : null,
         progressPercent: 100,
       });
       resolve(body as SendAttachmentMessageResponse);
     };
 
-    request.onerror = () => reject(new Error("Attachment upload failed. Check your connection and try again."));
-    request.onabort = () => reject(new Error("Attachment upload was cancelled."));
+    request.onerror = () =>
+      reject(
+        new Error(
+          "Attachment upload failed. Check your connection and try again.",
+        ),
+      );
+    request.onabort = () =>
+      reject(new Error("Attachment upload was cancelled."));
 
     request.send(formData);
   });
@@ -1211,11 +1262,17 @@ async function fetchAttachmentBlobWithXhrFallback(
         return;
       }
 
-      reject(new Error(`Attachment could not be downloaded. HTTP ${request.status}`));
+      reject(
+        new Error(`Attachment could not be downloaded. HTTP ${request.status}`),
+      );
     };
 
     request.onerror = () => {
-      reject(new Error("Attachment could not be downloaded. Check the API server and CORS configuration."));
+      reject(
+        new Error(
+          "Attachment could not be downloaded. Check the API server and CORS configuration.",
+        ),
+      );
     };
 
     request.send();
@@ -1243,7 +1300,7 @@ async function fetchConversationAttachmentBlob(
       let message = "Attachment could not be downloaded.";
 
       try {
-        const errorBody = await response.json() as { message?: unknown };
+        const errorBody = (await response.json()) as { message?: unknown };
 
         if (typeof errorBody.message === "string") {
           message = errorBody.message;

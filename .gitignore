@@ -42,3 +42,4 @@ apps/api/storage/message-attachments/
 *.tsbuildinfo
 
 apps/api/storage/profile-photos/
+apps/api/storage/announcement-attachments/

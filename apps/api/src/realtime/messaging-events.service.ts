@@ -97,6 +97,32 @@ export interface MessagingNotificationCreatedPayload {
   occurredAt: string;
 }
 
+export type AnnouncementRealtimeAction =
+  | 'PUBLISHED'
+  | 'UPDATED'
+  | 'WITHDRAWN'
+  | 'READ'
+  | 'ACKNOWLEDGED';
+
+export type AnnouncementSocketEvent =
+  | 'announcement:published'
+  | 'announcement:updated'
+  | 'announcement:withdrawn'
+  | 'announcement:read'
+  | 'announcement:acknowledged';
+
+export interface AnnouncementRealtimePayload {
+  announcementId: string;
+  officialConversationId: string | null;
+  action: AnnouncementRealtimeAction;
+  status: string;
+  priority: string;
+  requiresAcknowledgement: boolean;
+  revisionNumber: number;
+  actorAccountId: string;
+  occurredAt: string;
+}
+
 export interface MessagingPresenceSnapshotPayload {
   presences: MessagingPresenceState[];
   occurredAt: string;
@@ -137,6 +163,11 @@ export interface MessagingServerToClientEvents {
   'messaging:notification-created': (
     payload: MessagingNotificationCreatedPayload,
   ) => void;
+  'announcement:published': (payload: AnnouncementRealtimePayload) => void;
+  'announcement:updated': (payload: AnnouncementRealtimePayload) => void;
+  'announcement:withdrawn': (payload: AnnouncementRealtimePayload) => void;
+  'announcement:read': (payload: AnnouncementRealtimePayload) => void;
+  'announcement:acknowledged': (payload: AnnouncementRealtimePayload) => void;
   'messaging:presence-snapshot': (
     payload: MessagingPresenceSnapshotPayload,
   ) => void;
@@ -262,6 +293,41 @@ export class MessagingEventsService {
       .emit('messaging:notification-created', payload);
   }
 
+  emitAnnouncementPublished(
+    accountIds: string[],
+    payload: AnnouncementRealtimePayload,
+  ): void {
+    this.emitToAccountRooms(accountIds, 'announcement:published', payload);
+  }
+
+  emitAnnouncementUpdated(
+    accountIds: string[],
+    payload: AnnouncementRealtimePayload,
+  ): void {
+    this.emitToAccountRooms(accountIds, 'announcement:updated', payload);
+  }
+
+  emitAnnouncementWithdrawn(
+    accountIds: string[],
+    payload: AnnouncementRealtimePayload,
+  ): void {
+    this.emitToAccountRooms(accountIds, 'announcement:withdrawn', payload);
+  }
+
+  emitAnnouncementRead(
+    accountIds: string[],
+    payload: AnnouncementRealtimePayload,
+  ): void {
+    this.emitToAccountRooms(accountIds, 'announcement:read', payload);
+  }
+
+  emitAnnouncementAcknowledged(
+    accountIds: string[],
+    payload: AnnouncementRealtimePayload,
+  ): void {
+    this.emitToAccountRooms(accountIds, 'announcement:acknowledged', payload);
+  }
+
   emitPresenceUpdated(payload: MessagingPresenceState): void {
     this.server?.emit('messaging:presence-updated', payload);
   }
@@ -278,6 +344,33 @@ export class MessagingEventsService {
       this.server
         .to(this.accountRoom(accountId))
         .emit('messaging:typing-updated', payload);
+    }
+  }
+
+  private emitToAccountRooms(
+    accountIds: string[],
+    event: AnnouncementSocketEvent,
+    payload: AnnouncementRealtimePayload,
+  ): void {
+    if (!this.server) {
+      return;
+    }
+
+    /*
+     * Announcement state is account-scoped. No recipient list or shared room
+     * broadcast is used because audience membership is private governance data.
+     */
+    const emitter = this.server as unknown as {
+      to: (room: string) => {
+        emit: (
+          eventName: AnnouncementSocketEvent,
+          eventPayload: AnnouncementRealtimePayload,
+        ) => void;
+      };
+    };
+
+    for (const accountId of new Set(accountIds)) {
+      emitter.to(this.accountRoom(accountId)).emit(event, payload);
     }
   }
 

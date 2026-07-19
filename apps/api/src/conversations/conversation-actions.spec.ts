@@ -46,15 +46,21 @@ describe('ConversationsService personal history actions', () => {
       findMany: jest.fn(),
     },
     $transaction: jest.fn(
-      async (
-        callback: (value: typeof transaction) => Promise<unknown>,
-      ) => callback(transaction),
+      async (callback: (value: typeof transaction) => Promise<unknown>) =>
+        callback(transaction),
     ),
   } as unknown as PrismaService;
 
   const messagingEventsService = {
     emitReceiptUpdated: jest.fn(),
     emitConversationUpdated: jest.fn(),
+  };
+
+  const conversationStorageService = {
+    lockStorageKeys: jest.fn(),
+    assertAttachmentReferencesAvailable: jest.fn(),
+    removeDeletedMessageAttachmentReferences: jest.fn(),
+    deletePhysicalStorageObjects: jest.fn(),
   };
 
   const viewer = {
@@ -87,6 +93,7 @@ describe('ConversationsService personal history actions', () => {
     service = new ConversationsService(
       prisma,
       messagingEventsService as never,
+      conversationStorageService as never,
     );
 
     jest
@@ -127,7 +134,9 @@ describe('ConversationsService personal history actions', () => {
       participantState,
     );
     transaction.messageReceipt.updateMany.mockResolvedValue({ count: 1 });
-    transaction.messagingNotification.deleteMany.mockResolvedValue({ count: 1 });
+    transaction.messagingNotification.deleteMany.mockResolvedValue({
+      count: 1,
+    });
     transaction.activityEvent.create.mockResolvedValue({ id: 'event-1' });
   });
 
@@ -144,18 +153,20 @@ describe('ConversationsService personal history actions', () => {
       'conversation-1',
     );
 
-    expect(transaction.conversationParticipant.updateMany).toHaveBeenCalledWith({
-      where: {
-        conversationId: 'conversation-1',
-        accountId: 'account-1',
-        leftAt: null,
-        updatedAt: new Date('2026-07-17T03:55:00.000Z'),
+    expect(transaction.conversationParticipant.updateMany).toHaveBeenCalledWith(
+      {
+        where: {
+          conversationId: 'conversation-1',
+          accountId: 'account-1',
+          leftAt: null,
+          updatedAt: new Date('2026-07-17T03:55:00.000Z'),
+        },
+        data: {
+          historyClearedAt: now,
+          markedUnreadAt: null,
+        },
       },
-      data: {
-        historyClearedAt: now,
-        markedUnreadAt: null,
-      },
-    });
+    );
 
     expect(transaction.messagingNotification.deleteMany).toHaveBeenCalledWith({
       where: {
@@ -230,25 +241,27 @@ describe('ConversationsService personal history actions', () => {
       'conversation-1',
     );
 
-    expect(transaction.conversationParticipant.updateMany).toHaveBeenCalledWith({
-      where: {
-        conversationId: 'conversation-1',
-        accountId: 'account-1',
-        leftAt: null,
-        updatedAt: new Date('2026-07-17T03:55:00.000Z'),
+    expect(transaction.conversationParticipant.updateMany).toHaveBeenCalledWith(
+      {
+        where: {
+          conversationId: 'conversation-1',
+          accountId: 'account-1',
+          leftAt: null,
+          updatedAt: new Date('2026-07-17T03:55:00.000Z'),
+        },
+        data: {
+          historyClearedAt: now,
+          deletedFromListAt: now,
+          isPinned: false,
+          pinnedAt: null,
+          isArchived: false,
+          archivedAt: null,
+          markedUnreadAt: null,
+          draftText: null,
+          draftUpdatedAt: null,
+        },
       },
-      data: {
-        historyClearedAt: now,
-        deletedFromListAt: now,
-        isPinned: false,
-        pinnedAt: null,
-        isArchived: false,
-        archivedAt: null,
-        markedUnreadAt: null,
-        draftText: null,
-        draftUpdatedAt: null,
-      },
-    });
+    );
 
     expect(messagingEventsService.emitConversationUpdated).toHaveBeenCalledWith(
       ['account-1'],
@@ -276,7 +289,9 @@ describe('ConversationsService personal history actions', () => {
     expect(transaction.messageReceipt.updateMany).not.toHaveBeenCalled();
     expect(transaction.messagingNotification.deleteMany).not.toHaveBeenCalled();
     expect(transaction.activityEvent.create).not.toHaveBeenCalled();
-    expect(messagingEventsService.emitConversationUpdated).not.toHaveBeenCalled();
+    expect(
+      messagingEventsService.emitConversationUpdated,
+    ).not.toHaveBeenCalled();
   });
 
   it('does not allow Delete chat for an active group', async () => {
@@ -297,6 +312,8 @@ describe('ConversationsService personal history actions', () => {
     ).rejects.toBeInstanceOf(ForbiddenException);
 
     expect(prisma.$transaction).not.toHaveBeenCalled();
-    expect(messagingEventsService.emitConversationUpdated).not.toHaveBeenCalled();
+    expect(
+      messagingEventsService.emitConversationUpdated,
+    ).not.toHaveBeenCalled();
   });
 });

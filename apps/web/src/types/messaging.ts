@@ -1,23 +1,12 @@
 import type { AccountRole } from "./auth";
 
-export type ConversationType =
-  | "PRIVATE"
-  | "GROUP"
-  | "ANNOUNCEMENT";
+export type ConversationType = "PRIVATE" | "GROUP" | "ANNOUNCEMENT";
 
-export type GroupKind =
-  | "PERSONAL"
-  | "OFFICIAL";
+export type GroupKind = "PERSONAL" | "OFFICIAL";
 
-export type ConversationParticipantRole =
-  | "OWNER"
-  | "ADMIN"
-  | "MEMBER";
+export type ConversationParticipantRole = "OWNER" | "ADMIN" | "MEMBER";
 
-export type OfficialGroupScopeType =
-  | "ORGANIZATION"
-  | "DIVISION"
-  | "DEPARTMENT";
+export type OfficialGroupScopeType = "ORGANIZATION" | "DIVISION" | "DEPARTMENT";
 
 export type OfficialGroupAuditAction =
   | "CREATED"
@@ -34,10 +23,7 @@ export type MessageContentType =
   | "LOCATION"
   | "SYSTEM";
 
-export type MessageDeliveryStatus =
-  | "SENT"
-  | "DELIVERED"
-  | "READ";
+export type MessageDeliveryStatus = "SENT" | "DELIVERED" | "READ";
 
 export type MessageRequestStatus =
   | "PENDING"
@@ -86,7 +72,6 @@ export interface MessagingAccount {
   displayName: string;
   employee: MessagingEmployeeIdentity | null;
 }
-
 
 export type MessagingProfileContactMode =
   | "SELF"
@@ -211,12 +196,10 @@ export interface MessagingAttachment {
   updatedAt: string;
 }
 
-
 export interface MessagingMention {
   accountId: string;
   displayName: string;
 }
-
 
 export interface MessagingLocationPayload {
   kind: "CURRENT" | "LIVE";
@@ -351,8 +334,7 @@ export interface ConversationPreferenceResponse {
   data: ConversationPreferenceState;
 }
 
-export interface PersonalConversationHistoryState
-  extends ConversationPreferenceState {
+export interface PersonalConversationHistoryState extends ConversationPreferenceState {
   historyClearedAt: string | null;
   deletedFromListAt: string | null;
 }
@@ -367,7 +349,6 @@ export interface CursorPagination {
   hasMore: boolean;
   nextCursor: string | null;
 }
-
 
 export interface MessagingPrivacySettings {
   accountId: string;
@@ -414,7 +395,6 @@ export type CreatePrivateConversationResponse =
       request: MessagingMessageRequest;
     };
 
-
 export interface OfficialGroupScopeOption {
   key: string;
   scopeType: OfficialGroupScopeType;
@@ -458,8 +438,7 @@ export interface GroupConversationResponse {
   data: MessagingConversation;
 }
 
-export interface AddGroupMembersResponse
-  extends GroupConversationResponse {
+export interface AddGroupMembersResponse extends GroupConversationResponse {
   addedCount: number;
 }
 
@@ -555,8 +534,7 @@ export interface MessageRequestActionResponse {
   request: MessagingMessageRequest;
 }
 
-export interface AcceptMessageRequestResponse
-  extends MessageRequestActionResponse {
+export interface AcceptMessageRequestResponse extends MessageRequestActionResponse {
   data: MessagingConversation;
 }
 
@@ -607,6 +585,11 @@ export interface DeleteMessageForMeResponse {
   hiddenAt: string;
 }
 
+export interface ConversationMessageResponse {
+  data: MessagingMessage;
+  conversation: MessagingConversation;
+}
+
 export interface MarkConversationReadResponse {
   message: string;
   conversationId: string;
@@ -624,7 +607,8 @@ export type MessagingNotificationType =
   | "AUDIO"
   | "VOICE_NOTE"
   | "GROUP_EVENT"
-  | "MENTION";
+  | "MENTION"
+  | "ANNOUNCEMENT";
 
 export interface MessagingNotification {
   id: string;
@@ -633,6 +617,7 @@ export interface MessagingNotification {
   actor: MessagingAccount | null;
   conversationId: string | null;
   messageId: string | null;
+  announcementId?: string | null;
   type: MessagingNotificationType;
   title: string;
   body: string;
@@ -647,7 +632,6 @@ export interface MessagingNotificationListResponse {
   data: MessagingNotification[];
   unreadCount: number;
 }
-
 
 export interface MessagingSearchFilters {
   search?: string;
@@ -708,6 +692,83 @@ export interface ConversationSharedContentResponse {
     documents: number;
     links: number;
   };
+}
+
+export type StorageCategoryKey = "IMAGES" | "VIDEOS" | "DOCUMENTS" | "AUDIO";
+
+export interface MessagingStorageCategory {
+  key: StorageCategoryKey;
+  label: string;
+  contentType: Extract<
+    MessageContentType,
+    "IMAGE" | "VIDEO" | "FILE" | "AUDIO"
+  >;
+  logicalBytes: number;
+  itemCount: number;
+}
+
+export interface MessagingStorageTotals {
+  logicalVisibleBytes: number;
+  logicalItemCount: number;
+}
+
+export interface MessagingStorageLargestFile {
+  attachmentId: string;
+  messageId: string;
+  conversationId: string;
+  conversationTitle: string | null;
+  conversationType: ConversationType;
+  groupKind: GroupKind | null;
+  originalFileName: string;
+  mimeType: string;
+  fileSizeBytes: number;
+  contentType: Extract<
+    MessageContentType,
+    "IMAGE" | "VIDEO" | "FILE" | "AUDIO"
+  >;
+  sender: {
+    accountId: string;
+    displayName: string;
+  };
+  sentAt: string;
+  canDeleteForMe: boolean;
+  canDeleteForEveryone: boolean;
+}
+
+export interface MessagingConversationStorageItem {
+  conversationId: string;
+  conversationTitle: string | null;
+  conversationType: ConversationType;
+  groupKind: GroupKind | null;
+  logicalBytes: number;
+  itemCount: number;
+}
+
+export interface UserStorageUsageResponse {
+  scope: "USER";
+  generatedAt: string;
+  totals: MessagingStorageTotals;
+  categories: MessagingStorageCategory[];
+  storageByConversation: MessagingConversationStorageItem[];
+  largestFiles: MessagingStorageLargestFile[];
+  privacyNotice: string;
+}
+
+export interface ConversationStorageUsageResponse {
+  scope: "CONVERSATION";
+  generatedAt: string;
+  conversation: {
+    id: string;
+    title: string | null;
+    type: ConversationType;
+    groupKind: GroupKind | null;
+    participantRole: ConversationParticipantRole;
+    canManageGroup: boolean;
+  };
+  totals: MessagingStorageTotals;
+  categories: MessagingStorageCategory[];
+  largestFiles: MessagingStorageLargestFile[];
+  privacyNotice: string;
 }
 
 export interface GlobalMessagingSearchResponse {

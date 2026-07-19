@@ -8,6 +8,7 @@ import { MessagingPresenceService } from '../realtime/messaging-presence.service
 import { ConversationsController } from './conversations.controller';
 import { ConversationsGateway } from './conversations.gateway';
 import { ConversationsService } from './conversations.service';
+import { ConversationStorageService } from './conversation-storage.service';
 
 @Global()
 @Module({
@@ -17,11 +18,16 @@ import { ConversationsService } from './conversations.service';
 
   providers: [
     ConversationsService,
+    ConversationStorageService,
     ConversationsGateway,
     MessagingEventsService,
     MessagingPresenceService,
   ],
 
-  exports: [ConversationsService, MessagingEventsService],
+  exports: [
+    ConversationsService,
+    ConversationStorageService,
+    MessagingEventsService,
+  ],
 })
 export class ConversationsModule {}

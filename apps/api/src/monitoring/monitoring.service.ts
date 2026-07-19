@@ -563,6 +563,11 @@ export class MonitoringService implements OnModuleInit, OnModuleDestroy {
       case ActivityEventType.PASSWORD_RESET_COMPLETED:
       case ActivityEventType.CHAT_CLEARED:
       case ActivityEventType.CHAT_DELETED:
+      case ActivityEventType.ANNOUNCEMENT_DRAFT_CREATED:
+      case ActivityEventType.ANNOUNCEMENT_PUBLISHED:
+      case ActivityEventType.ANNOUNCEMENT_EDITED:
+      case ActivityEventType.ANNOUNCEMENT_WITHDRAWN:
+      case ActivityEventType.ANNOUNCEMENT_ACKNOWLEDGED:
         return {
           lastActiveAt: occurredAt,
           actionsCount: 1,
@@ -641,6 +646,16 @@ export class MonitoringService implements OnModuleInit, OnModuleDestroy {
       return 'Personal chat-history action recorded. Message content, participant identity and attachment metadata are not recorded.';
     }
 
+    if (
+      eventType === ActivityEventType.ANNOUNCEMENT_DRAFT_CREATED ||
+      eventType === ActivityEventType.ANNOUNCEMENT_PUBLISHED ||
+      eventType === ActivityEventType.ANNOUNCEMENT_EDITED ||
+      eventType === ActivityEventType.ANNOUNCEMENT_WITHDRAWN ||
+      eventType === ActivityEventType.ANNOUNCEMENT_ACKNOWLEDGED
+    ) {
+      return 'Official announcement lifecycle action recorded. Announcement content, file names and recipient identities are not copied into monitoring logs.';
+    }
+
     if (eventType === ActivityEventType.SESSION_POLICY_LOGOUT) {
       return 'Session ended by daily 6 PM policy.';
     }
@@ -669,6 +684,13 @@ export class MonitoringService implements OnModuleInit, OnModuleDestroy {
 
     if (!rawValue) {
       return null;
+    }
+
+    if (
+      rawValue === 'Announcements' ||
+      rawValue.startsWith('/messages/announcements')
+    ) {
+      return 'Announcements';
     }
 
     if (rawValue === 'Messages' || rawValue.startsWith('/messages')) {
@@ -708,6 +730,10 @@ export class MonitoringService implements OnModuleInit, OnModuleDestroy {
     value: string | undefined,
   ): string | null {
     const cleaned = this.cleanText(value, 120);
+
+    if (safePage === 'Announcements') {
+      return cleaned ? 'Announcement lifecycle action' : null;
+    }
 
     if (safePage === 'Messages') {
       if (cleaned?.toLowerCase().includes('send')) {

@@ -97,6 +97,11 @@ enum ActivityEventType {
   PASSWORD_RESET_COMPLETED
   CHAT_CLEARED
   CHAT_DELETED
+  ANNOUNCEMENT_DRAFT_CREATED
+  ANNOUNCEMENT_PUBLISHED
+  ANNOUNCEMENT_EDITED
+  ANNOUNCEMENT_WITHDRAWN
+  ANNOUNCEMENT_ACKNOWLEDGED
 }
 
 enum ConversationType {
@@ -127,6 +132,29 @@ enum OfficialGroupAuditAction {
   DETAILS_UPDATED
   MEMBERSHIP_SYNCED
   RECONCILED
+}
+
+enum AnnouncementAudienceType {
+  ORGANIZATION
+  DIVISION
+  DEPARTMENT
+  OFFICIAL_GROUP
+}
+
+enum AnnouncementPriority {
+  NORMAL
+  IMPORTANT
+  URGENT
+  EMERGENCY
+}
+
+enum AnnouncementStatus {
+  DRAFT
+  SCHEDULED
+  PUBLISHING
+  PUBLISHED
+  EXPIRED
+  WITHDRAWN
 }
 
 enum MessageContentType {
@@ -163,6 +191,7 @@ enum MessagingNotificationType {
   VOICE_NOTE
   GROUP_EVENT
   MENTION
+  ANNOUNCEMENT
 }
 
 enum EmergencyAlertRecipientStatus {
@@ -185,6 +214,7 @@ model Division {
   accountRequests           AccountRequest[]
   managementPositions       ManagementPosition[]
   officialGroupConversations Conversation[] @relation("OfficialGroupDivision")
+  announcements              Announcement[] @relation("AnnouncementDivision")
 
   @@index([isActive], map: "divisions_is_active_idx")
   @@map("divisions")
@@ -204,6 +234,7 @@ model Department {
   accountRequests            AccountRequest[]
   managementPositions        ManagementPosition[]
   officialGroupConversations Conversation[]         @relation("OfficialGroupDepartment")
+  announcements              Announcement[]          @relation("AnnouncementDepartment")
 
   @@unique([divisionId, code], map: "departments_division_id_code_key")
   @@unique([divisionId, name], map: "departments_division_id_name_key")
@@ -312,6 +343,11 @@ model Account {
   emergencyAlertsSent          EmergencyAlert[]             @relation("EmergencyAlertSender")
   emergencyAlertRecipients     EmergencyAlertRecipient[]    @relation("EmergencyAlertRecipientAccount")
   passwordResetChallenges      PasswordResetChallenge[]
+  announcementsCreated         Announcement[]                @relation("AnnouncementsCreatedBy")
+  announcementsWithdrawn       Announcement[]                @relation("AnnouncementsWithdrawnBy")
+  announcementRevisions        AnnouncementRevision[]        @relation("AnnouncementRevisionEditor")
+  announcementRecipients       AnnouncementRecipient[]
+  announcementAcknowledgements AnnouncementAcknowledgement[]
 
   @@index([role], map: "accounts_role_idx")
   @@index([isEnabled], map: "accounts_is_enabled_idx")
@@ -628,6 +664,7 @@ model Conversation {
   notifications      MessagingNotification[]
   messagePins        MessagePin[]
   invitationLinks    GroupInvitationLink[]
+  announcements      Announcement[] @relation("AnnouncementOfficialConversation")
 
   @@index([type, lastMessageAt], map: "conversations_type_last_message_idx")
   @@index([groupKind, updatedAt], map: "conversations_group_kind_idx")
@@ -934,6 +971,147 @@ model MessagingAccountBlock {
   @@map("messaging_account_blocks")
 }
 
+model Announcement {
+  id String @id @default(uuid()) @db.Uuid
+
+  createdByAccountId String @map("created_by_account_id") @db.Uuid
+  withdrawnByAccountId String? @map("withdrawn_by_account_id") @db.Uuid
+
+  audienceType AnnouncementAudienceType @map("audience_type")
+  divisionId String? @map("division_id") @db.Uuid
+  departmentId String? @map("department_id") @db.Uuid
+  officialConversationId String? @map("official_conversation_id") @db.Uuid
+
+  title String @default("") @db.VarChar(160)
+  body String @default("") @db.Text
+  priority AnnouncementPriority @default(NORMAL)
+  status AnnouncementStatus @default(DRAFT)
+
+  requiresAcknowledgement Boolean @default(false) @map("requires_acknowledgement")
+  allowAttachmentDownload Boolean @default(true) @map("allow_attachment_download")
+  isPinned Boolean @default(false) @map("is_pinned")
+
+  currentRevision Int @default(1) @map("current_revision")
+  scheduledAt DateTime? @map("scheduled_at") @db.Timestamptz(3)
+  publishedAt DateTime? @map("published_at") @db.Timestamptz(3)
+  expiresAt DateTime? @map("expires_at") @db.Timestamptz(3)
+  withdrawnAt DateTime? @map("withdrawn_at") @db.Timestamptz(3)
+
+  publishClaimedAt DateTime? @map("publish_claimed_at") @db.Timestamptz(3)
+  nextPublishAttemptAt DateTime? @map("next_publish_attempt_at") @db.Timestamptz(3)
+  publishAttempts Int @default(0) @map("publish_attempts")
+  publishFailureReason String? @map("publish_failure_reason") @db.VarChar(500)
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  createdBy Account @relation("AnnouncementsCreatedBy", fields: [createdByAccountId], references: [id], onDelete: Restrict)
+  withdrawnBy Account? @relation("AnnouncementsWithdrawnBy", fields: [withdrawnByAccountId], references: [id], onDelete: Restrict)
+  division Division? @relation("AnnouncementDivision", fields: [divisionId], references: [id], onDelete: Restrict)
+  department Department? @relation("AnnouncementDepartment", fields: [departmentId], references: [id], onDelete: Restrict)
+  officialConversation Conversation? @relation("AnnouncementOfficialConversation", fields: [officialConversationId], references: [id], onDelete: Restrict)
+
+  revisions AnnouncementRevision[]
+  recipients AnnouncementRecipient[]
+  acknowledgements AnnouncementAcknowledgement[]
+  attachments AnnouncementAttachment[]
+  notifications MessagingNotification[]
+
+  @@index([createdByAccountId, status, updatedAt], map: "announcements_creator_status_updated_idx")
+  @@index([status, scheduledAt, nextPublishAttemptAt], map: "announcements_publish_queue_idx")
+  @@index([audienceType, divisionId, departmentId], map: "announcements_audience_scope_idx")
+  @@index([officialConversationId, status, publishedAt], map: "announcements_official_conversation_idx")
+  @@index([publishedAt], map: "announcements_published_idx")
+  @@index([expiresAt], map: "announcements_expires_idx")
+  @@map("announcements")
+}
+
+model AnnouncementRevision {
+  id String @id @default(uuid()) @db.Uuid
+  announcementId String @map("announcement_id") @db.Uuid
+  editorAccountId String @map("editor_account_id") @db.Uuid
+  revisionNumber Int @map("revision_number")
+
+  title String @db.VarChar(160)
+  body String @db.Text
+  priority AnnouncementPriority
+  requiresAcknowledgement Boolean @map("requires_acknowledgement")
+  allowAttachmentDownload Boolean @map("allow_attachment_download")
+  isPinned Boolean @map("is_pinned")
+  expiresAt DateTime? @map("expires_at") @db.Timestamptz(3)
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  announcement Announcement @relation(fields: [announcementId], references: [id], onDelete: Cascade)
+  editor Account @relation("AnnouncementRevisionEditor", fields: [editorAccountId], references: [id], onDelete: Restrict)
+
+  @@unique([announcementId, revisionNumber], map: "announcement_revisions_announcement_revision_key")
+  @@index([editorAccountId, createdAt], map: "announcement_revisions_editor_created_idx")
+  @@map("announcement_revisions")
+}
+
+model AnnouncementRecipient {
+  announcementId String @map("announcement_id") @db.Uuid
+  accountId String @map("account_id") @db.Uuid
+
+  deliveredAt DateTime? @map("delivered_at") @db.Timestamptz(3)
+  firstReadAt DateTime? @map("first_read_at") @db.Timestamptz(3)
+  readRevision Int? @map("read_revision")
+  acknowledgedRevision Int? @map("acknowledged_revision")
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  announcement Announcement @relation(fields: [announcementId], references: [id], onDelete: Cascade)
+  account Account @relation(fields: [accountId], references: [id], onDelete: Restrict)
+
+  @@id([announcementId, accountId], map: "announcement_recipients_pkey")
+  @@index([accountId, createdAt], map: "announcement_recipients_account_created_idx")
+  @@index([announcementId, acknowledgedRevision], map: "announcement_recipients_ack_idx")
+  @@map("announcement_recipients")
+}
+
+model AnnouncementAcknowledgement {
+  id String @id @default(uuid()) @db.Uuid
+  announcementId String @map("announcement_id") @db.Uuid
+  accountId String @map("account_id") @db.Uuid
+  revisionNumber Int @map("revision_number")
+  acknowledgedAt DateTime @default(now()) @map("acknowledged_at") @db.Timestamptz(3)
+
+  announcement Announcement @relation(fields: [announcementId], references: [id], onDelete: Cascade)
+  account Account @relation(fields: [accountId], references: [id], onDelete: Restrict)
+
+  @@unique([announcementId, accountId, revisionNumber], map: "announcement_acknowledgements_revision_key")
+  @@index([announcementId, revisionNumber, acknowledgedAt], map: "announcement_acknowledgements_reporting_idx")
+  @@index([accountId, acknowledgedAt], map: "announcement_acknowledgements_account_idx")
+  @@map("announcement_acknowledgements")
+}
+
+model AnnouncementAttachment {
+  id String @id @default(uuid()) @db.Uuid
+  announcementId String @map("announcement_id") @db.Uuid
+
+  storageKey String @map("storage_key") @db.VarChar(500)
+  originalFileName String @map("original_file_name") @db.VarChar(255)
+  mimeType String @map("mime_type") @db.VarChar(120)
+  fileSizeBytes Int @map("file_size_bytes")
+  contentCategory String @map("content_category") @db.VarChar(20)
+  scanStatus String @default("PENDING") @map("scan_status") @db.VarChar(40)
+
+  addedRevision Int @map("added_revision")
+  removedRevision Int? @map("removed_revision")
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  announcement Announcement @relation(fields: [announcementId], references: [id], onDelete: Cascade)
+
+  @@index([announcementId, addedRevision, removedRevision], map: "announcement_attachments_revision_idx")
+  @@index([storageKey], map: "announcement_attachments_storage_key_idx")
+  @@index([contentCategory], map: "announcement_attachments_category_idx")
+  @@map("announcement_attachments")
+}
+
 model MessagingNotification {
   id String @id @default(uuid()) @db.Uuid
 
@@ -941,6 +1119,7 @@ model MessagingNotification {
   actorAccountId     String? @map("actor_account_id") @db.Uuid
   conversationId     String? @map("conversation_id") @db.Uuid
   messageId          String? @map("message_id") @db.Uuid
+  announcementId     String? @map("announcement_id") @db.Uuid
 
   type  MessagingNotificationType
   title String @db.VarChar(160)
@@ -958,11 +1137,13 @@ model MessagingNotification {
   actor        Account?      @relation("MessagingNotificationsActor", fields: [actorAccountId], references: [id], onDelete: SetNull)
   conversation Conversation? @relation(fields: [conversationId], references: [id], onDelete: Cascade)
   message      Message?      @relation(fields: [messageId], references: [id], onDelete: Cascade)
+  announcement Announcement? @relation(fields: [announcementId], references: [id], onDelete: Cascade)
 
   @@index([recipientAccountId, isRead, createdAt], map: "messaging_notifications_recipient_read_created_idx")
   @@index([recipientAccountId, createdAt], map: "messaging_notifications_recipient_created_idx")
   @@index([conversationId, createdAt], map: "messaging_notifications_conversation_created_idx")
   @@index([messageId], map: "messaging_notifications_message_idx")
+  @@index([announcementId], map: "messaging_notifications_announcement_idx")
   @@index([type, createdAt], map: "messaging_notifications_type_created_idx")
   @@map("messaging_notifications")
 }

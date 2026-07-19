@@ -10664,38 +10664,6 @@
   font-weight: 800;
 }
 
-.message-announcement-toggle {
-  display: grid;
-  grid-template-columns: auto minmax(0, 1fr);
-  gap: 2px 8px;
-  align-items: center;
-  padding: 9px 11px;
-  border: 1px solid rgba(245, 158, 11, 0.32);
-  border-radius: 12px;
-  color: #7c4a03;
-  background: #fff8e1;
-}
-
-.message-announcement-toggle input {
-  grid-row: span 2;
-}
-
-.message-announcement-toggle span {
-  font-size: 11px;
-  font-weight: 950;
-}
-
-.message-announcement-toggle small {
-  color: #9a6a16;
-  font-size: 9px;
-  font-weight: 760;
-}
-
-.message-announcement-toggle.active {
-  border-color: #f59e0b;
-  box-shadow: 0 0 0 3px rgba(245, 158, 11, 0.14);
-}
-
 .message-composer textarea {
   width: 100%;
   min-height: 46px;
@@ -16225,15 +16193,10 @@
   );
 }
 
-.message-app-shell.theme-dark .message-announcement-label,
-.message-app-shell.theme-dark .message-announcement-toggle {
+.message-app-shell.theme-dark .message-announcement-label {
   color: #fde68a;
   background: rgba(120, 53, 15, 0.42);
   border-color: rgba(245, 158, 11, 0.44);
-}
-
-.message-app-shell.theme-dark .message-announcement-toggle small {
-  color: #facc15;
 }
 
 /* M8 SHARED MEDIA DOCUMENTS LINKS START */
