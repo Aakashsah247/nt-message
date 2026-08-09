@@ -3,6 +3,12 @@ import type { AccountRole } from "./auth";
 export type AdminCreatableRole =
   Exclude<AccountRole, "SUPER_ADMIN">;
 
+export type DepartmentWorkFunction =
+  | "GENERAL"
+  | "FIELD_OPERATIONS"
+  | "SALES"
+  | "SUPPORT";
+
 export interface OrganizationDependencyCount {
   employees: number;
   accountRequests: number;
@@ -26,6 +32,7 @@ export interface AdminDepartment {
   id: string;
   code: string;
   name: string;
+  workFunction: DepartmentWorkFunction;
   isActive: boolean;
   createdAt?: string;
   updatedAt?: string;
@@ -87,6 +94,7 @@ export interface CreateDepartmentInput {
   divisionId: string;
   code: string;
   name: string;
+  workFunction: DepartmentWorkFunction;
 }
 
 export interface UpdateDivisionInput {
@@ -99,6 +107,7 @@ export interface UpdateDepartmentInput {
   divisionId?: string;
   code?: string;
   name?: string;
+  workFunction?: DepartmentWorkFunction;
   isActive?: boolean;
 }
 

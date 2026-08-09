@@ -4,13 +4,17 @@ export type ManagementIconName =
   | "analytics"
   | "dashboard"
   | "directory"
+  | "duty"
   | "management"
   | "messages"
   | "monitoring"
   | "organization"
   | "profile"
+  | "reports"
   | "requests"
-  | "security";
+  | "security"
+  | "teams"
+  | "work";
 
 interface ManagementIconProps extends SVGProps<SVGSVGElement> {
   name: ManagementIconName;
@@ -50,6 +54,17 @@ export function ManagementIcon({
           <path d="M16 5.5h5" />
           <path d="M16 10h5" />
           <path d="M17 14.5h4" />
+        </svg>
+      );
+
+    case "duty":
+      return (
+        <svg {...commonProps}>
+          <rect x="4" y="5" width="16" height="15" rx="2" />
+          <path d="M8 3v4" />
+          <path d="M16 3v4" />
+          <path d="M4 10h16" />
+          <path d="m9 15 2 2 4-4" />
         </svg>
       );
 
@@ -100,6 +115,17 @@ export function ManagementIcon({
         </svg>
       );
 
+    case "reports":
+      return (
+        <svg {...commonProps}>
+          <path d="M5 20V9" />
+          <path d="M10 20V4" />
+          <path d="M15 20v-7" />
+          <path d="M20 20V7" />
+          <path d="M3 20h19" />
+        </svg>
+      );
+
     case "security":
       return (
         <svg {...commonProps}>
@@ -116,6 +142,26 @@ export function ManagementIcon({
           <path d="M8.5 9h7" />
           <path d="M8.5 13h7" />
           <path d="M8.5 17h4" />
+        </svg>
+      );
+
+    case "teams":
+      return (
+        <svg {...commonProps}>
+          <circle cx="8" cy="8" r="3" />
+          <circle cx="17" cy="9" r="2.5" />
+          <path d="M2.8 20c.5-4 2.3-6 5.2-6s4.8 2 5.2 6" />
+          <path d="M14 15c1-.9 2.1-1.3 3.4-1.3 2.4 0 3.9 1.6 4.3 4.8" />
+        </svg>
+      );
+
+    case "work":
+      return (
+        <svg {...commonProps}>
+          <rect x="3" y="7" width="18" height="13" rx="2" />
+          <path d="M8 7V5a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
+          <path d="M3 12h18" />
+          <path d="M10 12v2h4v-2" />
         </svg>
       );
 

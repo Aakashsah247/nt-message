@@ -119,6 +119,7 @@ type ActivityLogRecord = Prisma.ActivityEventGetPayload<{
 export class MonitoringService implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(MonitoringService.name);
   private cleanupTimer: ReturnType<typeof setInterval> | null = null;
+  private cleanupInProgress = false;
 
   constructor(private readonly prisma: PrismaService) {}
 
@@ -812,36 +813,54 @@ export class MonitoringService implements OnModuleInit, OnModuleDestroy {
   }
 
   private async cleanupOldMonitoringRecords(): Promise<void> {
-    const eventCutoff = new Date(
-      Date.now() - ACTIVITY_EVENT_RETENTION_DAYS * 24 * 60 * 60 * 1000,
-    );
-    const summaryCutoff = this.getKathmanduDateOnly(
-      new Date(
-        Date.now() - DAILY_SUMMARY_RETENTION_DAYS * 24 * 60 * 60 * 1000,
-      ),
-    );
+    if (this.cleanupInProgress) {
+      return;
+    }
 
-    const [events, summaries] = await this.prisma.$transaction([
-      this.prisma.activityEvent.deleteMany({
+    this.cleanupInProgress = true;
+
+    try {
+      const eventCutoff = new Date(
+        Date.now() - ACTIVITY_EVENT_RETENTION_DAYS * 24 * 60 * 60 * 1000,
+      );
+      const summaryCutoff = this.getKathmanduDateOnly(
+        new Date(
+          Date.now() - DAILY_SUMMARY_RETENTION_DAYS * 24 * 60 * 60 * 1000,
+        ),
+      );
+
+      // Retention deletes are independent maintenance operations. Running them
+      // sequentially avoids reserving a transaction during API startup, while a
+      // later cleanup cycle safely retries either operation after a DB failure.
+      const events = await this.prisma.activityEvent.deleteMany({
         where: {
           occurredAt: {
             lt: eventCutoff,
           },
         },
-      }),
-      this.prisma.dailyActivitySummary.deleteMany({
+      });
+      const summaries = await this.prisma.dailyActivitySummary.deleteMany({
         where: {
           activityDate: {
             lt: summaryCutoff,
           },
         },
-      }),
-    ]);
+      });
 
-    if (events.count > 0 || summaries.count > 0) {
-      this.logger.log(
-        `Monitoring retention cleanup removed ${events.count} events and ${summaries.count} daily summaries.`,
-      );
+      if (events.count > 0 || summaries.count > 0) {
+        this.logger.log(
+          `Monitoring retention cleanup removed ${events.count} events and ${summaries.count} daily summaries.`,
+        );
+      }
+    } catch (error) {
+      const reason =
+        error instanceof Error ? error.message : 'Unknown database error';
+
+      // Monitoring retention is background maintenance and must not terminate
+      // the API when the database is temporarily busy. The next hourly run retries.
+      this.logger.warn(`Monitoring retention cleanup was skipped: ${reason}`);
+    } finally {
+      this.cleanupInProgress = false;
     }
   }
 

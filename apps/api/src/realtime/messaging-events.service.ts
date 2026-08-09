@@ -97,17 +97,64 @@ export interface MessagingNotificationCreatedPayload {
   occurredAt: string;
 }
 
+export type WorkItemRealtimeAction =
+  | 'CREATED'
+  | 'ACKNOWLEDGED'
+  | 'STARTED'
+  | 'HELP_REQUESTED'
+  | 'HELP_ACCEPTED'
+  | 'HELP_DECLINED'
+  | 'COMPLETION_SUBMITTED'
+  | 'INFORMATION_REQUESTED'
+  | 'CLOSED'
+  | 'REOPENED'
+  | 'CANCELLED'
+  | 'REASSIGNED'
+  | 'SUPPORT_ADDED'
+  | 'SUPPORT_REMOVED'
+  | 'DETAILS_UPDATED'
+  | 'DUE_SOON'
+  | 'OVERDUE';
+
+export interface WorkItemRealtimePayload {
+  workItemId: string;
+  ticketNumber: string;
+  status: string;
+  priority: string;
+  action: WorkItemRealtimeAction;
+  actorAccountId: string | null;
+  occurredAt: string;
+}
+
+export type DutyScheduleRealtimeAction =
+  | 'ASSIGNED'
+  | 'CHANGED'
+  | 'CANCELLED'
+  | 'LEAVE_RECORDED'
+  | 'HOLIDAY_RECORDED'
+  | 'AVAILABILITY_CHANGED';
+
+export interface DutyScheduleRealtimePayload {
+  assignmentId: string | null;
+  employeeAccountId: string;
+  action: DutyScheduleRealtimeAction;
+  startsAt: string | null;
+  endsAt: string | null;
+  actorAccountId: string | null;
+  occurredAt: string;
+}
+
 export type AnnouncementRealtimeAction =
   | 'PUBLISHED'
   | 'UPDATED'
-  | 'WITHDRAWN'
+  | 'DELETED'
   | 'READ'
   | 'ACKNOWLEDGED';
 
 export type AnnouncementSocketEvent =
   | 'announcement:published'
   | 'announcement:updated'
-  | 'announcement:withdrawn'
+  | 'announcement:deleted'
   | 'announcement:read'
   | 'announcement:acknowledged';
 
@@ -163,9 +210,11 @@ export interface MessagingServerToClientEvents {
   'messaging:notification-created': (
     payload: MessagingNotificationCreatedPayload,
   ) => void;
+  'work:item-updated': (payload: WorkItemRealtimePayload) => void;
+  'duty:schedule-updated': (payload: DutyScheduleRealtimePayload) => void;
   'announcement:published': (payload: AnnouncementRealtimePayload) => void;
   'announcement:updated': (payload: AnnouncementRealtimePayload) => void;
-  'announcement:withdrawn': (payload: AnnouncementRealtimePayload) => void;
+  'announcement:deleted': (payload: AnnouncementRealtimePayload) => void;
   'announcement:read': (payload: AnnouncementRealtimePayload) => void;
   'announcement:acknowledged': (payload: AnnouncementRealtimePayload) => void;
   'messaging:presence-snapshot': (
@@ -293,6 +342,38 @@ export class MessagingEventsService {
       .emit('messaging:notification-created', payload);
   }
 
+  emitWorkItemUpdated(
+    accountIds: string[],
+    payload: WorkItemRealtimePayload,
+  ): void {
+    if (!this.server) {
+      return;
+    }
+
+    // Work updates are delivered only to accounts already authorized by the work service.
+    for (const accountId of new Set(accountIds)) {
+      this.server
+        .to(this.accountRoom(accountId))
+        .emit('work:item-updated', payload);
+    }
+  }
+
+  emitDutyScheduleUpdated(
+    accountIds: string[],
+    payload: DutyScheduleRealtimePayload,
+  ): void {
+    if (!this.server) {
+      return;
+    }
+
+    // Duty updates reuse authenticated account rooms and never broadcast branch-wide.
+    for (const accountId of new Set(accountIds)) {
+      this.server
+        .to(this.accountRoom(accountId))
+        .emit('duty:schedule-updated', payload);
+    }
+  }
+
   emitAnnouncementPublished(
     accountIds: string[],
     payload: AnnouncementRealtimePayload,
@@ -307,11 +388,11 @@ export class MessagingEventsService {
     this.emitToAccountRooms(accountIds, 'announcement:updated', payload);
   }
 
-  emitAnnouncementWithdrawn(
+  emitAnnouncementDeleted(
     accountIds: string[],
     payload: AnnouncementRealtimePayload,
   ): void {
-    this.emitToAccountRooms(accountIds, 'announcement:withdrawn', payload);
+    this.emitToAccountRooms(accountIds, 'announcement:deleted', payload);
   }
 
   emitAnnouncementRead(

@@ -4,7 +4,10 @@ import {
   ConversationParticipantRole,
   OfficialGroupScopeType,
 } from '../generated/prisma/enums';
-import { getAnnouncementAudiencePolicyViolation } from './announcement-access.policy';
+import {
+  canModifyAnnouncementByCreator,
+  getAnnouncementAudiencePolicyViolation,
+} from './announcement-access.policy';
 
 const superAdmin = {
   accountId: 'super-admin',
@@ -167,5 +170,37 @@ describe('announcement audience policy', () => {
         },
       ),
     ).toBe('ROLE_NOT_AUTHORIZED');
+  });
+});
+
+describe('announcement creator mutation policy', () => {
+  it('allows an Admin creator and the Owner to modify an Admin-created announcement', () => {
+    const creator = {
+      id: 'team-manager',
+      role: AccountRole.TEAM_MANAGER,
+    };
+
+    expect(canModifyAnnouncementByCreator(teamManager, creator)).toBe(true);
+    expect(canModifyAnnouncementByCreator(superAdmin, creator)).toBe(true);
+  });
+
+  it('blocks another Admin from modifying an Admin-created announcement', () => {
+    expect(
+      canModifyAnnouncementByCreator(seniorManager, {
+        id: 'team-manager',
+        role: AccountRole.TEAM_MANAGER,
+      }),
+    ).toBe(false);
+  });
+
+  it('allows only the Owner creator to modify an Owner-created announcement', () => {
+    const creator = {
+      id: 'super-admin',
+      role: AccountRole.SUPER_ADMIN,
+    };
+
+    expect(canModifyAnnouncementByCreator(superAdmin, creator)).toBe(true);
+    expect(canModifyAnnouncementByCreator(seniorManager, creator)).toBe(false);
+    expect(canModifyAnnouncementByCreator(teamManager, creator)).toBe(false);
   });
 });

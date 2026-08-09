@@ -17,8 +17,7 @@ export type AnnouncementStatus =
   | "SCHEDULED"
   | "PUBLISHING"
   | "PUBLISHED"
-  | "EXPIRED"
-  | "WITHDRAWN";
+  | "EXPIRED";
 
 export type AnnouncementListFilter =
   | "ALL"
@@ -27,8 +26,7 @@ export type AnnouncementListFilter =
   | "DRAFTS"
   | "SCHEDULED"
   | "PUBLISHED"
-  | "EXPIRED"
-  | "WITHDRAWN";
+  | "EXPIRED";
 
 export type AnnouncementAttachmentCategory = "IMAGE" | "DOCUMENT" | "VIDEO";
 
@@ -104,7 +102,6 @@ export interface AnnouncementListItem {
   scheduledAt: string | null;
   publishedAt: string | null;
   expiresAt: string | null;
-  withdrawnAt: string | null;
   recipientCount: number;
   viewerState: AnnouncementViewerState | null;
   attachmentCount: number;
@@ -119,9 +116,10 @@ export interface AnnouncementDetail
     "bodyPreview" | "attachmentCount" | "attachmentCategories" | "recipientCount"
   > {
   body: string;
-  withdrawnBy: AnnouncementPublisher | null;
   publishFailureReason: string | null;
   canManage: boolean;
+  canEdit: boolean;
+  canDelete: boolean;
   attachments: AnnouncementAttachment[];
   revisions: AnnouncementRevisionSummary[];
   reporting: {
@@ -220,7 +218,7 @@ export interface AnnouncementOfficialGroupReferencesResponse {
 export interface AnnouncementRealtimePayload {
   announcementId: string;
   officialConversationId: string | null;
-  action: "PUBLISHED" | "UPDATED" | "WITHDRAWN" | "READ" | "ACKNOWLEDGED";
+  action: "PUBLISHED" | "UPDATED" | "DELETED" | "READ" | "ACKNOWLEDGED";
   status: AnnouncementStatus;
   priority: AnnouncementPriority;
   requiresAcknowledgement: boolean;

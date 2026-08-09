@@ -24,6 +24,7 @@ import {
 import type {
   AdminDepartment,
   AdminDivision,
+  DepartmentWorkFunction,
 } from "../types/admin-account";
 
 interface AdminOrganizationPanelProps {
@@ -39,6 +40,7 @@ interface DepartmentForm {
   divisionId: string;
   code: string;
   name: string;
+  workFunction: DepartmentWorkFunction;
 }
 
 type OrganizationStatusFilter = "ALL" | "ACTIVE" | "INACTIVE";
@@ -69,6 +71,7 @@ type EditTarget =
       divisionId: string;
       code: string;
       name: string;
+      workFunction: DepartmentWorkFunction;
       isActive: boolean;
     }
   | null;
@@ -95,7 +98,23 @@ const emptyDepartment: DepartmentForm = {
   divisionId: "",
   code: "",
   name: "",
+  workFunction: "GENERAL",
 };
+
+const DEPARTMENT_WORK_FUNCTIONS: Array<{
+  value: DepartmentWorkFunction;
+  label: string;
+  description: string;
+}> = [
+  { value: "GENERAL", label: "General", description: "No specialist work-assignment function" },
+  { value: "FIELD_OPERATIONS", label: "Field operations", description: "Teams that own field and installation work" },
+  { value: "SALES", label: "Sales", description: "Customer and sales coordination members" },
+  { value: "SUPPORT", label: "Support", description: "Optional supporting staff for all work types" },
+];
+
+function formatDepartmentWorkFunction(value: DepartmentWorkFunction): string {
+  return DEPARTMENT_WORK_FUNCTIONS.find((option) => option.value === value)?.label ?? value;
+}
 
 const fieldClass =
   "min-h-11 w-full rounded-xl border border-slate-300 bg-white px-3 text-sm text-slate-800 outline-none transition hover:border-blue-400 focus:border-blue-600 focus:ring-4 focus:ring-blue-100 disabled:cursor-not-allowed disabled:bg-slate-100";
@@ -351,7 +370,10 @@ export function AdminOrganizationPanel({
           department.name.toLowerCase().includes(normalizedSearch) ||
           department.code.toLowerCase().includes(normalizedSearch) ||
           department.division.name.toLowerCase().includes(normalizedSearch) ||
-          department.division.code.toLowerCase().includes(normalizedSearch);
+          department.division.code.toLowerCase().includes(normalizedSearch) ||
+          formatDepartmentWorkFunction(department.workFunction)
+            .toLowerCase()
+            .includes(normalizedSearch);
 
         return matchesSearch && matchesStatus(department.isActive);
       }),
@@ -529,6 +551,7 @@ export function AdminOrganizationPanel({
         divisionId: departmentForm.divisionId,
         code,
         name,
+        workFunction: departmentForm.workFunction,
       });
 
       setSuccess(response.message);
@@ -567,6 +590,7 @@ export function AdminOrganizationPanel({
       divisionId: department.division.id,
       code: department.code,
       name: department.name,
+      workFunction: department.workFunction,
       isActive: department.isActive,
     });
   }
@@ -619,6 +643,7 @@ export function AdminOrganizationPanel({
             divisionId: editTarget.divisionId,
             code,
             name,
+            workFunction: editTarget.workFunction,
             isActive: editTarget.isActive,
           },
         );
@@ -1203,6 +1228,28 @@ export function AdminOrganizationPanel({
                       required
                     />
                   </label>
+
+                  <label className={labelClass}>
+                    Work assignment function
+                    <select
+                      className={fieldClass}
+                      value={departmentForm.workFunction}
+                      onChange={(event) => {
+                        setDepartmentForm((current) => ({
+                          ...current,
+                          workFunction: event.target.value as DepartmentWorkFunction,
+                        }));
+                        setDialogError("");
+                      }}
+                      disabled={savingDepartment}
+                    >
+                      {DEPARTMENT_WORK_FUNCTIONS.map((option) => (
+                        <option key={option.value} value={option.value}>
+                          {option.label} — {option.description}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
                 </div>
 
                 <footer>
@@ -1306,6 +1353,13 @@ export function AdminOrganizationPanel({
                   <p>No linked records currently prevent permanent deletion.</p>
                 )}
               </section>
+
+              {detailTarget.kind === "department" && (
+                <section className="organization-drawer__section">
+                  <span>Work assignment function</span>
+                  <p>{formatDepartmentWorkFunction(detailTarget.item.workFunction)}</p>
+                </section>
+              )}
 
               <section className="organization-drawer__dates">
                 <div>
@@ -1465,6 +1519,33 @@ export function AdminOrganizationPanel({
                   required
                 />
               </label>
+
+              {editTarget.kind === "department" && (
+                <label className={labelClass}>
+                  Work assignment function
+                  <select
+                    className={fieldClass}
+                    value={editTarget.workFunction}
+                    onChange={(event) =>
+                      setEditTarget((current) =>
+                        current && current.kind === "department"
+                          ? {
+                              ...current,
+                              workFunction: event.target.value as DepartmentWorkFunction,
+                            }
+                          : current,
+                      )
+                    }
+                    disabled={savingAction}
+                  >
+                    {DEPARTMENT_WORK_FUNCTIONS.map((option) => (
+                      <option key={option.value} value={option.value}>
+                        {option.label} — {option.description}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              )}
 
               <label className={labelClass}>
                 Status

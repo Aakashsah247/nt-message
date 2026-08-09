@@ -1,5 +1,6 @@
 import {
   IsBoolean,
+  IsEnum,
   IsOptional,
   IsString,
   IsUUID,
@@ -7,6 +8,8 @@ import {
   MaxLength,
   MinLength,
 } from 'class-validator';
+
+import { DepartmentWorkFunction } from '../../generated/prisma/client';
 
 export class UpdateDepartmentDto {
   @IsOptional()
@@ -28,6 +31,10 @@ export class UpdateDepartmentDto {
   @MinLength(2)
   @MaxLength(120)
   name?: string;
+
+  @IsOptional()
+  @IsEnum(DepartmentWorkFunction)
+  workFunction?: DepartmentWorkFunction;
 
   @IsOptional()
   @IsBoolean()

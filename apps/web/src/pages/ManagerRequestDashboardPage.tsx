@@ -325,8 +325,16 @@ export function ManagerRequestDashboardPage() {
             </section>
 
             <section className="manager-home__quick-actions" aria-label="Quick actions">
-              <Link to={dashboardContent.accountRequestsPath}>
+              <Link to="/work-management">
                 <span aria-hidden="true">01</span>
+                <div>
+                  <strong>Open Work Management</strong>
+                  <p>Assign operational work, review tickets and manage completion reports.</p>
+                </div>
+              </Link>
+
+              <Link to={dashboardContent.accountRequestsPath}>
+                <span aria-hidden="true">02</span>
                 <div>
                   <strong>Create account request</strong>
                   <p>Submit a new {dashboardContent.requestedRoleLabel} onboarding request.</p>
@@ -334,7 +342,7 @@ export function ManagerRequestDashboardPage() {
               </Link>
 
               <Link to="/directory">
-                <span aria-hidden="true">02</span>
+                <span aria-hidden="true">03</span>
                 <div>
                   <strong>Open organization directory</strong>
                   <p>Review active employees and management contacts in your scope.</p>
@@ -342,7 +350,7 @@ export function ManagerRequestDashboardPage() {
               </Link>
 
               <Link to="/messages">
-                <span aria-hidden="true">03</span>
+                <span aria-hidden="true">04</span>
                 <div>
                   <strong>Open secure messaging</strong>
                   <p>Continue internal communication in the dedicated messaging workspace.</p>

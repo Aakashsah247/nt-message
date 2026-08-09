@@ -48,6 +48,10 @@ import type {
   OfficialGroupAuditResponse,
   OfficialGroupScopesResponse,
   OfficialGroupScopeType,
+  ChatFolder,
+  ChatFolderItem,
+  CreateChatFolderInput,
+  UpdateChatFolderInput,
   ReconcileOfficialGroupsResponse,
   RemoveGroupMemberResponse,
   SendAttachmentMessageResponse,
@@ -174,7 +178,7 @@ export function deleteMyMessagingProfilePhoto(
 export async function createMessagingProfilePhotoObjectUrl(
   accessToken: string,
   accountId: string,
-): Promise<string> {
+): Promise<string | null> {
   const response = await fetch(
     messagingApiUrl(`/conversations/profiles/${accountId}/photo`),
     {
@@ -184,18 +188,22 @@ export async function createMessagingProfilePhotoObjectUrl(
     },
   );
 
+  if (response.status === 204) {
+    return null;
+  }
+
   if (!response.ok) {
     throw new Error("Profile photo could not be loaded.");
   }
 
   const blob = await response.blob();
-  return URL.createObjectURL(blob);
+  return blob.size > 0 ? URL.createObjectURL(blob) : null;
 }
 
 export async function createDirectoryProfilePhotoObjectUrl(
   accessToken: string,
   employeeId: string,
-): Promise<string> {
+): Promise<string | null> {
   const response = await fetch(
     messagingApiUrl(`/conversations/profiles/employees/${employeeId}/photo`),
     {
@@ -205,12 +213,16 @@ export async function createDirectoryProfilePhotoObjectUrl(
     },
   );
 
+  if (response.status === 204) {
+    return null;
+  }
+
   if (!response.ok) {
     throw new Error("Directory profile photo could not be loaded.");
   }
 
   const blob = await response.blob();
-  return URL.createObjectURL(blob);
+  return blob.size > 0 ? URL.createObjectURL(blob) : null;
 }
 
 export function getMessagingPrivacySettings(
@@ -229,6 +241,7 @@ export function updateMessagingPrivacySettings(
   settings: {
     showOnlineStatus?: boolean;
     showReadReceipts?: boolean;
+    requireMessageRequests?: boolean;
   },
 ): Promise<MessagingPrivacySettingsResponse> {
   return apiRequest<MessagingPrivacySettingsResponse>(
@@ -328,6 +341,7 @@ export function updateConversationPreference(
   input: {
     isPinned?: boolean;
     isArchived?: boolean;
+    isFavorite?: boolean;
     markUnread?: boolean;
     mute?: ConversationMuteSetting;
     draftText?: string | null;
@@ -1091,16 +1105,24 @@ export function stopConversationLiveLocationMessage(
 export async function sendConversationAttachmentMessage(
   accessToken: string,
   conversationId: string,
-  file: File,
+  files: File[],
   caption?: string,
   replyToMessageId?: string,
   attachmentKind?: "VOICE_NOTE",
   options?: SendAttachmentMessageOptions,
 ): Promise<SendAttachmentMessageResponse> {
+  if (files.length === 0) {
+    throw new Error("At least one attachment is required.");
+  }
+
   const formData = new FormData();
+  const totalFileBytes = files.reduce((total, file) => total + file.size, 0);
 
   formData.set("clientMessageId", crypto.randomUUID());
-  formData.set("file", file);
+
+  for (const file of files) {
+    formData.append("files", file);
+  }
 
   if (caption?.trim()) {
     formData.set("caption", caption.trim());
@@ -1120,6 +1142,7 @@ export async function sendConversationAttachmentMessage(
       accessToken,
       conversationId,
       formData,
+      totalFileBytes,
       options.onUploadProgress,
     );
   }
@@ -1158,6 +1181,7 @@ function uploadConversationAttachmentWithProgress(
   accessToken: string,
   conversationId: string,
   formData: FormData,
+  totalFileBytes: number,
   onUploadProgress: (progress: AttachmentUploadProgress) => void,
 ): Promise<SendAttachmentMessageResponse> {
   return new Promise((resolve, reject) => {
@@ -1211,14 +1235,8 @@ function uploadConversationAttachmentWithProgress(
       }
 
       onUploadProgress({
-        loadedBytes:
-          formData.get("file") instanceof File
-            ? (formData.get("file") as File).size
-            : 0,
-        totalBytes:
-          formData.get("file") instanceof File
-            ? (formData.get("file") as File).size
-            : null,
+        loadedBytes: totalFileBytes,
+        totalBytes: totalFileBytes,
         progressPercent: 100,
       });
       resolve(body as SendAttachmentMessageResponse);
@@ -1542,3 +1560,89 @@ export function removeMessageReaction(
     },
   );
 }
+
+export function listChatFolders(accessToken: string): Promise<{ data: ChatFolder[] }> {
+  return apiRequest<{ data: ChatFolder[] }>("/conversations/folders", {
+    headers: authorizationHeaders(accessToken),
+  });
+}
+
+export function createChatFolder(
+  accessToken: string,
+  input: CreateChatFolderInput,
+): Promise<{ message: string; data: ChatFolder }> {
+  return apiRequest<{ message: string; data: ChatFolder }>("/conversations/folders", {
+    method: "POST",
+    headers: authorizationHeaders(accessToken),
+    body: JSON.stringify(input),
+  });
+}
+
+export function updateChatFolder(
+  accessToken: string,
+  folderId: string,
+  input: UpdateChatFolderInput,
+): Promise<{ message: string; data: ChatFolder }> {
+  return apiRequest<{ message: string; data: ChatFolder }>(
+    `/conversations/folders/${folderId}`,
+    {
+      method: "PATCH",
+      headers: authorizationHeaders(accessToken),
+      body: JSON.stringify(input),
+    },
+  );
+}
+
+export function deleteChatFolder(
+  accessToken: string,
+  folderId: string,
+): Promise<{ message: string; folderId: string }> {
+  return apiRequest<{ message: string; folderId: string }>(
+    `/conversations/folders/${folderId}`,
+    {
+      method: "DELETE",
+      headers: authorizationHeaders(accessToken),
+    },
+  );
+}
+
+export function reorderChatFolders(
+  accessToken: string,
+  folderIds: string[],
+): Promise<{ message: string }> {
+  return apiRequest<{ message: string }>("/conversations/folders/reorder", {
+    method: "PUT",
+    headers: authorizationHeaders(accessToken),
+    body: JSON.stringify({ folderIds }),
+  });
+}
+
+export function addFolderItem(
+  accessToken: string,
+  folderId: string,
+  target: { conversationId?: string; targetAccountId?: string },
+): Promise<{ message: string; data: ChatFolderItem }> {
+  return apiRequest<{ message: string; data: ChatFolderItem }>(
+    `/conversations/folders/${folderId}/items`,
+    {
+      method: "POST",
+      headers: authorizationHeaders(accessToken),
+      body: JSON.stringify(target),
+    },
+  );
+}
+
+export function removeFolderItem(
+  accessToken: string,
+  folderId: string,
+  itemId: string,
+): Promise<{ message: string; itemId: string }> {
+  return apiRequest<{ message: string; itemId: string }>(
+    `/conversations/folders/${folderId}/items/${itemId}`,
+    {
+      method: "DELETE",
+      headers: authorizationHeaders(accessToken),
+    },
+  );
+}
+

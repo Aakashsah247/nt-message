@@ -1,10 +1,13 @@
 import {
+  IsEnum,
   IsString,
   IsUUID,
   Matches,
   MaxLength,
   MinLength,
 } from 'class-validator';
+
+import { DepartmentWorkFunction } from '../../generated/prisma/client';
 
 export class CreateDepartmentDto {
   @IsUUID('4')
@@ -23,4 +26,7 @@ export class CreateDepartmentDto {
   @MinLength(2)
   @MaxLength(120)
   name!: string;
+
+  @IsEnum(DepartmentWorkFunction)
+  workFunction!: DepartmentWorkFunction;
 }

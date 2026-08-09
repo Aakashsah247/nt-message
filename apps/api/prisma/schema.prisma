@@ -154,7 +154,6 @@ enum AnnouncementStatus {
   PUBLISHING
   PUBLISHED
   EXPIRED
-  WITHDRAWN
 }
 
 enum MessageContentType {
@@ -192,6 +191,8 @@ enum MessagingNotificationType {
   GROUP_EVENT
   MENTION
   ANNOUNCEMENT
+  WORK_ITEM
+  DUTY
 }
 
 enum EmergencyAlertRecipientStatus {
@@ -199,6 +200,164 @@ enum EmergencyAlertRecipientStatus {
   SENT
   FAILED
   SKIPPED_NO_PHONE
+}
+
+enum WorkItemType {
+  ROUTINE_TASK
+  TROUBLE_TICKET
+  MAINTENANCE
+  NEW_CONNECTION
+  UPDATE_SERVICES
+  INSPECTION
+  EMERGENCY_WORK
+  ADMINISTRATIVE_TASK
+}
+
+enum WorkServiceType {
+  DATA
+  VOICE
+  IPTV
+  SIP
+  OTHER
+}
+
+enum WorkContactType {
+  MOBILE
+  TELEPHONE
+}
+
+enum WorkPriority {
+  LOW
+  NORMAL
+  HIGH
+  CRITICAL
+}
+
+enum WorkItemStatus {
+  ASSIGNED
+  ACKNOWLEDGED
+  IN_PROGRESS
+  HELP_REQUESTED
+  COMPLETED_PENDING_REVIEW
+  CLOSED
+  REOPENED
+  BLOCKED
+  CANCELLED
+}
+
+enum WorkAssignmentRole {
+  PRIMARY
+  SUPPORTING
+}
+
+enum WorkActivityAction {
+  CREATED
+  ASSIGNED
+  TEAM_ASSIGNED
+  SALES_MEMBER_ASSIGNED
+  ACKNOWLEDGED
+  STARTED
+  STATUS_CHANGED
+  REASSIGNED
+  SUPPORT_ADDED
+  SUPPORT_REMOVED
+  HELP_REQUESTED
+  HELP_ACCEPTED
+  HELP_DECLINED
+  COMPLETION_SUBMITTED
+  INFORMATION_REQUESTED
+  CLOSED
+  REOPENED
+  CANCELLED
+  DETAILS_UPDATED
+  PRIORITY_CHANGED
+  DUE_DATE_CHANGED
+  RETENTION_HOLD_APPLIED
+  RETENTION_HOLD_RELEASED
+  DELETION_REVIEW_REQUESTED
+  DELETION_REVIEW_CANCELLED
+  DELEGATED
+}
+
+enum WorkCompletionResult {
+  FULLY_RESOLVED
+  TEMPORARY_SOLUTION
+  UNABLE_TO_RESOLVE
+}
+
+enum WorkCompletionReviewStatus {
+  PENDING_REVIEW
+  INFORMATION_REQUESTED
+  ACCEPTED
+  REJECTED
+}
+
+enum WorkHelpReason {
+  NEED_ANOTHER_EMPLOYEE
+  TECHNICAL_GUIDANCE
+  TOOLS_OR_MATERIALS
+  SAFETY_CONCERN
+  OTHER
+}
+
+enum WorkHelpRequestStatus {
+  PENDING
+  ACCEPTED
+  DECLINED
+  CANCELLED
+}
+
+enum DutyRecurrenceType {
+  ONE_TIME
+  DATE_RANGE
+  WEEKLY
+}
+
+enum DutyExceptionType {
+  LEAVE
+  HOLIDAY
+}
+
+enum WorkAvailabilityPreference {
+  AVAILABLE
+  BUSY
+}
+
+enum DepartmentWorkFunction {
+  GENERAL
+  FIELD_OPERATIONS
+  SALES
+  SUPPORT
+}
+
+enum DepartmentTeamActivityAction {
+  TEAM_CREATED
+  TEAM_RENAMED
+  MEMBER_ADDED
+  MEMBER_REMOVED
+  ADMIN_CHANGED
+  TEAM_ARCHIVED
+  TEAM_DELETED
+}
+
+enum DutyAssignmentAuthority {
+  STANDARD_HIERARCHY
+  SUPER_ADMIN_OVERRIDE
+}
+
+enum DutyActivityAction {
+  ASSIGNED
+  OVERRIDE_ASSIGNED
+  RESCHEDULED
+  CANCELLED
+  EXCEPTION_RECORDED
+  AVAILABILITY_CHANGED
+}
+
+enum DutyCoverageRequirementAction {
+  CREATED
+  UPDATED
+  RETIRED
 }
 
 model Division {
@@ -209,36 +368,52 @@ model Division {
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
 
-  departments               Department[]
-  employees                 Employee[]
-  accountRequests           AccountRequest[]
-  managementPositions       ManagementPosition[]
-  officialGroupConversations Conversation[] @relation("OfficialGroupDivision")
-  announcements              Announcement[] @relation("AnnouncementDivision")
+  departments                Department[]
+  employees                  Employee[]
+  accountRequests            AccountRequest[]
+  managementPositions        ManagementPosition[]
+  officialGroupConversations Conversation[]       @relation("OfficialGroupDivision")
+  announcements              Announcement[]       @relation("AnnouncementDivision")
+  workItems                  WorkItem[]
+  dutyShiftTemplates         DutyShiftTemplate[]
+  dutyScheduleSeries         DutyScheduleSeries[]
+  dutyAssignments            DutyAssignment[]
+  dutyExceptions             DutyException[]
 
   @@index([isActive], map: "divisions_is_active_idx")
   @@map("divisions")
 }
 
 model Department {
-  id         String   @id @default(uuid()) @db.Uuid
-  divisionId String   @map("division_id") @db.Uuid
-  code       String   @db.VarChar(50)
-  name       String   @db.VarChar(120)
-  isActive   Boolean  @default(true) @map("is_active")
-  createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
-  updatedAt  DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+  id           String                 @id @default(uuid()) @db.Uuid
+  divisionId   String                 @map("division_id") @db.Uuid
+  code         String                 @db.VarChar(50)
+  name         String                 @db.VarChar(120)
+  workFunction DepartmentWorkFunction @default(GENERAL) @map("work_function")
+  isActive     Boolean                @default(true) @map("is_active")
+  createdAt    DateTime               @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt    DateTime               @updatedAt @map("updated_at") @db.Timestamptz(3)
 
-  division                   Division             @relation(fields: [divisionId], references: [id], onDelete: Restrict)
+  division                   Division                  @relation(fields: [divisionId], references: [id], onDelete: Restrict)
   employees                  Employee[]
   accountRequests            AccountRequest[]
   managementPositions        ManagementPosition[]
-  officialGroupConversations Conversation[]         @relation("OfficialGroupDepartment")
-  announcements              Announcement[]          @relation("AnnouncementDepartment")
+  officialGroupConversations Conversation[]            @relation("OfficialGroupDepartment")
+  announcements              Announcement[]            @relation("AnnouncementDepartment")
+  workItems                  WorkItem[]
+  dutyShiftTemplates         DutyShiftTemplate[]
+  dutyScheduleSeries         DutyScheduleSeries[]
+  dutyAssignments            DutyAssignment[]
+  dutyExceptions             DutyException[]
+  dutyCoverageRequirements   DutyCoverageRequirement[]
+  workHelpRequests           WorkHelpRequest[]
+  employeeTeams              DepartmentTeam[]
+  employeeTeamActivities     DepartmentTeamActivity[]
 
   @@unique([divisionId, code], map: "departments_division_id_code_key")
   @@unique([divisionId, name], map: "departments_division_id_name_key")
   @@index([divisionId], map: "departments_division_id_idx")
+  @@index([divisionId, workFunction, isActive], map: "departments_division_function_active_idx")
   @@index([isActive], map: "departments_is_active_idx")
   @@map("departments")
 }
@@ -279,6 +454,8 @@ model Employee {
   activationInvitations ActivationInvitation[]
   lifecycleActions      EmployeeLifecycleAction[]
   managementAssignments ManagementAssignment[]
+  teamMemberships       DepartmentTeamMember[]
+  teamsAdministered     DepartmentTeam[]          @relation("DepartmentTeamAdmin")
 
   @@index([empName], map: "employees_emp_name_idx")
   @@index([department], map: "employees_department_idx")
@@ -303,58 +480,94 @@ model Account {
   passwordChangedAt   DateTime    @default(now()) @map("password_changed_at") @db.Timestamptz(3)
   profilePhotoKey     String?     @map("profile_photo_key") @db.VarChar(500)
   profileBio          String?     @map("profile_bio") @db.VarChar(160)
-  showOnlineStatus    Boolean     @default(true) @map("show_online_status")
-  showReadReceipts    Boolean     @default(true) @map("show_read_receipts")
-  createdAt           DateTime    @default(now()) @map("created_at") @db.Timestamptz(3)
+  showOnlineStatus       Boolean     @default(true) @map("show_online_status")
+  showReadReceipts       Boolean     @default(true) @map("show_read_receipts")
+  requireMessageRequests Boolean     @default(true) @map("require_message_requests")
+  createdAt              DateTime    @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt           DateTime    @updatedAt @map("updated_at") @db.Timestamptz(3)
 
-  employee                      Employee?                 @relation(fields: [employeeId], references: [id], onDelete: Restrict)
-  sessions                      AuthSession[]
-  submittedAccountRequests      AccountRequest[]          @relation("AccountRequestsRequestedBy")
-  reviewedAccountRequests       AccountRequest[]          @relation("AccountRequestsReviewedBy")
-  accountRequestActions         AccountRequestAction[]
-  createdActivationInvitations  ActivationInvitation[]     @relation("ActivationInvitationsCreatedBy")
-  employeeLifecycleActions      EmployeeLifecycleAction[] @relation("EmployeeLifecycleActionsByActor")
-  assignedManagementAssignments ManagementAssignment[]    @relation("ManagementAssignmentsAssignedBy")
-  endedManagementAssignments    ManagementAssignment[]    @relation("ManagementAssignmentsEndedBy")
-  createdConversations           Conversation[]            @relation("ConversationsCreatedBy")
-  conversationParticipants      ConversationParticipant[]
-  sentMessages                  Message[]                 @relation("MessagesSentBy")
-  deletedMessages               Message[]                 @relation("MessagesDeletedBy")
-  messageReceipts               MessageReceipt[]
-  hiddenMessages                MessageHiddenForAccount[]
-  messageReactions              MessageReaction[]
-  messageStars                  MessageStar[]
-  pinnedMessages                MessagePin[]              @relation("MessagePinsPinnedBy")
-  unpinnedMessages              MessagePin[]              @relation("MessagePinsUnpinnedBy")
-  sentMessageRequests           MessageRequest[]           @relation("MessageRequestsSent")
-  receivedMessageRequests       MessageRequest[]           @relation("MessageRequestsReceived")
-  blockedMessageRequests        MessageRequest[]           @relation("MessageRequestsBlockedBy")
-  officialGroupAuditActions    OfficialGroupAuditLog[]      @relation("OfficialGroupAuditActor")
-  receivedNotifications        MessagingNotification[]      @relation("MessagingNotificationsRecipient")
-  actedNotifications           MessagingNotification[]      @relation("MessagingNotificationsActor")
-  blocksCreated                MessagingAccountBlock[]      @relation("MessagingAccountBlocksCreated")
-  blocksReceived               MessagingAccountBlock[]      @relation("MessagingAccountBlocksReceived")
-  createdGroupInvitationLinks  GroupInvitationLink[]        @relation("GroupInvitationLinksCreatedBy")
-  revokedGroupInvitationLinks  GroupInvitationLink[]        @relation("GroupInvitationLinksRevokedBy")
-  activityEvents               ActivityEvent[]
-  dailyActivitySummaries       DailyActivitySummary[]
-  superAdminProfile            SuperAdminProfile?           @relation("SuperAdminProfileAccount")
-  emergencyAlertsSent          EmergencyAlert[]             @relation("EmergencyAlertSender")
-  emergencyAlertRecipients     EmergencyAlertRecipient[]    @relation("EmergencyAlertRecipientAccount")
-  passwordResetChallenges      PasswordResetChallenge[]
-  announcementsCreated         Announcement[]                @relation("AnnouncementsCreatedBy")
-  announcementsWithdrawn       Announcement[]                @relation("AnnouncementsWithdrawnBy")
-  announcementRevisions        AnnouncementRevision[]        @relation("AnnouncementRevisionEditor")
-  announcementRecipients       AnnouncementRecipient[]
-  announcementAcknowledgements AnnouncementAcknowledgement[]
+  employee                        Employee?                         @relation(fields: [employeeId], references: [id], onDelete: Restrict)
+  sessions                        AuthSession[]
+  submittedAccountRequests        AccountRequest[]                  @relation("AccountRequestsRequestedBy")
+  reviewedAccountRequests         AccountRequest[]                  @relation("AccountRequestsReviewedBy")
+  accountRequestActions           AccountRequestAction[]
+  createdActivationInvitations    ActivationInvitation[]            @relation("ActivationInvitationsCreatedBy")
+  employeeLifecycleActions        EmployeeLifecycleAction[]         @relation("EmployeeLifecycleActionsByActor")
+  assignedManagementAssignments   ManagementAssignment[]            @relation("ManagementAssignmentsAssignedBy")
+  endedManagementAssignments      ManagementAssignment[]            @relation("ManagementAssignmentsEndedBy")
+  createdConversations            Conversation[]                    @relation("ConversationsCreatedBy")
+  conversationParticipants        ConversationParticipant[]
+  sentMessages                    Message[]                         @relation("MessagesSentBy")
+  deletedMessages                 Message[]                         @relation("MessagesDeletedBy")
+  messageReceipts                 MessageReceipt[]
+  hiddenMessages                  MessageHiddenForAccount[]
+  messageReactions                MessageReaction[]
+  messageStars                    MessageStar[]
+  pinnedMessages                  MessagePin[]                      @relation("MessagePinsPinnedBy")
+  unpinnedMessages                MessagePin[]                      @relation("MessagePinsUnpinnedBy")
+  sentMessageRequests             MessageRequest[]                  @relation("MessageRequestsSent")
+  receivedMessageRequests         MessageRequest[]                  @relation("MessageRequestsReceived")
+  blockedMessageRequests          MessageRequest[]                  @relation("MessageRequestsBlockedBy")
+  officialGroupAuditActions       OfficialGroupAuditLog[]           @relation("OfficialGroupAuditActor")
+  receivedNotifications           MessagingNotification[]           @relation("MessagingNotificationsRecipient")
+  actedNotifications              MessagingNotification[]           @relation("MessagingNotificationsActor")
+  blocksCreated                   MessagingAccountBlock[]           @relation("MessagingAccountBlocksCreated")
+  blocksReceived                  MessagingAccountBlock[]           @relation("MessagingAccountBlocksReceived")
+  createdGroupInvitationLinks     GroupInvitationLink[]             @relation("GroupInvitationLinksCreatedBy")
+  revokedGroupInvitationLinks     GroupInvitationLink[]             @relation("GroupInvitationLinksRevokedBy")
+  activityEvents                  ActivityEvent[]
+  dailyActivitySummaries          DailyActivitySummary[]
+  superAdminProfile               SuperAdminProfile?                @relation("SuperAdminProfileAccount")
+  emergencyAlertsSent             EmergencyAlert[]                  @relation("EmergencyAlertSender")
+  emergencyAlertRecipients        EmergencyAlertRecipient[]         @relation("EmergencyAlertRecipientAccount")
+  passwordResetChallenges         PasswordResetChallenge[]
+  announcementsCreated            Announcement[]                    @relation("AnnouncementsCreatedBy")
+  announcementRevisions           AnnouncementRevision[]            @relation("AnnouncementRevisionEditor")
+  announcementRecipients          AnnouncementRecipient[]
+  announcementAcknowledgements    AnnouncementAcknowledgement[]
+  workItemsCreated                WorkItem[]                        @relation("WorkItemsCreatedBy")
+  workItemsManaged                WorkItem[]                        @relation("WorkItemsResponsibleManager")
+  workItemsAsSalesMember          WorkItem[]                        @relation("WorkItemsSalesMember")
+  workRetentionHolds              WorkItem[]                        @relation("WorkItemsRetentionHoldBy")
+  workDeletionRequests            WorkItem[]                        @relation("WorkItemsDeletionRequestedBy")
+  workAssignments                 WorkAssignment[]                  @relation("WorkAssignmentsAssignee")
+  workAssignmentsCreated          WorkAssignment[]                  @relation("WorkAssignmentsAssignedBy")
+  workActivities                  WorkActivity[]
+  workCompletionReportsSubmitted  WorkCompletionReport[]            @relation("WorkCompletionReportsSubmittedBy")
+  workCompletionReportsReviewed   WorkCompletionReport[]            @relation("WorkCompletionReportsReviewedBy")
+  workHelpRequestsCreated         WorkHelpRequest[]                 @relation("WorkHelpRequestsCreatedBy")
+  workHelpRequestsReceived        WorkHelpRequest[]                 @relation("WorkHelpRequestsRequestedHelper")
+  workHelpRequestsResponded       WorkHelpRequest[]                 @relation("WorkHelpRequestsRespondedBy")
+  workHelpRequestsCoordinated     WorkHelpRequest[]                 @relation("WorkHelpRequestsCoordinatedBy")
+  dutyShiftTemplatesCreated       DutyShiftTemplate[]               @relation("DutyShiftTemplatesCreatedBy")
+  dutyScheduleSeriesCreated       DutyScheduleSeries[]              @relation("DutyScheduleSeriesCreatedBy")
+  dutyScheduleSeriesEmployee      DutyScheduleSeries[]              @relation("DutyScheduleSeriesEmployee")
+  dutyScheduleSeriesSupervisor    DutyScheduleSeries[]              @relation("DutyScheduleSeriesSupervisor")
+  dutyAssignmentsEmployee         DutyAssignment[]                  @relation("DutyAssignmentsEmployee")
+  dutyAssignmentsSupervisor       DutyAssignment[]                  @relation("DutyAssignmentsSupervisor")
+  dutyAssignmentsCreated          DutyAssignment[]                  @relation("DutyAssignmentsCreatedBy")
+  dutyAssignmentsCancelled        DutyAssignment[]                  @relation("DutyAssignmentsCancelledBy")
+  dutyExceptionsEmployee          DutyException[]                   @relation("DutyExceptionsEmployee")
+  dutyExceptionsCreated           DutyException[]                   @relation("DutyExceptionsCreatedBy")
+  workAvailability                EmployeeWorkAvailability?         @relation("EmployeeWorkAvailabilityAccount")
+  dutyActivitiesEmployee          DutyActivity[]                    @relation("DutyActivitiesEmployee")
+  dutyActivitiesActor             DutyActivity[]                    @relation("DutyActivitiesActor")
+  dutyCoverageRequirementsCreated DutyCoverageRequirement[]         @relation("DutyCoverageRequirementsCreatedBy")
+  dutyCoverageRequirementsUpdated DutyCoverageRequirement[]         @relation("DutyCoverageRequirementsUpdatedBy")
+  dutyCoverageRequirementActions  DutyCoverageRequirementActivity[] @relation("DutyCoverageRequirementActivitiesActor")
+  departmentTeamsCreated          DepartmentTeam[]                  @relation("DepartmentTeamsCreatedBy")
+  departmentTeamsUpdated          DepartmentTeam[]                  @relation("DepartmentTeamsUpdatedBy")
+  departmentTeamsArchived         DepartmentTeam[]                  @relation("DepartmentTeamsArchivedBy")
+  departmentTeamMembersAdded      DepartmentTeamMember[]            @relation("DepartmentTeamMembersAddedBy")
+  departmentTeamActivities        DepartmentTeamActivity[]          @relation("DepartmentTeamActivitiesActor")
+  chatFolders                     ChatFolder[]
+  chatFolderTargetItems           ChatFolderItem[]                  @relation("ChatFolderItemTargetAccount")
 
   @@index([role], map: "accounts_role_idx")
   @@index([isEnabled], map: "accounts_is_enabled_idx")
   @@index([profilePhotoKey], map: "accounts_profile_photo_key_idx")
   @@map("accounts")
 }
-
 
 model PasswordResetChallenge {
   id        String @id @default(uuid()) @db.Uuid
@@ -454,7 +667,7 @@ model AuthSession {
   lastUsedAt       DateTime  @default(now()) @map("last_used_at") @db.Timestamptz(3)
   createdAt        DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
 
-  account Account @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  account        Account         @relation(fields: [accountId], references: [id], onDelete: Cascade)
   activityEvents ActivityEvent[]
 
   @@index([accountId, revokedAt], map: "auth_sessions_account_revoked_idx")
@@ -478,6 +691,72 @@ model OtpVerification {
   @@index([employeeId, purpose, createdAt], map: "otp_employee_purpose_created_idx")
   @@index([expiresAt], map: "otp_expires_at_idx")
   @@map("otp_verifications")
+}
+
+model DepartmentTeam {
+  id                  String    @id @default(uuid()) @db.Uuid
+  departmentId        String    @map("department_id") @db.Uuid
+  name                String    @db.VarChar(120)
+  nameKey             String    @map("name_key") @db.VarChar(120)
+  teamAdminEmployeeId String    @map("team_admin_employee_id") @db.Uuid
+  createdByAccountId  String    @map("created_by_account_id") @db.Uuid
+  updatedByAccountId  String    @map("updated_by_account_id") @db.Uuid
+  isActive            Boolean   @default(true) @map("is_active")
+  archivedAt          DateTime? @map("archived_at") @db.Timestamptz(3)
+  archivedByAccountId String?   @map("archived_by_account_id") @db.Uuid
+  createdAt           DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt           DateTime  @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  department       Department               @relation(fields: [departmentId], references: [id], onDelete: Restrict)
+  teamAdmin        Employee                 @relation("DepartmentTeamAdmin", fields: [teamAdminEmployeeId], references: [id], onDelete: Restrict)
+  createdBy        Account                  @relation("DepartmentTeamsCreatedBy", fields: [createdByAccountId], references: [id], onDelete: Restrict)
+  updatedBy        Account                  @relation("DepartmentTeamsUpdatedBy", fields: [updatedByAccountId], references: [id], onDelete: Restrict)
+  archivedBy       Account?                 @relation("DepartmentTeamsArchivedBy", fields: [archivedByAccountId], references: [id], onDelete: Restrict)
+  members          DepartmentTeamMember[]
+  activities       DepartmentTeamActivity[]
+  assignedWorkItems WorkItem[]               @relation("WorkItemsAssignedTeam")
+
+  @@unique([departmentId, nameKey], map: "department_teams_department_name_key")
+  @@index([departmentId, isActive, name], map: "department_teams_department_active_name_idx")
+  @@index([teamAdminEmployeeId], map: "department_teams_admin_employee_idx")
+  @@index([archivedAt], map: "department_teams_archived_at_idx")
+  @@map("department_teams")
+}
+
+model DepartmentTeamMember {
+  id               String   @id @default(uuid()) @db.Uuid
+  teamId           String   @map("team_id") @db.Uuid
+  employeeId       String   @map("employee_id") @db.Uuid
+  addedByAccountId String   @map("added_by_account_id") @db.Uuid
+  createdAt        DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  team     DepartmentTeam @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  employee Employee       @relation(fields: [employeeId], references: [id], onDelete: Restrict)
+  addedBy  Account        @relation("DepartmentTeamMembersAddedBy", fields: [addedByAccountId], references: [id], onDelete: Restrict)
+
+  @@unique([teamId, employeeId], map: "department_team_members_team_employee_key")
+  @@index([employeeId], map: "department_team_members_employee_idx")
+  @@map("department_team_members")
+}
+
+model DepartmentTeamActivity {
+  id             String                       @id @default(uuid()) @db.Uuid
+  teamId         String?                      @map("team_id") @db.Uuid
+  departmentId   String                       @map("department_id") @db.Uuid
+  actorAccountId String                       @map("actor_account_id") @db.Uuid
+  action         DepartmentTeamActivityAction
+  teamName       String                       @map("team_name") @db.VarChar(120)
+  details        Json?
+  createdAt      DateTime                     @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  team       DepartmentTeam? @relation(fields: [teamId], references: [id], onDelete: SetNull)
+  department Department      @relation(fields: [departmentId], references: [id], onDelete: Restrict)
+  actor      Account         @relation("DepartmentTeamActivitiesActor", fields: [actorAccountId], references: [id], onDelete: Restrict)
+
+  @@index([teamId, createdAt], map: "department_team_activities_team_created_idx")
+  @@index([departmentId, createdAt], map: "department_team_activities_department_created_idx")
+  @@index([actorAccountId, createdAt], map: "department_team_activities_actor_created_idx")
+  @@map("department_team_activities")
 }
 
 model AccountRequest {
@@ -644,9 +923,9 @@ model Conversation {
   groupPhotoKey         String?                 @map("group_photo_key") @db.VarChar(500)
   groupKind             GroupKind?              @map("group_kind")
   officialScopeType     OfficialGroupScopeType? @map("official_scope_type")
-  officialDivisionId   String?                 @map("official_division_id") @db.Uuid
-  officialDepartmentId String?                 @map("official_department_id") @db.Uuid
-  privateParticipantKey String?                @unique(map: "conversations_private_participant_key_key") @map("private_participant_key") @db.VarChar(73)
+  officialDivisionId    String?                 @map("official_division_id") @db.Uuid
+  officialDepartmentId  String?                 @map("official_department_id") @db.Uuid
+  privateParticipantKey String?                 @unique(map: "conversations_private_participant_key_key") @map("private_participant_key") @db.VarChar(73)
 
   createdByAccountId String @map("created_by_account_id") @db.Uuid
 
@@ -655,8 +934,8 @@ model Conversation {
   updatedAt     DateTime  @updatedAt @map("updated_at") @db.Timestamptz(3)
 
   createdBy          Account                   @relation("ConversationsCreatedBy", fields: [createdByAccountId], references: [id], onDelete: Restrict)
-  officialDivision   Division?                  @relation("OfficialGroupDivision", fields: [officialDivisionId], references: [id], onDelete: Restrict)
-  officialDepartment Department?                @relation("OfficialGroupDepartment", fields: [officialDepartmentId], references: [id], onDelete: Restrict)
+  officialDivision   Division?                 @relation("OfficialGroupDivision", fields: [officialDivisionId], references: [id], onDelete: Restrict)
+  officialDepartment Department?               @relation("OfficialGroupDepartment", fields: [officialDepartmentId], references: [id], onDelete: Restrict)
   participants       ConversationParticipant[]
   messages           Message[]
   messageRequest     MessageRequest?
@@ -664,7 +943,8 @@ model Conversation {
   notifications      MessagingNotification[]
   messagePins        MessagePin[]
   invitationLinks    GroupInvitationLink[]
-  announcements      Announcement[] @relation("AnnouncementOfficialConversation")
+  announcements      Announcement[]            @relation("AnnouncementOfficialConversation")
+  chatFolderItems    ChatFolderItem[]
 
   @@index([type, lastMessageAt], map: "conversations_type_last_message_idx")
   @@index([groupKind, updatedAt], map: "conversations_group_kind_idx")
@@ -682,20 +962,22 @@ model ConversationParticipant {
   joinedAt DateTime  @default(now()) @map("joined_at") @db.Timestamptz(3)
   leftAt   DateTime? @map("left_at") @db.Timestamptz(3)
 
-  role       ConversationParticipantRole @default(MEMBER)
-  isMuted    Boolean @default(false) @map("is_muted")
-  isArchived Boolean @default(false) @map("is_archived")
-  isPinned   Boolean @default(false) @map("is_pinned")
-  pinnedAt   DateTime? @map("pinned_at") @db.Timestamptz(3)
-  mutedUntil DateTime? @map("muted_until") @db.Timestamptz(3)
-  archivedAt DateTime? @map("archived_at") @db.Timestamptz(3)
-  markedUnreadAt DateTime? @map("marked_unread_at") @db.Timestamptz(3)
+  role           ConversationParticipantRole @default(MEMBER)
+  isMuted        Boolean                     @default(false) @map("is_muted")
+  isArchived     Boolean                     @default(false) @map("is_archived")
+  isPinned       Boolean                     @default(false) @map("is_pinned")
+  isFavorite     Boolean                     @default(false) @map("is_favorite")
+  pinnedAt       DateTime?                   @map("pinned_at") @db.Timestamptz(3)
+  favoritedAt    DateTime?                   @map("favorited_at") @db.Timestamptz(3)
+  mutedUntil     DateTime?                   @map("muted_until") @db.Timestamptz(3)
+  archivedAt     DateTime?                   @map("archived_at") @db.Timestamptz(3)
+  markedUnreadAt DateTime?                   @map("marked_unread_at") @db.Timestamptz(3)
 
   // M19: these boundaries hide history/list state only for this participant.
-  historyClearedAt   DateTime? @map("history_cleared_at") @db.Timestamptz(3)
+  historyClearedAt  DateTime? @map("history_cleared_at") @db.Timestamptz(3)
   deletedFromListAt DateTime? @map("deleted_from_list_at") @db.Timestamptz(3)
 
-  draftText String? @map("draft_text") @db.Text
+  draftText      String?   @map("draft_text") @db.Text
   draftUpdatedAt DateTime? @map("draft_updated_at") @db.Timestamptz(3)
 
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
@@ -709,15 +991,13 @@ model ConversationParticipant {
   @@index([conversationId, leftAt], map: "conversation_participants_conversation_active_idx")
   @@index([conversationId, role, leftAt], map: "conversation_participants_conversation_role_idx")
   @@index([accountId, leftAt, isPinned, pinnedAt], map: "conversation_participants_account_pin_idx")
+  @@index([accountId, leftAt, isFavorite, favoritedAt], map: "conversation_participants_account_favorite_idx")
   @@index([accountId, isArchived, updatedAt], map: "conversation_participants_account_archive_idx")
   @@index([accountId, draftUpdatedAt], map: "conversation_participants_account_draft_idx")
   @@index([accountId, leftAt, deletedFromListAt], map: "conversation_participants_account_deleted_idx")
   @@index([conversationId, historyClearedAt], map: "conversation_participants_history_cleared_idx")
   @@map("conversation_participants")
 }
-
-
-
 
 model GroupInvitationLink {
   id String @id @default(uuid()) @db.Uuid
@@ -748,7 +1028,7 @@ model OfficialGroupAuditLog {
   conversationId String  @map("conversation_id") @db.Uuid
   actorAccountId String? @map("actor_account_id") @db.Uuid
 
-  action OfficialGroupAuditAction
+  action   OfficialGroupAuditAction
   metadata Json?
 
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
@@ -767,24 +1047,24 @@ model MessageRequest {
 
   participantKey String @unique(map: "message_requests_participant_key_key") @map("participant_key") @db.VarChar(73)
 
-  requesterAccountId String @map("requester_account_id") @db.Uuid
-  recipientAccountId String @map("recipient_account_id") @db.Uuid
+  requesterAccountId String  @map("requester_account_id") @db.Uuid
+  recipientAccountId String  @map("recipient_account_id") @db.Uuid
   blockedByAccountId String? @map("blocked_by_account_id") @db.Uuid
   conversationId     String? @unique(map: "message_requests_conversation_id_key") @map("conversation_id") @db.Uuid
 
   status MessageRequestStatus @default(PENDING)
   reason MessageRequestReason
 
-  requestCount Int @default(1) @map("request_count")
-  requestedAt DateTime @default(now()) @map("requested_at") @db.Timestamptz(3)
-  respondedAt DateTime? @map("responded_at") @db.Timestamptz(3)
+  requestCount Int       @default(1) @map("request_count")
+  requestedAt  DateTime  @default(now()) @map("requested_at") @db.Timestamptz(3)
+  respondedAt  DateTime? @map("responded_at") @db.Timestamptz(3)
 
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
 
-  requester Account @relation("MessageRequestsSent", fields: [requesterAccountId], references: [id], onDelete: Restrict)
-  recipient Account @relation("MessageRequestsReceived", fields: [recipientAccountId], references: [id], onDelete: Restrict)
-  blockedBy Account? @relation("MessageRequestsBlockedBy", fields: [blockedByAccountId], references: [id], onDelete: Restrict)
+  requester    Account       @relation("MessageRequestsSent", fields: [requesterAccountId], references: [id], onDelete: Restrict)
+  recipient    Account       @relation("MessageRequestsReceived", fields: [recipientAccountId], references: [id], onDelete: Restrict)
+  blockedBy    Account?      @relation("MessageRequestsBlockedBy", fields: [blockedByAccountId], references: [id], onDelete: Restrict)
   conversation Conversation? @relation(fields: [conversationId], references: [id], onDelete: SetNull)
 
   @@index([requesterAccountId, status, requestedAt], map: "message_requests_requester_status_idx")
@@ -824,11 +1104,11 @@ model Message {
 
   receipts          MessageReceipt[]
   hiddenForAccounts MessageHiddenForAccount[]
-  reactions MessageReaction[]
-  stars     MessageStar[]
-  pins      MessagePin[]
-  attachments MessageAttachment[]
-  notifications MessagingNotification[]
+  reactions         MessageReaction[]
+  stars             MessageStar[]
+  pins              MessagePin[]
+  attachments       MessageAttachment[]
+  notifications     MessagingNotification[]
 
   @@unique([senderAccountId, clientMessageId], map: "messages_sender_client_message_key")
   @@index([conversationId, sentAt, id], map: "messages_conversation_sent_idx")
@@ -837,7 +1117,6 @@ model Message {
   @@index([deletedAt], map: "messages_deleted_at_idx")
   @@map("messages")
 }
-
 
 model MessageAttachment {
   id String @id @default(uuid()) @db.Uuid
@@ -895,7 +1174,6 @@ model MessageReceipt {
   @@map("message_receipts")
 }
 
-
 model MessageReaction {
   messageId String @map("message_id") @db.Uuid
   accountId String @map("account_id") @db.Uuid
@@ -909,13 +1187,10 @@ model MessageReaction {
   account Account @relation(fields: [accountId], references: [id], onDelete: Cascade)
 
   @@id([messageId, accountId], map: "message_reactions_pkey")
-
   @@index([messageId], map: "message_reactions_message_idx")
   @@index([accountId], map: "message_reactions_account_idx")
-
   @@map("message_reactions")
 }
-
 
 model MessageStar {
   messageId String @map("message_id") @db.Uuid
@@ -933,18 +1208,18 @@ model MessageStar {
 }
 
 model MessagePin {
-  messageId      String  @map("message_id") @db.Uuid
-  conversationId String  @map("conversation_id") @db.Uuid
+  messageId           String  @map("message_id") @db.Uuid
+  conversationId      String  @map("conversation_id") @db.Uuid
   pinnedByAccountId   String  @map("pinned_by_account_id") @db.Uuid
   unpinnedByAccountId String? @map("unpinned_by_account_id") @db.Uuid
 
   pinnedAt   DateTime  @default(now()) @map("pinned_at") @db.Timestamptz(3)
   unpinnedAt DateTime? @map("unpinned_at") @db.Timestamptz(3)
 
-  message    Message      @relation(fields: [messageId], references: [id], onDelete: Cascade)
+  message      Message      @relation(fields: [messageId], references: [id], onDelete: Cascade)
   conversation Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
-  pinnedBy   Account      @relation("MessagePinsPinnedBy", fields: [pinnedByAccountId], references: [id], onDelete: Restrict)
-  unpinnedBy Account?     @relation("MessagePinsUnpinnedBy", fields: [unpinnedByAccountId], references: [id], onDelete: Restrict)
+  pinnedBy     Account      @relation("MessagePinsPinnedBy", fields: [pinnedByAccountId], references: [id], onDelete: Restrict)
+  unpinnedBy   Account?     @relation("MessagePinsUnpinnedBy", fields: [unpinnedByAccountId], references: [id], onDelete: Restrict)
 
   @@id([messageId, conversationId], map: "message_pins_pkey")
   @@index([conversationId, unpinnedAt, pinnedAt], map: "message_pins_conversation_active_idx")
@@ -974,48 +1249,43 @@ model MessagingAccountBlock {
 model Announcement {
   id String @id @default(uuid()) @db.Uuid
 
-  createdByAccountId String @map("created_by_account_id") @db.Uuid
-  withdrawnByAccountId String? @map("withdrawn_by_account_id") @db.Uuid
+  createdByAccountId   String  @map("created_by_account_id") @db.Uuid
+  audienceType           AnnouncementAudienceType @map("audience_type")
+  divisionId             String?                  @map("division_id") @db.Uuid
+  departmentId           String?                  @map("department_id") @db.Uuid
+  officialConversationId String?                  @map("official_conversation_id") @db.Uuid
 
-  audienceType AnnouncementAudienceType @map("audience_type")
-  divisionId String? @map("division_id") @db.Uuid
-  departmentId String? @map("department_id") @db.Uuid
-  officialConversationId String? @map("official_conversation_id") @db.Uuid
-
-  title String @default("") @db.VarChar(160)
-  body String @default("") @db.Text
+  title    String               @default("") @db.VarChar(160)
+  body     String               @default("") @db.Text
   priority AnnouncementPriority @default(NORMAL)
-  status AnnouncementStatus @default(DRAFT)
+  status   AnnouncementStatus   @default(DRAFT)
 
   requiresAcknowledgement Boolean @default(false) @map("requires_acknowledgement")
   allowAttachmentDownload Boolean @default(true) @map("allow_attachment_download")
-  isPinned Boolean @default(false) @map("is_pinned")
+  isPinned                Boolean @default(false) @map("is_pinned")
 
-  currentRevision Int @default(1) @map("current_revision")
-  scheduledAt DateTime? @map("scheduled_at") @db.Timestamptz(3)
-  publishedAt DateTime? @map("published_at") @db.Timestamptz(3)
-  expiresAt DateTime? @map("expires_at") @db.Timestamptz(3)
-  withdrawnAt DateTime? @map("withdrawn_at") @db.Timestamptz(3)
-
-  publishClaimedAt DateTime? @map("publish_claimed_at") @db.Timestamptz(3)
+  currentRevision Int       @default(1) @map("current_revision")
+  scheduledAt     DateTime? @map("scheduled_at") @db.Timestamptz(3)
+  publishedAt     DateTime? @map("published_at") @db.Timestamptz(3)
+  expiresAt       DateTime? @map("expires_at") @db.Timestamptz(3)
+  publishClaimedAt     DateTime? @map("publish_claimed_at") @db.Timestamptz(3)
   nextPublishAttemptAt DateTime? @map("next_publish_attempt_at") @db.Timestamptz(3)
-  publishAttempts Int @default(0) @map("publish_attempts")
-  publishFailureReason String? @map("publish_failure_reason") @db.VarChar(500)
+  publishAttempts      Int       @default(0) @map("publish_attempts")
+  publishFailureReason String?   @map("publish_failure_reason") @db.VarChar(500)
 
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
 
-  createdBy Account @relation("AnnouncementsCreatedBy", fields: [createdByAccountId], references: [id], onDelete: Restrict)
-  withdrawnBy Account? @relation("AnnouncementsWithdrawnBy", fields: [withdrawnByAccountId], references: [id], onDelete: Restrict)
-  division Division? @relation("AnnouncementDivision", fields: [divisionId], references: [id], onDelete: Restrict)
-  department Department? @relation("AnnouncementDepartment", fields: [departmentId], references: [id], onDelete: Restrict)
+  createdBy            Account       @relation("AnnouncementsCreatedBy", fields: [createdByAccountId], references: [id], onDelete: Restrict)
+  division             Division?     @relation("AnnouncementDivision", fields: [divisionId], references: [id], onDelete: Restrict)
+  department           Department?   @relation("AnnouncementDepartment", fields: [departmentId], references: [id], onDelete: Restrict)
   officialConversation Conversation? @relation("AnnouncementOfficialConversation", fields: [officialConversationId], references: [id], onDelete: Restrict)
 
-  revisions AnnouncementRevision[]
-  recipients AnnouncementRecipient[]
+  revisions        AnnouncementRevision[]
+  recipients       AnnouncementRecipient[]
   acknowledgements AnnouncementAcknowledgement[]
-  attachments AnnouncementAttachment[]
-  notifications MessagingNotification[]
+  attachments      AnnouncementAttachment[]
+  notifications    MessagingNotification[]
 
   @@index([createdByAccountId, status, updatedAt], map: "announcements_creator_status_updated_idx")
   @@index([status, scheduledAt, nextPublishAttemptAt], map: "announcements_publish_queue_idx")
@@ -1027,23 +1297,23 @@ model Announcement {
 }
 
 model AnnouncementRevision {
-  id String @id @default(uuid()) @db.Uuid
-  announcementId String @map("announcement_id") @db.Uuid
+  id              String @id @default(uuid()) @db.Uuid
+  announcementId  String @map("announcement_id") @db.Uuid
   editorAccountId String @map("editor_account_id") @db.Uuid
-  revisionNumber Int @map("revision_number")
+  revisionNumber  Int    @map("revision_number")
 
-  title String @db.VarChar(160)
-  body String @db.Text
-  priority AnnouncementPriority
-  requiresAcknowledgement Boolean @map("requires_acknowledgement")
-  allowAttachmentDownload Boolean @map("allow_attachment_download")
-  isPinned Boolean @map("is_pinned")
-  expiresAt DateTime? @map("expires_at") @db.Timestamptz(3)
+  title                   String               @db.VarChar(160)
+  body                    String               @db.Text
+  priority                AnnouncementPriority
+  requiresAcknowledgement Boolean              @map("requires_acknowledgement")
+  allowAttachmentDownload Boolean              @map("allow_attachment_download")
+  isPinned                Boolean              @map("is_pinned")
+  expiresAt               DateTime?            @map("expires_at") @db.Timestamptz(3)
 
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
 
   announcement Announcement @relation(fields: [announcementId], references: [id], onDelete: Cascade)
-  editor Account @relation("AnnouncementRevisionEditor", fields: [editorAccountId], references: [id], onDelete: Restrict)
+  editor       Account      @relation("AnnouncementRevisionEditor", fields: [editorAccountId], references: [id], onDelete: Restrict)
 
   @@unique([announcementId, revisionNumber], map: "announcement_revisions_announcement_revision_key")
   @@index([editorAccountId, createdAt], map: "announcement_revisions_editor_created_idx")
@@ -1052,18 +1322,18 @@ model AnnouncementRevision {
 
 model AnnouncementRecipient {
   announcementId String @map("announcement_id") @db.Uuid
-  accountId String @map("account_id") @db.Uuid
+  accountId      String @map("account_id") @db.Uuid
 
-  deliveredAt DateTime? @map("delivered_at") @db.Timestamptz(3)
-  firstReadAt DateTime? @map("first_read_at") @db.Timestamptz(3)
-  readRevision Int? @map("read_revision")
-  acknowledgedRevision Int? @map("acknowledged_revision")
+  deliveredAt          DateTime? @map("delivered_at") @db.Timestamptz(3)
+  firstReadAt          DateTime? @map("first_read_at") @db.Timestamptz(3)
+  readRevision         Int?      @map("read_revision")
+  acknowledgedRevision Int?      @map("acknowledged_revision")
 
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
 
   announcement Announcement @relation(fields: [announcementId], references: [id], onDelete: Cascade)
-  account Account @relation(fields: [accountId], references: [id], onDelete: Restrict)
+  account      Account      @relation(fields: [accountId], references: [id], onDelete: Restrict)
 
   @@id([announcementId, accountId], map: "announcement_recipients_pkey")
   @@index([accountId, createdAt], map: "announcement_recipients_account_created_idx")
@@ -1072,14 +1342,14 @@ model AnnouncementRecipient {
 }
 
 model AnnouncementAcknowledgement {
-  id String @id @default(uuid()) @db.Uuid
-  announcementId String @map("announcement_id") @db.Uuid
-  accountId String @map("account_id") @db.Uuid
-  revisionNumber Int @map("revision_number")
+  id             String   @id @default(uuid()) @db.Uuid
+  announcementId String   @map("announcement_id") @db.Uuid
+  accountId      String   @map("account_id") @db.Uuid
+  revisionNumber Int      @map("revision_number")
   acknowledgedAt DateTime @default(now()) @map("acknowledged_at") @db.Timestamptz(3)
 
   announcement Announcement @relation(fields: [announcementId], references: [id], onDelete: Cascade)
-  account Account @relation(fields: [accountId], references: [id], onDelete: Restrict)
+  account      Account      @relation(fields: [accountId], references: [id], onDelete: Restrict)
 
   @@unique([announcementId, accountId, revisionNumber], map: "announcement_acknowledgements_revision_key")
   @@index([announcementId, revisionNumber, acknowledgedAt], map: "announcement_acknowledgements_reporting_idx")
@@ -1088,17 +1358,17 @@ model AnnouncementAcknowledgement {
 }
 
 model AnnouncementAttachment {
-  id String @id @default(uuid()) @db.Uuid
+  id             String @id @default(uuid()) @db.Uuid
   announcementId String @map("announcement_id") @db.Uuid
 
-  storageKey String @map("storage_key") @db.VarChar(500)
+  storageKey       String @map("storage_key") @db.VarChar(500)
   originalFileName String @map("original_file_name") @db.VarChar(255)
-  mimeType String @map("mime_type") @db.VarChar(120)
-  fileSizeBytes Int @map("file_size_bytes")
-  contentCategory String @map("content_category") @db.VarChar(20)
-  scanStatus String @default("PENDING") @map("scan_status") @db.VarChar(40)
+  mimeType         String @map("mime_type") @db.VarChar(120)
+  fileSizeBytes    Int    @map("file_size_bytes")
+  contentCategory  String @map("content_category") @db.VarChar(20)
+  scanStatus       String @default("PENDING") @map("scan_status") @db.VarChar(40)
 
-  addedRevision Int @map("added_revision")
+  addedRevision   Int  @map("added_revision")
   removedRevision Int? @map("removed_revision")
 
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
@@ -1122,8 +1392,8 @@ model MessagingNotification {
   announcementId     String? @map("announcement_id") @db.Uuid
 
   type  MessagingNotificationType
-  title String @db.VarChar(160)
-  body  String @db.VarChar(500)
+  title String                    @db.VarChar(160)
+  body  String                    @db.VarChar(500)
 
   isRead Boolean   @default(false) @map("is_read")
   readAt DateTime? @map("read_at") @db.Timestamptz(3)
@@ -1158,6 +1428,7 @@ model SuperAdminProfile {
   updatedAt   DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
 
   account Account @relation("SuperAdminProfileAccount", fields: [accountId], references: [id], onDelete: Cascade)
+
   @@map("super_admin_profiles")
 }
 
@@ -1199,6 +1470,424 @@ model EmergencyAlertRecipient {
   @@map("emergency_alert_recipients")
 }
 
+model WorkItem {
+  id String @id @default(uuid()) @db.Uuid
+
+  ticketNumber String         @unique @map("ticket_number") @db.VarChar(50)
+  type         WorkItemType
+  title        String         @db.VarChar(160)
+  description  String         @db.Text
+  category     String?        @db.VarChar(80)
+  priority     WorkPriority   @default(NORMAL)
+  status       WorkItemStatus @default(ASSIGNED)
+
+  customerName          String?           @map("customer_name") @db.VarChar(160)
+  customerContactType   WorkContactType?  @map("customer_contact_type")
+  customerContactNumber String?           @map("customer_contact_number") @db.VarChar(30)
+  serviceTypes          WorkServiceType[] @default([]) @map("service_types")
+  otherServiceText      String?           @map("other_service_text") @db.VarChar(160)
+  serviceNumber         String?           @map("service_number") @db.VarChar(100)
+  olt                   String?           @db.VarChar(100)
+  fdcName               String?           @map("fdc_name") @db.VarChar(100)
+  fapName               String?           @map("fap_name") @db.VarChar(100)
+
+  divisionId          String  @map("division_id") @db.Uuid
+  departmentId        String? @map("department_id") @db.Uuid
+  parentWorkItemId    String? @map("parent_work_item_id") @db.Uuid
+  assignedTeamId      String? @map("assigned_team_id") @db.Uuid
+  salesMemberAccountId String? @map("sales_member_account_id") @db.Uuid
+
+  locationText   String?   @map("location_text") @db.VarChar(300)
+  registeredAt   DateTime  @map("registered_at") @db.Timestamptz(3)
+  plannedStartAt DateTime? @map("planned_start_at") @db.Timestamptz(3)
+  dueAt          DateTime  @map("due_at") @db.Timestamptz(3)
+
+  createdByAccountId          String @map("created_by_account_id") @db.Uuid
+  responsibleManagerAccountId String @map("responsible_manager_account_id") @db.Uuid
+
+  completedAt        DateTime? @map("completed_at") @db.Timestamptz(3)
+  closedAt           DateTime? @map("closed_at") @db.Timestamptz(3)
+  cancelledAt        DateTime? @map("cancelled_at") @db.Timestamptz(3)
+  archiveEligibleAt  DateTime? @map("archive_eligible_at") @db.Timestamptz(3)
+  deletionEligibleAt DateTime? @map("deletion_eligible_at") @db.Timestamptz(3)
+
+  retentionHoldAt          DateTime? @map("retention_hold_at") @db.Timestamptz(3)
+  retentionHoldReason      String?   @map("retention_hold_reason") @db.VarChar(500)
+  retentionHoldByAccountId String?   @map("retention_hold_by_account_id") @db.Uuid
+
+  deletionRequestedAt          DateTime? @map("deletion_requested_at") @db.Timestamptz(3)
+  deletionRequestReason        String?   @map("deletion_request_reason") @db.VarChar(500)
+  deletionRequestedByAccountId String?   @map("deletion_requested_by_account_id") @db.Uuid
+
+  dueSoonNotifiedAt DateTime? @map("due_soon_notified_at") @db.Timestamptz(3)
+  overdueNotifiedAt DateTime? @map("overdue_notified_at") @db.Timestamptz(3)
+  version           Int       @default(1)
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  division            Division        @relation(fields: [divisionId], references: [id], onDelete: Restrict)
+  department          Department?     @relation(fields: [departmentId], references: [id], onDelete: Restrict)
+  assignedTeam        DepartmentTeam? @relation("WorkItemsAssignedTeam", fields: [assignedTeamId], references: [id], onDelete: Restrict)
+  salesMember         Account?        @relation("WorkItemsSalesMember", fields: [salesMemberAccountId], references: [id], onDelete: Restrict)
+  createdBy           Account         @relation("WorkItemsCreatedBy", fields: [createdByAccountId], references: [id], onDelete: Restrict)
+  responsibleManager  Account         @relation("WorkItemsResponsibleManager", fields: [responsibleManagerAccountId], references: [id], onDelete: Restrict)
+  retentionHoldBy     Account?    @relation("WorkItemsRetentionHoldBy", fields: [retentionHoldByAccountId], references: [id], onDelete: Restrict)
+  deletionRequestedBy Account?    @relation("WorkItemsDeletionRequestedBy", fields: [deletionRequestedByAccountId], references: [id], onDelete: Restrict)
+  parentWorkItem      WorkItem?   @relation("WorkItemDelegation", fields: [parentWorkItemId], references: [id], onDelete: SetNull)
+  childWorkItems      WorkItem[]  @relation("WorkItemDelegation")
+
+  assignments       WorkAssignment[]
+  activities        WorkActivity[]
+  completionReports WorkCompletionReport[]
+  helpRequests      WorkHelpRequest[]
+
+  @@index([status, dueAt], map: "work_items_status_due_idx")
+  @@index([divisionId, status, dueAt], map: "work_items_division_status_due_idx")
+  @@index([departmentId, status, dueAt], map: "work_items_department_status_due_idx")
+  @@index([assignedTeamId, status, dueAt], map: "work_items_team_status_due_idx")
+  @@index([salesMemberAccountId, status, dueAt], map: "work_items_sales_member_status_due_idx")
+  @@index([registeredAt], map: "work_items_registered_at_idx")
+  @@index([createdByAccountId, createdAt], map: "work_items_creator_created_idx")
+  @@index([serviceNumber], map: "work_items_service_number_idx")
+  @@index([customerContactNumber], map: "work_items_customer_contact_idx")
+  @@index([parentWorkItemId, status, dueAt], map: "work_items_parent_status_due_idx")
+  @@index([responsibleManagerAccountId, status, dueAt], map: "work_items_manager_status_due_idx")
+  @@index([archiveEligibleAt, status], map: "work_items_archive_eligible_status_idx")
+  @@index([deletionEligibleAt, retentionHoldAt], map: "work_items_deletion_eligible_hold_idx")
+  @@index([deletionRequestedAt], map: "work_items_deletion_requested_idx")
+  @@map("work_items")
+}
+
+model WorkAssignment {
+  id String @id @default(uuid()) @db.Uuid
+
+  workItemId          String             @map("work_item_id") @db.Uuid
+  assigneeAccountId   String             @map("assignee_account_id") @db.Uuid
+  assignmentRole      WorkAssignmentRole @map("assignment_role")
+  assignedByAccountId String             @map("assigned_by_account_id") @db.Uuid
+
+  acknowledgedAt DateTime? @map("acknowledged_at") @db.Timestamptz(3)
+  startedAt      DateTime? @map("started_at") @db.Timestamptz(3)
+  endedAt        DateTime? @map("ended_at") @db.Timestamptz(3)
+  endReason      String?   @map("end_reason") @db.VarChar(500)
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  workItem   WorkItem @relation(fields: [workItemId], references: [id], onDelete: Cascade)
+  assignee   Account  @relation("WorkAssignmentsAssignee", fields: [assigneeAccountId], references: [id], onDelete: Restrict)
+  assignedBy Account  @relation("WorkAssignmentsAssignedBy", fields: [assignedByAccountId], references: [id], onDelete: Restrict)
+
+  @@index([workItemId, endedAt, assignmentRole], map: "work_assignments_item_active_role_idx")
+  @@index([assigneeAccountId, endedAt, createdAt], map: "work_assignments_assignee_active_idx")
+  @@index([assignedByAccountId, createdAt], map: "work_assignments_assigner_created_idx")
+  @@map("work_assignments")
+}
+
+model WorkActivity {
+  id String @id @default(uuid()) @db.Uuid
+
+  workItemId     String             @map("work_item_id") @db.Uuid
+  actorAccountId String             @map("actor_account_id") @db.Uuid
+  action         WorkActivityAction
+  fromStatus     WorkItemStatus?    @map("from_status")
+  toStatus       WorkItemStatus?    @map("to_status")
+  details        Json?
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  workItem WorkItem @relation(fields: [workItemId], references: [id], onDelete: Cascade)
+  actor    Account  @relation(fields: [actorAccountId], references: [id], onDelete: Restrict)
+
+  @@index([workItemId, createdAt], map: "work_activities_item_created_idx")
+  @@index([actorAccountId, createdAt], map: "work_activities_actor_created_idx")
+  @@index([action, createdAt], map: "work_activities_action_created_idx")
+  @@map("work_activities")
+}
+
+model WorkCompletionReport {
+  id String @id @default(uuid()) @db.Uuid
+
+  workItemId           String                     @map("work_item_id") @db.Uuid
+  submittedByAccountId String                     @map("submitted_by_account_id") @db.Uuid
+  result               WorkCompletionResult
+  summary              String                     @db.Text
+  moreWorkRequired     Boolean                    @default(false) @map("more_work_required")
+  reviewStatus         WorkCompletionReviewStatus @default(PENDING_REVIEW) @map("review_status")
+  managerNote          String?                    @map("manager_note") @db.VarChar(1500)
+  reviewedByAccountId  String?                    @map("reviewed_by_account_id") @db.Uuid
+  reviewedAt           DateTime?                  @map("reviewed_at") @db.Timestamptz(3)
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  workItem    WorkItem @relation(fields: [workItemId], references: [id], onDelete: Cascade)
+  submittedBy Account  @relation("WorkCompletionReportsSubmittedBy", fields: [submittedByAccountId], references: [id], onDelete: Restrict)
+  reviewedBy  Account? @relation("WorkCompletionReportsReviewedBy", fields: [reviewedByAccountId], references: [id], onDelete: Restrict)
+
+  @@index([workItemId, createdAt], map: "work_completion_reports_item_created_idx")
+  @@index([submittedByAccountId, createdAt], map: "work_completion_reports_submitter_created_idx")
+  @@index([reviewStatus, createdAt], map: "work_completion_reports_review_status_created_idx")
+  @@map("work_completion_reports")
+}
+
+model WorkHelpRequest {
+  id String @id @default(uuid()) @db.Uuid
+
+  workItemId               String                @map("work_item_id") @db.Uuid
+  requestedByAccountId     String                @map("requested_by_account_id") @db.Uuid
+  requestedHelperAccountId String?               @map("requested_helper_account_id") @db.Uuid
+  requestedDepartmentId    String?               @map("requested_department_id") @db.Uuid
+  reason                   WorkHelpReason
+  note                     String?               @db.VarChar(1000)
+  status                   WorkHelpRequestStatus @default(PENDING)
+  previousStatus           WorkItemStatus        @map("previous_status")
+  respondedByAccountId     String?               @map("responded_by_account_id") @db.Uuid
+  responseNote             String?               @map("response_note") @db.VarChar(1000)
+  respondedAt              DateTime?             @map("responded_at") @db.Timestamptz(3)
+  coordinatedByAccountId   String?               @map("coordinated_by_account_id") @db.Uuid
+  coordinatedAt            DateTime?             @map("coordinated_at") @db.Timestamptz(3)
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  workItem            WorkItem    @relation(fields: [workItemId], references: [id], onDelete: Cascade)
+  requestedBy         Account     @relation("WorkHelpRequestsCreatedBy", fields: [requestedByAccountId], references: [id], onDelete: Restrict)
+  requestedHelper     Account?    @relation("WorkHelpRequestsRequestedHelper", fields: [requestedHelperAccountId], references: [id], onDelete: Restrict)
+  requestedDepartment Department? @relation(fields: [requestedDepartmentId], references: [id], onDelete: Restrict)
+  respondedBy         Account?    @relation("WorkHelpRequestsRespondedBy", fields: [respondedByAccountId], references: [id], onDelete: Restrict)
+  coordinatedBy       Account?    @relation("WorkHelpRequestsCoordinatedBy", fields: [coordinatedByAccountId], references: [id], onDelete: Restrict)
+
+  @@index([workItemId, status, createdAt], map: "work_help_requests_item_status_created_idx")
+  @@index([requestedByAccountId, createdAt], map: "work_help_requests_requester_created_idx")
+  @@index([requestedHelperAccountId, status, createdAt], map: "work_help_requests_helper_status_created_idx")
+  @@index([requestedDepartmentId, status, createdAt], map: "work_help_requests_department_status_created_idx")
+  @@index([coordinatedByAccountId, coordinatedAt], map: "work_help_requests_coordinator_idx")
+  @@map("work_help_requests")
+}
+
+model DutyShiftTemplate {
+  id String @id @default(uuid()) @db.Uuid
+
+  name               String  @db.VarChar(100)
+  startMinute        Int     @map("start_minute")
+  endMinute          Int     @map("end_minute")
+  spansNextDay       Boolean @default(false) @map("spans_next_day")
+  isActive           Boolean @default(true) @map("is_active")
+  divisionId         String? @map("division_id") @db.Uuid
+  departmentId       String? @map("department_id") @db.Uuid
+  createdByAccountId String  @map("created_by_account_id") @db.Uuid
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  division             Division?                 @relation(fields: [divisionId], references: [id], onDelete: Restrict)
+  department           Department?               @relation(fields: [departmentId], references: [id], onDelete: Restrict)
+  createdBy            Account                   @relation("DutyShiftTemplatesCreatedBy", fields: [createdByAccountId], references: [id], onDelete: Restrict)
+  series               DutyScheduleSeries[]
+  assignments          DutyAssignment[]
+  coverageRequirements DutyCoverageRequirement[]
+
+  @@unique([name, divisionId, departmentId], map: "duty_shift_templates_scope_name_key")
+  @@index([divisionId, departmentId, isActive], map: "duty_shift_templates_scope_active_idx")
+  @@map("duty_shift_templates")
+}
+
+model DutyScheduleSeries {
+  id String @id @default(uuid()) @db.Uuid
+
+  employeeAccountId   String                  @map("employee_account_id") @db.Uuid
+  shiftTemplateId     String?                 @map("shift_template_id") @db.Uuid
+  shiftName           String?                 @map("shift_name") @db.VarChar(100)
+  shiftStartMinute    Int?                    @map("shift_start_minute")
+  shiftEndMinute      Int?                    @map("shift_end_minute")
+  shiftSpansNextDay   Boolean?                @map("shift_spans_next_day")
+  supervisorAccountId String                  @map("supervisor_account_id") @db.Uuid
+  createdByAccountId  String                  @map("created_by_account_id") @db.Uuid
+  divisionId          String                  @map("division_id") @db.Uuid
+  departmentId        String?                 @map("department_id") @db.Uuid
+  recurrenceType      DutyRecurrenceType      @map("recurrence_type")
+  startDate           DateTime                @map("start_date") @db.Date
+  endDate             DateTime                @map("end_date") @db.Date
+  weekdays            Int[]                   @default([])
+  reportingLocation   String                  @map("reporting_location") @db.VarChar(300)
+  notes               String?                 @db.VarChar(1000)
+  authority           DutyAssignmentAuthority @default(STANDARD_HIERARCHY)
+  overrideReason      String?                 @map("override_reason") @db.VarChar(500)
+  hierarchyOverride   Boolean                 @default(false) @map("hierarchy_override")
+  conflictOverride    Boolean                 @default(false) @map("conflict_override")
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  employee    Account            @relation("DutyScheduleSeriesEmployee", fields: [employeeAccountId], references: [id], onDelete: Restrict)
+  shift       DutyShiftTemplate? @relation(fields: [shiftTemplateId], references: [id], onDelete: SetNull)
+  supervisor  Account            @relation("DutyScheduleSeriesSupervisor", fields: [supervisorAccountId], references: [id], onDelete: Restrict)
+  createdBy   Account            @relation("DutyScheduleSeriesCreatedBy", fields: [createdByAccountId], references: [id], onDelete: Restrict)
+  division    Division           @relation(fields: [divisionId], references: [id], onDelete: Restrict)
+  department  Department?        @relation(fields: [departmentId], references: [id], onDelete: Restrict)
+  assignments DutyAssignment[]
+  activities  DutyActivity[]
+
+  @@index([employeeAccountId, startDate, endDate], map: "duty_schedule_series_employee_dates_idx")
+  @@index([departmentId, startDate, endDate], map: "duty_schedule_series_department_dates_idx")
+  @@map("duty_schedule_series")
+}
+
+model DutyAssignment {
+  id String @id @default(uuid()) @db.Uuid
+
+  seriesId             String                  @map("series_id") @db.Uuid
+  employeeAccountId    String                  @map("employee_account_id") @db.Uuid
+  shiftTemplateId      String?                 @map("shift_template_id") @db.Uuid
+  shiftName            String                  @map("shift_name") @db.VarChar(100)
+  shiftStartMinute     Int                     @map("shift_start_minute")
+  shiftEndMinute       Int                     @map("shift_end_minute")
+  shiftSpansNextDay    Boolean                 @map("shift_spans_next_day")
+  supervisorAccountId  String                  @map("supervisor_account_id") @db.Uuid
+  createdByAccountId   String                  @map("created_by_account_id") @db.Uuid
+  divisionId           String                  @map("division_id") @db.Uuid
+  departmentId         String?                 @map("department_id") @db.Uuid
+  dutyDate             DateTime                @map("duty_date") @db.Date
+  startsAt             DateTime                @map("starts_at") @db.Timestamptz(3)
+  endsAt               DateTime                @map("ends_at") @db.Timestamptz(3)
+  reportingLocation    String                  @map("reporting_location") @db.VarChar(300)
+  notes                String?                 @db.VarChar(1000)
+  authority            DutyAssignmentAuthority @default(STANDARD_HIERARCHY)
+  overrideReason       String?                 @map("override_reason") @db.VarChar(500)
+  hierarchyOverride    Boolean                 @default(false) @map("hierarchy_override")
+  conflictOverride     Boolean                 @default(false) @map("conflict_override")
+  cancelledAt          DateTime?               @map("cancelled_at") @db.Timestamptz(3)
+  cancelledByAccountId String?                 @map("cancelled_by_account_id") @db.Uuid
+  cancellationReason   String?                 @map("cancellation_reason") @db.VarChar(500)
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  series      DutyScheduleSeries @relation(fields: [seriesId], references: [id], onDelete: Cascade)
+  employee    Account            @relation("DutyAssignmentsEmployee", fields: [employeeAccountId], references: [id], onDelete: Restrict)
+  shift       DutyShiftTemplate? @relation(fields: [shiftTemplateId], references: [id], onDelete: SetNull)
+  supervisor  Account            @relation("DutyAssignmentsSupervisor", fields: [supervisorAccountId], references: [id], onDelete: Restrict)
+  createdBy   Account            @relation("DutyAssignmentsCreatedBy", fields: [createdByAccountId], references: [id], onDelete: Restrict)
+  cancelledBy Account?           @relation("DutyAssignmentsCancelledBy", fields: [cancelledByAccountId], references: [id], onDelete: Restrict)
+  division    Division           @relation(fields: [divisionId], references: [id], onDelete: Restrict)
+  department  Department?        @relation(fields: [departmentId], references: [id], onDelete: Restrict)
+  activities  DutyActivity[]
+
+  @@unique([employeeAccountId, startsAt, endsAt], map: "duty_assignments_employee_window_key")
+  @@index([employeeAccountId, startsAt, endsAt], map: "duty_assignments_employee_window_idx")
+  @@index([departmentId, startsAt, endsAt], map: "duty_assignments_department_window_idx")
+  @@index([supervisorAccountId, startsAt], map: "duty_assignments_supervisor_start_idx")
+  @@index([createdByAccountId, startsAt], map: "duty_assignments_created_by_start_idx")
+  @@index([authority, startsAt], map: "duty_assignments_authority_start_idx")
+  @@map("duty_assignments")
+}
+
+model DutyCoverageRequirement {
+  id String @id @default(uuid()) @db.Uuid
+
+  departmentId         String    @map("department_id") @db.Uuid
+  shiftTemplateId      String    @map("shift_template_id") @db.Uuid
+  dayOfWeek            Int       @map("day_of_week")
+  requiredStaff        Int       @map("required_staff")
+  reportingLocation    String?   @map("reporting_location") @db.VarChar(300)
+  reportingLocationKey String?   @map("reporting_location_key") @db.VarChar(300)
+  effectiveFrom        DateTime  @map("effective_from") @db.Date
+  effectiveUntil       DateTime? @map("effective_until") @db.Date
+  createdByAccountId   String    @map("created_by_account_id") @db.Uuid
+  updatedByAccountId   String    @map("updated_by_account_id") @db.Uuid
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  department Department                        @relation(fields: [departmentId], references: [id], onDelete: Restrict)
+  shift      DutyShiftTemplate                 @relation(fields: [shiftTemplateId], references: [id], onDelete: Restrict)
+  createdBy  Account                           @relation("DutyCoverageRequirementsCreatedBy", fields: [createdByAccountId], references: [id], onDelete: Restrict)
+  updatedBy  Account                           @relation("DutyCoverageRequirementsUpdatedBy", fields: [updatedByAccountId], references: [id], onDelete: Restrict)
+  activities DutyCoverageRequirementActivity[]
+
+  @@index([departmentId, effectiveFrom, effectiveUntil], map: "duty_coverage_requirements_department_dates_idx")
+  @@index([shiftTemplateId, dayOfWeek, effectiveFrom], map: "duty_coverage_requirements_shift_day_idx")
+  @@index([reportingLocationKey, effectiveFrom], map: "duty_coverage_requirements_location_dates_idx")
+  @@map("duty_coverage_requirements")
+}
+
+model DutyCoverageRequirementActivity {
+  id String @id @default(uuid()) @db.Uuid
+
+  requirementId  String                        @map("requirement_id") @db.Uuid
+  actorAccountId String                        @map("actor_account_id") @db.Uuid
+  action         DutyCoverageRequirementAction
+  previousState  Json?                         @map("previous_state")
+  nextState      Json?                         @map("next_state")
+  createdAt      DateTime                      @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  requirement DutyCoverageRequirement @relation(fields: [requirementId], references: [id], onDelete: Cascade)
+  actor       Account                 @relation("DutyCoverageRequirementActivitiesActor", fields: [actorAccountId], references: [id], onDelete: Restrict)
+
+  @@index([requirementId, createdAt], map: "duty_coverage_requirement_activities_requirement_idx")
+  @@index([actorAccountId, createdAt], map: "duty_coverage_requirement_activities_actor_idx")
+  @@map("duty_coverage_requirement_activities")
+}
+
+model DutyException {
+  id String @id @default(uuid()) @db.Uuid
+
+  employeeAccountId  String            @map("employee_account_id") @db.Uuid
+  createdByAccountId String            @map("created_by_account_id") @db.Uuid
+  divisionId         String            @map("division_id") @db.Uuid
+  departmentId       String?           @map("department_id") @db.Uuid
+  exceptionDate      DateTime          @map("exception_date") @db.Date
+  type               DutyExceptionType
+  note               String?           @db.VarChar(1000)
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  employee   Account     @relation("DutyExceptionsEmployee", fields: [employeeAccountId], references: [id], onDelete: Restrict)
+  createdBy  Account     @relation("DutyExceptionsCreatedBy", fields: [createdByAccountId], references: [id], onDelete: Restrict)
+  division   Division    @relation(fields: [divisionId], references: [id], onDelete: Restrict)
+  department Department? @relation(fields: [departmentId], references: [id], onDelete: Restrict)
+
+  @@unique([employeeAccountId, exceptionDate], map: "duty_exceptions_employee_date_key")
+  @@index([departmentId, exceptionDate], map: "duty_exceptions_department_date_idx")
+  @@map("duty_exceptions")
+}
+
+model EmployeeWorkAvailability {
+  accountId  String                     @id @map("account_id") @db.Uuid
+  preference WorkAvailabilityPreference @default(AVAILABLE)
+  createdAt  DateTime                   @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt  DateTime                   @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  account Account @relation("EmployeeWorkAvailabilityAccount", fields: [accountId], references: [id], onDelete: Cascade)
+
+  @@index([preference, updatedAt], map: "employee_work_availability_preference_idx")
+  @@map("employee_work_availability")
+}
+
+model DutyActivity {
+  id String @id @default(uuid()) @db.Uuid
+
+  dutyAssignmentId  String?            @map("duty_assignment_id") @db.Uuid
+  seriesId          String?            @map("series_id") @db.Uuid
+  employeeAccountId String             @map("employee_account_id") @db.Uuid
+  actorAccountId    String             @map("actor_account_id") @db.Uuid
+  action            DutyActivityAction
+  details           Json?
+  createdAt         DateTime           @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  assignment DutyAssignment?     @relation(fields: [dutyAssignmentId], references: [id], onDelete: Cascade)
+  series     DutyScheduleSeries? @relation(fields: [seriesId], references: [id], onDelete: Cascade)
+  employee   Account             @relation("DutyActivitiesEmployee", fields: [employeeAccountId], references: [id], onDelete: Restrict)
+  actor      Account             @relation("DutyActivitiesActor", fields: [actorAccountId], references: [id], onDelete: Restrict)
+
+  @@index([employeeAccountId, createdAt], map: "duty_activities_employee_created_idx")
+  @@index([dutyAssignmentId, createdAt], map: "duty_activities_assignment_created_idx")
+  @@map("duty_activities")
+}
+
 model ActivityEvent {
   id String @id @default(uuid()) @db.Uuid
 
@@ -1229,15 +1918,15 @@ model DailyActivitySummary {
   accountId    String   @map("account_id") @db.Uuid
   activityDate DateTime @map("activity_date") @db.Date
 
-  firstLoginAt        DateTime? @map("first_login_at") @db.Timestamptz(3)
-  lastLogoutAt        DateTime? @map("last_logout_at") @db.Timestamptz(3)
-  lastActiveAt        DateTime? @map("last_active_at") @db.Timestamptz(3)
-  activeMinutes       Int       @default(0) @map("active_minutes")
-  idleMinutes         Int       @default(0) @map("idle_minutes")
-  pagesVisitedCount   Int       @default(0) @map("pages_visited_count")
-  actionsCount        Int       @default(0) @map("actions_count")
-  emergencyAlertsCount Int      @default(0) @map("emergency_alerts_count")
-  afterHoursLoginCount Int      @default(0) @map("after_hours_login_count")
+  firstLoginAt         DateTime? @map("first_login_at") @db.Timestamptz(3)
+  lastLogoutAt         DateTime? @map("last_logout_at") @db.Timestamptz(3)
+  lastActiveAt         DateTime? @map("last_active_at") @db.Timestamptz(3)
+  activeMinutes        Int       @default(0) @map("active_minutes")
+  idleMinutes          Int       @default(0) @map("idle_minutes")
+  pagesVisitedCount    Int       @default(0) @map("pages_visited_count")
+  actionsCount         Int       @default(0) @map("actions_count")
+  emergencyAlertsCount Int       @default(0) @map("emergency_alerts_count")
+  afterHoursLoginCount Int       @default(0) @map("after_hours_login_count")
 
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
@@ -1249,3 +1938,48 @@ model DailyActivitySummary {
   @@index([accountId, activityDate], map: "daily_activity_summaries_account_date_idx")
   @@map("daily_activity_summaries")
 }
+
+model ChatFolder {
+  id        String   @id @default(uuid()) @db.Uuid
+  accountId String   @map("account_id") @db.Uuid
+
+  name      String   @db.VarChar(100)
+  icon      String   @default("folder") @db.VarChar(50)
+  color     String?  @db.VarChar(30)
+  position  Int      @default(0)
+
+  includePrivate    Boolean @default(false) @map("include_private")
+  includeGroups     Boolean @default(false) @map("include_groups")
+  includeOfficial   Boolean @default(false) @map("include_official")
+  includeUnreadOnly Boolean @default(false) @map("include_unread_only")
+  excludeMuted      Boolean @default(false) @map("exclude_muted")
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  account Account          @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  items   ChatFolderItem[]
+
+  @@index([accountId, position], map: "chat_folders_account_position_idx")
+  @@map("chat_folders")
+}
+
+model ChatFolderItem {
+  id       String @id @default(uuid()) @db.Uuid
+  folderId String @map("folder_id") @db.Uuid
+
+  conversationId  String? @map("conversation_id") @db.Uuid
+  targetAccountId String? @map("target_account_id") @db.Uuid
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  folder        ChatFolder    @relation(fields: [folderId], references: [id], onDelete: Cascade)
+  conversation  Conversation? @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  targetAccount Account?      @relation("ChatFolderItemTargetAccount", fields: [targetAccountId], references: [id], onDelete: Cascade)
+
+  @@unique([folderId, conversationId], map: "chat_folder_items_folder_conversation_key")
+  @@unique([folderId, targetAccountId], map: "chat_folder_items_folder_target_account_key")
+  @@index([folderId], map: "chat_folder_items_folder_idx")
+  @@map("chat_folder_items")
+}
+

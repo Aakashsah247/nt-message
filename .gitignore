@@ -35,7 +35,7 @@ test-results/
 generated/
 apps/api/src/generated/
 
-**/.env.local
+**/.env.localf
 apps/api/storage/message-attachments/
 
 # TypeScript build cache

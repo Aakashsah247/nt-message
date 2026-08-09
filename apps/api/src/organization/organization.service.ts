@@ -160,6 +160,7 @@ export class OrganizationService {
             id: true,
             code: true,
             name: true,
+            workFunction: true,
             isActive: true,
             createdAt: true,
             updatedAt: true,
@@ -550,6 +551,7 @@ export class OrganizationService {
       data: {
         code,
         name,
+        workFunction: dto.workFunction,
         isActive: true,
 
         division: {
@@ -563,6 +565,7 @@ export class OrganizationService {
         id: true,
         code: true,
         name: true,
+        workFunction: true,
         isActive: true,
         createdAt: true,
         updatedAt: true,
@@ -599,6 +602,7 @@ export class OrganizationService {
         id: true,
         code: true,
         name: true,
+        workFunction: true,
         isActive: true,
         createdAt: true,
         updatedAt: true,
@@ -705,6 +709,7 @@ export class OrganizationService {
         id: true,
         code: true,
         name: true,
+        workFunction: true,
         isActive: true,
         createdAt: true,
         updatedAt: true,
@@ -748,6 +753,7 @@ export class OrganizationService {
         divisionId: true,
         code: true,
         name: true,
+        workFunction: true,
         isActive: true,
 
         _count: {
@@ -774,6 +780,7 @@ export class OrganizationService {
       dto.divisionId === undefined &&
       code === undefined &&
       name === undefined &&
+      dto.workFunction === undefined &&
       dto.isActive === undefined
     ) {
       throw new BadRequestException(
@@ -933,6 +940,12 @@ export class OrganizationService {
       data.name = name;
     }
 
+    if (dto.workFunction !== undefined) {
+      // Work function drives cross-department assignment eligibility. It is
+      // explicit organization metadata, never inferred from employee titles.
+      data.workFunction = dto.workFunction;
+    }
+
     if (dto.isActive !== undefined) {
       data.isActive = dto.isActive;
     }
@@ -960,6 +973,7 @@ export class OrganizationService {
           id: true,
           code: true,
           name: true,
+          workFunction: true,
           isActive: true,
           createdAt: true,
           updatedAt: true,

@@ -716,3 +716,31 @@
     transition-duration: 0s;
   }
 }
+
+/* Final navigation polish keeps keyboard focus visible without the browser's oversized default ring. */
+.management-layout__brand:focus-visible,
+.management-layout__collapse:focus-visible,
+.management-layout__navigation-link:focus-visible,
+.management-layout__emergency-button:focus-visible,
+.management-layout__logout:focus-visible,
+.management-layout__mobile-menu:focus-visible {
+  outline: 2px solid #f4b72a;
+  outline-offset: 2px;
+}
+
+.management-layout__navigation {
+  overscroll-behavior: contain;
+}
+
+.management-layout__navigation-link > span,
+.emergency-alert-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.management-layout__navigation-link--active:focus-visible {
+  outline-color: #ffffff;
+  box-shadow:
+    inset 3px 0 0 var(--color-nt-gold),
+    0 0 0 2px rgba(244, 183, 42, 0.22);
+}

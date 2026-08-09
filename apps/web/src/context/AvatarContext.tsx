@@ -17,6 +17,7 @@ import {
 } from "../services/messaging.service";
 
 const UNKNOWN_PHOTO_KEY = "__protected-photo-check__";
+const NO_PHOTO_KEY = "__protected-photo-absent__";
 
 interface AvatarContextValue {
   accountUrls: Record<string, string>;
@@ -129,8 +130,25 @@ export function AvatarProvider({ children }: AvatarProviderProps) {
       return;
     }
 
-    const requestedKey = photoKey ?? UNKNOWN_PHOTO_KEY;
+    const requestedKey =
+      photoKey === null ? NO_PHOTO_KEY : photoKey ?? UNKNOWN_PHOTO_KEY;
     if (accountCacheKeysRef.current[accountId] === requestedKey) {
+      return;
+    }
+
+    if (photoKey === null) {
+      // Known no-photo accounts use initials without issuing a predictable 404 request.
+      revokeUrl(accountUrlsRef.current[accountId]);
+      accountCacheKeysRef.current[accountId] = requestedKey;
+      setAccountUrls((current) => {
+        if (!current[accountId]) {
+          return current;
+        }
+
+        const { [accountId]: _removed, ...rest } = current;
+        void _removed;
+        return rest;
+      });
       return;
     }
 
@@ -149,13 +167,25 @@ export function AvatarProvider({ children }: AvatarProviderProps) {
           generation !== generationRef.current ||
           identityVersion !== (accountVersionsRef.current[accountId] ?? 0)
         ) {
-          URL.revokeObjectURL(url);
+          revokeUrl(url ?? undefined);
           return;
         }
 
         revokeUrl(accountUrlsRef.current[accountId]);
         accountCacheKeysRef.current[accountId] = requestedKey;
-        setAccountUrls((current) => ({ ...current, [accountId]: url }));
+        setAccountUrls((current) => {
+          if (url) {
+            return { ...current, [accountId]: url };
+          }
+
+          if (!current[accountId]) {
+            return current;
+          }
+
+          const { [accountId]: _removed, ...rest } = current;
+          void _removed;
+          return rest;
+        });
       })
       .catch(() => {
         if (
@@ -194,8 +224,25 @@ export function AvatarProvider({ children }: AvatarProviderProps) {
       return;
     }
 
-    const requestedKey = photoKey ?? UNKNOWN_PHOTO_KEY;
+    const requestedKey =
+      photoKey === null ? NO_PHOTO_KEY : photoKey ?? UNKNOWN_PHOTO_KEY;
     if (employeeCacheKeysRef.current[employeeId] === requestedKey) {
+      return;
+    }
+
+    if (photoKey === null) {
+      // Directory metadata already proves whether a custom avatar exists.
+      revokeUrl(employeeUrlsRef.current[employeeId]);
+      employeeCacheKeysRef.current[employeeId] = requestedKey;
+      setEmployeeUrls((current) => {
+        if (!current[employeeId]) {
+          return current;
+        }
+
+        const { [employeeId]: _removed, ...rest } = current;
+        void _removed;
+        return rest;
+      });
       return;
     }
 
@@ -214,13 +261,25 @@ export function AvatarProvider({ children }: AvatarProviderProps) {
           generation !== generationRef.current ||
           identityVersion !== (employeeVersionsRef.current[employeeId] ?? 0)
         ) {
-          URL.revokeObjectURL(url);
+          revokeUrl(url ?? undefined);
           return;
         }
 
         revokeUrl(employeeUrlsRef.current[employeeId]);
         employeeCacheKeysRef.current[employeeId] = requestedKey;
-        setEmployeeUrls((current) => ({ ...current, [employeeId]: url }));
+        setEmployeeUrls((current) => {
+          if (url) {
+            return { ...current, [employeeId]: url };
+          }
+
+          if (!current[employeeId]) {
+            return current;
+          }
+
+          const { [employeeId]: _removed, ...rest } = current;
+          void _removed;
+          return rest;
+        });
       })
       .catch(() => {
         if (

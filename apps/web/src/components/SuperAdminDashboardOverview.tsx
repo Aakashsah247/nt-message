@@ -298,6 +298,13 @@ export function SuperAdminDashboardOverview({
           </header>
 
           <div className="super-admin-overview__actions">
+            <Link to="/work-management">
+              <ManagementIcon name="management" />
+              <span>
+                <strong>Open Work Management</strong>
+                <small>Assign branch work and verify operational ticket completion.</small>
+              </span>
+            </Link>
             <Link to="/super-admin/account-requests">
               <ManagementIcon name="requests" />
               <span>

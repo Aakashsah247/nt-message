@@ -7,14 +7,19 @@ import {
   ParseUUIDPipe,
   Patch,
   Post,
+  Put,
   Query,
   Res,
   StreamableFile,
   UploadedFile,
+  UploadedFiles,
   UseGuards,
   UseInterceptors,
 } from '@nestjs/common';
-import { FileInterceptor } from '@nestjs/platform-express';
+import {
+  FileFieldsInterceptor,
+  FileInterceptor,
+} from '@nestjs/platform-express';
 import { createReadStream } from 'node:fs';
 import type { Response } from 'express';
 
@@ -46,8 +51,19 @@ import { UpdateTextMessageDto } from './dto/update-text-message.dto';
 import { UpdateLiveLocationDto } from './dto/update-live-location.dto';
 import { UpdateMessagingProfileDto } from './dto/update-messaging-profile.dto';
 import { UpdateMessagingSettingsDto } from './dto/update-messaging-settings.dto';
+import { CreateChatFolderDto } from './dto/create-chat-folder.dto';
+import { UpdateChatFolderDto } from './dto/update-chat-folder.dto';
+import { ReorderChatFoldersDto } from './dto/reorder-chat-folders.dto';
+import { ManageFolderItemDto } from './dto/manage-folder-item.dto';
 import { ReactMessageDto } from './dto/react-message.dto';
 import type { UploadedMessageAttachmentFile } from './types/uploaded-message-attachment-file';
+import { createBoundedMessageAttachmentMemoryStorage } from './message-attachment-memory-storage';
+import {
+  MAX_MESSAGE_ATTACHMENT_FILE_BYTES,
+  MAX_MESSAGE_ATTACHMENT_FILES,
+  MAX_MESSAGE_ATTACHMENT_TOTAL_BYTES,
+} from './message-attachment-upload.constants';
+
 
 @Controller('conversations')
 @UseGuards(AccessTokenGuard)
@@ -63,6 +79,89 @@ export class ConversationsController {
     user: AuthenticatedUser,
   ) {
     return this.conversationsService.getMessagingSettings(user);
+  }
+
+  @Get('folders')
+  listChatFolders(
+    @CurrentUser()
+    user: AuthenticatedUser,
+  ) {
+    return this.conversationsService.listChatFolders(user);
+  }
+
+  @Post('folders')
+  createChatFolder(
+    @CurrentUser()
+    user: AuthenticatedUser,
+
+    @Body()
+    dto: CreateChatFolderDto,
+  ) {
+    return this.conversationsService.createChatFolder(user, dto);
+  }
+
+  @Put('folders/reorder')
+  reorderChatFolders(
+    @CurrentUser()
+    user: AuthenticatedUser,
+
+    @Body()
+    dto: ReorderChatFoldersDto,
+  ) {
+    return this.conversationsService.reorderChatFolders(user, dto);
+  }
+
+  @Patch('folders/:folderId')
+  updateChatFolder(
+    @CurrentUser()
+    user: AuthenticatedUser,
+
+    @Param('folderId', new ParseUUIDPipe({ version: '4' }))
+    folderId: string,
+
+    @Body()
+    dto: UpdateChatFolderDto,
+  ) {
+    return this.conversationsService.updateChatFolder(user, folderId, dto);
+  }
+
+  @Delete('folders/:folderId')
+  deleteChatFolder(
+    @CurrentUser()
+    user: AuthenticatedUser,
+
+    @Param('folderId', new ParseUUIDPipe({ version: '4' }))
+    folderId: string,
+  ) {
+    return this.conversationsService.deleteChatFolder(user, folderId);
+  }
+
+  @Post('folders/:folderId/items')
+  addFolderItem(
+    @CurrentUser()
+    user: AuthenticatedUser,
+
+    @Param('folderId', new ParseUUIDPipe({ version: '4' }))
+    folderId: string,
+
+    @Body()
+    dto: ManageFolderItemDto,
+  ) {
+    return this.conversationsService.addFolderItem(user, folderId, dto);
+  }
+
+  @Delete('folders/:folderId/items/:itemId')
+  removeFolderItem(
+    @CurrentUser()
+    user: AuthenticatedUser,
+
+    @Param('folderId', new ParseUUIDPipe({ version: '4' }))
+    folderId: string,
+
+    @Param('itemId', new ParseUUIDPipe({ version: '4' }))
+    itemId: string,
+  ) {
+    return this.conversationsService.removeFolderItem(user, folderId, itemId);
   }
 
   @Patch('settings')
@@ -172,12 +271,19 @@ export class ConversationsController {
 
     @Res({ passthrough: true })
     response: Response,
-  ): Promise<StreamableFile> {
+  ): Promise<StreamableFile | void> {
     const photo =
       await this.conversationsService.getMessagingProfilePhotoByEmployeeDownload(
         user,
         employeeId,
       );
+
+    if (!photo) {
+      // Missing custom photos are represented by initials in the directory.
+      response.status(204);
+      response.setHeader('Cache-Control', 'private, max-age=60');
+      return;
+    }
 
     // Directory profile photos use the same protected response headers as messaging profile photos.
     response.setHeader('Content-Type', photo.mimeType);
@@ -218,12 +324,19 @@ export class ConversationsController {
 
     @Res({ passthrough: true })
     response: Response,
-  ): Promise<StreamableFile> {
+  ): Promise<StreamableFile | void> {
     const photo =
       await this.conversationsService.getMessagingProfilePhotoDownload(
         user,
         accountId,
       );
+
+    if (!photo) {
+      // A valid account without an uploaded photo uses the initials fallback.
+      response.status(204);
+      response.setHeader('Cache-Control', 'private, max-age=60');
+      return;
+    }
 
     // Profile photos are protected resources, not public object-storage URLs.
     response.setHeader('Content-Type', photo.mimeType);
@@ -1056,7 +1169,22 @@ export class ConversationsController {
 
   @Post(':id/attachments')
   @UseInterceptors(
-    FileInterceptor('file', { limits: { fileSize: 200 * 1024 * 1024 } }),
+    FileFieldsInterceptor(
+      [
+        { name: 'files', maxCount: MAX_MESSAGE_ATTACHMENT_FILES },
+        // Preserve compatibility with the previous single-file client during rollout.
+        { name: 'file', maxCount: 1 },
+      ],
+      {
+        storage: createBoundedMessageAttachmentMemoryStorage(
+          MAX_MESSAGE_ATTACHMENT_TOTAL_BYTES,
+        ),
+        limits: {
+          fileSize: MAX_MESSAGE_ATTACHMENT_FILE_BYTES,
+          files: MAX_MESSAGE_ATTACHMENT_FILES,
+        },
+      },
+    ),
   )
   sendAttachmentMessage(
     @CurrentUser()
@@ -1070,17 +1198,27 @@ export class ConversationsController {
     )
     conversationId: string,
 
-    @UploadedFile()
-    file: UploadedMessageAttachmentFile | undefined,
+    @UploadedFiles()
+    uploadedFiles:
+      | {
+          files?: UploadedMessageAttachmentFile[];
+          file?: UploadedMessageAttachmentFile[];
+        }
+      | undefined,
 
     @Body()
     dto: SendAttachmentMessageDto,
   ) {
+    const files = [
+      ...(uploadedFiles?.files ?? []),
+      ...(uploadedFiles?.file ?? []),
+    ];
+
     return this.conversationsService.sendAttachmentMessage(
       user,
       conversationId,
       dto,
-      file,
+      files,
     );
   }
 

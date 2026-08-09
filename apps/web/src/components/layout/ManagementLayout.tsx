@@ -53,7 +53,12 @@ function isItemActive(
   pathname: string,
   adminView: string,
 ): boolean {
-  if (pathname !== item.path) {
+  const pathMatches =
+    pathname === item.path ||
+    (item.path === "/work-management" &&
+      pathname.startsWith("/work-management/"));
+
+  if (!pathMatches) {
     return false;
   }
 
@@ -120,9 +125,12 @@ export function ManagementLayout({
       }
     }
 
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
     document.addEventListener("keydown", closeOnEscape);
 
     return () => {
+      document.body.style.overflow = previousOverflow;
       document.removeEventListener("keydown", closeOnEscape);
     };
   }, [mobileOpen]);
@@ -162,7 +170,7 @@ export function ManagementLayout({
         className={mobileOpen
           ? "management-layout__sidebar management-layout__sidebar--open"
           : "management-layout__sidebar"}
-        aria-label="Management navigation"
+        aria-label={`${formatRole(account.role)} primary navigation`}
       >
         <div className="management-layout__brand-row">
           <Link
@@ -197,10 +205,15 @@ export function ManagementLayout({
         <nav className="management-layout__navigation">
           {navigation.map((section) => (
             <section
-              key={section.label}
+              key={section.id}
               className="management-layout__navigation-section"
+              data-navigation-section={section.id}
+              aria-labelledby={`management-navigation-${section.id}`}
             >
-              <span className="management-layout__section-label">
+              <span
+                id={`management-navigation-${section.id}`}
+                className="management-layout__section-label"
+              >
                 {section.label}
               </span>
 
@@ -220,6 +233,7 @@ export function ManagementLayout({
                         : "management-layout__navigation-link"}
                       to={getItemHref(item)}
                       aria-current={active ? "page" : undefined}
+                      aria-label={item.label}
                       title={collapsed ? item.label : undefined}
                     >
                       <ManagementIcon name={item.icon} />

@@ -41,6 +41,7 @@ describe('ConversationsService personal history actions', () => {
     },
     conversationParticipant: {
       findUnique: jest.fn(),
+      update: jest.fn(),
     },
     messageReceipt: {
       findMany: jest.fn(),
@@ -75,6 +76,8 @@ describe('ConversationsService personal history actions', () => {
     deletedFromListAt: null,
     isPinned: true,
     pinnedAt: new Date('2026-07-17T03:00:00.000Z'),
+    isFavorite: true,
+    favoritedAt: new Date('2026-07-17T03:10:00.000Z'),
     isArchived: false,
     archivedAt: null,
     isMuted: true,
@@ -254,6 +257,8 @@ describe('ConversationsService personal history actions', () => {
           deletedFromListAt: now,
           isPinned: false,
           pinnedAt: null,
+          isFavorite: false,
+          favoritedAt: null,
           isArchived: false,
           archivedAt: null,
           markedUnreadAt: null,
@@ -316,4 +321,51 @@ describe('ConversationsService personal history actions', () => {
       messagingEventsService.emitConversationUpdated,
     ).not.toHaveBeenCalled();
   });
+
+  it('stores favorites privately and supports a one-hour mute duration', async () => {
+    jest.mocked(prisma.conversationParticipant.update).mockResolvedValue({
+      ...participantState,
+      isFavorite: true,
+      favoritedAt: now,
+      mutedUntil: new Date('2026-07-17T05:00:00.000Z'),
+    } as never);
+
+    const result = await service.updateConversationPreference(
+      {
+        accountId: 'account-1',
+        sessionId: 'session-1',
+      } as never,
+      'conversation-1',
+      {
+        isFavorite: true,
+        mute: '1_HOUR',
+      },
+    );
+
+    expect(prisma.conversationParticipant.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: {
+          conversationId_accountId: {
+            conversationId: 'conversation-1',
+            accountId: 'account-1',
+          },
+        },
+        data: expect.objectContaining({
+          isFavorite: true,
+          favoritedAt: now,
+          isMuted: true,
+          mutedUntil: new Date('2026-07-17T05:00:00.000Z'),
+        }),
+      }),
+    );
+    expect(result.data).toEqual(
+      expect.objectContaining({
+        isFavorite: true,
+        favoritedAt: now,
+        isMuted: true,
+        mutedUntil: new Date('2026-07-17T05:00:00.000Z'),
+      }),
+    );
+  });
+
 });

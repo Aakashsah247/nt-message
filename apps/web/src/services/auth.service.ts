@@ -55,6 +55,21 @@ export function logoutAuth():
   });
 }
 
+
+export function logoutAllAuth(
+  accessToken: string,
+): Promise<{ message: string; revokedSessions: number }> {
+  return apiRequest<{ message: string; revokedSessions: number }>(
+    "/auth/logout-all",
+    {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+      },
+    },
+  );
+}
+
 export function changePassword(
   accessToken: string,
   payload: ChangePasswordInput,

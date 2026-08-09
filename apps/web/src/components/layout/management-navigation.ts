@@ -9,6 +9,14 @@ export type AdminWorkspaceView =
   | "monitoring"
   | "profile";
 
+export type ManagementNavigationSectionId =
+  | "overview"
+  | "people-access"
+  | "operations"
+  | "governance"
+  | "communication"
+  | "account";
+
 export interface ManagementNavigationItem {
   icon: ManagementIconName;
   label: string;
@@ -17,11 +25,13 @@ export interface ManagementNavigationItem {
 }
 
 export interface ManagementNavigationSection {
+  id: ManagementNavigationSectionId;
   label: string;
   items: ManagementNavigationItem[];
 }
 
 const ACCOUNT_SECURITY_SECTION: ManagementNavigationSection = {
+  id: "account",
   label: "Account",
   items: [
     {
@@ -32,24 +42,58 @@ const ACCOUNT_SECURITY_SECTION: ManagementNavigationSection = {
   ],
 };
 
+const MANAGEMENT_OPERATIONS_SECTION: ManagementNavigationSection = {
+  id: "operations",
+  label: "Operations",
+  items: [
+    {
+      icon: "work",
+      label: "Work Management",
+      path: "/work-management",
+    },
+    {
+      icon: "duty",
+      label: "Duty Roster",
+      path: "/duty-management",
+    },
+    {
+      icon: "teams",
+      label: "Team Management",
+      path: "/team-management",
+    },
+    {
+      icon: "reports",
+      label: "Reports",
+      path: "/work-reports",
+    },
+  ],
+};
+
 const SUPER_ADMIN_NAVIGATION: ManagementNavigationSection[] = [
   {
-    label: "Workspace",
+    id: "overview",
+    label: "Overview",
     items: [
       {
         icon: "dashboard",
         label: "Dashboard",
         path: "/super-admin",
       },
-      {
-        icon: "requests",
-        label: "Account requests",
-        path: "/super-admin/account-requests",
-      },
+    ],
+  },
+  {
+    id: "people-access",
+    label: "People & Access",
+    items: [
       {
         icon: "directory",
         label: "Directory",
         path: "/directory",
+      },
+      {
+        icon: "requests",
+        label: "Account requests",
+        path: "/super-admin/account-requests",
       },
       {
         icon: "management",
@@ -58,7 +102,9 @@ const SUPER_ADMIN_NAVIGATION: ManagementNavigationSection[] = [
       },
     ],
   },
+  MANAGEMENT_OPERATIONS_SECTION,
   {
+    id: "governance",
     label: "Governance",
     items: [
       {
@@ -88,6 +134,7 @@ const SUPER_ADMIN_NAVIGATION: ManagementNavigationSection[] = [
     ],
   },
   {
+    id: "communication",
     label: "Communication",
     items: [
       {
@@ -101,13 +148,36 @@ const SUPER_ADMIN_NAVIGATION: ManagementNavigationSection[] = [
 
 const EMPLOYEE_NAVIGATION: ManagementNavigationSection[] = [
   {
-    label: "Workspace",
+    id: "overview",
+    label: "Overview",
     items: [
       {
         icon: "dashboard",
         label: "Dashboard",
         path: "/employee",
       },
+    ],
+  },
+  {
+    id: "operations",
+    label: "Operations",
+    items: [
+      {
+        icon: "work",
+        label: "My Work",
+        path: "/employee/work",
+      },
+      {
+        icon: "duty",
+        label: "My Duty",
+        path: "/employee/duty",
+      },
+    ],
+  },
+  {
+    id: "communication",
+    label: "Communication",
+    items: [
       {
         icon: "messages",
         label: "Messages",
@@ -126,13 +196,20 @@ function getManagerNavigation(
 
   return [
     {
-      label: "Workspace",
+      id: "overview",
+      label: "Overview",
       items: [
         {
           icon: "dashboard",
           label: "Dashboard",
           path: dashboardPath,
         },
+      ],
+    },
+    {
+      id: "people-access",
+      label: "People & Access",
+      items: [
         {
           icon: "directory",
           label: "Directory",
@@ -146,6 +223,20 @@ function getManagerNavigation(
       ],
     },
     {
+      ...MANAGEMENT_OPERATIONS_SECTION,
+      // My Duty is personal schedule access; Duty Management remains the planning workspace.
+      items: [
+        ...MANAGEMENT_OPERATIONS_SECTION.items.slice(0, 2),
+        {
+          icon: "duty",
+          label: "My Duty",
+          path: "/my-duty",
+        },
+        ...MANAGEMENT_OPERATIONS_SECTION.items.slice(2),
+      ],
+    },
+    {
+      id: "communication",
       label: "Communication",
       items: [
         {

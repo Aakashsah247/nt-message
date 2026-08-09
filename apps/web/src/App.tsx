@@ -1,10 +1,11 @@
 import "./styles/manager-workspace.css";
 import "./styles/employee-dashboard.css";
+import "./styles/work-management.css";
+import "./styles/team-management.css";
 import "./styles/super-admin-workspace.css";
 import "./styles/organization-workspace.css";
 import "./styles/monitoring-workspace.css";
 import "./styles/official-profile-workspace.css";
-import "./styles/messaging-workspace.css";
 import "./styles/security-workspace.css";
 import "./styles/password-recovery.css";
 import { Navigate, Route, Routes } from "react-router";
@@ -18,12 +19,17 @@ import { AdminAccountRequestsPage } from "./pages/AdminAccountRequestsPage";
 import { ManagementPositionsPage } from "./pages/ManagementPositionsPage";
 import { ManagerAccountRequestsPage } from "./pages/ManagerAccountRequestsPage";
 import { ManagerRequestDashboardPage } from "./pages/ManagerRequestDashboardPage";
+import { ManagementWorkPage } from "./pages/ManagementWorkPage";
 import { ForgotPasswordPage } from "./pages/ForgotPasswordPage";
 import { LoginPage } from "./pages/LoginPage";
 import { MessageAppPage } from "./pages/MessageAppPage";
-import { StarredMessagesPage } from "./pages/StarredMessagesPage";
 import { DirectoryPage } from "./pages/DirectoryPage";
 import { EmployeeDashboardPage } from "./pages/EmployeeDashboardPage";
+import { EmployeeWorkPage } from "./pages/EmployeeWorkPage";
+import { EmployeeDutyPage } from "./pages/EmployeeDutyPage";
+import { ManagementDutyPage } from "./pages/ManagementDutyPage";
+import { WorkReportsPage } from "./pages/WorkReportsPage";
+import { TeamManagementPage } from "./pages/TeamManagementPage";
 import { SecurityPage } from "./pages/SecurityPage";
 
 export default function App() {
@@ -164,11 +170,122 @@ export default function App() {
       />
 
       <Route
+        path="/work-management"
+        element={
+          <ProtectedRoute
+            roles={[
+              "SUPER_ADMIN",
+              "SENIOR_MANAGEMENT",
+              "TEAM_MANAGER",
+            ]}
+          >
+            <ManagementLayout>
+              <ManagementWorkPage />
+            </ManagementLayout>
+          </ProtectedRoute>
+        }
+      />
+
+      <Route
+        path="/work-management/create"
+        element={
+          <ProtectedRoute
+            roles={[
+              "SUPER_ADMIN",
+              "SENIOR_MANAGEMENT",
+              "TEAM_MANAGER",
+            ]}
+          >
+            <ManagementLayout>
+              <ManagementWorkPage />
+            </ManagementLayout>
+          </ProtectedRoute>
+        }
+      />
+
+      <Route
         path="/employee"
         element={
           <ProtectedRoute roles={["EMPLOYEE"]}>
             <ManagementLayout>
               <EmployeeDashboardPage />
+            </ManagementLayout>
+          </ProtectedRoute>
+        }
+      />
+
+      <Route
+        path="/employee/work"
+        element={
+          <ProtectedRoute roles={["EMPLOYEE"]}>
+            <ManagementLayout>
+              <EmployeeWorkPage />
+            </ManagementLayout>
+          </ProtectedRoute>
+        }
+      />
+
+      <Route
+        path="/employee/duty"
+        element={
+          <ProtectedRoute roles={["EMPLOYEE"]}>
+            <ManagementLayout>
+              <EmployeeDutyPage />
+            </ManagementLayout>
+          </ProtectedRoute>
+        }
+      />
+
+      {/* Management roles use the same account-scoped My Duty page as employees. */}
+      <Route
+        path="/my-duty"
+        element={
+          <ProtectedRoute roles={["SENIOR_MANAGEMENT", "TEAM_MANAGER"]}>
+            <ManagementLayout>
+              <EmployeeDutyPage />
+            </ManagementLayout>
+          </ProtectedRoute>
+        }
+      />
+
+      <Route
+        path="/duty-management"
+        element={
+          <ProtectedRoute
+            roles={["SUPER_ADMIN", "SENIOR_MANAGEMENT", "TEAM_MANAGER"]}
+          >
+            <ManagementLayout>
+              <ManagementDutyPage />
+            </ManagementLayout>
+          </ProtectedRoute>
+        }
+      />
+
+      <Route
+        path="/team-management"
+        element={
+          <ProtectedRoute
+            roles={["SUPER_ADMIN", "SENIOR_MANAGEMENT", "TEAM_MANAGER"]}
+          >
+            <ManagementLayout>
+              <TeamManagementPage />
+            </ManagementLayout>
+          </ProtectedRoute>
+        }
+      />
+
+      <Route
+        path="/work-reports"
+        element={
+          <ProtectedRoute
+            roles={[
+              "SUPER_ADMIN",
+              "SENIOR_MANAGEMENT",
+              "TEAM_MANAGER",
+            ]}
+          >
+            <ManagementLayout>
+              <WorkReportsPage />
             </ManagementLayout>
           </ProtectedRoute>
         }
@@ -235,7 +352,104 @@ export default function App() {
               "EMPLOYEE",
             ]}
           >
-            <StarredMessagesPage />
+            <MessageAppPage />
+          </ProtectedRoute>
+        }
+      />
+
+      <Route
+        path="/messages/requests"
+        element={
+          <ProtectedRoute
+            roles={[
+              "SUPER_ADMIN",
+              "SENIOR_MANAGEMENT",
+              "TEAM_MANAGER",
+              "EMPLOYEE",
+            ]}
+          >
+            <MessageAppPage />
+          </ProtectedRoute>
+        }
+      />
+
+      <Route
+        path="/messages/notifications"
+        element={
+          <ProtectedRoute
+            roles={[
+              "SUPER_ADMIN",
+              "SENIOR_MANAGEMENT",
+              "TEAM_MANAGER",
+              "EMPLOYEE",
+            ]}
+          >
+            <MessageAppPage />
+          </ProtectedRoute>
+        }
+      />
+
+      <Route
+        path="/messages/settings"
+        element={
+          <ProtectedRoute
+            roles={[
+              "SUPER_ADMIN",
+              "SENIOR_MANAGEMENT",
+              "TEAM_MANAGER",
+              "EMPLOYEE",
+            ]}
+          >
+            <MessageAppPage />
+          </ProtectedRoute>
+        }
+      />
+
+
+      <Route
+        path="/messages/profile"
+        element={
+          <ProtectedRoute
+            roles={[
+              "SUPER_ADMIN",
+              "SENIOR_MANAGEMENT",
+              "TEAM_MANAGER",
+              "EMPLOYEE",
+            ]}
+          >
+            <MessageAppPage />
+          </ProtectedRoute>
+        }
+      />
+
+      <Route
+        path="/messages/new"
+        element={
+          <ProtectedRoute
+            roles={[
+              "SUPER_ADMIN",
+              "SENIOR_MANAGEMENT",
+              "TEAM_MANAGER",
+              "EMPLOYEE",
+            ]}
+          >
+            <MessageAppPage />
+          </ProtectedRoute>
+        }
+      />
+
+      <Route
+        path="/messages/groups/new"
+        element={
+          <ProtectedRoute
+            roles={[
+              "SUPER_ADMIN",
+              "SENIOR_MANAGEMENT",
+              "TEAM_MANAGER",
+              "EMPLOYEE",
+            ]}
+          >
+            <MessageAppPage />
           </ProtectedRoute>
         }
       />

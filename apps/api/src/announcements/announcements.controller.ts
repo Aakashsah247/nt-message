@@ -93,12 +93,12 @@ export class AnnouncementsController {
   }
 
   @Delete(':announcementId')
-  deleteDraft(
+  deleteAnnouncement(
     @CurrentUser() user: AuthenticatedUser,
     @Param('announcementId', new ParseUUIDPipe({ version: '4' }))
     announcementId: string,
   ) {
-    return this.announcementsService.deleteDraft(user, announcementId);
+    return this.announcementsService.deleteAnnouncement(user, announcementId);
   }
 
   @Post(':announcementId/publish')
@@ -108,15 +108,6 @@ export class AnnouncementsController {
     announcementId: string,
   ) {
     return this.announcementsService.publish(user, announcementId);
-  }
-
-  @Post(':announcementId/withdraw')
-  withdraw(
-    @CurrentUser() user: AuthenticatedUser,
-    @Param('announcementId', new ParseUUIDPipe({ version: '4' }))
-    announcementId: string,
-  ) {
-    return this.announcementsService.withdraw(user, announcementId);
   }
 
   @Post(':announcementId/read')

@@ -18,7 +18,6 @@ export const ANNOUNCEMENT_LIST_FILTERS = [
   'SCHEDULED',
   'PUBLISHED',
   'EXPIRED',
-  'WITHDRAWN',
 ] as const;
 
 export type AnnouncementListFilter =

@@ -31,6 +31,7 @@ import type { Prisma } from '../generated/prisma/client';
 import { MessagingEventsService } from '../realtime/messaging-events.service';
 import type { UploadedMessageAttachmentFile } from '../conversations/types/uploaded-message-attachment-file';
 import {
+  canModifyAnnouncementByCreator,
   getAnnouncementAudiencePolicyViolation,
   type AnnouncementPolicyAudience,
   type AnnouncementPolicyViewer,
@@ -45,10 +46,8 @@ import { UpdateAnnouncementDto } from './dto/update-announcement.dto';
 const ANNOUNCEMENT_PUBLISH_INTERVAL_MS = 15 * 1000;
 const ANNOUNCEMENT_PUBLISH_BATCH_SIZE = 20;
 const ANNOUNCEMENT_MAX_PUBLISH_ATTEMPTS = 5;
-const WITHDRAWN_ANNOUNCEMENT_RETENTION_DAYS = 90;
-const WITHDRAWN_ANNOUNCEMENT_CLEANUP_INTERVAL_MS = 24 * 60 * 60 * 1000;
-const WITHDRAWN_ANNOUNCEMENT_CLEANUP_BATCH_SIZE = 50;
-const WITHDRAWN_ANNOUNCEMENT_CLEANUP_MAX_BATCHES = 20;
+const ANNOUNCEMENT_ORPHAN_CLEANUP_INTERVAL_MS = 24 * 60 * 60 * 1000;
+const ANNOUNCEMENT_ORPHAN_CLEANUP_BATCH_SIZE = 500;
 const ANNOUNCEMENT_STORAGE_DIR = path.resolve(
   process.env.MESSAGE_ATTACHMENT_STORAGE_DIR
     ? path.join(process.env.MESSAGE_ATTACHMENT_STORAGE_DIR, 'announcements')
@@ -130,9 +129,6 @@ const announcementDetailInclude = {
   createdBy: {
     select: announcementAccountSelect,
   },
-  withdrawnBy: {
-    select: announcementAccountSelect,
-  },
   division: {
     select: {
       id: true,
@@ -204,9 +200,9 @@ type AnnouncementAccountRecord = Prisma.AccountGetPayload<{
 export class AnnouncementsService implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(AnnouncementsService.name);
   private publishTimer: ReturnType<typeof setInterval> | null = null;
-  private retentionTimer: ReturnType<typeof setInterval> | null = null;
+  private orphanCleanupTimer: ReturnType<typeof setInterval> | null = null;
   private workerRunning = false;
-  private retentionWorkerRunning = false;
+  private orphanCleanupRunning = false;
 
   constructor(
     private readonly prisma: PrismaService,
@@ -215,25 +211,25 @@ export class AnnouncementsService implements OnModuleInit, OnModuleDestroy {
 
   onModuleInit(): void {
     void this.processLifecycleQueue();
-    void this.cleanupWithdrawnAnnouncements();
+    void this.cleanupOrphanedAttachmentDirectories();
 
     this.publishTimer = setInterval(() => {
       void this.processLifecycleQueue();
     }, ANNOUNCEMENT_PUBLISH_INTERVAL_MS);
-    this.retentionTimer = setInterval(() => {
-      void this.cleanupWithdrawnAnnouncements();
-    }, WITHDRAWN_ANNOUNCEMENT_CLEANUP_INTERVAL_MS);
+    this.orphanCleanupTimer = setInterval(() => {
+      void this.cleanupOrphanedAttachmentDirectories();
+    }, ANNOUNCEMENT_ORPHAN_CLEANUP_INTERVAL_MS);
 
     this.publishTimer.unref?.();
-    this.retentionTimer.unref?.();
+    this.orphanCleanupTimer.unref?.();
   }
 
   onModuleDestroy(): void {
     if (this.publishTimer) {
       clearInterval(this.publishTimer);
     }
-    if (this.retentionTimer) {
-      clearInterval(this.retentionTimer);
+    if (this.orphanCleanupTimer) {
+      clearInterval(this.orphanCleanupTimer);
     }
   }
 
@@ -392,8 +388,7 @@ export class AnnouncementsService implements OnModuleInit, OnModuleDestroy {
   ) {
     const viewer = await this.getViewer(user.accountId);
     const existing = await this.getAnnouncement(announcementId);
-    await this.assertCanManageAnnouncement(viewer, existing);
-    this.assertUnpublishedOwnership(viewer, existing);
+    await this.assertCanModifyAnnouncement(viewer, existing);
     this.assertEditableStatus(existing.status);
 
     const title = dto.title === undefined ? existing.title : dto.title.trim();
@@ -539,38 +534,10 @@ export class AnnouncementsService implements OnModuleInit, OnModuleDestroy {
     };
   }
 
-  async deleteDraft(user: AuthenticatedUser, announcementId: string) {
-    const viewer = await this.getViewer(user.accountId);
-    const existing = await this.getAnnouncement(announcementId);
-    await this.assertCanManageAnnouncement(viewer, existing);
-    this.assertUnpublishedOwnership(viewer, existing);
-
-    if (
-      existing.status !== AnnouncementStatus.DRAFT &&
-      existing.status !== AnnouncementStatus.SCHEDULED
-    ) {
-      throw new ConflictException(
-        'Only unpublished drafts or scheduled announcements can be deleted.',
-      );
-    }
-
-    const storageKeys = existing.attachments.map(
-      (attachment) => attachment.storageKey,
-    );
-    await this.prisma.announcement.delete({ where: { id: announcementId } });
-
-    await Promise.all(
-      storageKeys.map((storageKey) => this.deleteAttachmentFile(storageKey)),
-    );
-
-    return { message: 'Announcement draft deleted successfully.' };
-  }
-
   async publish(user: AuthenticatedUser, announcementId: string) {
     const viewer = await this.getViewer(user.accountId);
     const existing = await this.getAnnouncement(announcementId);
-    await this.assertCanManageAnnouncement(viewer, existing);
-    this.assertUnpublishedOwnership(viewer, existing);
+    await this.assertCanModifyAnnouncement(viewer, existing);
 
     if (
       existing.status !== AnnouncementStatus.DRAFT &&
@@ -623,58 +590,52 @@ export class AnnouncementsService implements OnModuleInit, OnModuleDestroy {
     }
   }
 
-  async withdraw(user: AuthenticatedUser, announcementId: string) {
+  async deleteAnnouncement(user: AuthenticatedUser, announcementId: string) {
     const viewer = await this.getViewer(user.accountId);
     const existing = await this.getAnnouncement(announcementId);
-    await this.assertCanManageAnnouncement(viewer, existing);
+    await this.assertCanModifyAnnouncement(viewer, existing);
 
-    if (
-      existing.status !== AnnouncementStatus.PUBLISHED &&
-      existing.status !== AnnouncementStatus.EXPIRED
-    ) {
+    if (existing.status === AnnouncementStatus.PUBLISHING) {
       throw new ConflictException(
-        'Only a published or expired announcement can be withdrawn.',
+        'An announcement cannot be deleted while publication is in progress.',
       );
     }
 
-    const withdrawnAt = new Date();
-    const updated = await this.prisma.$transaction(async (transaction) => {
-      const record = await transaction.announcement.update({
-        where: { id: announcementId },
-        data: {
-          status: AnnouncementStatus.WITHDRAWN,
-          withdrawnAt,
-          withdrawnByAccountId: viewer.accountId,
-          isPinned: false,
-        },
-        include: announcementDetailInclude,
-      });
-
-      await transaction.activityEvent.create({
-        data: {
-          accountId: viewer.accountId,
-          sessionId: user.sessionId,
-          eventType: ActivityEventType.ANNOUNCEMENT_WITHDRAWN,
-          pagePath: 'Announcements',
-          elementLabel: 'Announcement withdrawn',
-          metadata: this.safeAuditMetadata(record),
-        },
-      });
-
-      return record;
+    const recipientAccountIds = existing.recipients.map(
+      (recipient) => recipient.accountId,
+    );
+    const deleted = await this.prisma.announcement.deleteMany({
+      where: {
+        id: announcementId,
+        status: { not: AnnouncementStatus.PUBLISHING },
+      },
     });
 
-    this.emitAnnouncementEvent(
-      updated.recipients.map((recipient) => recipient.accountId),
-      'WITHDRAWN',
-      updated,
+    if (deleted.count === 0) {
+      throw new ConflictException(
+        'The announcement changed state before it could be deleted.',
+      );
+    }
+
+    try {
+      await this.deleteAnnouncementAttachmentDirectory(announcementId);
+    } catch {
+      /*
+       * The database remains authoritative. Daily orphan cleanup retries a
+       * failed filesystem removal without restoring deleted official content.
+       */
+      this.logger.warn(
+        `Deleted announcement ${announcementId} attachment cleanup will be retried.`,
+      );
+    }
+
+    this.emitAnnouncementDeleted(
+      [...recipientAccountIds, existing.createdByAccountId, viewer.accountId],
+      existing,
       viewer.accountId,
     );
 
-    return {
-      message: 'Announcement withdrawn successfully.',
-      data: this.serializeAnnouncement(updated, viewer, true),
-    };
+    return { message: 'Announcement deleted permanently.' };
   }
 
   async list(user: AuthenticatedUser, query: ListAnnouncementsQueryDto) {
@@ -690,16 +651,6 @@ export class AnnouncementsService implements OnModuleInit, OnModuleDestroy {
           audienceType: AnnouncementAudienceType.OFFICIAL_GROUP,
           officialConversationId: query.officialConversationId,
         },
-        ...(query.filter === 'ALL'
-          ? [
-              {
-                // Withdrawal is an audit-preserving delete. Keep the record
-                // available to the explicit WITHDRAWN history filter, but do
-                // not return it to the selected group's active workspace.
-                status: { not: AnnouncementStatus.WITHDRAWN },
-              },
-            ]
-          : []),
       ];
     }
 
@@ -709,12 +660,7 @@ export class AnnouncementsService implements OnModuleInit, OnModuleDestroy {
         {
           OR: [
             { title: { contains: searchText, mode: 'insensitive' } },
-            {
-              AND: [
-                { status: { not: AnnouncementStatus.WITHDRAWN } },
-                { body: { contains: searchText, mode: 'insensitive' } },
-              ],
-            },
+            { body: { contains: searchText, mode: 'insensitive' } },
           ],
         },
       ];
@@ -779,10 +725,7 @@ export class AnnouncementsService implements OnModuleInit, OnModuleDestroy {
         return {
           id: record.id,
           title: record.title,
-          bodyPreview:
-            record.status === AnnouncementStatus.WITHDRAWN
-              ? 'This official announcement was withdrawn.'
-              : this.toPreview(record.body, 240),
+          bodyPreview: this.toPreview(record.body, 240),
           priority: record.priority,
           status: record.status,
           audience: this.serializeAudience(record),
@@ -794,7 +737,6 @@ export class AnnouncementsService implements OnModuleInit, OnModuleDestroy {
           scheduledAt: record.scheduledAt,
           publishedAt: record.publishedAt,
           expiresAt: record.expiresAt,
-          withdrawnAt: record.withdrawnAt,
           recipientCount: record._count.recipients,
           viewerState: this.serializeRecipientState(
             recipient,
@@ -1130,8 +1072,7 @@ export class AnnouncementsService implements OnModuleInit, OnModuleDestroy {
   ) {
     const viewer = await this.getViewer(user.accountId);
     const existing = await this.getAnnouncement(announcementId);
-    await this.assertCanManageAnnouncement(viewer, existing);
-    this.assertUnpublishedOwnership(viewer, existing);
+    await this.assertCanModifyAnnouncement(viewer, existing);
     this.assertEditableStatus(existing.status);
     const validated = this.validateAttachment(file);
     const uploadedFile = file as UploadedMessageAttachmentFile;
@@ -1232,8 +1173,7 @@ export class AnnouncementsService implements OnModuleInit, OnModuleDestroy {
   ) {
     const viewer = await this.getViewer(user.accountId);
     const existing = await this.getAnnouncement(announcementId);
-    await this.assertCanManageAnnouncement(viewer, existing);
-    this.assertUnpublishedOwnership(viewer, existing);
+    await this.assertCanModifyAnnouncement(viewer, existing);
     this.assertEditableStatus(existing.status);
     const attachment = existing.attachments.find(
       (item) =>
@@ -1346,9 +1286,6 @@ export class AnnouncementsService implements OnModuleInit, OnModuleDestroy {
       );
     }
 
-    if (announcement.status === AnnouncementStatus.WITHDRAWN && !canManage) {
-      throw new NotFoundException('Announcement attachment was not found.');
-    }
 
     const attachment = announcement.attachments.find(
       (item) =>
@@ -1477,84 +1414,76 @@ export class AnnouncementsService implements OnModuleInit, OnModuleDestroy {
     }
   }
 
-  private async cleanupWithdrawnAnnouncements(): Promise<void> {
-    if (this.retentionWorkerRunning) {
+  private async cleanupOrphanedAttachmentDirectories(): Promise<void> {
+    if (this.orphanCleanupRunning) {
       return;
     }
 
-    this.retentionWorkerRunning = true;
-    const cutoff = new Date(
-      Date.now() -
-        WITHDRAWN_ANNOUNCEMENT_RETENTION_DAYS * 24 * 60 * 60 * 1000,
-    );
-    const attemptedIds: string[] = [];
-    let deletedCount = 0;
+    this.orphanCleanupRunning = true;
 
     try {
+      let entries: Array<{ name: string; isDirectory(): boolean }>;
+      try {
+        entries = await fs.readdir(ANNOUNCEMENT_STORAGE_DIR, {
+          withFileTypes: true,
+        });
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
+          return;
+        }
+        throw error;
+      }
+
+      const directoryIds = entries
+        .filter(
+          (entry) =>
+            entry.isDirectory() &&
+            /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
+              entry.name,
+            ),
+        )
+        .map((entry) => entry.name);
+
+      const existingIds = new Set<string>();
       for (
-        let batchIndex = 0;
-        batchIndex < WITHDRAWN_ANNOUNCEMENT_CLEANUP_MAX_BATCHES;
-        batchIndex += 1
+        let index = 0;
+        index < directoryIds.length;
+        index += ANNOUNCEMENT_ORPHAN_CLEANUP_BATCH_SIZE
       ) {
+        const batch = directoryIds.slice(
+          index,
+          index + ANNOUNCEMENT_ORPHAN_CLEANUP_BATCH_SIZE,
+        );
         const records = await this.prisma.announcement.findMany({
-          where: {
-            status: AnnouncementStatus.WITHDRAWN,
-            withdrawnAt: { lte: cutoff },
-            ...(attemptedIds.length > 0
-              ? { id: { notIn: attemptedIds } }
-              : {}),
-          },
-          orderBy: [{ withdrawnAt: 'asc' }, { id: 'asc' }],
-          take: WITHDRAWN_ANNOUNCEMENT_CLEANUP_BATCH_SIZE,
+          where: { id: { in: batch } },
           select: { id: true },
         });
+        records.forEach((record) => existingIds.add(record.id));
+      }
 
-        if (records.length === 0) {
-          break;
+      let deletedCount = 0;
+      for (const announcementId of directoryIds) {
+        if (existingIds.has(announcementId)) {
+          continue;
         }
 
-        attemptedIds.push(...records.map((record) => record.id));
-
-        for (const record of records) {
-          try {
-            /*
-             * Files are removed before the database graph so a filesystem
-             * failure leaves the withdrawn record available for the next
-             * retry instead of creating untracked private attachment files.
-             */
-            await this.deleteAnnouncementAttachmentDirectory(record.id);
-            const deleted = await this.prisma.announcement.deleteMany({
-              where: {
-                id: record.id,
-                status: AnnouncementStatus.WITHDRAWN,
-                withdrawnAt: { lte: cutoff },
-              },
-            });
-            deletedCount += deleted.count;
-          } catch {
-            // Log only the opaque ID; announcement content and filenames stay private.
-            this.logger.warn(
-              `Withdrawn announcement ${record.id} could not be purged and will be retried.`,
-            );
-          }
-        }
-
-        if (records.length < WITHDRAWN_ANNOUNCEMENT_CLEANUP_BATCH_SIZE) {
-          break;
-        }
+        await this.deleteAnnouncementAttachmentDirectory(announcementId);
+        deletedCount += 1;
       }
 
       if (deletedCount > 0) {
         this.logger.log(
-          `Announcement retention cleanup permanently removed ${deletedCount} withdrawn record(s).`,
+          `Announcement storage cleanup removed ${deletedCount} orphaned director${
+            deletedCount === 1 ? 'y' : 'ies'
+          }.`,
         );
       }
     } catch {
       this.logger.warn(
-        'Announcement retention cleanup could not complete and will be retried.',
+        'Announcement orphaned attachment cleanup could not complete and will be retried.',
       );
     } finally {
-      this.retentionWorkerRunning = false;
+      this.orphanCleanupRunning = false;
     }
   }
 
@@ -2165,8 +2094,6 @@ export class AnnouncementsService implements OnModuleInit, OnModuleDestroy {
         return { ...visible, status: AnnouncementStatus.PUBLISHED };
       case 'EXPIRED':
         return { ...visible, status: AnnouncementStatus.EXPIRED };
-      case 'WITHDRAWN':
-        return { ...visible, status: AnnouncementStatus.WITHDRAWN };
       case 'ALL':
       default:
         return visible;
@@ -2247,6 +2174,19 @@ export class AnnouncementsService implements OnModuleInit, OnModuleDestroy {
     }
   }
 
+  private async assertCanModifyAnnouncement(
+    viewer: AnnouncementViewer,
+    announcement: AnnouncementDetailRecord,
+  ): Promise<void> {
+    await this.assertCanManageAnnouncement(viewer, announcement);
+
+    if (!canModifyAnnouncementByCreator(viewer, announcement.createdBy)) {
+      throw new ForbiddenException(
+        'Only the announcement creator or the Owner can edit or delete this announcement.',
+      );
+    }
+  }
+
   private async canManageAnnouncement(
     viewer: AnnouncementViewer,
     announcement: AnnouncementDetailRecord,
@@ -2297,30 +2237,10 @@ export class AnnouncementsService implements OnModuleInit, OnModuleDestroy {
     return canManage;
   }
 
-  private assertUnpublishedOwnership(
-    viewer: AnnouncementViewer,
-    announcement: {
-      createdByAccountId: string;
-      status: AnnouncementStatus;
-    },
-  ): void {
-    if (
-      (announcement.status === AnnouncementStatus.DRAFT ||
-        announcement.status === AnnouncementStatus.SCHEDULED) &&
-      viewer.role !== AccountRole.SUPER_ADMIN &&
-      announcement.createdByAccountId !== viewer.accountId
-    ) {
-      throw new ForbiddenException(
-        'Only the draft author can modify or publish this unpublished announcement.',
-      );
-    }
-  }
-
   private assertEditableStatus(status: AnnouncementStatus): void {
     if (
       status === AnnouncementStatus.PUBLISHING ||
-      status === AnnouncementStatus.EXPIRED ||
-      status === AnnouncementStatus.WITHDRAWN
+      status === AnnouncementStatus.EXPIRED
     ) {
       throw new ConflictException(
         'This announcement is not editable in its current lifecycle state.',
@@ -2451,17 +2371,11 @@ export class AnnouncementsService implements OnModuleInit, OnModuleDestroy {
     return {
       id: announcement.id,
       title: announcement.title,
-      body:
-        announcement.status === AnnouncementStatus.WITHDRAWN && !canManage
-          ? ''
-          : announcement.body,
+      body: announcement.body,
       priority: announcement.priority,
       status: announcement.status,
       audience: this.serializeAudience(announcement),
       publisher: this.serializeAccount(announcement.createdBy),
-      withdrawnBy: announcement.withdrawnBy
-        ? this.serializeAccount(announcement.withdrawnBy)
-        : null,
       requiresAcknowledgement: announcement.requiresAcknowledgement,
       allowAttachmentDownload: announcement.allowAttachmentDownload,
       isPinned: announcement.isPinned,
@@ -2469,7 +2383,6 @@ export class AnnouncementsService implements OnModuleInit, OnModuleDestroy {
       scheduledAt: announcement.scheduledAt,
       publishedAt: announcement.publishedAt,
       expiresAt: announcement.expiresAt,
-      withdrawnAt: announcement.withdrawnAt,
       publishFailureReason: canManage
         ? announcement.publishFailureReason
         : null,
@@ -2478,17 +2391,23 @@ export class AnnouncementsService implements OnModuleInit, OnModuleDestroy {
         announcement.currentRevision,
       ),
       canManage,
-      attachments:
-        announcement.status === AnnouncementStatus.WITHDRAWN && !canManage
-          ? []
-          : announcement.attachments
-              .filter((attachment) =>
-                this.isAttachmentVisibleAtRevision(
-                  attachment,
-                  announcement.currentRevision,
-                ),
-              )
-              .map((attachment) => this.serializeAttachment(attachment)),
+      canEdit:
+        canManage &&
+        canModifyAnnouncementByCreator(viewer, announcement.createdBy) &&
+        announcement.status !== AnnouncementStatus.PUBLISHING &&
+        announcement.status !== AnnouncementStatus.EXPIRED,
+      canDelete:
+        canManage &&
+        canModifyAnnouncementByCreator(viewer, announcement.createdBy) &&
+        announcement.status !== AnnouncementStatus.PUBLISHING,
+      attachments: announcement.attachments
+        .filter((attachment) =>
+          this.isAttachmentVisibleAtRevision(
+            attachment,
+            announcement.currentRevision,
+          ),
+        )
+        .map((attachment) => this.serializeAttachment(attachment)),
       revisions: canManage
         ? announcement.revisions.map((revision) => ({
             revisionNumber: revision.revisionNumber,
@@ -2625,7 +2544,7 @@ export class AnnouncementsService implements OnModuleInit, OnModuleDestroy {
   }
 
   private eventPayload(
-    action: 'PUBLISHED' | 'UPDATED' | 'WITHDRAWN' | 'READ' | 'ACKNOWLEDGED',
+    action: 'PUBLISHED' | 'UPDATED' | 'DELETED' | 'READ' | 'ACKNOWLEDGED',
     announcement: {
       id: string;
       officialConversationId: string | null;
@@ -2651,7 +2570,7 @@ export class AnnouncementsService implements OnModuleInit, OnModuleDestroy {
 
   private emitAnnouncementEvent(
     accountIds: string[],
-    action: 'UPDATED' | 'WITHDRAWN',
+    action: 'UPDATED',
     announcement: AnnouncementDetailRecord,
     actorAccountId: string,
   ): void {
@@ -2661,17 +2580,21 @@ export class AnnouncementsService implements OnModuleInit, OnModuleDestroy {
       actorAccountId,
     );
 
-    if (action === 'WITHDRAWN') {
-      this.messagingEventsService.emitAnnouncementWithdrawn(
-        [...accountIds, announcement.createdByAccountId],
-        payload,
-      );
-    } else {
-      this.messagingEventsService.emitAnnouncementUpdated(
-        [...accountIds, announcement.createdByAccountId],
-        payload,
-      );
-    }
+    this.messagingEventsService.emitAnnouncementUpdated(
+      [...accountIds, announcement.createdByAccountId],
+      payload,
+    );
+  }
+
+  private emitAnnouncementDeleted(
+    accountIds: string[],
+    announcement: AnnouncementDetailRecord,
+    actorAccountId: string,
+  ): void {
+    this.messagingEventsService.emitAnnouncementDeleted(
+      accountIds,
+      this.eventPayload('DELETED', announcement, actorAccountId),
+    );
   }
 
   private validateAttachment(file?: UploadedMessageAttachmentFile): {
@@ -2811,7 +2734,7 @@ export class AnnouncementsService implements OnModuleInit, OnModuleDestroy {
     announcementId: string,
   ): Promise<void> {
     const directory = path.dirname(
-      this.resolveAttachmentPath(`${announcementId}/retention-cleanup`),
+      this.resolveAttachmentPath(`${announcementId}/permanent-delete`),
     );
 
     // The directory contains only files belonging to this announcement ID.

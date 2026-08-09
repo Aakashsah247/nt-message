@@ -1,7 +1,7 @@
 import { Type } from 'class-transformer';
 import { IsIn, IsInt, IsOptional, IsUUID, Max, Min } from 'class-validator';
 
-export const conversationListViews = ['ACTIVE', 'ARCHIVED', 'ALL'] as const;
+export const conversationListViews = ['ACTIVE', 'ARCHIVED', 'FAVORITES', 'ALL'] as const;
 
 export type ConversationListView = (typeof conversationListViews)[number];
 
@@ -20,7 +20,7 @@ export class ListConversationsQueryDto {
 
   @IsOptional()
   @IsIn(conversationListViews, {
-    message: 'Conversation view must be active, archived or all.',
+    message: 'Conversation view must be active, archived, favorites or all.',
   })
   view: ConversationListView = 'ACTIVE';
 }

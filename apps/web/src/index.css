@@ -1,135 +1,5 @@
 @import "tailwindcss";
 
-/* Y25 SEARCH UI POLISH START */
-/* Keep the search dialog readable when all filters are visible. */
-.message-search-dialog {
-  width: min(1080px, calc(100vw - 48px)) !important;
-  max-height: min(86vh, 860px) !important;
-  overflow: hidden !important;
-  border-radius: 28px !important;
-}
-
-/* Let the filter controls wrap cleanly instead of pushing the Search button out. */
-.message-search-form {
-  display: grid !important;
-  grid-template-columns:
-    minmax(240px, 1.4fr) minmax(170px, 0.8fr) minmax(170px, 0.8fr)
-    minmax(150px, 0.7fr) minmax(150px, 0.7fr) auto !important;
-  gap: 14px !important;
-  align-items: end !important;
-  padding: 20px 24px !important;
-}
-
-/* Prevent long controls from overflowing the rounded modal container. */
-.message-search-field,
-.message-search-field input,
-.message-search-field select {
-  min-width: 0 !important;
-}
-
-.message-search-field label {
-  display: block !important;
-  margin-bottom: 8px !important;
-  color: #163b62 !important;
-  font-size: 11px !important;
-  font-weight: 900 !important;
-  letter-spacing: 0.02em !important;
-}
-
-.message-search-field input,
-.message-search-field select {
-  width: 100% !important;
-  height: 46px !important;
-  border: 1px solid #cfe0f2 !important;
-  border-radius: 16px !important;
-  background: #f8fbff !important;
-  color: #0b2645 !important;
-  font-weight: 800 !important;
-}
-
-/* Keep the primary search action visible on desktop and tablet widths. */
-.message-search-submit {
-  height: 46px !important;
-  min-width: 118px !important;
-  white-space: nowrap !important;
-  border-radius: 16px !important;
-}
-
-/* Keep the close action inside the modal corner on every screen size. */
-.message-search-close,
-.message-search-dialog-close {
-  position: absolute !important;
-  top: 18px !important;
-  right: 18px !important;
-  display: inline-grid !important;
-  place-items: center !important;
-  width: 38px !important;
-  height: 38px !important;
-  border-radius: 999px !important;
-}
-
-/* Make search results feel like actionable message rows. */
-.message-search-results {
-  max-height: min(46vh, 430px) !important;
-  overflow: auto !important;
-  padding: 0 24px 24px !important;
-}
-
-.message-search-result,
-.message-search-result-row {
-  border: 1px solid #d8e6f5 !important;
-  border-radius: 18px !important;
-  background: linear-gradient(180deg, #ffffff, #f7fbff) !important;
-  box-shadow: 0 12px 28px rgba(7, 92, 168, 0.08) !important;
-  transition:
-    transform 160ms ease,
-    border-color 160ms ease,
-    box-shadow 160ms ease !important;
-}
-
-.message-search-result:hover,
-.message-search-result-row:hover {
-  transform: translateY(-1px) !important;
-  border-color: #9ec7ef !important;
-  box-shadow: 0 16px 34px rgba(7, 92, 168, 0.14) !important;
-}
-
-/* Search result snippets should not look cramped inside the result card. */
-.message-search-result-snippet,
-.message-search-result-preview {
-  line-height: 1.45 !important;
-}
-
-@media (max-width: 980px) {
-  .message-search-form {
-    grid-template-columns: 1fr 1fr !important;
-  }
-
-  .message-search-submit {
-    width: 100% !important;
-  }
-}
-
-@media (max-width: 680px) {
-  .message-search-dialog {
-    width: 100vw !important;
-    height: 100dvh !important;
-    max-height: 100dvh !important;
-    border-radius: 0 !important;
-  }
-
-  .message-search-form {
-    grid-template-columns: 1fr !important;
-    padding: 16px !important;
-  }
-
-  .message-search-results {
-    max-height: none !important;
-    padding: 0 16px 24px !important;
-  }
-}
-/* Y25 SEARCH UI POLISH END */
-
 /* NT Message design tokens */
 @theme {
   --color-nt-blue: #075ca8;
@@ -10456,12 +10326,27 @@
 .message-reply-preview {
   display: grid;
   gap: 2px;
+  width: 100%;
   margin-bottom: 8px;
   padding: 7px 9px;
+  border: 0;
   border-left: 3px solid var(--color-nt-blue);
   border-radius: 6px;
   color: #4f6579;
+  text-align: left;
   background: #edf4fa;
+  cursor: pointer;
+}
+
+.message-reply-preview:disabled {
+  cursor: default;
+}
+
+.message-reply-preview:not(:disabled):hover,
+.message-reply-preview:not(:disabled):focus-visible {
+  filter: brightness(0.98);
+  outline: 2px solid color-mix(in srgb, var(--color-nt-blue) 35%, transparent);
+  outline-offset: 1px;
 }
 
 .message-bubble-row.own .message-reply-preview {
@@ -10496,7 +10381,7 @@
   transition: opacity 150ms ease;
 }
 
-.message-bubble-row:hover .message-bubble-actions,
+.message-bubble-wrap:hover .message-bubble-actions,
 .message-bubble-actions:focus-within {
   opacity: 1;
 }
@@ -10539,7 +10424,11 @@
 }
 
 .message-delivery {
+  min-width: 16px;
+  font-size: 10px;
   font-weight: 900;
+  letter-spacing: -2px;
+  line-height: 1;
 }
 
 .message-delivery.read {
@@ -11028,142 +10917,6 @@
   font-weight: 900;
 }
 
-.message-request-dialog {
-  grid-template-rows: auto auto minmax(0, 1fr);
-}
-
-.message-request-content {
-  min-height: 0;
-  overflow-y: auto;
-  padding: 0 22px 22px;
-  scrollbar-width: thin;
-}
-
-.message-request-section {
-  display: grid;
-  gap: 10px;
-  padding: 14px 0 4px;
-}
-
-.message-request-section + .message-request-section {
-  margin-top: 12px;
-  border-top: 1px solid #e3ebf2;
-}
-
-.message-request-section > header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-}
-
-.message-request-section h3 {
-  margin: 0;
-  font-size: 13px;
-}
-
-.message-request-section > header span {
-  color: #73879a;
-  font-size: 8px;
-  font-weight: 900;
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
-}
-
-.message-request-card {
-  display: grid;
-  grid-template-columns: auto minmax(0, 1fr) auto;
-  align-items: center;
-  gap: 12px;
-  padding: 12px;
-  border: 1px solid #dce7ef;
-  border-radius: 13px;
-  background: #fbfdff;
-}
-
-.message-request-card > div:nth-child(2) {
-  display: grid;
-  min-width: 0;
-  gap: 3px;
-}
-
-.message-request-card strong,
-.message-request-card small,
-.message-request-card em {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.message-request-card strong {
-  font-size: 12px;
-  font-weight: 900;
-}
-
-.message-request-card small {
-  color: #60758a;
-  font-size: 9px;
-  font-weight: 700;
-}
-
-.message-request-card em {
-  color: #9a680f;
-  font-size: 8px;
-  font-style: normal;
-}
-
-.message-request-card time {
-  color: #71859a;
-  font-size: 8px;
-  font-weight: 800;
-}
-
-.message-request-actions {
-  display: flex;
-  flex-wrap: wrap;
-  justify-content: flex-end;
-  gap: 6px;
-}
-
-.message-request-actions button {
-  min-height: 30px;
-  padding: 0 10px;
-  border: 1px solid #d2dfe9;
-  border-radius: 8px;
-  color: #526a7f;
-  background: white;
-  font-size: 8px;
-  font-weight: 900;
-}
-
-.message-request-actions button.accept {
-  border-color: var(--color-nt-blue);
-  color: white;
-  background: var(--color-nt-blue);
-}
-
-.message-request-actions button.block {
-  border-color: #efc5c9;
-  color: #a12d38;
-  background: #fff4f5;
-}
-
-.message-request-actions button:disabled {
-  cursor: wait;
-  opacity: 0.6;
-}
-
-.message-request-empty {
-  margin: 0;
-  padding: 14px;
-  border: 1px dashed #d5e2ec;
-  border-radius: 11px;
-  color: #74889b;
-  background: #f8fbfd;
-  font-size: 10px;
-  text-align: center;
-}
-
 @media (max-width: 900px) {
   .message-app-topbar {
     height: 68px;
@@ -11229,21 +10982,6 @@
 
   .message-requests-button {
     padding: 0 8px;
-  }
-
-  .message-request-content {
-    padding-right: 15px;
-    padding-left: 15px;
-  }
-
-  .message-request-card {
-    grid-template-columns: auto minmax(0, 1fr);
-  }
-
-  .message-request-actions,
-  .message-request-card time {
-    grid-column: 1 / -1;
-    justify-content: flex-end;
   }
 
   .message-conversation-search {
@@ -13062,7 +12800,7 @@
 }
 /* Y24 AUDIO AND VOICE NOTES END */
 
-/* Y25 SEARCH AND FILTERS START */
+/* Y25 SEARCH ACTIONS START */
 .message-search-mini-button,
 .message-search-open-button,
 .message-shared-open-button {
@@ -13080,190 +12818,11 @@
   margin-left: auto;
 }
 
-.message-search-dialog {
-  display: grid;
-  width: min(780px, calc(100vw - 24px));
-  max-height: min(760px, calc(100vh - 28px));
-  overflow: hidden;
-  border-radius: 22px;
-  background: white;
-  box-shadow: 0 28px 80px rgba(15, 23, 42, 0.28);
-}
-
-.message-search-dialog > header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 16px;
-  padding: 18px 20px;
-  border-bottom: 1px solid rgba(15, 103, 177, 0.12);
-}
-
-.message-search-dialog > header span {
-  color: #0f67b1;
-  font-size: 11px;
-  font-weight: 950;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-}
-
-.message-search-dialog > header h2 {
-  margin: 2px 0 0;
-  color: #09233f;
-  font-size: 22px;
-}
-
-.message-search-dialog > header button {
-  width: 36px;
-  height: 36px;
-  border: 0;
-  border-radius: 50%;
-  color: #0f2942;
-  background: #edf6ff;
-  font-size: 20px;
-  font-weight: 950;
-}
-
-.message-search-form {
-  display: grid;
-  grid-template-columns: minmax(180px, 2fr) repeat(4, minmax(120px, 1fr)) auto;
-  gap: 10px;
-  padding: 14px 20px;
-  border-bottom: 1px solid rgba(15, 103, 177, 0.1);
-}
-
-.message-search-form label {
-  display: grid;
-  gap: 5px;
-  color: #27425b;
-  font-size: 10px;
-  font-weight: 900;
-}
-
-.message-search-form input,
-.message-search-form select {
-  min-height: 38px;
-  border: 1px solid rgba(15, 103, 177, 0.18);
-  border-radius: 12px;
-  padding: 0 10px;
-  color: #102a43;
-  background: #f8fbff;
-  font-size: 12px;
-  font-weight: 750;
-}
-
-.message-search-form button[type="submit"] {
-  align-self: end;
-  min-height: 38px;
-  padding: 0 16px;
-  border: 0;
-  border-radius: 12px;
-  color: white;
-  background: #0f67b1;
-  font-size: 12px;
-  font-weight: 950;
-}
-
-.message-search-results {
-  min-height: 220px;
-  overflow: auto;
-  padding: 14px 20px 20px;
-}
-
-.message-search-section {
-  display: grid;
-  gap: 8px;
-  margin-bottom: 18px;
-}
-
-.message-search-section h3 {
-  margin: 0;
-  color: #0f2942;
-  font-size: 13px;
-}
-
-.message-search-result-row {
-  display: grid;
-  grid-template-columns: auto minmax(0, 1fr);
-  align-items: center;
-  gap: 10px;
-  width: 100%;
-  border: 1px solid rgba(15, 103, 177, 0.1);
-  border-radius: 14px;
-  padding: 10px;
-  text-align: left;
-  background: #f8fbff;
-}
-
-.message-search-result-row:hover {
-  border-color: rgba(15, 103, 177, 0.32);
-  background: #edf6ff;
-}
-
-.message-search-result-row span:last-child {
-  display: grid;
-  min-width: 0;
-  gap: 3px;
-}
-
-.message-search-result-row strong,
-.message-search-result-row small,
-.message-search-result-row em {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.message-search-result-row strong {
-  color: #0f2942;
-  font-size: 13px;
-}
-
-.message-search-result-row small {
-  color: #405b74;
-  font-size: 12px;
-  font-style: normal;
-}
-
-.message-search-result-row em {
-  color: #64748b;
-  font-size: 10px;
-  font-style: normal;
-  font-weight: 850;
-}
-
 .message-bubble-row.search-highlight .message-bubble {
   outline: 3px solid rgba(249, 191, 59, 0.7);
   box-shadow: 0 0 0 8px rgba(249, 191, 59, 0.18);
 }
-
-@media (max-width: 860px) {
-  .message-search-form {
-    grid-template-columns: 1fr 1fr;
-  }
-
-  .message-search-form button[type="submit"] {
-    grid-column: 1 / -1;
-  }
-}
-
-@media (max-width: 560px) {
-  .message-search-dialog {
-    width: 100vw;
-    height: 100vh;
-    max-height: 100vh;
-    border-radius: 0;
-  }
-
-  .message-search-form {
-    grid-template-columns: 1fr;
-  }
-
-  .message-search-results {
-    padding: 12px;
-  }
-}
-/* Y25 SEARCH AND FILTERS END */
+/* Y25 SEARCH ACTIONS END */
 
 /* Y26 NOTIFICATIONS START */
 .message-notification-wrapper {
@@ -13363,15 +12922,10 @@
 
 .message-notification-row {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto auto;
-  gap: 10px;
+  grid-template-columns: minmax(0, 1fr) auto;
   width: 100%;
-  border: 0;
   border-bottom: 1px solid rgba(15, 103, 177, 0.08);
-  padding: 12px 14px;
-  text-align: left;
   background: white;
-  cursor: pointer;
 }
 
 .message-notification-row.unread {
@@ -13382,30 +12936,48 @@
   background: #edf6ff;
 }
 
-.message-notification-row span {
+.message-notification-open {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 10px;
+  min-width: 0;
+  border: 0;
+  padding: 12px 10px 12px 14px;
+  color: inherit;
+  text-align: left;
+  background: transparent;
+  cursor: pointer;
+}
+
+.message-notification-open:focus-visible {
+  outline: 2px solid var(--color-nt-blue);
+  outline-offset: -3px;
+}
+
+.message-notification-open span {
   display: grid;
   min-width: 0;
   gap: 3px;
 }
 
-.message-notification-row strong,
-.message-notification-row small {
+.message-notification-open strong,
+.message-notification-open small {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.message-notification-row strong {
+.message-notification-open strong {
   color: #0f2942;
   font-size: 13px;
 }
 
-.message-notification-row small {
+.message-notification-open small {
   color: #405b74;
   font-size: 12px;
 }
 
-.message-notification-row em {
+.message-notification-open em {
   color: #64748b;
   font-size: 10px;
   font-style: normal;
@@ -13416,13 +12988,17 @@
 .message-notification-delete {
   display: inline-grid !important;
   place-items: center;
+  align-self: center;
   width: 24px;
   height: 24px;
+  margin-right: 12px;
+  border: 0;
   border-radius: 999px;
   color: #64748b;
   background: #eef4fb;
   font-size: 16px;
   font-weight: 900;
+  cursor: pointer;
 }
 
 .message-notification-delete:hover,
@@ -14767,7 +14343,15 @@
 }
 
 .message-app-shell.theme-light {
-  --message-topbar-bg: linear-gradient(105deg, #ffffff, #eaf4ff);
+  /* The navigation rail remains Nepal Telecom blue in every appearance mode.
+     Light mode changes content surfaces, not brand/navigation contrast. */
+  --message-topbar-bg:
+    radial-gradient(
+      circle at 18% 4%,
+      rgba(21, 147, 209, 0.28),
+      transparent 15rem
+    ),
+    linear-gradient(180deg, #063667 0%, #042b55 55%, #031f40 100%);
   --message-shell-bg: #eef4f9;
   --message-sidebar-bg: rgba(255, 255, 255, 0.96);
   --message-surface-bg: rgba(255, 255, 255, 0.94);
@@ -14783,7 +14367,6 @@
   );
 }
 
-.message-app-shell.theme-light .message-app-topbar,
 .message-app-shell.theme-light .message-app-brand,
 .message-app-shell.theme-light .message-app-logout,
 .message-app-shell.theme-light .message-profile-topbar-button,
@@ -15714,9 +15297,7 @@
 
 /* M1 starred and pinned messages */
 .message-starred-topbar-button,
-.message-pinned-panel button,
-.message-starred-header button,
-.message-starred-list button {
+.message-pinned-panel button {
   border: 0;
   border-radius: 999px;
   font-weight: 900;
@@ -15802,131 +15383,9 @@
   font-weight: 900;
 }
 
-.message-starred-page {
-  min-height: 100vh;
-  padding: 2rem;
-  color: var(--color-nt-text);
-  background: linear-gradient(135deg, #eff6ff, #ffffff 48%, #dbeafe);
-}
-
-.message-starred-header {
-  display: flex;
-  align-items: center;
-  gap: 1rem;
-  max-width: 980px;
-  margin: 0 auto 1rem;
-}
-
-.message-starred-header button {
-  min-height: 40px;
-  padding: 0 1rem;
-  color: #ffffff;
-  background: var(--color-nt-blue);
-}
-
-.message-starred-header span {
-  color: var(--color-nt-blue);
-  font-size: 0.75rem;
-  font-weight: 900;
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
-}
-
-.message-starred-header h1 {
-  margin: 0.15rem 0;
-  color: var(--color-nt-deep);
-}
-
-.message-starred-header p {
-  margin: 0;
-  color: var(--color-muted);
-}
-
-.message-starred-state,
-.message-starred-list {
-  max-width: 980px;
-  margin: 0 auto;
-}
-
-.message-starred-state {
-  display: grid;
-  place-items: center;
-  min-height: 320px;
-  border: 1px solid rgba(7, 92, 168, 0.12);
-  border-radius: 24px;
-  background: rgba(255, 255, 255, 0.86);
-  text-align: center;
-}
-
-.message-starred-state.danger {
-  color: #991b1b;
-}
-
-.message-starred-list {
-  display: grid;
-  gap: 0.75rem;
-}
-
-.message-starred-list article {
-  display: grid;
-  gap: 0.65rem;
-  border: 1px solid rgba(7, 92, 168, 0.12);
-  border-radius: 20px;
-  padding: 1rem;
-  background: rgba(255, 255, 255, 0.9);
-  box-shadow: 0 16px 34px rgba(15, 23, 42, 0.08);
-}
-
-.message-starred-list article > div {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 0.75rem;
-}
-
-.message-starred-list strong {
-  color: var(--color-nt-deep);
-}
-
-.message-starred-list span {
-  color: var(--color-muted);
-  font-size: 0.78rem;
-  font-weight: 800;
-}
-
-.message-starred-list p {
-  margin: 0;
-  color: var(--color-nt-text);
-  line-height: 1.5;
-}
-
-.message-starred-list button {
-  justify-self: start;
-  min-height: 36px;
-  padding: 0 1rem;
-  color: #ffffff;
-  background: var(--color-nt-blue);
-}
-
 .message-app-shell.theme-dark .message-pinned-panel,
 .message-app-shell.theme-dark .message-pinned-panel button {
   background: rgba(15, 23, 42, 0.76);
-}
-
-@media (max-width: 760px) {
-  .message-starred-page {
-    padding: 1rem;
-  }
-
-  .message-starred-header {
-    align-items: flex-start;
-    flex-direction: column;
-  }
-
-  .message-starred-list article > div {
-    align-items: flex-start;
-    flex-direction: column;
-  }
 }
 
 .message-conversation-view-tabs {
@@ -16168,7 +15627,7 @@
   }
 }
 
-/* Shared modal backdrop used by message info and shared-content dialogs. */
+/* Shared backdrop retained for the remaining modal workflows. */
 .message-dialog-backdrop {
   position: fixed;
   inset: 0;
@@ -16199,257 +15658,8 @@
   border-color: rgba(245, 158, 11, 0.44);
 }
 
-/* M8 SHARED MEDIA DOCUMENTS LINKS START */
-.message-shared-dialog {
-  display: grid;
-  width: min(760px, calc(100vw - 24px));
-  max-height: min(760px, calc(100vh - 28px));
-  overflow: hidden;
-  border-radius: 22px;
-  background: #ffffff;
-  box-shadow: 0 28px 80px rgba(15, 23, 42, 0.28);
-}
-
-.message-shared-dialog > header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 16px;
-  padding: 18px 20px;
-  border-bottom: 1px solid rgba(15, 103, 177, 0.12);
-}
-
-.message-shared-dialog > header span {
-  color: #0f67b1;
-  font-size: 11px;
-  font-weight: 950;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-}
-
-.message-shared-dialog > header h2 {
-  margin: 2px 0 0;
-  color: #09233f;
-  font-size: 22px;
-}
-
-.message-shared-dialog > header button {
-  width: 36px;
-  height: 36px;
-  border: 0;
-  border-radius: 50%;
-  color: #0f2942;
-  background: #edf6ff;
-  font-size: 20px;
-  font-weight: 950;
-}
-
-.message-shared-tabs {
-  display: flex;
-  gap: 8px;
-  padding: 14px 20px;
-  border-bottom: 1px solid rgba(15, 103, 177, 0.1);
-  overflow-x: auto;
-}
-
-.message-shared-tabs button {
-  min-height: 34px;
-  border: 1px solid rgba(15, 103, 177, 0.18);
-  border-radius: 999px;
-  padding: 0 13px;
-  color: #0f2942;
-  background: #f8fbff;
-  font-size: 11px;
-  font-weight: 900;
-  white-space: nowrap;
-}
-
-.message-shared-tabs button.active {
-  color: #ffffff;
-  background: #0f67b1;
-  border-color: #0f67b1;
-}
-
-.message-shared-grid,
-.message-shared-list {
-  min-height: 260px;
-  overflow: auto;
-  padding: 16px 20px 20px;
-}
-
-.message-shared-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
-  gap: 12px;
-}
-
-.message-shared-list {
-  display: grid;
-  align-content: start;
-  gap: 10px;
-}
-
-.message-shared-media-card,
-.message-shared-document-row,
-.message-shared-link-row {
-  border: 1px solid rgba(15, 103, 177, 0.12);
-  border-radius: 16px;
-  background: #f8fbff;
-}
-
-.message-shared-media-card {
-  display: grid;
-  gap: 6px;
-  min-height: 128px;
-  padding: 14px;
-  text-align: left;
-}
-
-.message-shared-media-card span {
-  justify-self: start;
-  border-radius: 999px;
-  padding: 4px 9px;
-  color: #0f67b1;
-  background: #e6f3ff;
-  font-size: 10px;
-  font-weight: 950;
-}
-
-.message-shared-document-row,
-.message-shared-link-row {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  gap: 10px;
-  align-items: center;
-  padding: 10px;
-}
-
-.message-shared-document-row > button:first-child,
-.message-shared-link-row > button:first-child {
-  display: grid;
-  grid-template-columns: auto minmax(0, 1fr);
-  align-items: center;
-  gap: 10px;
-  min-width: 0;
-  border: 0;
-  padding: 0;
-  text-align: left;
-  background: transparent;
-}
-
-.message-shared-link-row > button:first-child {
-  grid-template-columns: minmax(0, 1fr);
-}
-
-.message-shared-document-row > button:last-child,
-.message-shared-link-row a,
-.message-shared-state button {
-  min-height: 34px;
-  border: 0;
-  border-radius: 999px;
-  padding: 0 12px;
-  color: #ffffff;
-  background: #0f67b1;
-  font-size: 11px;
-  font-weight: 900;
-  text-decoration: none;
-  display: inline-flex;
-  align-items: center;
-}
-
-.message-shared-media-card strong,
-.message-shared-media-card small,
-.message-shared-document-row strong,
-.message-shared-document-row small,
-.message-shared-document-row em,
-.message-shared-link-row strong,
-.message-shared-link-row small {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.message-shared-document-row span:last-child {
-  display: grid;
-  gap: 3px;
-  min-width: 0;
-}
-
-.message-shared-media-card strong,
-.message-shared-document-row strong,
-.message-shared-link-row strong {
-  color: #0f2942;
-  font-size: 13px;
-}
-
-.message-shared-media-card small,
-.message-shared-document-row small,
-.message-shared-link-row small,
-.message-shared-document-row em {
-  color: #64748b;
-  font-size: 11px;
-  font-style: normal;
-  font-weight: 750;
-}
-
-.message-shared-state {
-  display: grid;
-  place-items: center;
-  gap: 8px;
-  padding: 36px 20px;
-  text-align: center;
-}
-
-.message-shared-state strong {
-  color: #0f2942;
-  font-size: 15px;
-}
-
-.message-shared-state p {
-  margin: 0;
-  color: #64748b;
-}
-
-.message-app-shell.theme-dark .message-shared-dialog,
-.message-app-shell.theme-dark .message-shared-media-card,
-.message-app-shell.theme-dark .message-shared-document-row,
-.message-app-shell.theme-dark .message-shared-link-row {
-  border-color: rgba(148, 163, 184, 0.28);
-  background: rgba(15, 23, 42, 0.94);
-}
-
-.message-app-shell.theme-dark .message-shared-tabs,
-.message-app-shell.theme-dark .message-shared-dialog > header {
-  border-color: rgba(148, 163, 184, 0.22);
-}
-
-.message-app-shell.theme-dark .message-shared-dialog > header h2,
-.message-app-shell.theme-dark .message-shared-media-card strong,
-.message-app-shell.theme-dark .message-shared-document-row strong,
-.message-app-shell.theme-dark .message-shared-link-row strong,
-.message-app-shell.theme-dark .message-shared-state strong {
-  color: #e5eefb;
-}
-
-@media (max-width: 560px) {
-  .message-shared-dialog {
-    width: 100vw;
-    height: 100vh;
-    max-height: 100vh;
-    border-radius: 0;
-  }
-
-  .message-shared-document-row,
-  .message-shared-link-row {
-    grid-template-columns: 1fr;
-  }
-
-  .message-shared-document-row > button:last-child,
-  .message-shared-link-row a {
-    justify-content: center;
-  }
-}
-/* M8 SHARED MEDIA DOCUMENTS LINKS END */
+/* Shared content now renders inside the messaging detail column.
+   The legacy centered dialog styles were removed with the modal UI. */
 
 /* Y29 privacy-safe system monitoring dashboard. */
 .monitoring-panel {

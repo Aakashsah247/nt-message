@@ -62,8 +62,17 @@ import { UpdateLiveLocationDto } from './dto/update-live-location.dto';
 import { UpdateMessagingProfileDto } from './dto/update-messaging-profile.dto';
 import { UpdateMessagingSettingsDto } from './dto/update-messaging-settings.dto';
 import { ReactMessageDto } from './dto/react-message.dto';
+import { CreateChatFolderDto } from './dto/create-chat-folder.dto';
+import { UpdateChatFolderDto } from './dto/update-chat-folder.dto';
+import { ReorderChatFoldersDto } from './dto/reorder-chat-folders.dto';
+import { ManageFolderItemDto } from './dto/manage-folder-item.dto';
 import type { UploadedMessageAttachmentFile } from './types/uploaded-message-attachment-file';
 import { ConversationStorageService } from './conversation-storage.service';
+import { requiresMessageRequestApproval } from './message-request-policy';
+import {
+  MAX_MESSAGE_ATTACHMENT_FILES,
+  MAX_MESSAGE_ATTACHMENT_TOTAL_BYTES,
+} from './message-attachment-upload.constants';
 
 interface MessagingViewer {
   accountId: string;
@@ -72,6 +81,7 @@ interface MessagingViewer {
   departmentId: string | null;
   showOnlineStatus: boolean;
   showReadReceipts: boolean;
+  requireMessageRequests: boolean;
 }
 
 interface OfficialGroupScopeRecord {
@@ -188,6 +198,10 @@ export interface ForwardedMessageMetadata {
   originalTextContent: string;
 }
 
+export interface ForwardedMessagePresentation {
+  isForwarded: true;
+}
+
 export interface MessagingProfileSharedGroup {
   id: string;
   title: string | null;
@@ -257,6 +271,7 @@ const messagingAccountSelect = {
   profileBio: true,
   showOnlineStatus: true,
   showReadReceipts: true,
+  requireMessageRequests: true,
 
   employee: {
     select: {
@@ -264,6 +279,7 @@ const messagingAccountSelect = {
       empId: true,
       empName: true,
       officialEmail: true,
+      phoneNumber: true,
       designation: true,
       profilePhotoKey: true,
       profileBio: true,
@@ -535,7 +551,9 @@ const conversationSelect = {
       isMuted: true,
       isArchived: true,
       isPinned: true,
+      isFavorite: true,
       pinnedAt: true,
+      favoritedAt: true,
       mutedUntil: true,
       archivedAt: true,
       markedUnreadAt: true,
@@ -849,12 +867,14 @@ export class ConversationsService {
     id: string;
     showOnlineStatus: boolean;
     showReadReceipts: boolean;
+    requireMessageRequests: boolean;
     updatedAt?: Date;
   }) {
     return {
       accountId: account.id,
       showOnlineStatus: account.showOnlineStatus,
       showReadReceipts: account.showReadReceipts,
+      requireMessageRequests: account.requireMessageRequests,
       updatedAt: account.updatedAt ?? null,
     };
   }
@@ -867,6 +887,7 @@ export class ConversationsService {
         accountId: viewer.accountId,
         showOnlineStatus: viewer.showOnlineStatus,
         showReadReceipts: viewer.showReadReceipts,
+        requireMessageRequests: viewer.requireMessageRequests,
         updatedAt: null,
       },
     };
@@ -887,12 +908,17 @@ export class ConversationsService {
       data.showReadReceipts = dto.showReadReceipts;
     }
 
+    if (typeof dto.requireMessageRequests === 'boolean') {
+      data.requireMessageRequests = dto.requireMessageRequests;
+    }
+
     if (Object.keys(data).length === 0) {
       return {
         data: {
           accountId: viewer.accountId,
           showOnlineStatus: viewer.showOnlineStatus,
           showReadReceipts: viewer.showReadReceipts,
+          requireMessageRequests: viewer.requireMessageRequests,
           updatedAt: null,
         },
       };
@@ -907,6 +933,7 @@ export class ConversationsService {
         id: true,
         showOnlineStatus: true,
         showReadReceipts: true,
+        requireMessageRequests: true,
         updatedAt: true,
       },
     });
@@ -1232,6 +1259,7 @@ export class ConversationsService {
         departmentId: null,
         showOnlineStatus: account.showOnlineStatus,
         showReadReceipts: account.showReadReceipts,
+        requireMessageRequests: account.requireMessageRequests,
       };
     }
 
@@ -1268,6 +1296,7 @@ export class ConversationsService {
       departmentId: employee.departmentId,
       showOnlineStatus: account.showOnlineStatus,
       showReadReceipts: account.showReadReceipts,
+      requireMessageRequests: account.requireMessageRequests,
     };
   }
 
@@ -1342,6 +1371,7 @@ export class ConversationsService {
             // Official identity stays read-only and comes from activation/admin workflows.
             employeeId: employee.empId,
             officialEmail: employee.officialEmail,
+            contactNumber: employee.phoneNumber,
             designation: employee.designation,
             division: employee.division,
             department: employee.departmentUnit,
@@ -1532,15 +1562,26 @@ export class ConversationsService {
       return 'DIRECT';
     }
 
+    const requestReason = this.getMessageRequestReason(viewer, target);
+    const approvalRequired = requiresMessageRequestApproval(
+      requestReason,
+      target.requireMessageRequests,
+    );
+
     if (request?.status === MessageRequestStatus.PENDING) {
+      if (
+        request.requesterAccountId === viewer.accountId &&
+        !approvalRequired
+      ) {
+        return 'DIRECT';
+      }
+
       return request.requesterAccountId === viewer.accountId
         ? 'REQUEST_SENT'
         : 'REQUEST_RECEIVED';
     }
 
-    return this.getMessageRequestReason(viewer, target)
-      ? 'REQUEST_REQUIRED'
-      : 'DIRECT';
+    return approvalRequired ? 'REQUEST_REQUIRED' : 'DIRECT';
   }
 
   private isVisibleMessagingProfile(account: MessagingAccountRecord): boolean {
@@ -1880,6 +1921,30 @@ export class ConversationsService {
     };
   }
 
+  private getForwardedMessagePresentation(
+    payload: unknown,
+  ): ForwardedMessagePresentation | null {
+    /*
+     * Forward provenance remains available to trusted forwarding logic, but
+     * recipients receive only the fact that a message was forwarded. Source
+     * participant and conversation identity must not cross privacy boundaries.
+     */
+    return this.getForwardedMessageMetadata(payload)
+      ? { isForwarded: true }
+      : null;
+  }
+
+  private getPublicMessagePayload(payload: unknown): unknown {
+    if (!payload || typeof payload !== 'object' || Array.isArray(payload)) {
+      return payload;
+    }
+
+    const { forwardedFrom: _privateForwardProvenance, ...publicPayload } =
+      payload as Record<string, unknown>;
+
+    return publicPayload;
+  }
+
   private getAggregateReceiptDate(dates: Array<Date | null>): Date | null {
     if (dates.length === 0 || dates.some((date) => date === null)) {
       return null;
@@ -2173,14 +2238,16 @@ export class ConversationsService {
       sender: this.serializeAccount(message.sender),
       contentType: message.contentType,
       textContent: message.deletedAt ? null : message.textContent,
-      payload: message.deletedAt ? null : message.payload,
+      payload: message.deletedAt
+        ? null
+        : this.getPublicMessagePayload(message.payload),
       replyToMessageId: message.replyToMessageId,
       replyTo: this.serializeReply(
         message.replyTo,
         viewerAccountId,
         viewerParticipant,
       ),
-      forwardedFrom: this.getForwardedMessageMetadata(message.payload),
+      forwardedFrom: this.getForwardedMessagePresentation(message.payload),
       isStarred: viewerStar !== null,
       starredAt: viewerStar?.starredAt ?? null,
       isPinned: activePin !== null,
@@ -2247,6 +2314,10 @@ export class ConversationsService {
   }
 
   private getMuteUntil(mute: ConversationMuteSetting, now: Date): Date | null {
+    if (mute === '1_HOUR') {
+      return new Date(now.getTime() + 60 * 60 * 1000);
+    }
+
     if (mute === '8_HOURS') {
       return new Date(now.getTime() + 8 * 60 * 60 * 1000);
     }
@@ -2319,6 +2390,8 @@ export class ConversationsService {
       archivedAt: viewerParticipant?.archivedAt ?? null,
       isPinned: viewerParticipant?.isPinned ?? false,
       pinnedAt: viewerParticipant?.pinnedAt ?? null,
+      isFavorite: viewerParticipant?.isFavorite ?? false,
+      favoritedAt: viewerParticipant?.favoritedAt ?? null,
       isMarkedUnread,
       markedUnreadAt: viewerParticipant?.markedUnreadAt ?? null,
       historyClearedAt: viewerParticipant?.historyClearedAt ?? null,
@@ -2912,6 +2985,53 @@ export class ConversationsService {
     throw new BadRequestException(
       'Unsupported attachment type. Allowed files are JPG, PNG, WEBP, MP4, WEBM, MP3, M4A, AAC, WAV, OGG, WEBM audio, PDF, DOCX, XLSX, PPTX, TXT, CSV and ZIP.',
     );
+  }
+
+  private validateMessageAttachments(
+    files?: UploadedMessageAttachmentFile[],
+  ): Array<{
+    file: UploadedMessageAttachmentFile;
+    originalFileName: string;
+    contentType: MessageContentType;
+  }> {
+    if (!files || files.length === 0) {
+      throw new BadRequestException('At least one attachment file is required.');
+    }
+
+    if (files.length > MAX_MESSAGE_ATTACHMENT_FILES) {
+      throw new BadRequestException(
+        `A message can contain at most ${MAX_MESSAGE_ATTACHMENT_FILES} attachments.`,
+      );
+    }
+
+    const totalBytes = files.reduce((total, file) => total + file.size, 0);
+
+    if (totalBytes > MAX_MESSAGE_ATTACHMENT_TOTAL_BYTES) {
+      throw new BadRequestException(
+        'Attachments in one message must total 250 MB or smaller.',
+      );
+    }
+
+    return files.map((file) => ({
+      file,
+      ...this.validateMessageAttachment(file),
+    }));
+  }
+
+  private getAttachmentMessageContentType(
+    attachments: Array<{ contentType: MessageContentType }>,
+  ): MessageContentType {
+    const [firstAttachment] = attachments;
+
+    if (!firstAttachment) {
+      return MessageContentType.FILE;
+    }
+
+    return attachments.every(
+      (attachment) => attachment.contentType === firstAttachment.contentType,
+    )
+      ? firstAttachment.contentType
+      : MessageContentType.FILE;
   }
 
   private resolveAttachmentPath(storageKey: string): string {
@@ -5823,7 +5943,9 @@ export class ConversationsService {
     const profilePhotoKey = this.getAccountProfilePhotoKey(account);
 
     if (!profilePhotoKey) {
-      throw new NotFoundException('Profile photo was not found.');
+      // A visible account without a custom photo is a valid initials-avatar state,
+      // not a missing or unauthorized profile.
+      return null;
     }
 
     // Any active messaging user may view another active profile photo, but only through this protected route.
@@ -6069,6 +6191,10 @@ export class ConversationsService {
       );
       const request = requestsByKey.get(participantKey);
       const requestReason = this.getMessageRequestReason(viewer, candidate);
+      const approvalRequired = requiresMessageRequestApproval(
+        requestReason,
+        candidate.requireMessageRequests,
+      );
 
       let contactMode:
         | 'DIRECT'
@@ -6089,17 +6215,25 @@ export class ConversationsService {
         contactMode = 'DIRECT';
       } else if (request?.status === MessageRequestStatus.PENDING) {
         contactMode =
-          request.requesterAccountId === viewer.accountId
-            ? 'REQUEST_SENT'
-            : 'REQUEST_RECEIVED';
+          request.requesterAccountId === viewer.accountId &&
+          !approvalRequired
+            ? 'DIRECT'
+            : request.requesterAccountId === viewer.accountId
+              ? 'REQUEST_SENT'
+              : 'REQUEST_RECEIVED';
       } else {
-        contactMode = requestReason ? 'REQUEST_REQUIRED' : 'DIRECT';
+        contactMode = approvalRequired ? 'REQUEST_REQUIRED' : 'DIRECT';
       }
 
       return {
         ...this.serializeAccount(candidate),
         contactMode,
-        requestReason: request?.reason ?? requestReason,
+        requestReason:
+          contactMode === 'REQUEST_REQUIRED' ||
+          contactMode === 'REQUEST_SENT' ||
+          contactMode === 'REQUEST_RECEIVED'
+            ? (request?.reason ?? requestReason)
+            : null,
         blockDirection,
       };
     });
@@ -7175,7 +7309,19 @@ export class ConversationsService {
       );
     }
 
-    if (existingRequest?.status === MessageRequestStatus.PENDING) {
+    const requestReason = this.getMessageRequestReason(viewer, target);
+    const approvalRequired = requiresMessageRequestApproval(
+      requestReason,
+      target.requireMessageRequests,
+    );
+
+    if (
+      existingRequest?.status === MessageRequestStatus.PENDING &&
+      !(
+        existingRequest.requesterAccountId === viewer.accountId &&
+        !approvalRequired
+      )
+    ) {
       return {
         outcome: 'REQUEST' as const,
         message:
@@ -7191,13 +7337,13 @@ export class ConversationsService {
       };
     }
 
-    const requestReason = this.getMessageRequestReason(viewer, target);
     const viewerPreviouslyDeclined =
       existingRequest?.status === MessageRequestStatus.DECLINED &&
       existingRequest.recipientAccountId === viewer.accountId;
 
     if (
       requestReason === null ||
+      !approvalRequired ||
       viewerPreviouslyDeclined ||
       existingRequest?.status === MessageRequestStatus.ACCEPTED
     ) {
@@ -7585,12 +7731,14 @@ export class ConversationsService {
     );
 
     const take = query.limit + 1;
-    const archivedFilter =
+    const participantListFilter =
       query.view === 'ALL'
         ? {}
-        : {
-            isArchived: query.view === 'ARCHIVED',
-          };
+        : query.view === 'ARCHIVED'
+          ? { isArchived: true }
+          : query.view === 'FAVORITES'
+            ? { isArchived: false, isFavorite: true }
+            : { isArchived: false };
 
     const conversations = await this.prisma.conversation.findMany({
       where: {
@@ -7599,7 +7747,7 @@ export class ConversationsService {
             accountId: viewer.accountId,
             leftAt: null,
             deletedFromListAt: null,
-            ...archivedFilter,
+            ...participantListFilter,
           },
         },
       },
@@ -8820,20 +8968,21 @@ export class ConversationsService {
     user: AuthenticatedUser,
     conversationId: string,
     dto: SendAttachmentMessageDto,
-    file?: UploadedMessageAttachmentFile,
+    files?: UploadedMessageAttachmentFile[],
   ) {
     const viewer = await this.getMessagingViewer(user);
-    const attachment = this.validateMessageAttachment(file);
-    const uploadedFile = file as UploadedMessageAttachmentFile;
+    const attachments = this.validateMessageAttachments(files);
     const caption = dto.caption?.trim() || null;
     const attachmentKind = dto.attachmentKind ?? null;
+    const messageContentType = this.getAttachmentMessageContentType(attachments);
 
     if (
       attachmentKind === 'VOICE_NOTE' &&
-      attachment.contentType !== MessageContentType.AUDIO
+      (attachments.length !== 1 ||
+        attachments[0]?.contentType !== MessageContentType.AUDIO)
     ) {
       throw new BadRequestException(
-        'Voice notes must be uploaded as an audio file.',
+        'A voice note must contain exactly one audio attachment.',
       );
     }
 
@@ -8941,10 +9090,6 @@ export class ConversationsService {
     }
 
     if (dto.replyToMessageId) {
-      if (!viewerParticipant) {
-        throw new NotFoundException('Conversation was not found.');
-      }
-
       const replyTarget = await this.prisma.message.findFirst({
         where: {
           id: dto.replyToMessageId,
@@ -8972,14 +9117,37 @@ export class ConversationsService {
       .map((participant) => participant.accountId)
       .filter((accountId) => accountId !== viewer.accountId);
 
-    const storageKey = [
-      conversationId,
-      `${randomUUID()}-${attachment.originalFileName.replace(/[^a-zA-Z0-9._-]/g, '_')}`,
-    ].join('/');
-
-    await this.writeAttachmentFile(storageKey, uploadedFile);
+    const storedAttachments: Array<{
+      storageKey: string;
+      originalFileName: string;
+      mimeType: string;
+      fileSizeBytes: number;
+      contentType: MessageContentType;
+    }> = [];
 
     try {
+      /*
+       * Write each protected object before the database transaction, then remove
+       * every object if any later write or database step fails. This keeps one
+       * multi-file message atomic from the user's perspective.
+       */
+      for (const attachment of attachments) {
+        const storageKey = [
+          conversationId,
+          `${randomUUID()}-${attachment.originalFileName.replace(/[^a-zA-Z0-9._-]/g, '_')}`,
+        ].join('/');
+
+        storedAttachments.push({
+          storageKey,
+          originalFileName: attachment.originalFileName,
+          mimeType: attachment.file.mimetype,
+          fileSizeBytes: attachment.file.size,
+          contentType: attachment.contentType,
+        });
+
+        await this.writeAttachmentFile(storageKey, attachment.file);
+      }
+
       const createdMessage = await this.prisma.$transaction(
         async (transaction) => {
           const created = await transaction.message.create({
@@ -8987,24 +9155,24 @@ export class ConversationsService {
               conversationId,
               senderAccountId: viewer.accountId,
               clientMessageId: dto.clientMessageId,
-              contentType: attachment.contentType,
+              contentType: messageContentType,
               textContent: caption,
               replyToMessageId: dto.replyToMessageId ?? null,
               payload: {
-                attachmentCount: 1,
-                // The payload marks browser-recorded audio so clients can show voice-note UI.
+                attachmentCount: storedAttachments.length,
+                // Voice notes remain a single-audio subtype of the attachment pipeline.
                 ...(attachmentKind ? { attachmentKind } : {}),
               },
 
               attachments: {
-                create: {
-                  storageKey,
+                create: storedAttachments.map((attachment) => ({
+                  storageKey: attachment.storageKey,
                   originalFileName: attachment.originalFileName,
-                  mimeType: uploadedFile.mimetype,
-                  fileSizeBytes: uploadedFile.size,
+                  mimeType: attachment.mimeType,
+                  fileSizeBytes: attachment.fileSizeBytes,
                   contentType: attachment.contentType,
                   scanStatus: 'PENDING',
-                },
+                })),
               },
 
               receipts: {
@@ -9081,12 +9249,19 @@ export class ConversationsService {
       });
 
       return {
-        message: 'Attachment sent successfully.',
+        message:
+          storedAttachments.length === 1
+            ? 'Attachment sent successfully.'
+            : 'Attachments sent successfully.',
         duplicate: false,
         data: serializedMessage,
       };
     } catch (error) {
-      await this.deleteAttachmentFileIfExists(storageKey);
+      await Promise.all(
+        storedAttachments.map((attachment) =>
+          this.deleteAttachmentFileIfExists(attachment.storageKey),
+        ),
+      );
 
       if (!this.isUniqueConstraintError(error)) {
         throw error;
@@ -10245,6 +10420,13 @@ export class ConversationsService {
       viewer.accountId,
       conversationId,
       messageId,
+      undefined,
+      {
+        // A delete-for-everyone tombstone can still be removed from one
+        // participant's own history. Other content-dependent actions remain
+        // blocked by the default deleted-message guard.
+        allowDeleted: true,
+      },
     );
     const message = {
       id: visibleMessage.id,
@@ -10360,6 +10542,13 @@ export class ConversationsService {
         storageKeys,
       );
 
+      /*
+       * Keep the transaction write scalar-only. Prisma 7's query interpreter
+       * may resolve relation branches from a rich select concurrently. The pg
+       * adapter uses one PoolClient for an interactive transaction, so those
+       * overlapping relation queries trigger pg's client.query deprecation
+       * warning. Fetch the serialized message after commit through the pool.
+       */
       const updatedMessage = await transaction.message.update({
         where: {
           id: message.id,
@@ -10368,7 +10557,9 @@ export class ConversationsService {
           deletedAt: now,
           deletedByAccountId: viewer.accountId,
         },
-        select: messageSelect,
+        select: {
+          id: true,
+        },
       });
 
       const unreferencedStorageKeys =
@@ -10390,20 +10581,33 @@ export class ConversationsService {
       });
 
       return {
-        // The deleted placeholder must not return attachment metadata whose rows were removed.
-        deletedMessage: {
-          ...updatedMessage,
-          attachments: [],
-        },
+        deletedMessageId: updatedMessage.id,
         participants,
         unreferencedStorageKeys,
       };
     });
 
+    const deletedMessage = await this.prisma.message.findUnique({
+      where: {
+        id: result.deletedMessageId,
+      },
+      select: messageSelect,
+    });
+
+    if (!deletedMessage) {
+      throw new NotFoundException('Message was not found after deletion.');
+    }
+
     // Physical deletion occurs only after the database transaction commits successfully.
     await this.conversationStorageService.deletePhysicalStorageObjects(
       result.unreferencedStorageKeys,
     );
+
+    // Attachment rows are removed transactionally; never expose stale metadata.
+    const deletedPlaceholder = {
+      ...deletedMessage,
+      attachments: [],
+    };
 
     /*
      * Reuse the participant state already authorized at method entry. Looking
@@ -10411,14 +10615,14 @@ export class ConversationsService {
      * redeclared the same block-scoped identifier.
      */
     const serializedMessage = this.serializeMessage(
-      result.deletedMessage,
+      deletedPlaceholder,
       viewer.accountId,
       viewerParticipant,
     );
 
     this.emitMessageUpdatedForVisibleParticipants(
       conversationId,
-      result.deletedMessage,
+      deletedPlaceholder,
       result.participants,
       'DELETED',
       now.toISOString(),
@@ -10547,6 +10751,8 @@ export class ConversationsService {
                   deletedFromListAt: now,
                   isPinned: false,
                   pinnedAt: null,
+                  isFavorite: false,
+                  favoritedAt: null,
                   isArchived: false,
                   archivedAt: null,
                   markedUnreadAt: null,
@@ -10590,6 +10796,8 @@ export class ConversationsService {
             deletedFromListAt: true,
             isPinned: true,
             pinnedAt: true,
+            isFavorite: true,
+            favoritedAt: true,
             isArchived: true,
             archivedAt: true,
             isMuted: true,
@@ -10713,6 +10921,8 @@ export class ConversationsService {
         deletedFromListAt: participant.deletedFromListAt,
         isPinned: participant.isPinned,
         pinnedAt: participant.pinnedAt,
+        isFavorite: participant.isFavorite,
+        favoritedAt: participant.favoritedAt,
         isArchived: participant.isArchived,
         archivedAt: participant.archivedAt,
         isMuted: this.isMuteActive(participant),
@@ -10744,6 +10954,12 @@ export class ConversationsService {
     if (dto.isArchived !== undefined) {
       data.isArchived = dto.isArchived;
       data.archivedAt = dto.isArchived ? now : null;
+    }
+
+    if (dto.isFavorite !== undefined) {
+      // Favorites are personal conversation organization state and never notify peers.
+      data.isFavorite = dto.isFavorite;
+      data.favoritedAt = dto.isFavorite ? now : null;
     }
 
     if (dto.markUnread !== undefined) {
@@ -10778,6 +10994,8 @@ export class ConversationsService {
         accountId: true,
         isPinned: true,
         pinnedAt: true,
+        isFavorite: true,
+        favoritedAt: true,
         isArchived: true,
         archivedAt: true,
         isMuted: true,
@@ -10797,6 +11015,8 @@ export class ConversationsService {
         accountId: participant.accountId,
         isPinned: participant.isPinned,
         pinnedAt: participant.pinnedAt,
+        isFavorite: participant.isFavorite,
+        favoritedAt: participant.favoritedAt,
         isArchived: participant.isArchived,
         archivedAt: participant.archivedAt,
         isMuted: this.isMuteActive(participant),
@@ -10926,6 +11146,292 @@ export class ConversationsService {
       conversationId,
       readMessages: readResult.count,
       readAt: now,
+    };
+  }
+
+  async listChatFolders(viewer: AuthenticatedUser) {
+    const folders = await this.prisma.chatFolder.findMany({
+      where: { accountId: viewer.accountId },
+      orderBy: { position: 'asc' },
+      include: {
+        items: {
+          include: {
+            conversation: {
+              select: {
+                id: true,
+                type: true,
+                title: true,
+                groupKind: true,
+              },
+            },
+            targetAccount: {
+              select: {
+                id: true,
+                username: true,
+                profilePhotoKey: true,
+                employee: {
+                  select: {
+                    empName: true,
+                    designation: true,
+                  },
+                },
+              },
+            },
+          },
+        },
+      },
+    });
+
+    return {
+      data: folders.map((folder) => ({
+        id: folder.id,
+        name: folder.name,
+        icon: folder.icon,
+        color: folder.color,
+        position: folder.position,
+        includePrivate: folder.includePrivate,
+        includeGroups: folder.includeGroups,
+        includeOfficial: folder.includeOfficial,
+        includeUnreadOnly: folder.includeUnreadOnly,
+        excludeMuted: folder.excludeMuted,
+        createdAt: folder.createdAt.toISOString(),
+        updatedAt: folder.updatedAt.toISOString(),
+        items: folder.items.map((item) => ({
+          id: item.id,
+          folderId: item.folderId,
+          conversationId: item.conversationId,
+          targetAccountId: item.targetAccountId,
+          createdAt: item.createdAt.toISOString(),
+          conversation: item.conversation
+            ? {
+                id: item.conversation.id,
+                type: item.conversation.type,
+                title: item.conversation.title,
+                groupKind: item.conversation.groupKind,
+              }
+            : null,
+          targetAccount: item.targetAccount
+            ? {
+                id: item.targetAccount.id,
+                displayName:
+                  item.targetAccount.employee?.empName ||
+                  item.targetAccount.username ||
+                  'User',
+                profilePhotoKey: item.targetAccount.profilePhotoKey,
+                empName: item.targetAccount.employee?.empName || null,
+                designation: item.targetAccount.employee?.designation || null,
+              }
+            : null,
+        })),
+      })),
+    };
+  }
+
+  async createChatFolder(viewer: AuthenticatedUser, dto: CreateChatFolderDto) {
+    const maxPosition = await this.prisma.chatFolder.aggregate({
+      where: { accountId: viewer.accountId },
+      _max: { position: true },
+    });
+    const nextPosition = (maxPosition._max.position ?? -1) + 1;
+
+    const folder = await this.prisma.chatFolder.create({
+      data: {
+        accountId: viewer.accountId,
+        name: dto.name,
+        icon: dto.icon || 'folder',
+        color: dto.color || null,
+        position: nextPosition,
+        includePrivate: dto.includePrivate ?? false,
+        includeGroups: dto.includeGroups ?? false,
+        includeOfficial: dto.includeOfficial ?? false,
+        includeUnreadOnly: dto.includeUnreadOnly ?? false,
+        excludeMuted: dto.excludeMuted ?? false,
+        items: {
+          create: [
+            ...(dto.conversationIds || []).map((cid) => ({
+              conversationId: cid,
+            })),
+            ...(dto.targetAccountIds || []).map((aid) => ({
+              targetAccountId: aid,
+            })),
+          ],
+        },
+      },
+      include: {
+        items: true,
+      },
+    });
+
+    return {
+      message: 'Folder created successfully.',
+      data: folder,
+    };
+  }
+
+  async updateChatFolder(
+    viewer: AuthenticatedUser,
+    folderId: string,
+    dto: UpdateChatFolderDto,
+  ) {
+    const existing = await this.prisma.chatFolder.findFirst({
+      where: { id: folderId, accountId: viewer.accountId },
+    });
+    if (!existing) {
+      throw new NotFoundException('Folder not found.');
+    }
+
+    const folder = await this.prisma.$transaction(async (tx) => {
+      if (dto.conversationIds !== undefined || dto.targetAccountIds !== undefined) {
+        await tx.chatFolderItem.deleteMany({
+          where: { folderId },
+        });
+
+        const newItems: { conversationId?: string; targetAccountId?: string }[] = [];
+        if (dto.conversationIds) {
+          for (const cid of dto.conversationIds) {
+            newItems.push({ conversationId: cid });
+          }
+        }
+        if (dto.targetAccountIds) {
+          for (const aid of dto.targetAccountIds) {
+            newItems.push({ targetAccountId: aid });
+          }
+        }
+
+        if (newItems.length > 0) {
+          await tx.chatFolderItem.createMany({
+            data: newItems.map((item) => ({
+              folderId,
+              ...item,
+            })),
+            skipDuplicates: true,
+          });
+        }
+      }
+
+      return tx.chatFolder.update({
+        where: { id: folderId },
+        data: {
+          name: dto.name !== undefined ? dto.name : undefined,
+          icon: dto.icon !== undefined ? dto.icon : undefined,
+          color: dto.color !== undefined ? dto.color : undefined,
+          includePrivate: dto.includePrivate !== undefined ? dto.includePrivate : undefined,
+          includeGroups: dto.includeGroups !== undefined ? dto.includeGroups : undefined,
+          includeOfficial: dto.includeOfficial !== undefined ? dto.includeOfficial : undefined,
+          includeUnreadOnly: dto.includeUnreadOnly !== undefined ? dto.includeUnreadOnly : undefined,
+          excludeMuted: dto.excludeMuted !== undefined ? dto.excludeMuted : undefined,
+        },
+        include: {
+          items: true,
+        },
+      });
+    });
+
+    return {
+      message: 'Folder updated successfully.',
+      data: folder,
+    };
+  }
+
+  async deleteChatFolder(viewer: AuthenticatedUser, folderId: string) {
+    const existing = await this.prisma.chatFolder.findFirst({
+      where: { id: folderId, accountId: viewer.accountId },
+    });
+    if (!existing) {
+      throw new NotFoundException('Folder not found.');
+    }
+
+    await this.prisma.chatFolder.delete({
+      where: { id: folderId },
+    });
+
+    return {
+      message: 'Folder deleted successfully.',
+      folderId,
+    };
+  }
+
+  async reorderChatFolders(viewer: AuthenticatedUser, dto: ReorderChatFoldersDto) {
+    await this.prisma.$transaction(
+      dto.folderIds.map((id, index) =>
+        this.prisma.chatFolder.updateMany({
+          where: { id, accountId: viewer.accountId },
+          data: { position: index },
+        }),
+      ),
+    );
+
+    return {
+      message: 'Folders reordered successfully.',
+    };
+  }
+
+  async addFolderItem(
+    viewer: AuthenticatedUser,
+    folderId: string,
+    dto: ManageFolderItemDto,
+  ) {
+    const folder = await this.prisma.chatFolder.findFirst({
+      where: { id: folderId, accountId: viewer.accountId },
+    });
+    if (!folder) {
+      throw new NotFoundException('Folder not found.');
+    }
+
+    if (!dto.conversationId && !dto.targetAccountId) {
+      throw new BadRequestException('Either conversationId or targetAccountId is required.');
+    }
+
+    const item = await this.prisma.chatFolderItem.upsert({
+      where: dto.conversationId
+        ? {
+            folderId_conversationId: {
+              folderId,
+              conversationId: dto.conversationId,
+            },
+          }
+        : {
+            folderId_targetAccountId: {
+              folderId,
+              targetAccountId: dto.targetAccountId!,
+            },
+          },
+      create: {
+        folderId,
+        conversationId: dto.conversationId || null,
+        targetAccountId: dto.targetAccountId || null,
+      },
+      update: {},
+    });
+
+    return {
+      message: 'Item added to folder.',
+      data: item,
+    };
+  }
+
+  async removeFolderItem(
+    viewer: AuthenticatedUser,
+    folderId: string,
+    itemId: string,
+  ) {
+    const folder = await this.prisma.chatFolder.findFirst({
+      where: { id: folderId, accountId: viewer.accountId },
+    });
+    if (!folder) {
+      throw new NotFoundException('Folder not found.');
+    }
+
+    await this.prisma.chatFolderItem.deleteMany({
+      where: {
+        id: itemId,
+        folderId,
+      },
+    });
+
+    return {
+      message: 'Item removed from folder.',
+      itemId,
     };
   }
 }

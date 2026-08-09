@@ -339,7 +339,7 @@ describe('ConversationStorageService M18 acceptance', () => {
       },
     });
     expect(transaction.$queryRawUnsafe).toHaveBeenCalledWith(
-      'SELECT pg_advisory_xact_lock(hashtextextended($1, 0))',
+      'SELECT pg_advisory_xact_lock(hashtextextended($1, 0))::text AS "lockResult"',
       'shared/one-file.pdf',
     );
   });

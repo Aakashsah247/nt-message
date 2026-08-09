@@ -102,6 +102,7 @@ export interface MessagingUserProfile extends MessagingAccount {
   official: {
     employeeId: string;
     officialEmail: string;
+    contactNumber: string;
     designation: string | null;
     division: MessagingOrganizationUnit | null;
     department: MessagingOrganizationUnit | null;
@@ -166,12 +167,7 @@ export interface MessagingMessageRequest {
 }
 
 export interface MessagingForwardMetadata {
-  sourceMessageId: string;
-  sourceConversationId: string;
-  originalSenderAccountId: string;
-  originalSenderDisplayName: string;
-  originalSentAt: string;
-  originalTextContent: string;
+  isForwarded: true;
 }
 
 export interface MessagingReply {
@@ -290,6 +286,8 @@ export interface MessagingConversation {
   archivedAt: string | null;
   isPinned: boolean;
   pinnedAt: string | null;
+  isFavorite: boolean;
+  favoritedAt: string | null;
   isMarkedUnread: boolean;
   markedUnreadAt: string | null;
   draftText: string | null;
@@ -310,15 +308,17 @@ export interface MessagingConversation {
   updatedAt: string;
 }
 
-export type ConversationListView = "ACTIVE" | "ARCHIVED" | "ALL";
+export type ConversationListView = "ACTIVE" | "ARCHIVED" | "FAVORITES" | "ALL";
 
-export type ConversationMuteSetting = "OFF" | "8_HOURS" | "1_WEEK" | "ALWAYS";
+export type ConversationMuteSetting = "OFF" | "1_HOUR" | "8_HOURS" | "1_WEEK" | "ALWAYS";
 
 export interface ConversationPreferenceState {
   conversationId: string;
   accountId: string;
   isPinned: boolean;
   pinnedAt: string | null;
+  isFavorite: boolean;
+  favoritedAt: string | null;
   isArchived: boolean;
   archivedAt: string | null;
   isMuted: boolean;
@@ -334,7 +334,8 @@ export interface ConversationPreferenceResponse {
   data: ConversationPreferenceState;
 }
 
-export interface PersonalConversationHistoryState extends ConversationPreferenceState {
+export interface PersonalConversationHistoryState
+  extends ConversationPreferenceState {
   historyClearedAt: string | null;
   deletedFromListAt: string | null;
 }
@@ -354,6 +355,7 @@ export interface MessagingPrivacySettings {
   accountId: string;
   showOnlineStatus: boolean;
   showReadReceipts: boolean;
+  requireMessageRequests: boolean;
   updatedAt: string | null;
 }
 
@@ -534,7 +536,8 @@ export interface MessageRequestActionResponse {
   request: MessagingMessageRequest;
 }
 
-export interface AcceptMessageRequestResponse extends MessageRequestActionResponse {
+export interface AcceptMessageRequestResponse
+  extends MessageRequestActionResponse {
   data: MessagingConversation;
 }
 
@@ -608,7 +611,9 @@ export type MessagingNotificationType =
   | "VOICE_NOTE"
   | "GROUP_EVENT"
   | "MENTION"
-  | "ANNOUNCEMENT";
+  | "ANNOUNCEMENT"
+  | "WORK_ITEM"
+  | "DUTY";
 
 export interface MessagingNotification {
   id: string;
@@ -838,7 +843,8 @@ export interface MessagingAnalyticsCountItem {
   count: number;
 }
 
-export interface MessagingAnalyticsAttachmentItem extends MessagingAnalyticsCountItem {
+export interface MessagingAnalyticsAttachmentItem
+  extends MessagingAnalyticsCountItem {
   totalBytes: number;
 }
 
@@ -897,3 +903,67 @@ export interface PersonalDashboardSummaryResponse {
   latestMessageAt: string | null;
   privacyNotice: string;
 }
+
+export interface ChatFolderItem {
+  id: string;
+  folderId: string;
+  conversationId: string | null;
+  targetAccountId: string | null;
+  createdAt: string;
+  conversation?: {
+    id: string;
+    type: ConversationType;
+    title: string | null;
+    groupKind: GroupKind | null;
+  } | null;
+  targetAccount?: {
+    id: string;
+    displayName: string;
+    profilePhotoKey: string | null;
+    empName: string | null;
+    designation: string | null;
+  } | null;
+}
+
+export interface ChatFolder {
+  id: string;
+  name: string;
+  icon: string;
+  color: string | null;
+  position: number;
+  includePrivate: boolean;
+  includeGroups: boolean;
+  includeOfficial: boolean;
+  includeUnreadOnly: boolean;
+  excludeMuted: boolean;
+  createdAt: string;
+  updatedAt: string;
+  items: ChatFolderItem[];
+}
+
+export interface CreateChatFolderInput {
+  name: string;
+  icon?: string;
+  color?: string;
+  includePrivate?: boolean;
+  includeGroups?: boolean;
+  includeOfficial?: boolean;
+  includeUnreadOnly?: boolean;
+  excludeMuted?: boolean;
+  conversationIds?: string[];
+  targetAccountIds?: string[];
+}
+
+export interface UpdateChatFolderInput {
+  name?: string;
+  icon?: string;
+  color?: string;
+  includePrivate?: boolean;
+  includeGroups?: boolean;
+  includeOfficial?: boolean;
+  includeUnreadOnly?: boolean;
+  excludeMuted?: boolean;
+  conversationIds?: string[];
+  targetAccountIds?: string[];
+}
+

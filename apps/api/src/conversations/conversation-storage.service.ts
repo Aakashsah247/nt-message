@@ -526,8 +526,11 @@ export class ConversationStorageService {
        * A transaction-scoped advisory lock serializes forwarding and final
        * reference removal across application instances without exposing keys.
        */
-      await transaction.$queryRawUnsafe(
-        'SELECT pg_advisory_xact_lock(hashtextextended($1, 0))',
+      await transaction.$queryRawUnsafe<Array<{ lockResult: string | null }>>(
+        // PostgreSQL exposes pg_advisory_xact_lock() as void. Prisma 7's
+        // pg adapter cannot deserialize void raw-query columns, so cast the
+        // side-effect result to text while retaining the transaction lock.
+        'SELECT pg_advisory_xact_lock(hashtextextended($1, 0))::text AS "lockResult"',
         storageKey,
       );
     }

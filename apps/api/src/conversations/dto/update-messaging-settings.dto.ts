@@ -8,4 +8,8 @@ export class UpdateMessagingSettingsDto {
   @IsOptional()
   @IsBoolean()
   showReadReceipts?: boolean;
+
+  @IsOptional()
+  @IsBoolean()
+  requireMessageRequests?: boolean;
 }

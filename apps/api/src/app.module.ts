@@ -16,6 +16,8 @@ import { EmergencyAlertsModule } from './emergency-alerts/emergency-alerts.modul
 import { ManagementAssignmentsModule } from './management-assignments/management-assignments.module';
 import { MonitoringModule } from './monitoring/monitoring.module';
 import { OrganizationModule } from './organization/organization.module';
+import { WorkManagementModule } from './work-management/work-management.module';
+import { TeamManagementModule } from './team-management/team-management.module';
 
 @Module({
   imports: [
@@ -36,6 +38,8 @@ import { OrganizationModule } from './organization/organization.module';
     OrganizationModule,
     ActivationModule,
     AccountRequestsModule,
+    WorkManagementModule,
+    TeamManagementModule,
   ],
 
   controllers: [AppController],

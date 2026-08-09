@@ -2,6 +2,7 @@ import { IsBoolean, IsIn, IsOptional, IsString, MaxLength } from 'class-validato
 
 export const conversationMuteSettings = [
   'OFF',
+  '1_HOUR',
   '8_HOURS',
   '1_WEEK',
   'ALWAYS',
@@ -20,11 +21,15 @@ export class UpdateConversationPreferenceDto {
 
   @IsOptional()
   @IsBoolean()
+  isFavorite?: boolean;
+
+  @IsOptional()
+  @IsBoolean()
   markUnread?: boolean;
 
   @IsOptional()
   @IsIn(conversationMuteSettings, {
-    message: 'Mute setting must be off, 8 hours, 1 week or always.',
+    message: 'Mute setting must be off, 1 hour, 8 hours, 1 week or always.',
   })
   mute?: ConversationMuteSetting;
 

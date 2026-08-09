@@ -28,6 +28,7 @@ import { ConversationStorageService } from './conversation-storage.service';
     ConversationsService,
     ConversationStorageService,
     MessagingEventsService,
+    MessagingPresenceService,
   ],
 })
 export class ConversationsModule {}

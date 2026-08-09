@@ -1243,3 +1243,475 @@
     transition: none !important;
   }
 }
+
+/* Supervisor revision: modern, field-friendly employee dashboard. */
+.employee-dashboard {
+  background:
+    radial-gradient(circle at 92% 2%, rgba(20, 105, 190, 0.1), transparent 28%),
+    linear-gradient(180deg, #f5f9fe 0%, #edf4fb 100%);
+}
+
+.employee-dashboard__canvas {
+  width: min(100%, 1240px);
+  padding: 28px 28px 42px;
+}
+
+.employee-dashboard__hero--simple {
+  align-items: center;
+  min-height: 190px;
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  border-radius: 26px;
+  padding: 34px 38px;
+  background:
+    radial-gradient(circle at 90% 20%, rgba(255, 255, 255, 0.18), transparent 24%),
+    linear-gradient(135deg, #062f62 0%, #07569f 58%, #0a68b7 100%);
+  box-shadow: 0 24px 52px rgba(3, 48, 94, 0.22);
+}
+
+.employee-dashboard__hero--simple h1 {
+  max-width: 680px;
+  font-size: clamp(2.25rem, 4vw, 3.25rem);
+  letter-spacing: -0.035em;
+}
+
+.employee-dashboard__hero--simple p {
+  max-width: 620px;
+  font-size: 1.06rem;
+}
+
+.employee-dashboard__refresh {
+  display: inline-flex;
+  min-width: 132px;
+  min-height: 50px;
+  align-items: center;
+  justify-content: center;
+  gap: 9px;
+  border: 1px solid rgba(255, 255, 255, 0.42);
+  border-radius: 14px;
+  padding: 0 20px;
+  color: #fff;
+  background: rgba(255, 255, 255, 0.13);
+  font: inherit;
+  font-weight: 800;
+  cursor: pointer;
+  backdrop-filter: blur(8px);
+}
+
+.employee-dashboard__refresh svg,
+.employee-dashboard__quick-panel svg,
+.employee-dashboard__duty-icon svg,
+.employee-dashboard__duty-card > a svg {
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 1.8;
+}
+
+.employee-dashboard__refresh:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.21);
+}
+
+.employee-dashboard__refresh:disabled {
+  cursor: wait;
+  opacity: 0.68;
+}
+
+.employee-dashboard__essential-grid {
+  display: grid;
+  align-items: stretch;
+  grid-template-columns: minmax(0, 1.65fr) minmax(280px, 0.75fr);
+  gap: 20px;
+  margin-top: 22px;
+}
+
+.employee-dashboard__essential-grid .employee-dashboard__duty-overview {
+  margin: 0;
+}
+
+.employee-dashboard__duty-overview {
+  position: relative;
+  overflow: hidden;
+  min-height: 250px;
+  border: 0;
+  border-radius: 24px;
+  background:
+    linear-gradient(135deg, rgba(255, 255, 255, 0.08), transparent 55%),
+    linear-gradient(135deg, #083d78 0%, #0c5fae 100%);
+  box-shadow: 0 20px 42px rgba(5, 56, 108, 0.2);
+}
+
+.employee-dashboard__duty-overview::after {
+  position: absolute;
+  right: -70px;
+  bottom: -95px;
+  width: 250px;
+  height: 250px;
+  border: 36px solid rgba(255, 255, 255, 0.08);
+  border-radius: 50%;
+  content: "";
+  pointer-events: none;
+}
+
+.employee-dashboard__duty-overview--on-duty {
+  background:
+    linear-gradient(135deg, rgba(255, 255, 255, 0.09), transparent 55%),
+    linear-gradient(135deg, #075744 0%, #07806b 100%);
+}
+
+.employee-dashboard__duty-overview--leave,
+.employee-dashboard__duty-overview--holiday {
+  background:
+    linear-gradient(135deg, rgba(255, 255, 255, 0.09), transparent 55%),
+    linear-gradient(135deg, #7a4d00 0%, #b37b10 100%);
+}
+
+.employee-dashboard__duty-card {
+  position: relative;
+  z-index: 1;
+  display: grid;
+  align-items: stretch;
+  grid-template-columns: 72px minmax(0, 1fr) auto;
+  gap: 22px;
+  height: 100%;
+  padding: 28px;
+}
+
+.employee-dashboard__duty-icon {
+  display: grid;
+  place-items: center;
+  align-self: start;
+  width: 72px;
+  height: 72px;
+  border: 1px solid rgba(255, 255, 255, 0.32);
+  border-radius: 20px;
+  color: #fff;
+  background: rgba(255, 255, 255, 0.14);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.2);
+}
+
+.employee-dashboard__duty-icon svg {
+  width: 34px;
+  height: 34px;
+}
+
+.employee-dashboard__duty-content {
+  min-width: 0;
+}
+
+.employee-dashboard__duty-content > span {
+  color: #ffd361;
+  font-size: 0.78rem;
+  font-weight: 900;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+
+.employee-dashboard__duty-content h2 {
+  margin: 7px 0 18px;
+  color: #fff;
+  font-size: clamp(1.55rem, 2.5vw, 2.25rem);
+  line-height: 1.15;
+}
+
+.employee-dashboard__duty-content > p {
+  margin: 0;
+  color: rgba(255, 255, 255, 0.84);
+  font-size: 1rem;
+  line-height: 1.55;
+}
+
+.employee-dashboard__duty-facts {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.employee-dashboard__duty-facts > div {
+  min-width: 0;
+  min-height: 84px;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  border-radius: 15px;
+  padding: 13px 14px;
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.employee-dashboard__duty-facts small,
+.employee-dashboard__duty-facts strong {
+  display: block;
+}
+
+.employee-dashboard__duty-facts small {
+  color: rgba(255, 255, 255, 0.66);
+  font-size: 0.7rem;
+  font-weight: 800;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+}
+
+.employee-dashboard__duty-facts strong {
+  margin-top: 7px;
+  overflow-wrap: anywhere;
+  color: #fff;
+  font-size: 1rem;
+  line-height: 1.35;
+}
+
+.employee-dashboard__duty-card > a {
+  display: inline-flex;
+  align-self: end;
+  min-height: 48px;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  border: 0;
+  border-radius: 13px;
+  padding: 0 18px;
+  color: #064982;
+  background: #fff;
+  box-shadow: 0 10px 24px rgba(2, 35, 68, 0.2);
+  font-weight: 850;
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+.employee-dashboard__duty-card > a:hover {
+  background: #f4f9ff;
+  transform: translateY(-1px);
+}
+
+.employee-dashboard__quick-panel {
+  border: 1px solid #d7e4f1;
+  border-radius: 24px;
+  padding: 24px;
+  background: rgba(255, 255, 255, 0.94);
+  box-shadow: 0 18px 38px rgba(15, 54, 92, 0.11);
+}
+
+.employee-dashboard__quick-panel > header {
+  padding-bottom: 15px;
+  border-bottom: 1px solid #e5edf6;
+}
+
+.employee-dashboard__quick-panel > header > span {
+  color: var(--nt-blue);
+  font-size: 0.72rem;
+  font-weight: 900;
+  letter-spacing: 0.13em;
+  text-transform: uppercase;
+}
+
+.employee-dashboard__quick-panel h2 {
+  margin: 6px 0 0;
+  color: var(--nt-ink);
+  font-size: 1.35rem;
+}
+
+.employee-dashboard__quick-panel > div {
+  display: grid;
+  gap: 10px;
+  margin-top: 16px;
+}
+
+.employee-dashboard__quick-panel a {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 12px;
+  min-height: 60px;
+  border: 1px solid #dce7f2;
+  border-radius: 15px;
+  padding: 0 15px;
+  color: var(--nt-ink);
+  background: #f8fbff;
+  text-decoration: none;
+}
+
+.employee-dashboard__quick-panel a:hover {
+  border-color: #8cb7e0;
+  background: #eef6ff;
+  transform: translateX(2px);
+}
+
+.employee-dashboard__quick-panel a > svg:first-child {
+  color: var(--nt-blue);
+}
+
+.employee-dashboard__quick-panel a > svg:last-child {
+  width: 18px;
+  color: #8b98aa;
+}
+
+.employee-dashboard__work-overview {
+  margin-top: 22px;
+  border: 1px solid #d8e4f0;
+  border-radius: 24px;
+  padding: 26px;
+  background: rgba(255, 255, 255, 0.96);
+  box-shadow: 0 20px 42px rgba(17, 58, 98, 0.1);
+}
+
+.employee-dashboard__work-overview > header {
+  margin-bottom: 20px;
+}
+
+.employee-dashboard__work-overview h2 {
+  font-size: clamp(1.45rem, 2vw, 1.9rem);
+}
+
+.employee-dashboard__work-overview > header > a {
+  min-height: 48px;
+  border-radius: 13px;
+  padding: 0 18px;
+  box-shadow: 0 10px 20px rgba(11, 78, 162, 0.16);
+}
+
+.employee-dashboard__work-cards--simple {
+  gap: 14px;
+}
+
+.employee-dashboard__work-cards--simple article {
+  position: relative;
+  overflow: hidden;
+  min-height: 156px;
+  border: 1px solid #dce6f0;
+  border-radius: 18px;
+  padding: 20px;
+  background: linear-gradient(180deg, #ffffff 0%, #f8fbff 100%);
+  box-shadow: 0 10px 24px rgba(20, 58, 96, 0.07);
+  transition:
+    transform 160ms ease,
+    border-color 160ms ease,
+    box-shadow 160ms ease;
+}
+
+.employee-dashboard__work-cards--simple article:hover {
+  border-color: #a8c4df;
+  box-shadow: 0 16px 32px rgba(20, 58, 96, 0.13);
+  transform: translateY(-3px);
+}
+
+.employee-dashboard__work-cards--simple article::before {
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 5px;
+  border-radius: 18px 0 0 18px;
+  background: #0b5cab;
+  content: "";
+}
+
+.employee-dashboard__work-cards--simple article:nth-child(1)::before {
+  background: #d78a00;
+}
+
+.employee-dashboard__work-cards--simple article:nth-child(2)::before {
+  background: #16865a;
+}
+
+.employee-dashboard__work-cards--simple article:nth-child(4)::before {
+  background: #c64747;
+}
+
+.employee-dashboard__work-cards--simple svg {
+  width: 30px;
+  height: 30px;
+  padding: 7px;
+  border-radius: 11px;
+  box-sizing: content-box;
+  color: #0b5cab;
+  background: #eaf4ff;
+}
+
+.employee-dashboard__work-cards--simple strong {
+  margin-top: 14px;
+  font-size: 2rem;
+}
+
+.employee-dashboard__next-work {
+  gap: 10px;
+  margin-top: 16px;
+}
+
+.employee-dashboard__next-work > a,
+.employee-dashboard__work-empty {
+  min-height: 72px;
+  border: 1px solid #dde7f1;
+  border-radius: 15px;
+  padding: 13px 15px;
+  background: #fbfdff;
+}
+
+.employee-dashboard__next-work > a:hover {
+  border-color: #9ebfdf;
+  background: #f1f7fd;
+  transform: translateY(-1px);
+}
+
+@media (max-width: 980px) {
+  .employee-dashboard__essential-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .employee-dashboard__quick-panel > div {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 720px) {
+  .employee-dashboard__canvas {
+    padding: 18px 14px 32px;
+  }
+
+  .employee-dashboard__hero--simple {
+    min-height: 0;
+    align-items: stretch;
+    padding: 26px 22px;
+  }
+
+  .employee-dashboard__refresh {
+    width: 100%;
+  }
+
+  .employee-dashboard__duty-card {
+    grid-template-columns: 56px minmax(0, 1fr);
+    padding: 22px;
+  }
+
+  .employee-dashboard__duty-icon {
+    width: 56px;
+    height: 56px;
+    border-radius: 16px;
+  }
+
+  .employee-dashboard__duty-card > a {
+    grid-column: 1 / -1;
+    width: 100%;
+  }
+
+  .employee-dashboard__duty-facts,
+  .employee-dashboard__quick-panel > div {
+    grid-template-columns: 1fr;
+  }
+
+  .employee-dashboard__work-overview {
+    padding: 20px 16px;
+  }
+}
+
+@media (max-width: 520px) {
+  .employee-dashboard__duty-card {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .employee-dashboard__quick-panel a,
+  .employee-dashboard__duty-card > a,
+  .employee-dashboard__next-work > a,
+  .employee-dashboard__work-cards--simple article {
+    transition: none !important;
+  }
+
+  .employee-dashboard__work-cards--simple article:hover {
+    transform: none;
+  }
+}

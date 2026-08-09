@@ -22,6 +22,34 @@ export interface AnnouncementPolicyAudience {
   officialParticipantRole?: ConversationParticipantRole | null;
 }
 
+export interface AnnouncementCreatorPolicySubject {
+  id: string;
+  role: AccountRole;
+}
+
+/**
+ * Announcement mutations are creator-owned. Super Admin may override an
+ * announcement created by management, but management can never modify an
+ * Owner/Super Admin announcement or another manager's announcement.
+ */
+export function canModifyAnnouncementByCreator(
+  viewer: Pick<AnnouncementPolicyViewer, 'accountId' | 'role'>,
+  creator: AnnouncementCreatorPolicySubject,
+): boolean {
+  if (viewer.role === AccountRole.EMPLOYEE) {
+    return false;
+  }
+
+  if (creator.role === AccountRole.SUPER_ADMIN) {
+    return viewer.accountId === creator.id;
+  }
+
+  return (
+    viewer.accountId === creator.id ||
+    viewer.role === AccountRole.SUPER_ADMIN
+  );
+}
+
 export type AnnouncementAudiencePolicyViolation =
   | 'ROLE_NOT_AUTHORIZED'
   | 'ORGANIZATION_OUT_OF_SCOPE'

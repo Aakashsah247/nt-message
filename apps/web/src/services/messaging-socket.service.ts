@@ -8,6 +8,7 @@ import type {
   MessagingMessage,
   MessagingNotification,
 } from "../types/messaging";
+import type { DutyScheduleRealtimePayload, WorkItemRealtimePayload } from "../types/work-management";
 
 export interface MessagingReadyPayload {
   accountId: string;
@@ -129,9 +130,11 @@ interface ServerToClientEvents {
   "messaging:notification-created": (
     payload: MessagingNotificationCreatedPayload,
   ) => void;
+  "work:item-updated": (payload: WorkItemRealtimePayload) => void;
+  "duty:schedule-updated": (payload: DutyScheduleRealtimePayload) => void;
   "announcement:published": (payload: AnnouncementRealtimePayload) => void;
   "announcement:updated": (payload: AnnouncementRealtimePayload) => void;
-  "announcement:withdrawn": (payload: AnnouncementRealtimePayload) => void;
+  "announcement:deleted": (payload: AnnouncementRealtimePayload) => void;
   "announcement:read": (payload: AnnouncementRealtimePayload) => void;
   "announcement:acknowledged": (payload: AnnouncementRealtimePayload) => void;
   "messaging:presence-snapshot": (
@@ -175,4 +178,23 @@ export function createMessagingSocket(
     reconnectionDelayMax: 5000,
     timeout: 10000,
   });
+}
+
+
+export function connectMessagingSocketAfterEffectCommit(
+  socket: MessagingSocket,
+): () => void {
+  // React Strict Mode immediately cleans up the first development effect; deferring avoids aborting that handshake.
+  let connectionStarted = false;
+  const timerId = window.setTimeout(() => {
+    connectionStarted = true;
+    socket.connect();
+  }, 0);
+
+  return () => {
+    window.clearTimeout(timerId);
+    if (connectionStarted) {
+      socket.disconnect();
+    }
+  };
 }

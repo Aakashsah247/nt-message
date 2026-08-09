@@ -90,7 +90,7 @@ export function updateAnnouncement(
   });
 }
 
-export function deleteAnnouncementDraft(accessToken: string, announcementId: string): Promise<AnnouncementActionResponse> {
+export function deleteAnnouncement(accessToken: string, announcementId: string): Promise<AnnouncementActionResponse> {
   return apiRequest<AnnouncementActionResponse>(`/announcements/${announcementId}`, {
     method: "DELETE",
     headers: authorizationHeaders(accessToken),
@@ -99,13 +99,6 @@ export function deleteAnnouncementDraft(accessToken: string, announcementId: str
 
 export function publishAnnouncement(accessToken: string, announcementId: string): Promise<AnnouncementMutationResponse> {
   return apiRequest<AnnouncementMutationResponse>(`/announcements/${announcementId}/publish`, {
-    method: "POST",
-    headers: authorizationHeaders(accessToken),
-  });
-}
-
-export function withdrawAnnouncement(accessToken: string, announcementId: string): Promise<AnnouncementMutationResponse> {
-  return apiRequest<AnnouncementMutationResponse>(`/announcements/${announcementId}/withdraw`, {
     method: "POST",
     headers: authorizationHeaders(accessToken),
   });
