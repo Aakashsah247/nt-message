@@ -23,6 +23,7 @@ import { ManagementWorkPage } from "./pages/ManagementWorkPage";
 import { ForgotPasswordPage } from "./pages/ForgotPasswordPage";
 import { LoginPage } from "./pages/LoginPage";
 import { MessageAppPage } from "./pages/MessageAppPage";
+import { ListsPage } from "./pages/ListsPage";
 import { DirectoryPage } from "./pages/DirectoryPage";
 import { EmployeeDashboardPage } from "./pages/EmployeeDashboardPage";
 import { EmployeeWorkPage } from "./pages/EmployeeWorkPage";
@@ -401,6 +402,24 @@ export default function App() {
             ]}
           >
             <MessageAppPage />
+          </ProtectedRoute>
+        }
+      />
+
+      <Route
+        path="/messages/lists"
+        element={
+          <ProtectedRoute
+            roles={[
+              "SUPER_ADMIN",
+              "SENIOR_MANAGEMENT",
+              "TEAM_MANAGER",
+              "EMPLOYEE",
+            ]}
+          >
+            <ManagementLayout>
+              <ListsPage />
+            </ManagementLayout>
           </ProtectedRoute>
         }
       />
