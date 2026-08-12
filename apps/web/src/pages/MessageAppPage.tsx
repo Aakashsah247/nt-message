@@ -4439,6 +4439,23 @@ export function MessageAppPage() {
     });
   }, [createGroupMode]);
 
+  // Announcement compose and detail are focused workspace views, not blocking
+  // application dialogs.  A rail navigation changes the route, so clear the
+  // focused view with it instead of leaving an invisible layer above the next
+  // destination.  This keeps every primary navigation item usable at once.
+  useEffect(() => {
+    if (announcementDetailOpen) {
+      closeAnnouncementDetail();
+    }
+
+    if (announcementComposerOpen) {
+      resetAnnouncementComposer();
+    }
+  // The pathname is intentional: navigating within a route must dismiss the
+  // focused announcement page, while changing a field in the composer must not.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [location.pathname]);
+
   useLayoutEffect(() => {
     const composer = composerRef.current;
 
@@ -12361,14 +12378,31 @@ export function MessageAppPage() {
   }
 
   function handleNavigationClickCapture(event: MouseEvent<HTMLElement>): void {
+    const target = event.target;
+
+    // A focused announcement must never trap the app behind its page layer.
+    // The rail stays usable, and any rail action returns control to the normal
+    // routed workspace before its own handler runs.
+    if (
+      (announcementComposerOpen || announcementDetailOpen) &&
+      target instanceof Element &&
+      target.closest("button:not(.message-rail-toggle)")
+    ) {
+      if (announcementDetailOpen) {
+        closeAnnouncementDetail();
+      }
+
+      if (announcementComposerOpen) {
+        resetAnnouncementComposer();
+      }
+    }
+
     if (
       typeof window === "undefined" ||
       !window.matchMedia("(max-width: 900px)").matches
     ) {
       return;
     }
-
-    const target = event.target;
 
     if (
       target instanceof Element &&
@@ -15846,7 +15880,7 @@ export function MessageAppPage() {
 
   return (
     <main
-      className={`message-app-shell${navigationExpanded ? " navigation-expanded" : ""} theme-${customizationToken(resolvedMessagingTheme)} accent-blue wallpaper-${customizationToken(messagingCustomization.wallpaper)} density-${customizationToken(messagingCustomization.density)}${messagingCustomization.reduceMotion ? " motion-reduced" : ""}`}
+      className={`message-app-shell${navigationExpanded ? " navigation-expanded" : ""}${announcementComposerOpen || announcementDetailOpen ? " announcement-workspace-active" : ""} theme-${customizationToken(resolvedMessagingTheme)} accent-blue wallpaper-${customizationToken(messagingCustomization.wallpaper)} density-${customizationToken(messagingCustomization.density)}${messagingCustomization.reduceMotion ? " motion-reduced" : ""}`}
     >
       <header
         className="message-app-topbar"
@@ -15991,7 +16025,7 @@ export function MessageAppPage() {
             type="button"
             className={`message-profile-topbar-button${ownProfileMode || profileAccountId === account?.id ? " active" : ""}`}
             onClick={() => openProfile(account?.id)}
-            title="My profile"
+            title={navigationExpanded ? undefined : "My profile"}
           >
             {account ? (
               renderIdentityAvatar(
@@ -16015,7 +16049,7 @@ export function MessageAppPage() {
             className={`message-settings-button${settingsMode ? " active" : ""}`}
             onClick={() => openSettingsWorkspace()}
             aria-current={settingsMode ? "page" : undefined}
-            title="Settings"
+            title={navigationExpanded ? undefined : "Settings"}
           >
             <span className="message-rail-icon">
               <MessageNavigationIcon name="settings" />
@@ -16029,7 +16063,7 @@ export function MessageAppPage() {
             onClick={openNotificationsWorkspace}
             aria-current={notificationMode ? "page" : undefined}
             aria-label="Open notifications"
-            title="Notifications"
+            title={navigationExpanded ? undefined : "Notifications"}
           >
             <span className="message-rail-icon">
               <MessageNavigationIcon name="bell" />
@@ -16048,7 +16082,7 @@ export function MessageAppPage() {
             type="button"
             className="message-workspace-return"
             onClick={() => navigate(mainWorkspacePath)}
-            title="Back to main workspace"
+            title={navigationExpanded ? undefined : "Back to main workspace"}
           >
             <span className="message-rail-icon">
               <MessageNavigationIcon name="workspace" />
@@ -16061,7 +16095,7 @@ export function MessageAppPage() {
             className="message-app-logout"
             onClick={handleLogout}
             disabled={loggingOut}
-            title="Sign out"
+            title={navigationExpanded ? undefined : "Sign out"}
           >
             <span className="message-rail-icon">
               <MessageNavigationIcon name="logout" />
@@ -16171,11 +16205,11 @@ export function MessageAppPage() {
             !privateGroupDialogOpen
             ? " details-open"
             : ""
-          }${createGroupMode ? " create-group-open" : ""}`}
+          }${createGroupMode ? " create-group-open" : ""}${ownProfileMode ? " profile-workspace-open" : ""}${settingsMode ? " settings-workspace-open" : ""}${notificationMode ? " notification-workspace-open" : ""}`}
       >
         {/* Create Group owns the full workspace so form instructions and status
             are not duplicated in the conversation sidebar. */}
-        {!createGroupMode && (
+        {!createGroupMode && !ownProfileMode && !settingsMode && !notificationMode && (
           <aside className="message-sidebar">
             <div className="message-sidebar-heading">
               <button
@@ -17096,6 +17130,7 @@ export function MessageAppPage() {
                 </button>
               </header>
 
+              <div className="message-settings-workspace-layout">
               <div
                 className="message-settings-workspace-mobile-tabs"
                 role="tablist"
@@ -17620,6 +17655,7 @@ export function MessageAppPage() {
                   </section>
                 )}
               </div>
+              </div>
 
             </div>
           ) : notificationMode ? (
@@ -17627,8 +17663,8 @@ export function MessageAppPage() {
               <header className="message-notification-workspace-header">
                 <div>
                   <span>Notification center</span>
-                  <h2>Stay current without leaving NT Message</h2>
-                  <p>Open message, announcement, duty and work updates from one organized view.</p>
+                  <h2>Notifications</h2>
+                  <p>Review updates and open the related item when needed.</p>
                 </div>
                 <button
                   type="button"
@@ -17639,8 +17675,10 @@ export function MessageAppPage() {
                 </button>
               </header>
 
-              <section className="message-notification-workspace-overview">
-                <div className="message-notification-workspace-metrics">
+              <div className="message-notification-workspace-body">
+              <aside className="message-notification-workspace-list-panel">
+                <div className="message-notification-workspace-list-header">
+                  <div className="message-notification-workspace-metrics">
                   <article>
                     <span>All notifications</span>
                     <strong>{notifications.length}</strong>
@@ -17651,6 +17689,84 @@ export function MessageAppPage() {
                   </article>
                 </div>
 
+                  <div className="message-notification-workspace-filters" aria-label="Notification filters">
+                    <button
+                      type="button"
+                      className={notificationListView === "ALL" ? "active" : ""}
+                      onClick={() => setNotificationListView("ALL")}
+                    >
+                      All
+                    </button>
+                    <button
+                      type="button"
+                      className={notificationListView === "UNREAD" ? "active" : ""}
+                      onClick={() => setNotificationListView("UNREAD")}
+                    >
+                      Unread {notificationUnreadCount > 0 ? notificationUnreadCount : ""}
+                    </button>
+                  </div>
+
+                  <label className="message-notification-workspace-search">
+                    <MessageNavigationIcon name="search" />
+                    <input
+                      type="search"
+                      value={conversationSearch}
+                      onChange={(event) => setConversationSearch(event.target.value)}
+                      placeholder="Search notifications"
+                    />
+                  </label>
+                </div>
+
+                <div className="message-notification-workspace-list">
+                  {notificationsLoading ? (
+                    <div className="message-notification-workspace-empty">Loading notifications…</div>
+                  ) : notificationError ? (
+                    <div className="message-notification-workspace-empty danger">{notificationError}</div>
+                  ) : filteredNotifications.length === 0 ? (
+                    <div className="message-notification-workspace-empty">
+                      {conversationSearch.trim()
+                        ? "No notifications match your search."
+                        : notificationListView === "UNREAD"
+                          ? "You are all caught up."
+                          : "No notifications yet."}
+                    </div>
+                  ) : (
+                    filteredNotifications.map((notification) => (
+                      <article
+                        key={notification.id}
+                        className={`message-notification-row${notification.isRead ? "" : " unread"}`}
+                      >
+                        <button
+                          type="button"
+                          className="message-notification-open"
+                          onClick={() => void handleNotificationClick(notification)}
+                        >
+                          <span>
+                            <strong>{notification.title}</strong>
+                            <small>
+                              {messagingSettings.notificationPreview
+                                ? notification.body
+                                : "Preview hidden by notification privacy."}
+                            </small>
+                          </span>
+                          <em>{notificationTimestampLabel(notification.createdAt)}</em>
+                        </button>
+                        <button
+                          type="button"
+                          className="message-notification-delete"
+                          aria-label={`Remove ${notification.title} notification`}
+                          onClick={() => void handleDeleteNotification(notification)}
+                          disabled={notificationBulkAction !== null || notificationDeletingId !== null}
+                        >
+                          {notificationDeletingId === notification.id ? "…" : "×"}
+                        </button>
+                      </article>
+                    ))
+                  )}
+                </div>
+              </aside>
+
+              <section className="message-notification-workspace-overview">
                 <div className="message-notification-workspace-actions">
                   <button
                     type="button"
@@ -17701,11 +17817,11 @@ export function MessageAppPage() {
 
                 <div className="message-notification-workspace-guide">
                   <span aria-hidden="true">N</span>
-                  <h3>Select a notification from the list</h3>
-                  <p>Its related message or work item will open directly in the correct authorized workspace.</p>
-                  <small>Press Escape or choose another section to leave Notifications.</small>
+                  <h3>Keep up with what matters</h3>
+                  <p>Choose an update from the list to open its related conversation, announcement, duty, or work item.</p>
                 </div>
               </section>
+              </div>
             </div>
           ) : announcementMode ? (
             !selectedConversation ||
@@ -19767,25 +19883,12 @@ export function MessageAppPage() {
 
       {announcementDetailOpen && (
         <div
-          className="message-dialog-backdrop message-announcement-detail-backdrop"
-          role="presentation"
-          onMouseDown={(event) => {
-            if (
-              event.currentTarget === event.target &&
-              !announcementDetailAction &&
-              !announcementAttachmentActionId
-            ) {
-              closeAnnouncementDetail();
-            }
-          }}
+          className="message-announcement-workspace-layer message-announcement-detail-backdrop"
         >
           <section
-            className="message-announcement-detail-dialog"
-            role="dialog"
-            aria-modal="true"
+            className="message-announcement-detail-dialog message-announcement-workspace-detail"
+            role="region"
             aria-labelledby="message-announcement-detail-title"
-            data-message-modal="announcement-detail"
-            tabIndex={-1}
           >
             <header>
               <div>
@@ -20088,21 +20191,12 @@ export function MessageAppPage() {
 
       {announcementComposerOpen && announcementComposerGroup && (
         <div
-          className="message-dialog-backdrop message-announcement-composer-backdrop"
-          role="presentation"
-          onMouseDown={(event) => {
-            if (event.currentTarget === event.target) {
-              void handleAnnouncementComposerCancel();
-            }
-          }}
+          className="message-announcement-workspace-layer message-announcement-composer-backdrop"
         >
           <section
-            className="message-announcement-composer-dialog"
-            role="dialog"
-            aria-modal="true"
+            className="message-announcement-composer-dialog message-announcement-workspace-composer"
+            role="region"
             aria-labelledby="message-announcement-composer-title"
-            data-message-modal="announcement-composer"
-            tabIndex={-1}
           >
             <header>
               <div>

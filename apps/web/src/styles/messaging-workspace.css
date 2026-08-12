@@ -1711,6 +1711,509 @@
   }
 }
 
+/* Final dark-theme surface pass: detail rails, menus, and group workflows.
+   These views are mounted outside the usual conversation panel, so they need
+   explicit surfaces rather than inheriting the light defaults. */
+.message-app-shell.theme-dark .message-modern-detail-view,
+.message-app-shell.theme-dark .message-modern-detail-scroll,
+.message-app-shell.theme-dark .message-shared-panel-scroll,
+.message-app-shell.theme-dark .message-conversation-row-menu {
+  color: var(--message-copy);
+  background: var(--message-page-bg);
+}
+
+.message-app-shell.theme-dark .message-modern-detail-header,
+.message-app-shell.theme-dark .message-shared-panel-tabs,
+.message-app-shell.theme-dark .message-conversation-row-menu {
+  border-color: var(--message-line);
+  background: var(--message-panel-bg);
+}
+
+.message-app-shell.theme-dark .message-modern-detail-header > div > strong,
+.message-app-shell.theme-dark .message-modern-detail-header > div > span,
+.message-app-shell.theme-dark .message-simple-detail-section > h3,
+.message-app-shell.theme-dark .message-modern-section-heading h3,
+.message-app-shell.theme-dark .message-simple-detail-section > p,
+.message-app-shell.theme-dark .message-simple-action-row,
+.message-app-shell.theme-dark .message-simple-member-copy strong,
+.message-app-shell.theme-dark .message-simple-member-copy small,
+.message-app-shell.theme-dark .message-simple-member-role,
+.message-app-shell.theme-dark .message-simple-group-note {
+  color: var(--message-copy);
+}
+
+.message-app-shell.theme-dark .message-modern-detail-header > div > span,
+.message-app-shell.theme-dark .message-simple-detail-section > p,
+.message-app-shell.theme-dark .message-simple-member-copy small,
+.message-app-shell.theme-dark .message-simple-group-note {
+  color: var(--message-copy-muted);
+}
+
+.message-app-shell.theme-dark .message-modern-detail-back,
+.message-app-shell.theme-dark .message-modern-detail-close,
+.message-app-shell.theme-dark .message-shared-panel-tabs button,
+.message-app-shell.theme-dark .message-shared-panel-tabs button b,
+.message-app-shell.theme-dark .message-conversation-row-menu > button {
+  border-color: #304452;
+  color: #c8d8e3;
+  background: transparent;
+}
+
+.message-app-shell.theme-dark .message-modern-detail-back,
+.message-app-shell.theme-dark .message-modern-detail-close {
+  background: #1b2a35;
+}
+
+.message-app-shell.theme-dark .message-modern-detail-back:hover,
+.message-app-shell.theme-dark .message-modern-detail-close:hover,
+.message-app-shell.theme-dark .message-shared-panel-tabs button:hover,
+.message-app-shell.theme-dark .message-shared-panel-tabs button:focus-visible,
+.message-app-shell.theme-dark .message-conversation-row-menu > button:hover:not(:disabled),
+.message-app-shell.theme-dark .message-conversation-row-menu > button:focus-visible {
+  color: #eef8ff;
+  background: #233947;
+}
+
+.message-app-shell.theme-dark .message-shared-panel-tabs button.active {
+  color: #dff3ff;
+  background: #1d3d50;
+}
+
+.message-app-shell.theme-dark .message-shared-panel-tabs button.active b {
+  color: #ffffff;
+  background: #087dc4;
+}
+
+.message-app-shell.theme-dark .message-shared-panel-state,
+.message-app-shell.theme-dark .message-shared-refresh-state {
+  color: var(--message-copy-muted);
+  border-color: var(--message-line);
+  background: var(--message-page-bg);
+}
+
+.message-app-shell.theme-dark .message-shared-panel-state > svg,
+.message-app-shell.theme-dark .message-shared-panel-state > .message-shared-link-state-icon {
+  color: #9bcfec;
+  background: #203947;
+}
+
+.message-app-shell.theme-dark .message-shared-panel-state strong,
+.message-app-shell.theme-dark .message-shared-month-group h3,
+.message-app-shell.theme-dark .message-shared-media-caption strong,
+.message-app-shell.theme-dark .message-shared-document-main strong,
+.message-app-shell.theme-dark .message-shared-link-meta strong {
+  color: #e8f2f8;
+}
+
+.message-app-shell.theme-dark .message-shared-panel-state p,
+.message-app-shell.theme-dark .message-shared-media-caption small,
+.message-app-shell.theme-dark .message-shared-document-main small,
+.message-app-shell.theme-dark .message-shared-link-meta time {
+  color: var(--message-copy-muted);
+}
+
+.message-app-shell.theme-dark .message-shared-media-tile,
+.message-app-shell.theme-dark .message-shared-document-item,
+.message-app-shell.theme-dark .message-shared-link-item {
+  border-color: var(--message-line);
+  color: var(--message-copy);
+  background: var(--message-panel-bg);
+}
+
+.message-app-shell.theme-dark .message-shared-media-preview,
+.message-app-shell.theme-dark .message-shared-link-preview,
+.message-app-shell.theme-dark .message-shared-download-action {
+  color: #b6d8e9;
+  background: #20313d;
+}
+
+.message-app-shell.theme-dark .message-shared-link-preview:hover,
+.message-app-shell.theme-dark .message-shared-link-preview:focus-visible {
+  background: #28414f;
+}
+
+.message-app-shell.theme-dark .message-conversation-row-menu {
+  box-shadow: 0 18px 42px rgba(0, 0, 0, .4);
+}
+
+.message-app-shell.theme-dark .message-conversation-row-menu .message-conversation-action-menu-divider {
+  background: #304452;
+}
+
+.message-app-shell.theme-dark .message-conversation-row-menu .message-conversation-history-action {
+  color: #c9b9c1;
+}
+
+.message-app-shell.theme-dark .message-conversation-row-menu .message-conversation-history-action.destructive {
+  color: #ff9eaa;
+}
+
+.message-app-shell.theme-dark .message-conversation-row-menu .message-conversation-history-action.destructive:hover,
+.message-app-shell.theme-dark .message-conversation-row-menu .message-conversation-history-action.destructive:focus-visible {
+  color: #ffd8dc;
+  background: #482832;
+}
+
+.message-app-shell.theme-dark .message-add-members-history-options label,
+.message-app-shell.theme-dark .message-add-members-summary {
+  border-color: var(--message-line);
+  color: var(--message-copy);
+  background: var(--message-panel-subtle);
+}
+
+.message-app-shell.theme-dark .message-add-members-history-options label:hover,
+.message-app-shell.theme-dark .message-add-members-history-options label.active {
+  border-color: #3d7393;
+  background: #203b4a;
+}
+
+.message-app-shell.theme-dark .message-add-members-history-options strong {
+  color: #ecf5fa;
+}
+
+.message-app-shell.theme-dark .message-add-members-history-options small {
+  color: var(--message-copy-muted);
+}
+
+.message-app-shell.theme-dark .message-modern-detail-tabs {
+  border-color: var(--message-line);
+  background: var(--message-panel-bg);
+}
+
+.message-app-shell.theme-dark .message-modern-detail-tabs button {
+  color: #adc2cf;
+  background: transparent;
+}
+
+.message-app-shell.theme-dark .message-modern-detail-tabs button:hover {
+  color: #e7f6ff;
+  background: #233947;
+}
+
+.message-app-shell.theme-dark .message-modern-detail-tabs button.active {
+  color: #ffffff;
+  background: #087dc4;
+  box-shadow: none;
+}
+
+.message-app-shell.theme-dark .message-modern-shared-actions button {
+  border-color: var(--message-line);
+  color: #c8dbe6;
+  background: var(--message-panel-subtle);
+}
+
+.message-app-shell.theme-dark .message-modern-shared-actions button:hover {
+  border-color: #467995;
+  color: #eff9ff;
+  background: #233b4a;
+}
+
+.message-app-shell.theme-dark .message-modern-shared-actions b,
+.message-app-shell.theme-dark .message-modern-group-hero strong,
+.message-app-shell.theme-dark .message-modern-detail-section h3,
+.message-app-shell.theme-dark .message-modern-leadership-list strong,
+.message-app-shell.theme-dark .message-modern-member-main strong {
+  color: #e9f4fa;
+}
+
+.message-app-shell.theme-dark .message-modern-group-hero > div:last-child > span,
+.message-app-shell.theme-dark .message-modern-group-hero p,
+.message-app-shell.theme-dark .message-modern-section-heading p,
+.message-app-shell.theme-dark .message-modern-detail-section header p,
+.message-app-shell.theme-dark .message-modern-detail-section > p {
+  color: var(--message-copy-muted);
+}
+
+/* Announcements are full workspace views. They intentionally do not use a
+   backdrop, blur, or centered popup: the list remains available for changing
+   the authorized group while the focused task owns the content area. */
+.message-app-shell .message-announcement-workspace-layer {
+  position: fixed;
+  inset: 0 0 0 var(--message-rail-width);
+  z-index: 110;
+  display: grid;
+  min-width: 0;
+  padding: 0;
+  overflow: hidden;
+  background: var(--message-page-bg, #eef4f8);
+}
+
+.message-app-shell.announcement-workspace-active .message-workspace {
+  visibility: hidden;
+  pointer-events: none;
+}
+
+.message-app-shell .message-announcement-workspace-layer > section {
+  width: 100%;
+  height: 100%;
+  max-width: none;
+  max-height: none;
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+}
+
+.message-app-shell .message-announcement-workspace-detail {
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  background: var(--message-page-bg, #eef4f8);
+}
+
+.message-app-shell .message-announcement-workspace-detail > header,
+.message-app-shell .message-announcement-workspace-composer > header {
+  min-height: 104px;
+  padding: 22px clamp(24px, 4vw, 64px);
+  border-bottom: 1px solid var(--message-border, #d8e4ee);
+  background: var(--message-surface, #ffffff);
+}
+
+.message-app-shell .message-announcement-workspace-detail > header > div,
+.message-app-shell .message-announcement-workspace-composer > header > div {
+  display: grid;
+  gap: 5px;
+}
+
+.message-app-shell .message-announcement-workspace-detail > header span,
+.message-app-shell .message-announcement-workspace-composer > header span {
+  color: #0878bd;
+  font-size: 11px;
+  font-weight: 850;
+  letter-spacing: .11em;
+}
+
+.message-app-shell .message-announcement-workspace-detail > header h2,
+.message-app-shell .message-announcement-workspace-composer > header h2 {
+  color: #183c58;
+  font-size: clamp(22px, 2vw, 30px);
+  line-height: 1.22;
+}
+
+.message-app-shell .message-announcement-workspace-detail > header > button,
+.message-app-shell .message-announcement-workspace-composer > header > button {
+  width: 40px;
+  height: 40px;
+  border-radius: 10px;
+  font-size: 23px;
+}
+
+.message-app-shell .message-announcement-workspace-detail .message-announcement-detail-body {
+  width: min(100% - 48px, 920px);
+  margin: 0 auto;
+  padding: clamp(24px, 4vw, 44px) 0;
+  gap: 22px;
+}
+
+.message-app-shell .message-announcement-workspace-detail .message-announcement-detail-overview {
+  display: grid;
+  gap: 15px;
+}
+
+.message-app-shell .message-announcement-workspace-detail .message-announcement-detail-publisher,
+.message-app-shell .message-announcement-workspace-detail .message-announcement-detail-attachments {
+  background: var(--message-surface, #ffffff);
+}
+
+.message-app-shell .message-announcement-workspace-detail .message-announcement-detail-content {
+  padding: 0;
+}
+
+.message-app-shell .message-announcement-workspace-detail .message-announcement-detail-content p {
+  max-width: 760px;
+  font-size: 15px;
+  line-height: 1.75;
+}
+
+.message-app-shell .message-announcement-workspace-detail > footer,
+.message-app-shell .message-announcement-workspace-composer > form > footer {
+  min-height: 76px;
+  padding: 14px clamp(24px, 4vw, 64px);
+  border-top: 1px solid var(--message-border, #d8e4ee);
+  background: var(--message-surface, #ffffff);
+}
+
+.message-app-shell .message-announcement-workspace-composer {
+  grid-template-rows: auto minmax(0, 1fr);
+  background: var(--message-page-bg, #eef4f8);
+}
+
+.message-app-shell .message-announcement-workspace-composer > header p {
+  font-size: 14px;
+}
+
+.message-app-shell .message-announcement-workspace-composer > form {
+  min-height: 0;
+  grid-template-rows: minmax(0, 1fr) auto;
+}
+
+.message-app-shell .message-announcement-workspace-composer .message-announcement-composer-body {
+  width: min(100% - 48px, 1160px);
+  margin: 0 auto;
+  padding: clamp(24px, 3vw, 40px) 0;
+  overflow-y: auto;
+}
+
+.message-app-shell .message-announcement-workspace-composer .message-announcement-audience-lock {
+  padding: 14px 16px;
+  background: #eef8fe;
+}
+
+.message-app-shell .message-announcement-workspace-composer .message-announcement-composer-layout {
+  display: grid;
+  min-width: 0;
+  grid-template-columns: minmax(0, 1.45fr) minmax(300px, .85fr);
+  align-items: start;
+  gap: 20px;
+}
+
+.message-app-shell .message-announcement-workspace-composer .message-announcement-composer-main,
+.message-app-shell .message-announcement-workspace-composer .message-announcement-composer-side {
+  display: grid;
+  min-width: 0;
+  gap: 20px;
+}
+
+.message-app-shell .message-announcement-workspace-composer .message-announcement-composer-section {
+  display: grid;
+  gap: 15px;
+  padding: 18px;
+  border: 1px solid #d8e5ed;
+  border-radius: 14px;
+  background: var(--message-surface, #ffffff);
+}
+
+.message-app-shell .message-announcement-workspace-composer .message-announcement-composer-section > header strong {
+  color: #183f5d;
+  font-size: 15px;
+}
+
+.message-app-shell .message-announcement-workspace-composer .message-announcement-composer-section > header small {
+  margin-top: 4px;
+  color: #6f8799;
+  font-size: 12px;
+}
+
+.message-app-shell .message-announcement-workspace-composer .message-announcement-composer-grid {
+  gap: 14px;
+}
+
+.message-app-shell .message-announcement-workspace-composer .message-announcement-composer-grid label > span {
+  font-size: 12px;
+}
+
+.message-app-shell .message-announcement-workspace-composer .message-announcement-composer-grid input,
+.message-app-shell .message-announcement-workspace-composer .message-announcement-composer-grid textarea,
+.message-app-shell .message-announcement-workspace-composer .message-announcement-composer-grid select {
+  font-size: 14px;
+}
+
+.message-app-shell .message-announcement-workspace-composer .message-announcement-composer-grid input,
+.message-app-shell .message-announcement-workspace-composer .message-announcement-composer-grid select {
+  min-height: 44px;
+}
+
+.message-app-shell .message-announcement-workspace-composer .message-announcement-composer-grid textarea {
+  min-height: 180px;
+}
+
+.message-app-shell .message-announcement-workspace-composer .message-announcement-composer-options {
+  grid-template-columns: 1fr;
+}
+
+.message-app-shell .message-announcement-workspace-composer .message-announcement-composer-options strong {
+  font-size: 12px;
+}
+
+.message-app-shell .message-announcement-workspace-composer .message-announcement-composer-options small {
+  font-size: 11px;
+}
+
+.message-app-shell .message-announcement-workspace-composer .message-announcement-attachment-pickers label {
+  min-height: 110px;
+}
+
+.message-app-shell .message-announcement-workspace-composer .message-announcement-attachment-pickers strong {
+  font-size: 11px;
+}
+
+.message-app-shell .message-announcement-workspace-composer .message-announcement-attachment-pickers small {
+  font-size: 9px;
+}
+
+.message-app-shell .message-announcement-workspace-composer > form > footer button {
+  min-height: 42px;
+  font-size: 13px;
+}
+
+.message-app-shell.theme-dark .message-announcement-workspace-layer,
+.message-app-shell.theme-dark .message-announcement-workspace-detail,
+.message-app-shell.theme-dark .message-announcement-workspace-composer {
+  background: var(--message-page-bg);
+}
+
+.message-app-shell.theme-dark .message-announcement-workspace-detail > header,
+.message-app-shell.theme-dark .message-announcement-workspace-composer > header,
+.message-app-shell.theme-dark .message-announcement-workspace-detail > footer,
+.message-app-shell.theme-dark .message-announcement-workspace-composer > form > footer,
+.message-app-shell.theme-dark .message-announcement-workspace-composer .message-announcement-composer-section {
+  border-color: var(--message-line);
+  background: var(--message-panel-bg);
+}
+
+.message-app-shell.theme-dark .message-announcement-workspace-detail > header h2,
+.message-app-shell.theme-dark .message-announcement-workspace-composer > header h2,
+.message-app-shell.theme-dark .message-announcement-workspace-composer .message-announcement-composer-section > header strong {
+  color: #edf5fa;
+}
+
+.message-app-shell.theme-dark .message-announcement-workspace-composer > header p,
+.message-app-shell.theme-dark .message-announcement-workspace-composer .message-announcement-composer-section > header small {
+  color: var(--message-copy-muted);
+}
+
+.message-app-shell.theme-dark .message-announcement-workspace-composer .message-announcement-audience-lock {
+  border-color: #36566a;
+  background: #1c3442;
+}
+
+.message-app-shell.theme-dark .message-announcement-workspace-detail .message-announcement-detail-publisher,
+.message-app-shell.theme-dark .message-announcement-workspace-detail .message-announcement-detail-attachments {
+  border-color: var(--message-line);
+  background: var(--message-panel-bg);
+}
+
+@media (max-width: 900px) {
+  .message-app-shell .message-announcement-workspace-composer .message-announcement-composer-layout {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 680px) {
+  .message-app-shell .message-announcement-workspace-layer {
+    inset-left: var(--message-rail-width);
+  }
+
+  .message-app-shell .message-announcement-workspace-detail > header,
+  .message-app-shell .message-announcement-workspace-composer > header {
+    min-height: 76px;
+    padding: 13px 16px;
+  }
+
+  .message-app-shell .message-announcement-workspace-detail > header h2,
+  .message-app-shell .message-announcement-workspace-composer > header h2 {
+    font-size: 19px;
+  }
+
+  .message-app-shell .message-announcement-workspace-composer .message-announcement-composer-body,
+  .message-app-shell .message-announcement-workspace-detail .message-announcement-detail-body {
+    width: 100%;
+    padding: 14px;
+  }
+
+  .message-app-shell .message-announcement-workspace-detail > footer,
+  .message-app-shell .message-announcement-workspace-composer > form > footer {
+    padding: 10px 14px;
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
 
   .message-app-shell .message-storage-dialog,
@@ -11280,6 +11783,1294 @@ body.message-attachment-viewer-open {
   background: #fff1f2;
 }
 
+/* In-conversation message search uses the third workspace column. These
+   selectors intentionally do not share the conversation-list search field:
+   this is a focused search-results panel for the open chat. */
+.message-app-shell .message-conversation-search-panel {
+  position: relative;
+  display: none;
+  min-width: 0;
+  min-height: 0;
+  flex-direction: column;
+  overflow: hidden;
+  border-left: 1px solid #d8e4ec;
+  background: #ffffff;
+}
+
+.message-app-shell .message-conversation-search-panel.is-open {
+  display: flex;
+}
+
+.message-app-shell .message-search-panel-header {
+  display: flex;
+  min-height: 58px;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 10px 13px 9px 16px;
+  border-bottom: 1px solid #e5edf3;
+}
+
+.message-app-shell .message-search-panel-header strong {
+  color: #173958;
+  font-size: 14px;
+  font-weight: 800;
+}
+
+.message-app-shell .message-search-panel-close {
+  display: grid;
+  width: 32px;
+  height: 32px;
+  flex: 0 0 auto;
+  place-items: center;
+  padding: 0;
+  border: 1px solid #d5e1e9;
+  border-radius: 9px;
+  color: #46647b;
+  background: #ffffff;
+  cursor: pointer;
+}
+
+.message-app-shell .message-search-panel-close:hover,
+.message-app-shell .message-search-panel-close:focus-visible {
+  border-color: #9ac5df;
+  color: #086aa8;
+  background: #edf7fc;
+  outline: none;
+}
+
+.message-app-shell .message-search-panel-close .message-nav-svg {
+  width: 17px;
+  height: 17px;
+}
+
+.message-app-shell .message-search-panel-controls {
+  flex: 0 0 auto;
+  padding: 12px 14px 10px;
+  border-bottom: 1px solid #edf2f5;
+}
+
+.message-app-shell .message-search-input-shell {
+  display: grid;
+  min-height: 40px;
+  grid-template-columns: 19px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+  padding: 0 9px 0 11px;
+  border: 1px solid #d2e0e9;
+  border-radius: 11px;
+  color: #6d8293;
+  background: #f8fbfd;
+}
+
+.message-app-shell .message-search-input-shell:focus-within {
+  border-color: #61a6d1;
+  background: #ffffff;
+  box-shadow: 0 0 0 3px rgba(8, 108, 168, 0.1);
+}
+
+.message-app-shell .message-search-input-shell > .message-nav-svg {
+  width: 17px;
+  height: 17px;
+}
+
+.message-app-shell .message-search-input-shell input {
+  width: 100%;
+  min-width: 0;
+  height: 38px;
+  padding: 0;
+  border: 0;
+  color: #183750;
+  background: transparent;
+  font: inherit;
+  font-size: 12px;
+  outline: none;
+}
+
+.message-app-shell .message-search-input-shell input::placeholder {
+  color: #8295a5;
+}
+
+/* The panel provides its own accessible clear button. Hide the browser's
+   built-in search cancel affordance so two crosses are not shown together. */
+.message-app-shell .message-search-input-shell input[type="search"]::-webkit-search-cancel-button {
+  display: none;
+  -webkit-appearance: none;
+  appearance: none;
+}
+
+.message-app-shell .message-search-input-shell button {
+  display: grid;
+  width: 24px;
+  height: 24px;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  border-radius: 999px;
+  color: #587287;
+  background: transparent;
+  cursor: pointer;
+}
+
+.message-app-shell .message-search-input-shell button:hover,
+.message-app-shell .message-search-input-shell button:focus-visible {
+  color: #173c58;
+  background: #e6f0f6;
+  outline: none;
+}
+
+.message-app-shell .message-search-input-shell button .message-nav-svg {
+  width: 15px;
+  height: 15px;
+}
+
+.message-app-shell .message-search-result-count {
+  margin: 8px 2px 0;
+  color: #678095;
+  font-size: 10px;
+  font-weight: 700;
+}
+
+.message-app-shell .message-search-panel-results {
+  min-height: 0;
+  flex: 1 1 auto;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
+  scrollbar-color: #c9d8e2 transparent;
+}
+
+.message-app-shell .message-search-panel-status,
+.message-app-shell .message-search-panel-empty {
+  display: flex;
+  min-height: 96px;
+  align-items: center;
+  justify-content: center;
+  padding: 18px;
+  color: #71889a;
+  font-size: 12px;
+  text-align: center;
+}
+
+.message-app-shell .message-search-panel-list {
+  display: grid;
+  gap: 1px;
+  padding: 7px;
+}
+
+.message-app-shell .message-search-panel-result {
+  display: grid;
+  width: 100%;
+  min-width: 0;
+  grid-template-columns: 32px minmax(0, 1fr);
+  align-items: start;
+  gap: 9px;
+  padding: 9px;
+  border: 0;
+  border-radius: 10px;
+  color: #1a3b56;
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+}
+
+.message-app-shell .message-search-panel-result:hover,
+.message-app-shell .message-search-panel-result:focus-visible {
+  background: #edf6fb;
+  outline: none;
+}
+
+.message-app-shell .message-search-panel-result .message-avatar.small {
+  width: 32px;
+  height: 32px;
+  font-size: 10px;
+}
+
+.message-app-shell .message-search-panel-result-copy,
+.message-app-shell .message-search-panel-result-heading {
+  display: grid;
+  min-width: 0;
+}
+
+.message-app-shell .message-search-panel-result-heading {
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+}
+
+.message-app-shell .message-search-panel-result-heading strong {
+  overflow: hidden;
+  color: #1c3c58;
+  font-size: 11px;
+  font-weight: 800;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.message-app-shell .message-search-panel-result-heading time,
+.message-app-shell .message-search-panel-result-copy small {
+  color: #7d91a1;
+  font-size: 9px;
+  font-weight: 700;
+}
+
+.message-app-shell .message-search-panel-result-snippet {
+  display: -webkit-box;
+  margin-top: 3px;
+  overflow: hidden;
+  color: #5e778b;
+  font-size: 10.5px;
+  line-height: 1.35;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+.message-app-shell .message-search-panel-result-copy small {
+  margin-top: 4px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+@media (max-width: 1100px) {
+  .message-app-shell .message-conversation-search-panel.is-open {
+    position: absolute;
+    inset: 0 0 0 auto;
+    z-index: 90;
+    width: min(360px, calc(100% - 24px));
+    max-width: 100%;
+    height: 100%;
+    box-shadow: -18px 0 46px rgba(20, 45, 60, 0.22);
+  }
+}
+
+@media (max-width: 900px) {
+  .message-app-shell .message-conversation-search-panel.is-open {
+    position: fixed;
+    inset: 0;
+    z-index: 430;
+    width: 100%;
+    max-width: none;
+    height: 100dvh;
+    border-left: 0;
+    box-shadow: none;
+  }
+}
+
+/* Conversation profile and group-information rail. The modern panel markup
+   is shared by private profiles and groups, so keep it as one compact,
+   scrollable detail system rather than letting its text flow as plain rows. */
+.message-app-shell .message-modern-detail-view {
+  display: flex;
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  flex-direction: column;
+  color: #1b3b56;
+  background: #ffffff;
+}
+
+.message-app-shell .message-modern-detail-header {
+  display: grid;
+  min-height: 58px;
+  flex: 0 0 auto;
+  grid-template-columns: 30px minmax(0, 1fr) 30px;
+  align-items: center;
+  gap: 9px;
+  padding: 9px 12px;
+  border-bottom: 1px solid #e1eaf0;
+  background: rgba(255, 255, 255, 0.98);
+}
+
+.message-app-shell .message-modern-detail-header > div {
+  display: grid;
+  min-width: 0;
+  gap: 1px;
+}
+
+.message-app-shell .message-modern-detail-header > div > span {
+  overflow: hidden;
+  color: #71879a;
+  font-size: 9px;
+  font-weight: 800;
+  letter-spacing: 0.1em;
+  text-overflow: ellipsis;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.message-app-shell .message-modern-detail-header > div > strong {
+  overflow: hidden;
+  color: #173955;
+  font-size: 14px;
+  font-weight: 800;
+  line-height: 1.2;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.message-app-shell .message-modern-detail-spacer {
+  width: 30px;
+  height: 30px;
+}
+
+.message-app-shell .message-modern-detail-back,
+.message-app-shell .message-modern-detail-close {
+  display: grid;
+  width: 30px;
+  height: 30px;
+  place-items: center;
+  padding: 0;
+  border: 1px solid #d5e1e9;
+  border-radius: 9px;
+  color: #4b697f;
+  background: #ffffff;
+  cursor: pointer;
+}
+
+.message-app-shell .message-modern-detail-back:hover,
+.message-app-shell .message-modern-detail-back:focus-visible,
+.message-app-shell .message-modern-detail-close:hover,
+.message-app-shell .message-modern-detail-close:focus-visible {
+  border-color: #9cc4dc;
+  color: #086ca9;
+  background: #edf7fc;
+  outline: none;
+}
+
+.message-app-shell .message-modern-detail-close .message-nav-svg {
+  width: 16px;
+  height: 16px;
+}
+
+.message-app-shell .message-modern-detail-scroll {
+  min-height: 0;
+  flex: 1 1 auto;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
+  scrollbar-color: #c7d7e2 transparent;
+}
+
+.message-app-shell .message-modern-profile-hero,
+.message-app-shell .message-modern-group-hero {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 7px;
+  padding: 20px 16px 17px;
+  border-bottom: 1px solid #e7eef3;
+  text-align: center;
+}
+
+.message-app-shell .message-modern-profile-hero .message-profile-photo,
+.message-app-shell .message-modern-group-hero .message-group-photo-preview {
+  position: relative;
+  display: grid;
+  width: 72px;
+  height: 72px;
+  place-items: center;
+  overflow: visible;
+  border: 1px solid #c8def0;
+  border-radius: 50%;
+  color: #0a5d9e;
+  background: #edf6ff;
+  font-size: 19px;
+  font-weight: 850;
+  box-shadow: 0 6px 16px rgba(16, 77, 122, 0.09);
+}
+
+.message-app-shell .message-modern-group-hero .message-group-photo-preview {
+  overflow: hidden;
+}
+
+.message-app-shell .message-modern-profile-presence {
+  position: absolute;
+  right: -1px;
+  bottom: 2px;
+  width: 14px;
+  height: 14px;
+  border: 3px solid #ffffff;
+  border-radius: 50%;
+  background: #18a65c;
+}
+
+.message-app-shell .message-modern-profile-hero > div,
+.message-app-shell .message-modern-group-hero > div {
+  display: grid;
+  min-width: 0;
+  gap: 3px;
+}
+
+.message-app-shell .message-modern-profile-hero strong,
+.message-app-shell .message-modern-group-hero strong {
+  overflow: hidden;
+  color: #173955;
+  font-size: 16px;
+  font-weight: 850;
+  line-height: 1.25;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.message-app-shell .message-modern-profile-hero span,
+.message-app-shell .message-modern-group-hero span {
+  color: #607d92;
+  font-size: 10.5px;
+  font-weight: 650;
+  line-height: 1.35;
+}
+
+.message-app-shell .message-modern-profile-hero small {
+  color: #159758;
+  font-size: 10px;
+  font-weight: 800;
+}
+
+.message-app-shell .message-modern-group-hero p {
+  margin: 3px 0 0;
+  color: #587287;
+  font-size: 11px;
+  line-height: 1.4;
+}
+
+.message-app-shell .message-simple-detail-section {
+  padding: 14px 15px;
+  border-bottom: 1px solid #e8eef2;
+}
+
+.message-app-shell .message-simple-detail-section > h3,
+.message-app-shell .message-modern-section-heading h3 {
+  margin: 0;
+  color: #1c405d;
+  font-size: 11px;
+  font-weight: 850;
+  letter-spacing: 0.02em;
+}
+
+.message-app-shell .message-simple-detail-section > p {
+  margin: 7px 0 0;
+  color: #607b90;
+  font-size: 11px;
+  line-height: 1.45;
+}
+
+.message-app-shell .message-simple-action-list {
+  padding: 7px;
+}
+
+.message-app-shell .message-simple-action-row,
+.message-app-shell .message-simple-navigation-action {
+  display: grid;
+  width: 100%;
+  min-width: 0;
+  min-height: 40px;
+  grid-template-columns: 19px minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: 9px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: 9px;
+  color: #234862;
+  background: transparent;
+  font-size: 11px;
+  font-weight: 750;
+  text-align: left;
+  cursor: pointer;
+}
+
+.message-app-shell .message-simple-action-row .message-nav-svg,
+.message-app-shell .message-simple-navigation-action .message-nav-svg {
+  width: 18px;
+  height: 18px;
+}
+
+.message-app-shell .message-simple-action-row > span:nth-child(2),
+.message-app-shell .message-simple-navigation-action > span:nth-child(2) {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.message-app-shell .message-simple-action-row b,
+.message-app-shell .message-modern-section-heading > span {
+  display: inline-grid;
+  min-width: 21px;
+  min-height: 19px;
+  place-items: center;
+  padding: 0 6px;
+  border-radius: 999px;
+  color: #0b6eae;
+  background: #e7f3fc;
+  font-size: 9px;
+  font-weight: 850;
+}
+
+.message-app-shell .message-simple-action-row:hover,
+.message-app-shell .message-simple-action-row:focus-visible,
+.message-app-shell .message-simple-navigation-action:hover:not(:disabled),
+.message-app-shell .message-simple-navigation-action:focus-visible {
+  color: #086ba8;
+  background: #edf7fc;
+  outline: none;
+}
+
+.message-app-shell .message-modern-section-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 11px;
+}
+
+.message-app-shell .message-modern-info-list {
+  display: grid;
+  margin: 0;
+}
+
+.message-app-shell .message-modern-info-list > div {
+  display: grid;
+  gap: 2px;
+  padding: 8px 0;
+  border-top: 1px solid #edf2f5;
+}
+
+.message-app-shell .message-modern-info-list > div:first-child {
+  padding-top: 0;
+  border-top: 0;
+}
+
+.message-app-shell .message-modern-info-list dt {
+  color: #7890a1;
+  font-size: 9px;
+  font-weight: 800;
+}
+
+.message-app-shell .message-modern-info-list dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+  color: #294e68;
+  font-size: 10.5px;
+  font-weight: 700;
+  line-height: 1.35;
+}
+
+.message-app-shell .message-modern-search-field {
+  display: grid;
+  min-height: 38px;
+  grid-template-columns: 17px minmax(0, 1fr);
+  align-items: center;
+  gap: 7px;
+  margin-bottom: 9px;
+  padding: 0 10px;
+  border: 1px solid #d5e1e9;
+  border-radius: 10px;
+  color: #6c8496;
+  background: #f9fbfc;
+}
+
+.message-app-shell .message-modern-search-field:focus-within {
+  border-color: #71add1;
+  background: #ffffff;
+  box-shadow: 0 0 0 3px rgba(8, 107, 169, 0.1);
+}
+
+.message-app-shell .message-modern-search-field .message-nav-svg {
+  width: 16px;
+  height: 16px;
+}
+
+.message-app-shell .message-modern-search-field input {
+  width: 100%;
+  min-width: 0;
+  height: 36px;
+  padding: 0;
+  border: 0;
+  color: #21455e;
+  background: transparent;
+  font: inherit;
+  font-size: 11px;
+  outline: none;
+}
+
+.message-app-shell .message-modern-search-field input[type="search"]::-webkit-search-cancel-button {
+  display: none;
+  -webkit-appearance: none;
+  appearance: none;
+}
+
+.message-app-shell .message-simple-member-list,
+.message-app-shell .message-modern-shared-groups {
+  display: grid;
+  gap: 2px;
+}
+
+.message-app-shell .message-simple-member-row {
+  display: grid;
+  width: 100%;
+  min-width: 0;
+  min-height: 46px;
+  grid-template-columns: 32px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 5px;
+  border: 0;
+  border-radius: 9px;
+  color: #244963;
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+}
+
+.message-app-shell .message-simple-member-row:hover,
+.message-app-shell .message-simple-member-row:focus-visible {
+  background: #eef7fc;
+  outline: none;
+}
+
+.message-app-shell .message-simple-member-row .message-avatar.small {
+  width: 32px;
+  height: 32px;
+  font-size: 10px;
+}
+
+.message-app-shell .message-simple-member-copy {
+  display: grid;
+  min-width: 0;
+  gap: 2px;
+}
+
+.message-app-shell .message-simple-member-copy strong,
+.message-app-shell .message-simple-member-copy small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.message-app-shell .message-simple-member-copy strong {
+  color: #214560;
+  font-size: 10.5px;
+  font-weight: 800;
+}
+
+.message-app-shell .message-simple-member-copy small {
+  color: #71899b;
+  font-size: 9.5px;
+  font-weight: 650;
+}
+
+.message-app-shell .message-simple-member-role {
+  color: #5d7c91;
+  font-size: 8.5px;
+  font-weight: 800;
+  text-transform: capitalize;
+}
+
+.message-app-shell .message-simple-expand-button {
+  width: 100%;
+  min-height: 34px;
+  margin-top: 7px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: 8px;
+  color: #076ba9;
+  background: transparent;
+  font-size: 10px;
+  font-weight: 800;
+  text-align: left;
+  cursor: pointer;
+}
+
+.message-app-shell .message-simple-expand-button:hover,
+.message-app-shell .message-simple-expand-button:focus-visible {
+  background: #eef7fc;
+  outline: none;
+}
+
+.message-app-shell .message-modern-shared-groups > div {
+  display: grid;
+  gap: 2px;
+  padding: 8px 0;
+  border-top: 1px solid #edf2f5;
+}
+
+.message-app-shell .message-modern-shared-groups > div:first-child {
+  padding-top: 0;
+  border-top: 0;
+}
+
+.message-app-shell .message-modern-shared-groups strong {
+  color: #234862;
+  font-size: 10.5px;
+  font-weight: 800;
+}
+
+.message-app-shell .message-modern-shared-groups span,
+.message-app-shell .message-simple-group-note,
+.message-app-shell .message-simple-empty-state {
+  color: #678094;
+  font-size: 10px;
+  line-height: 1.4;
+}
+
+.message-app-shell .message-simple-empty-state {
+  margin: 8px 0 0;
+}
+
+.message-app-shell .message-simple-group-actions {
+  display: grid;
+  gap: 3px;
+  padding: 7px;
+}
+
+.message-app-shell .message-simple-navigation-action {
+  grid-template-columns: 19px minmax(0, 1fr) auto;
+}
+
+.message-app-shell .message-simple-navigation-action.danger {
+  color: #ae3543;
+}
+
+.message-app-shell .message-simple-navigation-action.danger:hover:not(:disabled),
+.message-app-shell .message-simple-navigation-action.danger:focus-visible {
+  color: #9e2634;
+  background: #fff1f2;
+}
+
+.message-app-shell .message-simple-group-note {
+  margin: 0;
+  padding: 13px 15px 17px;
+}
+
+.message-app-shell .message-modern-profile-actions {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 7px;
+  padding: 14px 15px max(16px, env(safe-area-inset-bottom));
+}
+
+.message-app-shell .message-modern-profile-actions button {
+  min-height: 36px;
+  padding: 0 10px;
+  border: 1px solid #0a70b5;
+  border-radius: 9px;
+  color: #ffffff;
+  background: #0873ba;
+  font-size: 10px;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.message-app-shell .message-modern-profile-actions button.secondary {
+  border-color: #c8d9e5;
+  color: #31536c;
+  background: #f6fafc;
+}
+
+.message-app-shell .message-modern-profile-actions button.danger {
+  border-color: #e7b4bb;
+  color: #a32b39;
+  background: #fff5f5;
+}
+
+.message-app-shell .message-modern-profile-actions button:disabled,
+.message-app-shell .message-simple-navigation-action:disabled {
+  cursor: wait;
+  opacity: 0.55;
+}
+
+/* Shared media, documents and links use the same detail rail, with a compact
+   tab bar and content cards instead of unstyled text running together. */
+.message-app-shell .message-shared-panel-tabs {
+  display: grid;
+  min-height: 49px;
+  flex: 0 0 auto;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 4px;
+  padding: 7px 10px;
+  border-bottom: 1px solid #e5edf2;
+  background: #ffffff;
+}
+
+.message-app-shell .message-shared-panel-tabs button {
+  display: inline-flex;
+  min-width: 0;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  padding: 0 5px;
+  border: 0;
+  border-radius: 8px;
+  color: #607b90;
+  background: transparent;
+  font-size: 10.5px;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.message-app-shell .message-shared-panel-tabs button b {
+  display: grid;
+  min-width: 18px;
+  height: 18px;
+  place-items: center;
+  padding: 0 4px;
+  border-radius: 999px;
+  color: #6c8496;
+  background: #edf3f7;
+  font-size: 8.5px;
+  font-weight: 850;
+}
+
+.message-app-shell .message-shared-panel-tabs button:hover,
+.message-app-shell .message-shared-panel-tabs button:focus-visible {
+  color: #086ba8;
+  background: #edf7fc;
+  outline: none;
+}
+
+.message-app-shell .message-shared-panel-tabs button.active {
+  color: #086ca9;
+  background: #e8f4fc;
+}
+
+.message-app-shell .message-shared-panel-tabs button.active b {
+  color: #ffffff;
+  background: #0873ba;
+}
+
+.message-app-shell .message-shared-panel-scroll {
+  background: #fbfdfe;
+}
+
+.message-app-shell .message-shared-panel-state {
+  display: flex;
+  min-height: 260px;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 28px 22px;
+  color: #6b8497;
+  text-align: center;
+}
+
+.message-app-shell .message-shared-panel-state > svg,
+.message-app-shell .message-shared-panel-state > .message-shared-link-state-icon {
+  display: grid;
+  width: 62px;
+  height: 62px;
+  place-items: center;
+  border-radius: 20px;
+  color: #4a7798;
+  background: #eaf4fb;
+}
+
+.message-app-shell .message-shared-panel-state > svg {
+  padding: 14px;
+}
+
+.message-app-shell .message-shared-link-state-icon {
+  font-size: 29px;
+  font-weight: 500;
+}
+
+.message-app-shell .message-shared-panel-state strong {
+  margin-top: 3px;
+  color: #244966;
+  font-size: 13px;
+  font-weight: 850;
+}
+
+.message-app-shell .message-shared-panel-state p {
+  max-width: 255px;
+  margin: 0;
+  color: #668095;
+  font-size: 11.5px;
+  line-height: 1.45;
+}
+
+.message-app-shell .message-shared-panel-state button {
+  min-height: 33px;
+  margin-top: 4px;
+  padding: 0 12px;
+  border: 1px solid #0a71b5;
+  border-radius: 8px;
+  color: #ffffff;
+  background: #0873ba;
+  font-size: 10.5px;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.message-app-shell .message-shared-refresh-state {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 8px 13px;
+  border-bottom: 1px solid #e8f0f4;
+  color: #668095;
+  background: #f5fafc;
+  font-size: 10px;
+  font-weight: 700;
+}
+
+.message-app-shell .message-shared-month-list {
+  display: grid;
+  gap: 15px;
+  padding: 13px;
+}
+
+.message-app-shell .message-shared-month-group {
+  display: grid;
+  gap: 8px;
+}
+
+.message-app-shell .message-shared-month-group h3 {
+  margin: 0;
+  color: #58758b;
+  font-size: 10px;
+  font-weight: 850;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+}
+
+.message-app-shell .message-shared-media-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 7px;
+}
+
+.message-app-shell .message-shared-media-tile {
+  min-width: 0;
+  padding: 0;
+  overflow: hidden;
+  border: 1px solid #dbe6ed;
+  border-radius: 10px;
+  color: #264b65;
+  background: #ffffff;
+  text-align: left;
+  cursor: pointer;
+}
+
+.message-app-shell .message-shared-media-tile:hover,
+.message-app-shell .message-shared-media-tile:focus-visible {
+  border-color: #84b7d7;
+  box-shadow: 0 0 0 3px rgba(8, 108, 168, 0.1);
+  outline: none;
+}
+
+.message-app-shell .message-shared-media-preview {
+  position: relative;
+  display: grid;
+  aspect-ratio: 1.28 / 1;
+  place-items: center;
+  overflow: hidden;
+  color: #5a7d95;
+  background: #e9f2f7;
+}
+
+.message-app-shell .message-shared-media-preview img,
+.message-app-shell .message-shared-media-preview video {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.message-app-shell .message-shared-media-placeholder {
+  display: grid;
+  width: 38px;
+  height: 38px;
+  place-items: center;
+  border-radius: 12px;
+  color: #4b7593;
+  background: rgba(255, 255, 255, 0.7);
+}
+
+.message-app-shell .message-shared-media-placeholder svg {
+  width: 21px;
+  height: 21px;
+}
+
+.message-app-shell .message-shared-media-type {
+  position: absolute;
+  right: 7px;
+  bottom: 7px;
+  display: grid;
+  width: 24px;
+  height: 24px;
+  place-items: center;
+  border-radius: 50%;
+  color: #ffffff;
+  background: rgba(13, 48, 75, 0.78);
+}
+
+.message-app-shell .message-shared-media-type svg {
+  width: 13px;
+  height: 13px;
+}
+
+.message-app-shell .message-shared-media-caption {
+  display: grid;
+  gap: 2px;
+  padding: 7px 8px 8px;
+}
+
+.message-app-shell .message-shared-media-caption strong,
+.message-app-shell .message-shared-media-caption small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.message-app-shell .message-shared-media-caption strong {
+  color: #294d67;
+  font-size: 10px;
+  font-weight: 800;
+}
+
+.message-app-shell .message-shared-media-caption small {
+  color: #7c92a2;
+  font-size: 9px;
+  font-weight: 650;
+}
+
+.message-app-shell .message-shared-document-list,
+.message-app-shell .message-shared-link-list {
+  display: grid;
+  gap: 6px;
+}
+
+.message-app-shell .message-shared-document-item {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 32px;
+  align-items: center;
+  gap: 6px;
+  padding: 6px;
+  border: 1px solid #dce7ee;
+  border-radius: 10px;
+  background: #ffffff;
+}
+
+.message-app-shell .message-shared-document-main {
+  display: grid;
+  min-width: 0;
+  grid-template-columns: 34px minmax(0, 1fr);
+  align-items: center;
+  gap: 8px;
+  padding: 2px;
+  border: 0;
+  color: #294d67;
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+}
+
+.message-app-shell .message-shared-document-icon {
+  display: grid;
+  width: 34px;
+  height: 34px;
+  place-items: center;
+  border-radius: 9px;
+  color: #a8434c;
+  background: #fff0f1;
+}
+
+.message-app-shell .message-shared-document-icon svg {
+  width: 19px;
+  height: 19px;
+}
+
+.message-app-shell .message-shared-document-main > span:last-child {
+  display: grid;
+  min-width: 0;
+  gap: 2px;
+}
+
+.message-app-shell .message-shared-document-main strong,
+.message-app-shell .message-shared-document-main small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.message-app-shell .message-shared-document-main strong {
+  color: #294c66;
+  font-size: 10.5px;
+  font-weight: 800;
+}
+
+.message-app-shell .message-shared-document-main small {
+  color: #748c9d;
+  font-size: 9px;
+  font-weight: 650;
+}
+
+.message-app-shell .message-shared-download-action {
+  display: grid;
+  width: 30px;
+  height: 30px;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  border-radius: 8px;
+  color: #397093;
+  background: #edf6fb;
+  cursor: pointer;
+}
+
+.message-app-shell .message-shared-download-action svg {
+  width: 16px;
+  height: 16px;
+}
+
+.message-app-shell .message-shared-download-action:hover,
+.message-app-shell .message-shared-download-action:focus-visible {
+  color: #ffffff;
+  background: #0873ba;
+  outline: none;
+}
+
+.message-app-shell .message-shared-link-item {
+  display: grid;
+  gap: 7px;
+  padding: 10px;
+  border: 1px solid #dce7ee;
+  border-radius: 10px;
+  background: #ffffff;
+}
+
+.message-app-shell .message-shared-link-meta {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.message-app-shell .message-shared-link-meta strong {
+  overflow: hidden;
+  color: #294c66;
+  font-size: 10px;
+  font-weight: 800;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.message-app-shell .message-shared-link-meta time {
+  flex: 0 0 auto;
+  color: #7a91a1;
+  font-size: 9px;
+  font-weight: 650;
+}
+
+.message-app-shell .message-shared-link-preview {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+  padding: 8px;
+  border-radius: 8px;
+  color: inherit;
+  background: #f4f8fa;
+  text-decoration: none;
+}
+
+.message-app-shell .message-shared-link-preview:hover,
+.message-app-shell .message-shared-link-preview:focus-visible {
+  background: #eaf4fa;
+  outline: none;
+}
+
+.message-app-shell .message-shared-link-domain {
+  color: #0873ae;
+  font-size: 9px;
+  font-weight: 850;
+  text-transform: uppercase;
+}
+
+.message-app-shell .message-shared-link-preview p {
+  display: -webkit-box;
+  margin: 0;
+  overflow: hidden;
+  color: #536f84;
+  font-size: 10px;
+  line-height: 1.35;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+.message-app-shell .message-shared-link-url {
+  overflow: hidden;
+  color: #47738e;
+  font-size: 9px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.message-app-shell .message-shared-locate-action {
+  justify-self: start;
+  min-height: 28px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: 7px;
+  color: #0870ae;
+  background: transparent;
+  font-size: 9.5px;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.message-app-shell .message-shared-locate-action:hover,
+.message-app-shell .message-shared-locate-action:focus-visible {
+  background: #eaf4fa;
+  outline: none;
+}
+
+/* Raise the detail panel's text hierarchy to normal desktop readability. */
+.message-app-shell .message-modern-profile-hero span,
+.message-app-shell .message-modern-group-hero span {
+  font-size: 11.5px;
+}
+
+.message-app-shell .message-modern-profile-hero small {
+  font-size: 10.5px;
+}
+
+.message-app-shell .message-simple-detail-section > h3,
+.message-app-shell .message-modern-section-heading h3 {
+  font-size: 12px;
+}
+
+.message-app-shell .message-simple-detail-section > p,
+.message-app-shell .message-simple-action-row,
+.message-app-shell .message-simple-navigation-action {
+  font-size: 12px;
+}
+
+.message-app-shell .message-modern-info-list dt {
+  font-size: 10px;
+}
+
+.message-app-shell .message-modern-info-list dd,
+.message-app-shell .message-simple-member-copy strong,
+.message-app-shell .message-modern-shared-groups strong {
+  font-size: 11.5px;
+}
+
+.message-app-shell .message-simple-member-copy small,
+.message-app-shell .message-modern-shared-groups span,
+.message-app-shell .message-simple-group-note,
+.message-app-shell .message-simple-empty-state {
+  font-size: 10.5px;
+}
+
+.message-app-shell .message-simple-member-role,
+.message-app-shell .message-simple-expand-button,
+.message-app-shell .message-modern-profile-actions button {
+  font-size: 10px;
+}
+
 @media (min-width: 1200px) {
   .message-app-shell {
     /* These proportions reproduce the established wide-screen workspace:
@@ -11288,7 +13079,9 @@ body.message-attachment-viewer-open {
     --message-rail-collapsed-width: clamp(78px, 5.7vw, 114px);
     --message-rail-expanded-width: clamp(250px, 18.85vw, 377px);
     --message-sidebar-width: clamp(360px, 25.6vw, 512px);
-    --message-details-width: clamp(286px, 15.6vw, 312px);
+    /* Profile, group details, and message search need enough room for
+       names, roles and metadata to remain readable as a real chat sidebar. */
+    --message-details-width: clamp(330px, 19vw, 380px);
     --message-chat-background: #edf5fc;
     --message-received-bubble: #ffffff;
     --message-own-bubble: #0873ba;
@@ -11556,5 +13349,3790 @@ body.message-attachment-viewer-open {
     padding: 9px 13px;
     border-radius: 20px;
     font-size: 14px;
+  }
+}
+
+/* Full-width creation flows. The create-group route intentionally removes the
+   conversation sidebar, so the chat panel must occupy the first grid column
+   instead of inheriting the old sidebar-sized track. */
+.message-app-shell .message-workspace.create-group-open {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.message-app-shell .message-workspace.create-group-open .message-chat-panel {
+  grid-column: 1;
+}
+
+.message-app-shell .message-create-group-workspace {
+  background:
+    radial-gradient(circle at 75% 12%, rgba(48, 143, 209, 0.1), transparent 25rem),
+    #f3f8fc;
+}
+
+.message-app-shell .message-create-flow-header {
+  min-height: 88px;
+  padding: 16px clamp(22px, 3vw, 44px);
+  border-bottom-color: #dce8f0;
+}
+
+.message-app-shell .message-create-flow-back {
+  width: 38px;
+  height: 38px;
+  border-color: #cfdee8;
+  border-radius: 11px;
+  color: #315b76;
+}
+
+.message-app-shell .message-create-flow-back:hover,
+.message-app-shell .message-create-flow-back:focus-visible {
+  border-color: #91bcd8;
+  color: #0871b3;
+  background: #edf7fc;
+  outline: none;
+}
+
+.message-app-shell .message-create-flow-header > div > span {
+  color: #0874b8;
+  font-weight: 800;
+}
+
+.message-app-shell .message-create-flow-header > div > h2 {
+  color: #173954;
+  font-size: 20px;
+}
+
+.message-app-shell .message-create-flow-header > div > p {
+  max-width: 590px;
+  color: #637e91;
+  font-size: 12px;
+}
+
+.message-app-shell .message-create-group-canvas {
+  align-items: center;
+  padding: clamp(18px, 2.4vw, 32px);
+  overflow-y: auto;
+}
+
+.message-app-shell .message-create-group-layout {
+  width: min(100%, 1120px);
+  min-height: min(650px, 100%);
+  align-self: center;
+  grid-template-columns: minmax(0, 1fr) 370px;
+  gap: 18px;
+}
+
+.message-app-shell .message-create-group-canvas.official-group .message-create-group-layout {
+  grid-template-columns: minmax(0, 1fr) 390px;
+}
+
+.message-app-shell .message-create-group-people-panel,
+.message-app-shell .message-create-group-setup-panel {
+  border-color: #d9e5ed;
+  box-shadow: 0 10px 28px rgba(23, 62, 91, 0.07);
+}
+
+.message-app-shell .message-create-group-panel-header {
+  padding: 17px 18px;
+  border-bottom-color: #e9f0f4;
+}
+
+.message-app-shell .message-create-group-panel-header > div > h3 {
+  color: #1c405c;
+  font-size: 16px;
+}
+
+.message-app-shell .message-create-group-panel-header > div > p {
+  color: #668094;
+}
+
+.message-app-shell .message-create-group-search input,
+.message-app-shell .message-create-group-fields input,
+.message-app-shell .message-create-group-fields textarea,
+.message-app-shell .message-group-scope-field select {
+  border-color: #d3e0e8;
+  color: #284b65;
+  background: #fbfdfe;
+}
+
+.message-app-shell .message-create-group-search input:focus,
+.message-app-shell .message-create-group-fields input:focus,
+.message-app-shell .message-create-group-fields textarea:focus,
+.message-app-shell .message-group-scope-field select:focus {
+  border-color: #63a8d1;
+  box-shadow: 0 0 0 3px rgba(8, 108, 168, 0.1);
+}
+
+.message-app-shell .message-create-group-status-card {
+  border-color: #dbe7ee;
+  background: #f1f7fb;
+}
+
+.message-app-shell .message-create-group-setup-actions {
+  border-top-color: #e8f0f4;
+}
+
+.message-app-shell .message-create-group-setup-actions > button {
+  border-color: #d1dfe8;
+  color: #49677c;
+}
+
+.message-app-shell .message-create-group-setup-actions > button.primary {
+  border-color: #0873ba;
+  background: #0873ba;
+}
+
+.message-app-shell .message-create-group-setup-actions > button.primary:hover:not(:disabled) {
+  border-color: #075f9d;
+  background: #075f9d;
+}
+
+/* New-conversation list: give people rows the density and alignment of a
+   production chat contact picker rather than independent oversized cards. */
+.message-app-shell .message-conversation-list.contact-workspace-list {
+  gap: 0;
+  padding: 0;
+}
+
+.message-app-shell .message-contact-workspace-row {
+  min-height: 76px;
+  gap: 10px;
+  padding: 9px 18px;
+  border: 0;
+  border-bottom: 1px solid #e8eef2;
+  border-radius: 0;
+  background: #ffffff;
+}
+
+.message-app-shell .message-contact-workspace-row:hover {
+  border-color: #e8eef2;
+  background: #f1f8fd;
+  box-shadow: none;
+}
+
+.message-app-shell .message-contact-workspace-open .message-avatar {
+  width: 42px;
+  height: 42px;
+  font-size: 12px;
+}
+
+.message-app-shell .message-contact-workspace-open strong {
+  color: #1d405d;
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.message-app-shell .message-contact-workspace-open small {
+  color: #617b8e;
+  font-size: 10.5px;
+  font-weight: 650;
+}
+
+.message-app-shell .message-contact-workspace-open em {
+  color: #8396a4;
+  font-size: 9.5px;
+}
+
+.message-app-shell .message-contact-workspace-action {
+  min-height: 32px;
+  padding: 0 12px;
+  border-color: #1679bf;
+  color: #0871b6;
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.message-app-shell .message-contact-workspace-action:hover:not(:disabled),
+.message-app-shell .message-contact-workspace-action:focus-visible {
+  border-color: #0871b6;
+  color: #ffffff;
+  background: #0871b6;
+  outline: none;
+}
+
+.message-app-shell .message-new-conversation-workspace {
+  background:
+    radial-gradient(circle at 50% 40%, rgba(58, 144, 208, 0.08), transparent 20rem),
+    #f8fbfd;
+}
+
+.message-app-shell .message-collection-welcome-icon .message-nav-svg {
+  width: 28px;
+  height: 28px;
+}
+
+/* The SVG must keep its white stroke on the blue compose button in every
+   interaction state; earlier generic hover rules were allowing it to fade. */
+.message-app-shell .message-new-button,
+.message-app-shell .message-new-button:hover,
+.message-app-shell .message-new-button:focus-visible {
+  border-color: #0873ba;
+  color: #ffffff;
+  background: #0873ba;
+}
+
+.message-app-shell .message-new-button:hover,
+.message-app-shell .message-new-button:focus-visible {
+  border-color: #075f9d;
+  background: #075f9d;
+  box-shadow: 0 8px 18px rgba(7, 95, 157, 0.24);
+  outline: none;
+}
+
+.message-app-shell .message-new-button .message-nav-svg,
+.message-app-shell .message-new-button:hover .message-nav-svg,
+.message-app-shell .message-new-button:focus-visible .message-nav-svg {
+  color: #ffffff;
+  stroke: currentColor;
+}
+
+@media (max-width: 900px) {
+  .message-app-shell .message-create-group-layout,
+  .message-app-shell .message-create-group-canvas.official-group .message-create-group-layout {
+    min-height: 0;
+    grid-template-columns: 1fr;
+  }
+}
+
+/* These pickers contain both avatar spans and text spans. Do not let the
+   generic copy-column selector stretch the avatars or the add-state control. */
+.message-app-shell .message-contact-workspace-open > .message-avatar {
+  display: grid;
+  width: 42px;
+  min-width: 42px;
+  height: 42px;
+  min-height: 42px;
+  flex: 0 0 42px;
+  place-items: center;
+  overflow: hidden;
+  border-radius: 50%;
+}
+
+.message-app-shell .message-contact-workspace-open > span:not(.message-avatar) {
+  display: flex;
+  min-width: 0;
+  flex: 1 1 auto;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.message-app-shell .message-create-group-member-list .message-group-contact-row {
+  min-height: 62px;
+  padding: 8px 12px;
+  border: 1px solid #e1eaf0;
+  background: #ffffff;
+}
+
+.message-app-shell .message-create-group-member-list .message-group-contact-row + .message-group-contact-row {
+  margin-top: 4px;
+}
+
+.message-app-shell .message-create-group-member-list .message-group-contact-row:hover {
+  border-color: #b6d5e8;
+  background: #f1f8fc;
+}
+
+.message-app-shell .message-create-group-member-list .message-group-contact-row.selected {
+  border-color: #79b4da;
+  background: #e9f5fc;
+}
+
+.message-app-shell .message-create-group-member-list .message-group-contact-row > .message-avatar {
+  display: grid;
+  width: 42px;
+  min-width: 42px;
+  height: 42px;
+  min-height: 42px;
+  flex: 0 0 42px;
+  place-items: center;
+  overflow: hidden;
+  border-radius: 50%;
+  font-size: 12px;
+}
+
+.message-app-shell .message-create-group-member-list .message-group-contact-row > span:not(.message-avatar):not(.message-create-group-member-state) {
+  display: flex;
+  min-width: 0;
+  flex: 1 1 auto;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.message-app-shell .message-create-group-member-list .message-create-group-member-state {
+  display: grid;
+  width: 26px;
+  min-width: 26px;
+  height: 26px;
+  min-height: 26px;
+  flex: 0 0 26px;
+  place-items: center;
+  padding: 0;
+  border-color: #aebfcb;
+  border-radius: 50%;
+  color: #5e7a8d;
+  background: #ffffff;
+  line-height: 1;
+}
+
+.message-app-shell .message-create-group-member-list .message-group-contact-row.selected .message-create-group-member-state {
+  border-color: #0873ba;
+  color: #ffffff;
+  background: #0873ba;
+}
+
+/* Group management and add-member flows */
+.message-group-management-workspace,
+.message-add-members-workspace {
+  display: flex;
+  min-height: 0;
+  height: 100%;
+  flex: 1 1 auto;
+  flex-direction: column;
+  overflow: hidden;
+  background: #f5f9fc;
+}
+
+.message-group-management-header,
+.message-create-flow-header {
+  display: grid;
+  grid-template-columns: 38px minmax(0, 1fr) 38px;
+  align-items: center;
+  gap: 12px;
+  min-height: 76px;
+  padding: 14px 22px;
+  border-bottom: 1px solid #dce8f1;
+  background: #ffffff;
+}
+
+.message-group-management-header > div,
+.message-create-flow-header > div {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.message-group-management-header span,
+.message-create-flow-header > div > span {
+  color: #1877bc;
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: .12em;
+  text-transform: uppercase;
+}
+
+.message-group-management-header strong,
+.message-create-flow-header strong,
+.message-create-flow-header h2 {
+  margin: 0;
+  color: #173c5c;
+  font-size: 20px;
+  line-height: 1.2;
+}
+
+.message-create-flow-header p {
+  margin: 2px 0 0;
+  color: #6a8599;
+  font-size: 14px;
+  line-height: 1.45;
+}
+
+.message-modern-detail-back,
+.message-modern-detail-close {
+  display: grid;
+  width: 38px;
+  height: 38px;
+  place-items: center;
+  padding: 0;
+  border: 1px solid #cfdfeb;
+  border-radius: 11px;
+  color: #315c7a;
+  background: #ffffff;
+  cursor: pointer;
+}
+
+.message-modern-detail-close {
+  justify-self: end;
+}
+
+.message-modern-detail-back:hover,
+.message-modern-detail-close:hover {
+  border-color: #7eb9df;
+  color: #0873ba;
+  background: #edf8ff;
+}
+
+.message-group-management-workspace > .message-modern-detail-scroll {
+  min-height: 0;
+  padding: 18px;
+  overflow-y: auto;
+  background: #f5f9fc;
+}
+
+.message-group-management-workspace .message-modern-group-hero {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  max-width: 860px;
+  margin: 0 auto 14px;
+  padding: 16px 18px;
+  border: 1px solid #dbe8f2;
+  border-radius: 14px;
+  background: #ffffff;
+  box-shadow: 0 4px 16px rgba(36, 76, 107, .05);
+}
+
+.message-group-management-workspace .message-modern-group-hero > div:last-child {
+  display: grid;
+  min-width: 0;
+  gap: 3px;
+}
+
+.message-group-management-workspace .message-modern-group-hero strong {
+  overflow: hidden;
+  color: #173c5c;
+  font-size: 17px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.message-group-management-workspace .message-modern-group-hero > div:last-child > span,
+.message-group-management-workspace .message-modern-group-hero p {
+  margin: 0;
+  color: #688399;
+  font-size: 13px;
+  line-height: 1.4;
+}
+
+.message-modern-group-badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 4px;
+}
+
+.message-modern-group-badges span,
+.message-modern-member-main b {
+  display: inline-flex;
+  width: fit-content;
+  align-items: center;
+  min-height: 20px;
+  padding: 2px 7px;
+  border-radius: 999px;
+  color: #26638d;
+  background: #e9f4fc;
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: .04em;
+  text-transform: uppercase;
+}
+
+.message-modern-detail-tabs {
+  display: flex;
+  max-width: 860px;
+  margin: 0 auto 12px;
+  padding: 4px;
+  gap: 4px;
+  border: 1px solid #dbe7f0;
+  border-radius: 12px;
+  background: #ffffff;
+}
+
+.message-modern-detail-tabs button {
+  flex: 1 1 0;
+  min-width: 0;
+  min-height: 34px;
+  padding: 6px 10px;
+  border: 0;
+  border-radius: 8px;
+  color: #5e778b;
+  background: transparent;
+  font-size: 13px;
+  font-weight: 750;
+  cursor: pointer;
+}
+
+.message-modern-detail-tabs button:hover {
+  color: #0b6fb3;
+  background: #f0f8fd;
+}
+
+.message-modern-detail-tabs button.active {
+  color: #ffffff;
+  background: #0878bd;
+  box-shadow: 0 2px 7px rgba(8, 120, 189, .2);
+}
+
+.message-modern-group-tab {
+  display: grid;
+  max-width: 860px;
+  margin: 0 auto;
+  gap: 12px;
+}
+
+.message-modern-detail-section {
+  display: grid;
+  gap: 12px;
+  padding: 16px;
+  border: 1px solid #dce8f1;
+  border-radius: 14px;
+  background: #ffffff;
+  box-shadow: 0 4px 16px rgba(36, 76, 107, .04);
+}
+
+.message-modern-detail-section > header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.message-modern-section-heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.message-modern-section-heading > div {
+  min-width: 0;
+}
+
+.message-modern-section-heading > span {
+  display: inline-grid;
+  min-width: 24px;
+  height: 24px;
+  place-items: center;
+  border-radius: 999px;
+  color: #0873ba;
+  background: #eaf5fd;
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.message-modern-section-heading p {
+  margin: 3px 0 0;
+  color: #71899b;
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.message-modern-detail-section h3 {
+  margin: 0;
+  color: #1c4261;
+  font-size: 15px;
+  line-height: 1.3;
+}
+
+.message-modern-detail-section header p,
+.message-modern-detail-section > p {
+  margin: 3px 0 0;
+  color: #71899b;
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.message-modern-shared-actions {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.message-modern-shared-actions button {
+  display: grid;
+  grid-template-columns: 18px minmax(0, 1fr) auto;
+  align-items: center;
+  min-height: 44px;
+  gap: 6px;
+  padding: 8px 10px;
+  border: 1px solid #d8e6ef;
+  border-radius: 10px;
+  color: #315d79;
+  background: #f9fcfe;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.message-modern-shared-actions button:hover {
+  border-color: #8bc3e4;
+  color: #0873ba;
+  background: #eff9ff;
+}
+
+.message-modern-shared-actions b {
+  color: #0873ba;
+  font-size: 12px;
+}
+
+.message-modern-leadership-list,
+.message-modern-member-list,
+.message-modern-add-member-list,
+.message-modern-audit-list {
+  display: grid;
+  gap: 7px;
+}
+
+.message-modern-leadership-list button,
+.message-modern-member-row {
+  display: flex;
+  width: 100%;
+  align-items: center;
+  min-width: 0;
+  gap: 10px;
+  padding: 9px;
+  border: 1px solid #e0eaf1;
+  border-radius: 10px;
+  color: #234967;
+  background: #ffffff;
+}
+
+.message-modern-leadership-list button {
+  text-align: left;
+  cursor: pointer;
+}
+
+.message-modern-leadership-list button:hover {
+  border-color: #a3cde7;
+  background: #f4faff;
+}
+
+.message-modern-leadership-list button > span:last-child,
+.message-modern-member-main > span,
+.message-modern-add-member-row > span {
+  display: grid;
+  min-width: 0;
+  flex: 1 1 auto;
+  gap: 2px;
+}
+
+.message-modern-leadership-list strong,
+.message-modern-member-main strong,
+.message-modern-add-member-row strong {
+  overflow: hidden;
+  color: #204865;
+  font-size: 13px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.message-modern-leadership-list small,
+.message-modern-member-main small,
+.message-modern-add-member-row small,
+.message-modern-audit-list small {
+  overflow: hidden;
+  color: #71899b;
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.message-modern-member-row {
+  justify-content: space-between;
+}
+
+.message-modern-member-main {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 10px;
+  padding: 0;
+  border: 0;
+  color: inherit;
+  background: transparent;
+  text-align: left;
+}
+
+.message-modern-member-main b {
+  margin-left: auto;
+}
+
+.message-modern-member-actions,
+.message-modern-inline-actions,
+.message-modern-group-photo-setting > div > div {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+}
+
+.message-modern-member-actions button,
+.message-modern-inline-actions button,
+.message-modern-group-photo-setting button,
+.message-modern-primary-action,
+.message-modern-danger-zone button {
+  min-height: 32px;
+  padding: 6px 10px;
+  border: 1px solid #b8d2e3;
+  border-radius: 8px;
+  color: #23618a;
+  background: #ffffff;
+  font-size: 12px;
+  font-weight: 750;
+  cursor: pointer;
+}
+
+.message-modern-member-actions button:hover,
+.message-modern-inline-actions button:hover,
+.message-modern-group-photo-setting button:hover {
+  border-color: #4b9ed0;
+  color: #0873ba;
+  background: #eef8ff;
+}
+
+.message-modern-member-actions .danger,
+.message-modern-inline-actions .danger,
+.message-modern-group-photo-setting .danger,
+.message-modern-danger-zone .danger {
+  border-color: #f1c4c9;
+  color: #b34750;
+  background: #fffafb;
+}
+
+.message-modern-add-member-row {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  gap: 10px;
+  padding: 9px;
+  border: 1px solid #dfeaf2;
+  border-radius: 10px;
+  background: #ffffff;
+  cursor: pointer;
+}
+
+.message-modern-add-member-row:hover,
+.message-modern-add-member-row.selected {
+  border-color: #8dc4e5;
+  background: #f1f9fe;
+}
+
+.message-modern-add-member-row.disabled {
+  opacity: .58;
+  cursor: not-allowed;
+}
+
+.message-modern-add-member-row input,
+.message-add-members-history-options input,
+.message-add-members-list input {
+  width: 16px;
+  height: 16px;
+  margin: 0;
+  flex: 0 0 16px;
+  accent-color: #0878bd;
+}
+
+.message-modern-search-field {
+  display: flex;
+  align-items: center;
+  min-height: 42px;
+  gap: 9px;
+  padding: 0 12px;
+  border: 1px solid #cbddea;
+  border-radius: 10px;
+  color: #54758c;
+  background: #ffffff;
+}
+
+.message-modern-search-field input,
+.message-modern-field input,
+.message-modern-field textarea {
+  width: 100%;
+  min-width: 0;
+  border: 0;
+  outline: 0;
+  color: #244861;
+  background: transparent;
+  font: inherit;
+}
+
+.message-modern-primary-action {
+  justify-self: start;
+  border-color: #0878bd;
+  color: #ffffff;
+  background: #0878bd;
+}
+
+.message-modern-primary-action:hover {
+  background: #056aa8;
+}
+
+.message-modern-group-photo-setting {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px;
+  border: 1px solid #e1eaf1;
+  border-radius: 10px;
+  background: #fafcfd;
+}
+
+.message-modern-group-photo-setting > div {
+  display: grid;
+  min-width: 0;
+  gap: 3px;
+}
+
+.message-modern-group-photo-setting strong {
+  color: #294d68;
+  font-size: 13px;
+}
+
+.message-modern-group-photo-setting small {
+  color: #71899b;
+  font-size: 12px;
+}
+
+.message-modern-field {
+  display: grid;
+  gap: 6px;
+  color: #3d5b70;
+  font-size: 12px;
+  font-weight: 750;
+}
+
+.message-modern-field input,
+.message-modern-field textarea {
+  min-height: 40px;
+  padding: 9px 10px;
+  border: 1px solid #cbddea;
+  border-radius: 9px;
+  background: #ffffff;
+  font-weight: 500;
+}
+
+.message-modern-field textarea {
+  min-height: 76px;
+  resize: vertical;
+}
+
+.message-modern-audit-list article {
+  display: grid;
+  gap: 2px;
+  padding: 9px 0;
+  border-bottom: 1px solid #edf2f5;
+}
+
+.message-modern-audit-list article:last-child {
+  border-bottom: 0;
+}
+
+.message-modern-audit-list strong {
+  color: #31536a;
+  font-size: 12px;
+}
+
+.message-modern-security-note {
+  margin: 0;
+  padding: 10px 12px;
+  border-left: 3px solid #8dc4e5;
+  border-radius: 7px;
+  color: #547187;
+  background: #f1f8fc;
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.message-modern-security-note.compact {
+  padding: 7px 9px;
+}
+
+.message-modern-danger-zone {
+  display: flex;
+  justify-content: flex-end;
+  max-width: 860px;
+  margin: 12px auto 0;
+}
+
+.message-add-members-canvas {
+  display: flex;
+  min-height: 0;
+  flex: 1 1 auto;
+  justify-content: center;
+  padding: 20px;
+  overflow: auto;
+}
+
+.message-add-members-layout {
+  display: grid;
+  width: min(1080px, 100%);
+  min-height: 520px;
+  margin: auto;
+  grid-template-columns: minmax(0, 1fr) minmax(310px, 350px);
+  gap: 16px;
+}
+
+.message-add-members-people-panel,
+.message-add-members-setup-panel {
+  display: flex;
+  min-height: 0;
+  flex-direction: column;
+  overflow: hidden;
+  border: 1px solid #d9e7f0;
+  border-radius: 14px;
+  background: #ffffff;
+  box-shadow: 0 5px 18px rgba(32, 74, 104, .05);
+}
+
+.message-add-members-people-panel .message-create-group-panel-header,
+.message-add-members-setup-panel .message-create-group-panel-header {
+  padding: 16px 18px 12px;
+  border-bottom: 1px solid #e4edf3;
+}
+
+.message-add-members-people-panel .message-create-group-search {
+  margin: 12px 14px 8px;
+}
+
+.message-add-members-list {
+  display: grid;
+  min-height: 0;
+  padding: 0 10px 10px;
+  gap: 7px;
+  overflow-y: auto;
+}
+
+.message-app-shell .message-add-members-list .message-group-contact-row,
+.message-app-shell .message-create-group-member-list .message-group-contact-row {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  gap: 10px;
+  padding: 9px 11px;
+  border: 1px solid #dfeaf2;
+  border-radius: 10px;
+  background: #ffffff;
+}
+
+.message-app-shell .message-add-members-list .message-group-contact-row:hover,
+.message-app-shell .message-create-group-member-list .message-group-contact-row:hover {
+  border-color: #91c7e6;
+  background: #f2f9fe;
+}
+
+.message-app-shell .message-add-members-list .message-group-contact-row > .message-avatar,
+.message-app-shell .message-create-group-member-list .message-group-contact-row > .message-avatar {
+  display: grid;
+  width: 42px;
+  min-width: 42px;
+  height: 42px;
+  min-height: 42px;
+  flex: 0 0 42px;
+  place-items: center;
+  overflow: hidden;
+  border-radius: 50%;
+  font-size: 12px;
+}
+
+.message-app-shell .message-add-members-list .message-group-contact-row > span:not(.message-avatar):not(.message-create-group-member-state),
+.message-app-shell .message-create-group-member-list .message-group-contact-row > span:not(.message-avatar):not(.message-create-group-member-state) {
+  display: grid;
+  min-width: 0;
+  flex: 1 1 auto;
+  gap: 2px;
+}
+
+.message-app-shell .message-add-members-list .message-create-group-member-state,
+.message-app-shell .message-create-group-member-list .message-create-group-member-state {
+  display: grid;
+  width: 26px;
+  min-width: 26px;
+  height: 26px;
+  min-height: 26px;
+  flex: 0 0 26px;
+  place-items: center;
+  padding: 0;
+  border: 1px solid #afc2cf;
+  border-radius: 50%;
+  color: #617c8e;
+  background: #ffffff;
+}
+
+.message-app-shell .message-add-members-list .message-group-contact-row.selected .message-create-group-member-state,
+.message-app-shell .message-create-group-member-list .message-group-contact-row.selected .message-create-group-member-state {
+  border-color: #0878bd;
+  color: #ffffff;
+  background: #0878bd;
+}
+
+.message-add-members-history-options {
+  display: grid;
+  flex: 1 1 auto;
+  align-content: start;
+  padding: 12px 14px;
+  gap: 7px;
+}
+
+.message-add-members-history-options label {
+  display: grid;
+  grid-template-columns: 17px minmax(0, 1fr);
+  align-items: start;
+  gap: 9px;
+  padding: 10px;
+  border: 1px solid #dfeaf2;
+  border-radius: 10px;
+  color: #38586f;
+  background: #ffffff;
+  cursor: pointer;
+}
+
+.message-add-members-history-options label:hover,
+.message-add-members-history-options label.active {
+  border-color: #84bee0;
+  background: #f1f9fe;
+}
+
+.message-add-members-history-options label > span {
+  display: grid;
+  gap: 3px;
+}
+
+.message-add-members-history-options strong {
+  color: #244b68;
+  font-size: 13px;
+}
+
+.message-add-members-history-options small {
+  color: #71899b;
+  font-size: 12px;
+  line-height: 1.35;
+}
+
+.message-add-members-summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin: 0 14px 12px;
+  padding: 10px 12px;
+  border-radius: 9px;
+  color: #5a778c;
+  background: #eff6fa;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.message-add-members-summary strong {
+  color: #0878bd;
+  font-size: 16px;
+}
+
+.message-add-members-setup-panel .message-create-group-setup-actions {
+  margin-top: auto;
+}
+
+@media (max-width: 900px) {
+  .message-add-members-layout {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .message-add-members-people-panel {
+    min-height: 330px;
+  }
+}
+
+@media (max-width: 620px) {
+  .message-group-management-header,
+  .message-create-flow-header {
+    min-height: 66px;
+    padding: 10px 12px;
+  }
+
+  .message-group-management-header strong,
+  .message-create-flow-header strong,
+  .message-create-flow-header h2 {
+    font-size: 17px;
+  }
+
+  .message-group-management-workspace > .message-modern-detail-scroll,
+  .message-add-members-canvas {
+    padding: 10px;
+  }
+
+  .message-modern-shared-actions {
+    grid-template-columns: 1fr;
+  }
+
+  .message-modern-member-row {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .message-modern-member-actions {
+    width: 100%;
+  }
+}
+
+/* Messaging navigation: compact desktop rail with the original NT Message
+   hierarchy, plus motion that makes expansion and selection feel deliberate. */
+.message-app-shell .message-app-topbar {
+  background:
+    radial-gradient(circle at 18% 0%, rgba(18, 146, 213, .26), transparent 15rem),
+    linear-gradient(180deg, #07558a 0%, #063b6c 52%, #042b54 100%);
+  box-shadow: 14px 0 34px rgba(3, 32, 65, .16);
+  transition:
+    width 340ms cubic-bezier(.22, .8, .2, 1),
+    box-shadow 220ms ease;
+}
+
+.message-app-shell .message-rail-brand-row {
+  min-height: 94px;
+  padding: 18px 14px 14px;
+  border-bottom-color: rgba(255, 255, 255, .1);
+}
+
+.message-app-shell .message-brand-text {
+  animation: none;
+}
+
+.message-app-shell.navigation-expanded .message-brand-text {
+  display: grid;
+  animation: message-navigation-copy-in 260ms 85ms both cubic-bezier(.2, .8, .2, 1);
+}
+
+.message-app-shell .message-rail-toggle {
+  transition:
+    transform 260ms cubic-bezier(.2, .8, .2, 1),
+    color 180ms ease,
+    background 180ms ease,
+    border-color 180ms ease,
+    box-shadow 180ms ease;
+}
+
+.message-app-shell.navigation-expanded .message-rail-toggle > span {
+  display: inline-block;
+  animation: message-navigation-chevron-in 300ms both cubic-bezier(.2, .8, .2, 1);
+}
+
+.message-app-shell .message-rail-navigation {
+  gap: 6px;
+  padding: 20px 14px 12px;
+}
+
+.message-app-shell .message-rail-navigation button,
+.message-app-shell .message-settings-button,
+.message-app-shell .message-notification-button,
+.message-app-shell .message-workspace-return,
+.message-app-shell .message-app-logout {
+  position: relative;
+  min-height: 48px;
+  border-radius: 13px;
+  color: rgba(255, 255, 255, .78);
+  transition:
+    transform 180ms cubic-bezier(.2, .8, .2, 1),
+    color 180ms ease,
+    background 180ms ease,
+    border-color 180ms ease,
+    box-shadow 180ms ease;
+}
+
+.message-app-shell .message-rail-navigation button::before,
+.message-app-shell .message-settings-button::before,
+.message-app-shell .message-notification-button::before {
+  position: absolute;
+  inset: 8px auto 8px -1px;
+  width: 3px;
+  border-radius: 0 4px 4px 0;
+  content: "";
+  background: #f4bb2d;
+  opacity: 0;
+  transform: scaleY(.35);
+  transform-origin: center;
+  transition: opacity 180ms ease, transform 220ms cubic-bezier(.2, .8, .2, 1);
+}
+
+.message-app-shell .message-rail-navigation button:hover,
+.message-app-shell .message-settings-button:hover,
+.message-app-shell .message-notification-button:hover,
+.message-app-shell .message-workspace-return:hover,
+.message-app-shell .message-app-logout:hover:not(:disabled) {
+  color: #ffffff;
+  background: rgba(255, 255, 255, .09);
+  transform: translateX(3px);
+}
+
+.message-app-shell .message-rail-navigation button.active,
+.message-app-shell .message-settings-button.active,
+.message-app-shell .message-notification-button.active {
+  border-color: rgba(126, 204, 249, .23);
+  color: #ffffff;
+  background: linear-gradient(90deg, rgba(14, 127, 191, .56), rgba(10, 98, 161, .23));
+  box-shadow: inset 0 1px rgba(255, 255, 255, .05), 0 7px 16px rgba(1, 28, 57, .14);
+}
+
+.message-app-shell .message-rail-navigation button.active::before,
+.message-app-shell .message-settings-button.active::before,
+.message-app-shell .message-notification-button.active::before {
+  opacity: 1;
+  transform: scaleY(1);
+}
+
+.message-app-shell .message-rail-navigation button.active .message-rail-icon,
+.message-app-shell .message-settings-button.active .message-rail-icon,
+.message-app-shell .message-notification-button.active .message-rail-icon {
+  animation: message-navigation-icon-pop 300ms cubic-bezier(.2, 1.15, .35, 1) both;
+}
+
+.message-app-shell.navigation-expanded .message-rail-navigation button,
+.message-app-shell.navigation-expanded .message-settings-button,
+.message-app-shell.navigation-expanded .message-notification-button,
+.message-app-shell.navigation-expanded .message-workspace-return,
+.message-app-shell.navigation-expanded .message-app-logout {
+  min-height: 48px;
+  padding-inline: 14px;
+}
+
+.message-app-shell.navigation-expanded .message-rail-label,
+.message-app-shell.navigation-expanded .message-profile-rail-copy {
+  animation: message-navigation-copy-in 260ms both cubic-bezier(.2, .8, .2, 1);
+}
+
+.message-app-shell.navigation-expanded .message-rail-navigation button:nth-child(1) .message-rail-label { animation-delay: 45ms; }
+.message-app-shell.navigation-expanded .message-rail-navigation button:nth-child(2) .message-rail-label { animation-delay: 75ms; }
+.message-app-shell.navigation-expanded .message-rail-navigation button:nth-child(3) .message-rail-label { animation-delay: 105ms; }
+.message-app-shell.navigation-expanded .message-rail-navigation button:nth-child(4) .message-rail-label { animation-delay: 135ms; }
+
+.message-app-shell .message-app-account {
+  gap: 7px;
+  padding: 12px 14px 14px;
+  border-top-color: rgba(255, 255, 255, .1);
+}
+
+.message-app-shell .message-profile-topbar-button {
+  min-height: 60px;
+  border-color: transparent;
+  border-radius: 13px;
+  background: transparent;
+  box-shadow: none;
+  transition:
+    transform 180ms cubic-bezier(.2, .8, .2, 1),
+    background 180ms ease,
+    border-color 180ms ease,
+    box-shadow 180ms ease;
+}
+
+.message-app-shell .message-profile-topbar-button:hover,
+.message-app-shell .message-profile-topbar-button:focus-visible {
+  border-color: transparent;
+  background: transparent;
+  box-shadow: none;
+  transform: translateX(3px);
+}
+
+.message-app-shell.navigation-expanded .message-profile-topbar-button {
+  min-height: 60px;
+  padding: 6px 10px;
+  border-color: transparent;
+  background: transparent;
+  box-shadow: none;
+}
+
+.message-app-shell.navigation-expanded .message-workspace-return {
+  border-color: transparent;
+  background: transparent;
+}
+
+.message-app-shell .message-workspace-return,
+.message-app-shell .message-app-logout {
+  border-color: transparent;
+  background: transparent;
+  box-shadow: none;
+}
+
+.message-app-shell .message-workspace-return::before,
+.message-app-shell .message-app-logout::before,
+.message-app-shell .message-profile-topbar-button::before {
+  position: absolute;
+  left: 14px;
+  right: 14px;
+  bottom: 0;
+  height: 1px;
+  content: "";
+  background: rgba(255, 255, 255, .14);
+  opacity: 0;
+  transform: scaleX(.55);
+  transition: opacity 180ms ease, transform 220ms cubic-bezier(.2, .8, .2, 1);
+}
+
+.message-app-shell .message-profile-topbar-button:hover::before,
+.message-app-shell .message-profile-topbar-button:focus-visible::before,
+.message-app-shell .message-workspace-return:hover::before,
+.message-app-shell .message-app-logout:hover:not(:disabled)::before {
+  opacity: 1;
+  transform: scaleX(1);
+}
+
+.message-app-shell .message-workspace-return:hover,
+.message-app-shell .message-app-logout:hover:not(:disabled) {
+  border-color: transparent;
+  background: transparent;
+  box-shadow: none;
+}
+
+.message-app-shell.navigation-expanded .message-profile-topbar-button .message-profile-rail-avatar {
+  animation: message-navigation-avatar-in 320ms cubic-bezier(.2, 1.08, .35, 1) both;
+}
+
+.message-app-shell .message-profile-rail-avatar {
+  width: 50px;
+  min-width: 50px;
+  height: 50px;
+  min-height: 50px;
+  flex: 0 0 50px;
+  border: 2px solid rgba(255, 255, 255, .72);
+  box-shadow: 0 5px 13px rgba(1, 25, 49, .22);
+}
+
+.message-app-shell.navigation-expanded .message-profile-topbar-button {
+  grid-template-columns: 50px minmax(0, 1fr);
+  gap: 11px;
+}
+
+.message-app-shell .message-profile-rail-copy strong {
+  color: #ffffff;
+  font-size: 15px;
+  font-weight: 800;
+  line-height: 1.2;
+}
+
+.message-app-shell .message-profile-rail-copy small {
+  color: rgba(255, 255, 255, .72);
+  font-size: 12.5px;
+  font-weight: 750;
+  line-height: 1.3;
+}
+
+/* The profile item intentionally has more room than an icon-only rail item.
+   Without this, the 50px avatar overflows the old 46px collapsed button. */
+.message-app-shell:not(.navigation-expanded) .message-profile-topbar-button {
+  width: 62px;
+  min-width: 62px;
+  height: 62px;
+  min-height: 62px;
+  margin-block: 3px;
+  border-radius: 50%;
+}
+
+.message-app-shell:not(.navigation-expanded) .message-profile-rail-avatar {
+  width: 52px;
+  min-width: 52px;
+  height: 52px;
+  min-height: 52px;
+  flex-basis: 52px;
+}
+
+.message-app-shell.navigation-expanded .message-profile-topbar-button .message-profile-rail-copy strong {
+  color: #ffffff;
+  font-size: 15px;
+  font-weight: 800;
+  line-height: 1.2;
+}
+
+.message-app-shell.navigation-expanded .message-profile-topbar-button .message-profile-rail-copy small {
+  margin-top: 2px;
+  color: rgba(255, 255, 255, .72);
+  font-size: 12.5px;
+  font-weight: 750;
+  line-height: 1.3;
+}
+
+.message-app-shell .message-notification-button b,
+.message-app-shell .message-rail-navigation button b {
+  min-width: 20px;
+  height: 20px;
+  padding: 0 5px;
+  border: 2px solid #084575;
+  border-radius: 999px;
+  color: #ffffff;
+  background: #f13d52;
+  box-shadow: 0 3px 8px rgba(1, 28, 57, .2);
+  font-size: 9px;
+  line-height: 16px;
+}
+
+@keyframes message-navigation-copy-in {
+  from { opacity: 0; transform: translateX(-8px); }
+  to { opacity: 1; transform: translateX(0); }
+}
+
+@keyframes message-navigation-chevron-in {
+  from { opacity: 0; transform: rotate(-38deg) scale(.7); }
+  to { opacity: 1; transform: rotate(0) scale(1); }
+}
+
+@keyframes message-navigation-icon-pop {
+  0% { transform: scale(.78); }
+  70% { transform: scale(1.14); }
+  100% { transform: scale(1); }
+}
+
+@keyframes message-navigation-avatar-in {
+  from { opacity: 0; transform: scale(.82); }
+  to { opacity: 1; transform: scale(1); }
+}
+
+.message-app-shell.motion-reduced *,
+.message-app-shell.motion-reduced *::before,
+.message-app-shell.motion-reduced *::after {
+  animation-duration: .01ms !important;
+  animation-iteration-count: 1 !important;
+  transition-duration: .01ms !important;
+}
+
+/* Own-profile workspace */
+.message-app-shell .message-profile-workspace {
+  display: flex;
+  min-width: 0;
+  min-height: 0;
+  height: 100%;
+  flex: 1 1 auto;
+  flex-direction: column;
+  overflow: hidden;
+  background: #f5f9fc;
+}
+
+.message-app-shell .message-workspace.profile-workspace-open {
+  display: block;
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.message-app-shell .message-workspace.profile-workspace-open .message-chat-panel {
+  display: flex;
+  min-width: 0;
+  grid-column: 1;
+}
+
+.message-app-shell .message-profile-workspace-header {
+  display: grid;
+  min-height: 82px;
+  grid-template-columns: 40px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 13px;
+  padding: 14px 24px;
+  border-bottom: 1px solid #dce8f1;
+  background: #ffffff;
+}
+
+.message-app-shell .message-profile-workspace-header > div {
+  display: grid;
+  min-width: 0;
+  gap: 3px;
+}
+
+.message-app-shell .message-profile-workspace-header > div > span {
+  color: #0878bd;
+  font-size: 11px;
+  font-weight: 850;
+  letter-spacing: .13em;
+  text-transform: uppercase;
+}
+
+.message-app-shell .message-profile-workspace-header h2 {
+  margin: 0;
+  color: #183f5e;
+  font-size: 20px;
+  line-height: 1.2;
+}
+
+.message-app-shell .message-profile-workspace-header p {
+  margin: 0;
+  color: #70899b;
+  font-size: 13px;
+  line-height: 1.4;
+}
+
+.message-app-shell .message-profile-workspace-header .message-mobile-back,
+.message-app-shell .message-workspace-close-action {
+  display: grid;
+  min-height: 38px;
+  place-items: center;
+  padding: 0 12px;
+  border: 1px solid #cddfea;
+  border-radius: 10px;
+  color: #315d79;
+  background: #ffffff;
+  font-size: 12px;
+  font-weight: 750;
+  cursor: pointer;
+}
+
+.message-app-shell .message-profile-workspace-header .message-mobile-back {
+  width: 40px;
+  padding: 0;
+  font-size: 22px;
+}
+
+.message-app-shell .message-profile-workspace-header .message-mobile-back:hover,
+.message-app-shell .message-workspace-close-action:hover {
+  border-color: #8ac3e5;
+  color: #0878bd;
+  background: #f0f9fe;
+}
+
+.message-app-shell .message-profile-workspace-scroll {
+  min-height: 0;
+  flex: 1 1 auto;
+  padding: 20px;
+  overflow-y: auto;
+}
+
+.message-app-shell .message-profile-content {
+  display: grid;
+  width: min(780px, 100%);
+  margin: 0 auto;
+  gap: 12px;
+}
+
+.message-app-shell .message-profile-hero {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 18px;
+  border: 1px solid #cde4f4;
+  border-radius: 14px;
+  background: linear-gradient(115deg, #eef8ff 0%, #f6fdff 100%);
+}
+
+.message-app-shell .message-profile-hero .message-profile-photo {
+  width: 88px;
+  min-width: 88px;
+  height: 88px;
+  min-height: 88px;
+  border: 3px solid #ffffff;
+  color: #ffffff;
+  background: linear-gradient(145deg, #1d68d6, #0794ba);
+  box-shadow: 0 10px 25px rgba(18, 94, 155, .2);
+  font-size: 29px;
+  font-weight: 850;
+}
+
+.message-app-shell .message-profile-hero > div {
+  display: grid;
+  min-width: 0;
+  gap: 4px;
+}
+
+.message-app-shell .message-profile-hero strong {
+  overflow: hidden;
+  color: #193e5c;
+  font-size: 20px;
+  line-height: 1.2;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.message-app-shell .message-profile-hero span:not(.message-profile-photo) {
+  color: #2f698e;
+  font-size: 15px;
+  font-weight: 750;
+}
+
+.message-app-shell .message-profile-hero small {
+  color: #6a8397;
+  font-size: 13px;
+}
+
+.message-app-shell .message-profile-section {
+  display: grid;
+  gap: 12px;
+  padding: 16px 18px;
+  border: 1px solid #dce8f0;
+  border-radius: 13px;
+  background: #ffffff;
+  box-shadow: 0 4px 15px rgba(31, 72, 103, .035);
+}
+
+.message-app-shell .message-profile-section-heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.message-app-shell .message-profile-section-heading > div {
+  min-width: 0;
+}
+
+.message-app-shell .message-profile-section h3 {
+  margin: 0;
+  color: #1c4261;
+  font-size: 16px;
+  line-height: 1.3;
+}
+
+.message-app-shell .message-profile-section-heading p,
+.message-app-shell .message-profile-section > p {
+  margin: 4px 0 0;
+  color: #71899b;
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.message-app-shell .message-profile-section-heading > small {
+  padding: 4px 8px;
+  border-radius: 999px;
+  color: #357096;
+  background: #edf7fd;
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.message-app-shell .message-profile-section textarea {
+  width: 100%;
+  min-height: 76px;
+  padding: 12px;
+  border: 1px solid #cbddea;
+  border-radius: 11px;
+  outline: none;
+  color: #254a65;
+  background: #fbfdff;
+  font: inherit;
+  line-height: 1.45;
+  resize: vertical;
+}
+
+.message-app-shell .message-profile-section textarea:focus {
+  border-color: #57a9d9;
+  box-shadow: 0 0 0 3px rgba(32, 142, 204, .13);
+}
+
+.message-app-shell .message-profile-actions {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.message-app-shell .message-profile-actions button,
+.message-app-shell .message-profile-photo-upload,
+.message-app-shell .message-profile-photo-remove {
+  display: inline-flex;
+  min-height: 38px;
+  align-items: center;
+  justify-content: center;
+  padding: 0 14px;
+  border: 1px solid #0878bd;
+  border-radius: 10px;
+  color: #ffffff;
+  background: #0878bd;
+  font-size: 13px;
+  font-weight: 800;
+  cursor: pointer;
+  transition: transform 160ms ease, background 160ms ease, box-shadow 160ms ease;
+}
+
+.message-app-shell .message-profile-actions button:hover:not(:disabled),
+.message-app-shell .message-profile-photo-upload:hover {
+  background: #066cab;
+  box-shadow: 0 6px 14px rgba(8, 113, 183, .18);
+  transform: translateY(-1px);
+}
+
+.message-app-shell .message-profile-actions button:disabled,
+.message-app-shell .message-profile-photo-upload:has(input:disabled) {
+  cursor: wait;
+  opacity: .6;
+}
+
+.message-app-shell .message-profile-photo-controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 9px;
+}
+
+.message-app-shell .message-profile-photo-upload input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+}
+
+.message-app-shell .message-profile-photo-remove {
+  border-color: #edc0c5;
+  color: #b34b54;
+  background: #fffafb;
+}
+
+.message-app-shell .message-profile-photo-remove:hover:not(:disabled) {
+  border-color: #df9099;
+  background: #fff1f2;
+}
+
+.message-app-shell .message-profile-verified-badge {
+  display: inline-flex;
+  align-items: center;
+  min-height: 23px;
+  padding: 3px 8px;
+  border-radius: 999px;
+  color: #16734b;
+  background: #e8f8ee;
+  font-size: 10px;
+  font-weight: 850;
+  letter-spacing: .04em;
+  text-transform: uppercase;
+}
+
+.message-app-shell .message-profile-details {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  margin: 0;
+  border: 1px solid #e1ebf1;
+  border-radius: 11px;
+  overflow: hidden;
+}
+
+/* In the dedicated profile view, hide the empty chat header underneath the
+   profile workspace. The profile header is the only page header needed. */
+.message-app-shell .message-workspace.profile-workspace-open .message-chat-header,
+.message-app-shell .message-workspace.profile-workspace-open .message-thread-shell,
+.message-app-shell .message-workspace.profile-workspace-open .message-composer {
+  display: none;
+}
+
+.message-app-shell .message-workspace.profile-workspace-open .message-realtime-state {
+  display: none;
+}
+
+/* Dedicated settings workspace */
+.message-app-shell .message-workspace.settings-workspace-open {
+  display: block;
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.message-app-shell .message-workspace.settings-workspace-open .message-chat-panel {
+  display: flex;
+  min-width: 0;
+  grid-column: 1;
+}
+
+.message-app-shell .message-workspace.settings-workspace-open .message-chat-header,
+.message-app-shell .message-workspace.settings-workspace-open .message-thread-shell,
+.message-app-shell .message-workspace.settings-workspace-open .message-composer,
+.message-app-shell .message-workspace.settings-workspace-open .message-realtime-state {
+  display: none;
+}
+
+.message-app-shell .message-settings-workspace {
+  display: flex;
+  min-height: 0;
+  height: 100%;
+  flex: 1 1 auto;
+  flex-direction: column;
+  overflow: hidden;
+  background: #f5f9fc;
+}
+
+.message-app-shell .message-settings-workspace-header {
+  display: grid;
+  min-height: 82px;
+  grid-template-columns: 40px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 13px;
+  padding: 14px 24px;
+  border-bottom: 1px solid #dce8f1;
+  background: #ffffff;
+}
+
+.message-app-shell .message-settings-workspace-header > div {
+  display: grid;
+  min-width: 0;
+  gap: 3px;
+}
+
+.message-app-shell .message-settings-workspace-header > div > span {
+  color: #0878bd;
+  font-size: 11px;
+  font-weight: 850;
+  letter-spacing: .13em;
+  text-transform: uppercase;
+}
+
+.message-app-shell .message-settings-workspace-header h2 {
+  margin: 0;
+  color: #183f5e;
+  font-size: 20px;
+  line-height: 1.2;
+}
+
+.message-app-shell .message-settings-workspace-header p {
+  margin: 0;
+  color: #70899b;
+  font-size: 13px;
+  line-height: 1.4;
+}
+
+.message-app-shell .message-settings-workspace-header .message-mobile-back,
+.message-app-shell .message-settings-workspace-header .message-workspace-close-action {
+  display: grid;
+  min-height: 38px;
+  place-items: center;
+  padding: 0 12px;
+  border: 1px solid #cddfea;
+  border-radius: 10px;
+  color: #315d79;
+  background: #ffffff;
+  font-size: 12px;
+  font-weight: 750;
+  cursor: pointer;
+}
+
+.message-app-shell .message-settings-workspace-header .message-mobile-back {
+  width: 40px;
+  padding: 0;
+  font-size: 22px;
+}
+
+.message-app-shell .message-settings-workspace-header .message-mobile-back:hover,
+.message-app-shell .message-settings-workspace-header .message-workspace-close-action:hover {
+  border-color: #8ac3e5;
+  color: #0878bd;
+  background: #f0f9fe;
+}
+
+.message-app-shell .message-settings-workspace-layout {
+  display: grid;
+  min-height: 0;
+  flex: 1 1 auto;
+  grid-template-columns: 218px minmax(0, 1fr);
+  overflow: hidden;
+}
+
+.message-app-shell .message-settings-workspace-mobile-tabs {
+  display: grid;
+  align-content: start;
+  padding: 18px 12px;
+  gap: 5px;
+  overflow-y: auto;
+  border-right: 1px solid #dce8f1;
+  background: #ffffff;
+}
+
+.message-app-shell .message-settings-workspace-mobile-tabs button {
+  min-height: 40px;
+  padding: 0 12px;
+  border: 1px solid transparent;
+  border-radius: 9px;
+  color: #496a80;
+  background: transparent;
+  font-size: 13px;
+  font-weight: 750;
+  text-align: left;
+  cursor: pointer;
+  transition: color 150ms ease, background 150ms ease, transform 150ms ease;
+}
+
+.message-app-shell .message-settings-workspace-mobile-tabs button:hover {
+  color: #0878bd;
+  background: #f0f8fd;
+  transform: translateX(2px);
+}
+
+.message-app-shell .message-settings-workspace-mobile-tabs button.active {
+  border-color: #bfdef0;
+  color: #0873ba;
+  background: #e9f6fe;
+  box-shadow: inset 3px 0 #0878bd;
+}
+
+.message-app-shell .message-settings-body {
+  min-width: 0;
+  min-height: 0;
+  padding: 22px;
+  overflow-y: auto;
+  background: #f5f9fc;
+}
+
+.message-app-shell .message-settings-section {
+  display: grid;
+  width: min(760px, 100%);
+  margin: 0 auto;
+  gap: 10px;
+}
+
+.message-app-shell .message-settings-toggle {
+  display: flex;
+  min-height: 76px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+  padding: 14px 16px;
+  border: 1px solid #d9e7f0;
+  border-radius: 13px;
+  background: #ffffff;
+  box-shadow: 0 3px 12px rgba(31, 72, 103, .03);
+  cursor: pointer;
+}
+
+.message-app-shell .message-settings-toggle > span {
+  display: grid;
+  min-width: 0;
+  gap: 4px;
+}
+
+.message-app-shell .message-settings-toggle strong {
+  color: #204765;
+  font-size: 14px;
+  line-height: 1.3;
+}
+
+.message-app-shell .message-settings-toggle small {
+  color: #71899b;
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.message-app-shell .message-settings-toggle input {
+  width: 40px;
+  height: 22px;
+  flex: 0 0 40px;
+  margin: 0;
+  cursor: pointer;
+  accent-color: #0878bd;
+}
+
+.message-app-shell .message-settings-toggle:has(input:checked) {
+  border-color: #b7dcef;
+  background: #fbfeff;
+}
+
+.message-app-shell .message-settings-note,
+.message-app-shell .message-settings-success,
+.message-app-shell .message-settings-danger-note,
+.message-app-shell .message-settings-empty {
+  margin: 2px 0 0;
+  padding: 10px 12px;
+  border-radius: 9px;
+  color: #5d7b91;
+  background: #edf6fb;
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.message-app-shell .message-settings-success {
+  color: #22724d;
+  background: #edf9f1;
+}
+
+.message-app-shell .message-settings-danger-note {
+  color: #aa414a;
+  background: #fff2f3;
+}
+
+.message-app-shell .message-settings-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-start;
+  gap: 8px;
+  padding-top: 2px;
+}
+
+.message-app-shell .message-settings-actions button,
+.message-app-shell .message-settings-blocked-list button {
+  min-height: 36px;
+  padding: 0 12px;
+  border: 1px solid #bdd9ea;
+  border-radius: 9px;
+  color: #21628d;
+  background: #ffffff;
+  font-size: 12px;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.message-app-shell .message-settings-actions button:hover:not(:disabled),
+.message-app-shell .message-settings-blocked-list button:hover:not(:disabled) {
+  border-color: #66add7;
+  color: #0873ba;
+  background: #eef9ff;
+}
+
+.message-app-shell .message-settings-actions button.danger {
+  border-color: #efc0c5;
+  color: #af414b;
+  background: #fffafa;
+}
+
+.message-app-shell .message-customization-field {
+  display: grid;
+  gap: 6px;
+  padding: 13px 15px;
+  border: 1px solid #d9e7f0;
+  border-radius: 12px;
+  color: #365c74;
+  background: #ffffff;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.message-app-shell .message-customization-field select {
+  width: 100%;
+  min-height: 38px;
+  padding: 0 10px;
+  border: 1px solid #cbddea;
+  border-radius: 8px;
+  outline: none;
+  color: #274b66;
+  background: #fbfdff;
+  font: inherit;
+  font-weight: 600;
+}
+
+.message-app-shell .message-settings-security-card,
+.message-app-shell .message-settings-summary {
+  display: grid;
+  gap: 4px;
+  padding: 16px;
+  border: 1px solid #cbe3f3;
+  border-radius: 13px;
+  background: linear-gradient(115deg, #edf8ff, #f8fdff);
+}
+
+.message-app-shell .message-settings-security-card > span,
+.message-app-shell .message-settings-summary > span {
+  color: #5e8198;
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+}
+
+.message-app-shell .message-settings-security-card strong,
+.message-app-shell .message-settings-summary strong {
+  color: #204966;
+  font-size: 17px;
+}
+
+.message-app-shell .message-settings-security-card small {
+  color: #678298;
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.message-app-shell .message-settings-storage-open {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 14px 16px;
+  border: 1px solid #d7e6f0;
+  border-radius: 12px;
+  color: #294f6b;
+  background: #ffffff;
+  text-align: left;
+  cursor: pointer;
+}
+
+.message-app-shell .message-settings-storage-open:hover {
+  border-color: #89c3e5;
+  background: #f4fbff;
+}
+
+.message-app-shell .message-settings-storage-open > span {
+  display: grid;
+  gap: 3px;
+}
+
+.message-app-shell .message-settings-storage-open strong {
+  font-size: 14px;
+}
+
+.message-app-shell .message-settings-storage-open small {
+  color: #6f899c;
+  font-size: 12px;
+}
+
+.message-app-shell .message-settings-blocked-list {
+  display: grid;
+  gap: 7px;
+}
+
+.message-app-shell .message-settings-blocked-list article {
+  display: grid;
+  grid-template-columns: 36px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 10px;
+  border: 1px solid #dfeaf1;
+  border-radius: 10px;
+  background: #ffffff;
+}
+
+.message-app-shell .message-settings-blocked-list article > div {
+  display: grid;
+  min-width: 0;
+  gap: 2px;
+}
+
+.message-app-shell .message-settings-blocked-list strong {
+  overflow: hidden;
+  color: #294d68;
+  font-size: 13px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.message-app-shell .message-settings-blocked-list small {
+  overflow: hidden;
+  color: #71899b;
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+@media (max-width: 720px) {
+  .message-app-shell .message-settings-workspace-header {
+    min-height: 68px;
+    grid-template-columns: 38px minmax(0, 1fr);
+    padding: 10px 12px;
+  }
+
+  .message-app-shell .message-settings-workspace-header h2 {
+    font-size: 17px;
+  }
+
+  .message-app-shell .message-settings-workspace-header .message-workspace-close-action {
+    display: none;
+  }
+
+  .message-app-shell .message-settings-workspace-layout {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .message-app-shell .message-settings-workspace-mobile-tabs {
+    display: flex;
+    padding: 8px 10px;
+    overflow-x: auto;
+    overflow-y: hidden;
+    border-right: 0;
+    border-bottom: 1px solid #dce8f1;
+  }
+
+  .message-app-shell .message-settings-workspace-mobile-tabs button {
+    flex: 0 0 auto;
+    min-height: 34px;
+    padding-inline: 10px;
+    font-size: 12px;
+  }
+
+  .message-app-shell .message-settings-body {
+    padding: 12px;
+  }
+
+  .message-app-shell .message-settings-toggle {
+    min-height: 70px;
+    padding: 12px;
+  }
+}
+
+/* Complete light / dark mode surfaces. These selectors intentionally sit at
+   the end of the stylesheet so every messaging panel shares one palette. */
+.message-app-shell.theme-light,
+.message-app-shell.theme-system {
+  --message-page-bg: #f3f7fb;
+  --message-panel-bg: #ffffff;
+  --message-panel-subtle: #f8fbfd;
+  --message-panel-hover: #f0f7fc;
+  --message-line: #d9e5ee;
+  --message-copy: #183d59;
+  --message-copy-muted: #6f8799;
+  --message-field: #ffffff;
+  --message-thread-bg: #eaf3fb;
+  color: var(--message-copy);
+  background: var(--message-page-bg);
+}
+
+.message-app-shell.theme-light .message-sidebar,
+.message-app-shell.theme-system .message-sidebar,
+.message-app-shell.theme-light .message-chat-header,
+.message-app-shell.theme-system .message-chat-header,
+.message-app-shell.theme-light .message-conversation-details,
+.message-app-shell.theme-system .message-conversation-details,
+.message-app-shell.theme-light .message-composer,
+.message-app-shell.theme-system .message-composer {
+  color: var(--message-copy);
+  border-color: var(--message-line);
+  background: var(--message-panel-bg);
+}
+
+.message-app-shell.theme-light .message-thread,
+.message-app-shell.theme-system .message-thread {
+  background-color: var(--message-thread-bg);
+  background-image:
+    radial-gradient(circle at 12px 12px, rgba(18, 95, 146, .045) 1px, transparent 1.5px),
+    linear-gradient(135deg, rgba(255, 255, 255, .56), rgba(225, 239, 250, .46));
+}
+
+.message-app-shell.theme-dark {
+  --message-page-bg: #111a22;
+  --message-panel-bg: #17222c;
+  --message-panel-subtle: #1d2a35;
+  --message-panel-hover: #243541;
+  --message-line: #30424f;
+  --message-copy: #edf5fa;
+  --message-copy-muted: #9bb0bf;
+  --message-field: #202e39;
+  --message-thread-bg: #101b25;
+  --message-own-bubble: #0977bd;
+  --message-received-bubble: #22313c;
+  color: var(--message-copy);
+  background: var(--message-page-bg);
+}
+
+.message-app-shell.theme-dark .message-workspace,
+.message-app-shell.theme-dark .message-chat-panel,
+.message-app-shell.theme-dark .message-sidebar,
+.message-app-shell.theme-dark .message-conversation-details,
+.message-app-shell.theme-dark .message-profile-workspace,
+.message-app-shell.theme-dark .message-settings-workspace,
+.message-app-shell.theme-dark .message-group-management-workspace,
+.message-app-shell.theme-dark .message-add-members-workspace {
+  color: var(--message-copy);
+  background: var(--message-page-bg);
+}
+
+.message-app-shell.theme-dark .message-sidebar,
+.message-app-shell.theme-dark .message-chat-header,
+.message-app-shell.theme-dark .message-conversation-details,
+.message-app-shell.theme-dark .message-composer,
+.message-app-shell.theme-dark .message-profile-workspace-header,
+.message-app-shell.theme-dark .message-settings-workspace-header,
+.message-app-shell.theme-dark .message-group-management-header,
+.message-app-shell.theme-dark .message-create-flow-header {
+  color: var(--message-copy);
+  border-color: var(--message-line);
+  background: var(--message-panel-bg);
+}
+
+.message-app-shell.theme-dark .message-thread {
+  background-color: var(--message-thread-bg);
+  background-image:
+    radial-gradient(circle at 12px 12px, rgba(120, 183, 223, .045) 1px, transparent 1.5px),
+    linear-gradient(135deg, rgba(17, 33, 45, .74), rgba(12, 24, 34, .78));
+}
+
+.message-app-shell.theme-dark .message-sidebar-heading,
+.message-app-shell.theme-dark .message-sidebar-summary,
+.message-app-shell.theme-dark .message-conversation-category-tabs,
+.message-app-shell.theme-dark .message-profile-workspace-scroll,
+.message-app-shell.theme-dark .message-settings-body,
+.message-app-shell.theme-dark .message-group-management-workspace > .message-modern-detail-scroll,
+.message-app-shell.theme-dark .message-add-members-canvas {
+  color: var(--message-copy);
+  border-color: var(--message-line);
+  background: var(--message-page-bg);
+}
+
+.message-app-shell.theme-dark .message-sidebar-heading h1,
+.message-app-shell.theme-dark .message-chat-header h2,
+.message-app-shell.theme-dark .message-chat-header h3,
+.message-app-shell.theme-dark .message-conversation-title-line strong,
+.message-app-shell.theme-dark .message-profile-workspace-header h2,
+.message-app-shell.theme-dark .message-settings-workspace-header h2,
+.message-app-shell.theme-dark .message-group-management-header strong,
+.message-app-shell.theme-dark .message-create-flow-header h2,
+.message-app-shell.theme-dark .message-create-flow-header strong,
+.message-app-shell.theme-dark .message-conversation-details h2,
+.message-app-shell.theme-dark .message-conversation-details h3,
+.message-app-shell.theme-dark .message-conversation-details strong,
+.message-app-shell.theme-dark .message-profile-content h3,
+.message-app-shell.theme-dark .message-profile-content strong,
+.message-app-shell.theme-dark .message-settings-body strong,
+.message-app-shell.theme-dark .message-modern-detail-section h3,
+.message-app-shell.theme-dark .message-modern-detail-section strong {
+  color: var(--message-copy);
+}
+
+.message-app-shell.theme-dark .message-sidebar-heading > div:first-child span,
+.message-app-shell.theme-dark .message-chat-header p,
+.message-app-shell.theme-dark .message-conversation-preview-line small,
+.message-app-shell.theme-dark .message-conversation-timestamp,
+.message-app-shell.theme-dark .message-profile-workspace-header p,
+.message-app-shell.theme-dark .message-settings-workspace-header p,
+.message-app-shell.theme-dark .message-profile-content p,
+.message-app-shell.theme-dark .message-profile-content small,
+.message-app-shell.theme-dark .message-settings-body small,
+.message-app-shell.theme-dark .message-settings-body .message-settings-note,
+.message-app-shell.theme-dark .message-conversation-details p,
+.message-app-shell.theme-dark .message-conversation-details small {
+  color: var(--message-copy-muted);
+}
+
+.message-app-shell.theme-dark .message-conversation-row {
+  border-color: var(--message-line);
+  color: var(--message-copy);
+  background: var(--message-panel-bg);
+}
+
+.message-app-shell.theme-dark .message-conversation-row:hover {
+  background: var(--message-panel-hover);
+}
+
+.message-app-shell.theme-dark .message-conversation-row.active {
+  border-left-color: #1597df;
+  background: #203745;
+}
+
+.message-app-shell.theme-dark .message-conversation-search,
+.message-app-shell.theme-dark .message-conversation-category-tabs button,
+.message-app-shell.theme-dark .message-chat-header-actions button,
+.message-app-shell.theme-dark .message-composer-control,
+.message-app-shell.theme-dark .message-composer-main,
+.message-app-shell.theme-dark .message-profile-section textarea,
+.message-app-shell.theme-dark .message-customization-field select,
+.message-app-shell.theme-dark .message-settings-storage-open,
+.message-app-shell.theme-dark .message-details-member-search,
+.message-app-shell.theme-dark .message-modern-search-field {
+  border-color: var(--message-line);
+  color: var(--message-copy);
+  background: var(--message-field);
+}
+
+.message-app-shell.theme-dark .message-conversation-search input,
+.message-app-shell.theme-dark .message-composer-main textarea,
+.message-app-shell.theme-dark .message-profile-section textarea,
+.message-app-shell.theme-dark .message-customization-field select,
+.message-app-shell.theme-dark .message-modern-search-field input {
+  color: var(--message-copy);
+  background: transparent;
+}
+
+.message-app-shell.theme-dark .message-conversation-search input::placeholder,
+.message-app-shell.theme-dark .message-composer-main textarea::placeholder,
+.message-app-shell.theme-dark .message-profile-section textarea::placeholder {
+  color: #8298a9;
+}
+
+.message-app-shell.theme-dark .message-conversation-category-tabs button {
+  color: #aec1ce;
+}
+
+.message-app-shell.theme-dark .message-conversation-category-tabs button:hover {
+  border-color: #416174;
+  color: #e8f4fb;
+  background: var(--message-panel-hover);
+}
+
+.message-app-shell.theme-dark .message-conversation-category-tabs button.active {
+  border-color: #168bd1;
+  color: #ffffff;
+  background: #0878bd;
+  box-shadow: 0 5px 12px rgba(1, 13, 22, .25);
+}
+
+.message-app-shell.theme-dark .message-sidebar-summary {
+  color: #8fa8b9;
+}
+
+.message-app-shell.theme-dark .message-bubble:not(.own),
+.message-app-shell.theme-dark .message-bubble-row:not(.own) .message-bubble {
+  border-color: #3a5161;
+  color: #ecf4f9;
+  background: var(--message-received-bubble);
+}
+
+.message-app-shell.theme-dark .message-bubble-row.own .message-bubble {
+  border-color: #168bd1;
+  color: #ffffff;
+  background: var(--message-own-bubble);
+}
+
+.message-app-shell.theme-dark .message-bubble-row:not(.own) .message-bubble-meta,
+.message-app-shell.theme-dark .message-bubble-row:not(.own) .message-sender-name,
+.message-app-shell.theme-dark .message-bubble-row:not(.own) .message-bubble-meta time {
+  color: #aac0ce;
+}
+
+.message-app-shell.theme-dark .message-date-separator {
+  border-color: #3a5161;
+  color: #c4d2db;
+  background: #20313d;
+}
+
+.message-app-shell.theme-dark .message-conversation-details,
+.message-app-shell.theme-dark .message-details-header,
+.message-app-shell.theme-dark .message-details-profile,
+.message-app-shell.theme-dark .message-details-about,
+.message-app-shell.theme-dark .message-details-preferences,
+.message-app-shell.theme-dark .message-details-members,
+.message-app-shell.theme-dark .message-details-media-section {
+  border-color: var(--message-line);
+  background: var(--message-panel-bg);
+}
+
+.message-app-shell.theme-dark .message-details-member-row,
+.message-app-shell.theme-dark .message-details-member-search,
+.message-app-shell.theme-dark .message-details-preferences button,
+.message-app-shell.theme-dark .message-details-primary-actions button {
+  border-color: var(--message-line);
+  color: var(--message-copy);
+  background: var(--message-panel-subtle);
+}
+
+.message-app-shell.theme-dark .message-profile-hero,
+.message-app-shell.theme-dark .message-profile-section,
+.message-app-shell.theme-dark .message-settings-toggle,
+.message-app-shell.theme-dark .message-customization-field,
+.message-app-shell.theme-dark .message-settings-security-card,
+.message-app-shell.theme-dark .message-settings-summary,
+.message-app-shell.theme-dark .message-settings-blocked-list article,
+.message-app-shell.theme-dark .message-modern-detail-section,
+.message-app-shell.theme-dark .message-group-management-workspace .message-modern-group-hero,
+.message-app-shell.theme-dark .message-add-members-people-panel,
+.message-app-shell.theme-dark .message-add-members-setup-panel {
+  border-color: var(--message-line);
+  color: var(--message-copy);
+  background: var(--message-panel-bg);
+  box-shadow: none;
+}
+
+.message-app-shell.theme-dark .message-profile-hero,
+.message-app-shell.theme-dark .message-settings-security-card,
+.message-app-shell.theme-dark .message-settings-summary {
+  background: linear-gradient(125deg, #1e3341, #172832);
+}
+
+.message-app-shell.theme-dark .message-profile-details,
+.message-app-shell.theme-dark .message-profile-details > div,
+.message-app-shell.theme-dark .message-modern-member-row,
+.message-app-shell.theme-dark .message-modern-add-member-row,
+.message-app-shell.theme-dark .message-modern-leadership-list button,
+.message-app-shell.theme-dark .message-add-members-list .message-group-contact-row {
+  border-color: var(--message-line);
+  color: var(--message-copy);
+  background: var(--message-panel-subtle);
+}
+
+.message-app-shell.theme-dark .message-profile-details dt,
+.message-app-shell.theme-dark .message-settings-security-card > span,
+.message-app-shell.theme-dark .message-settings-summary > span,
+.message-app-shell.theme-dark .message-modern-detail-section p,
+.message-app-shell.theme-dark .message-modern-detail-section small,
+.message-app-shell.theme-dark .message-modern-member-main small,
+.message-app-shell.theme-dark .message-modern-add-member-row small {
+  color: var(--message-copy-muted);
+}
+
+.message-app-shell.theme-dark .message-profile-locked-note,
+.message-app-shell.theme-dark .message-settings-note,
+.message-app-shell.theme-dark .message-modern-security-note {
+  border-color: #416a82;
+  color: #aec4d2;
+  background: #1b2e3a;
+}
+
+.message-app-shell.theme-dark .message-settings-workspace-mobile-tabs {
+  border-color: var(--message-line);
+  background: var(--message-panel-bg);
+}
+
+.message-app-shell.theme-dark .message-settings-workspace-mobile-tabs button {
+  color: #afc1cd;
+}
+
+.message-app-shell.theme-dark .message-settings-workspace-mobile-tabs button:hover,
+.message-app-shell.theme-dark .message-settings-workspace-mobile-tabs button.active {
+  border-color: #3f6881;
+  color: #dff2ff;
+  background: #203845;
+}
+
+.message-app-shell.theme-dark .message-settings-workspace-mobile-tabs button.active {
+  box-shadow: inset 3px 0 #1597df;
+}
+
+/* A checked setting is selected, not a light-mode card. */
+.message-app-shell.theme-dark .message-settings-toggle:has(input:checked) {
+  border-color: #3b6984;
+  color: var(--message-copy);
+  background: #203541;
+}
+
+.message-app-shell.theme-dark .message-settings-toggle:has(input:checked) strong {
+  color: #f0f8fc;
+}
+
+.message-app-shell.theme-dark .message-settings-toggle:has(input:checked) small {
+  color: #acc2d0;
+}
+
+/* Profile and group information drawer: every nested surface follows dark mode. */
+.message-app-shell.theme-dark .message-conversation-details .message-details-header,
+.message-app-shell.theme-dark .message-conversation-details .message-details-profile,
+.message-app-shell.theme-dark .message-conversation-details .message-details-summary,
+.message-app-shell.theme-dark .message-conversation-details .message-details-about,
+.message-app-shell.theme-dark .message-conversation-details .message-details-preferences,
+.message-app-shell.theme-dark .message-conversation-details .message-details-members,
+.message-app-shell.theme-dark .message-conversation-details .message-details-media-section,
+.message-app-shell.theme-dark .message-conversation-details .message-simple-profile-section,
+.message-app-shell.theme-dark .message-conversation-details .message-simple-group-section,
+.message-app-shell.theme-dark .message-conversation-details .message-modern-group-hero {
+  border-color: var(--message-line);
+  color: var(--message-copy);
+  background: var(--message-panel-bg);
+}
+
+.message-app-shell.theme-dark .message-conversation-details .message-details-summary > div,
+.message-app-shell.theme-dark .message-conversation-details .message-details-member-row,
+.message-app-shell.theme-dark .message-conversation-details .message-simple-member-row,
+.message-app-shell.theme-dark .message-conversation-details .message-simple-group-row,
+.message-app-shell.theme-dark .message-conversation-details .message-modern-shared-groups > li,
+.message-app-shell.theme-dark .message-conversation-details .message-details-preferences button,
+.message-app-shell.theme-dark .message-conversation-details .message-details-primary-actions button,
+.message-app-shell.theme-dark .message-conversation-details .message-simple-navigation-action,
+.message-app-shell.theme-dark .message-conversation-details .message-simple-expand-button {
+  border-color: var(--message-line);
+  color: var(--message-copy);
+  background: var(--message-panel-subtle);
+}
+
+.message-app-shell.theme-dark .message-conversation-details .message-details-member-search,
+.message-app-shell.theme-dark .message-conversation-details .message-details-member-search input,
+.message-app-shell.theme-dark .message-conversation-details .message-modern-search-field,
+.message-app-shell.theme-dark .message-conversation-details .message-modern-search-field input,
+.message-app-shell.theme-dark .message-conversation-details .message-simple-profile-field input,
+.message-app-shell.theme-dark .message-conversation-details .message-simple-profile-field textarea {
+  border-color: var(--message-line);
+  color: var(--message-copy);
+  background: var(--message-field);
+}
+
+.message-app-shell.theme-dark .message-conversation-details .message-details-header strong,
+.message-app-shell.theme-dark .message-conversation-details .message-details-profile > strong,
+.message-app-shell.theme-dark .message-conversation-details .message-details-summary strong,
+.message-app-shell.theme-dark .message-conversation-details .message-details-member-row strong,
+.message-app-shell.theme-dark .message-conversation-details .message-simple-member-copy strong,
+.message-app-shell.theme-dark .message-conversation-details .message-simple-group-row strong,
+.message-app-shell.theme-dark .message-conversation-details .message-modern-group-hero strong,
+.message-app-shell.theme-dark .message-conversation-details .message-modern-shared-groups strong {
+  color: #edf5fa;
+}
+
+.message-app-shell.theme-dark .message-conversation-details .message-details-header span,
+.message-app-shell.theme-dark .message-conversation-details .message-details-profile > small,
+.message-app-shell.theme-dark .message-conversation-details .message-details-summary span,
+.message-app-shell.theme-dark .message-conversation-details .message-details-about > span,
+.message-app-shell.theme-dark .message-conversation-details .message-details-about p,
+.message-app-shell.theme-dark .message-conversation-details .message-details-member-row small,
+.message-app-shell.theme-dark .message-conversation-details .message-simple-member-copy small,
+.message-app-shell.theme-dark .message-conversation-details .message-simple-group-note,
+.message-app-shell.theme-dark .message-conversation-details .message-modern-group-hero span,
+.message-app-shell.theme-dark .message-conversation-details .message-modern-shared-groups span,
+.message-app-shell.theme-dark .message-conversation-details .message-simple-empty-state {
+  color: #a9bfcd;
+}
+
+.message-app-shell.theme-dark .message-conversation-details .message-details-close,
+.message-app-shell.theme-dark .message-conversation-details .message-details-primary-actions button,
+.message-app-shell.theme-dark .message-conversation-details .message-simple-navigation-action {
+  border-color: #3b5363;
+  color: #d8ebf6;
+  background: #1d2b36;
+}
+
+.message-app-shell.theme-dark .message-conversation-details .message-details-close:hover,
+.message-app-shell.theme-dark .message-conversation-details .message-simple-navigation-action:hover,
+.message-app-shell.theme-dark .message-conversation-details .message-details-primary-actions button:hover {
+  border-color: #4f82a0;
+  color: #ffffff;
+  background: #28414f;
+}
+
+/* Dedicated Notification Center */
+.message-app-shell .message-workspace.notification-workspace-open {
+  display: block;
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.message-app-shell .message-workspace.notification-workspace-open .message-chat-panel {
+  display: flex;
+  min-width: 0;
+  grid-column: 1;
+}
+
+.message-app-shell .message-workspace.notification-workspace-open .message-chat-header,
+.message-app-shell .message-workspace.notification-workspace-open .message-thread-shell,
+.message-app-shell .message-workspace.notification-workspace-open .message-composer,
+.message-app-shell .message-workspace.notification-workspace-open .message-realtime-state {
+  display: none;
+}
+
+.message-app-shell .message-notification-workspace {
+  display: flex;
+  min-height: 0;
+  height: 100%;
+  flex: 1 1 auto;
+  flex-direction: column;
+  overflow: hidden;
+  background: #f5f9fc;
+}
+
+.message-app-shell .message-notification-workspace-header {
+  display: grid;
+  min-height: 82px;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 16px;
+  padding: 14px 24px;
+  border-bottom: 1px solid #dce8f1;
+  background: #ffffff;
+}
+
+.message-app-shell .message-notification-workspace-header > div {
+  display: grid;
+  min-width: 0;
+  gap: 3px;
+}
+
+.message-app-shell .message-notification-workspace-header > div > span {
+  color: #0878bd;
+  font-size: 11px;
+  font-weight: 850;
+  letter-spacing: .13em;
+  text-transform: uppercase;
+}
+
+.message-app-shell .message-notification-workspace-header h2 {
+  margin: 0;
+  color: #183f5e;
+  font-size: 20px;
+  line-height: 1.2;
+}
+
+.message-app-shell .message-notification-workspace-header p {
+  margin: 0;
+  color: #70899b;
+  font-size: 13px;
+  line-height: 1.4;
+}
+
+.message-app-shell .message-notification-workspace-header .message-workspace-close-action {
+  min-height: 38px;
+  padding: 0 12px;
+  border: 1px solid #cddfea;
+  border-radius: 10px;
+  color: #315d79;
+  background: #ffffff;
+  font-size: 12px;
+  font-weight: 750;
+  cursor: pointer;
+}
+
+.message-app-shell .message-notification-workspace-body {
+  display: grid;
+  min-height: 0;
+  flex: 1 1 auto;
+  grid-template-columns: minmax(350px, 430px) minmax(0, 1fr);
+  overflow: hidden;
+}
+
+.message-app-shell .message-notification-workspace-list-panel {
+  display: flex;
+  min-width: 0;
+  min-height: 0;
+  flex-direction: column;
+  border-right: 1px solid #dce8f1;
+  background: #ffffff;
+}
+
+.message-app-shell .message-notification-workspace-list-header {
+  display: grid;
+  gap: 10px;
+  padding: 14px;
+  border-bottom: 1px solid #e1ebf2;
+}
+
+.message-app-shell .message-notification-workspace-metrics {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.message-app-shell .message-notification-workspace-metrics article {
+  display: grid;
+  gap: 2px;
+  padding: 9px 11px;
+  border: 1px solid #dceaf2;
+  border-radius: 10px;
+  background: #f8fbfd;
+}
+
+.message-app-shell .message-notification-workspace-metrics span {
+  color: #71899b;
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: .06em;
+  text-transform: uppercase;
+}
+
+.message-app-shell .message-notification-workspace-metrics strong {
+  color: #1d5275;
+  font-size: 19px;
+  line-height: 1;
+}
+
+.message-app-shell .message-notification-workspace-filters {
+  display: flex;
+  gap: 7px;
+}
+
+.message-app-shell .message-notification-workspace-filters button {
+  min-height: 32px;
+  padding: 0 11px;
+  border: 1px solid #d1e1eb;
+  border-radius: 999px;
+  color: #537187;
+  background: #ffffff;
+  font-size: 12px;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.message-app-shell .message-notification-workspace-filters button.active {
+  border-color: #0878bd;
+  color: #ffffff;
+  background: #0878bd;
+}
+
+.message-app-shell .message-notification-workspace-search {
+  display: flex;
+  align-items: center;
+  min-height: 40px;
+  gap: 9px;
+  padding: 0 11px;
+  border: 1px solid #caddea;
+  border-radius: 10px;
+  color: #638095;
+  background: #ffffff;
+}
+
+.message-app-shell .message-notification-workspace-search input {
+  width: 100%;
+  min-width: 0;
+  border: 0;
+  outline: 0;
+  color: #294d67;
+  background: transparent;
+  font: inherit;
+  font-size: 13px;
+}
+
+.message-app-shell .message-notification-workspace-list {
+  display: grid;
+  min-height: 0;
+  align-content: start;
+  overflow-y: auto;
+}
+
+.message-app-shell .message-notification-row {
+  display: flex;
+  min-width: 0;
+  align-items: stretch;
+  border-bottom: 1px solid #e3edf3;
+  background: #ffffff;
+}
+
+.message-app-shell .message-notification-row.unread {
+  background: #f1f9ff;
+}
+
+.message-app-shell .message-notification-open {
+  display: grid;
+  min-width: 0;
+  flex: 1 1 auto;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 10px;
+  padding: 13px 8px 13px 15px;
+  border: 0;
+  color: #294e69;
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+}
+
+.message-app-shell .message-notification-open > span {
+  display: grid;
+  min-width: 0;
+  gap: 4px;
+}
+
+.message-app-shell .message-notification-open strong,
+.message-app-shell .message-notification-open small,
+.message-app-shell .message-notification-open em {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.message-app-shell .message-notification-open strong {
+  color: #244966;
+  font-size: 13px;
+}
+
+.message-app-shell .message-notification-open small {
+  color: #70899b;
+  font-size: 11px;
+}
+
+.message-app-shell .message-notification-open em {
+  align-self: start;
+  color: #7a91a2;
+  font-size: 10px;
+  font-style: normal;
+  font-weight: 750;
+}
+
+.message-app-shell .message-notification-delete {
+  width: 38px;
+  min-width: 38px;
+  margin: 0;
+  border: 0;
+  color: #70879a;
+  background: transparent;
+  font-size: 20px;
+  cursor: pointer;
+}
+
+.message-app-shell .message-notification-row:hover {
+  background: #f6fbfe;
+}
+
+.message-app-shell .message-notification-delete:hover:not(:disabled) {
+  color: #b34852;
+}
+
+.message-app-shell .message-notification-workspace-empty {
+  margin: 20px;
+  padding: 18px;
+  border: 1px dashed #c9dce9;
+  border-radius: 11px;
+  color: #6e899c;
+  background: #fafcfd;
+  font-size: 13px;
+  text-align: center;
+}
+
+.message-app-shell .message-notification-workspace-empty.danger {
+  border-color: #edc4c8;
+  color: #a9424b;
+  background: #fff7f8;
+}
+
+.message-app-shell .message-notification-workspace-overview {
+  display: grid;
+  min-width: 0;
+  min-height: 0;
+  align-content: center;
+  justify-items: center;
+  gap: 22px;
+  padding: 30px;
+  overflow-y: auto;
+  background: #f5f9fc;
+}
+
+.message-app-shell .message-notification-workspace-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 8px;
+}
+
+.message-app-shell .message-notification-workspace-actions button {
+  min-height: 38px;
+  padding: 0 13px;
+  border: 1px solid #c5ddea;
+  border-radius: 10px;
+  color: #28618a;
+  background: #ffffff;
+  font-size: 12px;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.message-app-shell .message-notification-workspace-actions button:hover:not(:disabled) {
+  border-color: #70b3dc;
+  color: #0873ba;
+  background: #eff9ff;
+}
+
+.message-app-shell .message-notification-workspace-guide {
+  display: grid;
+  max-width: 420px;
+  justify-items: center;
+  gap: 8px;
+  text-align: center;
+}
+
+.message-app-shell .message-notification-workspace-guide > span {
+  display: grid;
+  width: 58px;
+  height: 58px;
+  place-items: center;
+  border-radius: 18px;
+  color: #0878bd;
+  background: #e7f4fd;
+  font-size: 24px;
+  font-weight: 850;
+}
+
+.message-app-shell .message-notification-workspace-guide h3 {
+  margin: 6px 0 0;
+  color: #1d4563;
+  font-size: 18px;
+}
+
+.message-app-shell .message-notification-workspace-guide p {
+  margin: 0;
+  color: #70899b;
+  font-size: 13px;
+  line-height: 1.55;
+}
+
+/* Dark coverage for every remaining messaging workspace and side panel. */
+.message-app-shell.theme-dark .message-create-group-workspace,
+.message-app-shell.theme-dark .message-new-conversation-workspace,
+.message-app-shell.theme-dark .message-notification-workspace,
+.message-app-shell.theme-dark .message-notification-workspace-overview,
+.message-app-shell.theme-dark .message-conversation-search-panel,
+.message-app-shell.theme-dark .message-shared-content-panel,
+.message-app-shell.theme-dark .message-contact-workspace-open,
+.message-app-shell.theme-dark .message-conversation-details {
+  color: var(--message-copy);
+  background: var(--message-page-bg);
+}
+
+.message-app-shell.theme-dark .message-create-flow-header,
+.message-app-shell.theme-dark .message-notification-workspace-header,
+.message-app-shell.theme-dark .message-conversation-search-panel-header,
+.message-app-shell.theme-dark .message-shared-content-panel-header,
+.message-app-shell.theme-dark .message-conversation-details > header {
+  border-color: var(--message-line);
+  color: var(--message-copy);
+  background: var(--message-panel-bg);
+}
+
+.message-app-shell.theme-dark .message-create-group-people-panel,
+.message-app-shell.theme-dark .message-create-group-setup-panel,
+.message-app-shell.theme-dark .message-contact-workspace-row,
+.message-app-shell.theme-dark .message-notification-workspace-list-panel,
+.message-app-shell.theme-dark .message-notification-workspace-list-header,
+.message-app-shell.theme-dark .message-search-panel-result,
+.message-app-shell.theme-dark .message-shared-content-item,
+.message-app-shell.theme-dark .message-simple-profile-section,
+.message-app-shell.theme-dark .message-simple-group-section {
+  border-color: var(--message-line);
+  color: var(--message-copy);
+  background: var(--message-panel-bg);
+}
+
+.message-app-shell.theme-dark .message-create-group-search,
+.message-app-shell.theme-dark .message-notification-workspace-search,
+.message-app-shell.theme-dark .message-search-input-shell,
+.message-app-shell.theme-dark .message-contact-workspace-search,
+.message-app-shell.theme-dark .message-details-member-search input {
+  border-color: var(--message-line);
+  color: var(--message-copy);
+  background: var(--message-field);
+}
+
+.message-app-shell.theme-dark .message-notification-workspace-search input,
+.message-app-shell.theme-dark .message-search-input-shell input,
+.message-app-shell.theme-dark .message-create-group-search input,
+.message-app-shell.theme-dark .message-contact-workspace-search input {
+  color: var(--message-copy);
+  background: transparent;
+}
+
+.message-app-shell.theme-dark .message-notification-workspace-metrics article,
+.message-app-shell.theme-dark .message-notification-workspace-filters button,
+.message-app-shell.theme-dark .message-notification-row,
+.message-app-shell.theme-dark .message-notification-workspace-empty,
+.message-app-shell.theme-dark .message-notification-workspace-actions button,
+.message-app-shell.theme-dark .message-create-group-type-field,
+.message-app-shell.theme-dark .message-create-group-status-card,
+.message-app-shell.theme-dark .message-create-group-member-list .message-group-contact-row {
+  border-color: var(--message-line);
+  color: var(--message-copy);
+  background: var(--message-panel-subtle);
+}
+
+.message-app-shell.theme-dark .message-notification-row.unread,
+.message-app-shell.theme-dark .message-notification-row:hover {
+  background: #20333f;
+}
+
+.message-app-shell.theme-dark .message-notification-open strong,
+.message-app-shell.theme-dark .message-notification-workspace-guide h3,
+.message-app-shell.theme-dark .message-notification-workspace-metrics strong {
+  color: var(--message-copy);
+}
+
+.message-app-shell.theme-dark .message-notification-open small,
+.message-app-shell.theme-dark .message-notification-open em,
+.message-app-shell.theme-dark .message-notification-workspace-guide p,
+.message-app-shell.theme-dark .message-notification-workspace-metrics span {
+  color: var(--message-copy-muted);
+}
+
+.message-app-shell.theme-dark .message-notification-workspace-guide > span {
+  color: #8fd2fb;
+  background: #203845;
+}
+
+.message-app-shell.theme-dark .message-notification-workspace-filters button.active {
+  border-color: #168bd1;
+  color: #ffffff;
+  background: #0878bd;
+}
+
+.message-app-shell.theme-dark .message-conversation-search-panel,
+.message-app-shell.theme-dark .message-shared-content-panel {
+  border-color: var(--message-line);
+}
+
+@media (max-width: 850px) {
+  .message-app-shell .message-notification-workspace-body {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .message-app-shell .message-notification-workspace-list-panel {
+    border-right: 0;
+    border-bottom: 1px solid #dce8f1;
+  }
+
+  .message-app-shell .message-notification-workspace-overview {
+    display: none;
+  }
+}
+
+@media (max-width: 620px) {
+  .message-app-shell .message-notification-workspace-header {
+    min-height: 68px;
+    padding: 10px 12px;
+  }
+
+  .message-app-shell .message-notification-workspace-header h2 {
+    font-size: 17px;
+  }
+
+  .message-app-shell .message-notification-workspace-header .message-workspace-close-action {
+    display: none;
+  }
+}
+
+.message-app-shell .message-profile-details > div {
+  display: grid;
+  min-width: 0;
+  gap: 4px;
+  padding: 11px 12px;
+  border-right: 1px solid #e7eef3;
+  border-bottom: 1px solid #e7eef3;
+}
+
+.message-app-shell .message-profile-details > div:nth-child(2n) {
+  border-right: 0;
+}
+
+.message-app-shell .message-profile-details > div:nth-last-child(-n + 2) {
+  border-bottom: 0;
+}
+
+.message-app-shell .message-profile-details dt {
+  color: #718a9d;
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: .07em;
+  text-transform: uppercase;
+}
+
+.message-app-shell .message-profile-details dd {
+  min-width: 0;
+  margin: 0;
+  overflow-wrap: anywhere;
+  color: #284e6b;
+  font-size: 13px;
+  font-weight: 700;
+  line-height: 1.35;
+}
+
+.message-app-shell .message-profile-locked-note {
+  margin: 0;
+  padding: 9px 11px;
+  border-left: 3px solid #85bedf;
+  border-radius: 7px;
+  color: #58768d;
+  background: #f0f8fc;
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+/* The collapsed rail keeps the account controls as a separate bottom group. */
+.message-app-shell:not(.navigation-expanded) .message-app-account {
+  justify-content: flex-end;
+  flex: 1 1 auto;
+  padding: 12px 8px 16px;
+  gap: 8px;
+  overflow: hidden;
+}
+
+.message-app-shell:not(.navigation-expanded) .message-profile-topbar-button {
+  align-self: center;
+  order: 20;
+  flex: 0 0 62px;
+  margin-top: auto;
+  margin-bottom: 3px;
+}
+
+.message-app-shell:not(.navigation-expanded) .message-workspace-return,
+.message-app-shell:not(.navigation-expanded) .message-app-logout {
+  align-self: center;
+  flex: 0 0 46px;
+}
+
+.message-app-shell:not(.navigation-expanded) .message-workspace-return {
+  order: 30;
+}
+
+.message-app-shell:not(.navigation-expanded) .message-app-logout {
+  order: 40;
+}
+
+/* Announcement workspace — final canonical layout.
+   These views are pages inside Messaging, not modal dialogs.  Earlier modal
+   rules remain available for legacy markup, but the current workspace classes
+   below deliberately win the cascade so the left rail never covers titles or
+   content. */
+.message-app-shell .message-announcement-workspace-layer.message-announcement-composer-backdrop,
+.message-app-shell .message-announcement-workspace-layer.message-announcement-detail-backdrop {
+  position: fixed;
+  inset: 0 0 0 var(--message-rail-width);
+  z-index: 115;
+  display: block;
+  width: auto;
+  height: 100dvh;
+  padding: 0;
+  overflow: hidden;
+  background: var(--message-page-bg);
+}
+
+.message-app-shell .message-announcement-workspace-layer > .message-announcement-workspace-composer,
+.message-app-shell .message-announcement-workspace-layer > .message-announcement-workspace-detail {
+  display: grid;
+  width: 100%;
+  height: 100%;
+  max-width: none;
+  max-height: none;
+  margin: 0;
+  overflow: hidden;
+  border: 0;
+  border-radius: 0;
+  color: var(--message-copy);
+  background: var(--message-page-bg);
+  box-shadow: none;
+}
+
+.message-app-shell .message-announcement-workspace-composer {
+  grid-template-rows: auto minmax(0, 1fr);
+}
+
+.message-app-shell .message-announcement-workspace-detail {
+  grid-template-rows: auto minmax(0, 1fr) auto;
+}
+
+.message-app-shell .message-announcement-workspace-composer > header,
+.message-app-shell .message-announcement-workspace-detail > header {
+  display: flex;
+  min-height: 96px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 28px;
+  padding: 20px clamp(28px, 4vw, 72px);
+  border-bottom: 1px solid var(--message-line);
+  background: var(--message-panel-bg);
+}
+
+.message-app-shell .message-announcement-workspace-composer > header > div,
+.message-app-shell .message-announcement-workspace-detail > header > div {
+  display: grid;
+  min-width: 0;
+  gap: 4px;
+}
+
+.message-app-shell .message-announcement-workspace-composer > header span,
+.message-app-shell .message-announcement-workspace-detail > header span {
+  color: #0878bd;
+  font-size: 11px;
+  font-weight: 850;
+  letter-spacing: .12em;
+  text-transform: uppercase;
+}
+
+.message-app-shell .message-announcement-workspace-composer > header h2,
+.message-app-shell .message-announcement-workspace-detail > header h2 {
+  margin: 0;
+  overflow-wrap: anywhere;
+  color: var(--message-copy);
+  font-size: clamp(22px, 2.2vw, 29px);
+  line-height: 1.22;
+}
+
+.message-app-shell .message-announcement-workspace-composer > header p {
+  margin: 0;
+  color: var(--message-copy-muted);
+  font-size: 14px;
+  line-height: 1.45;
+}
+
+.message-app-shell .message-announcement-workspace-composer > header > button,
+.message-app-shell .message-announcement-workspace-detail > header > button {
+  display: grid;
+  width: 42px;
+  height: 42px;
+  flex: 0 0 42px;
+  place-items: center;
+  padding: 0;
+  border: 1px solid var(--message-line);
+  border-radius: 11px;
+  color: var(--message-copy-muted);
+  background: var(--message-panel-bg);
+  font-size: 24px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.message-app-shell .message-announcement-workspace-composer > header > button:hover,
+.message-app-shell .message-announcement-workspace-composer > header > button:focus-visible,
+.message-app-shell .message-announcement-workspace-detail > header > button:hover,
+.message-app-shell .message-announcement-workspace-detail > header > button:focus-visible {
+  border-color: #78b8dc;
+  color: #0878bd;
+  background: var(--message-panel-hover);
+  outline: none;
+}
+
+.message-app-shell .message-announcement-workspace-composer > form {
+  display: grid;
+  min-height: 0;
+  grid-template-rows: minmax(0, 1fr) auto;
+  overflow: hidden;
+}
+
+.message-app-shell .message-announcement-workspace-composer .message-announcement-composer-body {
+  width: min(100% - clamp(32px, 5vw, 96px), 1240px);
+  min-height: 0;
+  margin: 0 auto;
+  padding: clamp(24px, 3vw, 42px) 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+.message-app-shell .message-announcement-workspace-composer .message-announcement-audience-lock {
+  padding: 16px 18px;
+  border-color: #c6e0ef;
+  border-radius: 14px;
+  background: #edf8fe;
+}
+
+.message-app-shell .message-announcement-workspace-composer .message-announcement-audience-lock small {
+  font-size: 10px;
+}
+
+.message-app-shell .message-announcement-workspace-composer .message-announcement-audience-lock strong {
+  color: #214b68;
+  font-size: 15px;
+}
+
+.message-app-shell .message-announcement-workspace-composer .message-announcement-audience-lock p {
+  font-size: 12px;
+}
+
+.message-app-shell .message-announcement-workspace-composer .message-announcement-audience-lock em {
+  padding: 6px 10px;
+  font-size: 10px;
+}
+
+.message-app-shell .message-announcement-workspace-composer .message-announcement-composer-layout {
+  grid-template-columns: minmax(0, 1.45fr) minmax(320px, .8fr);
+  gap: 22px;
+}
+
+.message-app-shell .message-announcement-workspace-composer .message-announcement-composer-main,
+.message-app-shell .message-announcement-workspace-composer .message-announcement-composer-side {
+  gap: 22px;
+}
+
+.message-app-shell .message-announcement-workspace-composer .message-announcement-composer-section {
+  gap: 17px;
+  padding: 20px;
+  border-color: var(--message-line);
+  border-radius: 14px;
+  background: var(--message-panel-bg);
+}
+
+.message-app-shell .message-announcement-workspace-composer .message-announcement-composer-section > header strong {
+  color: var(--message-copy);
+  font-size: 16px;
+}
+
+.message-app-shell .message-announcement-workspace-composer .message-announcement-composer-section > header small {
+  color: var(--message-copy-muted);
+  font-size: 13px;
+}
+
+.message-app-shell .message-announcement-workspace-composer .message-announcement-composer-grid {
+  gap: 16px;
+}
+
+.message-app-shell .message-announcement-workspace-composer .message-announcement-composer-grid label > span {
+  color: var(--message-copy);
+  font-size: 13px;
+}
+
+.message-app-shell .message-announcement-workspace-composer .message-announcement-composer-grid input,
+.message-app-shell .message-announcement-workspace-composer .message-announcement-composer-grid textarea,
+.message-app-shell .message-announcement-workspace-composer .message-announcement-composer-grid select {
+  border-color: #cbdce6;
+  color: var(--message-copy);
+  background: var(--message-field);
+  font-size: 15px;
+}
+
+.message-app-shell .message-announcement-workspace-composer .message-announcement-composer-grid input,
+.message-app-shell .message-announcement-workspace-composer .message-announcement-composer-grid select {
+  min-height: 48px;
+}
+
+.message-app-shell .message-announcement-workspace-composer .message-announcement-composer-grid textarea {
+  min-height: 210px;
+}
+
+.message-app-shell .message-announcement-workspace-composer .message-announcement-composer-grid label > small {
+  font-size: 11px;
+}
+
+.message-app-shell .message-announcement-workspace-composer .message-announcement-composer-options {
+  gap: 10px;
+}
+
+.message-app-shell .message-announcement-workspace-composer .message-announcement-composer-options label {
+  padding: 13px;
+  border-color: var(--message-line);
+  border-radius: 11px;
+  background: var(--message-panel-subtle);
+}
+
+.message-app-shell .message-announcement-workspace-composer .message-announcement-composer-options strong {
+  color: var(--message-copy);
+  font-size: 13px;
+}
+
+.message-app-shell .message-announcement-workspace-composer .message-announcement-composer-options small {
+  color: var(--message-copy-muted);
+  font-size: 12px;
+}
+
+.message-app-shell .message-announcement-workspace-composer .message-announcement-attachment-pickers label {
+  min-height: 104px;
+}
+
+.message-app-shell .message-announcement-workspace-composer .message-announcement-attachment-pickers strong {
+  font-size: 12px;
+}
+
+.message-app-shell .message-announcement-workspace-composer .message-announcement-attachment-pickers small {
+  font-size: 10px;
+}
+
+.message-app-shell .message-announcement-workspace-composer > form > footer,
+.message-app-shell .message-announcement-workspace-detail > footer {
+  display: flex;
+  min-height: 78px;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+  padding: 14px clamp(28px, 4vw, 72px);
+  border-top: 1px solid var(--message-line);
+  background: var(--message-panel-bg);
+}
+
+.message-app-shell .message-announcement-workspace-composer > form > footer button,
+.message-app-shell .message-announcement-workspace-detail > footer button {
+  min-height: 42px;
+  padding: 0 17px;
+  font-size: 13px;
+}
+
+.message-app-shell .message-announcement-workspace-detail .message-announcement-detail-body {
+  width: min(100% - clamp(32px, 5vw, 96px), 980px);
+  min-height: 0;
+  margin: 0 auto;
+  padding: clamp(28px, 4vw, 52px) 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+.message-app-shell .message-announcement-workspace-detail .message-announcement-detail-overview {
+  gap: 16px;
+}
+
+.message-app-shell .message-announcement-workspace-detail .message-announcement-detail-summary time {
+  font-size: 12px;
+}
+
+.message-app-shell .message-announcement-workspace-detail .message-announcement-detail-publisher,
+.message-app-shell .message-announcement-workspace-detail .message-announcement-detail-attachments {
+  border-color: var(--message-line);
+  background: var(--message-panel-bg);
+}
+
+.message-app-shell .message-announcement-workspace-detail .message-announcement-detail-publisher {
+  padding: 14px 16px;
+}
+
+.message-app-shell .message-announcement-workspace-detail .message-announcement-detail-publisher > span {
+  width: 44px;
+  height: 44px;
+  flex-basis: 44px;
+  font-size: 11px;
+}
+
+.message-app-shell .message-announcement-workspace-detail .message-announcement-detail-publisher small {
+  font-size: 10px;
+}
+
+.message-app-shell .message-announcement-workspace-detail .message-announcement-detail-publisher strong {
+  color: var(--message-copy);
+  font-size: 14px;
+}
+
+.message-app-shell .message-announcement-workspace-detail .message-announcement-detail-publisher p {
+  color: var(--message-copy-muted);
+  font-size: 12px;
+}
+
+.message-app-shell .message-announcement-workspace-detail .message-announcement-detail-content {
+  padding: 2px 0;
+}
+
+.message-app-shell .message-announcement-workspace-detail .message-announcement-detail-content p {
+  max-width: 800px;
+  color: var(--message-copy);
+  font-size: 15px;
+  line-height: 1.7;
+}
+
+.message-app-shell.theme-dark .message-announcement-workspace-composer > header,
+.message-app-shell.theme-dark .message-announcement-workspace-detail > header,
+.message-app-shell.theme-dark .message-announcement-workspace-composer > form > footer,
+.message-app-shell.theme-dark .message-announcement-workspace-detail > footer,
+.message-app-shell.theme-dark .message-announcement-workspace-composer .message-announcement-composer-section,
+.message-app-shell.theme-dark .message-announcement-workspace-detail .message-announcement-detail-publisher,
+.message-app-shell.theme-dark .message-announcement-workspace-detail .message-announcement-detail-attachments {
+  border-color: var(--message-line);
+  background: var(--message-panel-bg);
+}
+
+.message-app-shell.theme-dark .message-announcement-workspace-composer .message-announcement-audience-lock {
+  border-color: #34576c;
+  background: #1b3544;
+}
+
+.message-app-shell.theme-dark .message-announcement-workspace-composer .message-announcement-composer-grid input,
+.message-app-shell.theme-dark .message-announcement-workspace-composer .message-announcement-composer-grid textarea,
+.message-app-shell.theme-dark .message-announcement-workspace-composer .message-announcement-composer-grid select {
+  border-color: var(--message-line);
+  color: var(--message-copy);
+  background: var(--message-field);
+}
+
+@media (max-width: 980px) {
+  .message-app-shell .message-announcement-workspace-composer .message-announcement-composer-layout {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 680px) {
+  .message-app-shell .message-announcement-workspace-layer.message-announcement-composer-backdrop,
+  .message-app-shell .message-announcement-workspace-layer.message-announcement-detail-backdrop {
+    inset-left: var(--message-rail-width);
+  }
+
+  .message-app-shell .message-announcement-workspace-composer > header,
+  .message-app-shell .message-announcement-workspace-detail > header {
+    min-height: 76px;
+    gap: 14px;
+    padding: 13px 16px;
+  }
+
+  .message-app-shell .message-announcement-workspace-composer > header h2,
+  .message-app-shell .message-announcement-workspace-detail > header h2 {
+    font-size: 20px;
+  }
+
+  .message-app-shell .message-announcement-workspace-composer > header p {
+    display: none;
+  }
+
+  .message-app-shell .message-announcement-workspace-composer .message-announcement-composer-body,
+  .message-app-shell .message-announcement-workspace-detail .message-announcement-detail-body {
+    width: 100%;
+    padding: 16px;
+  }
+
+  .message-app-shell .message-announcement-workspace-composer > form > footer,
+  .message-app-shell .message-announcement-workspace-detail > footer {
+    min-height: 68px;
+    padding: 12px 16px;
+  }
+
+  .message-app-shell .message-announcement-workspace-composer .message-announcement-composer-grid,
+  .message-app-shell .message-announcement-workspace-composer .message-announcement-composer-options,
+  .message-app-shell .message-announcement-workspace-composer .message-announcement-attachment-pickers {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 680px) {
+  .message-app-shell .message-profile-workspace-header {
+    min-height: 68px;
+    grid-template-columns: 38px minmax(0, 1fr);
+    padding: 10px 12px;
+  }
+
+  .message-app-shell .message-workspace-close-action {
+    display: none;
+  }
+
+  .message-app-shell .message-profile-workspace-header h2 {
+    font-size: 17px;
+  }
+
+  .message-app-shell .message-profile-workspace-scroll {
+    padding: 10px;
+  }
+
+  .message-app-shell .message-profile-hero {
+    padding: 15px;
+  }
+
+  .message-app-shell .message-profile-hero .message-profile-photo {
+    width: 76px;
+    min-width: 76px;
+    height: 76px;
+    min-height: 76px;
+    font-size: 25px;
+  }
+
+  .message-app-shell .message-profile-details {
+    grid-template-columns: 1fr;
+  }
+
+  .message-app-shell .message-profile-details > div,
+  .message-app-shell .message-profile-details > div:nth-child(2n) {
+    border-right: 0;
+    border-bottom: 1px solid #e7eef3;
+  }
+
+  .message-app-shell .message-profile-details > div:last-child {
+    border-bottom: 0;
+  }
+}
+
+/* Announcement focus views — compact product workspaces.
+   Keep the rail live and let the focused view feel like a deliberate task,
+   rather than a large sheet of paper placed above the application. */
+.message-app-shell .message-announcement-workspace-layer.message-announcement-composer-backdrop,
+.message-app-shell .message-announcement-workspace-layer.message-announcement-detail-backdrop {
+  inset: 0 0 0 var(--message-rail-width);
+  z-index: 112;
+  background:
+    radial-gradient(circle at 90% -15%, rgba(80, 166, 220, .13), transparent 31rem),
+    var(--message-page-bg);
+  animation: message-announcement-enter 190ms ease-out both;
+}
+
+.message-app-shell.announcement-workspace-active .message-workspace {
+  visibility: visible;
+  pointer-events: auto;
+}
+
+.message-app-shell .message-announcement-workspace-layer > .message-announcement-workspace-composer,
+.message-app-shell .message-announcement-workspace-layer > .message-announcement-workspace-detail {
+  background: transparent;
+}
+
+.message-app-shell .message-announcement-workspace-composer > header,
+.message-app-shell .message-announcement-workspace-detail > header {
+  min-height: 82px;
+  padding: 14px clamp(24px, 3.5vw, 56px);
+  background: color-mix(in srgb, var(--message-panel-bg) 92%, transparent);
+}
+
+.message-app-shell .message-announcement-workspace-composer > header > div,
+.message-app-shell .message-announcement-workspace-detail > header > div {
+  gap: 2px;
+}
+
+.message-app-shell .message-announcement-workspace-composer > header span,
+.message-app-shell .message-announcement-workspace-detail > header span {
+  font-size: 10px;
+  letter-spacing: .13em;
+}
+
+.message-app-shell .message-announcement-workspace-composer > header h2,
+.message-app-shell .message-announcement-workspace-detail > header h2 {
+  font-size: clamp(21px, 2vw, 26px);
+}
+
+.message-app-shell .message-announcement-workspace-composer > header p {
+  max-width: 620px;
+  font-size: 13px;
+}
+
+.message-app-shell .message-announcement-workspace-composer > header > button,
+.message-app-shell .message-announcement-workspace-detail > header > button {
+  width: 38px;
+  height: 38px;
+  flex-basis: 38px;
+  border-radius: 10px;
+  font-size: 22px;
+}
+
+.message-app-shell .message-announcement-workspace-composer .message-announcement-composer-body {
+  width: min(100% - clamp(32px, 5vw, 80px), 1100px);
+  padding: clamp(20px, 2.5vw, 32px) 0;
+}
+
+.message-app-shell .message-announcement-workspace-composer .message-announcement-audience-lock {
+  min-height: 72px;
+  padding: 12px 15px;
+  border-radius: 12px;
+  box-shadow: 0 8px 20px rgba(24, 73, 104, .06);
+}
+
+.message-app-shell .message-announcement-workspace-composer .message-announcement-composer-layout {
+  grid-template-columns: minmax(0, 1.55fr) minmax(280px, .75fr);
+  gap: 16px;
+}
+
+.message-app-shell .message-announcement-workspace-composer .message-announcement-composer-main,
+.message-app-shell .message-announcement-workspace-composer .message-announcement-composer-side {
+  gap: 16px;
+}
+
+.message-app-shell .message-announcement-workspace-composer .message-announcement-composer-section {
+  gap: 13px;
+  padding: 17px;
+  border-radius: 12px;
+  box-shadow: 0 8px 20px rgba(31, 71, 96, .045);
+}
+
+.message-app-shell .message-announcement-workspace-composer .message-announcement-composer-section > header strong {
+  font-size: 15px;
+}
+
+.message-app-shell .message-announcement-workspace-composer .message-announcement-composer-section > header small {
+  font-size: 12px;
+}
+
+.message-app-shell .message-announcement-workspace-composer .message-announcement-composer-grid {
+  gap: 12px;
+}
+
+.message-app-shell .message-announcement-workspace-composer .message-announcement-composer-grid input,
+.message-app-shell .message-announcement-workspace-composer .message-announcement-composer-grid select {
+  min-height: 44px;
+}
+
+.message-app-shell .message-announcement-workspace-composer .message-announcement-composer-grid textarea {
+  min-height: 170px;
+}
+
+.message-app-shell .message-announcement-workspace-composer .message-announcement-composer-options label {
+  padding: 11px 12px;
+}
+
+.message-app-shell .message-announcement-workspace-composer .message-announcement-attachment-pickers label {
+  min-height: 88px;
+}
+
+.message-app-shell .message-announcement-workspace-composer > form > footer,
+.message-app-shell .message-announcement-workspace-detail > footer {
+  min-height: 66px;
+  padding: 11px clamp(24px, 3.5vw, 56px);
+  box-shadow: 0 -6px 18px rgba(21, 53, 78, .035);
+}
+
+.message-app-shell .message-announcement-workspace-composer > form > footer button,
+.message-app-shell .message-announcement-workspace-detail > footer button {
+  min-height: 38px;
+  padding: 0 14px;
+  border-radius: 9px;
+  font-size: 12px;
+  font-weight: 750;
+}
+
+/* Detail content is a readable announcement, not an A4 document. */
+.message-app-shell .message-announcement-workspace-detail .message-announcement-detail-body {
+  width: min(100% - clamp(32px, 8vw, 120px), 840px);
+  padding: clamp(24px, 4vw, 42px) 0;
+  gap: 18px;
+}
+
+.message-app-shell .message-announcement-workspace-detail .message-announcement-detail-overview {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 12px 18px;
+}
+
+.message-app-shell .message-announcement-workspace-detail .message-announcement-detail-publisher {
+  grid-column: 1 / -1;
+  padding: 12px 14px;
+  border-radius: 12px;
+  box-shadow: 0 8px 18px rgba(31, 71, 96, .04);
+}
+
+.message-app-shell .message-announcement-workspace-detail .message-announcement-detail-content {
+  padding: 8px 2px 4px;
+}
+
+.message-app-shell .message-announcement-workspace-detail .message-announcement-detail-content p {
+  max-width: 720px;
+  font-size: 15px;
+  line-height: 1.7;
+}
+
+.message-app-shell .message-announcement-workspace-detail .message-announcement-detail-attachments {
+  border-radius: 12px;
+  box-shadow: 0 8px 18px rgba(31, 71, 96, .04);
+}
+
+.message-app-shell.theme-dark .message-announcement-workspace-layer.message-announcement-composer-backdrop,
+.message-app-shell.theme-dark .message-announcement-workspace-layer.message-announcement-detail-backdrop {
+  background:
+    radial-gradient(circle at 90% -15%, rgba(39, 137, 201, .15), transparent 31rem),
+    var(--message-page-bg);
+}
+
+.message-app-shell.theme-dark .message-announcement-workspace-composer .message-announcement-composer-section,
+.message-app-shell.theme-dark .message-announcement-workspace-detail .message-announcement-detail-publisher,
+.message-app-shell.theme-dark .message-announcement-workspace-detail .message-announcement-detail-attachments {
+  box-shadow: none;
+}
+
+@keyframes message-announcement-enter {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@media (max-width: 900px) {
+  .message-app-shell .message-announcement-workspace-composer .message-announcement-composer-layout {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 680px) {
+  .message-app-shell .message-announcement-workspace-composer .message-announcement-composer-body,
+  .message-app-shell .message-announcement-workspace-detail .message-announcement-detail-body {
+    width: 100%;
+    padding: 16px;
+  }
+
+  .message-app-shell .message-announcement-workspace-detail .message-announcement-detail-overview {
+    grid-template-columns: 1fr;
   }
 }
