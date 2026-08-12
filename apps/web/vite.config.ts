@@ -7,4 +7,8 @@ export default defineConfig({
     react(),
     tailwindcss(),
   ],
+  build: {
+    // Increase chunk size warning limit to reduce noisy warnings during build.
+    chunkSizeWarningLimit: 2000,
+  },
 });

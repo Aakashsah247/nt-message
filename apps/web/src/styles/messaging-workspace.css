@@ -1955,15 +1955,15 @@
 
 .message-app-shell .message-announcement-workspace-detail {
   grid-template-rows: auto minmax(0, 1fr) auto;
-  background: var(--message-page-bg, #eef4f8);
+  background: linear-gradient(180deg, #f6fbff 0%, #eef4f8 100%);
 }
 
 .message-app-shell .message-announcement-workspace-detail > header,
 .message-app-shell .message-announcement-workspace-composer > header {
   min-height: 104px;
   padding: 22px clamp(24px, 4vw, 64px);
-  border-bottom: 1px solid var(--message-border, #d8e4ee);
-  background: var(--message-surface, #ffffff);
+  border-bottom: 1px solid rgba(11, 109, 168, 0.12);
+  background: rgba(255, 255, 255, 0.98);
 }
 
 .message-app-shell .message-announcement-workspace-detail > header > div,
@@ -1999,17 +1999,21 @@
   width: min(100% - 48px, 920px);
   margin: 0 auto;
   padding: clamp(24px, 4vw, 44px) 0;
-  gap: 22px;
+  gap: 28px;
 }
 
 .message-app-shell .message-announcement-workspace-detail .message-announcement-detail-overview {
   display: grid;
-  gap: 15px;
+  gap: 18px;
 }
 
 .message-app-shell .message-announcement-workspace-detail .message-announcement-detail-publisher,
 .message-app-shell .message-announcement-workspace-detail .message-announcement-detail-attachments {
-  background: var(--message-surface, #ffffff);
+  padding: 22px;
+  border: 1px solid rgba(11, 109, 168, 0.12);
+  border-radius: 20px;
+  background: rgba(255, 255, 255, 0.98);
+  box-shadow: 0 18px 45px rgba(15, 65, 100, 0.08);
 }
 
 .message-app-shell .message-announcement-workspace-detail .message-announcement-detail-content {
@@ -2052,8 +2056,10 @@
 }
 
 .message-app-shell .message-announcement-workspace-composer .message-announcement-audience-lock {
-  padding: 14px 16px;
-  background: #eef8fe;
+  padding: 16px 18px;
+  border-radius: 16px;
+  background: rgba(222, 243, 255, 0.88);
+  border: 1px solid rgba(11, 109, 168, 0.14);
 }
 
 .message-app-shell .message-announcement-workspace-composer .message-announcement-composer-layout {
@@ -2061,23 +2067,24 @@
   min-width: 0;
   grid-template-columns: minmax(0, 1.45fr) minmax(300px, .85fr);
   align-items: start;
-  gap: 20px;
+  gap: 22px;
 }
 
 .message-app-shell .message-announcement-workspace-composer .message-announcement-composer-main,
 .message-app-shell .message-announcement-workspace-composer .message-announcement-composer-side {
   display: grid;
   min-width: 0;
-  gap: 20px;
+  gap: 22px;
 }
 
 .message-app-shell .message-announcement-workspace-composer .message-announcement-composer-section {
   display: grid;
-  gap: 15px;
-  padding: 18px;
-  border: 1px solid #d8e5ed;
-  border-radius: 14px;
-  background: var(--message-surface, #ffffff);
+  gap: 16px;
+  padding: 22px;
+  border: 1px solid rgba(11, 109, 168, 0.12);
+  border-radius: 20px;
+  background: rgba(255, 255, 255, 0.98);
+  box-shadow: 0 20px 60px rgba(15, 65, 100, 0.08);
 }
 
 .message-app-shell .message-announcement-workspace-composer .message-announcement-composer-section > header strong {
@@ -2139,8 +2146,9 @@
 }
 
 .message-app-shell .message-announcement-workspace-composer > form > footer button {
-  min-height: 42px;
-  font-size: 13px;
+  min-height: 48px;
+  font-size: 14px;
+  font-weight: 700;
 }
 
 .message-app-shell.theme-dark .message-announcement-workspace-layer,
@@ -9278,11 +9286,18 @@ body.message-attachment-viewer-open {
   min-width: 0;
   min-height: 0;
   overflow-y: auto;
-  padding: 18px;
+  padding: 24px;
+  background: linear-gradient(180deg, #f6fbff 0%, #eef7fb 100%);
+  border-radius: 24px;
+  border: 1px solid rgba(7, 64, 105, 0.07);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.7);
 }
 
 .message-app-shell .message-announcement-feed-state {
   min-height: 100%;
+  display: grid;
+  place-items: center;
+  padding: 40px 0;
 }
 
 .message-app-shell .message-announcement-feed-state.danger h3 {
@@ -9305,7 +9320,7 @@ body.message-attachment-viewer-open {
   display: grid;
   width: min(100%, 920px);
   margin: 0 auto;
-  gap: 12px;
+  gap: 18px;
 }
 
 .message-app-shell .message-announcement-feed-summary {
@@ -9368,6 +9383,7 @@ body.message-attachment-viewer-open {
   align-items: center;
   justify-content: space-between;
   gap: 12px;
+  flex-wrap: wrap;
 }
 
 .message-app-shell .message-announcement-card>header time {
@@ -9427,17 +9443,17 @@ body.message-attachment-viewer-open {
 
 .message-app-shell .message-announcement-card-body h3 {
   margin: 0;
-  color: #254b63;
-  font-size: 15px;
+  color: #1f4559;
+  font-size: 17px;
   line-height: 1.35;
 }
 
 .message-app-shell .message-announcement-card-body p {
-  margin: 7px 0 0;
+  margin: 8px 0 0;
   overflow: visible;
-  color: #536d7c;
-  font-size: 10px;
-  line-height: 1.65;
+  color: #5b6f7f;
+  font-size: 13px;
+  line-height: 1.75;
   white-space: pre-wrap;
 }
 
@@ -9482,6 +9498,97 @@ body.message-attachment-viewer-open {
 .message-app-shell .message-announcement-publisher small {
   color: #81939f;
   font-size: 8px;
+}
+
+.message-app-shell .message-announcement-card {
+  background: linear-gradient(180deg, #ffffff 0%, #f6fafd 100%);
+  transition: transform 220ms ease, box-shadow 220ms ease, border-color 220ms ease, background-color 220ms ease;
+}
+
+.message-app-shell .message-announcement-card:hover {
+  transform: translateY(-2px);
+  border-color: rgba(11, 109, 168, 0.24);
+  box-shadow: 0 18px 36px rgba(15, 86, 124, 0.15);
+}
+
+.message-app-shell .message-announcement-card-badges>span,
+.message-app-shell .message-announcement-card-badges>strong,
+.message-app-shell .message-announcement-card-meta>span,
+.message-app-shell .message-announcement-card-meta>strong {
+  font-size: 9px;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+}
+
+.message-app-shell .message-announcement-card-badges>span,
+.message-app-shell .message-announcement-card-meta>span {
+  color: #275070;
+  background: rgba(9, 96, 142, 0.1);
+}
+
+.message-app-shell .message-announcement-card-badges>strong,
+.message-app-shell .message-announcement-card-meta>strong {
+  color: #8a4f0e;
+  background: rgba(222, 180, 98, 0.16);
+}
+
+.message-app-shell .message-announcement-card-body h3 {
+  color: #153951;
+  font-size: 16px;
+}
+
+.message-app-shell .message-announcement-card-body p {
+  color: #546b79;
+  font-size: 13px;
+  line-height: 1.7;
+}
+
+.message-app-shell .message-announcement-card-footer {
+  align-items: center;
+}
+
+.message-app-shell .message-announcement-view-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 42px;
+  border: 1px solid transparent;
+  border-radius: 999px;
+  padding: 0 18px;
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  cursor: pointer;
+  color: #ffffff;
+  background-image: linear-gradient(135deg, #0a72b3 0%, #0c5f9c 100%);
+  box-shadow: 0 12px 24px rgba(11, 109, 168, 0.18);
+  transition: transform 200ms ease, box-shadow 200ms ease, background-position 300ms ease;
+  background-size: 200% 200%;
+  background-position: left center;
+}
+
+.message-app-shell .message-announcement-view-button:hover {
+  transform: translateY(-1px);
+  background-position: right center;
+  box-shadow: 0 18px 32px rgba(11, 109, 168, 0.24);
+}
+
+.message-app-shell .message-announcement-view-button span {
+  display: inline-flex;
+  transition: transform 200ms ease;
+}
+
+.message-app-shell .message-announcement-view-button:hover span {
+  transform: translateX(4px);
+}
+
+.message-app-shell .message-announcement-card.unread {
+  background: linear-gradient(180deg, #f5fbff 0%, #ffffff 100%);
+}
+
+.message-app-shell .message-announcement-card.withdrawn {
+  opacity: 0.84;
 }
 
 .message-app-shell.theme-dark .message-announcement-group-open {
@@ -9600,29 +9707,34 @@ body.message-attachment-viewer-open {
 
 .message-app-shell .message-announcement-create-button {
   display: inline-flex;
-  min-height: 39px;
+  min-height: 48px;
   align-items: center;
-  gap: 7px;
-  padding: 0 14px;
+  justify-content: center;
+  gap: 10px;
+  padding: 0 18px;
   border: 0;
-  border-radius: 10px;
+  border-radius: 14px;
   color: #ffffff;
-  background: #0b6da8;
-  box-shadow: 0 8px 20px rgba(11, 109, 168, 0.2);
-  font-size: 9px;
-  font-weight: 850;
+  background: linear-gradient(135deg, #0b6da8 0%, #1d8be6 100%);
+  box-shadow: 0 16px 36px rgba(11, 109, 168, 0.24);
+  font-size: 13px;
+  font-weight: 800;
+  letter-spacing: 0.01em;
   cursor: pointer;
+  transition: transform 180ms ease, box-shadow 180ms ease, background 180ms ease;
 }
 
 .message-app-shell .message-announcement-create-button>span {
-  font-size: 16px;
-  font-weight: 500;
+  font-size: 15px;
+  font-weight: 600;
   line-height: 1;
 }
 
 .message-app-shell .message-announcement-create-button:hover,
 .message-app-shell .message-announcement-create-button:focus-visible {
-  background: #095d91;
+  background: linear-gradient(135deg, #0a5e8f 0%, #1b79c6 100%);
+  box-shadow: 0 18px 42px rgba(11, 109, 168, 0.28);
+  transform: translateY(-1px);
   outline: none;
 }
 
@@ -9681,14 +9793,14 @@ body.message-attachment-viewer-open {
 .message-app-shell .message-announcement-composer-dialog {
   display: grid;
   grid-template-rows: auto minmax(0, 1fr);
-  width: min(780px, calc(100vw - 32px));
-  height: min(900px, calc(100dvh - 36px));
-  max-height: min(900px, calc(100dvh - 36px));
+  width: min(860px, calc(100vw - 32px));
+  height: min(920px, calc(100dvh - 36px));
+  max-height: min(920px, calc(100dvh - 36px));
   overflow: hidden;
-  border: 1px solid #cddde7;
-  border-radius: 20px;
-  background: #ffffff;
-  box-shadow: 0 30px 82px rgba(3, 30, 51, 0.32);
+  border: 1px solid rgba(11, 109, 168, 0.15);
+  border-radius: 24px;
+  background: rgba(255, 255, 255, 0.96);
+  box-shadow: 0 24px 72px rgba(15, 65, 100, 0.16);
 }
 
 .message-app-shell .message-announcement-composer-dialog>header {
@@ -9696,9 +9808,9 @@ body.message-attachment-viewer-open {
   align-items: flex-start;
   justify-content: space-between;
   gap: 18px;
-  padding: 20px 22px 17px;
-  border-bottom: 1px solid #dce7ed;
-  background: linear-gradient(135deg, #f8fcff, #eef7fc);
+  padding: 24px 28px 20px;
+  border-bottom: 1px solid rgba(11, 109, 168, 0.12);
+  background: linear-gradient(180deg, #f8fbff, #eef5fa);
 }
 
 .message-app-shell .message-announcement-composer-dialog>header>div {
@@ -9707,23 +9819,24 @@ body.message-attachment-viewer-open {
 
 .message-app-shell .message-announcement-composer-dialog>header span {
   color: #0b6da8;
-  font-size: 8.5px;
+  font-size: 9.5px;
   font-weight: 900;
-  letter-spacing: 0.11em;
+  letter-spacing: 0.12em;
   text-transform: uppercase;
 }
 
 .message-app-shell .message-announcement-composer-dialog>header h2 {
   margin: 4px 0 0;
   color: #244b64;
-  font-size: 18px;
+  font-size: 20px;
+  line-height: 1.25;
 }
 
 .message-app-shell .message-announcement-composer-dialog>header p {
-  margin: 5px 0 0;
-  color: #718694;
-  font-size: 9px;
-  line-height: 1.5;
+  margin: 6px 0 0;
+  color: #5e7182;
+  font-size: 11px;
+  line-height: 1.6;
 }
 
 .message-app-shell .message-announcement-composer-dialog>header>button {
@@ -9759,11 +9872,11 @@ body.message-attachment-viewer-open {
   display: grid;
   grid-template-columns: auto minmax(0, 1fr) auto;
   align-items: center;
-  gap: 11px;
-  padding: 11px 13px;
-  border: 1px solid #cce1ed;
-  border-radius: 13px;
-  background: #f2f9fd;
+  gap: 12px;
+  padding: 14px 16px;
+  border: 1px solid rgba(11, 109, 168, 0.16);
+  border-radius: 16px;
+  background: rgba(222, 243, 255, 0.92);
 }
 
 .message-app-shell .message-announcement-audience-lock>span {
@@ -9839,12 +9952,12 @@ body.message-attachment-viewer-open {
 .message-app-shell .message-announcement-composer-grid textarea,
 .message-app-shell .message-announcement-composer-grid select {
   width: 100%;
-  border: 1px solid #cedce5;
-  border-radius: 10px;
-  color: #294c63;
+  border: 1px solid #d5e4ec;
+  border-radius: 12px;
+  color: #243d51;
   background: #ffffff;
   font: inherit;
-  font-size: 10px;
+  font-size: 13px;
   outline: none;
 }
 
@@ -9942,11 +10055,11 @@ body.message-attachment-viewer-open {
 }
 
 .message-app-shell .message-announcement-composer-dialog footer button {
-  min-height: 40px;
-  padding: 0 16px;
-  border-radius: 10px;
-  font-size: 9px;
-  font-weight: 850;
+  min-height: 44px;
+  padding: 0 18px;
+  border-radius: 12px;
+  font-size: 12px;
+  font-weight: 800;
   cursor: pointer;
 }
 
@@ -10066,14 +10179,14 @@ body.message-attachment-viewer-open {
 
 .message-app-shell .message-announcement-detail-dialog {
   display: grid;
-  width: min(760px, calc(100vw - 32px));
-  max-height: min(900px, calc(100dvh - 36px));
+  width: min(820px, calc(100vw - 32px));
+  max-height: min(920px, calc(100dvh - 36px));
   grid-template-rows: auto minmax(0, 1fr) auto;
   overflow: hidden;
-  border: 1px solid #cddde7;
-  border-radius: 20px;
-  background: #ffffff;
-  box-shadow: 0 30px 82px rgba(3, 30, 51, 0.32);
+  border: 1px solid rgba(11, 109, 168, 0.14);
+  border-radius: 24px;
+  background: rgba(255, 255, 255, 0.96);
+  box-shadow: 0 24px 72px rgba(15, 65, 100, 0.16);
 }
 
 .message-app-shell .message-announcement-detail-dialog>header {
@@ -10081,9 +10194,9 @@ body.message-attachment-viewer-open {
   align-items: flex-start;
   justify-content: space-between;
   gap: 18px;
-  padding: 19px 22px 16px;
-  border-bottom: 1px solid #dce7ed;
-  background: linear-gradient(135deg, #f8fcff, #eef7fc);
+  padding: 24px 28px 20px;
+  border-bottom: 1px solid rgba(11, 109, 168, 0.12);
+  background: linear-gradient(180deg, #f8fbff, #eef5fa);
 }
 
 .message-app-shell .message-announcement-detail-dialog>header>div {
@@ -10092,9 +10205,9 @@ body.message-attachment-viewer-open {
 
 .message-app-shell .message-announcement-detail-dialog>header span {
   color: #0b6da8;
-  font-size: 8px;
+  font-size: 9px;
   font-weight: 900;
-  letter-spacing: 0.11em;
+  letter-spacing: 0.12em;
   text-transform: uppercase;
 }
 
@@ -10102,8 +10215,8 @@ body.message-attachment-viewer-open {
   margin: 4px 0 0;
   overflow-wrap: anywhere;
   color: #244b64;
-  font-size: 18px;
-  line-height: 1.35;
+  font-size: 20px;
+  line-height: 1.3;
 }
 
 .message-app-shell .message-announcement-detail-dialog>header>button {
@@ -10388,27 +10501,27 @@ body.message-attachment-viewer-open {
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-  padding: 13px 22px;
-  border-top: 1px solid #dce7ed;
-  background: #f8fafc;
+  padding: 16px 24px;
+  border-top: 1px solid rgba(11, 109, 168, 0.1);
+  background: rgba(248, 250, 252, 0.96);
 }
 
 .message-app-shell .message-announcement-detail-dialog>footer>div {
   display: flex;
   flex-wrap: wrap;
-  gap: 7px;
+  gap: 10px;
 }
 
 .message-app-shell .message-announcement-detail-dialog>footer button,
 .message-app-shell .message-announcement-delete-confirmation button,
 .message-app-shell .message-announcement-composer-file-list button {
-  min-height: 36px;
-  padding: 0 13px;
+  min-height: 42px;
+  padding: 0 14px;
   border: 1px solid #cbdce5;
-  border-radius: 9px;
-  color: #45667a;
+  border-radius: 12px;
+  color: #243d51;
   background: #ffffff;
-  font-size: 8.5px;
+  font-size: 11px;
   font-weight: 850;
   cursor: pointer;
 }
@@ -16938,27 +17051,28 @@ body.message-attachment-viewer-open {
 .message-app-shell .message-announcement-workspace-layer.message-announcement-detail-backdrop {
   inset: 0 0 0 var(--message-rail-width);
   z-index: 112;
-  background:
-    radial-gradient(circle at 90% -15%, rgba(80, 166, 220, .13), transparent 31rem),
-    var(--message-page-bg);
+  background: linear-gradient(180deg, rgba(238,244,248,0.95), rgba(255,255,255,0.98));
   animation: message-announcement-enter 190ms ease-out both;
 }
 
 .message-app-shell.announcement-workspace-active .message-workspace {
-  visibility: visible;
-  pointer-events: auto;
+  visibility: hidden;
+  pointer-events: none;
 }
 
 .message-app-shell .message-announcement-workspace-layer > .message-announcement-workspace-composer,
 .message-app-shell .message-announcement-workspace-layer > .message-announcement-workspace-detail {
   background: transparent;
+  box-shadow: -18px 0 85px rgba(15, 65, 100, 0.12);
 }
 
 .message-app-shell .message-announcement-workspace-composer > header,
 .message-app-shell .message-announcement-workspace-detail > header {
-  min-height: 82px;
-  padding: 14px clamp(24px, 3.5vw, 56px);
-  background: color-mix(in srgb, var(--message-panel-bg) 92%, transparent);
+  min-height: 92px;
+  padding: 20px clamp(24px, 3.5vw, 56px);
+  background: rgba(255, 255, 255, 0.98);
+  border-bottom: 1px solid rgba(11, 109, 168, 0.12);
+  box-shadow: inset 0 -1px 0 rgba(11, 109, 168, 0.04);
 }
 
 .message-app-shell .message-announcement-workspace-composer > header > div,
@@ -17014,10 +17128,12 @@ body.message-attachment-viewer-open {
 }
 
 .message-app-shell .message-announcement-workspace-composer .message-announcement-composer-section {
-  gap: 13px;
-  padding: 17px;
-  border-radius: 12px;
-  box-shadow: 0 8px 20px rgba(31, 71, 96, .045);
+  gap: 16px;
+  padding: 22px;
+  border: 1px solid rgba(11, 109, 168, 0.12);
+  border-radius: 20px;
+  background: rgba(255, 255, 255, 0.98);
+  box-shadow: 0 20px 60px rgba(15, 65, 100, 0.08);
 }
 
 .message-app-shell .message-announcement-workspace-composer .message-announcement-composer-section > header strong {
@@ -17058,18 +17174,18 @@ body.message-attachment-viewer-open {
 
 .message-app-shell .message-announcement-workspace-composer > form > footer button,
 .message-app-shell .message-announcement-workspace-detail > footer button {
-  min-height: 38px;
-  padding: 0 14px;
-  border-radius: 9px;
-  font-size: 12px;
-  font-weight: 750;
+  min-height: 44px;
+  padding: 0 16px;
+  border-radius: 12px;
+  font-size: 13px;
+  font-weight: 700;
 }
 
 /* Detail content is a readable announcement, not an A4 document. */
 .message-app-shell .message-announcement-workspace-detail .message-announcement-detail-body {
-  width: min(100% - clamp(32px, 8vw, 120px), 840px);
-  padding: clamp(24px, 4vw, 42px) 0;
-  gap: 18px;
+  width: min(100% - clamp(32px, 8vw, 120px), 960px);
+  padding: clamp(28px, 4vw, 48px) 0;
+  gap: 24px;
 }
 
 .message-app-shell .message-announcement-workspace-detail .message-announcement-detail-overview {
@@ -17081,13 +17197,15 @@ body.message-attachment-viewer-open {
 
 .message-app-shell .message-announcement-workspace-detail .message-announcement-detail-publisher {
   grid-column: 1 / -1;
-  padding: 12px 14px;
-  border-radius: 12px;
-  box-shadow: 0 8px 18px rgba(31, 71, 96, .04);
+  padding: 22px;
+  border-radius: 20px;
+  border: 1px solid rgba(11, 109, 168, 0.12);
+  background: rgba(255, 255, 255, 0.98);
+  box-shadow: 0 18px 45px rgba(15, 65, 100, 0.08);
 }
 
 .message-app-shell .message-announcement-workspace-detail .message-announcement-detail-content {
-  padding: 8px 2px 4px;
+  padding: 0;
 }
 
 .message-app-shell .message-announcement-workspace-detail .message-announcement-detail-content p {
@@ -17097,8 +17215,10 @@ body.message-attachment-viewer-open {
 }
 
 .message-app-shell .message-announcement-workspace-detail .message-announcement-detail-attachments {
-  border-radius: 12px;
-  box-shadow: 0 8px 18px rgba(31, 71, 96, .04);
+  border-radius: 20px;
+  border: 1px solid rgba(11, 109, 168, 0.12);
+  background: rgba(255, 255, 255, 0.98);
+  box-shadow: 0 18px 45px rgba(15, 65, 100, 0.08);
 }
 
 .message-app-shell.theme-dark .message-announcement-workspace-layer.message-announcement-composer-backdrop,
