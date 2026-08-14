@@ -23,7 +23,6 @@ import { ManagementWorkPage } from "./pages/ManagementWorkPage";
 import { ForgotPasswordPage } from "./pages/ForgotPasswordPage";
 import { LoginPage } from "./pages/LoginPage";
 import { MessageAppPage } from "./pages/MessageAppPage";
-import { ListsPage } from "./pages/ListsPage";
 import { DirectoryPage } from "./pages/DirectoryPage";
 import { EmployeeDashboardPage } from "./pages/EmployeeDashboardPage";
 import { EmployeeWorkPage } from "./pages/EmployeeWorkPage";
@@ -359,6 +358,22 @@ export default function App() {
       />
 
       <Route
+        path="/messages/archived"
+        element={
+          <ProtectedRoute
+            roles={[
+              "SUPER_ADMIN",
+              "SENIOR_MANAGEMENT",
+              "TEAM_MANAGER",
+              "EMPLOYEE",
+            ]}
+          >
+            <MessageAppPage />
+          </ProtectedRoute>
+        }
+      />
+
+      <Route
         path="/messages/requests"
         element={
           <ProtectedRoute
@@ -407,7 +422,7 @@ export default function App() {
       />
 
       <Route
-        path="/messages/lists"
+        path="/messages/lists/new"
         element={
           <ProtectedRoute
             roles={[
@@ -417,13 +432,42 @@ export default function App() {
               "EMPLOYEE",
             ]}
           >
-            <ManagementLayout>
-              <ListsPage />
-            </ManagementLayout>
+            <MessageAppPage />
           </ProtectedRoute>
         }
       />
 
+      <Route
+        path="/messages/lists/:listId"
+        element={
+          <ProtectedRoute
+            roles={[
+              "SUPER_ADMIN",
+              "SENIOR_MANAGEMENT",
+              "TEAM_MANAGER",
+              "EMPLOYEE",
+            ]}
+          >
+            <MessageAppPage />
+          </ProtectedRoute>
+        }
+      />
+
+      <Route
+        path="/messages/lists/:listId/edit"
+        element={
+          <ProtectedRoute
+            roles={[
+              "SUPER_ADMIN",
+              "SENIOR_MANAGEMENT",
+              "TEAM_MANAGER",
+              "EMPLOYEE",
+            ]}
+          >
+            <MessageAppPage />
+          </ProtectedRoute>
+        }
+      />
 
       <Route
         path="/messages/profile"

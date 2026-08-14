@@ -273,6 +273,14 @@ const messagingAccountSelect = {
   showReadReceipts: true,
   requireMessageRequests: true,
 
+  superAdminProfile: {
+    select: {
+      fullName: true,
+      email: true,
+      phoneNumber: true,
+    },
+  },
+
   employee: {
     select: {
       id: true,
@@ -1310,6 +1318,66 @@ export class ConversationsService {
     return account.profileBio ?? account.employee?.profileBio ?? null;
   }
 
+  private getConfiguredSuperAdminValue(key: string): string | null {
+    return process.env[key]?.trim() || null;
+  }
+
+  private getSuperAdminDisplayName(account: MessagingAccountRecord): string {
+    // Messaging must show the same system-managed identity as the official
+    // Super Admin profile instead of falling back to the login email.
+    return (
+      this.getConfiguredSuperAdminValue('SUPER_ADMIN_NAME') ??
+      account.superAdminProfile?.fullName ??
+      account.username ??
+      'Super Admin'
+    );
+  }
+
+  private getSuperAdminOfficialEmail(
+    account: MessagingAccountRecord,
+  ): string | null {
+    const configuredEmail =
+      this.getConfiguredSuperAdminValue('SUPER_ADMIN_EMAIL');
+
+    if (configuredEmail) {
+      return configuredEmail.toLowerCase();
+    }
+
+    if (account.superAdminProfile?.email) {
+      return account.superAdminProfile.email.toLowerCase();
+    }
+
+    return account.username?.includes('@')
+      ? account.username.toLowerCase()
+      : null;
+  }
+
+  private getSuperAdminOfficialPhone(
+    account: MessagingAccountRecord,
+  ): string | null {
+    const rawPhoneNumber =
+      this.getConfiguredSuperAdminValue('SUPER_ADMIN_PHONE') ??
+      account.superAdminProfile?.phoneNumber ??
+      null;
+    const digits = rawPhoneNumber?.replace(/\D/g, '') ?? '';
+
+    // Keep the messaging profile format aligned with the official emergency
+    // profile: expose only a valid Nepal mobile number in canonical E.164 form.
+    if (digits.length === 10 && digits.startsWith('9')) {
+      return `+977${digits}`;
+    }
+
+    if (digits.length === 11 && digits.startsWith('0')) {
+      return `+977${digits.slice(1)}`;
+    }
+
+    if (digits.length === 13 && digits.startsWith('9779')) {
+      return `+${digits}`;
+    }
+
+    return null;
+  }
+
   private serializeAccount(account: MessagingAccountRecord) {
     const employee = account.employee;
     const profilePhotoKey = this.getAccountProfilePhotoKey(account);
@@ -1324,11 +1392,9 @@ export class ConversationsService {
       showOnlineStatus: account.showOnlineStatus,
       showReadReceipts: account.showReadReceipts,
       displayName:
-        employee?.empName ??
-        account.username ??
-        (account.role === AccountRole.SUPER_ADMIN
-          ? 'Super Admin'
-          : 'NT Message User'),
+        account.role === AccountRole.SUPER_ADMIN
+          ? this.getSuperAdminDisplayName(account)
+          : employee?.empName ?? account.username ?? 'NT Message User',
 
       employee: employee
         ? {
@@ -1366,17 +1432,29 @@ export class ConversationsService {
       contactMode,
       blockDirection,
       profileBio: this.getAccountProfileBio(account),
-      official: employee
-        ? {
-            // Official identity stays read-only and comes from activation/admin workflows.
-            employeeId: employee.empId,
-            officialEmail: employee.officialEmail,
-            contactNumber: employee.phoneNumber,
-            designation: employee.designation,
-            division: employee.division,
-            department: employee.departmentUnit,
-          }
-        : null,
+      official:
+        account.role === AccountRole.SUPER_ADMIN
+          ? {
+              // Super Admin is a system account, but its official identity and
+              // emergency phone are still visible through authorized profiles.
+              employeeId: null,
+              officialEmail: this.getSuperAdminOfficialEmail(account),
+              contactNumber: this.getSuperAdminOfficialPhone(account),
+              designation: null,
+              division: null,
+              department: null,
+            }
+          : employee
+            ? {
+                // Official identity stays read-only and comes from activation/admin workflows.
+                employeeId: employee.empId,
+                officialEmail: employee.officialEmail,
+                contactNumber: employee.phoneNumber,
+                designation: employee.designation,
+                division: employee.division,
+                department: employee.departmentUnit,
+              }
+            : null,
       sharedGroups,
     };
   }
@@ -7730,6 +7808,24 @@ export class ConversationsService {
       'MESSAGING_ACCESS',
     );
 
+    if (query.folderId) {
+      const ownedFolder = await this.prisma.chatFolder.findFirst({
+        where: {
+          id: query.folderId,
+          accountId: viewer.accountId,
+        },
+        select: {
+          id: true,
+        },
+      });
+
+      if (!ownedFolder) {
+        // A list ID is account-private. Return not-found rather than exposing
+        // whether another user's list exists.
+        throw new NotFoundException('Message list was not found.');
+      }
+    }
+
     const take = query.limit + 1;
     const participantListFilter =
       query.view === 'ALL'
@@ -7750,6 +7846,18 @@ export class ConversationsService {
             ...participantListFilter,
           },
         },
+        ...(query.folderId
+          ? {
+              chatFolderItems: {
+                some: {
+                  folderId: query.folderId,
+                  folder: {
+                    accountId: viewer.accountId,
+                  },
+                },
+              },
+            }
+          : {}),
       },
 
       orderBy: [
@@ -11149,12 +11257,116 @@ export class ConversationsService {
     };
   }
 
+  private normalizeChatFolderName(name: string): string {
+    return name.trim().replace(/\s+/g, ' ');
+  }
+
+  private getChatFolderNameKey(name: string): string {
+    return this.normalizeChatFolderName(name).toLocaleLowerCase('en-US');
+  }
+
+  private async assertChatFolderNameAvailable(
+    accountId: string,
+    nameKey: string,
+    excludeFolderId?: string,
+  ): Promise<void> {
+    const existing = await this.prisma.chatFolder.findFirst({
+      where: {
+        accountId,
+        nameKey,
+        ...(excludeFolderId
+          ? {
+              id: {
+                not: excludeFolderId,
+              },
+            }
+          : {}),
+      },
+      select: {
+        id: true,
+      },
+    });
+
+    if (existing) {
+      throw new ConflictException('You already have a list with this name.');
+    }
+  }
+
+  private async assertChatFolderConversationAccess(
+    accountId: string,
+    conversationIds: string[],
+  ): Promise<string[]> {
+    const uniqueConversationIds = [...new Set(conversationIds)];
+
+    if (uniqueConversationIds.length === 0) {
+      return [];
+    }
+
+    const participants = await this.prisma.conversationParticipant.findMany({
+      where: {
+        accountId,
+        conversationId: {
+          in: uniqueConversationIds,
+        },
+        leftAt: null,
+        deletedFromListAt: null,
+      },
+      select: {
+        conversationId: true,
+      },
+    });
+
+    const visibleConversationIds = new Set(
+      participants.map((participant) => participant.conversationId),
+    );
+
+    if (
+      uniqueConversationIds.some(
+        (conversationId) => !visibleConversationIds.has(conversationId),
+      )
+    ) {
+      // Do not reveal which UUID belongs to an inaccessible conversation.
+      throw new NotFoundException(
+        'One or more conversations were not found or are no longer available.',
+      );
+    }
+
+    return uniqueConversationIds;
+  }
+
+  private isChatFolderUniqueConstraintError(error: unknown): boolean {
+    return (
+      typeof error === 'object' &&
+      error !== null &&
+      'code' in error &&
+      (error as { code?: unknown }).code === 'P2002'
+    );
+  }
+
   async listChatFolders(viewer: AuthenticatedUser) {
     const folders = await this.prisma.chatFolder.findMany({
       where: { accountId: viewer.accountId },
-      orderBy: { position: 'asc' },
+      orderBy: [{ position: 'asc' }, { createdAt: 'asc' }],
       include: {
         items: {
+          // Lists expose only conversations that are still visible to their
+          // owner. Legacy target-account items are intentionally not surfaced.
+          where: {
+            conversation: {
+              is: {
+                participants: {
+                  some: {
+                    accountId: viewer.accountId,
+                    leftAt: null,
+                    deletedFromListAt: null,
+                  },
+                },
+              },
+            },
+          },
+          orderBy: {
+            createdAt: 'asc',
+          },
           include: {
             conversation: {
               select: {
@@ -11162,19 +11374,6 @@ export class ConversationsService {
                 type: true,
                 title: true,
                 groupKind: true,
-              },
-            },
-            targetAccount: {
-              select: {
-                id: true,
-                username: true,
-                profilePhotoKey: true,
-                employee: {
-                  select: {
-                    empName: true,
-                    designation: true,
-                  },
-                },
               },
             },
           },
@@ -11210,62 +11409,62 @@ export class ConversationsService {
                 groupKind: item.conversation.groupKind,
               }
             : null,
-          targetAccount: item.targetAccount
-            ? {
-                id: item.targetAccount.id,
-                displayName:
-                  item.targetAccount.employee?.empName ||
-                  item.targetAccount.username ||
-                  'User',
-                profilePhotoKey: item.targetAccount.profilePhotoKey,
-                empName: item.targetAccount.employee?.empName || null,
-                designation: item.targetAccount.employee?.designation || null,
-              }
-            : null,
+          targetAccount: null,
         })),
       })),
     };
   }
 
   async createChatFolder(viewer: AuthenticatedUser, dto: CreateChatFolderDto) {
+    const name = this.normalizeChatFolderName(dto.name);
+
+    if (!name) {
+      throw new BadRequestException('List name is required.');
+    }
+
+    const nameKey = this.getChatFolderNameKey(name);
+
+    await this.assertChatFolderNameAvailable(viewer.accountId, nameKey);
+    const conversationIds = await this.assertChatFolderConversationAccess(
+      viewer.accountId,
+      dto.conversationIds ?? [],
+    );
+
     const maxPosition = await this.prisma.chatFolder.aggregate({
       where: { accountId: viewer.accountId },
       _max: { position: true },
     });
     const nextPosition = (maxPosition._max.position ?? -1) + 1;
 
-    const folder = await this.prisma.chatFolder.create({
-      data: {
-        accountId: viewer.accountId,
-        name: dto.name,
-        icon: dto.icon || 'folder',
-        color: dto.color || null,
-        position: nextPosition,
-        includePrivate: dto.includePrivate ?? false,
-        includeGroups: dto.includeGroups ?? false,
-        includeOfficial: dto.includeOfficial ?? false,
-        includeUnreadOnly: dto.includeUnreadOnly ?? false,
-        excludeMuted: dto.excludeMuted ?? false,
-        items: {
-          create: [
-            ...(dto.conversationIds || []).map((cid) => ({
-              conversationId: cid,
+    try {
+      const folder = await this.prisma.chatFolder.create({
+        data: {
+          accountId: viewer.accountId,
+          name,
+          nameKey,
+          position: nextPosition,
+          items: {
+            create: conversationIds.map((conversationId) => ({
+              conversationId,
             })),
-            ...(dto.targetAccountIds || []).map((aid) => ({
-              targetAccountId: aid,
-            })),
-          ],
+          },
         },
-      },
-      include: {
-        items: true,
-      },
-    });
+        include: {
+          items: true,
+        },
+      });
 
-    return {
-      message: 'Folder created successfully.',
-      data: folder,
-    };
+      return {
+        message: 'List created successfully.',
+        data: folder,
+      };
+    } catch (error) {
+      if (this.isChatFolderUniqueConstraintError(error)) {
+        throw new ConflictException('You already have a list with this name.');
+      }
+
+      throw error;
+    }
   }
 
   async updateChatFolder(
@@ -11277,60 +11476,80 @@ export class ConversationsService {
       where: { id: folderId, accountId: viewer.accountId },
     });
     if (!existing) {
-      throw new NotFoundException('Folder not found.');
+      throw new NotFoundException('Message list was not found.');
     }
 
-    const folder = await this.prisma.$transaction(async (tx) => {
-      if (dto.conversationIds !== undefined || dto.targetAccountIds !== undefined) {
-        await tx.chatFolderItem.deleteMany({
-          where: { folderId },
-        });
+    const name =
+      dto.name !== undefined
+        ? this.normalizeChatFolderName(dto.name)
+        : undefined;
 
-        const newItems: { conversationId?: string; targetAccountId?: string }[] = [];
-        if (dto.conversationIds) {
-          for (const cid of dto.conversationIds) {
-            newItems.push({ conversationId: cid });
-          }
-        }
-        if (dto.targetAccountIds) {
-          for (const aid of dto.targetAccountIds) {
-            newItems.push({ targetAccountId: aid });
-          }
-        }
+    if (name !== undefined && !name) {
+      throw new BadRequestException('List name is required.');
+    }
 
-        if (newItems.length > 0) {
-          await tx.chatFolderItem.createMany({
-            data: newItems.map((item) => ({
-              folderId,
-              ...item,
-            })),
-            skipDuplicates: true,
+    const nameKey =
+      name !== undefined ? this.getChatFolderNameKey(name) : undefined;
+
+    if (nameKey !== undefined) {
+      await this.assertChatFolderNameAvailable(
+        viewer.accountId,
+        nameKey,
+        folderId,
+      );
+    }
+
+    const conversationIds =
+      dto.conversationIds !== undefined
+        ? await this.assertChatFolderConversationAccess(
+            viewer.accountId,
+            dto.conversationIds,
+          )
+        : undefined;
+
+    try {
+      const folder = await this.prisma.$transaction(async (tx) => {
+        if (conversationIds !== undefined) {
+          // Membership is account-specific metadata. Replacing these rows must
+          // never mutate the underlying conversation, participants or messages.
+          await tx.chatFolderItem.deleteMany({
+            where: { folderId },
           });
+
+          if (conversationIds.length > 0) {
+            await tx.chatFolderItem.createMany({
+              data: conversationIds.map((conversationId) => ({
+                folderId,
+                conversationId,
+              })),
+              skipDuplicates: true,
+            });
+          }
         }
+
+        return tx.chatFolder.update({
+          where: { id: folderId },
+          data: {
+            name,
+            nameKey,
+          },
+          include: {
+            items: true,
+          },
+        });
+      });
+
+      return {
+        message: 'List updated successfully.',
+        data: folder,
+      };
+    } catch (error) {
+      if (this.isChatFolderUniqueConstraintError(error)) {
+        throw new ConflictException('You already have a list with this name.');
       }
 
-      return tx.chatFolder.update({
-        where: { id: folderId },
-        data: {
-          name: dto.name !== undefined ? dto.name : undefined,
-          icon: dto.icon !== undefined ? dto.icon : undefined,
-          color: dto.color !== undefined ? dto.color : undefined,
-          includePrivate: dto.includePrivate !== undefined ? dto.includePrivate : undefined,
-          includeGroups: dto.includeGroups !== undefined ? dto.includeGroups : undefined,
-          includeOfficial: dto.includeOfficial !== undefined ? dto.includeOfficial : undefined,
-          includeUnreadOnly: dto.includeUnreadOnly !== undefined ? dto.includeUnreadOnly : undefined,
-          excludeMuted: dto.excludeMuted !== undefined ? dto.excludeMuted : undefined,
-        },
-        include: {
-          items: true,
-        },
-      });
-    });
-
-    return {
-      message: 'Folder updated successfully.',
-      data: folder,
-    };
+      throw error;
+    }
   }
 
   async deleteChatFolder(viewer: AuthenticatedUser, folderId: string) {
@@ -11338,20 +11557,40 @@ export class ConversationsService {
       where: { id: folderId, accountId: viewer.accountId },
     });
     if (!existing) {
-      throw new NotFoundException('Folder not found.');
+      throw new NotFoundException('Message list was not found.');
     }
 
+    /*
+     * Deleting a list cascades only to ChatFolderItem rows. Conversation and
+     * message records are intentionally independent and must remain untouched.
+     */
     await this.prisma.chatFolder.delete({
       where: { id: folderId },
     });
 
     return {
-      message: 'Folder deleted successfully.',
+      message: 'List deleted successfully.',
       folderId,
     };
   }
 
   async reorderChatFolders(viewer: AuthenticatedUser, dto: ReorderChatFoldersDto) {
+    const ownedFolders = await this.prisma.chatFolder.findMany({
+      where: {
+        accountId: viewer.accountId,
+        id: {
+          in: dto.folderIds,
+        },
+      },
+      select: {
+        id: true,
+      },
+    });
+
+    if (ownedFolders.length !== new Set(dto.folderIds).size) {
+      throw new NotFoundException('One or more message lists were not found.');
+    }
+
     await this.prisma.$transaction(
       dto.folderIds.map((id, index) =>
         this.prisma.chatFolder.updateMany({
@@ -11362,7 +11601,7 @@ export class ConversationsService {
     );
 
     return {
-      message: 'Folders reordered successfully.',
+      message: 'Lists reordered successfully.',
     };
   }
 
@@ -11375,37 +11614,29 @@ export class ConversationsService {
       where: { id: folderId, accountId: viewer.accountId },
     });
     if (!folder) {
-      throw new NotFoundException('Folder not found.');
+      throw new NotFoundException('Message list was not found.');
     }
 
-    if (!dto.conversationId && !dto.targetAccountId) {
-      throw new BadRequestException('Either conversationId or targetAccountId is required.');
-    }
+    await this.assertChatFolderConversationAccess(viewer.accountId, [
+      dto.conversationId,
+    ]);
 
     const item = await this.prisma.chatFolderItem.upsert({
-      where: dto.conversationId
-        ? {
-            folderId_conversationId: {
-              folderId,
-              conversationId: dto.conversationId,
-            },
-          }
-        : {
-            folderId_targetAccountId: {
-              folderId,
-              targetAccountId: dto.targetAccountId!,
-            },
-          },
+      where: {
+        folderId_conversationId: {
+          folderId,
+          conversationId: dto.conversationId,
+        },
+      },
       create: {
         folderId,
-        conversationId: dto.conversationId || null,
-        targetAccountId: dto.targetAccountId || null,
+        conversationId: dto.conversationId,
       },
       update: {},
     });
 
     return {
-      message: 'Item added to folder.',
+      message: 'Conversation added to list.',
       data: item,
     };
   }
@@ -11419,18 +11650,22 @@ export class ConversationsService {
       where: { id: folderId, accountId: viewer.accountId },
     });
     if (!folder) {
-      throw new NotFoundException('Folder not found.');
+      throw new NotFoundException('Message list was not found.');
     }
 
-    await this.prisma.chatFolderItem.deleteMany({
+    const result = await this.prisma.chatFolderItem.deleteMany({
       where: {
         id: itemId,
         folderId,
       },
     });
 
+    if (result.count === 0) {
+      throw new NotFoundException('List conversation was not found.');
+    }
+
     return {
-      message: 'Item removed from folder.',
+      message: 'Conversation removed from list.',
       itemId,
     };
   }

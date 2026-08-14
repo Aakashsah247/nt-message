@@ -100,9 +100,9 @@ export interface MessagingUserProfile extends MessagingAccount {
   blockDirection?: MessagingBlockDirection;
   profileBio: string | null;
   official: {
-    employeeId: string;
-    officialEmail: string;
-    contactNumber: string;
+    employeeId: string | null;
+    officialEmail: string | null;
+    contactNumber: string | null;
     designation: string | null;
     division: MessagingOrganizationUnit | null;
     department: MessagingOrganizationUnit | null;

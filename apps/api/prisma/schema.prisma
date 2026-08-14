@@ -562,8 +562,6 @@ model Account {
   departmentTeamActivities        DepartmentTeamActivity[]          @relation("DepartmentTeamActivitiesActor")
   chatFolders                     ChatFolder[]
   chatFolderTargetItems           ChatFolderItem[]                  @relation("ChatFolderItemTargetAccount")
-  messageLists                    MessageList[]                      @relation("MessageListsOwner")
-  messageListMembers              MessageListMember[]                @relation("MessageListMemberAccount")
 
   @@index([role], map: "accounts_role_idx")
   @@index([isEnabled], map: "accounts_is_enabled_idx")
@@ -571,34 +569,7 @@ model Account {
   @@map("accounts")
 }
 
-/// Lists feature: simple list + members for messaging lists
-model MessageList {
-  id               String    @id @default(uuid()) @db.Uuid
-  ownerAccountId   String    @map("owner_account_id") @db.Uuid
-  name             String    @db.VarChar(200)
-  createdAt        DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
-  updatedAt        DateTime  @updatedAt @map("updated_at") @db.Timestamptz(3)
-
-  owner            Account   @relation("MessageListsOwner", fields: [ownerAccountId], references: [id], onDelete: Cascade)
-  members          MessageListMember[]
-
-  @@index([ownerAccountId], map: "message_lists_owner_idx")
-  @@map("message_lists")
-}
-
-model MessageListMember {
-  id             String      @id @default(uuid()) @db.Uuid
-  listId         String      @map("list_id") @db.Uuid
-  accountId      String?     @map("account_id") @db.Uuid
-  displayName    String      @map("display_name") @db.VarChar(250)
-  createdAt      DateTime    @default(now()) @map("created_at") @db.Timestamptz(3)
-
-  list           MessageList @relation(fields: [listId], references: [id], onDelete: Cascade)
-  account        Account?    @relation("MessageListMemberAccount", fields: [accountId], references: [id], onDelete: SetNull)
-
-  @@index([listId], map: "message_list_members_list_idx")
-  @@map("message_list_members")
-}
+/// MessageList models removed — migration should drop the corresponding tables.
 
 model PasswordResetChallenge {
   id        String @id @default(uuid()) @db.Uuid
@@ -1975,6 +1946,7 @@ model ChatFolder {
   accountId String   @map("account_id") @db.Uuid
 
   name      String   @db.VarChar(100)
+  nameKey   String   @map("name_key") @db.VarChar(100)
   icon      String   @default("folder") @db.VarChar(50)
   color     String?  @db.VarChar(30)
   position  Int      @default(0)
@@ -1991,6 +1963,7 @@ model ChatFolder {
   account Account          @relation(fields: [accountId], references: [id], onDelete: Cascade)
   items   ChatFolderItem[]
 
+  @@unique([accountId, nameKey], map: "chat_folders_account_name_key_key")
   @@index([accountId, position], map: "chat_folders_account_position_idx")
   @@map("chat_folders")
 }

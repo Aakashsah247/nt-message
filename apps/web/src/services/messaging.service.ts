@@ -314,6 +314,7 @@ export function listMessagingConversations(
   cursor?: string,
   limit = 50,
   view: ConversationListView = "ACTIVE",
+  folderId?: string,
 ): Promise<ConversationListResponse> {
   const params = new URLSearchParams({
     limit: String(limit),
@@ -325,6 +326,10 @@ export function listMessagingConversations(
 
   if (view !== "ACTIVE") {
     params.set("view", view);
+  }
+
+  if (folderId) {
+    params.set("folderId", folderId);
   }
 
   return apiRequest<ConversationListResponse>(

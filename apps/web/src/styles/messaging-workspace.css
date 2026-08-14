@@ -2196,7 +2196,8 @@
 
 @media (max-width: 680px) {
   .message-app-shell .message-announcement-workspace-layer {
-    inset-left: var(--message-rail-width);
+    left: var(--message-rail-width);
+    inset-inline-start: var(--message-rail-width);
   }
 
   .message-app-shell .message-announcement-workspace-detail > header,
@@ -12137,6 +12138,7 @@ body.message-attachment-viewer-open {
   line-height: 1.35;
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 2;
+  line-clamp: 2;
 }
 
 .message-app-shell .message-search-panel-result-copy small {
@@ -13111,6 +13113,7 @@ body.message-attachment-viewer-open {
   line-height: 1.35;
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 2;
+  line-clamp: 2;
 }
 
 .message-app-shell .message-shared-link-url {
@@ -16960,7 +16963,8 @@ body.message-attachment-viewer-open {
 @media (max-width: 680px) {
   .message-app-shell .message-announcement-workspace-layer.message-announcement-composer-backdrop,
   .message-app-shell .message-announcement-workspace-layer.message-announcement-detail-backdrop {
-    inset-left: var(--message-rail-width);
+    left: var(--message-rail-width);
+    inset-inline-start: var(--message-rail-width);
   }
 
   .message-app-shell .message-announcement-workspace-composer > header,
@@ -17255,4 +17259,739 @@ body.message-attachment-viewer-open {
   .message-app-shell .message-announcement-workspace-detail .message-announcement-detail-overview {
     grid-template-columns: 1fr;
   }
+}
+
+/* --------------------------------------------------------------------------
+   Message custom lists
+   Custom lists behave like compact conversation filters. They remain private
+   organizational metadata and never replace the canonical chat/group flows.
+   -------------------------------------------------------------------------- */
+
+.message-app-shell .message-conversation-filter-strip {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 7px;
+  margin: 0 14px 10px;
+  padding: 2px 1px 4px;
+  overflow-x: auto;
+  overscroll-behavior-inline: contain;
+  scrollbar-width: none;
+  white-space: nowrap;
+}
+
+.message-app-shell .message-conversation-filter-strip::-webkit-scrollbar {
+  display: none;
+}
+
+.message-app-shell .message-conversation-filter-strip > button {
+  min-height: 34px;
+  flex: 0 0 auto;
+  padding: 0 14px;
+  border: 1px solid #d4e1ea;
+  border-radius: 999px;
+  color: #4f6a7d;
+  background: #fff;
+  font-size: 10px;
+  font-weight: 780;
+  line-height: 1;
+  cursor: pointer;
+  transition: border-color 140ms ease, background 140ms ease, color 140ms ease;
+}
+
+.message-app-shell .message-conversation-filter-strip > button:hover {
+  border-color: #abcde2;
+  color: #0a669f;
+  background: #f3f9fd;
+}
+
+.message-app-shell .message-conversation-filter-strip > button.active {
+  border-color: #0874bd;
+  color: #fff;
+  background: #0874bd;
+}
+
+.message-app-shell .message-filter-divider {
+  width: 1px;
+  height: 22px;
+  flex: 0 0 1px;
+  margin: 0 1px;
+  background: #dce7ee;
+}
+
+.message-app-shell .message-list-filter-label {
+  flex: 0 0 auto;
+  color: #7890a1;
+  font-size: 8px;
+  font-weight: 850;
+  letter-spacing: .1em;
+  text-transform: uppercase;
+}
+
+.message-app-shell .message-conversation-filter-strip > button.message-filter-create-list {
+  display: grid;
+  width: 34px;
+  min-width: 34px;
+  padding: 0;
+  place-items: center;
+  color: #0874bd;
+  border-style: dashed;
+  border-color: #afd0e3;
+  font-size: 16px;
+}
+
+.message-app-shell .message-conversation-filter-strip > button.message-filter-create-list:hover {
+  border-color: #7eb8d9;
+  background: #edf8fe;
+}
+
+.message-app-shell .message-filter-loading {
+  display: grid;
+  width: 30px;
+  height: 30px;
+  flex: 0 0 30px;
+  place-items: center;
+}
+
+.message-app-shell .message-conversation-filter-strip > button.message-filter-retry {
+  color: #9b3d43;
+  border-color: #edc9cc;
+  background: #fff7f7;
+}
+
+.message-app-shell .message-list-workspace {
+  display: grid;
+  min-width: 0;
+  min-height: 0;
+  height: 100%;
+  grid-template-rows: auto minmax(0, 1fr);
+  color: #284a62;
+  background: #f4f8fb;
+}
+
+.message-app-shell .message-list-workspace-header {
+  display: grid;
+  min-height: 82px;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 18px;
+  padding: 14px 24px;
+  border-bottom: 1px solid #dce7ee;
+  background: #fff;
+}
+
+.message-app-shell .message-list-workspace-header .message-mobile-back {
+  display: none;
+}
+
+.message-app-shell .message-list-workspace-header > div {
+  display: grid;
+  min-width: 0;
+  gap: 2px;
+}
+
+.message-app-shell .message-list-workspace-header > div > span {
+  color: #0874bd;
+  font-size: 9px;
+  font-weight: 850;
+  letter-spacing: .12em;
+  text-transform: uppercase;
+}
+
+.message-app-shell .message-list-workspace-header h2 {
+  margin: 0;
+  color: #173a56;
+  font-size: 22px;
+  line-height: 1.15;
+}
+
+.message-app-shell .message-list-workspace-header p {
+  display: none;
+}
+
+.message-app-shell .message-list-workspace-body {
+  display: grid;
+  width: min(100% - 40px, 840px);
+  min-height: 0;
+  align-content: start;
+  gap: 14px;
+  margin: 0 auto;
+  padding: 22px 0 30px;
+  overflow-y: auto;
+}
+
+.message-app-shell .message-list-editor-card {
+  display: grid;
+  gap: 12px;
+  padding: 18px;
+  border: 1px solid #d7e4ec;
+  border-radius: 16px;
+  background: #fff;
+}
+
+.message-app-shell .message-list-editor-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.message-app-shell .message-list-editor-heading > div {
+  display: grid;
+  gap: 1px;
+}
+
+.message-app-shell .message-list-editor-heading > div > span {
+  display: none;
+}
+
+.message-app-shell .message-list-editor-heading h3 {
+  margin: 0;
+  color: #173a56;
+  font-size: 14px;
+}
+
+.message-app-shell .message-list-editor-heading > small,
+.message-app-shell .message-list-editor-heading > strong {
+  color: #71899a;
+  font-size: 10px;
+  font-weight: 800;
+}
+
+.message-app-shell .message-list-name-field {
+  display: grid;
+  gap: 7px;
+}
+
+.message-app-shell .message-list-name-field > span {
+  color: #4c687c;
+  font-size: 10px;
+  font-weight: 800;
+}
+
+.message-app-shell .message-list-name-field input {
+  width: 100%;
+  min-height: 46px;
+  padding: 0 14px;
+  border: 1px solid #c8dce8;
+  border-radius: 12px;
+  color: #173a56;
+  background: #fbfdff;
+  font: inherit;
+  font-size: 13px;
+  outline: none;
+}
+
+.message-app-shell .message-list-name-field input:focus {
+  border-color: #2792cf;
+  box-shadow: 0 0 0 3px rgba(8, 116, 197, .12);
+}
+
+.message-app-shell .message-list-name-field > small,
+.message-app-shell .message-list-editor-description {
+  display: none;
+}
+
+.message-app-shell .message-list-picker-search {
+  display: flex;
+  min-height: 44px;
+  align-items: center;
+  gap: 9px;
+  padding: 0 12px;
+  border: 1px solid #d2e0e9;
+  border-radius: 12px;
+  background: #f7fafc;
+}
+
+.message-app-shell .message-list-picker-search:focus-within {
+  border-color: #2792cf;
+  box-shadow: 0 0 0 3px rgba(8, 116, 197, .1);
+}
+
+.message-app-shell .message-list-picker-search > svg {
+  width: 18px;
+  height: 18px;
+  flex: 0 0 18px;
+  color: #7891a2;
+}
+
+.message-app-shell .message-list-picker-search input {
+  min-width: 0;
+  flex: 1;
+  border: 0;
+  outline: 0;
+  color: #24475f;
+  background: transparent;
+  font: inherit;
+  font-size: 11px;
+}
+
+.message-app-shell .message-list-picker-search > button {
+  width: 28px;
+  height: 28px;
+  flex: 0 0 28px;
+  border: 0;
+  border-radius: 50%;
+  color: #6f8798;
+  background: transparent;
+  cursor: pointer;
+}
+
+.message-app-shell .message-list-picker-search > button:hover {
+  background: #e8f1f6;
+}
+
+.message-app-shell .message-list-picker {
+  display: grid;
+  max-height: min(48vh, 470px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  border: 1px solid #dce7ee;
+  border-radius: 14px;
+  background: #fff;
+}
+
+.message-app-shell .message-list-picker-row {
+  display: grid;
+  min-width: 0;
+  grid-template-columns: auto 42px minmax(0, 1fr) 24px;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  border-bottom: 1px solid #edf2f5;
+  background: #fff;
+  cursor: pointer;
+}
+
+.message-app-shell .message-list-picker-row:last-child {
+  border-bottom: 0;
+}
+
+.message-app-shell .message-list-picker-row:hover {
+  background: #f7fbfe;
+}
+
+.message-app-shell .message-list-picker-row.selected {
+  background: #f1f8fd;
+}
+
+.message-app-shell .message-list-picker-row > input {
+  width: 17px;
+  height: 17px;
+  margin: 0;
+  accent-color: #0874bd;
+}
+
+.message-app-shell .message-list-picker-row .message-avatar,
+.message-app-shell .message-list-picker-row .message-group-avatar {
+  width: 40px;
+  height: 40px;
+}
+
+.message-app-shell .message-list-picker-copy {
+  display: grid;
+  min-width: 0;
+  gap: 2px;
+}
+
+.message-app-shell .message-list-picker-copy strong {
+  overflow: hidden;
+  color: #173a56;
+  font-size: 12px;
+  font-weight: 780;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.message-app-shell .message-list-picker-copy small {
+  overflow: hidden;
+  color: #758d9e;
+  font-size: 9px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.message-app-shell .message-list-picker-check {
+  display: grid;
+  width: 22px;
+  height: 22px;
+  place-items: center;
+  border: 1px solid #bfd0da;
+  border-radius: 50%;
+  color: transparent;
+  background: #fff;
+  font-size: 11px;
+  font-weight: 900;
+}
+
+.message-app-shell .message-list-picker-row.selected .message-list-picker-check {
+  border-color: #0874bd;
+  color: #fff;
+  background: #0874bd;
+}
+
+.message-app-shell .message-list-workspace-state {
+  display: grid;
+  min-height: 110px;
+  place-items: center;
+  align-content: center;
+  gap: 7px;
+  padding: 18px;
+  color: #6d8596;
+  text-align: center;
+  background: transparent;
+}
+
+.message-app-shell .message-list-workspace-state > svg {
+  width: 24px;
+  height: 24px;
+}
+
+.message-app-shell .message-list-workspace-state strong {
+  color: #31536a;
+  font-size: 11px;
+}
+
+.message-app-shell .message-list-workspace-state small {
+  max-width: 340px;
+  font-size: 9px;
+  line-height: 1.45;
+}
+
+.message-app-shell .message-list-workspace-state.danger,
+.message-app-shell .message-list-workspace-feedback.danger {
+  color: #9a343b;
+  background: #fff2f2;
+}
+
+.message-app-shell .message-list-workspace-state > button {
+  min-height: 34px;
+  padding: 0 12px;
+  border: 1px solid #bdd8e7;
+  border-radius: 9px;
+  color: #0a6fae;
+  background: #fff;
+  font-size: 10px;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.message-app-shell .message-list-workspace-feedback {
+  padding: 10px 12px;
+  border-radius: 10px;
+  font-size: 10px;
+  font-weight: 700;
+}
+
+.message-app-shell .message-list-workspace-feedback.success {
+  color: #23734d;
+  background: #eaf8f1;
+}
+
+.message-app-shell .message-list-workspace-actions {
+  position: sticky;
+  bottom: -1px;
+  z-index: 4;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 14px;
+  padding: 12px 14px;
+  border: 1px solid #d7e4ec;
+  border-radius: 14px;
+  background: rgba(255, 255, 255, .96);
+  box-shadow: 0 8px 24px rgba(17, 60, 88, .07);
+  backdrop-filter: blur(10px);
+}
+
+.message-app-shell .message-list-selection-summary {
+  margin-right: auto;
+}
+
+.message-app-shell .message-list-workspace-actions strong {
+  color: #587286;
+  font-size: 10px;
+}
+
+.message-app-shell .message-list-workspace-actions small {
+  display: none;
+}
+
+.message-app-shell .message-list-workspace-actions > button,
+.message-app-shell .message-list-delete-confirm > button {
+  min-height: 38px;
+  padding: 0 15px;
+  border: 1px solid #bdd5e4;
+  border-radius: 10px;
+  color: #31536a;
+  background: #fff;
+  font-size: 10px;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.message-app-shell .message-list-workspace-actions > button.primary {
+  border-color: #0874bd;
+  color: #fff;
+  background: #0874bd;
+}
+
+.message-app-shell .message-list-workspace-actions > button.primary:hover:not(:disabled) {
+  background: #0668a8;
+}
+
+.message-app-shell .message-list-workspace-actions > button:disabled,
+.message-app-shell .message-list-delete-confirm > button:disabled {
+  cursor: not-allowed;
+  opacity: .55;
+}
+
+.message-app-shell .message-list-delete-trigger {
+  border-color: transparent !important;
+  color: #aa343b !important;
+  background: transparent !important;
+}
+
+.message-app-shell .message-list-delete-trigger:hover:not(:disabled) {
+  border-color: #efd0d3 !important;
+  background: #fff3f4 !important;
+}
+
+.message-app-shell .message-list-delete-confirm {
+  display: grid;
+  width: 100%;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: 8px;
+}
+
+.message-app-shell .message-list-delete-confirm > span {
+  min-width: 0;
+  color: #773d42;
+  font-size: 10px;
+  font-weight: 750;
+}
+
+.message-app-shell .message-list-delete-confirm > button.danger {
+  border-color: #e2aeb2;
+  color: #aa343b;
+  background: #fff;
+}
+
+.message-app-shell .message-list-delete-confirm > button.danger:hover:not(:disabled) {
+  border-color: #cf7c82;
+  background: #fff0f1;
+}
+
+.message-app-shell .message-list-workspace button:focus-visible,
+.message-app-shell .message-list-workspace input:focus-visible,
+.message-app-shell .message-conversation-filter-strip button:focus-visible {
+  outline: 3px solid rgba(8, 116, 197, .18);
+  outline-offset: 2px;
+}
+
+.message-app-shell .message-list-welcome-brand {
+  color: #0874bd;
+  background: #f7fbfe;
+}
+
+.message-app-shell .message-list-welcome-brand svg {
+  width: 30px;
+  height: 30px;
+}
+
+.message-app-shell.theme-dark .message-conversation-filter-strip > button {
+  border-color: #315064;
+  color: #b8cedc;
+  background: #183344;
+}
+
+.message-app-shell.theme-dark .message-conversation-filter-strip > button:hover {
+  border-color: #44718d;
+  color: #d9eef9;
+  background: #203f52;
+}
+
+.message-app-shell.theme-dark .message-conversation-filter-strip > button.active {
+  border-color: #2694ce;
+  color: #fff;
+  background: #1683bd;
+}
+
+.message-app-shell.theme-dark .message-filter-divider {
+  background: #315064;
+}
+
+.message-app-shell.theme-dark .message-list-filter-label {
+  color: #8da8ba;
+}
+
+.message-app-shell.theme-dark .message-list-workspace {
+  color: var(--message-copy);
+  background: var(--message-page-bg);
+}
+
+.message-app-shell.theme-dark .message-list-workspace-header,
+.message-app-shell.theme-dark .message-list-editor-card,
+.message-app-shell.theme-dark .message-list-workspace-actions {
+  border-color: var(--message-line);
+  background: var(--message-panel);
+  box-shadow: none;
+}
+
+.message-app-shell.theme-dark .message-list-workspace-header h2,
+.message-app-shell.theme-dark .message-list-editor-heading h3,
+.message-app-shell.theme-dark .message-list-picker-copy strong,
+.message-app-shell.theme-dark .message-list-workspace-actions strong {
+  color: var(--message-copy);
+}
+
+.message-app-shell.theme-dark .message-list-name-field > span,
+.message-app-shell.theme-dark .message-list-picker-copy small,
+.message-app-shell.theme-dark .message-list-workspace-state {
+  color: var(--message-muted);
+}
+
+.message-app-shell.theme-dark .message-list-name-field input,
+.message-app-shell.theme-dark .message-list-picker-search,
+.message-app-shell.theme-dark .message-list-picker,
+.message-app-shell.theme-dark .message-list-picker-row {
+  border-color: var(--message-line);
+  color: var(--message-copy);
+  background: var(--message-field);
+}
+
+.message-app-shell.theme-dark .message-list-picker-row:hover,
+.message-app-shell.theme-dark .message-list-picker-row.selected {
+  background: #203f51;
+}
+
+.message-app-shell.theme-dark .message-list-picker-check {
+  border-color: #45687c;
+  background: #193443;
+}
+
+.message-app-shell.theme-dark .message-list-picker-row.selected .message-list-picker-check {
+  border-color: #2494d0;
+  background: #1683bd;
+}
+
+.message-app-shell.theme-dark .message-list-delete-trigger {
+  color: #f0aeb4 !important;
+}
+
+.message-app-shell.theme-dark .message-list-delete-trigger:hover:not(:disabled) {
+  border-color: #68464c !important;
+  background: #39282d !important;
+}
+
+.message-app-shell.theme-dark .message-list-delete-confirm > span {
+  color: #f1c2c6;
+}
+
+@media (min-width: 1200px) {
+  .message-app-shell .message-conversation-filter-strip {
+    margin-inline: 18px;
+  }
+}
+
+@media (max-width: 900px) {
+  .message-app-shell .message-list-workspace-body {
+    width: min(100% - 28px, 820px);
+    padding-top: 16px;
+  }
+}
+
+@media (max-width: 680px) {
+  .message-app-shell .message-conversation-filter-strip {
+    margin: 0 10px 8px;
+    gap: 6px;
+  }
+
+  .message-app-shell .message-conversation-filter-strip > button {
+    min-height: 32px;
+    padding-inline: 12px;
+  }
+
+  .message-app-shell .message-list-filter-label,
+  .message-app-shell .message-filter-divider {
+    display: none;
+  }
+
+  .message-app-shell .message-list-workspace-header {
+    min-height: 66px;
+    grid-template-columns: 36px minmax(0, 1fr);
+    gap: 9px;
+    padding: max(9px, env(safe-area-inset-top)) 11px 9px;
+  }
+
+  .message-app-shell .message-list-workspace-header .message-mobile-back {
+    display: grid;
+  }
+
+  .message-app-shell .message-list-workspace-header .message-workspace-close-action {
+    display: none;
+  }
+
+  .message-app-shell .message-list-workspace-header h2 {
+    font-size: 17px;
+  }
+
+  .message-app-shell .message-list-workspace-body {
+    width: 100%;
+    padding: 10px;
+    gap: 10px;
+  }
+
+  .message-app-shell .message-list-editor-card {
+    padding: 14px;
+    border-radius: 13px;
+  }
+
+  .message-app-shell .message-list-picker {
+    max-height: 46vh;
+  }
+
+  .message-app-shell .message-list-picker-row {
+    grid-template-columns: auto 38px minmax(0, 1fr) 22px;
+    gap: 8px;
+    padding: 9px 10px;
+  }
+
+  .message-app-shell .message-list-picker-row .message-avatar,
+  .message-app-shell .message-list-picker-row .message-group-avatar {
+    width: 36px;
+    height: 36px;
+  }
+
+  .message-app-shell .message-list-workspace-actions {
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+
+  .message-app-shell .message-list-selection-summary {
+    margin-right: auto;
+  }
+
+  .message-app-shell .message-list-workspace-actions > button {
+    width: auto;
+  }
+
+  .message-app-shell .message-list-delete-confirm {
+    grid-template-columns: 1fr auto auto;
+  }
+
+  .message-app-shell .message-list-delete-confirm > span {
+    grid-column: 1 / -1;
+    text-align: left;
+  }
+}
+
+/* Create/Edit list is a focused workspace, not a duplicate two-pane chat view. */
+.message-app-shell .message-workspace.list-management-open {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.message-app-shell .message-workspace.list-management-open .message-chat-panel {
+  grid-column: 1;
 }

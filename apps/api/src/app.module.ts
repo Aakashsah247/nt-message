@@ -18,7 +18,6 @@ import { MonitoringModule } from './monitoring/monitoring.module';
 import { OrganizationModule } from './organization/organization.module';
 import { WorkManagementModule } from './work-management/work-management.module';
 import { TeamManagementModule } from './team-management/team-management.module';
-import { ListsModule } from './lists/lists.module';
 
 @Module({
   imports: [
@@ -41,7 +40,6 @@ import { ListsModule } from './lists/lists.module';
     AccountRequestsModule,
     WorkManagementModule,
     TeamManagementModule,
-    ListsModule,
   ],
 
   controllers: [AppController],

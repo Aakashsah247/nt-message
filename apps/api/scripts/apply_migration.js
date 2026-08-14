@@ -15,7 +15,18 @@ if (!url) {
   process.exit(2);
 }
 const urlNoQuery = url.split('?')[0];
-const sqlFile = path.resolve(__dirname, '../prisma/migrations/20260813000100_add_message_lists/migration.sql');
+// Allow specifying a migration SQL via env or CLI arg for safety.
+// Default order: removal migration if present, then explicit MIGRATION_SQL, then legacy add migration path.
+const removalSql = path.resolve(__dirname, '../prisma/migrations/20260814000000_remove_message_lists/migration.sql');
+let sqlFile = process.env.MIGRATION_SQL || (process.argv[2] || null);
+if (sqlFile) sqlFile = path.resolve(sqlFile);
+if (!sqlFile && fs.existsSync(removalSql)) {
+  sqlFile = removalSql;
+}
+if (!sqlFile) {
+  // legacy fallback for compatibility
+  sqlFile = path.resolve(__dirname, '../prisma/migrations/20260813000100_add_message_lists/migration.sql');
+}
 if (!fs.existsSync(sqlFile)) {
   console.error('Migration SQL not found:', sqlFile);
   process.exit(2);

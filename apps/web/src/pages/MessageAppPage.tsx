@@ -26,6 +26,7 @@ import {
   blockMessageRequest,
   blockMessagingAccount,
   clearMessagingConversation,
+  createChatFolder,
   createGroupConversation,
   createGroupInvitationLink,
   createOfficialGroupConversation,
@@ -33,6 +34,7 @@ import {
   createPrivateGroupFromPrivateConversation,
   createMessagingProfilePhotoObjectUrl,
   createGroupPhotoObjectUrl,
+  deleteChatFolder,
   deleteGroupPhoto,
   deleteMyMessagingProfilePhoto,
   declineMessageRequest,
@@ -56,6 +58,7 @@ import {
   forwardConversationMessage,
   joinGroupInvitation,
   leaveGroupConversation,
+  listChatFolders,
   listConversationMessages,
   listConversationPinnedMessages,
   listStarredMessages,
@@ -75,6 +78,7 @@ import {
   reactToMessage,
   searchMessagingContacts,
   starConversationMessage,
+  updateChatFolder,
   updateConversationPreference,
   updateMyMessagingProfile,
   updateMessagingPrivacySettings,
@@ -196,6 +200,7 @@ import type {
   StarredMessageItem,
   ConversationStorageUsageResponse,
   UserStorageUsageResponse,
+  ChatFolder,
 } from "../types/messaging";
 
 type RealtimeConnectionStatus =
@@ -2453,6 +2458,8 @@ function roleLabel(value: string): string {
 type MessageNavigationIconName =
   | "search"
   | "chats"
+  | "list"
+  | "edit"
   | "requests"
   | "groups"
   | "official"
@@ -2508,6 +2515,20 @@ function MessageNavigationIcon({ name }: { name: MessageNavigationIconName }) {
         <svg {...commonProps}>
           <path d="M5 17.5 3.5 21l4-1.7c1.2.5 2.6.7 4 .7 4.7 0 8.5-3.2 8.5-7.2S16.2 5.5 11.5 5.5 3 8.7 3 12.8c0 1.8.8 3.4 2 4.7Z" />
           <path d="M8 11h7M8 14h4.5" />
+        </svg>
+      );
+    case "list":
+      return (
+        <svg {...commonProps}>
+          <rect x="4" y="4" width="16" height="16" rx="3" />
+          <path d="M8 9h8M8 13h8M8 17h5" />
+        </svg>
+      );
+    case "edit":
+      return (
+        <svg {...commonProps}>
+          <path d="M5 19h4l9.5-9.5a2.1 2.1 0 0 0-3-3L6 16v3Z" />
+          <path d="m13.8 8.2 3 3" />
         </svg>
       );
     case "requests":
@@ -3192,6 +3213,7 @@ export function MessageAppPage() {
     "/messages/announcements",
   );
   const starredMode = location.pathname.startsWith("/messages/starred");
+  const archivedMode = location.pathname.startsWith("/messages/archived");
   const requestMode = location.pathname.startsWith("/messages/requests");
   const notificationMode = location.pathname.startsWith(
     "/messages/notifications",
@@ -3200,6 +3222,20 @@ export function MessageAppPage() {
   const ownProfileMode = location.pathname.startsWith("/messages/profile");
   const newConversationMode = location.pathname.startsWith("/messages/new");
   const createGroupMode = location.pathname.startsWith("/messages/groups/new");
+  const listCreateMode = location.pathname === "/messages/lists/new";
+  const listEditRouteMatch = listCreateMode
+    ? null
+    : location.pathname.match(/^\/messages\/lists\/([^/]+)\/edit$/);
+  const listViewRouteMatch =
+    listCreateMode || listEditRouteMatch
+      ? null
+      : location.pathname.match(/^\/messages\/lists\/([^/]+)$/);
+  const selectedListId =
+    listEditRouteMatch?.[1] ?? listViewRouteMatch?.[1] ?? null;
+  const listMode = selectedListId !== null;
+  const listEditMode = listEditRouteMatch !== null;
+  const listWorkspaceMode = listCreateMode || listMode;
+  const listManagementMode = listCreateMode || listEditMode;
 
   const [loggingOut, setLoggingOut] = useState(false);
   const [realtimeStatus, setRealtimeStatus] =
@@ -3212,6 +3248,23 @@ export function MessageAppPage() {
   >({});
   const [conversations, setConversations] = useState<MessagingConversation[]>(
     [],
+  );
+  const [chatFolders, setChatFolders] = useState<ChatFolder[]>([]);
+  const [chatFoldersLoading, setChatFoldersLoading] = useState(false);
+  const [chatFoldersError, setChatFoldersError] = useState<string | null>(null);
+  const [listCandidateConversations, setListCandidateConversations] = useState<
+    MessagingConversation[]
+  >([]);
+  const [listCandidatesLoading, setListCandidatesLoading] = useState(false);
+  const [listNameDraft, setListNameDraft] = useState("");
+  const [listSelectedConversationIds, setListSelectedConversationIds] =
+    useState<string[]>([]);
+  const [listCandidateSearch, setListCandidateSearch] = useState("");
+  const [listSaving, setListSaving] = useState(false);
+  const [listDeleting, setListDeleting] = useState(false);
+  const [listDeleteConfirmOpen, setListDeleteConfirmOpen] = useState(false);
+  const [listWorkspaceError, setListWorkspaceError] = useState<string | null>(
+    null,
   );
 
   const [announcementItems, setAnnouncementItems] = useState<
@@ -3273,7 +3326,7 @@ export function MessageAppPage() {
   const [announcementAttachmentActionId, setAnnouncementAttachmentActionId] =
     useState<string | null>(null);
   const [conversationListView, setConversationListView] =
-    useState<ConversationListView>("ACTIVE");
+    useState<ConversationListView>(archivedMode ? "ARCHIVED" : "ACTIVE");
   const [conversationCategory, setConversationCategory] =
     useState<ConversationCategory>("ALL");
   const [detailsPanelOpen, setDetailsPanelOpen] = useState(false);
@@ -3467,6 +3520,9 @@ export function MessageAppPage() {
   );
   const [forwardSearch, setForwardSearch] = useState("");
   const [forwardClientId, setForwardClientId] = useState<string | null>(null);
+  const [forwardDestinationError, setForwardDestinationError] = useState<
+    string | null
+  >(null);
   const [forwardSubmitting, setForwardSubmitting] = useState(false);
   const newConversationOpen = newConversationMode;
   const [groupDialogMode, setGroupDialogMode] = useState<
@@ -4340,6 +4396,13 @@ export function MessageAppPage() {
         (conversation) => conversation.id === selectedConversationId,
       ) ?? null,
     [conversations, selectedConversationId],
+  );
+  const selectedChatFolder = useMemo(
+    () =>
+      selectedListId
+        ? chatFolders.find((folder) => folder.id === selectedListId) ?? null
+        : null,
+    [chatFolders, selectedListId],
   );
   const conversationHistoryTarget = useMemo(
     () =>
@@ -5253,6 +5316,10 @@ export function MessageAppPage() {
       return officialGroupConversations;
     }
 
+    if (listMode) {
+      return conversations;
+    }
+
     return conversations.filter(
       (conversation) =>
         conversationCategory === "ALL" ||
@@ -5267,6 +5334,7 @@ export function MessageAppPage() {
     announcementMode,
     conversationCategory,
     conversations,
+    listMode,
     officialGroupConversations,
   ]);
 
@@ -5338,6 +5406,43 @@ export function MessageAppPage() {
 
     return { directChats, groupsInCommon };
   }, [account?.id, conversationSearch, conversations]);
+
+  const filteredListCandidateConversations = useMemo(() => {
+    const query = listCandidateSearch.trim().toLowerCase();
+
+    if (!query) {
+      return listCandidateConversations;
+    }
+
+    return listCandidateConversations.filter((conversation) => {
+      const participantText = conversation.participants
+        .map((participant) =>
+          [
+            participant.displayName,
+            participant.username,
+            participant.employee?.empId,
+            participant.employee?.designation,
+            participant.employee?.department?.name,
+            participant.employee?.division?.name,
+          ]
+            .filter(Boolean)
+            .join(" "),
+        )
+        .join(" ");
+
+      return [
+        conversation.title,
+        conversation.description,
+        participantText,
+        conversation.groupKind === "OFFICIAL" ? "official group" : null,
+        conversation.type === "PRIVATE" ? "private chat" : "group",
+      ]
+        .filter(Boolean)
+        .join(" ")
+        .toLowerCase()
+        .includes(query);
+    });
+  }, [listCandidateConversations, listCandidateSearch]);
 
   const announcementGroupSearchResults = useMemo(() => {
     const query = conversationSearch.trim().toLowerCase();
@@ -5494,12 +5599,13 @@ export function MessageAppPage() {
 
   const filteredForwardConversations = useMemo(() => {
     const search = forwardSearch.trim().toLowerCase();
+    const source = listMode ? listCandidateConversations : conversations;
 
     if (!search) {
-      return conversations;
+      return source;
     }
 
-    return conversations.filter((conversation) => {
+    return source.filter((conversation) => {
       const participantText = conversation.participants
         .map((participant) =>
           [
@@ -5519,7 +5625,7 @@ export function MessageAppPage() {
         .toLowerCase()
         .includes(search);
     });
-  }, [conversations, forwardSearch]);
+  }, [conversations, forwardSearch, listCandidateConversations, listMode]);
 
   const totalUnread = useMemo(
     () =>
@@ -5545,7 +5651,8 @@ export function MessageAppPage() {
           accessToken,
           undefined,
           100,
-          conversationListView,
+          listMode ? "ALL" : conversationListView,
+          listMode ? selectedListId ?? undefined : undefined,
         );
 
         setConversations(response.data);
@@ -5577,7 +5684,112 @@ export function MessageAppPage() {
         }
       }
     },
-    [accessToken, conversationListView],
+    [accessToken, conversationListView, listMode, selectedListId],
+  );
+
+  const loadChatFolders = useCallback(
+    async (silent = false): Promise<void> => {
+      if (!accessToken) {
+        setChatFolders([]);
+        return;
+      }
+
+      if (!silent) {
+        setChatFoldersLoading(true);
+      }
+
+      try {
+        const response = await listChatFolders(accessToken);
+        setChatFolders(response.data);
+        setChatFoldersError(null);
+      } catch (error) {
+        if (!silent) {
+          setChatFoldersError(
+            error instanceof Error
+              ? error.message
+              : "Your message lists could not be loaded.",
+          );
+        }
+      } finally {
+        if (!silent) {
+          setChatFoldersLoading(false);
+        }
+      }
+    },
+    [accessToken],
+  );
+
+  const loadListCandidateConversations = useCallback(
+    async (
+      errorTarget: "workspace" | "forward" = "workspace",
+    ): Promise<void> => {
+      if (!accessToken) {
+        setListCandidateConversations([]);
+        return;
+      }
+
+      setListCandidatesLoading(true);
+
+      try {
+        const collected: MessagingConversation[] = [];
+        const seenConversationIds = new Set<string>();
+        const seenCursors = new Set<string>();
+        let cursor: string | undefined;
+
+        do {
+          const response = await listMessagingConversations(
+            accessToken,
+            cursor,
+            100,
+            "ALL",
+          );
+
+          response.data.forEach((conversation) => {
+            if (!seenConversationIds.has(conversation.id)) {
+              seenConversationIds.add(conversation.id);
+              collected.push(conversation);
+            }
+          });
+
+          const nextCursor = response.pagination.nextCursor ?? undefined;
+
+          if (
+            !response.pagination.hasMore ||
+            !nextCursor ||
+            seenCursors.has(nextCursor)
+          ) {
+            cursor = undefined;
+          } else {
+            seenCursors.add(nextCursor);
+            cursor = nextCursor;
+          }
+        } while (cursor);
+
+        setListCandidateConversations(collected);
+
+        if (errorTarget === "forward") {
+          setForwardDestinationError(null);
+        } else {
+          setListWorkspaceError(null);
+        }
+      } catch (error) {
+        setListCandidateConversations([]);
+
+        const errorMessage =
+          error instanceof Error
+            ? error.message
+            : "Conversations for this list could not be loaded.";
+
+        if (errorTarget === "forward") {
+          setForwardDestinationError(errorMessage);
+        } else {
+          setListWorkspaceError(errorMessage);
+        }
+      } finally {
+        setListCandidatesLoading(false);
+      }
+    },
+    [accessToken],
   );
 
   const loadSelectedGroupAnnouncements = useCallback(
@@ -7223,6 +7435,9 @@ export function MessageAppPage() {
         true,
         selectedConversationIdRef.current ?? undefined,
       );
+      // Reconnects also refresh private list membership/counts that may have
+      // changed in another session while this tab was offline.
+      void loadChatFolders(true);
       refreshSelectedConversation();
       void loadMessageRequests(true);
     };
@@ -7529,6 +7744,13 @@ export function MessageAppPage() {
           ? undefined
           : (selectedConversationIdRef.current ?? undefined),
       );
+
+      /*
+       * Conversation visibility changes can make an existing list item appear
+       * or disappear without changing the list itself. Refresh account-private
+       * list metadata so sidebar counts never remain stale across tabs.
+       */
+      void loadChatFolders(true);
     };
 
     const handleMessageRequestUpdated = (
@@ -7611,6 +7833,7 @@ export function MessageAppPage() {
     accessToken,
     account?.id,
     applyPersonalConversationHistoryLocally,
+    loadChatFolders,
     loadConversations,
     loadMessageRequests,
     loadMessages,
@@ -7642,6 +7865,89 @@ export function MessageAppPage() {
   useEffect(() => {
     void loadConversations();
   }, [loadConversations]);
+
+  useEffect(() => {
+    void loadChatFolders();
+  }, [loadChatFolders]);
+
+  useEffect(() => {
+    if (!listManagementMode) {
+      return;
+    }
+
+    // The editor reuses the canonical conversation API. Fetch every page only
+    // while creating/editing a list instead of adding a second contact/group
+    // discovery path to the Message workspace.
+    void loadListCandidateConversations("workspace");
+  }, [listManagementMode, loadListCandidateConversations]);
+
+  useEffect(() => {
+    if (!listWorkspaceMode) {
+      setListDeleteConfirmOpen(false);
+      return;
+    }
+
+    // A custom list is a route-level workspace. Do not carry a previously
+    // selected chat or transient detail panel across list/create/edit routes.
+    setSelectedConversationId(null);
+    setDetailsPanelOpen(false);
+    setConversationActionMenuOpen(false);
+    setConversationRowMenuId(null);
+    setListDeleteConfirmOpen(false);
+    setListWorkspaceError(null);
+    setListCandidateSearch("");
+
+    if (listCreateMode) {
+      setListNameDraft("");
+      setListSelectedConversationIds([]);
+    }
+  }, [listCreateMode, listWorkspaceMode, selectedListId]);
+
+  useEffect(() => {
+    if (!listMode || !selectedChatFolder) {
+      return;
+    }
+
+    setListNameDraft(selectedChatFolder.name);
+    setListSelectedConversationIds(
+      selectedChatFolder.items.flatMap((item) =>
+        item.conversationId ? [item.conversationId] : [],
+      ),
+    );
+  }, [
+    listMode,
+    selectedChatFolder?.id,
+    selectedChatFolder?.name,
+    selectedChatFolder?.updatedAt,
+  ]);
+
+  useEffect(() => {
+    if (
+      !listMode ||
+      chatFoldersLoading ||
+      chatFoldersError ||
+      selectedChatFolder
+    ) {
+      return;
+    }
+
+    setListWorkspaceError("This message list was not found or is no longer available.");
+  }, [
+    chatFoldersError,
+    chatFoldersLoading,
+    listMode,
+    selectedChatFolder,
+  ]);
+
+  useEffect(() => {
+    if (!archivedMode) {
+      return;
+    }
+
+    setConversationCategory("ALL");
+    setConversationListView("ARCHIVED");
+    setDetailsPanelOpen(false);
+  }, [archivedMode]);
 
   useEffect(() => {
     if (!announcementMode) {
@@ -9046,7 +9352,7 @@ export function MessageAppPage() {
       setDestructiveConfirmationError(null);
       setGroupDialogMode(null);
       setSelectedConversationId(null);
-      await loadConversations(true);
+      await Promise.all([loadConversations(true), loadChatFolders(true)]);
     } catch (error) {
       const errorMessage =
         error instanceof Error ? error.message : "The group could not be left.";
@@ -9064,6 +9370,128 @@ export function MessageAppPage() {
     setContacts([]);
     setContactError(null);
     navigate("/messages/new");
+  }
+
+  function openCreateList(): void {
+    setSelectedConversationId(null);
+    setListWorkspaceError(null);
+    setListDeleteConfirmOpen(false);
+    navigate("/messages/lists/new");
+  }
+
+  function openChatFolder(folderId: string): void {
+    setSelectedConversationId(null);
+    setConversationSearch("");
+    setListWorkspaceError(null);
+    setListDeleteConfirmOpen(false);
+    navigate(`/messages/lists/${folderId}`);
+  }
+
+  function openSelectedListManager(): void {
+    if (!selectedListId) {
+      return;
+    }
+
+    setSelectedConversationId(null);
+    setDetailsPanelOpen(false);
+    setListDeleteConfirmOpen(false);
+    setListWorkspaceError(null);
+    navigate(`/messages/lists/${selectedListId}/edit`);
+  }
+
+  function toggleListConversation(conversationId: string): void {
+    setListSelectedConversationIds((current) =>
+      current.includes(conversationId)
+        ? current.filter((id) => id !== conversationId)
+        : [...current, conversationId],
+    );
+    setListWorkspaceError(null);
+  }
+
+  async function handleSaveMessageList(
+    event: FormEvent<HTMLFormElement>,
+  ): Promise<void> {
+    event.preventDefault();
+
+    if (!accessToken || listSaving) {
+      return;
+    }
+
+    const name = listNameDraft.trim().replace(/\s+/g, " ");
+
+    if (!name) {
+      setListWorkspaceError("Enter a name for this list.");
+      return;
+    }
+
+    const duplicate = chatFolders.some(
+      (folder) =>
+        folder.id !== selectedListId &&
+        folder.name.trim().toLocaleLowerCase("en-US") ===
+          name.toLocaleLowerCase("en-US"),
+    );
+
+    if (duplicate) {
+      setListWorkspaceError("You already have a list with this name.");
+      return;
+    }
+
+    setListSaving(true);
+    setListWorkspaceError(null);
+
+    try {
+      const input = {
+        name,
+        conversationIds: listSelectedConversationIds,
+      };
+
+      if (listCreateMode) {
+        const response = await createChatFolder(accessToken, input);
+        await loadChatFolders(true);
+        navigate(`/messages/lists/${response.data.id}`);
+      } else if (selectedListId) {
+        await updateChatFolder(accessToken, selectedListId, input);
+
+        setListNameDraft(name);
+        await Promise.all([loadChatFolders(true), loadConversations(true)]);
+        navigate(`/messages/lists/${selectedListId}`);
+      }
+    } catch (error) {
+      setListWorkspaceError(
+        error instanceof Error
+          ? error.message
+          : "The message list could not be saved.",
+      );
+    } finally {
+      setListSaving(false);
+    }
+  }
+
+  async function handleDeleteMessageList(): Promise<void> {
+    if (!accessToken || !selectedListId || listDeleting) {
+      return;
+    }
+
+    setListDeleting(true);
+    setListWorkspaceError(null);
+
+    try {
+      await deleteChatFolder(accessToken, selectedListId);
+      setChatFolders((current) =>
+        current.filter((folder) => folder.id !== selectedListId),
+      );
+      setSelectedConversationId(null);
+      setListDeleteConfirmOpen(false);
+      navigate("/messages");
+    } catch (error) {
+      setListWorkspaceError(
+        error instanceof Error
+          ? error.message
+          : "The message list could not be deleted.",
+      );
+    } finally {
+      setListDeleting(false);
+    }
   }
 
   function openProfile(
@@ -11445,6 +11873,7 @@ export function MessageAppPage() {
           action === "CLEAR" ? conversationId : undefined,
         ),
         loadNotifications(),
+        ...(action === "DELETE" ? [loadChatFolders(true)] : []),
       ]);
     } catch (error) {
       setConversationHistoryError(
@@ -11616,7 +12045,18 @@ export function MessageAppPage() {
     setForwardingMessage(message);
     setForwardDestinationIds([]);
     setForwardSearch("");
+    setForwardDestinationError(null);
     setForwardClientId(crypto.randomUUID());
+
+    if (listMode) {
+      /*
+       * A custom list filters the main conversation collection. Forwarding is a
+       * normal conversation action, so destination discovery must still use the
+       * user's complete authorized conversation set rather than only the
+       * conversations currently visible in this list.
+       */
+      void loadListCandidateConversations("forward");
+    }
   }
 
   function closeForwardDialog(): void {
@@ -11627,6 +12067,7 @@ export function MessageAppPage() {
     setForwardingMessage(null);
     setForwardDestinationIds([]);
     setForwardSearch("");
+    setForwardDestinationError(null);
     setForwardClientId(null);
   }
 
@@ -11690,6 +12131,7 @@ export function MessageAppPage() {
       setForwardingMessage(null);
       setForwardDestinationIds([]);
       setForwardSearch("");
+      setForwardDestinationError(null);
       setForwardClientId(null);
       await loadConversations(true, selectedConversationId ?? undefined);
     } catch (error) {
@@ -15839,19 +16281,359 @@ export function MessageAppPage() {
     );
   }
 
+  function renderMessageListWorkspaceContent(): ReactNode {
+    if (
+      listMode &&
+      !selectedChatFolder &&
+      (chatFoldersLoading || (!chatFoldersError && !listWorkspaceError))
+    ) {
+      return (
+        <div className="message-list-workspace">
+          <div className="message-list-workspace-state" role="status">
+            <span className="message-small-spinner" aria-hidden="true" />
+            <strong>Loading message list...</strong>
+          </div>
+        </div>
+      );
+    }
+
+    if (listMode && !selectedChatFolder) {
+      return (
+        <div className="message-list-workspace">
+          <header className="message-list-workspace-header">
+            <button
+              type="button"
+              className="message-mobile-back"
+              onClick={() => navigate("/messages")}
+              aria-label="Back to chats"
+            >
+              ←
+            </button>
+            <div>
+              <span>My Lists</span>
+              <h2>List unavailable</h2>
+              <p>
+                This private list may have been deleted or is not available to
+                this account.
+              </p>
+            </div>
+            <button
+              type="button"
+              className="message-workspace-close-action"
+              onClick={() => navigate("/messages")}
+            >
+              Back to chats
+            </button>
+          </header>
+          <div className="message-list-workspace-body">
+            <div className="message-list-workspace-state danger" role="alert">
+              <strong>
+                {chatFoldersError ??
+                  listWorkspaceError ??
+                  "Message list was not found."}
+              </strong>
+              <button
+                type="button"
+                onClick={() => {
+                  setListWorkspaceError(null);
+                  void loadChatFolders();
+                }}
+              >
+                Retry
+              </button>
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    const editingExistingList = listEditMode && Boolean(selectedChatFolder);
+    const selectedCount = listSelectedConversationIds.length;
+
+    return (
+      <div className="message-list-workspace">
+        <header className="message-list-workspace-header">
+          <button
+            type="button"
+            className="message-mobile-back"
+            onClick={() =>
+              listEditMode && selectedListId
+                ? navigate(`/messages/lists/${selectedListId}`)
+                : navigate("/messages")
+            }
+            aria-label={
+              listEditMode ? "Back to list conversations" : "Back to chats"
+            }
+          >
+            ←
+          </button>
+          <div>
+            <span>Messages</span>
+            <h2>{listCreateMode ? "Create list" : "Manage list"}</h2>
+          </div>
+          <button
+            type="button"
+            className="message-workspace-close-action"
+            onClick={() =>
+              listEditMode && selectedListId
+                ? navigate(`/messages/lists/${selectedListId}`)
+                : navigate("/messages")
+            }
+          >
+            {listEditMode ? "Back to list" : "Back to chats"}
+          </button>
+        </header>
+
+        <form
+          className="message-list-workspace-body"
+          onSubmit={(event) => void handleSaveMessageList(event)}
+        >
+          <section className="message-list-editor-card">
+            <div className="message-list-editor-heading">
+              <div>
+                <h3>List name</h3>
+              </div>
+              <small>{listNameDraft.length}/100</small>
+            </div>
+
+            <label className="message-list-name-field">
+              <span>List name</span>
+              <input
+                type="text"
+                value={listNameDraft}
+                maxLength={100}
+                autoComplete="off"
+                placeholder="For example: Field Team"
+                onChange={(event) => {
+                  setListNameDraft(event.target.value);
+                  setListWorkspaceError(null);
+                              }}
+                disabled={listSaving || listDeleting}
+                autoFocus={listCreateMode}
+              />
+
+            </label>
+          </section>
+
+          <section className="message-list-editor-card message-list-members-card">
+            <div className="message-list-editor-heading">
+              <div>
+                <h3>People and groups</h3>
+              </div>
+              <strong>{selectedCount} selected</strong>
+            </div>
+
+            <label className="message-list-picker-search">
+              <span className="sr-only">Search conversations to add</span>
+              <MessageNavigationIcon name="search" />
+              <input
+                type="search"
+                value={listCandidateSearch}
+                placeholder="Search people or groups"
+                onChange={(event) => setListCandidateSearch(event.target.value)}
+                disabled={listCandidatesLoading || listSaving || listDeleting}
+              />
+              {listCandidateSearch && (
+                <button
+                  type="button"
+                  onClick={() => setListCandidateSearch("")}
+                  aria-label="Clear list conversation search"
+                >
+                  ×
+                </button>
+              )}
+            </label>
+
+            <div
+              className="message-list-picker"
+              aria-busy={listCandidatesLoading}
+            >
+              {listCandidatesLoading ? (
+                <div className="message-list-workspace-state" role="status">
+                  <span className="message-small-spinner" aria-hidden="true" />
+                  <strong>Loading conversations...</strong>
+                </div>
+              ) : filteredListCandidateConversations.length === 0 ? (
+                <div className="message-list-workspace-state">
+                  <MessageNavigationIcon name="chats" />
+                  <strong>
+                    {listCandidateSearch.trim()
+                      ? "No conversations match your search."
+                      : "No conversations are available yet."}
+                  </strong>
+                  <small>
+                    Start a private chat or create a group, then add it to this
+                    list.
+                  </small>
+                </div>
+              ) : (
+                filteredListCandidateConversations.map((conversation) => {
+                  const peer = conversationPeerFor(conversation);
+                  const checked = listSelectedConversationIds.includes(
+                    conversation.id,
+                  );
+                  const category =
+                    conversation.type === "PRIVATE"
+                      ? "Private chat"
+                      : conversation.groupKind === "OFFICIAL"
+                        ? "Official group"
+                        : "Personal group";
+                  const secondary =
+                    conversation.type === "PRIVATE"
+                      ? peer?.employee?.designation ??
+                        roleLabel(peer?.role ?? "EMPLOYEE")
+                      : `${conversation.memberCount} member${conversation.memberCount === 1 ? "" : "s"}`;
+
+                  return (
+                    <label
+                      key={conversation.id}
+                      className={`message-list-picker-row${checked ? " selected" : ""}`}
+                    >
+                      <input
+                        type="checkbox"
+                        checked={checked}
+                        onChange={() => toggleListConversation(conversation.id)}
+                        disabled={listSaving || listDeleting}
+                      />
+                      <span className="message-avatar-presence">
+                        {peer
+                          ? renderAccountAvatar(peer)
+                          : renderGroupAvatar(conversation)}
+                      </span>
+                      <span className="message-list-picker-copy">
+                        <strong>
+                          {conversation.title ?? "Private conversation"}
+                        </strong>
+                        <small>
+                          {category} · {secondary}
+                        </small>
+                      </span>
+                      <span
+                        className="message-list-picker-check"
+                        aria-hidden="true"
+                      >
+                        {checked ? "✓" : ""}
+                      </span>
+                    </label>
+                  );
+                })
+              )}
+            </div>
+          </section>
+
+          {listWorkspaceError && (
+            <div className="message-list-workspace-feedback danger" role="alert">
+              {listWorkspaceError}
+            </div>
+          )}
+
+          <div className="message-list-workspace-actions">
+            {editingExistingList && listDeleteConfirmOpen ? (
+              <div
+                className="message-list-delete-confirm"
+                role="group"
+                aria-label="Confirm list deletion"
+              >
+                <span>
+                  Delete “{selectedChatFolder?.name}”? Conversations and messages
+                  stay unchanged.
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setListDeleteConfirmOpen(false)}
+                  disabled={listDeleting}
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  className="danger"
+                  onClick={() => void handleDeleteMessageList()}
+                  disabled={listDeleting}
+                >
+                  {listDeleting ? "Deleting..." : "Delete list"}
+                </button>
+              </div>
+            ) : (
+              <>
+                {editingExistingList && (
+                  <button
+                    type="button"
+                    className="message-list-delete-trigger"
+                    onClick={() => setListDeleteConfirmOpen(true)}
+                    disabled={listSaving || listDeleting}
+                  >
+                    Delete list
+                  </button>
+                )}
+                <div className="message-list-selection-summary">
+                  <strong>{selectedCount} selected</strong>
+                </div>
+                <button
+                  type="submit"
+                  className="primary"
+                  disabled={
+                    listSaving ||
+                    listDeleting ||
+                    listCandidatesLoading ||
+                    !listNameDraft.trim()
+                  }
+                >
+                  {listSaving
+                    ? "Saving..."
+                    : listCreateMode
+                      ? "Create list"
+                      : "Save changes"}
+                </button>
+              </>
+            )}
+          </div>
+        </form>
+      </div>
+    );
+  }
+
+  function renderMessageListOverviewContent(): ReactNode {
+    if (!selectedChatFolder) {
+      return null;
+    }
+
+    const conversationCount = selectedChatFolder.items.filter(
+      (item) => item.conversationId,
+    ).length;
+
+    return (
+      <div className="message-collection-welcome-state message-list-welcome-state">
+        <span className="message-collection-welcome-icon message-list-welcome-brand" aria-hidden="true">
+          <MessageNavigationIcon name="chats" />
+        </span>
+        <h2>Select a conversation</h2>
+        <p>
+          {conversationCount === 0
+            ? `${selectedChatFolder.name} is empty. Use the list menu to add an existing chat or group.`
+            : `Choose a conversation from ${selectedChatFolder.name} to continue messaging.`}
+        </p>
+      </div>
+    );
+  }
+
   const resolvedMessagingTheme = resolveMessagingTheme(
     messagingCustomization.theme,
     systemPrefersDark,
   );
-  const workspaceDetailOpen = newConversationMode
-    ? false
-    : Boolean(
-      selectedConversation ||
-      (requestMode && selectedMessageRequest) ||
-      settingsMode ||
-      ownProfileMode ||
-      createGroupMode,
-    );
+  const workspaceDetailOpen = listCreateMode
+    ? true
+    : listMode
+      ? Boolean(selectedConversation || listEditMode)
+      : newConversationMode
+        ? false
+        : Boolean(
+            selectedConversation ||
+            (requestMode && selectedMessageRequest) ||
+            settingsMode ||
+            ownProfileMode ||
+            createGroupMode,
+          );
 
   const sidebarTitle = announcementMode
     ? "Announcements"
@@ -15859,23 +16641,23 @@ export function MessageAppPage() {
       ? "Message requests"
       : starredMode
         ? "Starred messages"
-        : notificationMode
-          ? "Notifications"
-          : settingsMode
-            ? "Settings"
-            : ownProfileMode
-              ? "My profile"
-              : newConversationMode
-                ? "New conversation"
-                : createGroupMode
-                  ? "Create group"
-                  : conversationCategory === "GROUPS" ||
-                    conversationCategory === "OFFICIAL"
-                    ? "Groups"
-                    : conversationListView === "ARCHIVED"
-                      ? "Archived conversations"
-                      : conversationListView === "FAVORITES"
-                        ? "Favorite conversations"
+        : archivedMode
+          ? "Archived"
+          : notificationMode
+            ? "Notifications"
+            : settingsMode
+              ? "Settings"
+              : ownProfileMode
+                ? "My profile"
+                : newConversationMode
+                  ? "New conversation"
+                  : createGroupMode
+                    ? "Create group"
+                    : listCreateMode
+                      ? "Create list"
+                      : conversationCategory === "GROUPS" ||
+                      conversationCategory === "OFFICIAL"
+                        ? "Groups"
                         : "Conversations";
 
   return (
@@ -15932,13 +16714,15 @@ export function MessageAppPage() {
             type="button"
             className={
               !announcementMode &&
+                !starredMode &&
+                !archivedMode &&
                 !requestMode &&
                 !notificationMode &&
                 !settingsMode &&
                 !ownProfileMode &&
                 !createGroupMode &&
                 (newConversationMode ||
-                  starredMode ||
+                  listWorkspaceMode ||
                   (conversationCategory === "ALL" &&
                     (conversationListView === "ACTIVE" ||
                       conversationListView === "FAVORITES")))
@@ -15993,10 +16777,12 @@ export function MessageAppPage() {
             className={
               !announcementMode &&
                 !starredMode &&
+                !archivedMode &&
                 !requestMode &&
                 !notificationMode &&
                 !settingsMode &&
                 !ownProfileMode &&
+                !listWorkspaceMode &&
                 (createGroupMode ||
                   ((conversationCategory === "GROUPS" ||
                     conversationCategory === "OFFICIAL") &&
@@ -16016,6 +16802,36 @@ export function MessageAppPage() {
               <MessageNavigationIcon name="groups" />
             </span>
             <span className="message-rail-label">Groups</span>
+          </button>
+
+          <button
+            type="button"
+            className={starredMode ? "active" : ""}
+            onClick={() => navigate("/messages/starred")}
+            aria-label="Starred messages"
+            title={navigationExpanded ? undefined : "Starred messages"}
+          >
+            <span className="message-rail-icon">
+              <MessageNavigationIcon name="starred" />
+            </span>
+            <span className="message-rail-label">Starred messages</span>
+          </button>
+
+          <button
+            type="button"
+            className={archivedMode ? "active" : ""}
+            onClick={() => {
+              navigate("/messages/archived");
+              setConversationCategory("ALL");
+              setConversationListView("ARCHIVED");
+            }}
+            aria-label="Archived conversations"
+            title={navigationExpanded ? undefined : "Archived"}
+          >
+            <span className="message-rail-icon">
+              <MessageNavigationIcon name="archive" />
+            </span>
+            <span className="message-rail-label">Archived</span>
           </button>
 
         </nav>
@@ -16205,11 +17021,15 @@ export function MessageAppPage() {
             !privateGroupDialogOpen
             ? " details-open"
             : ""
-          }${createGroupMode ? " create-group-open" : ""}${ownProfileMode ? " profile-workspace-open" : ""}${settingsMode ? " settings-workspace-open" : ""}${notificationMode ? " notification-workspace-open" : ""}`}
+          }${createGroupMode ? " create-group-open" : ""}${listWorkspaceMode ? " list-workspace-open" : ""}${listManagementMode ? " list-management-open" : ""}${ownProfileMode ? " profile-workspace-open" : ""}${settingsMode ? " settings-workspace-open" : ""}${notificationMode ? " notification-workspace-open" : ""}`}
       >
         {/* Create Group owns the full workspace so form instructions and status
             are not duplicated in the conversation sidebar. */}
-        {!createGroupMode && !ownProfileMode && !settingsMode && !notificationMode && (
+        {!createGroupMode &&
+          !ownProfileMode &&
+          !settingsMode &&
+          !notificationMode &&
+          !listManagementMode && (
           <aside className="message-sidebar">
             <div className="message-sidebar-heading">
               <button
@@ -16230,7 +17050,9 @@ export function MessageAppPage() {
               {notificationMode ||
                 ownProfileMode ||
                 newConversationMode ||
-                createGroupMode ? (
+                createGroupMode ||
+                listCreateMode ||
+                listEditMode ? (
                 <button
                   type="button"
                   className="message-sidebar-back-action"
@@ -16240,10 +17062,23 @@ export function MessageAppPage() {
                 >
                   ←
                 </button>
+              ) : listMode ? (
+                <div className="message-sidebar-actions">
+                  <button
+                    type="button"
+                    onClick={openSelectedListManager}
+                    aria-label={`Manage ${selectedChatFolder?.name ?? "this list"}`}
+                    title="Manage list"
+                  >
+                    <MessageNavigationIcon name="edit" />
+                  </button>
+                </div>
               ) : !announcementMode &&
                 !starredMode &&
+                !archivedMode &&
                 !requestMode &&
-                !settingsMode ? (
+                !settingsMode &&
+                !listWorkspaceMode ? (
                 <div className="message-sidebar-actions">
                   <button
                     type="button"
@@ -16268,7 +17103,10 @@ export function MessageAppPage() {
               ) : null}
             </div>
 
-            {!settingsMode && !ownProfileMode && !createGroupMode && (
+            {!settingsMode &&
+              !ownProfileMode &&
+              !createGroupMode &&
+              !listManagementMode && (
               <label className="message-conversation-search">
                 <span className="sr-only">
                   {newConversationMode
@@ -16279,9 +17117,13 @@ export function MessageAppPage() {
                         ? "Search message requests"
                         : starredMode
                           ? "Search starred messages"
-                          : notificationMode
-                            ? "Search notifications"
-                            : "Search conversations"}
+                          : archivedMode
+                            ? "Search archived conversations"
+                            : notificationMode
+                              ? "Search notifications"
+                              : listMode
+                                ? `Search in ${selectedChatFolder?.name ?? "list"}`
+                                : "Search conversations"}
                 </span>
                 <span
                   className="message-conversation-search-icon"
@@ -16315,9 +17157,13 @@ export function MessageAppPage() {
                           ? "Search message requests"
                           : starredMode
                             ? "Search starred messages"
-                            : notificationMode
-                              ? "Search notifications"
-                              : "Search conversations"
+                            : archivedMode
+                              ? "Search archived conversations"
+                              : notificationMode
+                                ? "Search notifications"
+                                : listMode
+                                  ? `Search in ${selectedChatFolder?.name ?? "list"}`
+                                  : "Search conversations"
                   }
                   autoFocus={newConversationMode}
                 />
@@ -16460,20 +17306,21 @@ export function MessageAppPage() {
                     : ""}
                 </button>
               </div>
-            ) : !announcementMode ? (
+            ) : !announcementMode &&
+              !starredMode &&
+              !archivedMode &&
+              !listManagementMode ? (
               <div
-                className="message-conversation-category-tabs"
+                className="message-conversation-filter-strip"
                 aria-label={
-                  !starredMode &&
-                    (conversationCategory === "GROUPS" ||
-                      conversationCategory === "OFFICIAL")
+                  conversationCategory === "GROUPS" ||
+                  conversationCategory === "OFFICIAL"
                     ? "Group filters"
-                    : "Conversation filters"
+                    : "Conversation and custom list filters"
                 }
               >
-                {!starredMode &&
-                  (conversationCategory === "GROUPS" ||
-                    conversationCategory === "OFFICIAL") ? (
+                {conversationCategory === "GROUPS" ||
+                conversationCategory === "OFFICIAL" ? (
                   <>
                     <button
                       type="button"
@@ -16503,9 +17350,9 @@ export function MessageAppPage() {
                     <button
                       type="button"
                       className={
-                        !starredMode &&
-                          conversationCategory === "ALL" &&
-                          conversationListView === "ACTIVE"
+                        !listMode &&
+                        conversationCategory === "ALL" &&
+                        conversationListView === "ACTIVE"
                           ? "active"
                           : ""
                       }
@@ -16520,9 +17367,9 @@ export function MessageAppPage() {
                     <button
                       type="button"
                       className={
-                        !starredMode &&
-                          conversationCategory === "UNREAD" &&
-                          conversationListView === "ACTIVE"
+                        !listMode &&
+                        conversationCategory === "UNREAD" &&
+                        conversationListView === "ACTIVE"
                           ? "active"
                           : ""
                       }
@@ -16537,7 +17384,7 @@ export function MessageAppPage() {
                     <button
                       type="button"
                       className={
-                        !starredMode && conversationListView === "FAVORITES"
+                        !listMode && conversationListView === "FAVORITES"
                           ? "active"
                           : ""
                       }
@@ -16549,27 +17396,53 @@ export function MessageAppPage() {
                     >
                       Favorites
                     </button>
+
+                    <span className="message-filter-divider" aria-hidden="true" />
+                    <span className="message-list-filter-label">My Lists</span>
+
+                    {chatFoldersLoading ? (
+                      <span className="message-filter-loading" role="status">
+                        <span className="message-small-spinner" aria-hidden="true" />
+                        <span className="sr-only">Loading lists</span>
+                      </span>
+                    ) : chatFoldersError ? (
+                      <button
+                        type="button"
+                        className="message-filter-retry"
+                        onClick={() => void loadChatFolders()}
+                        title={chatFoldersError}
+                      >
+                        Retry lists
+                      </button>
+                    ) : (
+                      chatFolders.map((folder) => {
+                        const conversationCount = folder.items.filter(
+                          (item) => item.conversationId,
+                        ).length;
+
+                        return (
+                          <button
+                            key={folder.id}
+                            type="button"
+                            className={selectedListId === folder.id ? "active" : ""}
+                            onClick={() => openChatFolder(folder.id)}
+                            aria-current={selectedListId === folder.id ? "page" : undefined}
+                            title={`${folder.name} · ${conversationCount} conversation${conversationCount === 1 ? "" : "s"}`}
+                          >
+                            {folder.name}
+                          </button>
+                        );
+                      })
+                    )}
+
                     <button
                       type="button"
-                      className={starredMode ? "active" : ""}
-                      onClick={() => navigate("/messages/starred")}
+                      className="message-filter-create-list"
+                      onClick={openCreateList}
+                      aria-label="Create a new message list"
+                      title="Create list"
                     >
-                      Starred
-                    </button>
-                    <button
-                      type="button"
-                      className={
-                        !starredMode && conversationListView === "ARCHIVED"
-                          ? "active"
-                          : ""
-                      }
-                      onClick={() => {
-                        navigate("/messages");
-                        setConversationCategory("ALL");
-                        setConversationListView("ARCHIVED");
-                      }}
-                    >
-                      Archived
+                      <span aria-hidden="true">＋</span>
                     </button>
                   </>
                 )}
@@ -16599,12 +17472,27 @@ export function MessageAppPage() {
                   <span>{filteredStarredItems.length} starred</span>
                   <span>{conversationSearch.trim() ? "Search" : "Personal"}</span>
                 </>
+              ) : archivedMode ? (
+                <>
+                  <span>{filteredConversations.length} archived</span>
+                  <span>{conversationSearch.trim() ? "Search" : "Conversations"}</span>
+                </>
               ) : requestMode ? (
                 <>
                   <span>{filteredRequestItems.length} requests</span>
                   <span>
                     {requestListView === "RECEIVED" ? "Received" : "Sent"}
                   </span>
+                </>
+              ) : listCreateMode ? (
+                <>
+                  <span>{listSelectedConversationIds.length} selected</span>
+                  <span>Create list</span>
+                </>
+              ) : listMode ? (
+                <>
+                  <span>{filteredConversations.length} conversations</span>
+                  <span>{totalUnread} unread</span>
                 </>
               ) : conversationSearch.trim() ? (
                 <>
@@ -17007,13 +17895,30 @@ export function MessageAppPage() {
               ) : filteredConversations.length === 0 ? (
                 <div className="message-list-state" role="status">
                   <div className="message-empty-icon" aria-hidden="true">
-                    M
+                    {listMode ? "L" : "M"}
                   </div>
-                  <h2>No conversations found</h2>
-                  <p>Start a private conversation or create a group.</p>
-                  <button type="button" onClick={openNewConversation}>
-                    New conversation
-                  </button>
+                  <h2>
+                    {listMode
+                      ? "No conversations in this list"
+                      : archivedMode
+                        ? "No archived conversations"
+                        : "No conversations found"}
+                  </h2>
+                  <p>
+                    {listMode
+                      ? "Use the list menu to add an existing private chat or group."
+                      : archivedMode
+                        ? "Conversations you archive will appear here."
+                        : "Start a private conversation or create a group."}
+                  </p>
+                  {!archivedMode && (
+                    <button
+                      type="button"
+                      onClick={listMode ? openSelectedListManager : openNewConversation}
+                    >
+                      {listMode ? "Manage list" : "New conversation"}
+                    </button>
+                  )}
                 </div>
               ) : (
                 filteredConversations.map(renderConversationRow)
@@ -17081,6 +17986,11 @@ export function MessageAppPage() {
             </div>
           ) : createGroupMode ? (
             renderCreateGroupWorkspaceContent()
+          ) : (
+              listCreateMode ||
+              (listMode && (!selectedChatFolder || listEditMode))
+            ) && !selectedConversation ? (
+            renderMessageListWorkspaceContent()
           ) : groupManagementWorkspaceOpen &&
             selectedConversation?.type === "GROUP" ? (
             renderGroupManagementWorkspaceContent()
@@ -18100,6 +19010,16 @@ export function MessageAppPage() {
                 </section>
               </div>
             )
+          ) : listMode && !selectedConversation ? (
+            renderMessageListOverviewContent()
+          ) : archivedMode && !selectedConversation ? (
+            <div className="message-collection-welcome-state">
+              <span className="message-collection-welcome-icon" aria-hidden="true">
+                <MessageNavigationIcon name="archive" />
+              </span>
+              <h2>Select an archived conversation</h2>
+              <p>Open a conversation from your archive to continue messaging.</p>
+            </div>
           ) : starredMode && !selectedConversation ? (
             <div className="message-collection-welcome-state starred">
               <span className="message-collection-welcome-icon" aria-hidden="true">
@@ -21274,7 +22194,27 @@ export function MessageAppPage() {
             </label>
 
             <div className="message-forward-list">
-              {filteredForwardConversations.length === 0 ? (
+              {listMode && listCandidatesLoading ? (
+                <div className="message-list-state compact" role="status">
+                  <span className="message-small-spinner" aria-hidden="true" />
+                  <h3>Loading conversations...</h3>
+                  <p>Preparing your authorized forwarding destinations.</p>
+                </div>
+              ) : listMode && forwardDestinationError ? (
+                <div className="message-list-state compact" role="alert">
+                  <div className="message-empty-icon" aria-hidden="true">!</div>
+                  <h3>Conversations could not be loaded</h3>
+                  <p>{forwardDestinationError}</p>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      void loadListCandidateConversations("forward")
+                    }
+                  >
+                    Retry
+                  </button>
+                </div>
+              ) : filteredForwardConversations.length === 0 ? (
                 <div className="message-list-state compact">
                   <div className="message-empty-icon">?</div>
                   <h3>No conversations found</h3>

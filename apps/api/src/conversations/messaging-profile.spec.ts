@@ -14,6 +14,7 @@ describe('ConversationsService messaging profile serialization', () => {
       showOnlineStatus: true,
       showReadReceipts: true,
       requireMessageRequests: false,
+      superAdminProfile: null,
       employee: {
         id: 'employee-2',
         empId: 'NTC-1002',
@@ -58,5 +59,84 @@ describe('ConversationsService messaging profile serialization', () => {
     ).serializeUserProfile(account, 'viewer-account', [], 'DIRECT', null);
 
     expect(result.official?.contactNumber).toBe('9841000000');
+  });
+
+  it('uses the official Super Admin identity and phone in messaging profiles', () => {
+    const previousName = process.env.SUPER_ADMIN_NAME;
+    const previousEmail = process.env.SUPER_ADMIN_EMAIL;
+    const previousPhone = process.env.SUPER_ADMIN_PHONE;
+
+    process.env.SUPER_ADMIN_NAME = 'Configured Super Admin';
+    process.env.SUPER_ADMIN_EMAIL = 'configured-admin@example.com';
+    process.env.SUPER_ADMIN_PHONE = '9841000000';
+
+    try {
+      const service = new ConversationsService(
+        {} as never,
+        {} as never,
+        {} as never,
+      );
+      const account = {
+        id: 'super-admin-account',
+        username: 'legacy-super-admin-login@example.com',
+        role: AccountRole.SUPER_ADMIN,
+        isEnabled: true,
+        profilePhotoKey: null,
+        profileBio: null,
+        showOnlineStatus: true,
+        showReadReceipts: true,
+        requireMessageRequests: false,
+        superAdminProfile: {
+          fullName: 'Database Super Admin',
+          email: 'database-super-admin@example.com',
+          phoneNumber: '9800000000',
+        },
+        employee: null,
+      };
+
+      const result = (
+        service as unknown as {
+          serializeUserProfile: (
+            value: typeof account,
+            viewerAccountId: string,
+            sharedGroups: never[],
+            contactMode: 'SELF',
+            blockDirection: null,
+          ) => {
+            displayName: string;
+            official: {
+              employeeId: string | null;
+              officialEmail: string | null;
+              contactNumber: string | null;
+            } | null;
+          };
+        }
+      ).serializeUserProfile(account, account.id, [], 'SELF', null);
+
+      expect(result.displayName).toBe('Configured Super Admin');
+      expect(result.official).toMatchObject({
+        employeeId: null,
+        officialEmail: 'configured-admin@example.com',
+        contactNumber: '+9779841000000',
+      });
+    } finally {
+      if (previousName === undefined) {
+        delete process.env.SUPER_ADMIN_NAME;
+      } else {
+        process.env.SUPER_ADMIN_NAME = previousName;
+      }
+
+      if (previousEmail === undefined) {
+        delete process.env.SUPER_ADMIN_EMAIL;
+      } else {
+        process.env.SUPER_ADMIN_EMAIL = previousEmail;
+      }
+
+      if (previousPhone === undefined) {
+        delete process.env.SUPER_ADMIN_PHONE;
+      } else {
+        process.env.SUPER_ADMIN_PHONE = previousPhone;
+      }
+    }
   });
 });

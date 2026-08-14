@@ -23,4 +23,10 @@ export class ListConversationsQueryDto {
     message: 'Conversation view must be active, archived, favorites or all.',
   })
   view: ConversationListView = 'ACTIVE';
+
+  @IsOptional()
+  @IsUUID('4', {
+    message: 'Message list must be a valid UUID.',
+  })
+  folderId?: string;
 }
