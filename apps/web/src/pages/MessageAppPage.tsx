@@ -1073,6 +1073,8 @@ function MessageAttachmentCard({
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [previewError, setPreviewError] = useState<string | null>(null);
   const [previewRequestVersion, setPreviewRequestVersion] = useState(0);
+  const [previewEligible, setPreviewEligible] = useState(false);
+  const cardRef = useRef<HTMLElement | null>(null);
   const visualKind = attachmentVisualKind(attachment);
   const canPreview = canPreviewAttachment(attachment);
   const mediaPreview =
@@ -1082,7 +1084,44 @@ function MessageAttachmentCard({
     !attachment.isExpired && (mediaPreview || audioPreview);
 
   useEffect(() => {
-    if (!accessToken || !needsProtectedPreview) {
+    if (!needsProtectedPreview) {
+      setPreviewEligible(false);
+      return undefined;
+    }
+
+    const element = cardRef.current;
+
+    if (!element || typeof IntersectionObserver === "undefined") {
+      setPreviewEligible(true);
+      return undefined;
+    }
+
+    setPreviewEligible(false);
+    const scrollRoot = element.closest<HTMLElement>(".message-thread");
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (!entries.some((entry) => entry.isIntersecting)) {
+          return;
+        }
+
+        // Attachment binaries are private API resources. Delay fetching them
+        // until the card is close to the viewport so opening a conversation
+        // does not start dozens of image/video/audio requests at once.
+        setPreviewEligible(true);
+        observer.disconnect();
+      },
+      {
+        root: scrollRoot,
+        rootMargin: "480px 0px",
+      },
+    );
+
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, [attachment.id, needsProtectedPreview]);
+
+  useEffect(() => {
+    if (!accessToken || !needsProtectedPreview || !previewEligible) {
       return;
     }
 
@@ -1134,6 +1173,7 @@ function MessageAttachmentCard({
     conversationId,
     messageId,
     needsProtectedPreview,
+    previewEligible,
     previewRequestVersion,
   ]);
 
@@ -1144,6 +1184,7 @@ function MessageAttachmentCard({
 
   return (
     <article
+      ref={cardRef}
       className={`message-attachment-card-v2 message-attachment-${visualKind}-v2${attachment.isExpired ? " is-expired" : ""}${previewError ? " has-preview-error" : ""
         }`}
       aria-label={`${displayName}, ${attachmentMeta}`}
@@ -3510,6 +3551,9 @@ export function MessageAppPage() {
   const [activeMobileMessageId, setActiveMobileMessageId] = useState<
     string | null
   >(null);
+  const [mobileMessageActionView, setMobileMessageActionView] = useState<
+    "PRIMARY" | "MORE"
+  >("PRIMARY");
   const [reactionMenuPosition, setReactionMenuPosition] = useState<{
     top: number;
     left: number;
@@ -3920,6 +3964,7 @@ export function MessageAppPage() {
       setOpenReactionMenuId(null);
       setReactionMenuPosition(null);
       setActiveMobileMessageId(null);
+      setMobileMessageActionView("PRIMARY");
     };
 
     const handlePointerDown = (event: PointerEvent) => {
@@ -4039,7 +4084,7 @@ export function MessageAppPage() {
         .querySelector<HTMLButtonElement>(
           "[data-message-mobile-actions] [data-message-action-menu] button",
         )
-        ?.focus();
+        ?.focus({ preventScroll: true });
     });
 
     return () => window.cancelAnimationFrame(frameId);
@@ -4059,7 +4104,7 @@ export function MessageAppPage() {
     const menuRect = messageActionMenuRef.current.getBoundingClientRect();
     const viewportPadding = 10;
     const threadPadding = 8;
-    const gap = 8;
+    const horizontalGap = 8;
     const minLeft = Math.max(
       viewportPadding,
       messageActionMenuAnchor.boundaryLeft + threadPadding,
@@ -4071,14 +4116,19 @@ export function MessageAppPage() {
         messageActionMenuAnchor.boundaryRight - menuRect.width - threadPadding,
       ),
     );
+
+    // The anchor represents the whole React / Reply / More cluster. Keep the
+    // popup beside that cluster so it never covers the More trigger or another
+    // quick-action button. Incoming messages prefer the right side and outgoing
+    // messages prefer the left; flip sides when the preferred side has no room.
     const preferredLeft = messageActionMenuAnchor.ownMessage
-      ? messageActionMenuAnchor.left - menuRect.width - gap
-      : messageActionMenuAnchor.right + gap;
+      ? messageActionMenuAnchor.left - menuRect.width - horizontalGap
+      : messageActionMenuAnchor.right + horizontalGap;
     const alternateLeft = messageActionMenuAnchor.ownMessage
-      ? messageActionMenuAnchor.right + gap
-      : messageActionMenuAnchor.left - menuRect.width - gap;
-    const fitsHorizontally = (left: number) =>
-      left >= minLeft && left <= maxLeft;
+      ? messageActionMenuAnchor.right + horizontalGap
+      : messageActionMenuAnchor.left - menuRect.width - horizontalGap;
+    const fitsHorizontally = (candidate: number) =>
+      candidate >= minLeft && candidate <= maxLeft;
     const left = fitsHorizontally(preferredLeft)
       ? preferredLeft
       : fitsHorizontally(alternateLeft)
@@ -4096,27 +4146,11 @@ export function MessageAppPage() {
         messageActionMenuAnchor.boundaryBottom - menuRect.height - threadPadding,
       ),
     );
-    const availableBelow =
-      messageActionMenuAnchor.boundaryBottom -
-      threadPadding -
-      messageActionMenuAnchor.bottom;
-    const availableAbove =
-      messageActionMenuAnchor.top -
-      (messageActionMenuAnchor.boundaryTop + threadPadding);
-    const belowTop = messageActionMenuAnchor.bottom + gap;
-    const aboveTop = messageActionMenuAnchor.top - menuRect.height - gap;
 
-    // A message menu behaves like an anchored popover: it opens directly
-    // below the More button when space allows, otherwise directly above it.
-    // Clamping is only the final fallback for unusually small thread areas.
-    const preferredTop =
-      availableBelow >= menuRect.height + gap
-        ? belowTop
-        : availableAbove >= menuRect.height + gap
-          ? aboveTop
-          : availableBelow >= availableAbove
-            ? belowTop
-            : aboveTop;
+    // Align the popup with the trigger instead of opening a long dropdown
+    // underneath the message. Only shift it vertically when needed to keep the
+    // complete menu inside the conversation viewport above the composer.
+    const preferredTop = messageActionMenuAnchor.top - 4;
     const top = Math.min(maxTop, Math.max(minTop, preferredTop));
 
     setMessageActionMenuPosition({
@@ -4476,6 +4510,17 @@ export function MessageAppPage() {
   const selectedConversationIdRef = useRef<string | null>(
     selectedConversationId,
   );
+  const messageLoadRequestRef = useRef(0);
+  const messagePageCacheRef = useRef<
+    Record<
+      string,
+      {
+        messages: MessagingMessage[];
+        cursor: string | null;
+        hasOlder: boolean;
+      }
+    >
+  >({});
   const announcementLoadRequestRef = useRef(0);
   const announcementDetailRequestRef = useRef(0);
   const announcementDetailIdRef = useRef<string | null>(null);
@@ -6756,9 +6801,23 @@ export function MessageAppPage() {
         return;
       }
 
+      const requestId = messageLoadRequestRef.current + 1;
+      messageLoadRequestRef.current = requestId;
+      const cachedPage = messagePageCacheRef.current[conversationId];
+      const canUseCachedPage = !silent && Boolean(cachedPage);
+
       if (!silent) {
-        setMessageLoading(true);
-        setMessages([]);
+        if (cachedPage) {
+          // Re-opening a conversation should be instant. Show the latest in-memory
+          // page immediately, then revalidate it from the server in the background.
+          setMessages(cachedPage.messages);
+          setMessageCursor(cachedPage.cursor);
+          setHasOlderMessages(cachedPage.hasOlder);
+          setMessageLoading(false);
+        } else {
+          setMessageLoading(true);
+          setMessages([]);
+        }
       }
 
       try {
@@ -6768,6 +6827,10 @@ export function MessageAppPage() {
           undefined,
           50,
         );
+
+        if (messageLoadRequestRef.current !== requestId) {
+          return;
+        }
 
         const pendingSearchResult = pendingSearchResultRef.current;
         const pendingMessage =
@@ -6784,11 +6847,23 @@ export function MessageAppPage() {
             )
             : response.data;
 
-        // Keep an older search result visible even when the first page does not contain it.
+        const nextPage = {
+          messages: nextMessages,
+          cursor: response.pagination.nextCursor,
+          hasOlder: response.pagination.hasMore,
+        };
+
+        messagePageCacheRef.current[conversationId] = nextPage;
         setMessages(nextMessages);
-        setMessageCursor(response.pagination.nextCursor);
-        setHasOlderMessages(response.pagination.hasMore);
+        setMessageCursor(nextPage.cursor);
+        setHasOlderMessages(nextPage.hasOlder);
         setMessageError(null);
+
+        // Message content is ready now. Do not keep the mobile UI blocked while
+        // the separate read-receipt request completes.
+        if (!silent) {
+          setMessageLoading(false);
+        }
 
         const hasUnreadIncomingMessage = response.data.some(
           (message) =>
@@ -6796,31 +6871,40 @@ export function MessageAppPage() {
         );
 
         if (!silent || hasUnreadIncomingMessage) {
-          try {
-            await markConversationRead(accessToken, conversationId);
-
-            setConversations((current) =>
-              current.map((conversation) =>
-                conversation.id === conversationId
-                  ? {
-                    ...conversation,
-                    unreadCount: 0,
-                  }
-                  : conversation,
-              ),
-            );
-          } catch (error) {
-            if (!silent) {
-              setMessageError(
-                error instanceof Error
-                  ? `Messages loaded, but read status could not be updated: ${error.message}`
-                  : "Messages loaded, but read status could not be updated.",
+          void markConversationRead(accessToken, conversationId)
+            .then(() => {
+              setConversations((current) =>
+                current.map((conversation) =>
+                  conversation.id === conversationId
+                    ? {
+                      ...conversation,
+                      unreadCount: 0,
+                    }
+                    : conversation,
+                ),
               );
-            }
-          }
+            })
+            .catch((error) => {
+              if (
+                !silent &&
+                selectedConversationIdRef.current === conversationId
+              ) {
+                setMessageError(
+                  error instanceof Error
+                    ? `Messages loaded, but read status could not be updated: ${error.message}`
+                    : "Messages loaded, but read status could not be updated.",
+                );
+              }
+            });
         }
       } catch (error) {
-        if (!silent) {
+        if (messageLoadRequestRef.current !== requestId) {
+          return;
+        }
+
+        // If cached messages are already visible, a failed revalidation should
+        // not replace the conversation with a blocking error state.
+        if (!canUseCachedPage && !silent) {
           setMessageError(
             error instanceof Error
               ? error.message
@@ -6828,13 +6912,40 @@ export function MessageAppPage() {
           );
         }
       } finally {
-        if (!silent) {
+        if (!silent && messageLoadRequestRef.current === requestId) {
           setMessageLoading(false);
         }
       }
     },
     [accessToken, account?.id],
   );
+
+  useEffect(() => {
+    if (!selectedConversationId || messageLoading) {
+      return;
+    }
+
+    if (
+      messages.length > 0 &&
+      !messages.every(
+        (message) => message.conversationId === selectedConversationId,
+      )
+    ) {
+      return;
+    }
+
+    messagePageCacheRef.current[selectedConversationId] = {
+      messages,
+      cursor: messageCursor,
+      hasOlder: hasOlderMessages,
+    };
+  }, [
+    hasOlderMessages,
+    messageCursor,
+    messageLoading,
+    messages,
+    selectedConversationId,
+  ]);
 
   const loadPinnedMessages = useCallback(
     async (conversationId: string): Promise<void> => {
@@ -12810,6 +12921,7 @@ export function MessageAppPage() {
     setMessageActionMenuPosition(null);
     setMessageActionMenuAnchor(null);
     setActiveMobileMessageId(null);
+    setMobileMessageActionView("PRIMARY");
   }
 
   function closeReactionMenu(): void {
@@ -12827,6 +12939,13 @@ export function MessageAppPage() {
     return (
       typeof window !== "undefined" &&
       window.matchMedia("(hover: none), (pointer: coarse)").matches
+    );
+  }
+
+  function usesCompactMessageActionSheet(): boolean {
+    return (
+      typeof window !== "undefined" &&
+      window.matchMedia("(max-width: 900px)").matches
     );
   }
 
@@ -12948,6 +13067,23 @@ export function MessageAppPage() {
     event: MouseEvent<HTMLButtonElement>,
   ): void {
     event.stopPropagation();
+
+    // Narrow workspaces use the same bottom action sheet as touch long-press.
+    // This avoids trying to fit a desktop popover beside a 430 px conversation
+    // and keeps Chrome responsive-mode testing consistent with real phones.
+    if (usesCompactMessageActionSheet()) {
+      messageMenuOpenedByKeyboardRef.current = false;
+      setOpenMessageMenuId(null);
+      setMessageActionMenuPosition(null);
+      setMessageActionMenuAnchor(null);
+      closeReactionMenu();
+      setMobileMessageActionView("PRIMARY");
+      setActiveMobileMessageId((current) =>
+        current === messageId ? null : messageId,
+      );
+      return;
+    }
+
     messageMenuOpenedByKeyboardRef.current = event.detail === 0;
     closeReactionMenu();
 
@@ -12957,19 +13093,24 @@ export function MessageAppPage() {
     }
 
     const triggerRect = event.currentTarget.getBoundingClientRect();
+    const actionClusterRect = event.currentTarget
+      .closest<HTMLElement>(".message-bubble-actions")
+      ?.getBoundingClientRect();
+    const anchorRect = actionClusterRect ?? triggerRect;
     const threadRect = event.currentTarget
       .closest<HTMLElement>(".message-thread")
       ?.getBoundingClientRect();
 
     // The full action menu has different heights for own, incoming, attachment,
-    // and deleted messages. Store only the real trigger/thread geometry here;
-    // a layout effect measures the rendered menu before positioning it.
+    // and deleted messages. Anchor to the complete quick-action cluster rather
+    // than only the More button, then let the layout effect position the popup
+    // beside those controls without covering them.
     setMessageActionMenuPosition(null);
     setMessageActionMenuAnchor({
-      top: triggerRect.top,
-      right: triggerRect.right,
-      bottom: triggerRect.bottom,
-      left: triggerRect.left,
+      top: anchorRect.top,
+      right: anchorRect.right,
+      bottom: anchorRect.bottom,
+      left: anchorRect.left,
       ownMessage,
       boundaryTop: threadRect?.top ?? 0,
       boundaryRight: threadRect?.right ?? window.innerWidth,
@@ -13231,6 +13372,275 @@ export function MessageAppPage() {
         : attachments.length > 0
           ? `${attachments.length} ${attachmentLabel}`
           : "Message");
+
+    if (mobileSheet) {
+      const canCopyMessage = Boolean(!message.isDeleted && message.textContent);
+      const canDeleteForEveryone = canDeleteMessageForEveryone(
+        message,
+        account?.id,
+        selectedConversation,
+      );
+      const hasMoreActions =
+        ownMessage ||
+        Boolean(previewableAttachment) ||
+        attachments.length > 0 ||
+        canForwardMessage(message) ||
+        !message.isDeleted ||
+        canDeleteForEveryone;
+
+      return (
+        <div
+          className={`message-action-menu message-mobile-actions-sheet ${
+            mobileMessageActionView === "MORE"
+              ? "is-more-view"
+              : "is-primary-view"
+          }`}
+          data-message-action-menu
+          role="menu"
+          aria-label="Message actions"
+          onKeyDown={(event) =>
+            handleLinearKeyboardNavigation(event, "BOTH")
+          }
+        >
+          <div className="message-mobile-actions-handle" aria-hidden="true" />
+
+          {mobileMessageActionView === "PRIMARY" ? (
+            <>
+              {!message.isDeleted && (
+                <div
+                  className="message-mobile-quick-reactions"
+                  role="toolbar"
+                  aria-label="Quick reactions"
+                >
+                  {QUICK_REACTIONS.map((emoji) => (
+                    <button
+                      key={emoji}
+                      type="button"
+                      className={viewerReaction === emoji ? "is-selected" : ""}
+                      onClick={() => {
+                        closeTransientMessagePopups();
+                        void handleReaction(message, emoji);
+                      }}
+                      disabled={reactionActionId !== null}
+                      aria-pressed={viewerReaction === emoji}
+                      aria-label={`React with ${emoji}`}
+                    >
+                      {emoji}
+                    </button>
+                  ))}
+                </div>
+              )}
+
+              <div
+                className="message-mobile-primary-actions"
+                role="group"
+                aria-label="Primary message actions"
+              >
+                {!message.isDeleted && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      closeTransientMessagePopups();
+                      beginReply(message);
+                    }}
+                  >
+                    <MessageNavigationIcon name="reply" />
+                    <span>Reply</span>
+                  </button>
+                )}
+
+                {canCopyMessage && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      closeTransientMessagePopups();
+                      void handleCopyMessage(message);
+                    }}
+                  >
+                    <AttachmentGlyph name="copy" />
+                    <span>Copy</span>
+                  </button>
+                )}
+
+                <button
+                  type="button"
+                  className="danger"
+                  onClick={() => {
+                    closeTransientMessagePopups();
+                    openDestructiveConfirmation({
+                      kind: "DELETE_MESSAGE_FOR_ME",
+                      message,
+                    });
+                  }}
+                  disabled={messageActionId !== null}
+                >
+                  <AttachmentGlyph name="trash" />
+                  <span>Delete</span>
+                </button>
+
+                {hasMoreActions && (
+                  <button
+                    type="button"
+                    onClick={() => setMobileMessageActionView("MORE")}
+                    aria-label="More message actions"
+                  >
+                    <MessageNavigationIcon name="more" />
+                    <span>More</span>
+                  </button>
+                )}
+              </div>
+            </>
+          ) : (
+            <>
+              <div className="message-mobile-actions-header">
+                <button
+                  type="button"
+                  className="message-mobile-actions-back"
+                  onClick={() => setMobileMessageActionView("PRIMARY")}
+                  aria-label="Back to primary message actions"
+                >
+                  ←
+                </button>
+                <div>
+                  <strong>More actions</strong>
+                  <span>{mobileMessagePreview}</span>
+                </div>
+                <button
+                  type="button"
+                  className="message-mobile-actions-close"
+                  onClick={closeTransientMessagePopups}
+                  aria-label="Close message actions"
+                >
+                  ×
+                </button>
+              </div>
+
+              {ownMessage && (
+                <button
+                  type="button"
+                  role="menuitem"
+                  onClick={() => {
+                    closeTransientMessagePopups();
+                    void handleViewMessageInformation(message);
+                  }}
+                  disabled={messageInformationLoadingId !== null}
+                >
+                  <AttachmentGlyph name="info" />
+                  <span>Message info</span>
+                </button>
+              )}
+
+              {previewableAttachment && (
+                <button
+                  type="button"
+                  role="menuitem"
+                  onClick={() => {
+                    closeTransientMessagePopups();
+                    void handlePreviewAttachment(message, previewableAttachment);
+                  }}
+                >
+                  <AttachmentGlyph
+                    name={attachmentVisualKind(previewableAttachment)}
+                  />
+                  <span>View {attachmentLabel}</span>
+                </button>
+              )}
+
+              {attachments.length > 0 && (
+                <button
+                  type="button"
+                  role="menuitem"
+                  onClick={() => {
+                    closeTransientMessagePopups();
+                    void handleDownloadMessageAttachments(message);
+                  }}
+                >
+                  <AttachmentGlyph name="download" />
+                  <span>Download {attachmentLabel}</span>
+                </button>
+              )}
+
+              {canForwardMessage(message) && (
+                <button
+                  type="button"
+                  role="menuitem"
+                  onClick={() => {
+                    closeTransientMessagePopups();
+                    beginForward(message);
+                  }}
+                >
+                  <AttachmentGlyph name="forward" />
+                  <span>Forward</span>
+                </button>
+              )}
+
+              {!message.isDeleted && (
+                <button
+                  type="button"
+                  role="menuitem"
+                  onClick={() => {
+                    closeTransientMessagePopups();
+                    void handlePinMessage(message);
+                  }}
+                  disabled={pinActionId !== null}
+                >
+                  <AttachmentGlyph name="pin" />
+                  <span>{message.isPinned ? "Unpin" : "Pin"}</span>
+                </button>
+              )}
+
+              {!message.isDeleted && (
+                <button
+                  type="button"
+                  role="menuitem"
+                  onClick={() => {
+                    closeTransientMessagePopups();
+                    void handleStarMessage(message);
+                  }}
+                  disabled={messageActionId !== null}
+                >
+                  <AttachmentGlyph name="star" />
+                  <span>{message.isStarred ? "Unstar" : "Star"}</span>
+                </button>
+              )}
+
+              {ownMessage && canEditMessage(message, account?.id) && (
+                <button
+                  type="button"
+                  role="menuitem"
+                  onClick={() => {
+                    closeTransientMessagePopups();
+                    beginEdit(message);
+                  }}
+                >
+                  <AttachmentGlyph name="edit" />
+                  <span>Edit</span>
+                </button>
+              )}
+
+              {canDeleteForEveryone && (
+                <button
+                  type="button"
+                  role="menuitem"
+                  className="danger message-action-menu-destructive-start"
+                  onClick={() => {
+                    closeTransientMessagePopups();
+                    openDestructiveConfirmation({
+                      kind: "DELETE_MESSAGE_FOR_EVERYONE",
+                      message,
+                    });
+                  }}
+                  disabled={messageActionId !== null}
+                >
+                  <AttachmentGlyph name="trash" />
+                  <span>Delete for everyone</span>
+                </button>
+              )}
+            </>
+          )}
+        </div>
+      );
+    }
 
     return (
       <div
@@ -14867,7 +15277,17 @@ export function MessageAppPage() {
               <span aria-hidden="true">←</span>
             </button>
           ) : (
-            <span className="message-modern-detail-spacer" aria-hidden="true" />
+            <>
+              <span className="message-modern-detail-spacer" aria-hidden="true" />
+              <button
+                type="button"
+                className="message-modern-detail-back message-modern-detail-mobile-back"
+                onClick={closeConversationDetailsPanel}
+                aria-label="Back to conversation"
+              >
+                <span aria-hidden="true">←</span>
+              </button>
+            </>
           )}
           <div>
             <span>{returnToGroupInformation ? "Group information" : "Conversation"}</span>
@@ -15159,6 +15579,14 @@ export function MessageAppPage() {
       <div className="message-modern-detail-view message-modern-group-view">
         <header className="message-modern-detail-header">
           <span className="message-modern-detail-spacer" aria-hidden="true" />
+          <button
+            type="button"
+            className="message-modern-detail-back message-modern-detail-mobile-back"
+            onClick={closeConversationDetailsPanel}
+            aria-label="Back to conversation"
+          >
+            <span aria-hidden="true">←</span>
+          </button>
           <div>
             <span>Conversation</span>
             <strong>Group information</strong>
@@ -18270,7 +18698,10 @@ export function MessageAppPage() {
                 </button>
                 <div>
                   <span>Settings</span>
-                  <h2>Manage your messaging preferences</h2>
+                  <h2 className="message-settings-desktop-title">
+                    Manage your messaging preferences
+                  </h2>
+                  <h2 className="message-settings-mobile-title">Message settings</h2>
                   <p>Account privacy, notifications, appearance, storage and security.</p>
                 </div>
                 <button
@@ -18291,11 +18722,21 @@ export function MessageAppPage() {
                 {SETTINGS_TABS.map((tab) => (
                   <button
                     key={tab.value}
+                    id={`message-settings-mobile-tab-${tab.value.toLowerCase()}`}
                     type="button"
                     role="tab"
                     className={settingsTab === tab.value ? "active" : ""}
                     aria-selected={settingsTab === tab.value}
-                    onClick={() => setSettingsTab(tab.value)}
+                    aria-controls="message-settings-tabpanel"
+                    onClick={(event) => {
+                      setSettingsTab(tab.value);
+                      // Keep the selected chip in view on narrow screens without moving the page vertically.
+                      event.currentTarget.scrollIntoView({
+                        behavior: "smooth",
+                        block: "nearest",
+                        inline: "center",
+                      });
+                    }}
                   >
                     {tab.label}
                   </button>
@@ -18306,7 +18747,7 @@ export function MessageAppPage() {
                 id="message-settings-tabpanel"
                 className="message-settings-body"
                 role="tabpanel"
-                aria-labelledby={`message-settings-nav-${settingsTab.toLowerCase()}`}
+                aria-labelledby={`message-settings-mobile-tab-${settingsTab.toLowerCase()}`}
                 tabIndex={0}
               >
                 {settingsTab === "PRIVACY" && (
@@ -18813,6 +19254,14 @@ export function MessageAppPage() {
           ) : notificationMode ? (
             <div className="message-notification-workspace">
               <header className="message-notification-workspace-header">
+                <button
+                  type="button"
+                  className="message-mobile-back"
+                  onClick={() => navigate("/messages")}
+                  aria-label="Back to messages"
+                >
+                  ←
+                </button>
                 <div>
                   <span>Notification center</span>
                   <h2>Notifications</h2>
@@ -18867,7 +19316,55 @@ export function MessageAppPage() {
                       placeholder="Search notifications"
                     />
                   </label>
+
+                  <div
+                    className="message-notification-mobile-actions"
+                    aria-label="Notification actions"
+                  >
+                    <button
+                      type="button"
+                      onClick={() => void handleMarkAllNotificationsRead()}
+                      disabled={
+                        notificationUnreadCount === 0 ||
+                        notificationBulkAction !== null ||
+                        notificationDeletingId !== null
+                      }
+                      aria-busy={notificationBulkAction === "MARK_ALL_READ"}
+                    >
+                      {notificationBulkAction === "MARK_ALL_READ"
+                        ? "Marking..."
+                        : "Mark all read"}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => void handleDeleteReadNotifications()}
+                      disabled={
+                        notificationBulkAction !== null ||
+                        notificationDeletingId !== null ||
+                        !notifications.some((notification) => notification.isRead)
+                      }
+                      aria-busy={notificationBulkAction === "DELETE_READ"}
+                    >
+                      {notificationBulkAction === "DELETE_READ"
+                        ? "Removing..."
+                        : "Remove seen"}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => openSettingsWorkspace("NOTIFICATIONS")}
+                    >
+                      Settings
+                    </button>
+                  </div>
                 </div>
+
+                {notificationActionNotice && !notificationError && (
+                  <div className="message-notification-mobile-feedback">
+                    <p className="message-inline-notice" role="status" aria-live="polite">
+                      {notificationActionNotice}
+                    </p>
+                  </div>
+                )}
 
                 <div className="message-notification-workspace-list">
                   {notificationsLoading ? (
@@ -19134,14 +19631,6 @@ export function MessageAppPage() {
             ) : (
               <div className="message-request-detail-workspace">
                 <header className="message-request-detail-header">
-                  <button
-                    type="button"
-                    className="message-mobile-menu-button message-mobile-menu-button--chat"
-                    onClick={() => setNavigationExpanded(true)}
-                    aria-label="Open messaging navigation"
-                  >
-                    <span aria-hidden="true">☰</span>
-                  </button>
                   <button
                     type="button"
                     className="message-mobile-back"
@@ -20963,7 +21452,10 @@ export function MessageAppPage() {
                   }}
                   aria-label="Close message search"
                 >
-                  <MessageNavigationIcon name="close" />
+                  <span className="message-search-panel-mobile-back-icon" aria-hidden="true">←</span>
+                  <span className="message-search-panel-close-icon" aria-hidden="true">
+                    <MessageNavigationIcon name="close" />
+                  </span>
                 </button>
               </div>
 

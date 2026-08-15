@@ -598,7 +598,7 @@
   }
 
   .message-app-shell .message-bubble-row:hover .message-bubble-actions,
-  .message-app-shell .message-bubble-actions:focus-within {
+  .message-app-shell .message-bubble-actions:has(button:focus-visible) {
     transform: translateY(0);
     pointer-events: auto;
     opacity: 1;
@@ -3231,6 +3231,243 @@
   overflow-wrap: anywhere;
 }
 
+/* Canonical message-content components. These previously lived in the global
+   stylesheet, which let legacy mobile rules leak back into the Message app. */
+.message-app-shell .message-bubble-row.official-announcement {
+  justify-content: center;
+  max-width: 900px;
+  margin-right: auto;
+  margin-left: auto;
+}
+
+.message-app-shell .message-bubble-row.official-announcement .message-bubble-wrap {
+  max-width: min(88%, 720px);
+}
+
+.message-app-shell .message-bubble-row.official-announcement .message-bubble,
+.message-app-shell .message-bubble-row.official-announcement.own .message-bubble {
+  border: 1px solid rgba(180, 121, 18, 0.28);
+  border-radius: 16px;
+  color: #3b310d;
+  background: linear-gradient(135deg, #fff8df, #fffdf6);
+  box-shadow: 0 7px 20px rgba(113, 77, 8, 0.09);
+}
+
+.message-app-shell .message-announcement-label {
+  display: grid;
+  gap: 2px;
+  margin-bottom: 7px;
+  padding: 6px 9px;
+  border: 1px solid rgba(180, 121, 18, 0.2);
+  border-radius: 10px;
+  color: #87590a;
+  background: rgba(255, 255, 255, 0.76);
+}
+
+.message-app-shell .message-announcement-label strong {
+  font-size: 10px;
+  font-weight: 850;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.message-app-shell .message-announcement-label span {
+  color: #846a35;
+  font-size: 9px;
+  font-weight: 700;
+}
+
+.message-app-shell .message-reply-preview {
+  display: grid;
+  width: 100%;
+  min-width: 0;
+  gap: 2px;
+  margin-bottom: 7px;
+  padding: 7px 9px;
+  overflow: hidden;
+  border: 0;
+  border-left: 3px solid #0876be;
+  border-radius: 7px;
+  color: #4f6579;
+  text-align: left;
+  background: #edf4fa;
+  cursor: pointer;
+}
+
+.message-app-shell .message-reply-preview:disabled {
+  cursor: default;
+}
+
+.message-app-shell .message-reply-preview:not(:disabled):hover,
+.message-app-shell .message-reply-preview:not(:disabled):focus-visible {
+  background: #e6f1f8;
+  outline: 2px solid rgba(8, 118, 190, 0.22);
+  outline-offset: 1px;
+}
+
+.message-app-shell .message-bubble-row.own .message-reply-preview {
+  border-left-color: rgba(255, 255, 255, 0.86);
+  color: rgba(255, 255, 255, 0.92);
+  background: rgba(255, 255, 255, 0.14);
+}
+
+.message-app-shell .message-reply-preview strong,
+.message-app-shell .message-reply-preview span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.message-app-shell .message-reply-preview strong {
+  font-size: 10px;
+  font-weight: 850;
+}
+
+.message-app-shell .message-reply-preview span {
+  max-width: 100%;
+  font-size: 10px;
+}
+
+.message-app-shell .message-state-badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  margin-bottom: 6px;
+}
+
+.message-app-shell .message-state-badges span {
+  display: inline-flex;
+  min-height: 20px;
+  align-items: center;
+  padding: 2px 7px;
+  border-radius: 999px;
+  color: #245b7d;
+  background: rgba(255, 255, 255, 0.72);
+  font-size: 9px;
+  font-weight: 800;
+}
+
+.message-app-shell .message-mention-highlight {
+  display: inline;
+  padding: 1px 4px;
+  border-radius: 5px;
+  color: #075ca8;
+  background: rgba(7, 92, 168, 0.12);
+  font-weight: 750;
+}
+
+.message-app-shell .message-bubble-row.own .message-mention-highlight {
+  color: inherit;
+  background: rgba(255, 255, 255, 0.2);
+}
+
+.message-app-shell .message-text-link {
+  color: #075ca8;
+  font-weight: 760;
+  text-decoration: underline;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 2px;
+  overflow-wrap: anywhere;
+}
+
+.message-app-shell .message-bubble-row.own .message-text-link {
+  color: inherit;
+}
+
+.message-app-shell .message-typing-indicator {
+  display: flex;
+  max-width: min(82%, 540px);
+  align-items: flex-end;
+  gap: 7px;
+  margin: 10px auto 0 0;
+}
+
+.message-app-shell .message-typing-bubble {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 11px;
+  border: 1px solid #dce6ef;
+  border-radius: 6px 15px 15px 15px;
+  color: #687e90;
+  background: #fff;
+  box-shadow: 0 3px 10px rgba(29, 65, 101, 0.06);
+}
+
+.message-app-shell .message-typing-bubble > span {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+}
+
+.message-app-shell .message-typing-bubble i {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: #0876be;
+  animation: message-typing-dot 1.1s ease-in-out infinite;
+}
+
+.message-app-shell .message-typing-bubble i:nth-child(2) {
+  animation-delay: 0.14s;
+}
+
+.message-app-shell .message-typing-bubble i:nth-child(3) {
+  animation-delay: 0.28s;
+}
+
+.message-app-shell .message-typing-bubble small {
+  overflow: hidden;
+  font-size: 9px;
+  font-weight: 750;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+@keyframes message-typing-dot {
+  0%,
+  60%,
+  100% {
+    transform: translateY(0);
+    opacity: 0.45;
+  }
+
+  30% {
+    transform: translateY(-3px);
+    opacity: 1;
+  }
+}
+
+
+.message-app-shell.theme-dark .message-typing-bubble {
+  border-color: #334b5c;
+  color: #c7d4dc;
+  background: #1b2c39;
+}
+
+.message-app-shell.theme-dark
+  .message-bubble-row.official-announcement
+  .message-bubble,
+.message-app-shell.theme-dark
+  .message-bubble-row.official-announcement.own
+  .message-bubble {
+  border-color: rgba(245, 158, 11, 0.4);
+  color: #fde68a;
+  background: linear-gradient(135deg, rgba(120, 53, 15, 0.82), rgba(15, 23, 42, 0.95));
+}
+
+.message-app-shell.theme-dark .message-announcement-label {
+  border-color: rgba(245, 158, 11, 0.38);
+  color: #fde68a;
+  background: rgba(120, 53, 15, 0.38);
+}
+
+.message-app-shell.theme-dark .message-announcement-label span {
+  color: #e9c976;
+}
+
 .message-app-shell .message-bubble em {
   color: #70808d;
   font-size: 11px;
@@ -3358,7 +3595,7 @@
 }
 
 .message-app-shell .message-bubble-row:hover .message-bubble-actions,
-.message-app-shell .message-bubble-actions:focus-within {
+.message-app-shell .message-bubble-actions:has(button:focus-visible) {
   opacity: 1;
   pointer-events: auto;
   transform: translateY(0);
@@ -5428,6 +5665,40 @@ body.message-attachment-viewer-open {
   flex: 0 0 1px;
 }
 
+.message-app-shell .message-new-messages-button {
+  position: absolute;
+  right: 18px;
+  bottom: 14px;
+  z-index: 18;
+  display: inline-flex;
+  min-height: 36px;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 0 13px;
+  border: 1px solid #b9d6e8;
+  border-radius: 999px;
+  color: #0b628f;
+  background: rgba(255, 255, 255, 0.98);
+  box-shadow: 0 8px 22px rgba(19, 77, 113, 0.16);
+  font-size: 10.5px;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.message-app-shell .message-new-messages-button:hover,
+.message-app-shell .message-new-messages-button:focus-visible {
+  border-color: #7fbadd;
+  color: #075985;
+  background: #eef8fe;
+  outline: none;
+}
+
+.message-app-shell .message-new-messages-button > span {
+  font-size: 14px;
+  line-height: 1;
+}
+
 /* Mobile keeps the same destinations in a scrollable bottom navigation so
    profile, settings, notifications and emergency actions never disappear. */
 
@@ -6004,7 +6275,7 @@ body.message-attachment-viewer-open {
 
 .message-app-shell .message-bubble-row:hover .message-bubble-actions,
 .message-app-shell .message-bubble-row.actions-open .message-bubble-actions,
-.message-app-shell .message-bubble-actions:focus-within {
+.message-app-shell .message-bubble-actions:has(button:focus-visible) {
   opacity: 1;
   pointer-events: auto;
   transform: translate(0, -50%);
@@ -6088,6 +6359,226 @@ body.message-attachment-viewer-open {
   margin-top: 5px;
   border-top: 1px solid #e6ecef;
   border-radius: 0 0 8px 8px;
+}
+
+/* Mobile message actions use a real bottom sheet. The JSX already had the
+   mobile sheet path, but without these styles it inherited the desktop
+   absolute menu geometry and could render as a large blank/off-screen panel. */
+.message-app-shell .message-mobile-actions-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 760;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  padding: 14px;
+  background: rgba(10, 29, 43, 0.42);
+}
+
+.message-app-shell .message-mobile-actions-sheet {
+  position: relative;
+  inset: auto;
+  display: grid;
+  width: min(100%, 520px);
+  max-width: 100%;
+  max-height: min(86dvh, 720px);
+  padding: 8px 10px max(16px, env(safe-area-inset-bottom));
+  overflow-y: auto;
+  scrollbar-gutter: stable;
+  border: 1px solid #d4e0e8;
+  border-radius: 20px;
+  background: #fff;
+  box-shadow: 0 24px 70px rgba(10, 32, 48, 0.28);
+  overscroll-behavior: contain;
+}
+
+.message-app-shell .message-mobile-actions-handle {
+  width: 42px;
+  height: 4px;
+  justify-self: center;
+  margin: 1px 0 7px;
+  border-radius: 999px;
+  background: #c7d3dc;
+}
+
+.message-app-shell .message-mobile-actions-header {
+  display: grid;
+  grid-template-columns: 36px minmax(0, 1fr) 36px;
+  align-items: center;
+  gap: 10px;
+  position: sticky;
+  top: -8px;
+  z-index: 3;
+  padding: 8px 3px 9px;
+  border-bottom: 1px solid #e7edf1;
+  background: #fff;
+}
+
+.message-app-shell .message-mobile-actions-header > div {
+  display: grid;
+  min-width: 0;
+  gap: 2px;
+}
+
+.message-app-shell .message-mobile-actions-header strong {
+  overflow: hidden;
+  color: #18364c;
+  font-size: 13px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.message-app-shell .message-mobile-actions-header span {
+  display: -webkit-box;
+  overflow: hidden;
+  color: #6a7f8f;
+  font-size: 11px;
+  line-height: 1.35;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+.message-app-shell .message-mobile-actions-close {
+  display: grid;
+  width: 36px;
+  height: 36px;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  border-radius: 999px;
+  color: #4f6677;
+  background: #eef3f6;
+  font-size: 22px;
+  line-height: 1;
+}
+
+.message-app-shell .message-mobile-actions-back {
+  display: grid;
+  width: 36px;
+  height: 36px;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  border-radius: 999px;
+  color: #31556f;
+  background: #eef3f6;
+  font-size: 20px;
+  line-height: 1;
+}
+
+/* The first mobile layer stays compact: reactions plus the four actions users
+   reach for most often. Less common actions live behind More so the sheet does
+   not cover most of the conversation. */
+.message-app-shell .message-mobile-actions-sheet.is-primary-view {
+  overflow: visible;
+}
+
+.message-app-shell .message-mobile-primary-actions {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(64px, 1fr));
+  gap: 4px;
+  padding-top: 6px;
+  border-top: 1px solid #e7edf1;
+}
+
+.message-app-shell .message-mobile-primary-actions > button {
+  display: grid;
+  min-width: 0;
+  min-height: 62px;
+  grid-template-rows: 24px auto;
+  place-items: center;
+  gap: 6px;
+  padding: 8px 4px 7px;
+  border: 0;
+  border-radius: 12px;
+  color: #274960;
+  background: transparent;
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1.2;
+  text-align: center;
+}
+
+.message-app-shell .message-mobile-primary-actions > button:active,
+.message-app-shell .message-mobile-primary-actions > button:focus-visible {
+  background: #eef5f9;
+  outline: none;
+}
+
+.message-app-shell .message-mobile-primary-actions > button.danger {
+  color: #b4232f;
+}
+
+.message-app-shell .message-mobile-primary-actions .message-nav-svg,
+.message-app-shell .message-mobile-primary-actions svg {
+  width: 22px;
+  height: 22px;
+}
+
+.message-app-shell .message-mobile-quick-reactions {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  gap: 5px;
+  padding: 10px 0 6px;
+}
+
+.message-app-shell .message-mobile-quick-reactions button {
+  display: grid;
+  min-width: 0;
+  height: 42px;
+  place-items: center;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: 12px;
+  background: #f4f7f9;
+  font-size: 22px;
+}
+
+.message-app-shell .message-mobile-quick-reactions button.is-selected {
+  border-color: #79b8de;
+  background: #e8f5fc;
+}
+
+.message-app-shell .message-mobile-actions-sheet > button[role="menuitem"] {
+  display: grid;
+  min-height: 44px;
+  grid-template-columns: 22px minmax(0, 1fr);
+  align-items: center;
+  gap: 12px;
+  padding: 0 10px;
+  border-radius: 10px;
+  color: #1e4058;
+  font-size: 14px;
+  text-align: left;
+}
+
+.message-app-shell .message-mobile-actions-sheet > button[role="menuitem"] svg {
+  width: 19px;
+  height: 19px;
+}
+
+.message-app-shell .message-mobile-actions-sheet > button[role="menuitem"].message-action-menu-destructive-start,
+.message-app-shell .message-mobile-actions-sheet > button[role="menuitem"].danger {
+  color: #b4232f;
+}
+
+.message-app-shell .message-mobile-actions-sheet > button[role="menuitem"]:active {
+  background: #eef5f9;
+}
+
+.message-app-shell .message-bubble-row.mobile-action-selected::after {
+  position: absolute;
+  inset: -3px -5px;
+  z-index: 0;
+  content: "";
+  border-radius: 14px;
+  background: rgba(8, 118, 190, 0.07);
+  pointer-events: none;
+}
+
+.message-app-shell .message-bubble-row.mobile-action-selected > * {
+  position: relative;
+  z-index: 1;
 }
 
 .message-app-shell .message-reaction-picker-floating {
@@ -7229,7 +7720,7 @@ body.message-attachment-viewer-open {
 
 .message-app-shell .message-bubble-row:hover .message-bubble-actions,
 .message-app-shell .message-bubble-row.actions-open .message-bubble-actions,
-.message-app-shell .message-bubble-actions:focus-within {
+.message-app-shell .message-bubble-actions:has(button:focus-visible) {
   opacity: 1;
   pointer-events: auto;
   transform: translate(0, -50%) scale(1);
@@ -8356,7 +8847,8 @@ body.message-attachment-viewer-open {
     display: block;
     border: 0;
     background: rgba(4, 20, 34, 0.58);
-    backdrop-filter: blur(2px);
+    /* Avoid GPU-heavy backdrop blur on constrained/mobile devices. */
+    backdrop-filter: none;
   }
 
   .message-app-shell:not(.navigation-expanded) .message-rail-scrim {
@@ -8568,33 +9060,120 @@ body.message-attachment-viewer-open {
     width: 100%;
   }
 
+  /* A mobile chat has one clear back affordance. Showing both the global
+     hamburger and Back button wastes header space and makes the contact title
+     easier to truncate. */
+  .message-app-shell .message-workspace.conversation-open .message-chat-header {
+    grid-template-columns: 38px 42px minmax(0, 1fr) auto;
+  }
+
+  .message-app-shell
+    .message-workspace.conversation-open
+    .message-chat-header
+    > .message-mobile-menu-button--chat {
+    display: none;
+  }
+
+  /* Keep the newest message completely above the composer when the browser's
+     mobile viewport changes height or the composer grows to multiple lines. */
+  .message-app-shell .message-thread {
+    scroll-padding-bottom: 18px;
+  }
+
+  .message-app-shell .message-thread-bottom {
+    height: 12px;
+    flex-basis: 12px;
+  }
+
+  /* Sent text must remain high-contrast on phones. Attachment-only cards keep
+     their own neutral surfaces and deleted tombstones keep their muted style. */
+  .message-app-shell
+    .message-bubble-row.own:not(.attachment-only):not(.is-deleted)
+    .message-bubble {
+    border-color: #0873ba;
+    color: #fff;
+    background: #0873ba;
+  }
+
+  .message-app-shell
+    .message-bubble-row.own:not(.attachment-only):not(.is-deleted)
+    .message-bubble
+    .message-bubble-meta.inside-bubble,
+  .message-app-shell
+    .message-bubble-row.own:not(.attachment-only):not(.is-deleted)
+    .message-bubble
+    .message-bubble-meta.inside-bubble
+    .message-delivery {
+    color: rgba(255, 255, 255, 0.88);
+  }
+
+  .message-app-shell
+    .message-bubble-row.own:not(.attachment-only):not(.is-deleted)
+    .message-bubble
+    .message-bubble-meta.inside-bubble
+    .message-delivery.read {
+    color: #c9efff;
+  }
+
   .message-app-shell .message-bubble-wrap {
     max-width: min(84%, 620px);
   }
 
   .message-app-shell .message-bubble-row.has-attachments .message-bubble-wrap,
   .message-app-shell .message-bubble-row.has-location .message-bubble-wrap {
-    max-width: min(92%, 370px);
+    width: min(88%, 350px);
+    max-width: 88%;
+    min-width: 0;
   }
 
+  /* A phone does not have room for the desktop React / Reply / More pill.
+     Keep only a compact More affordance for mouse-based responsive testing;
+     touch users get the long-press bottom sheet. */
   .message-app-shell .message-bubble-actions,
   .message-app-shell .message-bubble-row:not(.own) .message-bubble-actions {
-    top: auto;
-    right: 0;
-    bottom: calc(100% + 5px);
+    top: 50%;
+    right: calc(100% + 4px);
+    bottom: auto;
     left: auto;
-    transform: translateY(4px) scale(0.96);
+    width: auto;
+    max-width: none;
+    padding: 2px;
+    transform: translate(3px, -50%) scale(0.96);
   }
 
   .message-app-shell .message-bubble-row:not(.own) .message-bubble-actions {
     right: auto;
-    left: 0;
+    left: calc(100% + 4px);
+    transform: translate(-3px, -50%) scale(0.96);
+  }
+
+  .message-app-shell .message-bubble-actions .message-action-react,
+  .message-app-shell .message-bubble-actions .message-action-reply {
+    display: none;
+  }
+
+  .message-app-shell .message-bubble-actions .message-action-more {
+    width: 30px;
+    min-width: 30px;
+    height: 30px;
+    min-height: 30px;
   }
 
   .message-app-shell .message-bubble-row:hover .message-bubble-actions,
   .message-app-shell .message-bubble-row.actions-open .message-bubble-actions,
-  .message-app-shell .message-bubble-actions:focus-within {
-    transform: translateY(0) scale(1);
+  .message-app-shell .message-bubble-actions:has(button:focus-visible) {
+    transform: translate(0, -50%) scale(1);
+  }
+
+  .message-app-shell .message-attachments-v2,
+  .message-app-shell .message-attachment-card-v2,
+  .message-app-shell .message-attachment-card-v2.message-attachment-audio-v2,
+  .message-app-shell .message-location-card-v2,
+  .message-app-shell .message-audio-player-v3 {
+    box-sizing: border-box;
+    width: 100%;
+    max-width: 100%;
+    min-width: 0;
   }
 
   .message-app-shell .message-attachments-v2,
@@ -8850,7 +9429,15 @@ body.message-attachment-viewer-open {
     min-height: 72px;
     grid-template-columns: 44px minmax(0, 1fr);
     gap: 10px;
-    padding-inline: 11px;
+    padding: 9px 50px 9px 11px;
+  }
+
+  /* Touch layouts expose the row overflow action without hover. Reserve its
+     hit area so it cannot cover the timestamp, unread badge, or title. */
+  .message-app-shell .message-conversation-row-more {
+    right: 10px;
+    width: 34px;
+    height: 34px;
   }
 
   .message-app-shell .message-conversation-row .message-avatar {
@@ -8871,7 +9458,10 @@ body.message-attachment-viewer-open {
   }
 
   .message-app-shell .message-chat-header {
-    grid-template-columns: 36px 36px 40px minmax(0, 1fr) auto;
+    /* Mobile conversation headers have one Back control, avatar, flexible
+       identity, then the fixed action cluster. Do not reintroduce the hidden
+       desktop/mobile-menu column at intermediate phone widths. */
+    grid-template-columns: 36px 40px minmax(0, 1fr) auto;
     gap: 5px;
     padding-inline: 7px;
   }
@@ -8887,11 +9477,20 @@ body.message-attachment-viewer-open {
     height: 40px;
   }
 
+  .message-app-shell .message-chat-header-actions {
+    display: flex;
+    width: auto;
+    min-width: max-content;
+    flex: 0 0 auto;
+    justify-content: flex-end;
+    gap: 3px;
+  }
+
   .message-app-shell .message-chat-header-actions button {
-    width: 32px;
-    min-width: 32px;
-    height: 32px;
-    min-height: 32px;
+    width: 34px;
+    min-width: 34px;
+    height: 34px;
+    min-height: 34px;
   }
 
   .message-app-shell .message-chat-header p {
@@ -8903,19 +9502,74 @@ body.message-attachment-viewer-open {
   }
 
   .message-app-shell .message-bubble-row {
-    gap: 6px;
+    gap: 5px;
+    margin-top: 10px;
+  }
+
+  .message-app-shell .message-bubble-row.grouped-with-previous {
+    margin-top: 2px;
   }
 
   .message-app-shell .message-bubble-wrap {
-    max-width: 88%;
+    min-width: 0;
+    max-width: min(84%, 520px);
+  }
+
+  .message-app-shell .message-bubble-row.has-attachments .message-bubble-wrap,
+  .message-app-shell .message-bubble-row.has-location .message-bubble-wrap {
+    width: min(84vw, 340px);
+    max-width: min(100%, 340px);
   }
 
   .message-app-shell .message-bubble {
+    min-width: 0;
     padding: 8px 10px 7px;
   }
 
   .message-app-shell .message-bubble p {
-    font-size: 13.5px;
+    font-size: 14px;
+    line-height: 1.42;
+  }
+
+  .message-app-shell .message-sender-name {
+    margin-left: 4px;
+    font-size: 10.5px;
+  }
+
+  .message-app-shell .message-reply-preview {
+    margin-bottom: 6px;
+    padding: 6px 8px;
+  }
+
+  .message-app-shell .message-reply-preview span {
+    display: -webkit-box;
+    overflow: hidden;
+    white-space: normal;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
+    line-clamp: 2;
+  }
+
+  .message-app-shell .message-state-badges {
+    gap: 4px;
+    margin-bottom: 5px;
+  }
+
+  .message-app-shell .message-state-badges span {
+    min-height: 18px;
+    padding-inline: 6px;
+    font-size: 8.5px;
+  }
+
+  .message-app-shell .message-reactions {
+    gap: 4px;
+    margin: 5px 0 -8px;
+  }
+
+  .message-app-shell .message-reaction-chip {
+    min-height: 28px;
+    padding-inline: 8px;
+    font-size: 12px;
   }
 
   .message-app-shell .message-avatar-spacer {
@@ -8929,8 +9583,69 @@ body.message-attachment-viewer-open {
     flex-basis: 28px;
   }
 
+
+  .message-app-shell .message-typing-indicator {
+    max-width: 84%;
+    gap: 6px;
+    margin-top: 8px;
+  }
+
+  .message-app-shell .message-typing-indicator > .message-avatar.small {
+    width: 28px;
+    height: 28px;
+    flex: 0 0 28px;
+  }
+
+  .message-app-shell .message-typing-bubble {
+    min-height: 34px;
+    padding: 7px 10px;
+  }
+
+  .message-app-shell .message-new-messages-button {
+    right: 10px;
+    bottom: 10px;
+    min-height: 34px;
+    padding-inline: 12px;
+    font-size: 10px;
+  }
+
   .message-app-shell .message-location-card-v2 {
     grid-template-columns: 76px minmax(0, 1fr);
+  }
+
+
+  .message-app-shell .message-attachment-document-v2 {
+    min-height: 66px;
+    grid-template-columns: 42px minmax(0, 1fr);
+    gap: 10px;
+    padding: 9px 10px;
+  }
+
+  .message-app-shell .message-attachment-document-icon-v2 {
+    width: 42px;
+    height: 42px;
+  }
+
+  .message-app-shell .message-attachment-document-v2 strong {
+    font-size: 12px;
+  }
+
+  .message-app-shell .message-attachment-document-v2 small {
+    font-size: 10px;
+  }
+
+  .message-app-shell .message-location-body-v2 {
+    padding: 10px;
+  }
+
+  .message-app-shell .message-location-actions-v2 {
+    gap: 5px;
+  }
+
+  .message-app-shell .message-location-actions-v2 a,
+  .message-app-shell .message-location-actions-v2 button {
+    min-height: 32px;
+    padding: 5px 8px;
   }
 
   .message-app-shell .message-composer {
@@ -8938,9 +9653,16 @@ body.message-attachment-viewer-open {
     padding-top: 7px;
   }
 
-  .message-app-shell .message-composer-main {
-    grid-template-columns: 40px 40px minmax(0, 1fr) 40px 40px;
+  .message-app-shell .message-composer-main,
+  .message-app-shell .message-composer-main.no-voice-action {
+    grid-template-columns: 40px 40px minmax(0, 1fr) 40px;
     gap: 4px;
+  }
+
+  /* The trailing slot is shared by mic/send. A disabled send control must not
+     reserve a fifth column on mobile. */
+  .message-app-shell .message-send-button.is-disabled {
+    display: none;
   }
 
   .message-app-shell .message-composer-control {
@@ -8954,7 +9676,9 @@ body.message-attachment-viewer-open {
     min-height: 40px;
     padding: 9px 11px;
     border-radius: 20px;
-    font-size: 13.5px;
+    /* iOS Safari can zoom focused controls below 16px. Keep all phone widths
+       stable instead of fixing only the 430px breakpoint. */
+    font-size: 16px;
   }
 
   .message-app-shell .message-selected-attachment {
@@ -9042,6 +9766,12 @@ body.message-attachment-viewer-open {
     padding: 0;
     border-radius: 999px;
   }
+
+  .message-app-shell .message-media-viewer-body,
+  .message-app-shell .message-media-viewer-body.is-pdf,
+  .message-app-shell .message-media-viewer-body.is-text {
+    padding-inline: 12px;
+  }
 }
 
 @media (max-width: 430px) {
@@ -9088,16 +9818,22 @@ body.message-attachment-viewer-open {
   }
 
   .message-app-shell .message-chat-header {
-    grid-template-columns: 34px 34px minmax(0, 1fr) 64px;
     gap: 4px;
     min-height: 62px;
     padding-inline: 6px;
   }
 
-  /* On narrow phones the conversation identity is more valuable than a
-     duplicated header avatar; removing it prevents Search and Info overlap. */
+  /* A narrow conversation header has four real columns: Back, avatar,
+     identity and the action cluster. The action cluster sizes itself from all
+     three controls so Search / Info / More can never overlap the contact name. */
+  .message-app-shell
+    .message-workspace.conversation-open
+    .message-chat-header {
+    grid-template-columns: 34px 38px minmax(0, 1fr) auto;
+  }
+
   .message-app-shell .message-chat-header>.message-avatar-presence.large {
-    display: none;
+    display: inline-grid;
   }
 
   .message-app-shell .message-mobile-menu-button--chat,
@@ -9112,12 +9848,11 @@ body.message-attachment-viewer-open {
   }
 
   .message-app-shell .message-chat-header-actions {
-    display: grid;
-    width: 64px;
-    min-width: 64px;
-    grid-auto-flow: column;
-    grid-auto-columns: 31px;
-    justify-content: end;
+    display: flex;
+    width: auto;
+    min-width: max-content;
+    flex: 0 0 auto;
+    justify-content: flex-end;
     gap: 2px;
   }
 
@@ -9128,9 +9863,8 @@ body.message-attachment-viewer-open {
     min-height: 31px;
   }
 
-  .message-app-shell .message-chat-header-actions button[aria-label*="group"],
   .message-app-shell .message-chat-info-action {
-    display: none;
+    display: grid;
   }
 
   .message-app-shell .message-conversation-action-menu {
@@ -9172,12 +9906,13 @@ body.message-attachment-viewer-open {
   }
 
   .message-app-shell .message-bubble-wrap {
-    max-width: 91%;
+    max-width: 86%;
   }
 
   .message-app-shell .message-bubble-row.has-attachments .message-bubble-wrap,
   .message-app-shell .message-bubble-row.has-location .message-bubble-wrap {
-    max-width: 96%;
+    width: min(84vw, 330px);
+    max-width: min(100%, 330px);
   }
 
   .message-app-shell .message-audio-player-v3 {
@@ -9213,8 +9948,15 @@ body.message-attachment-viewer-open {
     min-height: 132px;
   }
 
-  .message-app-shell .message-composer-main {
-    grid-template-columns: 38px 38px minmax(0, 1fr) 38px 38px;
+  .message-app-shell .message-composer-main,
+  .message-app-shell .message-composer-main.no-voice-action {
+    grid-template-columns: 38px 38px minmax(0, 1fr) 38px;
+  }
+
+  /* Match modern mobile composers: show the microphone while empty and swap
+     it for Send once there is content instead of reserving space for both. */
+  .message-app-shell .message-send-button.is-disabled {
+    display: none;
   }
 
   .message-app-shell .message-composer-control {
@@ -9227,7 +9969,8 @@ body.message-attachment-viewer-open {
   .message-app-shell .message-composer-main textarea {
     min-height: 38px;
     padding-inline: 9px;
-    font-size: 13px;
+    /* iOS zooms focused inputs below 16px; keep the composer stable. */
+    font-size: 16px;
   }
 
   .message-app-shell .message-attachment-menu-grid {
@@ -9249,6 +9992,50 @@ body.message-attachment-viewer-open {
     white-space: nowrap;
   }
 
+  .message-app-shell .message-mobile-actions-backdrop {
+    padding: 0;
+  }
+
+  .message-app-shell .message-mobile-actions-sheet {
+    width: 100%;
+    max-width: none;
+    max-height: min(78dvh, 660px);
+    border-right: 0;
+    border-bottom: 0;
+    border-left: 0;
+    border-radius: 20px 20px 0 0;
+  }
+
+  .message-app-shell .message-mobile-actions-sheet.is-primary-view {
+    max-height: none;
+    padding: 7px 10px max(10px, env(safe-area-inset-bottom));
+  }
+
+  .message-app-shell .message-mobile-actions-sheet.is-more-view {
+    max-height: min(78dvh, 660px);
+    padding-bottom: max(14px, env(safe-area-inset-bottom));
+  }
+
+  .message-app-shell .message-mobile-quick-reactions {
+    padding: 6px 0 8px;
+  }
+
+  .message-app-shell .message-mobile-quick-reactions button {
+    height: 40px;
+    font-size: 21px;
+  }
+
+  .message-app-shell .message-mobile-primary-actions > button {
+    min-height: 64px;
+    touch-action: manipulation;
+  }
+
+  .message-app-shell .message-mobile-actions-sheet > button[role="menuitem"] {
+    min-height: 48px;
+    font-size: 14px;
+    touch-action: manipulation;
+  }
+
   .message-app-shell .message-media-viewer-header {
     gap: 8px;
     padding-inline: 8px;
@@ -9262,11 +10049,69 @@ body.message-attachment-viewer-open {
   .message-app-shell .message-media-viewer-body,
   .message-app-shell .message-media-viewer-body.is-pdf,
   .message-app-shell .message-media-viewer-body.is-text {
-    padding-inline: 40px;
+    padding-inline: 12px;
   }
 
   .message-app-shell .message-media-viewer-footer {
     padding-inline: 9px;
+  }
+}
+
+@media (max-width: 600px) {
+  .message-app-shell .message-bubble-row.official-announcement {
+    width: 100%;
+    max-width: none;
+  }
+
+  .message-app-shell .message-bubble-row.official-announcement .message-bubble-wrap {
+    width: min(92%, 520px);
+    max-width: 92%;
+  }
+
+  .message-app-shell
+    .message-bubble-row.official-announcement.own:not(.attachment-only):not(.is-deleted)
+    .message-bubble {
+    border-color: rgba(180, 121, 18, 0.28);
+    color: #3b310d;
+    background: linear-gradient(135deg, #fff8df, #fffdf6);
+  }
+
+  .message-app-shell
+    .message-bubble-row.official-announcement.own
+    .message-bubble-meta.inside-bubble,
+  .message-app-shell
+    .message-bubble-row.official-announcement.own
+    .message-bubble-meta.inside-bubble
+    .message-delivery {
+    color: #75663a;
+  }
+
+  .message-app-shell.theme-dark
+    .message-bubble-row.official-announcement.own:not(.attachment-only):not(.is-deleted)
+    .message-bubble {
+    border-color: rgba(245, 158, 11, 0.4);
+    color: #fde68a;
+    background: linear-gradient(135deg, rgba(120, 53, 15, 0.82), rgba(15, 23, 42, 0.95));
+  }
+
+  .message-app-shell .message-announcement-label {
+    border-radius: 9px;
+    padding: 6px 8px;
+  }
+
+  .message-app-shell .message-bubble-row.attachment-only .message-bubble-meta {
+    padding-inline: 4px;
+  }
+}
+
+/* Real touch devices use long-press + the mobile action sheet. Suppressing the
+   hover toolbar prevents sticky-emulated hover from covering narrow bubbles. */
+@media (hover: none) and (pointer: coarse) {
+  .message-app-shell .message-bubble-actions,
+  .message-app-shell .message-bubble-row:not(.own) .message-bubble-actions,
+  .message-app-shell .message-bubble-row:hover .message-bubble-actions,
+  .message-app-shell .message-bubble-row.actions-open .message-bubble-actions {
+    display: none;
   }
 }
 
@@ -11843,6 +12688,222 @@ body.message-attachment-viewer-open {
 }
 
 /* ============================================================
+   MESSAGE REQUEST DETAIL WORKSPACE
+   The request view is a normal focused workspace, not an unstyled collection
+   of semantic elements. These rules also give mobile a single Back affordance.
+   ============================================================ */
+
+.message-app-shell .message-request-workspace-status {
+  width: fit-content;
+  padding: 3px 7px;
+  border-radius: 999px;
+  color: #0b6f9f;
+  background: #e8f5fc;
+  font-size: 9px;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.message-app-shell .message-request-detail-workspace {
+  display: flex;
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  flex-direction: column;
+  overflow: hidden;
+  color: #183b56;
+  background: #f6fafd;
+}
+
+.message-app-shell .message-request-detail-header {
+  display: grid;
+  min-height: 72px;
+  flex: 0 0 auto;
+  grid-template-columns: 40px 44px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 14px;
+  border-bottom: 1px solid #dce7ef;
+  background: #fff;
+}
+
+.message-app-shell .message-request-detail-header > div {
+  display: grid;
+  min-width: 0;
+  gap: 2px;
+}
+
+.message-app-shell .message-request-detail-header > div > span,
+.message-app-shell .message-request-detail-header > div > p {
+  margin: 0;
+  overflow: hidden;
+  color: #6c8294;
+  font-size: 10px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.message-app-shell .message-request-detail-header h2 {
+  margin: 0;
+  overflow: hidden;
+  color: #173955;
+  font-size: 16px;
+  line-height: 1.2;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.message-app-shell .message-request-detail-status {
+  justify-self: end;
+  padding: 5px 9px;
+  border-radius: 999px;
+  color: #0c6d9c;
+  background: #e8f5fc;
+  font-size: 10px;
+  font-weight: 800;
+}
+
+.message-app-shell .message-request-detail-body {
+  display: grid;
+  width: min(100% - 32px, 760px);
+  min-height: 0;
+  align-content: start;
+  gap: 14px;
+  margin: 0 auto;
+  padding: 22px 0 28px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+.message-app-shell .message-request-detail-card,
+.message-app-shell .message-request-detail-facts {
+  margin: 0;
+  padding: 16px;
+  border: 1px solid #dce7ef;
+  border-radius: 15px;
+  background: #fff;
+  box-shadow: 0 8px 22px rgba(20, 57, 82, 0.05);
+}
+
+.message-app-shell .message-request-detail-card > span {
+  color: #71899b;
+  font-size: 9px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.message-app-shell .message-request-detail-card h3 {
+  margin: 6px 0 5px;
+  color: #163b57;
+  font-size: 16px;
+}
+
+.message-app-shell .message-request-detail-card p {
+  margin: 0;
+  color: #5e778b;
+  font-size: 12px;
+  line-height: 1.55;
+}
+
+.message-app-shell .message-request-detail-facts {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.message-app-shell .message-request-detail-facts > div {
+  min-width: 0;
+}
+
+.message-app-shell .message-request-detail-facts dt {
+  color: #7890a1;
+  font-size: 9px;
+  font-weight: 800;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+}
+
+.message-app-shell .message-request-detail-facts dd {
+  margin: 4px 0 0;
+  overflow-wrap: anywhere;
+  color: #244a67;
+  font-size: 12px;
+  font-weight: 750;
+}
+
+.message-app-shell .message-request-detail-actions {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.message-app-shell .message-request-detail-actions button {
+  min-height: 42px;
+  padding: 0 12px;
+  border: 1px solid #cddce7;
+  border-radius: 11px;
+  color: #284f6b;
+  background: #fff;
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.message-app-shell .message-request-detail-actions button.accept {
+  border-color: #0873ba;
+  color: #fff;
+  background: #0873ba;
+}
+
+.message-app-shell .message-request-detail-actions button.danger {
+  border-color: #efd2d5;
+  color: #b4232f;
+  background: #fff7f7;
+}
+
+@media (max-width: 600px) {
+  .message-app-shell .message-request-detail-header {
+    min-height: 72px;
+    grid-template-columns: 36px 40px minmax(0, 1fr);
+    gap: 8px;
+    padding: max(8px, env(safe-area-inset-top)) 10px 8px;
+  }
+
+  .message-app-shell .message-request-detail-header .message-avatar.large {
+    width: 40px;
+    height: 40px;
+  }
+
+  .message-app-shell .message-request-detail-status {
+    grid-column: 2 / -1;
+    justify-self: start;
+    margin-top: -3px;
+  }
+
+  .message-app-shell .message-request-detail-body {
+    width: 100%;
+    gap: 10px;
+    padding: 12px 10px max(18px, env(safe-area-inset-bottom));
+  }
+
+  .message-app-shell .message-request-detail-card,
+  .message-app-shell .message-request-detail-facts {
+    padding: 13px;
+    border-radius: 13px;
+  }
+
+  .message-app-shell .message-request-detail-facts,
+  .message-app-shell .message-request-detail-actions {
+    grid-template-columns: 1fr;
+  }
+
+  .message-app-shell .message-request-detail-actions button {
+    min-height: 44px;
+  }
+}
+
+/* ============================================================
    RESPONSIVE: tablet / mobile for create-group
    ============================================================ */
 
@@ -11923,6 +12984,7 @@ body.message-attachment-viewer-open {
 }
 
 .message-app-shell .message-thread-shell {
+  position: relative;
   display: flex;
   min-height: 0;
   flex: 1 1 0;
@@ -12165,6 +13227,17 @@ body.message-attachment-viewer-open {
   height: 17px;
 }
 
+.message-app-shell .message-search-panel-mobile-back-icon {
+  display: none;
+  font-size: 19px;
+  line-height: 1;
+}
+
+.message-app-shell .message-search-panel-close-icon {
+  display: grid;
+  place-items: center;
+}
+
 .message-app-shell .message-search-panel-controls {
   flex: 0 0 auto;
   padding: 12px 14px 10px;
@@ -12379,6 +13452,75 @@ body.message-attachment-viewer-open {
   }
 }
 
+@media (max-width: 680px) {
+  .message-app-shell .message-search-panel-header {
+    min-height: 64px;
+    padding: max(8px, env(safe-area-inset-top)) 12px 8px;
+  }
+
+  .message-app-shell .message-search-panel-header strong {
+    font-size: 16px;
+  }
+
+  .message-app-shell .message-search-panel-close {
+    order: -1;
+    width: 40px;
+    height: 40px;
+    border-radius: 11px;
+  }
+
+  .message-app-shell .message-search-panel-mobile-back-icon {
+    display: inline;
+  }
+
+  .message-app-shell .message-search-panel-close-icon {
+    display: none;
+  }
+
+  .message-app-shell .message-search-panel-header {
+    justify-content: flex-start;
+  }
+
+  .message-app-shell .message-search-panel-controls {
+    padding: 10px 12px;
+  }
+
+  .message-app-shell .message-search-input-shell {
+    min-height: 46px;
+    border-radius: 13px;
+  }
+
+  .message-app-shell .message-search-input-shell input {
+    height: 44px;
+    font-size: 16px;
+  }
+
+  .message-app-shell .message-search-panel-list {
+    gap: 2px;
+    padding: 6px 8px max(12px, env(safe-area-inset-bottom));
+  }
+
+  .message-app-shell .message-search-panel-result {
+    min-height: 62px;
+    grid-template-columns: 38px minmax(0, 1fr);
+    gap: 10px;
+    padding: 10px 8px;
+  }
+
+  .message-app-shell .message-search-panel-result .message-avatar.small {
+    width: 38px;
+    height: 38px;
+  }
+
+  .message-app-shell .message-search-panel-result-heading strong {
+    font-size: 12.5px;
+  }
+
+  .message-app-shell .message-search-panel-result-snippet {
+    font-size: 11.5px;
+  }
+}
+
 /* Conversation profile and group-information rail. The modern panel markup
    is shared by private profiles and groups, so keep it as one compact,
    scrollable detail system rather than letting its text flow as plain rows. */
@@ -12434,6 +13576,10 @@ body.message-attachment-viewer-open {
 .message-app-shell .message-modern-detail-spacer {
   width: 30px;
   height: 30px;
+}
+
+.message-app-shell .message-modern-detail-mobile-back {
+  display: none;
 }
 
 .message-app-shell .message-modern-detail-back,
@@ -13347,6 +14493,188 @@ body.message-attachment-viewer-open {
 .message-app-shell .message-shared-locate-action:focus-visible {
   background: #eaf4fa;
   outline: none;
+}
+
+/* Mobile detail workspaces are full-screen task views, not compressed desktop
+   sidebars. Keep one Back affordance, larger touch targets and readable type. */
+@media (max-width: 680px) {
+  .message-app-shell .message-modern-detail-header {
+    min-height: 64px;
+    grid-template-columns: 42px minmax(0, 1fr);
+    gap: 10px;
+    padding: max(8px, env(safe-area-inset-top)) 12px 8px;
+  }
+
+  .message-app-shell .message-modern-detail-header > div > span {
+    font-size: 10px;
+  }
+
+  .message-app-shell .message-modern-detail-header > div > strong {
+    font-size: 16px;
+  }
+
+  .message-app-shell .message-modern-detail-spacer,
+  .message-app-shell .message-modern-detail-header > .message-modern-detail-close {
+    display: none;
+  }
+
+  .message-app-shell .message-modern-detail-mobile-back {
+    display: grid;
+  }
+
+  .message-app-shell .message-modern-detail-back,
+  .message-app-shell .message-modern-detail-close {
+    width: 40px;
+    height: 40px;
+    border-radius: 11px;
+  }
+
+  .message-app-shell .message-modern-detail-scroll {
+    padding-bottom: max(14px, env(safe-area-inset-bottom));
+  }
+
+  .message-app-shell .message-modern-profile-hero,
+  .message-app-shell .message-modern-group-hero {
+    gap: 9px;
+    padding: 20px 16px 18px;
+  }
+
+  .message-app-shell .message-modern-profile-hero .message-profile-photo,
+  .message-app-shell .message-modern-group-hero .message-group-photo-preview {
+    width: 82px;
+    height: 82px;
+  }
+
+  .message-app-shell .message-modern-profile-hero strong,
+  .message-app-shell .message-modern-group-hero strong {
+    font-size: 17px;
+  }
+
+  .message-app-shell .message-modern-profile-hero span,
+  .message-app-shell .message-modern-group-hero span,
+  .message-app-shell .message-modern-group-hero p {
+    font-size: 12px;
+  }
+
+  .message-app-shell .message-simple-detail-section {
+    padding: 15px 14px;
+  }
+
+  .message-app-shell .message-simple-action-row,
+  .message-app-shell .message-simple-navigation-action {
+    min-height: 48px;
+    grid-template-columns: 22px minmax(0, 1fr) auto auto;
+    gap: 10px;
+    padding-inline: 10px;
+    font-size: 13px;
+  }
+
+  .message-app-shell .message-simple-navigation-action {
+    grid-template-columns: 22px minmax(0, 1fr) auto;
+  }
+
+  .message-app-shell .message-modern-section-heading h3,
+  .message-app-shell .message-simple-detail-section > h3 {
+    font-size: 13px;
+  }
+
+  .message-app-shell .message-modern-info-list dt {
+    font-size: 10.5px;
+  }
+
+  .message-app-shell .message-modern-info-list dd {
+    font-size: 12.5px;
+  }
+
+  .message-app-shell .message-modern-search-field {
+    min-height: 46px;
+    grid-template-columns: 18px minmax(0, 1fr);
+    margin-bottom: 10px;
+    padding-inline: 12px;
+    border-radius: 12px;
+  }
+
+  .message-app-shell .message-modern-search-field input {
+    height: 44px;
+    font-size: 16px;
+  }
+
+  .message-app-shell .message-simple-member-row {
+    min-height: 56px;
+    grid-template-columns: 38px minmax(0, 1fr) auto;
+    gap: 10px;
+    padding: 7px 5px;
+  }
+
+  .message-app-shell .message-simple-member-row .message-avatar.small {
+    width: 38px;
+    height: 38px;
+  }
+
+  .message-app-shell .message-simple-member-copy strong {
+    font-size: 12.5px;
+  }
+
+  .message-app-shell .message-simple-member-copy small {
+    font-size: 11px;
+  }
+
+  .message-app-shell .message-modern-profile-actions {
+    grid-template-columns: 1fr;
+    gap: 8px;
+    padding: 12px 14px max(16px, env(safe-area-inset-bottom));
+  }
+
+  .message-app-shell .message-modern-profile-actions button {
+    min-height: 44px;
+    font-size: 12px;
+  }
+
+  .message-app-shell .message-shared-panel-tabs {
+    min-height: 54px;
+    gap: 3px;
+    padding: 7px 8px;
+  }
+
+  .message-app-shell .message-shared-panel-tabs button {
+    min-height: 40px;
+    gap: 3px;
+    padding-inline: 5px;
+    font-size: 11px;
+  }
+
+  .message-app-shell .message-shared-month-list {
+    gap: 16px;
+    padding: 12px 10px max(16px, env(safe-area-inset-bottom));
+  }
+
+  .message-app-shell .message-shared-media-grid {
+    gap: 6px;
+  }
+
+  .message-app-shell .message-shared-media-caption strong {
+    font-size: 11px;
+  }
+
+  .message-app-shell .message-shared-media-caption small,
+  .message-app-shell .message-shared-document-main small {
+    font-size: 10px;
+  }
+
+  .message-app-shell .message-shared-document-item {
+    grid-template-columns: minmax(0, 1fr) 44px;
+    min-height: 58px;
+    padding: 7px;
+  }
+
+  .message-app-shell .message-shared-download-action {
+    width: 40px;
+    height: 40px;
+  }
+
+  .message-app-shell .message-shared-link-item {
+    padding: 11px;
+  }
 }
 
 /* Raise the detail panel's text hierarchy to normal desktop readability. */
@@ -14754,7 +16082,15 @@ body.message-attachment-viewer-open {
   .message-group-management-header,
   .message-create-flow-header {
     min-height: 66px;
-    padding: 10px 12px;
+    padding: max(8px, env(safe-area-inset-top)) 12px 8px;
+  }
+
+  .message-group-management-header {
+    grid-template-columns: 40px minmax(0, 1fr);
+  }
+
+  .message-group-management-header > .message-modern-detail-close {
+    display: none;
   }
 
   .message-group-management-header strong,
@@ -14766,6 +16102,26 @@ body.message-attachment-viewer-open {
   .message-group-management-workspace > .message-modern-detail-scroll,
   .message-add-members-canvas {
     padding: 10px;
+  }
+
+  .message-modern-detail-tabs {
+    position: sticky;
+    top: 0;
+    z-index: 4;
+    margin-bottom: 10px;
+    overflow-x: auto;
+    border-radius: 11px;
+    scrollbar-width: none;
+  }
+
+  .message-modern-detail-tabs::-webkit-scrollbar {
+    display: none;
+  }
+
+  .message-modern-detail-tabs button {
+    min-width: 92px;
+    min-height: 40px;
+    flex: 1 0 auto;
   }
 
   .message-modern-shared-actions {
@@ -15471,6 +16827,10 @@ body.message-attachment-viewer-open {
   line-height: 1.2;
 }
 
+.message-app-shell .message-settings-workspace-header .message-settings-mobile-title {
+  display: none;
+}
+
 .message-app-shell .message-settings-workspace-header p {
   margin: 0;
   color: #70899b;
@@ -15797,13 +17157,36 @@ body.message-attachment-viewer-open {
 
 @media (max-width: 720px) {
   .message-app-shell .message-settings-workspace-header {
-    min-height: 68px;
-    grid-template-columns: 38px minmax(0, 1fr);
-    padding: 10px 12px;
+    min-height: 64px;
+    grid-template-columns: 40px minmax(0, 1fr);
+    gap: 10px;
+    padding: max(8px, env(safe-area-inset-top)) 12px 8px;
+  }
+
+  .message-app-shell .message-settings-workspace-header > div > span,
+  .message-app-shell .message-settings-workspace-header p {
+    display: none;
   }
 
   .message-app-shell .message-settings-workspace-header h2 {
-    font-size: 17px;
+    overflow: hidden;
+    font-size: 18px;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .message-app-shell .message-settings-workspace-header .message-settings-desktop-title {
+    display: none;
+  }
+
+  .message-app-shell .message-settings-workspace-header .message-settings-mobile-title {
+    display: block;
+  }
+
+  .message-app-shell .message-settings-workspace-header .message-mobile-back {
+    display: grid;
+    width: 40px;
+    min-height: 40px;
   }
 
   .message-app-shell .message-settings-workspace-header .message-workspace-close-action {
@@ -15812,31 +17195,182 @@ body.message-attachment-viewer-open {
 
   .message-app-shell .message-settings-workspace-layout {
     grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: auto minmax(0, 1fr);
+    align-content: stretch;
+    overflow: hidden;
   }
 
   .message-app-shell .message-settings-workspace-mobile-tabs {
     display: flex;
-    padding: 8px 10px;
+    width: 100%;
+    min-width: 0;
+    height: 56px;
+    min-height: 56px;
+    max-height: 56px;
+    flex: 0 0 56px;
+    align-items: center;
+    align-self: start;
+    padding: 8px 12px;
+    gap: 8px;
     overflow-x: auto;
     overflow-y: hidden;
     border-right: 0;
     border-bottom: 1px solid #dce8f1;
+    background: #ffffff;
+    box-sizing: border-box;
+    scrollbar-width: none;
+    overscroll-behavior-x: contain;
+    scroll-snap-type: x proximity;
+    touch-action: pan-x;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .message-app-shell .message-settings-workspace-mobile-tabs::-webkit-scrollbar {
+    display: none;
   }
 
   .message-app-shell .message-settings-workspace-mobile-tabs button {
     flex: 0 0 auto;
-    min-height: 34px;
-    padding-inline: 10px;
-    font-size: 12px;
+    width: auto;
+    height: 40px;
+    min-height: 40px;
+    max-height: 40px;
+    padding: 0 14px;
+    border: 1px solid #d7e4ed;
+    border-radius: 999px;
+    color: #466579;
+    background: #f8fbfd;
+    box-shadow: none;
+    font-size: 13px;
+    font-weight: 750;
+    line-height: 1;
+    text-align: center;
+    white-space: nowrap;
+    scroll-snap-align: center;
+    transform: none;
+  }
+
+  .message-app-shell .message-settings-workspace-mobile-tabs button:hover {
+    border-color: #acd3e8;
+    color: #086eae;
+    background: #f1f9fd;
+    transform: none;
+  }
+
+  .message-app-shell .message-settings-workspace-mobile-tabs button:focus-visible {
+    outline: 3px solid rgba(8, 120, 189, .2);
+    outline-offset: 2px;
+  }
+
+  .message-app-shell .message-settings-workspace-mobile-tabs button.active {
+    border-color: #0878bd;
+    color: #ffffff;
+    background: #0878bd;
+    box-shadow: 0 3px 8px rgba(8, 120, 189, .18);
   }
 
   .message-app-shell .message-settings-body {
-    padding: 12px;
+    min-height: 0;
+    grid-row: 2;
+    padding: 12px 12px max(20px, env(safe-area-inset-bottom));
+    overflow-y: auto;
+    overscroll-behavior-y: contain;
+  }
+
+  .message-app-shell .message-settings-section {
+    width: 100%;
+    gap: 9px;
   }
 
   .message-app-shell .message-settings-toggle {
-    min-height: 70px;
-    padding: 12px;
+    min-height: 72px;
+    gap: 12px;
+    padding: 13px 14px;
+    border-radius: 14px;
+  }
+
+  .message-app-shell .message-settings-toggle strong {
+    font-size: 14px;
+  }
+
+  .message-app-shell .message-settings-toggle small {
+    font-size: 12px;
+    line-height: 1.4;
+  }
+
+  .message-app-shell .message-settings-toggle input[type="checkbox"] {
+    position: relative;
+    width: 44px;
+    height: 26px;
+    flex: 0 0 44px;
+    appearance: none;
+    border: 0;
+    border-radius: 999px;
+    outline: none;
+    background-color: #c8d6df;
+    background-image: radial-gradient(circle, #ffffff 0 9px, transparent 10px);
+    background-repeat: no-repeat;
+    background-position: 3px center;
+    background-size: 20px 20px;
+    cursor: pointer;
+    box-shadow: inset 0 0 0 1px rgba(31, 72, 103, .08);
+    transition: background-color 150ms ease, background-position 150ms ease;
+  }
+
+  .message-app-shell .message-settings-toggle input[type="checkbox"]:checked {
+    background-color: #0878bd;
+    background-position: calc(100% - 3px) center;
+  }
+
+  .message-app-shell .message-settings-toggle input[type="checkbox"]:focus-visible {
+    box-shadow: 0 0 0 3px rgba(8, 120, 189, .18);
+  }
+
+  .message-app-shell .message-settings-toggle input[type="checkbox"]:disabled {
+    cursor: not-allowed;
+    opacity: .5;
+  }
+
+  .message-app-shell .message-customization-field select {
+    min-height: 44px;
+    font-size: 16px;
+  }
+
+  .message-app-shell .message-settings-storage-open {
+    min-height: 72px;
+    padding: 14px;
+  }
+
+  .message-app-shell .message-settings-actions {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .message-app-shell .message-settings-actions button {
+    width: 100%;
+    min-height: 44px;
+    font-size: 13px;
+  }
+
+  .message-app-shell .message-settings-blocked-list article {
+    grid-template-columns: 40px minmax(0, 1fr) auto;
+    gap: 9px;
+    padding: 10px;
+  }
+
+  .message-app-shell .message-settings-blocked-list button {
+    min-height: 40px;
+  }
+}
+
+@media (max-width: 380px) {
+  .message-app-shell .message-settings-blocked-list article {
+    grid-template-columns: 40px minmax(0, 1fr);
+  }
+
+  .message-app-shell .message-settings-blocked-list article > button {
+    grid-column: 2;
+    justify-self: start;
   }
 }
 
@@ -16169,6 +17703,41 @@ body.message-attachment-viewer-open {
 
 .message-app-shell.theme-dark .message-settings-toggle:has(input:checked) small {
   color: #acc2d0;
+}
+
+@media (max-width: 720px) {
+  .message-app-shell.theme-dark .message-settings-workspace-mobile-tabs button {
+    border-color: #334957;
+    color: #c0d0da;
+    background: #1c2a34;
+  }
+
+  .message-app-shell.theme-dark .message-settings-workspace-mobile-tabs button:hover {
+    border-color: #476679;
+    color: #e8f5fc;
+    background: #243845;
+  }
+
+  .message-app-shell.theme-dark .message-settings-workspace-mobile-tabs button.active {
+    border-color: #168bd1;
+    color: #ffffff;
+    background: #0878bd;
+    box-shadow: none;
+  }
+
+  .message-app-shell.theme-dark .message-settings-toggle input[type="checkbox"] {
+    background-color: #506774;
+  }
+
+  .message-app-shell.theme-dark .message-settings-toggle input[type="checkbox"]:checked {
+    background-color: #168bd1;
+  }
+
+  .message-app-shell.theme-dark .message-settings-workspace-header .message-mobile-back {
+    border-color: var(--message-line);
+    color: var(--message-copy);
+    background: var(--message-panel-subtle);
+  }
 }
 
 /* Profile and group information drawer: every nested surface follows dark mode. */
@@ -16533,6 +18102,11 @@ body.message-attachment-viewer-open {
   background: #fff7f8;
 }
 
+.message-app-shell .message-notification-mobile-actions,
+.message-app-shell .message-notification-mobile-feedback {
+  display: none;
+}
+
 .message-app-shell .message-notification-workspace-overview {
   display: grid;
   min-width: 0;
@@ -16712,26 +18286,188 @@ body.message-attachment-viewer-open {
 
   .message-app-shell .message-notification-workspace-list-panel {
     border-right: 0;
-    border-bottom: 1px solid #dce8f1;
+    border-bottom: 0;
   }
 
   .message-app-shell .message-notification-workspace-overview {
     display: none;
   }
+
+  .message-app-shell .message-notification-mobile-actions {
+    display: flex;
+    gap: 7px;
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
+
+  .message-app-shell .message-notification-mobile-actions::-webkit-scrollbar {
+    display: none;
+  }
+
+  .message-app-shell .message-notification-mobile-actions button {
+    flex: 0 0 auto;
+    min-height: 36px;
+    padding: 0 11px;
+    border: 1px solid #cbdfea;
+    border-radius: 9px;
+    color: #28618a;
+    background: #ffffff;
+    font-size: 12px;
+    font-weight: 800;
+    cursor: pointer;
+  }
+
+  .message-app-shell .message-notification-mobile-actions button:disabled {
+    cursor: not-allowed;
+    opacity: .5;
+  }
+
+  .message-app-shell .message-notification-mobile-feedback {
+    display: block;
+    padding: 8px 12px 0;
+    background: #ffffff;
+  }
+
+  .message-app-shell .message-notification-mobile-feedback .message-inline-notice,
+  .message-app-shell .message-notification-mobile-feedback .message-inline-error {
+    margin: 0;
+  }
+
+  .message-app-shell.theme-dark .message-notification-mobile-actions button {
+    border-color: var(--message-line);
+    color: var(--message-copy);
+    background: var(--message-panel-subtle);
+  }
+
+  .message-app-shell.theme-dark .message-notification-mobile-feedback {
+    background: var(--message-panel-bg);
+  }
 }
 
 @media (max-width: 620px) {
   .message-app-shell .message-notification-workspace-header {
-    min-height: 68px;
-    padding: 10px 12px;
+    min-height: 64px;
+    grid-template-columns: 40px minmax(0, 1fr);
+    gap: 10px;
+    padding: max(8px, env(safe-area-inset-top)) 12px 8px;
+  }
+
+  .message-app-shell .message-notification-workspace-header > div > span,
+  .message-app-shell .message-notification-workspace-header p {
+    display: none;
   }
 
   .message-app-shell .message-notification-workspace-header h2 {
-    font-size: 17px;
+    font-size: 18px;
+  }
+
+  .message-app-shell .message-notification-workspace-header .message-mobile-back {
+    display: grid;
+    width: 40px;
+    min-height: 40px;
+    place-items: center;
+    padding: 0;
+    border: 1px solid #cddfea;
+    border-radius: 10px;
+    color: #315d79;
+    background: #ffffff;
+    font-size: 22px;
+    cursor: pointer;
   }
 
   .message-app-shell .message-notification-workspace-header .message-workspace-close-action {
     display: none;
+  }
+
+  .message-app-shell.theme-dark .message-notification-workspace-header .message-mobile-back {
+    border-color: var(--message-line);
+    color: var(--message-copy);
+    background: var(--message-panel-subtle);
+  }
+
+  .message-app-shell .message-notification-workspace-list-header {
+    gap: 9px;
+    padding: 11px 12px;
+  }
+
+  .message-app-shell .message-notification-workspace-metrics article {
+    padding: 9px 10px;
+  }
+
+  .message-app-shell .message-notification-workspace-filters {
+    gap: 6px;
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
+
+  .message-app-shell .message-notification-workspace-filters::-webkit-scrollbar {
+    display: none;
+  }
+
+  .message-app-shell .message-notification-workspace-filters button {
+    flex: 0 0 auto;
+    min-height: 36px;
+  }
+
+  .message-app-shell .message-notification-workspace-search {
+    min-height: 44px;
+    border-radius: 12px;
+  }
+
+  .message-app-shell .message-notification-workspace-search input {
+    font-size: 16px;
+  }
+
+  .message-app-shell .message-notification-mobile-actions button {
+    min-height: 40px;
+  }
+
+  .message-app-shell .message-notification-workspace-list {
+    padding-bottom: max(14px, env(safe-area-inset-bottom));
+    overscroll-behavior-y: contain;
+  }
+
+  .message-app-shell .message-notification-row {
+    min-height: 72px;
+  }
+
+  .message-app-shell .message-notification-open {
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 8px;
+    padding: 12px 6px 12px 13px;
+  }
+
+  .message-app-shell .message-notification-open strong {
+    font-size: 14px;
+  }
+
+  .message-app-shell .message-notification-open small {
+    display: -webkit-box;
+    overflow: hidden;
+    font-size: 12px;
+    line-height: 1.4;
+    text-overflow: initial;
+    white-space: normal;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
+  }
+
+  .message-app-shell .message-notification-open em {
+    max-width: 74px;
+    font-size: 10px;
+    text-align: right;
+  }
+
+  .message-app-shell .message-notification-delete {
+    width: 44px;
+    min-width: 44px;
+    font-size: 22px;
+  }
+}
+
+@media (max-width: 360px) {
+  .message-app-shell .message-notification-workspace-metrics {
+    grid-template-columns: minmax(0, 1fr);
   }
 }
 
@@ -18265,5 +20001,712 @@ body.message-attachment-viewer-open {
 @media (prefers-reduced-motion: reduce) {
   .message-app-shell .message-action-toast {
     animation: none;
+  }
+}
+
+/* ============================================================
+   MOBILE M4 — FINAL RESPONSIVE STABILIZATION
+   Keep remaining Message-only UI in this scoped stylesheet so mobile layout
+   is not coupled to the retired global Message rules in index.css.
+   ============================================================ */
+
+/* Forward/search dialogs still reuse this compact conversation-search field. */
+.message-app-shell .message-contact-search {
+  display: grid;
+  gap: 7px;
+  padding: 0 20px 14px;
+}
+
+.message-app-shell .message-contact-search > span {
+  color: #60758a;
+  font-size: 10px;
+  font-weight: 800;
+}
+
+.message-app-shell .message-contact-search input {
+  width: 100%;
+  min-width: 0;
+  min-height: 42px;
+  padding: 0 13px;
+  border: 1px solid #d3e0e9;
+  border-radius: 11px;
+  color: #173a55;
+  background: #f7fafc;
+  font: inherit;
+  font-size: 13px;
+  outline: none;
+}
+
+.message-app-shell .message-contact-search input:focus {
+  border-color: #78b5dc;
+  box-shadow: 0 0 0 3px rgba(8, 118, 193, 0.12);
+}
+
+/* Realtime status must remain readable without taking over the conversation. */
+.message-app-shell .message-realtime-state {
+  display: grid;
+  min-width: 0;
+  grid-template-columns: 10px minmax(0, 1fr);
+  align-items: center;
+  gap: 9px;
+  margin: 8px 12px 0;
+  padding: 8px 10px;
+  border: 1px solid #cfe0ea;
+  border-radius: 10px;
+  color: #49677d;
+  background: #f7fbfd;
+}
+
+.message-app-shell .message-realtime-state-indicator {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #d99a25;
+  box-shadow: 0 0 0 3px rgba(217, 154, 37, 0.14);
+}
+
+.message-app-shell .message-realtime-state > div {
+  display: grid;
+  min-width: 0;
+  gap: 1px;
+}
+
+.message-app-shell .message-realtime-state strong {
+  overflow: hidden;
+  color: #284e69;
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.message-app-shell .message-realtime-state small {
+  overflow: hidden;
+  color: #708798;
+  font-size: 9.5px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.message-app-shell .message-realtime-state.disconnected {
+  border-color: #efc9cd;
+  background: #fff7f7;
+}
+
+.message-app-shell .message-realtime-state.disconnected .message-realtime-state-indicator {
+  background: #d84d58;
+  box-shadow: 0 0 0 3px rgba(216, 77, 88, 0.13);
+}
+
+.message-app-shell .message-realtime-state.connecting .message-realtime-state-indicator,
+.message-app-shell .message-realtime-state.reconnecting .message-realtime-state-indicator {
+  animation: message-realtime-pulse 1.1s ease-in-out infinite;
+}
+
+@keyframes message-realtime-pulse {
+  50% {
+    opacity: 0.42;
+    transform: scale(0.78);
+  }
+}
+
+/* Notification quick actions are also rendered in the conversation-list pane. */
+.message-app-shell .message-notification-sidebar-actions {
+  display: flex;
+  gap: 6px;
+  padding: 0 12px 10px;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.message-app-shell .message-notification-sidebar-actions::-webkit-scrollbar {
+  display: none;
+}
+
+.message-app-shell .message-notification-sidebar-actions button {
+  flex: 0 0 auto;
+  min-height: 34px;
+  padding: 0 10px;
+  border: 1px solid #cbdde9;
+  border-radius: 9px;
+  color: #275f87;
+  background: #fff;
+  font: inherit;
+  font-size: 10.5px;
+  font-weight: 800;
+}
+
+.message-app-shell .message-notification-sidebar-actions button:disabled {
+  opacity: 0.48;
+}
+
+/* Starred collection rows keep the standard conversation-row structure but
+   need a dedicated remove affordance that never covers the preview. */
+.message-app-shell .message-starred-workspace-item {
+  position: relative;
+  min-width: 0;
+}
+
+.message-app-shell .message-starred-workspace-item .message-starred-workspace-row {
+  padding-right: 48px;
+}
+
+.message-app-shell .message-starred-message-sender {
+  overflow: hidden;
+  color: #55758c;
+  font-size: 10px;
+  font-weight: 750;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.message-app-shell .message-starred-message-type {
+  display: inline-grid;
+  width: 22px;
+  height: 22px;
+  flex: 0 0 22px;
+  place-items: center;
+  border-radius: 50%;
+  color: #9c7414;
+  background: #fff4cf;
+}
+
+.message-app-shell .message-starred-remove-action {
+  position: absolute;
+  z-index: 2;
+  top: 50%;
+  right: 12px;
+  display: grid;
+  width: 32px;
+  height: 32px;
+  place-items: center;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: 50%;
+  color: #6b7e8d;
+  background: transparent;
+  font-size: 18px;
+  transform: translateY(-50%);
+}
+
+.message-app-shell .message-starred-remove-action:hover:not(:disabled),
+.message-app-shell .message-starred-remove-action:focus-visible {
+  border-color: #d6e2ea;
+  color: #b83743;
+  background: #fff5f6;
+  outline: none;
+}
+
+/* Pinned-message strip stays compact above the timeline and does not compete
+   with the chat header on a phone. */
+.message-app-shell .message-pinned-strip {
+  display: grid;
+  min-width: 0;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 7px;
+  margin: 7px 10px 0;
+  padding: 6px 7px 6px 9px;
+  border: 1px solid #d7e4ec;
+  border-left: 3px solid #0b78bb;
+  border-radius: 10px;
+  background: #f8fbfd;
+  box-shadow: 0 5px 14px rgba(24, 69, 98, 0.06);
+}
+
+.message-app-shell .message-pinned-strip-main {
+  display: grid;
+  min-width: 0;
+  grid-template-columns: 28px minmax(0, 1fr);
+  align-items: center;
+  gap: 7px;
+  padding: 0;
+  border: 0;
+  color: inherit;
+  background: transparent;
+  text-align: left;
+}
+
+.message-app-shell .message-pinned-strip-icon {
+  display: grid;
+  width: 28px;
+  height: 28px;
+  place-items: center;
+  border-radius: 8px;
+  background: #e6f3fb;
+  font-size: 14px;
+}
+
+.message-app-shell .message-pinned-strip-copy {
+  display: grid;
+  min-width: 0;
+  gap: 1px;
+}
+
+.message-app-shell .message-pinned-strip-copy strong,
+.message-app-shell .message-pinned-strip-copy small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.message-app-shell .message-pinned-strip-copy strong {
+  color: #294e68;
+  font-size: 10.5px;
+}
+
+.message-app-shell .message-pinned-strip-copy small {
+  color: #728797;
+  font-size: 9px;
+}
+
+.message-app-shell .message-pinned-strip-actions {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+}
+
+.message-app-shell .message-pinned-strip-actions button {
+  display: grid;
+  min-width: 30px;
+  height: 30px;
+  place-items: center;
+  padding: 0 7px;
+  border: 1px solid #d4e1e9;
+  border-radius: 8px;
+  color: #35627e;
+  background: #fff;
+  font: inherit;
+  font-size: 14px;
+  font-weight: 800;
+}
+
+.message-app-shell .message-pinned-strip-actions button:disabled {
+  opacity: 0.4;
+}
+
+.message-app-shell .message-pinned-strip-actions .message-pinned-strip-browse {
+  min-width: 42px;
+  font-size: 10px;
+}
+
+/* Pinned browser is an ordinary bounded dialog on desktop and a bottom sheet
+   on mobile, matching the rest of the Message interaction system. */
+.message-app-shell .message-pinned-dialog {
+  display: flex;
+  width: min(520px, calc(100vw - 32px));
+  max-height: min(70dvh, 620px);
+  flex-direction: column;
+  overflow: hidden;
+  border: 1px solid #d3e0e9;
+  border-radius: 16px;
+  background: #fff;
+  box-shadow: 0 24px 70px rgba(12, 34, 49, 0.28);
+}
+
+.message-app-shell .message-pinned-dialog > header {
+  display: grid;
+  flex: 0 0 auto;
+  grid-template-columns: minmax(0, 1fr) 36px;
+  align-items: center;
+  gap: 10px;
+  padding: 14px 15px;
+  border-bottom: 1px solid #e2eaf0;
+}
+
+.message-app-shell .message-pinned-dialog > header > div {
+  display: grid;
+  min-width: 0;
+  gap: 2px;
+}
+
+.message-app-shell .message-pinned-dialog > header span {
+  color: #70889a;
+  font-size: 9px;
+  font-weight: 800;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+}
+
+.message-app-shell .message-pinned-dialog > header h2 {
+  margin: 0;
+  overflow: hidden;
+  color: #173f5c;
+  font-size: 15px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.message-app-shell .message-pinned-dialog > header button {
+  display: grid;
+  width: 36px;
+  height: 36px;
+  place-items: center;
+  padding: 0;
+  border: 1px solid #d7e3eb;
+  border-radius: 10px;
+  color: #526f83;
+  background: #f8fbfd;
+  font-size: 20px;
+}
+
+.message-app-shell .message-pinned-dialog-list {
+  min-height: 0;
+  padding: 8px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+.message-app-shell .message-pinned-dialog-list > button {
+  display: grid;
+  width: 100%;
+  min-height: 56px;
+  grid-template-columns: 36px minmax(0, 1fr);
+  align-items: center;
+  gap: 9px;
+  padding: 8px 9px;
+  border: 0;
+  border-radius: 10px;
+  color: inherit;
+  background: transparent;
+  text-align: left;
+}
+
+.message-app-shell .message-pinned-dialog-list > button:hover,
+.message-app-shell .message-pinned-dialog-list > button.active,
+.message-app-shell .message-pinned-dialog-list > button:focus-visible {
+  background: #edf7fc;
+  outline: none;
+}
+
+.message-app-shell .message-pinned-dialog-icon {
+  display: grid;
+  width: 36px;
+  height: 36px;
+  place-items: center;
+  border-radius: 10px;
+  background: #e9f4fb;
+}
+
+.message-app-shell .message-pinned-dialog-copy {
+  display: grid;
+  min-width: 0;
+  gap: 2px;
+}
+
+.message-app-shell .message-pinned-dialog-copy strong,
+.message-app-shell .message-pinned-dialog-copy span,
+.message-app-shell .message-pinned-dialog-copy small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.message-app-shell .message-pinned-dialog-copy strong {
+  color: #234c68;
+  font-size: 11.5px;
+}
+
+.message-app-shell .message-pinned-dialog-copy span {
+  color: #526e82;
+  font-size: 10.5px;
+}
+
+.message-app-shell .message-pinned-dialog-copy small {
+  color: #8798a5;
+  font-size: 9px;
+}
+
+/* Multi-file composer preview needs an explicit list layout; otherwise the
+   selected cards inherit browser block flow and become visually inconsistent. */
+.message-app-shell .message-selected-attachments {
+  display: grid;
+  min-width: 0;
+  gap: 7px;
+  padding: 8px;
+  border: 1px solid #d8e4ec;
+  border-radius: 12px;
+  background: #f8fbfd;
+}
+
+.message-app-shell .message-selected-attachments-header {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.message-app-shell .message-selected-attachments-header > span {
+  display: grid;
+  min-width: 0;
+  gap: 1px;
+}
+
+.message-app-shell .message-selected-attachments-header strong,
+.message-app-shell .message-selected-attachments-header small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.message-app-shell .message-selected-attachments-header strong {
+  color: #244b66;
+  font-size: 10.5px;
+}
+
+.message-app-shell .message-selected-attachments-header small {
+  color: #718798;
+  font-size: 9px;
+}
+
+.message-app-shell .message-selected-attachments-header > button {
+  min-height: 30px;
+  flex: 0 0 auto;
+  padding: 0 9px;
+  border: 1px solid #d3e0e9;
+  border-radius: 8px;
+  color: #526f83;
+  background: #fff;
+  font: inherit;
+  font-size: 9.5px;
+  font-weight: 800;
+}
+
+.message-app-shell .message-selected-attachment-list {
+  display: grid;
+  min-width: 0;
+  gap: 6px;
+}
+
+.message-app-shell .message-selected-document {
+  display: grid;
+  width: 48px;
+  height: 48px;
+  place-items: center;
+  border-radius: 9px;
+  color: #c33d49;
+  background: #fff0f1;
+}
+
+.message-app-shell .message-selected-document svg {
+  width: 22px;
+  height: 22px;
+}
+
+.message-app-shell .message-composer-character-count {
+  justify-self: end;
+  margin: -2px 4px 0;
+  color: #728797;
+  font-size: 9px;
+  font-weight: 700;
+}
+
+.message-app-shell .message-composer-character-count.limit {
+  color: #b83944;
+}
+
+.message-app-shell.theme-dark .message-contact-search input,
+.message-app-shell.theme-dark .message-notification-sidebar-actions button,
+.message-app-shell.theme-dark .message-pinned-strip,
+.message-app-shell.theme-dark .message-pinned-dialog,
+.message-app-shell.theme-dark .message-selected-attachments,
+.message-app-shell.theme-dark .message-selected-attachments-header > button {
+  border-color: var(--message-line);
+  color: var(--message-copy);
+  background: var(--message-panel-bg);
+}
+
+.message-app-shell.theme-dark .message-realtime-state {
+  border-color: var(--message-line);
+  color: var(--message-copy);
+  background: var(--message-panel-subtle);
+}
+
+.message-app-shell.theme-dark .message-realtime-state strong,
+.message-app-shell.theme-dark .message-selected-attachments-header strong {
+  color: var(--message-copy);
+}
+
+.message-app-shell.theme-dark .message-selected-attachments-header small {
+  color: var(--message-muted);
+}
+
+.message-app-shell.theme-dark .message-selected-document {
+  color: #f0a6ad;
+  background: #44292d;
+}
+
+.message-app-shell.theme-dark .message-pinned-strip-main,
+.message-app-shell.theme-dark .message-pinned-strip-copy strong,
+.message-app-shell.theme-dark .message-pinned-dialog > header h2,
+.message-app-shell.theme-dark .message-pinned-dialog-copy strong {
+  color: var(--message-copy);
+}
+
+.message-app-shell.theme-dark .message-pinned-strip-copy small,
+.message-app-shell.theme-dark .message-pinned-dialog-copy span,
+.message-app-shell.theme-dark .message-pinned-dialog-copy small,
+.message-app-shell.theme-dark .message-realtime-state small {
+  color: var(--message-muted);
+}
+
+.message-app-shell.theme-dark .message-pinned-strip-icon,
+.message-app-shell.theme-dark .message-pinned-dialog-icon,
+.message-app-shell.theme-dark .message-pinned-strip-actions button,
+.message-app-shell.theme-dark .message-pinned-dialog > header button {
+  border-color: var(--message-line);
+  color: var(--message-copy);
+  background: var(--message-panel-subtle);
+}
+
+@media (max-width: 900px) {
+  /* Mobile owns all viewport edges. Prevent residual desktop surfaces from
+     creating horizontal overflow, and remove costly blur filters from moving
+     overlays on constrained devices. */
+  .message-app-shell,
+  .message-app-shell .message-workspace,
+  .message-app-shell .message-sidebar,
+  .message-app-shell .message-chat-panel,
+  .message-app-shell .message-thread-shell,
+  .message-app-shell .message-thread,
+  .message-app-shell .message-thread-content {
+    max-width: 100%;
+    min-width: 0;
+  }
+
+  .message-app-shell .message-contact-backdrop,
+  .message-app-shell .message-dialog-backdrop,
+  .message-app-shell .message-mobile-actions-backdrop,
+  .message-app-shell .message-conversation-row-menu,
+  .message-app-shell .message-action-toast {
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+  }
+
+  .message-app-shell button,
+  .message-app-shell [role="button"] {
+    touch-action: manipulation;
+  }
+
+  .message-app-shell .message-realtime-state {
+    margin: 6px 8px 0;
+  }
+
+  .message-app-shell .message-realtime-state small {
+    display: none;
+  }
+
+  .message-app-shell .message-notification-sidebar-actions {
+    padding-inline: 10px;
+  }
+
+  .message-app-shell .message-pinned-strip {
+    margin: 6px 8px 0;
+  }
+
+  .message-app-shell .message-pinned-dialog {
+    width: min(100%, 560px);
+  }
+}
+
+@media (max-width: 600px) {
+  .message-app-shell .message-contact-search {
+    padding: 0 12px 12px;
+  }
+
+  .message-app-shell .message-contact-search input {
+    min-height: 44px;
+    font-size: 16px;
+  }
+
+  .message-app-shell .message-notification-sidebar-actions button {
+    min-height: 38px;
+    font-size: 11px;
+  }
+
+  .message-app-shell .message-starred-workspace-item .message-starred-workspace-row {
+    padding-right: 46px;
+  }
+
+  .message-app-shell .message-starred-remove-action {
+    right: 8px;
+    width: 34px;
+    height: 34px;
+  }
+
+  .message-app-shell .message-pinned-strip {
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 4px;
+    padding: 5px 5px 5px 7px;
+  }
+
+  .message-app-shell .message-pinned-strip-main {
+    grid-template-columns: 26px minmax(0, 1fr);
+    gap: 6px;
+  }
+
+  .message-app-shell .message-pinned-strip-icon {
+    width: 26px;
+    height: 26px;
+  }
+
+  .message-app-shell .message-pinned-strip-actions button {
+    min-width: 28px;
+    height: 28px;
+    padding-inline: 5px;
+  }
+
+  .message-app-shell .message-pinned-strip-actions .message-pinned-strip-browse {
+    min-width: 36px;
+  }
+
+  .message-app-shell .message-pinned-dialog {
+    width: 100%;
+    max-width: none;
+    max-height: min(78dvh, 620px);
+    border-right: 0;
+    border-bottom: 0;
+    border-left: 0;
+    border-radius: 18px 18px 0 0;
+  }
+
+  .message-app-shell .message-pinned-dialog > header {
+    padding: 12px;
+  }
+
+  .message-app-shell .message-pinned-dialog-list > button {
+    min-height: 60px;
+  }
+
+  .message-app-shell .message-selected-attachment-list {
+    max-height: min(26dvh, 220px);
+    overflow-y: auto;
+    overscroll-behavior: contain;
+  }
+
+  .message-app-shell .message-composer-character-count {
+    margin-right: 2px;
+    font-size: 10px;
+  }
+}
+
+@media (max-width: 360px) {
+  .message-app-shell .message-pinned-strip-copy strong {
+    max-width: 160px;
+  }
+
+  .message-app-shell .message-pinned-strip-actions .message-pinned-strip-browse {
+    font-size: 0;
+  }
+
+  .message-app-shell .message-pinned-strip-actions .message-pinned-strip-browse::before {
+    content: "⋯";
+    font-size: 16px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .message-app-shell .message-realtime-state-indicator {
+    animation: none !important;
   }
 }
