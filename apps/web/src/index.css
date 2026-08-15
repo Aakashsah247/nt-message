@@ -10584,8 +10584,7 @@
 
 .message-send-button,
 .message-welcome-state button,
-.message-list-state button,
-.message-load-older {
+.message-list-state button {
   min-height: 36px;
   padding: 0 15px;
   border: 0;
@@ -10598,8 +10597,7 @@
 
 .message-send-button:hover:not(:disabled),
 .message-welcome-state button:hover,
-.message-list-state button:hover,
-.message-load-older:hover:not(:disabled) {
+.message-list-state button:hover {
   background: var(--color-nt-deep);
 }
 
@@ -14569,7 +14567,6 @@
 .message-app-shell .message-send-button,
 .message-app-shell .message-new-button,
 .message-app-shell .message-requests-button b,
-.message-app-shell .message-load-older,
 .message-app-shell .message-profile-actions button,
 .message-app-shell .message-profile-footer button,
 .message-app-shell .message-profile-photo-upload {
@@ -14582,7 +14579,6 @@
 
 .message-app-shell .message-send-button:hover:not(:disabled),
 .message-app-shell .message-new-button:hover,
-.message-app-shell .message-load-older:hover:not(:disabled),
 .message-app-shell .message-customization-reset:hover:not(:disabled) {
   background: var(--message-accent-deep);
 }

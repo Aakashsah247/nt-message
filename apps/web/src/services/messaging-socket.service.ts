@@ -59,6 +59,7 @@ export interface MessagingConversationUpdatedPayload {
     | "REOPENED"
     | "GROUP_CREATED"
     | "GROUP_UPDATED"
+    | "GROUP_DELETED"
     | "MEMBERS_CHANGED"
     | "OFFICIAL_GROUP_CREATED"
     | "OFFICIAL_GROUP_SYNCED"

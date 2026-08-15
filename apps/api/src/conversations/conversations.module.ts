@@ -1,5 +1,6 @@
 import { Global, Module } from '@nestjs/common';
 
+import { AttachmentsModule } from '../attachments/attachments.module';
 import { AuthModule } from '../auth/auth.module';
 import { PrismaModule } from '../database/prisma.module';
 import { MessagingEventsService } from '../realtime/messaging-events.service';
@@ -12,7 +13,7 @@ import { ConversationStorageService } from './conversation-storage.service';
 
 @Global()
 @Module({
-  imports: [PrismaModule, AuthModule],
+  imports: [PrismaModule, AuthModule, AttachmentsModule],
 
   controllers: [ConversationsController],
 

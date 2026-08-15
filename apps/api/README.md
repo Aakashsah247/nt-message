@@ -31,6 +31,30 @@
 $ pnpm install
 ```
 
+## NT Message attachment production storage
+
+Message and announcement binaries are kept outside PostgreSQL. Development keeps the existing local attachment directories when `ATTACHMENT_STORAGE_ROOT` is unset. Production must use Nepal Telecom-managed storage and malware scanning:
+
+```env
+ATTACHMENT_STORAGE_ROOT=/srv/nt-message-data/attachments
+ATTACHMENT_SCAN_MODE=clamav
+CLAMAV_HOST=127.0.0.1
+CLAMAV_PORT=3310
+CLAMAV_TIMEOUT_MS=30000
+# Optional; defaults to ATTACHMENT_STORAGE_ROOT/.incoming in production.
+ATTACHMENT_UPLOAD_TEMP_DIR=/srv/nt-message-data/attachments/.incoming
+```
+
+`ATTACHMENT_STORAGE_ROOT` must be an absolute writable path. The service creates `messages/` and `announcements/` beneath it and refuses to start in production if the storage root or ClamAV scanning is not configured. ClamAV `StreamMaxLength` must support the application's maximum accepted upload size.
+
+Local development may leave `ATTACHMENT_SCAN_MODE` unset/disabled; accepted files are then marked `FORMAT_VALIDATED` rather than falsely marked malware-clean.
+
+Large message and announcement uploads are streamed to private temporary files rather than held in the NestJS heap. Successful uploads are copied into permanent NTC attachment storage and stale temporary files are cleaned automatically.
+
+When strict ClamAV mode is enabled in production, legacy `PENDING`/`FORMAT_VALIDATED` attachments are scanned in small background batches. Clean physical objects are upgraded to `CLEAN`; rejected objects are quarantined and removed from active storage. Until a legacy object becomes `CLEAN`, production download/forward authorization remains fail-closed.
+
+If an existing deployment is moved to a new `ATTACHMENT_STORAGE_ROOT`, copy the existing physical attachment trees into the matching `messages/` and `announcements/` directories before starting the production API. Database storage keys do not change.
+
 ## Compile and run the project
 
 ```bash

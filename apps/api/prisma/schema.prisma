@@ -1132,6 +1132,12 @@ model MessageAttachment {
   contentType      MessageContentType @map("content_type")
   scanStatus       String             @default("PENDING") @map("scan_status") @db.VarChar(40)
 
+  // Retention belongs to the logical message reference, not the shared physical file.
+  // Forwarding therefore gets a fresh expiry while the same storageKey can be reused.
+  expiresAt DateTime  @map("expires_at") @db.Timestamptz(3)
+  expiredAt DateTime? @map("expired_at") @db.Timestamptz(3)
+  purgedAt  DateTime? @map("purged_at") @db.Timestamptz(3)
+
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
 
@@ -1139,6 +1145,8 @@ model MessageAttachment {
 
   @@index([messageId], map: "message_attachments_message_idx")
   @@index([storageKey], map: "message_attachments_storage_key_idx")
+  @@index([expiresAt, expiredAt], map: "message_attachments_expiry_idx")
+  @@index([purgedAt, expiresAt], map: "message_attachments_purge_idx")
   @@index([contentType], map: "message_attachments_content_type_idx")
   @@map("message_attachments")
 }
@@ -1373,6 +1381,11 @@ model AnnouncementAttachment {
   addedRevision   Int  @map("added_revision")
   removedRevision Int? @map("removed_revision")
 
+  // Draft attachments begin their retention clock only when the announcement is published.
+  expiresAt DateTime? @map("expires_at") @db.Timestamptz(3)
+  expiredAt DateTime? @map("expired_at") @db.Timestamptz(3)
+  purgedAt  DateTime? @map("purged_at") @db.Timestamptz(3)
+
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
 
@@ -1380,6 +1393,8 @@ model AnnouncementAttachment {
 
   @@index([announcementId, addedRevision, removedRevision], map: "announcement_attachments_revision_idx")
   @@index([storageKey], map: "announcement_attachments_storage_key_idx")
+  @@index([expiresAt, expiredAt], map: "announcement_attachments_expiry_idx")
+  @@index([purgedAt, expiresAt], map: "announcement_attachments_purge_idx")
   @@index([contentCategory], map: "announcement_attachments_category_idx")
   @@map("announcement_attachments")
 }

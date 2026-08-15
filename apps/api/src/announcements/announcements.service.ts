@@ -9,10 +9,15 @@ import {
   OnModuleInit,
 } from '@nestjs/common';
 import { randomUUID } from 'node:crypto';
-import { promises as fs } from 'node:fs';
-import path from 'node:path';
 
+import { assertAttachmentFileMatchesDeclaredType } from '../attachments/attachment-file-validation';
+import { AttachmentSecurityService } from '../attachments/attachment-security.service';
+import { AttachmentStorageService } from '../attachments/attachment-storage.service';
 import type { AuthenticatedUser } from '../auth/types/auth.types';
+import {
+  getAnnouncementAttachmentExpiresAt,
+  isAttachmentReferenceExpired,
+} from '../attachments/attachment-retention';
 import { PrismaService } from '../database/prisma.service';
 import {
   AccountRole,
@@ -48,11 +53,8 @@ const ANNOUNCEMENT_PUBLISH_BATCH_SIZE = 20;
 const ANNOUNCEMENT_MAX_PUBLISH_ATTEMPTS = 5;
 const ANNOUNCEMENT_ORPHAN_CLEANUP_INTERVAL_MS = 24 * 60 * 60 * 1000;
 const ANNOUNCEMENT_ORPHAN_CLEANUP_BATCH_SIZE = 500;
-const ANNOUNCEMENT_STORAGE_DIR = path.resolve(
-  process.env.MESSAGE_ATTACHMENT_STORAGE_DIR
-    ? path.join(process.env.MESSAGE_ATTACHMENT_STORAGE_DIR, 'announcements')
-    : path.join(process.cwd(), 'storage', 'announcement-attachments'),
-);
+const ANNOUNCEMENT_RETENTION_CLEANUP_INTERVAL_MS = 24 * 60 * 60 * 1000;
+const ANNOUNCEMENT_RETENTION_CLEANUP_BATCH_SIZE = 250;
 const MAX_IMAGE_BYTES = 20 * 1024 * 1024;
 const MAX_DOCUMENT_BYTES = 50 * 1024 * 1024;
 const MAX_VIDEO_BYTES = 200 * 1024 * 1024;
@@ -201,17 +203,24 @@ export class AnnouncementsService implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(AnnouncementsService.name);
   private publishTimer: ReturnType<typeof setInterval> | null = null;
   private orphanCleanupTimer: ReturnType<typeof setInterval> | null = null;
+  private retentionCleanupTimer: ReturnType<typeof setInterval> | null = null;
   private workerRunning = false;
   private orphanCleanupRunning = false;
+  private retentionCleanupRunning = false;
 
   constructor(
     private readonly prisma: PrismaService,
     private readonly messagingEventsService: MessagingEventsService,
+    private readonly attachmentStorageService: AttachmentStorageService =
+      new AttachmentStorageService(),
+    private readonly attachmentSecurityService: AttachmentSecurityService =
+      new AttachmentSecurityService(),
   ) {}
 
   onModuleInit(): void {
     void this.processLifecycleQueue();
     void this.cleanupOrphanedAttachmentDirectories();
+    void this.cleanupExpiredAttachmentRetention();
 
     this.publishTimer = setInterval(() => {
       void this.processLifecycleQueue();
@@ -219,9 +228,13 @@ export class AnnouncementsService implements OnModuleInit, OnModuleDestroy {
     this.orphanCleanupTimer = setInterval(() => {
       void this.cleanupOrphanedAttachmentDirectories();
     }, ANNOUNCEMENT_ORPHAN_CLEANUP_INTERVAL_MS);
+    this.retentionCleanupTimer = setInterval(() => {
+      void this.cleanupExpiredAttachmentRetention();
+    }, ANNOUNCEMENT_RETENTION_CLEANUP_INTERVAL_MS);
 
     this.publishTimer.unref?.();
     this.orphanCleanupTimer.unref?.();
+    this.retentionCleanupTimer.unref?.();
   }
 
   onModuleDestroy(): void {
@@ -230,6 +243,9 @@ export class AnnouncementsService implements OnModuleInit, OnModuleDestroy {
     }
     if (this.orphanCleanupTimer) {
       clearInterval(this.orphanCleanupTimer);
+    }
+    if (this.retentionCleanupTimer) {
+      clearInterval(this.retentionCleanupTimer);
     }
   }
 
@@ -1076,8 +1092,11 @@ export class AnnouncementsService implements OnModuleInit, OnModuleDestroy {
     this.assertEditableStatus(existing.status);
     const validated = this.validateAttachment(file);
     const uploadedFile = file as UploadedMessageAttachmentFile;
+    const scanStatus =
+      await this.attachmentSecurityService.scanValidatedUpload(uploadedFile);
     const attachmentId = randomUUID();
     const storageKey = `${announcementId}/${attachmentId}`;
+    const attachmentReferenceAt = new Date();
     let targetRevision = existing.currentRevision;
 
     await this.writeAttachmentFile(storageKey, uploadedFile);
@@ -1114,8 +1133,15 @@ export class AnnouncementsService implements OnModuleInit, OnModuleDestroy {
             mimeType: uploadedFile.mimetype,
             fileSizeBytes: uploadedFile.size,
             contentCategory: validated.category,
-            scanStatus: 'FORMAT_VALIDATED',
+            scanStatus,
             addedRevision: targetRevision,
+            // Draft files begin retention at publication. An attachment added
+            // to an already-published announcement starts a fresh 90-day
+            // (configurable) logical reference window from this edit.
+            expiresAt:
+              existing.status === AnnouncementStatus.PUBLISHED
+                ? getAnnouncementAttachmentExpiresAt(attachmentReferenceAt)
+                : null,
           },
         });
 
@@ -1300,11 +1326,38 @@ export class AnnouncementsService implements OnModuleInit, OnModuleDestroy {
       throw new NotFoundException('Announcement attachment was not found.');
     }
 
-    const absolutePath = this.resolveAttachmentPath(attachment.storageKey);
+    if (
+      isAttachmentReferenceExpired(
+        attachment.expiresAt,
+        attachment.expiredAt,
+      )
+    ) {
+      throw new NotFoundException(
+        'This announcement attachment has expired and is no longer available.',
+      );
+    }
 
-    try {
-      await fs.access(absolutePath);
-    } catch {
+    if (
+      !this.attachmentSecurityService.canAccessStoredAttachment(
+        attachment.scanStatus,
+      )
+    ) {
+      throw new ForbiddenException(
+        'This attachment has not passed the required security checks.',
+      );
+    }
+
+    const absolutePath = this.attachmentStorageService.resolvePath(
+      'announcements',
+      attachment.storageKey,
+    );
+
+    if (
+      !(await this.attachmentStorageService.exists(
+        'announcements',
+        attachment.storageKey,
+      ))
+    ) {
       throw new NotFoundException('Announcement attachment file was not found.');
     }
 
@@ -1414,6 +1467,125 @@ export class AnnouncementsService implements OnModuleInit, OnModuleDestroy {
     }
   }
 
+  async cleanupExpiredAttachmentRetention(
+    now = new Date(),
+  ): Promise<{
+    expiredReferenceCount: number;
+    purgedObjectCount: number;
+    failedObjectCount: number;
+  }> {
+    if (this.retentionCleanupRunning) {
+      return {
+        expiredReferenceCount: 0,
+        purgedObjectCount: 0,
+        failedObjectCount: 0,
+      };
+    }
+
+    this.retentionCleanupRunning = true;
+
+    try {
+      const dueReferences = await this.prisma.announcementAttachment.findMany({
+        where: {
+          expiredAt: null,
+          expiresAt: { lte: now },
+        },
+        orderBy: [{ expiresAt: 'asc' }, { id: 'asc' }],
+        take: ANNOUNCEMENT_RETENTION_CLEANUP_BATCH_SIZE * 4,
+        select: {
+          id: true,
+        },
+      });
+
+      let expiredReferenceCount = 0;
+
+      if (dueReferences.length > 0) {
+        const updated = await this.prisma.announcementAttachment.updateMany({
+          where: {
+            id: { in: dueReferences.map((attachment) => attachment.id) },
+            expiredAt: null,
+            expiresAt: { lte: now },
+          },
+          data: {
+            expiredAt: now,
+          },
+        });
+        expiredReferenceCount = updated.count;
+      }
+
+      /*
+       * purgedAt is the retry marker for physical storage. The logical
+       * attachment remains visible as expired even when a disk deletion fails.
+       */
+      const purgeRows = await this.prisma.announcementAttachment.findMany({
+        where: {
+          purgedAt: null,
+          expiresAt: { lte: now },
+        },
+        orderBy: [{ expiresAt: 'asc' }, { id: 'asc' }],
+        take: ANNOUNCEMENT_RETENTION_CLEANUP_BATCH_SIZE * 4,
+        select: {
+          storageKey: true,
+        },
+      });
+      const purgeStorageKeys = [
+        ...new Set(purgeRows.map((attachment) => attachment.storageKey)),
+      ].slice(0, ANNOUNCEMENT_RETENTION_CLEANUP_BATCH_SIZE);
+
+      let purgedObjectCount = 0;
+      let failedObjectCount = 0;
+
+      for (const storageKey of purgeStorageKeys) {
+        const activeReferenceCount =
+          await this.prisma.announcementAttachment.count({
+            where: {
+              storageKey: storageKey,
+              expiredAt: null,
+              expiresAt: { gt: now },
+            },
+          });
+
+        if (activeReferenceCount > 0) {
+          continue;
+        }
+
+        const removed = await this.deleteAttachmentFileWithResult(
+          storageKey,
+        );
+
+        if (!removed) {
+          failedObjectCount += 1;
+          continue;
+        }
+
+        await this.prisma.announcementAttachment.updateMany({
+          where: {
+            storageKey: storageKey,
+            purgedAt: null,
+          },
+          data: {
+            purgedAt: now,
+          },
+        });
+        purgedObjectCount += 1;
+      }
+
+      if (expiredReferenceCount > 0 || purgedObjectCount > 0) {
+        this.logger.log(
+          `Announcement attachment retention expired ${expiredReferenceCount} reference(s) and purged ${purgedObjectCount} physical object(s).`,
+        );
+      }
+
+      return {
+        expiredReferenceCount,
+        purgedObjectCount,
+        failedObjectCount,
+      };
+    } finally {
+      this.retentionCleanupRunning = false;
+    }
+  }
+
   private async cleanupOrphanedAttachmentDirectories(): Promise<void> {
     if (this.orphanCleanupRunning) {
       return;
@@ -1422,27 +1594,13 @@ export class AnnouncementsService implements OnModuleInit, OnModuleDestroy {
     this.orphanCleanupRunning = true;
 
     try {
-      let entries: Array<{ name: string; isDirectory(): boolean }>;
-      try {
-        entries = await fs.readdir(ANNOUNCEMENT_STORAGE_DIR, {
-          withFileTypes: true,
-        });
-      } catch (error) {
-        if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
-          return;
-        }
-        throw error;
-      }
-
-      const directoryIds = entries
-        .filter(
-          (entry) =>
-            entry.isDirectory() &&
-            /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
-              entry.name,
-            ),
-        )
-        .map((entry) => entry.name);
+      const directoryIds = (
+        await this.attachmentStorageService.listDirectories('announcements')
+      ).filter((name) =>
+        /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
+          name,
+        ),
+      );
 
       const existingIds = new Set<string>();
       for (
@@ -1571,6 +1729,19 @@ export class AnnouncementsService implements OnModuleInit, OnModuleDestroy {
               audienceType: announcement.audienceType,
             },
           })),
+      });
+
+      // Draft attachment retention begins only when recipients can actually
+      // receive the announcement, not while the publisher is still editing it.
+      await transaction.announcementAttachment.updateMany({
+        where: {
+          announcementId,
+          expiresAt: null,
+          removedRevision: null,
+        },
+        data: {
+          expiresAt: getAnnouncementAttachmentExpiresAt(publishedAt),
+        },
       });
 
       const record = await transaction.announcement.update({
@@ -2499,6 +2670,8 @@ export class AnnouncementsService implements OnModuleInit, OnModuleDestroy {
     fileSizeBytes: number;
     contentCategory: string;
     scanStatus: string;
+    expiresAt: Date | null;
+    expiredAt: Date | null;
     createdAt: Date;
   }) {
     return {
@@ -2508,6 +2681,12 @@ export class AnnouncementsService implements OnModuleInit, OnModuleDestroy {
       fileSizeBytes: attachment.fileSizeBytes,
       category: attachment.contentCategory,
       scanStatus: attachment.scanStatus,
+      expiresAt: attachment.expiresAt,
+      expiredAt: attachment.expiredAt,
+      isExpired: isAttachmentReferenceExpired(
+        attachment.expiresAt,
+        attachment.expiredAt,
+      ),
       createdAt: attachment.createdAt,
     };
   }
@@ -2601,12 +2780,12 @@ export class AnnouncementsService implements OnModuleInit, OnModuleDestroy {
     originalFileName: string;
     category: AnnouncementAttachmentCategory;
   } {
-    if (!file?.buffer || file.size <= 0) {
+    if (!file || (!file.buffer && !file.path) || file.size <= 0) {
       throw new BadRequestException('Announcement attachment is required.');
     }
 
     const originalFileName = this.normalizeFileName(file.originalname);
-    this.assertAttachmentSignature(file);
+    assertAttachmentFileMatchesDeclaredType(file);
 
     if (IMAGE_MIME_TYPES.has(file.mimetype)) {
       if (file.size > MAX_IMAGE_BYTES) {
@@ -2634,60 +2813,6 @@ export class AnnouncementsService implements OnModuleInit, OnModuleDestroy {
     );
   }
 
-  private assertAttachmentSignature(
-    file: UploadedMessageAttachmentFile,
-  ): void {
-    const buffer = file.buffer;
-    const startsWith = (...bytes: number[]): boolean =>
-      bytes.every((byte, index) => buffer[index] === byte);
-    const ascii = (start: number, end: number): string =>
-      buffer.subarray(start, end).toString('ascii');
-    let valid = true;
-
-    switch (file.mimetype) {
-      case 'image/jpeg':
-        valid = startsWith(0xff, 0xd8, 0xff);
-        break;
-      case 'image/png':
-        valid = startsWith(0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a);
-        break;
-      case 'image/webp':
-        valid = ascii(0, 4) === 'RIFF' && ascii(8, 12) === 'WEBP';
-        break;
-      case 'video/mp4':
-        valid = ascii(4, 8) === 'ftyp';
-        break;
-      case 'video/webm':
-        valid = startsWith(0x1a, 0x45, 0xdf, 0xa3);
-        break;
-      case 'application/pdf':
-        valid = ascii(0, 5) === '%PDF-';
-        break;
-      case 'application/zip':
-      case 'application/x-zip-compressed':
-      case 'application/vnd.openxmlformats-officedocument.wordprocessingml.document':
-      case 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet':
-      case 'application/vnd.openxmlformats-officedocument.presentationml.presentation':
-        valid =
-          startsWith(0x50, 0x4b, 0x03, 0x04) ||
-          startsWith(0x50, 0x4b, 0x05, 0x06) ||
-          startsWith(0x50, 0x4b, 0x07, 0x08);
-        break;
-      case 'text/plain':
-      case 'text/csv':
-        valid = !buffer.subarray(0, Math.min(buffer.length, 8192)).includes(0);
-        break;
-      default:
-        valid = false;
-    }
-
-    if (!valid) {
-      throw new BadRequestException(
-        'The attachment content does not match its declared file type.',
-      );
-    }
-  }
-
   private normalizeFileName(fileName: string): string {
     const normalized = fileName
       .normalize('NFKC')
@@ -2698,52 +2823,37 @@ export class AnnouncementsService implements OnModuleInit, OnModuleDestroy {
     return (normalized || 'announcement-attachment').slice(0, 180);
   }
 
-  private resolveAttachmentPath(storageKey: string): string {
-    const absolutePath = path.resolve(ANNOUNCEMENT_STORAGE_DIR, storageKey);
-
-    if (!absolutePath.startsWith(`${ANNOUNCEMENT_STORAGE_DIR}${path.sep}`)) {
-      throw new BadRequestException('Announcement attachment key is invalid.');
-    }
-
-    return absolutePath;
-  }
-
   private async writeAttachmentFile(
     storageKey: string,
     file: UploadedMessageAttachmentFile,
   ): Promise<void> {
-    const absolutePath = this.resolveAttachmentPath(storageKey);
-    await fs.mkdir(path.dirname(absolutePath), { recursive: true });
+    await this.attachmentStorageService.writeUploadedFile(
+      'announcements',
+      storageKey,
+      file,
+    );
+  }
 
-    // Exclusive creation prevents an unexpected storage-key collision.
-    await fs.writeFile(absolutePath, file.buffer, {
-      flag: 'wx',
-      mode: 0o600,
-    });
+  private async deleteAttachmentFileWithResult(
+    storageKey: string,
+  ): Promise<boolean> {
+    return this.attachmentStorageService.deleteFile(
+      'announcements',
+      storageKey,
+    );
   }
 
   private async deleteAttachmentFile(storageKey: string): Promise<void> {
-    try {
-      await fs.unlink(this.resolveAttachmentPath(storageKey));
-    } catch {
-      // Best-effort cleanup never replaces the database as source of truth.
-    }
+    await this.deleteAttachmentFileWithResult(storageKey);
   }
 
   private async deleteAnnouncementAttachmentDirectory(
     announcementId: string,
   ): Promise<void> {
-    const directory = path.dirname(
-      this.resolveAttachmentPath(`${announcementId}/permanent-delete`),
+    await this.attachmentStorageService.removeDirectory(
+      'announcements',
+      announcementId,
     );
-
-    // The directory contains only files belonging to this announcement ID.
-    await fs.rm(directory, {
-      recursive: true,
-      force: true,
-      maxRetries: 3,
-      retryDelay: 100,
-    });
   }
 
   private isAttachmentVisibleAtRevision(

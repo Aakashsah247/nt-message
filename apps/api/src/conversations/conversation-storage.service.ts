@@ -3,10 +3,10 @@ import {
   Injectable,
   Logger,
   NotFoundException,
+  OnModuleDestroy,
+  OnModuleInit,
 } from '@nestjs/common';
-import { promises as fs } from 'node:fs';
-import path from 'node:path';
-
+import { AttachmentStorageService } from '../attachments/attachment-storage.service';
 import type { AuthenticatedUser } from '../auth/types/auth.types';
 import { PrismaService } from '../database/prisma.service';
 import {
@@ -16,10 +16,8 @@ import {
 } from '../generated/prisma/client';
 import type { Prisma } from '../generated/prisma/client';
 
-const MESSAGE_ATTACHMENT_STORAGE_DIR = path.resolve(
-  process.env.MESSAGE_ATTACHMENT_STORAGE_DIR ??
-    path.join(process.cwd(), 'storage', 'message-attachments'),
-);
+const MESSAGE_ATTACHMENT_RETENTION_CLEANUP_INTERVAL_MS = 24 * 60 * 60 * 1000;
+const MESSAGE_ATTACHMENT_RETENTION_CLEANUP_BATCH_SIZE = 250;
 
 const STORAGE_CATEGORY_DEFINITIONS = [
   {
@@ -72,6 +70,8 @@ const USER_VISIBLE_ATTACHMENT_FROM_SQL = `
         AND hidden."account_id" = $1::uuid
     )
     AND ma."scan_status" NOT IN ('FAILED', 'QUARANTINED')
+    AND ma."expired_at" IS NULL
+    AND ma."expires_at" > NOW()
 `;
 
 const CONVERSATION_VISIBLE_ATTACHMENT_FROM_SQL = `
@@ -141,10 +141,34 @@ interface StorageQueryResult {
 }
 
 @Injectable()
-export class ConversationStorageService {
+export class ConversationStorageService
+  implements OnModuleInit, OnModuleDestroy
+{
   private readonly logger = new Logger(ConversationStorageService.name);
+  private retentionCleanupTimer: ReturnType<typeof setInterval> | null = null;
+  private retentionCleanupRunning = false;
 
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly attachmentStorageService: AttachmentStorageService =
+      new AttachmentStorageService(),
+  ) {}
+
+  onModuleInit(): void {
+    // Retention cleanup is idempotent and starts once at boot so expired files
+    // do not have to wait for the next daily interval after a deployment.
+    void this.cleanupExpiredAttachmentRetention();
+    this.retentionCleanupTimer = setInterval(() => {
+      void this.cleanupExpiredAttachmentRetention();
+    }, MESSAGE_ATTACHMENT_RETENTION_CLEANUP_INTERVAL_MS);
+    this.retentionCleanupTimer.unref?.();
+  }
+
+  onModuleDestroy(): void {
+    if (this.retentionCleanupTimer) {
+      clearInterval(this.retentionCleanupTimer);
+    }
+  }
 
   private databaseNumber(value: DatabaseNumber): number {
     const parsed = Number(value ?? 0);
@@ -159,33 +183,10 @@ export class ConversationStorageService {
     return parsed;
   }
 
-  private resolveAttachmentPath(storageKey: string): string {
-    const absolutePath = path.resolve(
-      MESSAGE_ATTACHMENT_STORAGE_DIR,
-      storageKey,
-    );
-
-    // A database value must never be allowed to escape the private attachment root.
-    if (
-      !absolutePath.startsWith(`${MESSAGE_ATTACHMENT_STORAGE_DIR}${path.sep}`)
-    ) {
-      throw new ConflictException(
-        'An attachment storage reference is invalid.',
-      );
-    }
-
-    return absolutePath;
-  }
-
   private async isPhysicalObjectAvailable(
     storageKey: string,
   ): Promise<boolean> {
-    try {
-      await fs.access(this.resolveAttachmentPath(storageKey));
-      return true;
-    } catch {
-      return false;
-    }
+    return this.attachmentStorageService.exists('messages', storageKey);
   }
 
   private buildCategories(rows: StorageCategoryDatabaseRow[]) {
@@ -515,6 +516,161 @@ export class ConversationStorageService {
     };
   }
 
+  async cleanupExpiredAttachmentRetention(
+    now = new Date(),
+  ): Promise<{
+    expiredReferenceCount: number;
+    purgedObjectCount: number;
+    failedObjectCount: number;
+  }> {
+    if (this.retentionCleanupRunning) {
+      return {
+        expiredReferenceCount: 0,
+        purgedObjectCount: 0,
+        failedObjectCount: 0,
+      };
+    }
+
+    this.retentionCleanupRunning = true;
+
+    try {
+      const dueReferences = await this.prisma.messageAttachment.findMany({
+        where: {
+          expiredAt: null,
+          expiresAt: { lte: now },
+        },
+        orderBy: [{ expiresAt: 'asc' }, { id: 'asc' }],
+        take: MESSAGE_ATTACHMENT_RETENTION_CLEANUP_BATCH_SIZE * 4,
+        select: {
+          id: true,
+          storageKey: true,
+        },
+      });
+
+      let expiredReferenceCount = 0;
+
+      if (dueReferences.length > 0) {
+        const dueStorageKeys = [
+          ...new Set(dueReferences.map((attachment) => attachment.storageKey)),
+        ];
+
+        expiredReferenceCount = await this.prisma.$transaction(
+          async (transaction) => {
+            /*
+             * Use the same advisory locks as forwarding and final-reference
+             * deletion. A file cannot be copied into a new message while the
+             * retention worker is expiring its last valid reference.
+             */
+            await this.lockStorageKeys(transaction, dueStorageKeys);
+            const updated = await transaction.messageAttachment.updateMany({
+              where: {
+                id: {
+                  in: dueReferences.map((attachment) => attachment.id),
+                },
+                expiredAt: null,
+                expiresAt: { lte: now },
+              },
+              data: {
+                expiredAt: now,
+              },
+            });
+
+            return updated.count;
+          },
+        );
+      }
+
+      /*
+       * purgedAt is deliberately separate from expiredAt. A filesystem error
+       * must not make an expired attachment available again, and leaving
+       * purgedAt null gives the next daily run an explicit retry queue.
+       */
+      const purgeRows = await this.prisma.messageAttachment.findMany({
+        where: {
+          purgedAt: null,
+          expiresAt: { lte: now },
+        },
+        orderBy: [{ expiresAt: 'asc' }, { id: 'asc' }],
+        take: MESSAGE_ATTACHMENT_RETENTION_CLEANUP_BATCH_SIZE * 4,
+        select: {
+          storageKey: true,
+        },
+      });
+      const purgeStorageKeys = [
+        ...new Set(purgeRows.map((attachment) => attachment.storageKey)),
+      ].slice(0, MESSAGE_ATTACHMENT_RETENTION_CLEANUP_BATCH_SIZE);
+
+      let purgedObjectCount = 0;
+      let failedObjectCount = 0;
+
+      for (const storageKey of purgeStorageKeys) {
+        const canPurge = await this.prisma.$transaction(
+          async (transaction) => {
+            await this.lockStorageKeys(transaction, [storageKey]);
+
+            const activeReferenceCount =
+              await transaction.messageAttachment.count({
+                where: {
+                  storageKey: storageKey,
+                  expiredAt: null,
+                  expiresAt: { gt: now },
+                  message: {
+                    deletedAt: null,
+                  },
+                },
+              });
+
+            return activeReferenceCount === 0;
+          },
+        );
+
+        if (!canPurge) {
+          continue;
+        }
+
+        const removed = await this.deletePhysicalStorageObjectWithResult(
+          storageKey,
+        );
+
+        if (!removed) {
+          failedObjectCount += 1;
+          continue;
+        }
+
+        await this.prisma.messageAttachment.updateMany({
+          where: {
+            storageKey: storageKey,
+            purgedAt: null,
+          },
+          data: {
+            purgedAt: now,
+          },
+        });
+        purgedObjectCount += 1;
+      }
+
+      if (expiredReferenceCount > 0 || purgedObjectCount > 0) {
+        this.logger.log(
+          `Message attachment retention expired ${expiredReferenceCount} reference(s) and purged ${purgedObjectCount} physical object(s).`,
+        );
+      }
+
+      return {
+        expiredReferenceCount,
+        purgedObjectCount,
+        failedObjectCount,
+      };
+    } finally {
+      this.retentionCleanupRunning = false;
+    }
+  }
+
+  private async deletePhysicalStorageObjectWithResult(
+    storageKey: string,
+  ): Promise<boolean> {
+    return this.attachmentStorageService.deleteFile('messages', storageKey);
+  }
+
   async lockStorageKeys(
     transaction: Prisma.TransactionClient,
     storageKeys: readonly string[],
@@ -549,6 +705,10 @@ export class ConversationStorageService {
         id: {
           in: [...attachmentIds],
         },
+        expiredAt: null,
+        expiresAt: {
+          gt: new Date(),
+        },
         message: {
           deletedAt: null,
         },
@@ -561,6 +721,29 @@ export class ConversationStorageService {
         'One or more attachment references changed. Refresh and try again.',
       );
     }
+  }
+
+  async findUnreferencedStorageKeys(
+    transaction: Prisma.TransactionClient,
+    storageKeys: readonly string[],
+  ): Promise<string[]> {
+    const unreferencedStorageKeys: string[] = [];
+
+    for (const storageKey of [...new Set(storageKeys)]) {
+      const remainingReferenceCount = await transaction.messageAttachment.count(
+        {
+          where: {
+            storageKey,
+          },
+        },
+      );
+
+      if (remainingReferenceCount === 0) {
+        unreferencedStorageKeys.push(storageKey);
+      }
+    }
+
+    return unreferencedStorageKeys;
   }
 
   async removeDeletedMessageAttachmentReferences(
@@ -582,8 +765,6 @@ export class ConversationStorageService {
         messageId,
       },
     });
-
-    const unreferencedStorageKeys: string[] = [];
 
     for (const storageKey of uniqueStorageKeys) {
       const activeReferenceCount = await transaction.messageAttachment.count({
@@ -610,41 +791,17 @@ export class ConversationStorageService {
           },
         },
       });
-
-      const remainingReferenceCount = await transaction.messageAttachment.count(
-        {
-          where: {
-            storageKey,
-          },
-        },
-      );
-
-      if (remainingReferenceCount === 0) {
-        unreferencedStorageKeys.push(storageKey);
-      }
     }
 
-    return unreferencedStorageKeys;
+    return this.findUnreferencedStorageKeys(transaction, uniqueStorageKeys);
   }
 
   async deletePhysicalStorageObjects(
     storageKeys: readonly string[],
   ): Promise<void> {
     for (const storageKey of [...new Set(storageKeys)]) {
-      try {
-        await fs.unlink(this.resolveAttachmentPath(storageKey));
-      } catch (error) {
-        if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
-          // Missing files are already physically absent, so cleanup remains idempotent.
-          continue;
-        }
-
-        // Message deletion remains authoritative even if infrastructure cleanup needs retrying.
-        this.logger.error(
-          'An unreferenced message attachment could not be removed from storage.',
-          error instanceof Error ? error.stack : undefined,
-        );
-      }
+      // Message deletion remains authoritative even if infrastructure cleanup needs retrying.
+      await this.attachmentStorageService.deleteFile('messages', storageKey);
     }
   }
 }

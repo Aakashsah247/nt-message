@@ -35,6 +35,7 @@ import {
   createMessagingProfilePhotoObjectUrl,
   createGroupPhotoObjectUrl,
   deleteChatFolder,
+  deleteGroupConversation,
   deleteGroupPhoto,
   deleteMyMessagingProfilePhoto,
   declineMessageRequest,
@@ -230,6 +231,12 @@ type DestructiveConfirmation =
   | { kind: "DELETE_MESSAGE_FOR_ME"; message: MessagingMessage }
   | { kind: "DELETE_MESSAGE_FOR_EVERYONE"; message: MessagingMessage }
   | { kind: "LEAVE_GROUP"; conversationId: string; conversationTitle: string }
+  | {
+      kind: "DELETE_GROUP";
+      conversationId: string;
+      conversationTitle: string;
+      groupKind: GroupKind;
+    }
   | { kind: "BLOCK_PRIVATE_CONTACT"; target: MessagingAccount };
 
 interface DestructiveConfirmationCopy {
@@ -316,6 +323,32 @@ function destructiveConfirmationCopy(
         ],
         confirmLabel: "Leave group",
       };
+    case "DELETE_GROUP":
+      return action.groupKind === "OFFICIAL"
+        ? {
+            eyebrow: "Official group owner action",
+            title: `Delete official group ${action.conversationTitle}?`,
+            description:
+              "This official messaging group will be permanently removed for every member.",
+            consequences: [
+              "The group's message history and linked group announcements will be removed.",
+              "The underlying organization, division, department and employee assignments remain unchanged.",
+              "This action cannot be undone.",
+            ],
+            confirmLabel: "Delete official group",
+          }
+        : {
+            eyebrow: "Group owner action",
+            title: `Delete ${action.conversationTitle}?`,
+            description:
+              "This personal group will be permanently removed for every member.",
+            consequences: [
+              "The group and its message history will no longer be available to participants.",
+              "Separately forwarded copies in other conversations remain available where authorized.",
+              "This action cannot be undone.",
+            ],
+            confirmLabel: "Delete group",
+          };
     case "BLOCK_PRIVATE_CONTACT":
       return {
         eyebrow: "Private messaging privacy",
@@ -362,7 +395,7 @@ const SELECTED_CONVERSATION_STORAGE_KEY = "nt-message:selected-conversation";
 const HIGHLIGHT_MESSAGE_STORAGE_KEY = "nt-message:highlight-message";
 const MESSAGE_NAVIGATION_STORAGE_KEY = "nt-message:navigation-expanded";
 const NOTIFICATION_SOUND_URL = "/sounds/web-whatsapp.mp3";
-const MESSAGE_EDIT_WINDOW_MS = 15 * 60 * 1000;
+const MESSAGE_EDIT_WINDOW_MS = 20 * 60 * 1000;
 const QUICK_REACTIONS = ["👍", "❤️", "😂", "😮", "😢", "🙏"] as const;
 type QuickReaction = (typeof QUICK_REACTIONS)[number];
 const QUICK_REACTION_SET = new Set<string>(QUICK_REACTIONS);
@@ -1045,7 +1078,8 @@ function MessageAttachmentCard({
   const mediaPreview =
     isImageAttachment(attachment) || isVideoAttachment(attachment);
   const audioPreview = isAudioAttachment(attachment);
-  const needsProtectedPreview = mediaPreview || audioPreview;
+  const needsProtectedPreview =
+    !attachment.isExpired && (mediaPreview || audioPreview);
 
   useEffect(() => {
     if (!accessToken || !needsProtectedPreview) {
@@ -1110,11 +1144,28 @@ function MessageAttachmentCard({
 
   return (
     <article
-      className={`message-attachment-card-v2 message-attachment-${visualKind}-v2${previewError ? " has-preview-error" : ""
+      className={`message-attachment-card-v2 message-attachment-${visualKind}-v2${attachment.isExpired ? " is-expired" : ""}${previewError ? " has-preview-error" : ""
         }`}
       aria-label={`${displayName}, ${attachmentMeta}`}
     >
-      {mediaPreview && (
+      {attachment.isExpired && (
+        <div className="message-attachment-expired-v2" role="status">
+          <span
+            className="message-attachment-expired-icon-v2"
+            aria-hidden="true"
+          >
+            <AttachmentGlyph name={visualKind} />
+          </span>
+          <span>
+            <strong>{displayName}</strong>
+            <small>
+              Attachment expired · This file is no longer available.
+            </small>
+          </span>
+        </div>
+      )}
+
+      {!attachment.isExpired && mediaPreview && (
         <div className="message-attachment-media-v2">
           {previewUrl ? (
             <button
@@ -1163,7 +1214,8 @@ function MessageAttachmentCard({
         </div>
       )}
 
-      {audioPreview &&
+      {!attachment.isExpired &&
+        audioPreview &&
         (previewUrl ? (
           <CompactAttachmentAudio
             src={previewUrl}
@@ -1198,7 +1250,7 @@ function MessageAttachmentCard({
           </div>
         ))}
 
-      {!needsProtectedPreview && (
+      {!attachment.isExpired && !needsProtectedPreview && (
         <button
           type="button"
           className="message-attachment-document-v2"
@@ -1396,6 +1448,10 @@ function isAnnouncementTextAttachment(
 function canPreviewAnnouncementAttachment(
   attachment: AnnouncementAttachment,
 ): boolean {
+  if (attachment.isExpired) {
+    return false;
+  }
+
   return (
     isAnnouncementImageAttachment(attachment) ||
     isAnnouncementVideoAttachment(attachment) ||
@@ -1866,10 +1922,10 @@ function formatLocationUpdatedAt(value: string): string {
   const date = new Date(value);
 
   if (Number.isNaN(date.getTime())) {
-    return "Updated just now";
+    return "just now";
   }
 
-  return `Updated ${formatMessageTime(value)}`;
+  return formatMessageTime(value);
 }
 
 function browserNotificationPermissionLabel(): string {
@@ -2046,7 +2102,7 @@ function isZipAttachment(attachment: MessagingAttachment): boolean {
 }
 
 function canPreviewAttachment(attachment: MessagingAttachment): boolean {
-  if (isZipAttachment(attachment)) {
+  if (attachment.isExpired || isZipAttachment(attachment)) {
     return false;
   }
 
@@ -2440,6 +2496,12 @@ function canForwardMessage(message: MessagingMessage): boolean {
   }
 
   if (message.contentType === "LOCATION") {
+    return false;
+  }
+
+  // Forwarding must not offer a path that the API will reject because a
+  // referenced physical attachment has already reached its retention limit.
+  if (message.attachments?.some((attachment) => attachment.isExpired)) {
     return false;
   }
 
@@ -2931,6 +2993,38 @@ function canEditMessage(
     Number.isFinite(sentAt) &&
     Date.now() - sentAt <= MESSAGE_EDIT_WINDOW_MS
   );
+}
+
+function canDeleteMessageForEveryone(
+  message: MessagingMessage,
+  accountId: string | undefined,
+  conversation: MessagingConversation | null,
+): boolean {
+  if (!accountId || message.isDeleted) {
+    return false;
+  }
+
+  if (message.senderAccountId === accountId) {
+    return true;
+  }
+
+  if (conversation?.type !== "GROUP") {
+    return false;
+  }
+
+  if (conversation.viewerParticipantRole === "OWNER") {
+    return true;
+  }
+
+  if (conversation.viewerParticipantRole !== "ADMIN") {
+    return false;
+  }
+
+  const sender = conversation.participants.find(
+    (participant) => participant.accountId === message.senderAccountId,
+  );
+
+  return sender?.participantRole !== "OWNER";
 }
 
 function messagePreview(
@@ -4350,6 +4444,7 @@ export function MessageAppPage() {
     selectedConversationId,
   );
   const composerRef = useRef<HTMLTextAreaElement | null>(null);
+  const pendingComposerRefocusConversationIdRef = useRef<string | null>(null);
   const conversationSearchInputRef = useRef<HTMLInputElement | null>(null);
   const conversationListRef = useRef<HTMLDivElement | null>(null);
   const attachmentInputRef = useRef<HTMLInputElement | null>(null);
@@ -4430,7 +4525,8 @@ export function MessageAppPage() {
     destructiveConfirmation?.kind === "DELETE_MESSAGE_FOR_ME" ||
       destructiveConfirmation?.kind === "DELETE_MESSAGE_FOR_EVERYONE"
       ? messageActionId === destructiveConfirmation.message.id
-      : destructiveConfirmation?.kind === "LEAVE_GROUP"
+      : destructiveConfirmation?.kind === "LEAVE_GROUP" ||
+          destructiveConfirmation?.kind === "DELETE_GROUP"
         ? groupSubmitting
         : destructiveConfirmation?.kind === "BLOCK_PRIVATE_CONTACT"
           ? blockActionAccountId === destructiveConfirmation.target.accountId
@@ -7031,6 +7127,20 @@ export function MessageAppPage() {
     return () => window.clearTimeout(timer);
   }, [notificationActionNotice]);
 
+  useEffect(() => {
+    if (!messageNotice) {
+      return;
+    }
+
+    // Informational message actions should behave like lightweight toasts rather
+    // than permanent banners that push the conversation thread downward.
+    const timer = window.setTimeout(() => {
+      setMessageNotice(null);
+    }, 4500);
+
+    return () => window.clearTimeout(timer);
+  }, [messageNotice]);
+
   useEffect(
     () => () => {
       if (notificationToastTimerRef.current !== null) {
@@ -7738,9 +7848,19 @@ export function MessageAppPage() {
         void loadNotifications();
       }
 
+      if (payload.reason === "GROUP_DELETED") {
+        if (payload.conversationId === selectedConversationIdRef.current) {
+          setSelectedConversationId(null);
+          setDetailsPanelOpen(false);
+          setGroupManagementWorkspaceOpen(false);
+          resetGroupDialogState();
+        }
+      }
+
       void loadConversations(
         true,
-        payload.reason === "DELETED_FOR_ACCOUNT"
+        payload.reason === "DELETED_FOR_ACCOUNT" ||
+          payload.reason === "GROUP_DELETED"
           ? undefined
           : (selectedConversationIdRef.current ?? undefined),
       );
@@ -8092,6 +8212,35 @@ export function MessageAppPage() {
     selectedConversation?.type,
     selectedConversationId,
   ]);
+
+  useLayoutEffect(() => {
+    if (sendingMessage) {
+      return;
+    }
+
+    const pendingConversationId =
+      pendingComposerRefocusConversationIdRef.current;
+
+    if (!pendingConversationId) {
+      return;
+    }
+
+    pendingComposerRefocusConversationIdRef.current = null;
+
+    if (pendingConversationId !== selectedConversationId) {
+      return;
+    }
+
+    const frameId = window.requestAnimationFrame(() => {
+      const composer = composerRef.current;
+
+      if (composer && !composer.disabled) {
+        composer.focus({ preventScroll: true });
+      }
+    });
+
+    return () => window.cancelAnimationFrame(frameId);
+  }, [sendingMessage, selectedConversationId]);
 
   function scrollMessageThreadToBottom(): void {
     const element = messageListRef.current;
@@ -9356,6 +9505,38 @@ export function MessageAppPage() {
     } catch (error) {
       const errorMessage =
         error instanceof Error ? error.message : "The group could not be left.";
+      setGroupError(errorMessage);
+      setDestructiveConfirmationError(errorMessage);
+    } finally {
+      setGroupSubmitting(false);
+    }
+  }
+
+  async function handleDeleteGroup(conversationId: string): Promise<void> {
+    if (!accessToken || groupSubmitting) {
+      return;
+    }
+
+    setGroupSubmitting(true);
+    setGroupError(null);
+
+    try {
+      const response = await deleteGroupConversation(
+        accessToken,
+        conversationId,
+      );
+
+      setMessageNotice(response.message);
+      setDestructiveConfirmation(null);
+      setDestructiveConfirmationError(null);
+      setDetailsPanelOpen(false);
+      setGroupManagementWorkspaceOpen(false);
+      resetGroupDialogState();
+      setSelectedConversationId(null);
+      await Promise.all([loadConversations(true), loadChatFolders(true)]);
+    } catch (error) {
+      const errorMessage =
+        error instanceof Error ? error.message : "The group could not be deleted.";
       setGroupError(errorMessage);
       setDestructiveConfirmationError(errorMessage);
     } finally {
@@ -11830,6 +12011,9 @@ export function MessageAppPage() {
       case "LEAVE_GROUP":
         void handleLeaveGroup(destructiveConfirmation.conversationId);
         return;
+      case "DELETE_GROUP":
+        void handleDeleteGroup(destructiveConfirmation.conversationId);
+        return;
       case "BLOCK_PRIVATE_CONTACT":
         void handleBlockAccount(destructiveConfirmation.target);
     }
@@ -12191,12 +12375,18 @@ export function MessageAppPage() {
     if (
       !accessToken ||
       !selectedConversationId ||
-      message.senderAccountId !== account?.id ||
       message.isDeleted ||
       messageActionId
     ) {
       return;
     }
+
+    /*
+     * Delete-for-everyone authorization is enforced by the API. Group owners
+     * and admins may legitimately delete another participant's message, so the
+     * client must not apply the old sender-only guard here. The action-menu
+     * helper controls normal visibility; the backend remains authoritative.
+     */
 
     setMessageActionId(message.id);
     setMessageError(null);
@@ -12279,7 +12469,9 @@ export function MessageAppPage() {
     }
 
     const isAttachmentSend = attachmentFiles.length > 0 && !editingMessage;
+    const sendingConversationId = selectedConversationId;
 
+    pendingComposerRefocusConversationIdRef.current = sendingConversationId;
     setSendingMessage(true);
     setSendAttemptFailed(false);
     setMessageError(null);
@@ -12398,6 +12590,8 @@ export function MessageAppPage() {
       setSendAttemptFailed(true);
       setMessageError(errorMessage);
     } finally {
+      // The post-render effect restores focus only after React has actually
+      // re-enabled the textarea. This keeps continuous keyboard sending stable.
       setSendingMessage(false);
     }
   }
@@ -13262,7 +13456,11 @@ export function MessageAppPage() {
           <span>Delete message for me</span>
         </button>
 
-        {ownMessage && !message.isDeleted && (
+        {canDeleteMessageForEveryone(
+          message,
+          account?.id,
+          selectedConversation,
+        ) && (
           <button
             type="button"
             role="menuitem"
@@ -15089,6 +15287,25 @@ export function MessageAppPage() {
                   <span aria-hidden="true">›</span>
                 </button>
               )}
+              {groupInfoConversation.viewerParticipantRole === "OWNER" && (
+                <button
+                  type="button"
+                  className="message-simple-navigation-action danger"
+                  onClick={() =>
+                    openDestructiveConfirmation({
+                      kind: "DELETE_GROUP",
+                      conversationId: groupInfoConversation.id,
+                      conversationTitle:
+                        groupInfoConversation.title ?? "this group",
+                      groupKind: "PERSONAL",
+                    })
+                  }
+                  disabled={groupSubmitting}
+                >
+                  <MessageNavigationIcon name="trash" />
+                  <span>Delete group</span>
+                </button>
+              )}
               <button
                 type="button"
                 className="message-simple-navigation-action danger"
@@ -15107,10 +15324,34 @@ export function MessageAppPage() {
               </button>
             </section>
           ) : (
-            <p className="message-simple-group-note">
-              Membership is synchronized from active organizational
-              assignments.
-            </p>
+            <>
+              <p className="message-simple-group-note">
+                Membership is synchronized from active organizational
+                assignments.
+              </p>
+              {account?.role === "SUPER_ADMIN" &&
+                groupInfoConversation.viewerParticipantRole === "OWNER" && (
+                  <section className="message-simple-detail-section message-simple-group-actions">
+                    <button
+                      type="button"
+                      className="message-simple-navigation-action danger"
+                      onClick={() =>
+                        openDestructiveConfirmation({
+                          kind: "DELETE_GROUP",
+                          conversationId: groupInfoConversation.id,
+                          conversationTitle:
+                            groupInfoConversation.title ?? "this group",
+                          groupKind: "OFFICIAL",
+                        })
+                      }
+                      disabled={groupSubmitting}
+                    >
+                      <MessageNavigationIcon name="trash" />
+                      <span>Delete official group</span>
+                    </button>
+                  </section>
+                )}
+            </>
           )}
         </div>
       </div>
@@ -15336,6 +15577,7 @@ export function MessageAppPage() {
                       groupInfoConversation.groupKind === "PERSONAL" &&
                       viewerRole === "OWNER" &&
                       participant.participantRole !== "OWNER" &&
+                      participant.role !== "SUPER_ADMIN" &&
                       !isViewer;
                     const canRemove =
                       groupInfoConversation.groupKind === "PERSONAL" &&
@@ -19415,18 +19657,15 @@ export function MessageAppPage() {
 
               {messageNotice && (
                 <div
-                  className="message-chat-notice"
+                  className="message-action-toast"
                   role="status"
                   aria-live="polite"
+                  aria-atomic="true"
                 >
+                  <span className="message-action-toast-icon" aria-hidden="true">
+                    i
+                  </span>
                   <span>{messageNotice}</span>
-                  <button
-                    type="button"
-                    onClick={() => setMessageNotice(null)}
-                    aria-label="Dismiss message notice"
-                  >
-                    ×
-                  </button>
                 </div>
               )}
 
@@ -19504,6 +19743,13 @@ export function MessageAppPage() {
                   aria-busy={messageLoading || olderMessagesLoading}
                 >
                   <div className="message-thread-content">
+                    {!messageLoading && displayMessages.length > 0 && (
+                      <div
+                        className="message-thread-spacer"
+                        aria-hidden="true"
+                      />
+                    )}
+
                     {hasOlderMessages && (
                       <button
                         type="button"
@@ -19587,11 +19833,36 @@ export function MessageAppPage() {
                           message.contentType === "LOCATION";
                         const attachmentOnlyMessage =
                           !message.isDeleted &&
-                          !message.textContent &&
-                          (hasAttachments || isLocationMessage) &&
                           !message.replyTo &&
                           !message.forwardedFrom &&
-                          !officialAnnouncement;
+                          !officialAnnouncement &&
+                          (isLocationMessage ||
+                            (!message.textContent && hasAttachments));
+                        const messageMeta = (
+                          <div
+                            className={`message-bubble-meta${
+                              attachmentOnlyMessage ? "" : " inside-bubble"
+                            }`}
+                          >
+                            <time>{formatMessageTime(message.sentAt)}</time>
+
+                            {message.editedAt && !message.isDeleted && (
+                              <span>Edited</span>
+                            )}
+
+                            {deliveryPresentation && (
+                              <span
+                                className={`message-delivery ${message.deliveryStatus.toLowerCase()}`}
+                                aria-label={deliveryPresentation.label}
+                                title={deliveryPresentation.label}
+                              >
+                                <span aria-hidden="true">
+                                  {deliveryPresentation.glyph}
+                                </span>
+                              </span>
+                            )}
+                          </div>
+                        );
 
                         return (
                           <Fragment key={message.id}>
@@ -19618,7 +19889,7 @@ export function MessageAppPage() {
                                   ? " mobile-action-selected"
                                   : ""
                                 }${hasAttachments ? " has-attachments" : ""}${isLocationMessage ? " has-location" : ""
-                                }${attachmentOnlyMessage ? " attachment-only" : ""}`}
+                                }${attachmentOnlyMessage ? " attachment-only" : ""}${message.isDeleted ? " is-deleted" : ""}`}
                               onPointerEnter={(event) =>
                                 handleMessagePointerEnter(message.id, event)
                               }
@@ -19818,6 +20089,8 @@ export function MessageAppPage() {
                                         )}
                                       </>
                                     )}
+
+                                    {!attachmentOnlyMessage && messageMeta}
                                   </div>
 
                                   <div
@@ -19892,29 +20165,7 @@ export function MessageAppPage() {
                                   </div>
                                 </div>
 
-                                {(!groupedWithNext || message.editedAt) && (
-                                  <div className="message-bubble-meta">
-                                    <time>
-                                      {formatMessageTime(message.sentAt)}
-                                    </time>
-
-                                    {message.editedAt && !message.isDeleted && (
-                                      <span>Edited</span>
-                                    )}
-
-                                    {deliveryPresentation && (
-                                      <span
-                                        className={`message-delivery ${message.deliveryStatus.toLowerCase()}`}
-                                        aria-label={deliveryPresentation.label}
-                                        title={deliveryPresentation.label}
-                                      >
-                                        <span aria-hidden="true">
-                                          {deliveryPresentation.glyph}
-                                        </span>
-                                      </span>
-                                    )}
-                                  </div>
-                                )}
+                                {attachmentOnlyMessage && messageMeta}
                               </div>
                             </article>
                           </Fragment>
@@ -20929,13 +21180,16 @@ export function MessageAppPage() {
                           const canPreview =
                             canPreviewAnnouncementAttachment(attachment);
                           const canDownload =
-                            announcementDetail.allowAttachmentDownload ||
-                            announcementDetail.canManage;
+                            !attachment.isExpired &&
+                            (announcementDetail.allowAttachmentDownload ||
+                              announcementDetail.canManage);
 
                           return (
                             <li
                               key={attachment.id}
-                              className={`message-announcement-attachment-card ${attachment.category.toLowerCase()}`}
+                              className={`message-announcement-attachment-card ${attachment.category.toLowerCase()}${
+                                attachment.isExpired ? " is-expired" : ""
+                              }`}
                             >
                               <span
                                 className={`message-announcement-file-kind ${attachment.category.toLowerCase()}`}
@@ -20951,6 +21205,12 @@ export function MessageAppPage() {
                                   {announcementEnumLabel(attachment.category)} ·{" "}
                                   {formatFileSize(attachment.fileSizeBytes)}
                                 </small>
+                                {attachment.isExpired && (
+                                  <small className="message-announcement-file-expired">
+                                    Attachment expired · This file is no longer
+                                    available.
+                                  </small>
+                                )}
                               </div>
                               <div className="message-announcement-file-actions">
                                 {canPreview && (

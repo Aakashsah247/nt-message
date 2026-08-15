@@ -13,6 +13,7 @@ export type MessagingConversationUpdateReason =
   // M16: distinguish a new private group copied from a one-to-one private chat.
   | 'PRIVATE_GROUP_CREATED'
   | 'GROUP_UPDATED'
+  | 'GROUP_DELETED'
   | 'MEMBERS_CHANGED'
   | 'OFFICIAL_GROUP_CREATED'
   | 'OFFICIAL_GROUP_SYNCED'

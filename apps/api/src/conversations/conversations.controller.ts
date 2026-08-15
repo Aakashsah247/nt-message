@@ -57,7 +57,8 @@ import { ReorderChatFoldersDto } from './dto/reorder-chat-folders.dto';
 import { ManageFolderItemDto } from './dto/manage-folder-item.dto';
 import { ReactMessageDto } from './dto/react-message.dto';
 import type { UploadedMessageAttachmentFile } from './types/uploaded-message-attachment-file';
-import { createBoundedMessageAttachmentMemoryStorage } from './message-attachment-memory-storage';
+import { AttachmentTempCleanupInterceptor } from '../attachments/attachment-temp-cleanup.interceptor';
+import { createBoundedAttachmentTempStorage } from '../attachments/attachment-upload-temp-storage';
 import {
   MAX_MESSAGE_ATTACHMENT_FILE_BYTES,
   MAX_MESSAGE_ATTACHMENT_FILES,
@@ -621,6 +622,25 @@ export class ConversationsController {
     );
   }
 
+  @Delete(':id/group')
+  deleteGroupConversation(
+    @CurrentUser()
+    user: AuthenticatedUser,
+
+    @Param(
+      'id',
+      new ParseUUIDPipe({
+        version: '4',
+      }),
+    )
+    conversationId: string,
+  ) {
+    return this.conversationsService.deleteGroupConversation(
+      user,
+      conversationId,
+    );
+  }
+
   @Patch(':id/group')
   updateGroupConversation(
     @CurrentUser()
@@ -1176,7 +1196,7 @@ export class ConversationsController {
         { name: 'file', maxCount: 1 },
       ],
       {
-        storage: createBoundedMessageAttachmentMemoryStorage(
+        storage: createBoundedAttachmentTempStorage(
           MAX_MESSAGE_ATTACHMENT_TOTAL_BYTES,
         ),
         limits: {
@@ -1185,6 +1205,7 @@ export class ConversationsController {
         },
       },
     ),
+    AttachmentTempCleanupInterceptor,
   )
   sendAttachmentMessage(
     @CurrentUser()
@@ -1277,6 +1298,7 @@ export class ConversationsController {
     response.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
     response.setHeader('Cross-Origin-Embedder-Policy', 'unsafe-none');
     response.setHeader('Cache-Control', 'no-store');
+    response.setHeader('X-Content-Type-Options', 'nosniff');
     response.setHeader('Content-Length', String(attachment.fileSizeBytes));
     response.setHeader('Accept-Ranges', 'bytes');
     response.setHeader(

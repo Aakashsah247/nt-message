@@ -17,8 +17,15 @@ function uploadedFile(
   mimetype: string,
   size: number,
 ): UploadedMessageAttachmentFile {
+  const signatures: Record<string, Buffer> = {
+    'image/png': Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
+    'video/mp4': Buffer.from([0x00, 0x00, 0x00, 0x18, 0x66, 0x74, 0x79, 0x70]),
+    'application/pdf': Buffer.from('%PDF-1.7'),
+    'audio/webm': Buffer.from([0x1a, 0x45, 0xdf, 0xa3]),
+  };
+
   return {
-    buffer: Buffer.from([1]),
+    buffer: signatures[mimetype] ?? Buffer.from('plain text'),
     originalname: name,
     mimetype,
     size,
@@ -205,14 +212,17 @@ describe('ConversationsService multi-attachment messages', () => {
               expect.objectContaining({
                 originalFileName: 'photo.png',
                 contentType: 'IMAGE',
+                scanStatus: 'FORMAT_VALIDATED',
               }),
               expect.objectContaining({
                 originalFileName: 'clip.mp4',
                 contentType: 'VIDEO',
+                scanStatus: 'FORMAT_VALIDATED',
               }),
               expect.objectContaining({
                 originalFileName: 'note.pdf',
                 contentType: 'FILE',
+                scanStatus: 'FORMAT_VALIDATED',
               }),
             ],
           },

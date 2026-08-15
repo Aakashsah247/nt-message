@@ -10,11 +10,15 @@ import { randomBytes, randomUUID } from 'node:crypto';
 import { promises as fs } from 'node:fs';
 import path from 'node:path';
 
+import { assertAttachmentFileMatchesDeclaredType } from '../attachments/attachment-file-validation';
+import { AttachmentSecurityService } from '../attachments/attachment-security.service';
+import { AttachmentStorageService } from '../attachments/attachment-storage.service';
 import type { AuthenticatedUser } from '../auth/types/auth.types';
 import { PrismaService } from '../database/prisma.service';
 import {
   AccountRole,
   ActivityEventType,
+  AnnouncementStatus,
   ConversationParticipantRole,
   ConversationType,
   EmployeeStatus,
@@ -29,6 +33,10 @@ import {
 } from '../generated/prisma/client';
 
 import type { Prisma } from '../generated/prisma/client';
+import {
+  getMessageAttachmentExpiresAt,
+  isAttachmentReferenceExpired,
+} from '../attachments/attachment-retention';
 import { MessagingEventsService } from '../realtime/messaging-events.service';
 import type { MessagingMessageUpdateAction } from '../realtime/messaging-events.service';
 
@@ -210,17 +218,13 @@ export interface MessagingProfileSharedGroup {
 }
 
 const MESSAGE_REQUEST_COOLDOWN_MS = 24 * 60 * 60 * 1000;
-const MESSAGE_EDIT_WINDOW_MS = 15 * 60 * 1000;
+const MESSAGE_EDIT_WINDOW_MS = 20 * 60 * 1000;
 const GROUP_INVITATION_TOKEN_BYTES = 32;
 const MAX_IMAGE_ATTACHMENT_BYTES = 20 * 1024 * 1024;
 const MAX_DOCUMENT_ATTACHMENT_BYTES = 50 * 1024 * 1024;
 const MAX_AUDIO_ATTACHMENT_BYTES = 25 * 1024 * 1024;
 const MAX_VIDEO_ATTACHMENT_BYTES = 200 * 1024 * 1024;
 const MAX_PROFILE_PHOTO_BYTES = 5 * 1024 * 1024;
-const MESSAGE_ATTACHMENT_STORAGE_DIR = path.resolve(
-  process.env.MESSAGE_ATTACHMENT_STORAGE_DIR ??
-    path.join(process.cwd(), 'storage', 'message-attachments'),
-);
 const PROFILE_PHOTO_STORAGE_DIR = path.resolve(
   process.env.PROFILE_PHOTO_STORAGE_DIR ??
     path.join(process.cwd(), 'storage', 'profile-photos'),
@@ -448,6 +452,8 @@ const messageSelect = {
       fileSizeBytes: true,
       contentType: true,
       scanStatus: true,
+      expiresAt: true,
+      expiredAt: true,
       createdAt: true,
       updatedAt: true,
     },
@@ -473,6 +479,8 @@ const sharedContentAttachmentSelect = {
   fileSizeBytes: true,
   contentType: true,
   scanStatus: true,
+  expiresAt: true,
+  expiredAt: true,
   createdAt: true,
   updatedAt: true,
 
@@ -707,6 +715,10 @@ export class ConversationsService {
     private readonly prisma: PrismaService,
     private readonly messagingEventsService: MessagingEventsService,
     private readonly conversationStorageService: ConversationStorageService,
+    private readonly attachmentStorageService: AttachmentStorageService =
+      new AttachmentStorageService(),
+    private readonly attachmentSecurityService: AttachmentSecurityService =
+      new AttachmentSecurityService(),
   ) {}
 
   private getRoleRank(role: AccountRole): number {
@@ -1476,7 +1488,7 @@ export class ConversationsService {
       throw new BadRequestException('Profile photo file is required.');
     }
 
-    if (!file.buffer || file.size <= 0) {
+    if ((!file.buffer && !file.path) || file.size <= 0) {
       throw new BadRequestException('Profile photo file is empty.');
     }
 
@@ -1537,7 +1549,7 @@ export class ConversationsService {
       throw new BadRequestException('Group photo file is required.');
     }
 
-    if (!file.buffer || file.size <= 0) {
+    if ((!file.buffer && !file.path) || file.size <= 0) {
       throw new BadRequestException('Group photo file is empty.');
     }
 
@@ -2256,6 +2268,12 @@ export class ConversationsService {
         fileSizeBytes: attachment.fileSizeBytes,
         contentType: attachment.contentType,
         scanStatus: attachment.scanStatus,
+        expiresAt: attachment.expiresAt,
+        expiredAt: attachment.expiredAt,
+        isExpired: isAttachmentReferenceExpired(
+          attachment.expiresAt,
+          attachment.expiredAt,
+        ),
         createdAt: attachment.createdAt,
         updatedAt: attachment.updatedAt,
       },
@@ -2369,6 +2387,12 @@ export class ConversationsService {
             fileSizeBytes: attachment.fileSizeBytes,
             contentType: attachment.contentType,
             scanStatus: attachment.scanStatus,
+            expiresAt: attachment.expiresAt,
+            expiredAt: attachment.expiredAt,
+            isExpired: isAttachmentReferenceExpired(
+              attachment.expiresAt,
+              attachment.expiredAt,
+            ),
             createdAt: attachment.createdAt,
             updatedAt: attachment.updatedAt,
           })),
@@ -2999,13 +3023,15 @@ export class ConversationsService {
       throw new BadRequestException('Attachment file is required.');
     }
 
-    if (!file.buffer || file.size <= 0) {
+    if ((!file.buffer && !file.path) || file.size <= 0) {
       throw new BadRequestException('Attachment file is empty.');
     }
 
     const originalFileName = this.normalizeAttachmentFileName(
       file.originalname,
     );
+
+    assertAttachmentFileMatchesDeclaredType(file);
 
     if (IMAGE_ATTACHMENT_MIME_TYPES.has(file.mimetype)) {
       if (file.size > MAX_IMAGE_ATTACHMENT_BYTES) {
@@ -3112,42 +3138,21 @@ export class ConversationsService {
       : MessageContentType.FILE;
   }
 
-  private resolveAttachmentPath(storageKey: string): string {
-    const absolutePath = path.resolve(
-      MESSAGE_ATTACHMENT_STORAGE_DIR,
-      storageKey,
-    );
-
-    if (
-      !absolutePath.startsWith(`${MESSAGE_ATTACHMENT_STORAGE_DIR}${path.sep}`)
-    ) {
-      throw new BadRequestException('Attachment storage key is invalid.');
-    }
-
-    return absolutePath;
-  }
-
   private async writeAttachmentFile(
     storageKey: string,
     file: UploadedMessageAttachmentFile,
   ): Promise<void> {
-    const absolutePath = this.resolveAttachmentPath(storageKey);
-
-    await fs.mkdir(path.dirname(absolutePath), {
-      recursive: true,
-    });
-
-    await fs.writeFile(absolutePath, file.buffer);
+    await this.attachmentStorageService.writeUploadedFile(
+      'messages',
+      storageKey,
+      file,
+    );
   }
 
   private async deleteAttachmentFileIfExists(
     storageKey: string,
   ): Promise<void> {
-    try {
-      await fs.unlink(this.resolveAttachmentPath(storageKey));
-    } catch {
-      // Attachment cleanup is best-effort. The database remains authoritative.
-    }
+    await this.attachmentStorageService.deleteFile('messages', storageKey);
   }
 
   private async getActiveGroupAccess(
@@ -3219,6 +3224,20 @@ export class ConversationsService {
         'Only a group owner or administrator can manage this group.',
       );
     }
+  }
+
+  /**
+   * Personal groups keep the creator as OWNER. A Super Admin who is explicitly
+   * added to the group receives ADMIN authority, but is never auto-added.
+   * This preserves private-group membership boundaries while applying the
+   * approved governance rule once the account becomes a participant.
+   */
+  private getPersonalGroupMemberRole(
+    accountRole: AccountRole,
+  ): ConversationParticipantRole {
+    return accountRole === AccountRole.SUPER_ADMIN
+      ? ConversationParticipantRole.ADMIN
+      : ConversationParticipantRole.MEMBER;
   }
 
   private async getEligibleGroupAccounts(
@@ -5338,6 +5357,7 @@ export class ConversationsService {
     ]);
 
     const now = new Date();
+    const joiningRole = this.getPersonalGroupMemberRole(viewer.role);
 
     await this.prisma.$transaction([
       this.prisma.conversationParticipant.upsert({
@@ -5350,14 +5370,14 @@ export class ConversationsService {
         update: {
           joinedAt: now,
           leftAt: null,
-          role: ConversationParticipantRole.MEMBER,
+          role: joiningRole,
           isArchived: false,
         },
         create: {
           conversationId: invitation.conversationId,
           accountId: viewer.accountId,
           joinedAt: now,
-          role: ConversationParticipantRole.MEMBER,
+          role: joiningRole,
         },
       }),
       this.prisma.conversation.update({
@@ -5405,6 +5425,10 @@ export class ConversationsService {
         scanStatus: {
           notIn: ['FAILED', 'QUARANTINED'],
         },
+        expiredAt: null,
+        expiresAt: {
+          gt: new Date(),
+        },
         message: {
           conversationId,
           deletedAt: null,
@@ -5441,7 +5465,13 @@ export class ConversationsService {
       select: messageSelect,
     });
 
-    const media = attachments
+    const accessibleAttachments = attachments.filter((attachment) =>
+      this.attachmentSecurityService.canAccessStoredAttachment(
+        attachment.scanStatus,
+      ),
+    );
+
+    const media = accessibleAttachments
       .filter(
         (attachment) =>
           attachment.contentType === MessageContentType.IMAGE ||
@@ -5455,7 +5485,7 @@ export class ConversationsService {
         ),
       );
 
-    const documents = attachments
+    const documents = accessibleAttachments
       .filter(
         (attachment) =>
           attachment.contentType !== MessageContentType.IMAGE &&
@@ -6406,6 +6436,13 @@ export class ConversationsService {
       ...originalAccountIds,
       ...newMembers.map((member) => member.id),
     ];
+    const participantGlobalRoles = new Map<string, AccountRole>([
+      ...sourceConversation.participants.map(
+        (participant) =>
+          [participant.accountId, participant.account.role] as const,
+      ),
+      ...newMembers.map((member) => [member.id, member.role] as const),
+    ]);
 
     await this.assertNoPersonalGroupBlocks(participantAccountIds);
 
@@ -6482,7 +6519,10 @@ export class ConversationsService {
                 role:
                   accountId === viewer.accountId
                     ? ConversationParticipantRole.OWNER
-                    : ConversationParticipantRole.MEMBER,
+                    : this.getPersonalGroupMemberRole(
+                        participantGlobalRoles.get(accountId) ??
+                          AccountRole.EMPLOYEE,
+                      ),
               })),
             },
           },
@@ -6516,6 +6556,13 @@ export class ConversationsService {
                   fileSizeBytes: attachment.fileSizeBytes,
                   contentType: attachment.contentType,
                   scanStatus: attachment.scanStatus,
+                  // A copied history item is a new logical reference. Start
+                  // its retention window when the personal group is created.
+                  expiresAt: getMessageAttachmentExpiresAt(
+                    ConversationType.GROUP,
+                    GroupKind.PERSONAL,
+                    now,
+                  ),
                 })),
               },
               receipts: {
@@ -6637,7 +6684,7 @@ export class ConversationsService {
                 },
                 ...members.map((member) => ({
                   accountId: member.id,
-                  role: ConversationParticipantRole.MEMBER,
+                  role: this.getPersonalGroupMemberRole(member.role),
                 })),
               ],
             },
@@ -6663,6 +6710,143 @@ export class ConversationsService {
     return {
       message: 'Group created successfully.',
       data: this.serializeConversation(conversation, viewer.accountId, 0),
+    };
+  }
+
+  async deleteGroupConversation(
+    user: AuthenticatedUser,
+    conversationId: string,
+  ) {
+    const viewer = await this.getMessagingViewer(user);
+    const access = await this.getActiveGroupAccess(
+      viewer.accountId,
+      conversationId,
+    );
+
+    if (access.conversation.groupKind === GroupKind.PERSONAL) {
+      if (
+        access.viewerParticipant.role !== ConversationParticipantRole.OWNER
+      ) {
+        throw new ForbiddenException(
+          'Only the personal group owner can delete this group.',
+        );
+      }
+    } else if (access.conversation.groupKind === GroupKind.OFFICIAL) {
+      /*
+       * Official organization/division/department groups are synchronized with
+       * the Super Admin as OWNER. Deletion is therefore a Super Admin owner-only
+       * governance action and never mutates the underlying organization tree.
+       */
+      if (
+        viewer.role !== AccountRole.SUPER_ADMIN ||
+        access.viewerParticipant.role !== ConversationParticipantRole.OWNER
+      ) {
+        throw new ForbiddenException(
+          'Only the Super Admin owner can delete an official group.',
+        );
+      }
+    } else {
+      throw new ConflictException('This conversation is not a deletable group.');
+    }
+
+    const attachmentRows = await this.prisma.messageAttachment.findMany({
+      where: {
+        message: {
+          conversationId,
+        },
+      },
+      select: {
+        storageKey: true,
+      },
+      distinct: ['storageKey'],
+    });
+
+    const storageKeys = attachmentRows.map(
+      (attachment) => attachment.storageKey,
+    );
+    const participantAccountIds = access.conversation.participants.map(
+      (participant) => participant.accountId,
+    );
+    const groupPhotoKey = access.conversation.groupPhotoKey;
+    const deletedAt = new Date();
+
+    const unreferencedStorageKeys = await this.prisma.$transaction(
+      async (transaction) => {
+        /*
+         * Forwarded messages can reference the same physical attachment. Lock
+         * those storage keys before the group cascade so another conversation's
+         * valid attachment is never removed with this group.
+         */
+        await this.conversationStorageService.lockStorageKeys(
+          transaction,
+          storageKeys,
+        );
+
+        if (access.conversation.groupKind === GroupKind.OFFICIAL) {
+          /*
+           * Announcement -> officialConversation uses a restrictive foreign key.
+           * Recheck publishing state inside this transaction so a concurrent
+           * publisher cannot race the group deletion.
+           */
+          const publishingAnnouncementCount =
+            await transaction.announcement.count({
+              where: {
+                officialConversationId: conversationId,
+                status: AnnouncementStatus.PUBLISHING,
+              },
+            });
+
+          if (publishingAnnouncementCount > 0) {
+            throw new ConflictException(
+              'This official group cannot be deleted while an announcement is being published.',
+            );
+          }
+
+          /*
+           * Linked official-group announcements belong to this messaging group,
+           * so remove them before the conversation. Existing announcement orphan
+           * cleanup safely removes their physical attachment directories.
+           */
+          await transaction.announcement.deleteMany({
+            where: {
+              officialConversationId: conversationId,
+            },
+          });
+        }
+
+        await transaction.conversation.delete({
+          where: {
+            id: conversationId,
+          },
+        });
+
+        return this.conversationStorageService.findUnreferencedStorageKeys(
+          transaction,
+          storageKeys,
+        );
+      },
+    );
+
+    // The database is authoritative; physical cleanup runs only after commit.
+    await this.conversationStorageService.deletePhysicalStorageObjects(
+      unreferencedStorageKeys,
+    );
+    await this.deleteGroupPhotoIfExists(groupPhotoKey);
+
+    this.messagingEventsService.emitConversationUpdated(participantAccountIds, {
+      conversationId,
+      reason: 'GROUP_DELETED',
+      occurredAt: deletedAt.toISOString(),
+    });
+
+    return {
+      message:
+        access.conversation.groupKind === GroupKind.OFFICIAL
+          ? 'Official group deleted successfully.'
+          : 'Group deleted successfully.',
+      conversationId,
+      groupKind: access.conversation.groupKind,
+      deletedAt,
     };
   }
 
@@ -6974,14 +7158,14 @@ export class ConversationsService {
           update: {
             joinedAt: now,
             leftAt: null,
-            role: ConversationParticipantRole.MEMBER,
+            role: this.getPersonalGroupMemberRole(member.role),
             isArchived: false,
           },
           create: {
             conversationId,
             accountId: member.id,
             joinedAt: now,
-            role: ConversationParticipantRole.MEMBER,
+            role: this.getPersonalGroupMemberRole(member.role),
           },
         });
       }
@@ -7052,6 +7236,24 @@ export class ConversationsService {
     if (target.role === ConversationParticipantRole.OWNER) {
       throw new ForbiddenException(
         'The group owner role cannot be changed here.',
+      );
+    }
+
+    const targetAccount = await this.prisma.account.findUnique({
+      where: {
+        id: accountId,
+      },
+      select: {
+        role: true,
+      },
+    });
+
+    if (
+      targetAccount?.role === AccountRole.SUPER_ADMIN &&
+      dto.role !== 'ADMIN'
+    ) {
+      throw new ForbiddenException(
+        'The Super Admin remains a group administrator while they are a member.',
       );
     }
 
@@ -9225,12 +9427,29 @@ export class ConversationsService {
       .map((participant) => participant.accountId)
       .filter((accountId) => accountId !== viewer.accountId);
 
+    // Perform malware scanning only after conversation authorization and
+    // idempotency checks so rejected/duplicate requests cannot waste scanner capacity.
+    const scanStatuses: Array<'FORMAT_VALIDATED' | 'CLEAN'> = [];
+    for (const attachment of attachments) {
+      // Scan sequentially so one multi-file message cannot monopolize the NTC scanner.
+      scanStatuses.push(
+        await this.attachmentSecurityService.scanValidatedUpload(attachment.file),
+      );
+    }
+
+    const attachmentReferenceAt = new Date();
+    const attachmentExpiresAt = getMessageAttachmentExpiresAt(
+      conversation.type,
+      conversation.groupKind,
+      attachmentReferenceAt,
+    );
     const storedAttachments: Array<{
       storageKey: string;
       originalFileName: string;
       mimeType: string;
       fileSizeBytes: number;
       contentType: MessageContentType;
+      scanStatus: 'FORMAT_VALIDATED' | 'CLEAN';
     }> = [];
 
     try {
@@ -9240,10 +9459,9 @@ export class ConversationsService {
        * multi-file message atomic from the user's perspective.
        */
       for (const attachment of attachments) {
-        const storageKey = [
-          conversationId,
-          `${randomUUID()}-${attachment.originalFileName.replace(/[^a-zA-Z0-9._-]/g, '_')}`,
-        ].join('/');
+        // Keep physical storage paths opaque. Original names remain only in
+        // protected database metadata and are never used as disk identifiers.
+        const storageKey = [conversationId, randomUUID()].join('/');
 
         storedAttachments.push({
           storageKey,
@@ -9251,6 +9469,7 @@ export class ConversationsService {
           mimeType: attachment.file.mimetype,
           fileSizeBytes: attachment.file.size,
           contentType: attachment.contentType,
+          scanStatus: scanStatuses[storedAttachments.length] ?? 'FORMAT_VALIDATED',
         });
 
         await this.writeAttachmentFile(storageKey, attachment.file);
@@ -9266,6 +9485,7 @@ export class ConversationsService {
               contentType: messageContentType,
               textContent: caption,
               replyToMessageId: dto.replyToMessageId ?? null,
+              sentAt: attachmentReferenceAt,
               payload: {
                 attachmentCount: storedAttachments.length,
                 // Voice notes remain a single-audio subtype of the attachment pipeline.
@@ -9279,7 +9499,8 @@ export class ConversationsService {
                   mimeType: attachment.mimeType,
                   fileSizeBytes: attachment.fileSizeBytes,
                   contentType: attachment.contentType,
-                  scanStatus: 'PENDING',
+                  scanStatus: attachment.scanStatus,
+                  expiresAt: attachmentExpiresAt,
                 })),
               },
 
@@ -9443,6 +9664,8 @@ export class ConversationsService {
         mimeType: true,
         fileSizeBytes: true,
         scanStatus: true,
+        expiresAt: true,
+        expiredAt: true,
       },
     });
 
@@ -9450,17 +9673,33 @@ export class ConversationsService {
       throw new NotFoundException('Attachment was not found.');
     }
 
-    if (attachment.scanStatus === 'FAILED') {
-      throw new ForbiddenException(
-        'This attachment is not available for download.',
+    if (
+      isAttachmentReferenceExpired(
+        attachment.expiresAt,
+        attachment.expiredAt,
+      )
+    ) {
+      throw new NotFoundException(
+        'This attachment has expired and is no longer available.',
       );
     }
 
-    const absolutePath = this.resolveAttachmentPath(attachment.storageKey);
+    if (
+      !this.attachmentSecurityService.canAccessStoredAttachment(
+        attachment.scanStatus,
+      )
+    ) {
+      throw new ForbiddenException(
+        'This attachment has not passed the required security checks.',
+      );
+    }
 
-    try {
-      await fs.access(absolutePath);
-    } catch {
+    const absolutePath = this.attachmentStorageService.resolvePath(
+      'messages',
+      attachment.storageKey,
+    );
+
+    if (!(await this.attachmentStorageService.exists('messages', attachment.storageKey))) {
       throw new NotFoundException(
         'This file is currently unavailable. Please contact technical support.',
       );
@@ -9528,10 +9767,28 @@ export class ConversationsService {
     }
 
     if (
-      sourceAttachments.some((attachment) => attachment.scanStatus === 'FAILED')
+      sourceAttachments.some((attachment) =>
+        isAttachmentReferenceExpired(
+          attachment.expiresAt,
+          attachment.expiredAt,
+        ),
+      )
     ) {
       throw new ForbiddenException(
-        'A failed or quarantined attachment cannot be forwarded.',
+        'An expired attachment cannot be forwarded.',
+      );
+    }
+
+    if (
+      sourceAttachments.some(
+        (attachment) =>
+          !this.attachmentSecurityService.canAccessStoredAttachment(
+            attachment.scanStatus,
+          ),
+      )
+    ) {
+      throw new ForbiddenException(
+        'An attachment that has not passed the required security checks cannot be forwarded.',
       );
     }
 
@@ -9628,6 +9885,7 @@ export class ConversationsService {
       originalSentAt: sourceMessage.sentAt.toISOString(),
       originalTextContent: forwardedPreviewText,
     };
+    const forwardedReferenceAt = new Date();
 
     const forwardedMessages = await this.prisma.$transaction(
       async (transaction) => {
@@ -9727,6 +9985,7 @@ export class ConversationsService {
               clientMessageId,
               contentType: sourceMessage.contentType,
               textContent: forwardedTextContent,
+              sentAt: forwardedReferenceAt,
               payload: {
                 ...sourcePayload,
                 attachmentCount: forwardedAttachments.length,
@@ -9745,7 +10004,16 @@ export class ConversationsService {
               ...(forwardedAttachments.length > 0
                 ? {
                     attachments: {
-                      create: forwardedAttachments,
+                      create: forwardedAttachments.map((attachment) => ({
+                        ...attachment,
+                        // A forward is a new logical reference with its own
+                        // destination-specific retention window.
+                        expiresAt: getMessageAttachmentExpiresAt(
+                          conversation.type,
+                          conversation.groupKind,
+                          forwardedReferenceAt,
+                        ),
+                      })),
                     },
                   }
                 : {}),
@@ -9880,7 +10148,7 @@ export class ConversationsService {
 
     if (Date.now() - message.sentAt.getTime() > MESSAGE_EDIT_WINDOW_MS) {
       throw new ForbiddenException(
-        'The 15-minute message editing period has ended.',
+        'The 20-minute message editing period has ended.',
       );
     }
 
@@ -10601,6 +10869,70 @@ export class ConversationsService {
     };
   }
 
+  private async assertCanDeleteMessageForEveryone(
+    viewerAccountId: string,
+    viewerParticipant: { role: ConversationParticipantRole },
+    message: Pick<MessageRecord, 'conversationId' | 'senderAccountId'>,
+  ): Promise<void> {
+    if (message.senderAccountId === viewerAccountId) {
+      return;
+    }
+
+    // Group moderation is shared by personal and official groups. Private
+    // one-to-one conversations preserve the sender-only delete rule. The role
+    // hierarchy remains authoritative: OWNER > ADMIN > MEMBER.
+    const groupConversation = await this.prisma.conversation.findFirst({
+      where: {
+        id: message.conversationId,
+        type: ConversationType.GROUP,
+      },
+      select: {
+        id: true,
+      },
+    });
+
+    if (!groupConversation) {
+      throw new ForbiddenException(
+        'You can delete only messages that you sent.',
+      );
+    }
+
+    if (viewerParticipant.role === ConversationParticipantRole.OWNER) {
+      return;
+    }
+
+    if (viewerParticipant.role !== ConversationParticipantRole.ADMIN) {
+      throw new ForbiddenException(
+        'You can delete only messages that you sent.',
+      );
+    }
+
+    const senderParticipant =
+      await this.prisma.conversationParticipant.findUnique({
+        where: {
+          conversationId_accountId: {
+            conversationId: message.conversationId,
+            accountId: message.senderAccountId,
+          },
+        },
+        select: {
+          role: true,
+        },
+      });
+
+    if (!senderParticipant) {
+      throw new ForbiddenException(
+        'The sender is not a recognized participant in this group.',
+      );
+    }
+
+    if (senderParticipant.role === ConversationParticipantRole.OWNER) {
+      throw new ForbiddenException(
+        "A group administrator cannot delete the group owner's message.",
+      );
+    }
+  }
+
   async deleteMessageForEveryone(
     user: AuthenticatedUser,
     conversationId: string,
@@ -10622,11 +10954,11 @@ export class ConversationsService {
       },
     );
 
-    if (message.senderAccountId !== viewer.accountId) {
-      throw new ForbiddenException(
-        'You can delete only messages that you sent.',
-      );
-    }
+    await this.assertCanDeleteMessageForEveryone(
+      viewer.accountId,
+      viewerParticipant,
+      message,
+    );
 
     if (message.deletedAt) {
       return {

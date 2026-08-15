@@ -188,6 +188,9 @@ export interface MessagingAttachment {
   fileSizeBytes: number;
   contentType: MessageContentType;
   scanStatus: string;
+  expiresAt: string;
+  expiredAt: string | null;
+  isExpired: boolean;
   createdAt: string;
   updatedAt: string;
 }
@@ -520,6 +523,13 @@ export interface LeaveGroupResponse {
   conversationId: string;
   leftAt: string;
   newOwnerAccountId: string | null;
+}
+
+export interface DeleteGroupResponse {
+  message: string;
+  conversationId: string;
+  groupKind: GroupKind;
+  deletedAt: string;
 }
 
 export interface MessageRequestListResponse {

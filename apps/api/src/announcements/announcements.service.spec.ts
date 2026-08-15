@@ -328,4 +328,54 @@ describe('AnnouncementsService', () => {
       removeDirectory.mockRestore();
     }
   });
+
+  it('expires and purges announcement attachments while keeping metadata for the expired UI state', async () => {
+    const unlink = jest.spyOn(fs, 'unlink').mockResolvedValue(undefined);
+    const findMany = jest
+      .fn()
+      .mockResolvedValueOnce([{ id: 'attachment-1' }])
+      .mockResolvedValueOnce([
+        { storageKey: `${ANNOUNCEMENT_ID}/attachment.pdf` },
+      ]);
+    const updateMany = jest
+      .fn()
+      .mockResolvedValueOnce({ count: 1 })
+      .mockResolvedValueOnce({ count: 1 });
+    const prisma = {
+      announcementAttachment: {
+        findMany,
+        updateMany,
+        count: jest.fn().mockResolvedValue(0),
+      },
+    } as unknown as PrismaService;
+    const service = new AnnouncementsService(
+      prisma,
+      {} as MessagingEventsService,
+    );
+
+    try {
+      const result = await service.cleanupExpiredAttachmentRetention(
+        new Date('2026-08-15T00:00:00.000Z'),
+      );
+
+      expect(result).toEqual({
+        expiredReferenceCount: 1,
+        purgedObjectCount: 1,
+        failedObjectCount: 0,
+      });
+      expect(unlink).toHaveBeenCalledTimes(1);
+      expect(updateMany).toHaveBeenLastCalledWith({
+        where: {
+          storageKey: `${ANNOUNCEMENT_ID}/attachment.pdf`,
+          purgedAt: null,
+        },
+        data: {
+          purgedAt: new Date('2026-08-15T00:00:00.000Z'),
+        },
+      });
+    } finally {
+      unlink.mockRestore();
+    }
+  });
+
 });

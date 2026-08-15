@@ -12,6 +12,7 @@ import type {
   ConversationSharedContentResponse,
   ConversationStorageUsageResponse,
   CreatePrivateConversationResponse,
+  DeleteGroupResponse,
   DeleteMessageForMeResponse,
   DeleteMessageResponse,
   ForwardMessagesResponse,
@@ -635,6 +636,19 @@ export function leaveGroupConversation(
     `/conversations/${conversationId}/group/leave`,
     {
       method: "POST",
+      headers: authorizationHeaders(accessToken),
+    },
+  );
+}
+
+export function deleteGroupConversation(
+  accessToken: string,
+  conversationId: string,
+): Promise<DeleteGroupResponse> {
+  return apiRequest<DeleteGroupResponse>(
+    `/conversations/${conversationId}/group`,
+    {
+      method: "DELETE",
       headers: authorizationHeaders(accessToken),
     },
   );
