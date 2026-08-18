@@ -1,6 +1,7 @@
 import {
   BadRequestException,
   Injectable,
+  Logger,
   OnModuleInit,
   ServiceUnavailableException,
 } from '@nestjs/common';
@@ -16,6 +17,7 @@ export type AcceptedAttachmentScanStatus = 'FORMAT_VALIDATED' | 'CLEAN';
 
 @Injectable()
 export class AttachmentSecurityService implements OnModuleInit {
+  private readonly logger = new Logger(AttachmentSecurityService.name);
   private readonly scanMode: AttachmentScanMode;
   private readonly clamAvHost: string;
   private readonly clamAvPort: number;
@@ -40,9 +42,25 @@ export class AttachmentSecurityService implements OnModuleInit {
     }
 
     if (this.scanMode !== 'clamav') {
-      throw new Error(
-        'ATTACHMENT_SCAN_MODE=clamav is required in production so uploaded files are malware-scanned before use.',
+      const temporaryExternalStaging =
+        process.env.DEPLOYMENT_PROFILE?.trim() === 'temporary_external_staging' &&
+        process.env.ALLOW_UNSCANNED_STAGING_ATTACHMENTS?.trim().toLowerCase() === 'true';
+
+      if (!temporaryExternalStaging) {
+        throw new Error(
+          'ATTACHMENT_SCAN_MODE=clamav is required in production so uploaded files are malware-scanned before use.',
+        );
+      }
+
+      /*
+       * TEMPORARY STAGING ONLY: Render Free cannot host the approved ClamAV
+       * sidecar. Keep this exception explicit and opt-in so it cannot silently
+       * weaken the eventual Nepal Telecom production deployment.
+       */
+      this.logger.warn(
+        'Temporary external staging is running without ClamAV. Use synthetic test attachments only; do not upload confidential NTC files.',
       );
+      return;
     }
 
     // Production must fail closed if the approved scanner is not reachable at startup.

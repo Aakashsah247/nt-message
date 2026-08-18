@@ -15,9 +15,9 @@ import {
   UseInterceptors,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
-import { createReadStream } from 'node:fs';
 import type { Response } from 'express';
 
+import { AttachmentStorageService } from '../attachments/attachment-storage.service';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import { AccessTokenGuard } from '../auth/guards/access-token.guard';
 import type { AuthenticatedUser } from '../auth/types/auth.types';
@@ -34,7 +34,10 @@ import { UpdateAnnouncementDto } from './dto/update-announcement.dto';
 @Controller('announcements')
 @UseGuards(AccessTokenGuard)
 export class AnnouncementsController {
-  constructor(private readonly announcementsService: AnnouncementsService) {}
+  constructor(
+    private readonly announcementsService: AnnouncementsService,
+    private readonly attachmentStorageService: AttachmentStorageService,
+  ) {}
 
   @Get('audiences')
   listAvailableAudiences(@CurrentUser() user: AuthenticatedUser) {
@@ -212,6 +215,11 @@ export class AnnouncementsController {
       `${disposition}; filename="${safeName}"; filename*=UTF-8''${encodedName}`,
     );
 
-    return new StreamableFile(createReadStream(attachment.absolutePath));
+    return new StreamableFile(
+      await this.attachmentStorageService.openReadStream(
+        'announcements',
+        attachment.storageKey,
+      ),
+    );
   }
 }

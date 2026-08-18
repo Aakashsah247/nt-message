@@ -8,9 +8,9 @@ import {
   Res,
   StreamableFile,
 } from '@nestjs/common';
-import { createReadStream } from 'node:fs';
 import type { Response } from 'express';
 
+import { AttachmentStorageService } from '../attachments/attachment-storage.service';
 import { ConversationsService } from './conversations.service';
 import {
   MessageAttachmentStreamService,
@@ -22,6 +22,7 @@ export class MessageAttachmentStreamController {
   constructor(
     private readonly conversationsService: ConversationsService,
     private readonly streamService: MessageAttachmentStreamService,
+    private readonly attachmentStorageService: AttachmentStorageService,
   ) {}
 
   @Get('stream')
@@ -62,7 +63,12 @@ export class MessageAttachmentStreamController {
 
     if (!rangeHeader) {
       response.setHeader('Content-Length', String(attachment.fileSizeBytes));
-      return new StreamableFile(createReadStream(attachment.absolutePath));
+      return new StreamableFile(
+        await this.attachmentStorageService.openReadStream(
+          'messages',
+          attachment.storageKey,
+        ),
+      );
     }
 
     const range = parseSingleByteRange(
@@ -91,10 +97,11 @@ export class MessageAttachmentStreamController {
     response.setHeader('Content-Length', String(contentLength));
 
     return new StreamableFile(
-      createReadStream(attachment.absolutePath, {
-        start: range.start,
-        end: range.end,
-      }),
+      await this.attachmentStorageService.openReadStream(
+        'messages',
+        attachment.storageKey,
+        { start: range.start, end: range.end },
+      ),
     );
   }
 }

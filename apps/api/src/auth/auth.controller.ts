@@ -31,6 +31,7 @@ import type { AuthenticatedUser } from './types/auth.types';
 export class AuthController {
   private readonly cookieName: string;
   private readonly isProduction: boolean;
+  private readonly refreshCookieSameSite: 'strict' | 'none';
 
   constructor(
     private readonly authService: AuthService,
@@ -42,6 +43,11 @@ export class AuthController {
     this.cookieName = configService.getOrThrow<string>('AUTH_COOKIE_NAME');
 
     this.isProduction = configService.get<string>('NODE_ENV') === 'production';
+    this.refreshCookieSameSite =
+      configService.get<string>('DEPLOYMENT_PROFILE') ===
+      'temporary_external_staging'
+        ? 'none'
+        : 'strict';
   }
 
   @Post('login')
@@ -346,7 +352,7 @@ export class AuthController {
     response.cookie(this.cookieName, refreshToken, {
       httpOnly: true,
       secure: this.isProduction,
-      sameSite: 'strict',
+      sameSite: this.refreshCookieSameSite,
       path: '/api/v1/auth',
       expires: expiresAt,
     });
@@ -356,7 +362,7 @@ export class AuthController {
     response.clearCookie(this.cookieName, {
       httpOnly: true,
       secure: this.isProduction,
-      sameSite: 'strict',
+      sameSite: this.refreshCookieSameSite,
       path: '/api/v1/auth',
     });
   }

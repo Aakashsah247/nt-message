@@ -10,8 +10,10 @@ import { defineConfig, env } from "prisma/config";
  * Prisma commands run inside apps/api, so ../../.env points
  * back to the root environment file.
  */
+const configuredEnvFile = process.env.NT_MESSAGE_ENV_FILE?.trim();
+
 config({
-  path: resolve(process.cwd(), "../../.env"),
+  path: resolve(process.cwd(), configuredEnvFile || "../../.env"),
 });
 
 export default defineConfig({

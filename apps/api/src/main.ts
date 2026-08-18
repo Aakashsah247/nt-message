@@ -11,7 +11,12 @@ async function bootstrap(): Promise<void> {
 
   const configService = app.get(ConfigService);
 
-  const port = Number(configService.get<string>('API_PORT') ?? '4000');
+  const port = Number(
+    configService.get<string>('API_PORT') ??
+      configService.get<string>('PORT') ??
+      '4000',
+  );
+  const host = configService.get<string>('API_HOST')?.trim() || '127.0.0.1';
 
   const webOrigin =
     configService.get<string>('WEB_ORIGIN') ?? 'http://localhost:5173';
@@ -64,9 +69,9 @@ async function bootstrap(): Promise<void> {
 
   app.setGlobalPrefix('api/v1');
 
-  await app.listen(port, '127.0.0.1');
+  await app.listen(port, host);
 
-  console.log(`NT Message API is running at http://localhost:${port}/api/v1`);
+  console.log(`NT Message API is running on ${host}:${port} with prefix /api/v1`);
 }
 
 void bootstrap();

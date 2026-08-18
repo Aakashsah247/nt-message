@@ -57,6 +57,14 @@ const ANNOUNCEMENT_RETENTION_CLEANUP_INTERVAL_MS = 24 * 60 * 60 * 1000;
 const ANNOUNCEMENT_RETENTION_CLEANUP_BATCH_SIZE = 250;
 const MAX_IMAGE_BYTES = 20 * 1024 * 1024;
 const MAX_DOCUMENT_BYTES = 50 * 1024 * 1024;
+const configuredAnnouncementStorageObjectLimit = Number(
+  process.env.ATTACHMENT_STORAGE_MAX_OBJECT_BYTES,
+);
+const ANNOUNCEMENT_STORAGE_MAX_OBJECT_BYTES =
+  Number.isFinite(configuredAnnouncementStorageObjectLimit) &&
+  configuredAnnouncementStorageObjectLimit > 0
+    ? configuredAnnouncementStorageObjectLimit
+    : Number.POSITIVE_INFINITY;
 const MAX_VIDEO_BYTES = 200 * 1024 * 1024;
 
 const IMAGE_MIME_TYPES = new Set(['image/jpeg', 'image/png', 'image/webp']);
@@ -1347,11 +1355,6 @@ export class AnnouncementsService implements OnModuleInit, OnModuleDestroy {
       );
     }
 
-    const absolutePath = this.attachmentStorageService.resolvePath(
-      'announcements',
-      attachment.storageKey,
-    );
-
     if (
       !(await this.attachmentStorageService.exists(
         'announcements',
@@ -1362,7 +1365,7 @@ export class AnnouncementsService implements OnModuleInit, OnModuleDestroy {
     }
 
     return {
-      absolutePath,
+      storageKey: attachment.storageKey,
       mimeType: attachment.mimeType,
       originalFileName: attachment.originalFileName,
       fileSizeBytes: attachment.fileSizeBytes,
@@ -2782,6 +2785,12 @@ export class AnnouncementsService implements OnModuleInit, OnModuleDestroy {
   } {
     if (!file || (!file.buffer && !file.path) || file.size <= 0) {
       throw new BadRequestException('Announcement attachment is required.');
+    }
+
+    if (file.size > ANNOUNCEMENT_STORAGE_MAX_OBJECT_BYTES) {
+      throw new BadRequestException(
+        `Temporary staging storage supports files up to ${Math.floor(ANNOUNCEMENT_STORAGE_MAX_OBJECT_BYTES / (1024 * 1024))} MB.`,
+      );
     }
 
     const originalFileName = this.normalizeFileName(file.originalname);

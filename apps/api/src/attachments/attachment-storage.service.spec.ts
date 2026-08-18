@@ -7,12 +7,16 @@ import { AttachmentStorageService } from './attachment-storage.service';
 describe('AttachmentStorageService', () => {
   const originalRoot = process.env.ATTACHMENT_STORAGE_ROOT;
   const originalNodeEnv = process.env.NODE_ENV;
+  const originalDriver = process.env.ATTACHMENT_STORAGE_DRIVER;
+  const originalLegacyDriver = process.env.NT_MESSAGE_STORAGE_DRIVER;
   let root: string;
 
   beforeEach(async () => {
     root = await fs.mkdtemp(path.join(os.tmpdir(), 'nt-message-attachments-'));
     process.env.ATTACHMENT_STORAGE_ROOT = root;
     process.env.NODE_ENV = 'test';
+    delete process.env.ATTACHMENT_STORAGE_DRIVER;
+    delete process.env.NT_MESSAGE_STORAGE_DRIVER;
   });
 
   afterEach(async () => {
@@ -26,6 +30,10 @@ describe('AttachmentStorageService', () => {
     } else {
       process.env.NODE_ENV = originalNodeEnv;
     }
+    if (originalDriver === undefined) delete process.env.ATTACHMENT_STORAGE_DRIVER;
+    else process.env.ATTACHMENT_STORAGE_DRIVER = originalDriver;
+    if (originalLegacyDriver === undefined) delete process.env.NT_MESSAGE_STORAGE_DRIVER;
+    else process.env.NT_MESSAGE_STORAGE_DRIVER = originalLegacyDriver;
     await fs.rm(root, { recursive: true, force: true });
   });
 

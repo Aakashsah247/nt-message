@@ -1,0 +1,14 @@
+FROM clamav/clamav:1.4.6_base-debian13-slim
+
+# Use ClamAV's Debian multi-arch base so the same staging image works on
+# Oracle Ampere A1 (arm64) and normal amd64 hosts. The persistent Compose volume
+# keeps signature databases across restarts; FreshClam populates a new volume.
+#
+# NT Message accepts a single video up to 200 MiB. ClamAV defaults would accept
+# only 100 MiB for INSTREAM / file scanning, so raise only the two limits needed
+# to ensure the application's allowed uploads are actually malware-scanned.
+RUN sed -i \
+      -e 's/^#*StreamMaxLength .*/StreamMaxLength 260M/' \
+      -e 's/^#*MaxFileSize .*/MaxFileSize 220M/' \
+      /etc/clamav/clamd.conf \
+    && grep -E '^(StreamMaxLength|MaxFileSize) ' /etc/clamav/clamd.conf

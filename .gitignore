@@ -43,3 +43,8 @@ apps/api/storage/message-attachments/
 
 apps/api/storage/profile-photos/
 apps/api/storage/announcement-attachments/
+
+# Staging deployment runtime data/secrets
+.env.staging
+deploy-data/
+deploy-backups/

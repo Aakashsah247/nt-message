@@ -35,8 +35,7 @@ export class PrismaService
         if (attempt >= maxAttempts) {
           throw new Error(
             `Prisma failed to connect to the database after ${maxAttempts} attempts. ` +
-              `Please verify DATABASE_URL is correct and the PostgreSQL server is running on localhost:5433.
-` +
+              `Please verify DATABASE_URL is correct and the configured PostgreSQL server is reachable.\n` +
               `Original error: ${error instanceof Error ? error.message : String(error)}`,
           );
         }

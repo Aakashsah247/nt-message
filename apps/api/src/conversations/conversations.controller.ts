@@ -22,9 +22,9 @@ import {
   FileFieldsInterceptor,
   FileInterceptor,
 } from '@nestjs/platform-express';
-import { createReadStream } from 'node:fs';
 import type { Response } from 'express';
 
+import { AttachmentStorageService } from '../attachments/attachment-storage.service';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import { AccessTokenGuard } from '../auth/guards/access-token.guard';
 import type { AuthenticatedUser } from '../auth/types/auth.types';
@@ -82,6 +82,7 @@ export class ConversationsController {
     private readonly conversationStorageService: ConversationStorageService,
     private readonly messageAttachmentStreamService: MessageAttachmentStreamService,
     private readonly messagingPushService: MessagingPushService,
+    private readonly attachmentStorageService: AttachmentStorageService,
   ) {}
 
   @Get('settings')
@@ -323,7 +324,9 @@ export class ConversationsController {
     response.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
     response.setHeader('Cache-Control', 'private, max-age=300');
 
-    return new StreamableFile(createReadStream(photo.absolutePath));
+    return new StreamableFile(
+      await this.attachmentStorageService.openReadStream('profile-photos', photo.storageKey),
+    );
   }
 
   @Get('profiles/:accountId')
@@ -376,7 +379,9 @@ export class ConversationsController {
     response.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
     response.setHeader('Cache-Control', 'private, max-age=300');
 
-    return new StreamableFile(createReadStream(photo.absolutePath));
+    return new StreamableFile(
+      await this.attachmentStorageService.openReadStream('profile-photos', photo.storageKey),
+    );
   }
 
   @Get('contacts')
@@ -820,7 +825,9 @@ export class ConversationsController {
     response.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
     response.setHeader('Cache-Control', 'private, max-age=300');
 
-    return new StreamableFile(createReadStream(photo.absolutePath));
+    return new StreamableFile(
+      await this.attachmentStorageService.openReadStream('group-photos', photo.storageKey),
+    );
   }
 
   @Get(':id/group/members')
@@ -1415,7 +1422,9 @@ export class ConversationsController {
       `${disposition}; filename="${safeFileName}"; filename*=UTF-8''${encodedFileName}`,
     );
 
-    return new StreamableFile(createReadStream(attachment.absolutePath));
+    return new StreamableFile(
+      await this.attachmentStorageService.openReadStream('messages', attachment.storageKey),
+    );
   }
 
   @Get(':conversationId/messages/:messageId/info')

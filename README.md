@@ -1,25 +1,35 @@
 # NT Message
 
-NT Message is a secure and scalable internal communication platform for Nepal Telecom employees.
+NT Message is a secure internal communication and work-management platform for Nepal Telecom employees.
 
-## Applications
+## Workspace
 
-- `apps/web` — React and TypeScript frontend
-- `apps/api` — NestJS and TypeScript backend
-- `packages/contracts` — Shared application types
+- `apps/web` — React, Vite and TypeScript frontend
+- `apps/api` — NestJS, Prisma and PostgreSQL backend
+- `packages/contracts` — shared application contracts/types
 
-## Main Technologies
+## Core runtime
 
-- React
-- Vite
-- TypeScript
-- Node.js
-- NestJS
+- Node.js 24
+- pnpm workspace
 - PostgreSQL
-- Valkey
 - Socket.IO
-- Docker
+- protected filesystem attachment storage
+- ClamAV malware scanning for production-mode uploads
+- SMTP email delivery
+- Web Push background notifications
 
-## Current Status
+## Staging deployment
 
-Project workspace and initial applications created.
+The repository now includes a production-mode staging deployment package:
+
+- `compose.staging.yaml`
+- `deploy/Dockerfile.api`
+- `deploy/Dockerfile.web`
+- `deploy/Dockerfile.clamav`
+- `deploy/.env.staging.example`
+- `deploy/nginx/`
+- `deploy/scripts/`
+- `deploy/STAGING_DEPLOYMENT.md`
+
+Start with [`deploy/STAGING_DEPLOYMENT.md`](deploy/STAGING_DEPLOYMENT.md). Do not reset the database during deployment. Staging migrations use `prisma migrate deploy` only.

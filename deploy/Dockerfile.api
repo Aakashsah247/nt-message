@@ -1,0 +1,42 @@
+FROM node:24-bookworm-slim AS build
+
+ENV PNPM_HOME=/pnpm
+ENV PATH=$PNPM_HOME:$PATH
+WORKDIR /app
+
+RUN corepack enable && corepack prepare pnpm@11.6.0 --activate
+
+# Copy workspace manifests first so dependency installation can be cached.
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
+COPY apps/api/package.json apps/api/package.json
+COPY apps/web/package.json apps/web/package.json
+COPY packages/contracts/package.json packages/contracts/package.json
+
+RUN pnpm install --frozen-lockfile
+
+COPY apps/api apps/api
+COPY packages/contracts packages/contracts
+
+RUN pnpm --filter api db:generate \
+    && pnpm --filter api build
+
+FROM node:24-bookworm-slim AS runtime
+
+ENV PNPM_HOME=/pnpm
+ENV PATH=$PNPM_HOME:$PATH
+ENV NODE_ENV=production
+WORKDIR /app
+
+RUN corepack enable && corepack prepare pnpm@11.6.0 --activate
+
+# Staging keeps the workspace install so Prisma migrate deploy is available in
+# the same immutable image. Production can later be slimmed after staging burn-in.
+COPY --from=build /app/package.json /app/pnpm-lock.yaml /app/pnpm-workspace.yaml ./
+COPY --from=build /app/node_modules ./node_modules
+COPY --from=build /app/apps/api ./apps/api
+COPY --from=build /app/packages/contracts ./packages/contracts
+
+USER node
+EXPOSE 4000
+
+CMD ["pnpm", "--filter", "api", "start:prod"]
