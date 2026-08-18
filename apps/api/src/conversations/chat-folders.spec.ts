@@ -233,7 +233,7 @@ describe('ConversationsService custom message lists', () => {
     jest.mocked(prisma.chatFolder.findFirst).mockResolvedValue({
       id: folderId,
     } as never);
-    jest.mocked(prisma.conversation.findMany).mockResolvedValue([] as never);
+    jest.mocked(prisma.conversationParticipant.findMany).mockResolvedValue([] as never);
 
     const result = await service.listConversations(viewer, {
       limit: 30,
@@ -248,19 +248,73 @@ describe('ConversationsService custom message lists', () => {
       },
       select: { id: true },
     });
-    expect(prisma.conversation.findMany).toHaveBeenCalledWith(
+    expect(prisma.conversationParticipant.findMany).toHaveBeenCalledWith(
       expect.objectContaining({
         where: expect.objectContaining({
-          chatFolderItems: {
-            some: {
-              folderId,
-              folder: { accountId: viewerAccountId },
+          accountId: viewerAccountId,
+          conversation: {
+            chatFolderItems: {
+              some: {
+                folderId,
+                folder: { accountId: viewerAccountId },
+              },
             },
           },
         }),
       }),
     );
     expect(result.data).toEqual([]);
+  });
+
+  it('paginates the viewer participant rows in pinned conversation order', async () => {
+    const viewerAccountId = (viewer as { accountId: string }).accountId;
+
+    Object.defineProperty(service, 'getMessagingViewer', {
+      value: jest.fn().mockResolvedValue({
+        accountId: viewerAccountId,
+        role: 'EMPLOYEE',
+        divisionId: null,
+        departmentId: null,
+        showOnlineStatus: true,
+        showReadReceipts: true,
+        requireMessageRequests: false,
+      }),
+    });
+    Object.defineProperty(service, 'synchronizeOfficialGroupsForAccountSafely', {
+      value: jest.fn().mockResolvedValue(undefined),
+    });
+
+    jest.mocked(prisma.conversationParticipant.findMany).mockResolvedValue([] as never);
+
+    await service.listConversations(viewer, {
+      cursor: conversationOne,
+      limit: 30,
+      view: 'ACTIVE',
+    });
+
+    expect(prisma.conversationParticipant.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          accountId: viewerAccountId,
+          leftAt: null,
+          deletedFromListAt: null,
+          isArchived: false,
+        }),
+        orderBy: [
+          { isPinned: 'desc' },
+          { conversation: { updatedAt: 'desc' } },
+          { conversationId: 'desc' },
+        ],
+        cursor: {
+          conversationId_accountId: {
+            conversationId: conversationOne,
+            accountId: viewerAccountId,
+          },
+        },
+        skip: 1,
+        take: 31,
+      }),
+    );
   });
 
   it('lists only folders owned by the authenticated account', async () => {
@@ -313,7 +367,7 @@ describe('ConversationsService custom message lists', () => {
       },
       select: { id: true },
     });
-    expect(prisma.conversation.findMany).not.toHaveBeenCalled();
+    expect(prisma.conversationParticipant.findMany).not.toHaveBeenCalled();
   });
 
   it('refuses to update a list that is not owned by the authenticated account', async () => {

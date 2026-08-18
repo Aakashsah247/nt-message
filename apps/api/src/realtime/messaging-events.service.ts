@@ -36,6 +36,7 @@ export interface MessagingReadyPayload {
 
 export interface MessagingErrorPayload {
   message: string;
+  code?: 'SESSION_INVALIDATED';
 }
 
 export interface MessagingPongPayload {
@@ -232,6 +233,7 @@ export interface MessagingClientToServerEvents {
 
 export interface MessagingSocketData {
   user?: AuthenticatedUser;
+  accessTokenExpiresAt?: string;
 }
 
 export type MessagingNamespace = Namespace<

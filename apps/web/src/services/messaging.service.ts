@@ -18,6 +18,7 @@ import type {
   ForwardMessagesResponse,
   GlobalMessagingSearchResponse,
   GroupConversationResponse,
+  GroupMemberListResponse,
   GroupInvitationJoinResponse,
   GroupInvitationLinkResponse,
   GroupInvitationMutationResponse,
@@ -579,6 +580,36 @@ export function createPrivateGroupFromPrivateConversation(
   );
 }
 
+export function listGroupMembers(
+  accessToken: string,
+  conversationId: string,
+  options: {
+    search?: string;
+    cursor?: string | null;
+    limit?: number;
+  } = {},
+): Promise<GroupMemberListResponse> {
+  const params = new URLSearchParams({
+    limit: String(options.limit ?? 25),
+  });
+
+  const search = options.search?.trim();
+  if (search) {
+    params.set("search", search);
+  }
+
+  if (options.cursor) {
+    params.set("cursor", options.cursor);
+  }
+
+  return apiRequest<GroupMemberListResponse>(
+    `/conversations/${conversationId}/group/members?${params.toString()}`,
+    {
+      headers: authorizationHeaders(accessToken),
+    },
+  );
+}
+
 export function addGroupMembers(
   accessToken: string,
   conversationId: string,
@@ -1001,9 +1032,19 @@ export function listConversationMessages(
 
 export function listStarredMessages(
   accessToken: string,
+  cursor?: string | null,
+  limit = 50,
 ): Promise<StarredMessagesResponse> {
+  const params = new URLSearchParams({
+    limit: String(limit),
+  });
+
+  if (cursor) {
+    params.set("cursor", cursor);
+  }
+
   return apiRequest<StarredMessagesResponse>(
-    "/conversations/starred/messages",
+    `/conversations/starred/messages?${params.toString()}`,
     {
       headers: authorizationHeaders(accessToken),
     },
@@ -1025,6 +1066,7 @@ export function listConversationPinnedMessages(
 export function sendConversationTextMessage(
   accessToken: string,
   conversationId: string,
+  clientMessageId: string,
   text: string,
   replyToMessageId?: string,
   mentionedAccountIds: string[] = [],
@@ -1036,7 +1078,7 @@ export function sendConversationTextMessage(
       method: "POST",
       headers: authorizationHeaders(accessToken),
       body: JSON.stringify({
-        clientMessageId: crypto.randomUUID(),
+        clientMessageId,
         text,
         ...(replyToMessageId
           ? {
@@ -1061,6 +1103,7 @@ export function sendConversationTextMessage(
 export function sendConversationLocationMessage(
   accessToken: string,
   conversationId: string,
+  clientMessageId: string,
   location: {
     latitude: number;
     longitude: number;
@@ -1078,7 +1121,7 @@ export function sendConversationLocationMessage(
       method: "POST",
       headers: authorizationHeaders(accessToken),
       body: JSON.stringify({
-        clientMessageId: crypto.randomUUID(),
+        clientMessageId,
         ...location,
       }),
     },
@@ -1124,6 +1167,7 @@ export function stopConversationLiveLocationMessage(
 export async function sendConversationAttachmentMessage(
   accessToken: string,
   conversationId: string,
+  clientMessageId: string,
   files: File[],
   caption?: string,
   replyToMessageId?: string,
@@ -1137,7 +1181,7 @@ export async function sendConversationAttachmentMessage(
   const formData = new FormData();
   const totalFileBytes = files.reduce((total, file) => total + file.size, 0);
 
-  formData.set("clientMessageId", crypto.randomUUID());
+  formData.set("clientMessageId", clientMessageId);
 
   for (const file of files) {
     formData.append("files", file);
@@ -1357,6 +1401,30 @@ async function fetchConversationAttachmentBlob(
 
     throw error;
   }
+}
+
+export async function createConversationAttachmentStreamUrl(
+  accessToken: string,
+  conversationId: string,
+  messageId: string,
+  attachmentId: string,
+): Promise<string> {
+  const response = await apiRequest<{
+    data: {
+      token: string;
+      expiresAt: string;
+    };
+  }>(
+    `/conversations/${conversationId}/messages/${messageId}/attachments/${attachmentId}/stream-access`,
+    {
+      method: "POST",
+      headers: authorizationHeaders(accessToken),
+    },
+  );
+
+  return messagingApiUrl(
+    `/message-media/stream?token=${encodeURIComponent(response.data.token)}`,
+  );
 }
 
 export async function createConversationAttachmentObjectUrl(

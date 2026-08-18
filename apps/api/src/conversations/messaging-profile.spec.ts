@@ -139,4 +139,108 @@ describe('ConversationsService messaging profile serialization', () => {
       }
     }
   });
+
+  it('matches the configured Super Admin display identity across messaging searches', () => {
+    const previousName = process.env.SUPER_ADMIN_NAME;
+    const previousEmail = process.env.SUPER_ADMIN_EMAIL;
+
+    process.env.SUPER_ADMIN_NAME = 'Aakash Sah';
+    process.env.SUPER_ADMIN_EMAIL = 'aakash.admin@example.com';
+
+    try {
+      const service = new ConversationsService(
+        {} as never,
+        {} as never,
+        {} as never,
+      );
+      const matches = (
+        service as unknown as {
+          matchesConfiguredSuperAdminSearch: (search: string) => boolean;
+        }
+      ).matchesConfiguredSuperAdminSearch.bind(service);
+
+      expect(matches('Aakash')).toBe(true);
+      expect(matches('sah')).toBe(true);
+      expect(matches('aakash.admin')).toBe(true);
+      expect(matches('superadmin')).toBe(true);
+      expect(matches('unrelated employee')).toBe(false);
+    } finally {
+      if (previousName === undefined) {
+        delete process.env.SUPER_ADMIN_NAME;
+      } else {
+        process.env.SUPER_ADMIN_NAME = previousName;
+      }
+
+      if (previousEmail === undefined) {
+        delete process.env.SUPER_ADMIN_EMAIL;
+      } else {
+        process.env.SUPER_ADMIN_EMAIL = previousEmail;
+      }
+    }
+  });
+
+  it('includes the displayed Super Admin identity in message sender search conditions', () => {
+    const previousName = process.env.SUPER_ADMIN_NAME;
+    process.env.SUPER_ADMIN_NAME = 'Aakash Shah';
+
+    try {
+      const service = new ConversationsService(
+        {} as never,
+        {} as never,
+        {} as never,
+      );
+      const buildConditions = (
+        service as unknown as {
+          buildMessageSearchConditions: (filters: {
+            searchText: string | null;
+            limit: number;
+          }) => unknown[];
+        }
+      ).buildMessageSearchConditions.bind(service);
+
+      const conditions = buildConditions({
+        searchText: 'Aakash',
+        limit: 20,
+      });
+
+      expect(conditions).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            OR: expect.arrayContaining([
+              {
+                sender: {
+                  is: {
+                    OR: expect.arrayContaining([
+                      {
+                        superAdminProfile: {
+                          is: {
+                            OR: expect.arrayContaining([
+                              {
+                                fullName: {
+                                  contains: 'Aakash',
+                                  mode: 'insensitive',
+                                },
+                              },
+                            ]),
+                          },
+                        },
+                      },
+                      { role: AccountRole.SUPER_ADMIN },
+                    ]),
+                  },
+                },
+              },
+            ]),
+          }),
+        ]),
+      );
+    } finally {
+      if (previousName === undefined) {
+        delete process.env.SUPER_ADMIN_NAME;
+      } else {
+        process.env.SUPER_ADMIN_NAME = previousName;
+      }
+    }
+  });
+
 });

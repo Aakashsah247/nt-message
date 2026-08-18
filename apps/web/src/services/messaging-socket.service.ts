@@ -18,6 +18,7 @@ export interface MessagingReadyPayload {
 
 export interface MessagingSocketErrorPayload {
   message: string;
+  code?: "SESSION_INVALIDATED";
 }
 
 export interface MessagingPongPayload {

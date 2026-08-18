@@ -53,6 +53,7 @@ import {
   deleteConversationMessage,
   deleteMessagingConversation,
   createConversationAttachmentObjectUrl,
+  createConversationAttachmentStreamUrl,
   deleteConversationMessageForMe,
   downloadConversationAttachment,
   editConversationTextMessage,
@@ -66,6 +67,7 @@ import {
   listMessageRequests,
   listBlockedMessagingAccounts,
   listMessagingConversations,
+  listGroupMembers,
   listMessagingNotifications,
   markAllMessagingNotificationsRead,
   markMessagingNotificationRead,
@@ -99,6 +101,11 @@ import {
 } from "../services/messaging.service";
 import type { AttachmentUploadProgress } from "../services/messaging.service";
 import {
+  disableMessagingPushSubscription,
+  messagingPushSupported,
+  syncMessagingPushSubscription,
+} from "../services/messaging-push.service";
+import {
   connectMessagingSocketAfterEffectCommit,
   createMessagingSocket,
 } from "../services/messaging-socket.service";
@@ -127,6 +134,7 @@ import type {
   MessagingPresenceState,
   MessagingReceiptUpdatedPayload,
   MessagingSocket,
+  MessagingSocketErrorPayload,
   MessagingTypingUpdatedPayload,
 } from "../services/messaging-socket.service";
 import type {
@@ -164,6 +172,14 @@ import {
   writeMessagingCustomization,
   writeMessagingDeviceSettings,
 } from "../utils/messaging-preferences";
+import { resolveMessagingSendAttempt } from "../utils/messaging-send-attempt";
+import type { MessagingSendAttempt } from "../utils/messaging-send-attempt";
+import {
+  isMessageThreadNearBottom,
+  mergeLatestMessagingPage,
+  restoreAnchoredMessageScrollTop,
+  restorePrependedMessageScrollTop,
+} from "../utils/messaging-thread-state";
 import type {
   ActiveUtilityPanel,
   MessagingCustomization,
@@ -178,6 +194,7 @@ import type {
   MessagingAccount,
   MessagingBlockedAccount,
   MessagingContact,
+  MessagingGroupMember,
   MessagingAttachment,
   MessagingConversation,
   ConversationListView,
@@ -295,7 +312,7 @@ function destructiveConfirmationCopy(
           "Other participants and their copies are not affected.",
           "Shared attachment files remain available to authorized participants.",
         ],
-        confirmLabel: "Delete message for me",
+        confirmLabel: "Delete for me",
       };
     case "DELETE_MESSAGE_FOR_EVERYONE":
       return {
@@ -308,7 +325,7 @@ function destructiveConfirmationCopy(
           "Separately forwarded copies remain available where authorized.",
           "Attachment cleanup follows the existing storage-reference rules.",
         ],
-        confirmLabel: "Delete message for everyone",
+        confirmLabel: "Delete for everyone",
       };
     case "LEAVE_GROUP":
       return {
@@ -698,6 +715,7 @@ interface MessageAttachmentCardProps {
   senderDisplayName: string;
   senderPhotoUrl: string | null;
   onPreview: (attachment: MessagingAttachment) => void;
+  onMediaLayoutReady: () => void;
 }
 
 interface AttachmentViewerState {
@@ -907,11 +925,13 @@ function CompactAttachmentAudio({
   voiceNote,
   senderDisplayName,
   senderPhotoUrl,
+  onMediaLayoutReady,
 }: {
   src: string;
   voiceNote: boolean;
   senderDisplayName?: string;
   senderPhotoUrl?: string | null;
+  onMediaLayoutReady?: () => void;
 }) {
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const [playing, setPlaying] = useState(false);
@@ -1017,13 +1037,14 @@ function CompactAttachmentAudio({
         ref={audioRef}
         src={src}
         preload="metadata"
-        onLoadedMetadata={(event) =>
+        onLoadedMetadata={(event) => {
           setDuration(
             Number.isFinite(event.currentTarget.duration)
               ? event.currentTarget.duration
               : 0,
-          )
-        }
+          );
+          onMediaLayoutReady?.();
+        }}
         onTimeUpdate={(event) =>
           setCurrentTime(event.currentTarget.currentTime)
         }
@@ -1069,6 +1090,7 @@ function MessageAttachmentCard({
   senderDisplayName,
   senderPhotoUrl,
   onPreview,
+  onMediaLayoutReady,
 }: MessageAttachmentCardProps) {
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [previewError, setPreviewError] = useState<string | null>(null);
@@ -1131,17 +1153,29 @@ function MessageAttachmentCard({
     setPreviewUrl(null);
     setPreviewError(null);
 
-    // Media remains behind the authenticated API; a temporary object URL keeps
-    // access tokens and private attachment endpoints out of the rendered DOM.
-    void createConversationAttachmentObjectUrl(
-      accessToken,
-      conversationId,
-      messageId,
-      attachment.id,
-    )
+    // Images keep the authenticated Blob preview. Video/audio use a short-lived
+    // protected URL so the browser can request only the byte ranges it needs.
+    const previewRequest =
+      isVideoAttachment(attachment) || isAudioAttachment(attachment)
+        ? createConversationAttachmentStreamUrl(
+            accessToken,
+            conversationId,
+            messageId,
+            attachment.id,
+          )
+        : createConversationAttachmentObjectUrl(
+            accessToken,
+            conversationId,
+            messageId,
+            attachment.id,
+          );
+
+    void previewRequest
       .then((url) => {
         if (cancelled) {
-          URL.revokeObjectURL(url);
+          if (url.startsWith("blob:")) {
+            URL.revokeObjectURL(url);
+          }
           return;
         }
 
@@ -1163,7 +1197,7 @@ function MessageAttachmentCard({
     return () => {
       cancelled = true;
 
-      if (objectUrl) {
+      if (objectUrl?.startsWith("blob:")) {
         URL.revokeObjectURL(objectUrl);
       }
     };
@@ -1216,9 +1250,21 @@ function MessageAttachmentCard({
               aria-label={`Preview ${attachment.originalFileName}`}
             >
               {isImageAttachment(attachment) ? (
-                <img src={previewUrl} alt={attachment.originalFileName} />
+                <img
+                  src={previewUrl}
+                  alt={attachment.originalFileName}
+                  onLoad={onMediaLayoutReady}
+                  onError={onMediaLayoutReady}
+                />
               ) : (
-                <video src={previewUrl} muted playsInline preload="metadata" />
+                <video
+                  src={previewUrl}
+                  muted
+                  playsInline
+                  preload="metadata"
+                  onLoadedMetadata={onMediaLayoutReady}
+                  onError={onMediaLayoutReady}
+                />
               )}
               {isVideoAttachment(attachment) && (
                 <span className="message-attachment-media-overlay-v2">
@@ -1263,6 +1309,7 @@ function MessageAttachmentCard({
             voiceNote={isVoiceNote}
             senderDisplayName={senderDisplayName}
             senderPhotoUrl={senderPhotoUrl}
+            onMediaLayoutReady={onMediaLayoutReady}
           />
         ) : previewError ? (
           <div className="message-attachment-preview-state-v2 error audio">
@@ -1691,12 +1738,24 @@ function getMentionedAccountIds(
   text: string,
   conversation: MessagingConversation | null,
   viewerAccountId?: string | null,
+  selectedMentions: MessagingAccount[] = [],
 ): string[] {
   if (!conversation || conversation.type !== "GROUP") {
     return [];
   }
 
-  return conversation.participants
+  // Official groups intentionally keep only a bounded participant page in the
+  // conversation payload. Merge explicitly selected server-side mention
+  // candidates so their account IDs are still sent with the message.
+  const candidates = new Map<string, MessagingAccount>();
+  conversation.participants.forEach((participant) => {
+    candidates.set(participant.accountId, participant);
+  });
+  selectedMentions.forEach((participant) => {
+    candidates.set(participant.accountId, participant);
+  });
+
+  return Array.from(candidates.values())
     .filter((participant) => participant.accountId !== viewerAccountId)
     .filter((participant) => {
       const pattern = new RegExp(
@@ -2448,15 +2507,26 @@ function SharedMediaThumbnail({
 
     setPreviewError(false);
 
-    void createConversationAttachmentObjectUrl(
-      accessToken,
-      item.conversationId,
-      item.messageId,
-      item.attachment.id,
-    )
+    const previewRequest = isVideoAttachment(item.attachment)
+      ? createConversationAttachmentStreamUrl(
+          accessToken,
+          item.conversationId,
+          item.messageId,
+          item.attachment.id,
+        )
+      : createConversationAttachmentObjectUrl(
+          accessToken,
+          item.conversationId,
+          item.messageId,
+          item.attachment.id,
+        );
+
+    void previewRequest
       .then((url) => {
         if (cancelled) {
-          URL.revokeObjectURL(url);
+          if (url.startsWith("blob:")) {
+            URL.revokeObjectURL(url);
+          }
           return;
         }
 
@@ -2472,7 +2542,7 @@ function SharedMediaThumbnail({
     return () => {
       cancelled = true;
 
-      if (createdObjectUrl) {
+      if (createdObjectUrl?.startsWith("blob:")) {
         URL.revokeObjectURL(createdObjectUrl);
       }
     };
@@ -2571,6 +2641,7 @@ type MessageNavigationIconName =
   | "settings"
   | "starred"
   | "bell"
+  | "bellOff"
   | "profile"
   | "workspace"
   | "logout"
@@ -2692,6 +2763,14 @@ function MessageNavigationIcon({ name }: { name: MessageNavigationIconName }) {
         <svg {...commonProps}>
           <path d="M18 9a6 6 0 0 0-12 0c0 7-3 7-3 8.5h18C21 16 18 16 18 9Z" />
           <path d="M10 21h4" />
+        </svg>
+      );
+    case "bellOff":
+      return (
+        <svg {...commonProps}>
+          <path d="M18 9a6 6 0 0 0-12 0c0 7-3 7-3 8.5h18C21 16 18 16 18 9Z" />
+          <path d="M10 21h4" />
+          <path d="M3 3l18 18" />
         </svg>
       );
     case "profile":
@@ -2861,6 +2940,33 @@ function MessageNavigationIcon({ name }: { name: MessageNavigationIconName }) {
         </svg>
       );
   }
+}
+
+type MessageStatusGlyphName = "pin" | "star";
+
+function MessageStatusGlyph({ name }: { name: MessageStatusGlyphName }) {
+  if (name === "star") {
+    return (
+      <svg
+        className="message-status-svg"
+        viewBox="0 0 24 24"
+        aria-hidden="true"
+      >
+        <path d="m12 2.8 2.9 5.9 6.5.9-4.7 4.6 1.1 6.5-5.8-3-5.8 3 1.1-6.5-4.7-4.6 6.5-.9L12 2.8Z" />
+      </svg>
+    );
+  }
+
+  return (
+    <svg
+      className="message-status-svg"
+      viewBox="0 0 24 24"
+      aria-hidden="true"
+    >
+      <path d="M8.2 3.5h7.6l-1 5 3.2 3.2v2.1H6v-2.1l3.2-3.2-1-5Z" />
+      <path d="M12 13.8v7" fill="none" />
+    </svg>
+  );
 }
 
 function workspacePathForRole(role: string | undefined): string {
@@ -3064,6 +3170,13 @@ function canDeleteMessageForEveryone(
   const sender = conversation.participants.find(
     (participant) => participant.accountId === message.senderAccountId,
   );
+
+  if (!sender && !conversation.participantsComplete) {
+    // Large official groups are loaded in bounded member pages. Do not expose
+    // an admin moderation action when the sender's hierarchy is not known yet;
+    // the backend remains authoritative for all delete permissions.
+    return false;
+  }
 
   return sender?.participantRole !== "OWNER";
 }
@@ -3384,6 +3497,11 @@ export function MessageAppPage() {
   const [conversations, setConversations] = useState<MessagingConversation[]>(
     [],
   );
+  const [conversationNextCursor, setConversationNextCursor] = useState<
+    string | null
+  >(null);
+  const [conversationHasMore, setConversationHasMore] = useState(false);
+  const [conversationLoadingMore, setConversationLoadingMore] = useState(false);
   const [chatFolders, setChatFolders] = useState<ChatFolder[]>([]);
   const [chatFoldersLoading, setChatFoldersLoading] = useState(false);
   const [chatFoldersError, setChatFoldersError] = useState<string | null>(null);
@@ -3567,6 +3685,7 @@ export function MessageAppPage() {
     useState(false);
   const [activePinnedMessageIndex, setActivePinnedMessageIndex] = useState(0);
   const [newMessageCount, setNewMessageCount] = useState(0);
+  const [showJumpToLatest, setShowJumpToLatest] = useState(false);
   const [conversationSearch, setConversationSearch] = useState("");
   const [mentionSuggestionsDismissed, setMentionSuggestionsDismissed] =
     useState(false);
@@ -3588,6 +3707,14 @@ export function MessageAppPage() {
   const [messageInformationError, setMessageInformationError] = useState<
     string | null
   >(null);
+  const [
+    messageInformationVisibleReadCount,
+    setMessageInformationVisibleReadCount,
+  ] = useState(40);
+  const [
+    messageInformationVisibleDeliveredCount,
+    setMessageInformationVisibleDeliveredCount,
+  ] = useState(40);
   const [conversationPreferenceLoading, setConversationPreferenceLoading] =
     useState<string | null>(null);
   const [conversationLoading, setConversationLoading] = useState(true);
@@ -3595,6 +3722,8 @@ export function MessageAppPage() {
   const [olderMessagesLoading, setOlderMessagesLoading] = useState(false);
   const [sendingMessage, setSendingMessage] = useState(false);
   const [sendAttemptFailed, setSendAttemptFailed] = useState(false);
+  const composerSendAttemptRef = useRef<MessagingSendAttempt | null>(null);
+  const locationSendAttemptRef = useRef<MessagingSendAttempt | null>(null);
   const [selectedAttachments, setSelectedAttachments] = useState<
     SelectedComposerAttachment[]
   >([]);
@@ -3646,6 +3775,10 @@ export function MessageAppPage() {
   const [storageUsageActionId, setStorageUsageActionId] = useState<
     string | null
   >(null);
+  const [storageDeleteConfirmation, setStorageDeleteConfirmation] = useState<{
+    attachmentId: string;
+    mode: "ME" | "EVERYONE";
+  } | null>(null);
   const [messageCursor, setMessageCursor] = useState<string | null>(null);
   const [hasOlderMessages, setHasOlderMessages] = useState(false);
   const [pageError, setPageError] = useState<string | null>(null);
@@ -3672,6 +3805,51 @@ export function MessageAppPage() {
     useState(false);
   const [groupMemberSearch, setGroupMemberSearch] = useState("");
   const [groupMembersExpanded, setGroupMembersExpanded] = useState(false);
+  const [officialGroupMembers, setOfficialGroupMembers] = useState<
+    MessagingGroupMember[]
+  >([]);
+  const [officialGroupMemberCursor, setOfficialGroupMemberCursor] = useState<
+    string | null
+  >(null);
+  const [officialGroupMembersHasMore, setOfficialGroupMembersHasMore] =
+    useState(false);
+  const [officialGroupMembersLoading, setOfficialGroupMembersLoading] =
+    useState(false);
+  const [officialGroupMembersLoadingMore, setOfficialGroupMembersLoadingMore] =
+    useState(false);
+  const [officialGroupMembersError, setOfficialGroupMembersError] = useState<
+    string | null
+  >(null);
+  const [officialGroupMemberSearchResults, setOfficialGroupMemberSearchResults] =
+    useState<MessagingGroupMember[]>([]);
+  const [officialGroupMemberSearchCursor, setOfficialGroupMemberSearchCursor] =
+    useState<string | null>(null);
+  const [officialGroupMemberSearchHasMore, setOfficialGroupMemberSearchHasMore] =
+    useState(false);
+  const [officialGroupMemberSearchLoading, setOfficialGroupMemberSearchLoading] =
+    useState(false);
+  const [officialGroupMemberSearchLoadingMore, setOfficialGroupMemberSearchLoadingMore] =
+    useState(false);
+  const [officialGroupMemberSearchError, setOfficialGroupMemberSearchError] =
+    useState<string | null>(null);
+  const [officialMentionSuggestions, setOfficialMentionSuggestions] = useState<
+    MessagingGroupMember[]
+  >([]);
+  const [officialMentionCursor, setOfficialMentionCursor] = useState<
+    string | null
+  >(null);
+  const [officialMentionHasMore, setOfficialMentionHasMore] = useState(false);
+  const [officialMentionLoading, setOfficialMentionLoading] = useState(false);
+  const [officialMentionLoadingMore, setOfficialMentionLoadingMore] =
+    useState(false);
+  const [officialMentionError, setOfficialMentionError] = useState<
+    string | null
+  >(null);
+  const [selectedComposerMentions, setSelectedComposerMentions] = useState<
+    MessagingAccount[]
+  >([]);
+  const [officialGroupMembersRefreshVersion, setOfficialGroupMembersRefreshVersion] =
+    useState(0);
   const [profileReturnToGroupInformation, setProfileReturnToGroupInformation] =
     useState(false);
   const [profileSharedGroupsExpanded, setProfileSharedGroupsExpanded] =
@@ -3715,6 +3893,7 @@ export function MessageAppPage() {
   const [groupInviteError, setGroupInviteError] = useState<string | null>(null);
   const [inviteJoinLoading, setInviteJoinLoading] = useState(false);
   const groupInviteJoinTokenRef = useRef<string | null>(null);
+  const pushNavigationTargetRef = useRef<string | null>(null);
   const [groupPhotoUploading, setGroupPhotoUploading] = useState(false);
   const groupPhotoInputRef = useRef<HTMLInputElement | null>(null);
   const [privateGroupDialogOpen, setPrivateGroupDialogOpen] = useState(false);
@@ -3743,6 +3922,9 @@ export function MessageAppPage() {
   >(null);
   const [starredItems, setStarredItems] = useState<StarredMessageItem[]>([]);
   const [starredLoading, setStarredLoading] = useState(false);
+  const [starredLoadingMore, setStarredLoadingMore] = useState(false);
+  const [starredHasMore, setStarredHasMore] = useState(false);
+  const [starredNextCursor, setStarredNextCursor] = useState<string | null>(null);
   const [starredError, setStarredError] = useState<string | null>(null);
   const [starredActionId, setStarredActionId] = useState<string | null>(null);
   const [messageRequests, setMessageRequests] =
@@ -3811,6 +3993,7 @@ export function MessageAppPage() {
         false,
       ),
     );
+  const [backgroundPushReady, setBackgroundPushReady] = useState(false);
   const [settingsTab, setSettingsTab] =
     useState<MessagingSettingsTab>("PRIVACY");
   const [messagingSettingsLoading, setMessagingSettingsLoading] =
@@ -4423,13 +4606,20 @@ export function MessageAppPage() {
   const [profileError, setProfileError] = useState<string | null>(null);
 
   const messageListRef = useRef<HTMLDivElement | null>(null);
-  const messageThreadBottomRef = useRef<HTMLDivElement | null>(null);
+  const messageThreadContentRef = useRef<HTMLDivElement | null>(null);
+  const messageResizeFrameRef = useRef<number | null>(null);
+  const initialBottomReanchorFrameRef = useRef<number | null>(null);
   const messageIdsRef = useRef<Set<string>>(new Set());
   const messageListNearBottomRef = useRef(true);
   const pendingOlderScrollRestoreRef = useRef<{
     conversationId: string;
     scrollHeight: number;
     scrollTop: number;
+  } | null>(null);
+  const pendingThreadMutationAnchorRef = useRef<{
+    conversationId: string;
+    scrollTop: number;
+    anchors: Array<{ messageId: string; offsetTop: number }>;
   } | null>(null);
   const pendingFocusedMessageScrollRef = useRef<string | null>(null);
   const conversationActionButtonRef = useRef<HTMLButtonElement | null>(null);
@@ -4449,6 +4639,7 @@ export function MessageAppPage() {
   const messageSearchTriggerRef = useRef<HTMLButtonElement | null>(null);
   const messageSearchReturnFocusRef = useRef<HTMLElement | null>(null);
   const messageSearchRequestIdRef = useRef(0);
+  const messageInformationRequestIdRef = useRef(0);
   const closeMessageSearchPanel = useCallback((): void => {
     messageSearchRequestIdRef.current += 1;
 
@@ -4511,6 +4702,9 @@ export function MessageAppPage() {
     selectedConversationId,
   );
   const messageLoadRequestRef = useRef(0);
+  const officialGroupMembersRequestRef = useRef(0);
+  const officialGroupMemberSearchRequestRef = useRef(0);
+  const officialMentionRequestRef = useRef(0);
   const messagePageCacheRef = useRef<
     Record<
       string,
@@ -4537,6 +4731,222 @@ export function MessageAppPage() {
       ) ?? null,
     [conversations, selectedConversationId],
   );
+  const selectedOfficialConversationId =
+    selectedConversation?.groupKind === "OFFICIAL"
+      ? selectedConversation.id
+      : null;
+
+  const loadOfficialGroupMemberPage = useCallback(
+    async (options: {
+      search: string;
+      cursor: string | null;
+      append: boolean;
+    }): Promise<void> => {
+      if (
+        !accessToken ||
+        !selectedOfficialConversationId
+      ) {
+        return;
+      }
+
+      const search = options.search.trim();
+      const searchMode = search.length > 0;
+      const requestRef = searchMode
+        ? officialGroupMemberSearchRequestRef
+        : officialGroupMembersRequestRef;
+      const requestId = requestRef.current + 1;
+      requestRef.current = requestId;
+
+      if (searchMode) {
+        if (options.append) {
+          setOfficialGroupMemberSearchLoadingMore(true);
+        } else {
+          setOfficialGroupMemberSearchLoading(true);
+          setOfficialGroupMemberSearchResults([]);
+          setOfficialGroupMemberSearchCursor(null);
+          setOfficialGroupMemberSearchHasMore(false);
+        }
+        setOfficialGroupMemberSearchError(null);
+      } else {
+        if (options.append) {
+          setOfficialGroupMembersLoadingMore(true);
+        } else {
+          setOfficialGroupMembersLoading(true);
+          setOfficialGroupMemberCursor(null);
+          setOfficialGroupMembersHasMore(false);
+        }
+        setOfficialGroupMembersError(null);
+      }
+
+      try {
+        const response = await listGroupMembers(
+          accessToken,
+          selectedOfficialConversationId,
+          {
+            search: search || undefined,
+            cursor: options.cursor,
+            limit: 25,
+          },
+        );
+
+        if (requestRef.current !== requestId) {
+          return;
+        }
+
+        const mergeMembers = (
+          current: MessagingGroupMember[],
+          incoming: MessagingGroupMember[],
+        ): MessagingGroupMember[] => {
+          const byAccountId = new Map(
+            current.map((member) => [member.accountId, member]),
+          );
+          incoming.forEach((member) => byAccountId.set(member.accountId, member));
+          return Array.from(byAccountId.values());
+        };
+
+        if (searchMode) {
+          setOfficialGroupMemberSearchResults((current) =>
+            options.append ? mergeMembers(current, response.data) : response.data,
+          );
+          setOfficialGroupMemberSearchCursor(response.pagination.nextCursor);
+          setOfficialGroupMemberSearchHasMore(response.pagination.hasMore);
+        } else {
+          setOfficialGroupMembers((current) =>
+            options.append ? mergeMembers(current, response.data) : response.data,
+          );
+          setOfficialGroupMemberCursor(response.pagination.nextCursor);
+          setOfficialGroupMembersHasMore(response.pagination.hasMore);
+        }
+      } catch (error) {
+        if (requestRef.current !== requestId) {
+          return;
+        }
+
+        const message =
+          error instanceof Error
+            ? error.message
+            : "Group members could not be loaded.";
+
+        if (searchMode) {
+          setOfficialGroupMemberSearchError(message);
+        } else {
+          setOfficialGroupMembersError(message);
+        }
+      } finally {
+        if (requestRef.current === requestId) {
+          if (searchMode) {
+            setOfficialGroupMemberSearchLoading(false);
+            setOfficialGroupMemberSearchLoadingMore(false);
+          } else {
+            setOfficialGroupMembersLoading(false);
+            setOfficialGroupMembersLoadingMore(false);
+          }
+        }
+      }
+    },
+    [accessToken, selectedOfficialConversationId],
+  );
+
+  useEffect(() => {
+    if (!selectedOfficialConversationId) {
+      officialGroupMembersRequestRef.current += 1;
+      officialGroupMemberSearchRequestRef.current += 1;
+      setOfficialGroupMembers([]);
+      setOfficialGroupMemberCursor(null);
+      setOfficialGroupMembersHasMore(false);
+      setOfficialGroupMembersLoading(false);
+      setOfficialGroupMembersLoadingMore(false);
+      setOfficialGroupMembersError(null);
+      setOfficialGroupMemberSearchResults([]);
+      setOfficialGroupMemberSearchCursor(null);
+      setOfficialGroupMemberSearchHasMore(false);
+      setOfficialGroupMemberSearchLoading(false);
+      setOfficialGroupMemberSearchLoadingMore(false);
+      setOfficialGroupMemberSearchError(null);
+      return;
+    }
+
+    void loadOfficialGroupMemberPage({
+      search: "",
+      cursor: null,
+      append: false,
+    });
+  }, [
+    loadOfficialGroupMemberPage,
+    officialGroupMembersRefreshVersion,
+    selectedOfficialConversationId,
+  ]);
+
+  const normalizedGroupMemberSearch = groupMemberSearch.trim();
+
+  useEffect(() => {
+    if (
+      !selectedOfficialConversationId ||
+      !normalizedGroupMemberSearch
+    ) {
+      officialGroupMemberSearchRequestRef.current += 1;
+      setOfficialGroupMemberSearchResults([]);
+      setOfficialGroupMemberSearchCursor(null);
+      setOfficialGroupMemberSearchHasMore(false);
+      setOfficialGroupMemberSearchLoading(false);
+      setOfficialGroupMemberSearchLoadingMore(false);
+      setOfficialGroupMemberSearchError(null);
+      return;
+    }
+
+    const timer = window.setTimeout(() => {
+      void loadOfficialGroupMemberPage({
+        search: normalizedGroupMemberSearch,
+        cursor: null,
+        append: false,
+      });
+    }, 220);
+
+    return () => window.clearTimeout(timer);
+  }, [
+    loadOfficialGroupMemberPage,
+    normalizedGroupMemberSearch,
+    officialGroupMembersRefreshVersion,
+    selectedOfficialConversationId,
+  ]);
+
+  function loadMoreOfficialGroupMembers(): void {
+    if (!selectedOfficialConversationId) {
+      return;
+    }
+
+    if (normalizedGroupMemberSearch) {
+      if (
+        !officialGroupMemberSearchHasMore ||
+        !officialGroupMemberSearchCursor ||
+        officialGroupMemberSearchLoadingMore
+      ) {
+        return;
+      }
+
+      void loadOfficialGroupMemberPage({
+        search: normalizedGroupMemberSearch,
+        cursor: officialGroupMemberSearchCursor,
+        append: true,
+      });
+      return;
+    }
+
+    if (
+      !officialGroupMembersHasMore ||
+      !officialGroupMemberCursor ||
+      officialGroupMembersLoadingMore
+    ) {
+      return;
+    }
+
+    void loadOfficialGroupMemberPage({
+      search: "",
+      cursor: officialGroupMemberCursor,
+      append: true,
+    });
+  }
+
   const selectedChatFolder = useMemo(
     () =>
       selectedListId
@@ -4606,11 +5016,6 @@ export function MessageAppPage() {
     announcementComposerSubmitting !== null,
   );
   useMessageModalKeyboardBoundary(
-    storageUsageScope !== null,
-    "storage-usage",
-    closeStorageUsage,
-  );
-  useMessageModalKeyboardBoundary(
     pinnedMessageBrowserOpen,
     "pinned-messages",
     closePinnedMessageBrowser,
@@ -4620,11 +5025,6 @@ export function MessageAppPage() {
     "forward",
     closeForwardDialog,
     forwardSubmitting,
-  );
-  useMessageModalKeyboardBoundary(
-    messageInformation !== null || messageInformationError !== null,
-    "message-information",
-    closeMessageInformationDialog,
   );
   useMessageModalKeyboardBoundary(
     destructiveConfirmation !== null,
@@ -4689,6 +5089,131 @@ export function MessageAppPage() {
     [composerCaretIndex, messageText],
   );
 
+  useEffect(() => {
+    if (
+      !accessToken ||
+      !selectedOfficialConversationId ||
+      !activeMentionQuery ||
+      editingMessage
+    ) {
+      officialMentionRequestRef.current += 1;
+      setOfficialMentionSuggestions([]);
+      setOfficialMentionCursor(null);
+      setOfficialMentionHasMore(false);
+      setOfficialMentionLoading(false);
+      setOfficialMentionLoadingMore(false);
+      setOfficialMentionError(null);
+      return;
+    }
+
+    const requestId = officialMentionRequestRef.current + 1;
+    officialMentionRequestRef.current = requestId;
+    setOfficialMentionSuggestions([]);
+    setOfficialMentionCursor(null);
+    setOfficialMentionHasMore(false);
+    setOfficialMentionLoading(true);
+    setOfficialMentionLoadingMore(false);
+    setOfficialMentionError(null);
+    const query = activeMentionQuery.query.trim();
+    const timer = window.setTimeout(() => {
+      void listGroupMembers(accessToken, selectedOfficialConversationId, {
+        search: query || undefined,
+        limit: 25,
+      })
+        .then((response) => {
+          if (officialMentionRequestRef.current !== requestId) {
+            return;
+          }
+
+          setOfficialMentionSuggestions(
+            response.data.filter(
+              (participant) => participant.accountId !== account?.id,
+            ),
+          );
+          setOfficialMentionCursor(response.pagination.nextCursor);
+          setOfficialMentionHasMore(response.pagination.hasMore);
+          setOfficialMentionError(null);
+        })
+        .catch(() => {
+          if (officialMentionRequestRef.current === requestId) {
+            setOfficialMentionSuggestions([]);
+            setOfficialMentionCursor(null);
+            setOfficialMentionHasMore(false);
+            setOfficialMentionError("Group members could not be loaded.");
+          }
+        })
+        .finally(() => {
+          if (officialMentionRequestRef.current === requestId) {
+            setOfficialMentionLoading(false);
+          }
+        });
+    }, query ? 160 : 0);
+
+    return () => window.clearTimeout(timer);
+  }, [
+    accessToken,
+    account?.id,
+    activeMentionQuery,
+    editingMessage,
+    selectedOfficialConversationId,
+  ]);
+
+  async function loadMoreOfficialMentionSuggestions(): Promise<void> {
+    if (
+      !accessToken ||
+      !selectedOfficialConversationId ||
+      !activeMentionQuery ||
+      !officialMentionHasMore ||
+      !officialMentionCursor ||
+      officialMentionLoadingMore
+    ) {
+      return;
+    }
+
+    const requestId = officialMentionRequestRef.current;
+    const query = activeMentionQuery.query.trim();
+    setOfficialMentionLoadingMore(true);
+    setOfficialMentionError(null);
+
+    try {
+      const response = await listGroupMembers(
+        accessToken,
+        selectedOfficialConversationId,
+        {
+          search: query || undefined,
+          cursor: officialMentionCursor,
+          limit: 25,
+        },
+      );
+
+      if (officialMentionRequestRef.current !== requestId) {
+        return;
+      }
+
+      setOfficialMentionSuggestions((current) => {
+        const byAccountId = new Map(
+          current.map((participant) => [participant.accountId, participant]),
+        );
+        response.data
+          .filter((participant) => participant.accountId !== account?.id)
+          .forEach((participant) =>
+            byAccountId.set(participant.accountId, participant),
+          );
+        return Array.from(byAccountId.values());
+      });
+      setOfficialMentionCursor(response.pagination.nextCursor);
+      setOfficialMentionHasMore(response.pagination.hasMore);
+    } catch {
+      if (officialMentionRequestRef.current === requestId) {
+        setOfficialMentionError("More group members could not be loaded.");
+      }
+    } finally {
+      if (officialMentionRequestRef.current === requestId) {
+        setOfficialMentionLoadingMore(false);
+      }
+    }
+  }
+
   const mentionSuggestions = useMemo(() => {
     if (
       !activeMentionQuery ||
@@ -4699,23 +5224,38 @@ export function MessageAppPage() {
       return [];
     }
 
+    if (selectedConversation.groupKind === "OFFICIAL") {
+      return officialMentionSuggestions;
+    }
+
     const query = activeMentionQuery.query;
 
     return selectedConversation.participants
       .filter((participant) => participant.accountId !== account?.id)
       .filter((participant) =>
         query ? mentionSearchText(participant).includes(query) : true,
-      )
-      .slice(0, 6);
-  }, [account?.id, activeMentionQuery, editingMessage, selectedConversation]);
+      );
+  }, [
+    account?.id,
+    activeMentionQuery,
+    editingMessage,
+    officialMentionSuggestions,
+    selectedConversation,
+  ]);
 
   const activeMentionQueryKey = activeMentionQuery
     ? `${activeMentionQuery.startIndex}:${activeMentionQuery.endIndex}:${activeMentionQuery.query}`
     : "";
-  const mentionSuggestionsVisible = Boolean(
+  const mentionPanelVisible = Boolean(
     !mentionSuggestionsDismissed &&
     activeMentionQuery &&
-    mentionSuggestions.length > 0,
+    selectedConversation?.type === "GROUP" &&
+    !editingMessage &&
+    (selectedConversation.groupKind === "OFFICIAL" ||
+      mentionSuggestions.length > 0),
+  );
+  const mentionSuggestionsVisible = Boolean(
+    mentionPanelVisible && mentionSuggestions.length > 0,
   );
   const activeMentionSuggestion = mentionSuggestionsVisible
     ? mentionSuggestions[activeMentionSuggestionIndex] ?? mentionSuggestions[0]
@@ -4736,6 +5276,22 @@ export function MessageAppPage() {
         : Math.min(current, mentionSuggestions.length - 1),
     );
   }, [mentionSuggestions.length]);
+
+  useEffect(() => {
+    setSelectedComposerMentions([]);
+  }, [selectedConversationId]);
+
+  useEffect(() => {
+    setSelectedComposerMentions((current) =>
+      current.filter((participant) => {
+        const pattern = new RegExp(
+          `(^|\\s)@${escapeRegExp(participant.displayName)}(?=\\s|$|[.,!?;:])`,
+          "i",
+        );
+        return pattern.test(messageText);
+      }),
+    );
+  }, [messageText]);
 
   useEffect(() => {
     const handleMessagingSearchShortcut = (
@@ -4936,7 +5492,7 @@ export function MessageAppPage() {
 
   useEffect(() => {
     return () => {
-      if (attachmentViewer?.objectUrl) {
+      if (attachmentViewer?.objectUrl?.startsWith("blob:")) {
         URL.revokeObjectURL(attachmentViewer.objectUrl);
       }
     };
@@ -5021,22 +5577,10 @@ export function MessageAppPage() {
   }, [attachmentViewer?.attachment.id]);
 
   useEffect(() => {
-    if (!storageUsageScope) {
-      return;
+    if (!settingsMode && storageUsageScope) {
+      closeStorageUsage();
     }
-
-    function handleStorageDialogKeyDown(event: globalThis.KeyboardEvent): void {
-      if (event.key === "Escape") {
-        closeStorageUsage();
-      }
-    }
-
-    window.addEventListener("keydown", handleStorageDialogKeyDown);
-
-    return () => {
-      window.removeEventListener("keydown", handleStorageDialogKeyDown);
-    };
-  }, [storageUsageScope]);
+  }, [settingsMode, storageUsageScope]);
 
   useEffect(() => {
     if (!accessToken || !account?.id) {
@@ -5186,9 +5730,20 @@ export function MessageAppPage() {
     searchResults.forEach((result) => collectAccount(result.message.sender));
     messageRequests.received.forEach((request) => collectAccount(request.peer));
     messageRequests.sent.forEach((request) => collectAccount(request.peer));
-    messageInformation?.recipients.forEach((recipient) =>
-      collectAccount(recipient.account),
-    );
+    if (messageInformation) {
+      const visibleReadRecipients = messageInformation.recipients
+        .filter((recipient) => Boolean(recipient.readAt))
+        .slice(0, messageInformationVisibleReadCount);
+      const visibleDeliveredRecipients = messageInformation.recipients
+        .filter(
+          (recipient) => !recipient.readAt && Boolean(recipient.deliveredAt),
+        )
+        .slice(0, messageInformationVisibleDeliveredCount);
+
+      [...visibleReadRecipients, ...visibleDeliveredRecipients].forEach(
+        (recipient) => collectAccount(recipient.account),
+      );
+    }
     collectAccount(profileData);
     collectAccount(ownProfileAccount);
 
@@ -5319,6 +5874,8 @@ export function MessageAppPage() {
     contacts,
     conversations,
     messageInformation,
+    messageInformationVisibleDeliveredCount,
+    messageInformationVisibleReadCount,
     messageRequests,
     messages,
     ownProfileAccount,
@@ -5795,8 +6352,32 @@ export function MessageAppPage() {
           listMode ? "ALL" : conversationListView,
           listMode ? selectedListId ?? undefined : undefined,
         );
+        const preservePreferredConversation =
+          silent && preferredConversationId !== undefined;
 
-        setConversations(response.data);
+        setConversations((current) => {
+          if (!preservePreferredConversation || !preferredConversationId) {
+            return response.data;
+          }
+
+          if (
+            response.data.some(
+              (conversation) => conversation.id === preferredConversationId,
+            )
+          ) {
+            return response.data;
+          }
+
+          const currentPreferredConversation = current.find(
+            (conversation) => conversation.id === preferredConversationId,
+          );
+
+          return currentPreferredConversation
+            ? [...response.data, currentPreferredConversation]
+            : response.data;
+        });
+        setConversationNextCursor(response.pagination.nextCursor);
+        setConversationHasMore(response.pagination.hasMore);
         setPageError(null);
 
         setSelectedConversationId((current) => {
@@ -5805,6 +6386,13 @@ export function MessageAppPage() {
           if (
             candidate &&
             response.data.some((conversation) => conversation.id === candidate)
+          ) {
+            return candidate;
+          }
+
+          if (
+            preservePreferredConversation &&
+            candidate === preferredConversationId
           ) {
             return candidate;
           }
@@ -5827,6 +6415,82 @@ export function MessageAppPage() {
     },
     [accessToken, conversationListView, listMode, selectedListId],
   );
+
+  const loadMoreConversations = useCallback(async (): Promise<void> => {
+    if (
+      !accessToken ||
+      !conversationHasMore ||
+      !conversationNextCursor ||
+      conversationLoadingMore
+    ) {
+      return;
+    }
+
+    setConversationLoadingMore(true);
+
+    try {
+      const response = await listMessagingConversations(
+        accessToken,
+        conversationNextCursor,
+        100,
+        listMode ? "ALL" : conversationListView,
+        listMode ? selectedListId ?? undefined : undefined,
+      );
+
+      setConversations((current) => {
+        const next = [...current];
+        const indexByConversationId = new Map(
+          current.map((conversation, index) => [conversation.id, index]),
+        );
+
+        for (const conversation of response.data) {
+          const existingIndex = indexByConversationId.get(conversation.id);
+
+          if (existingIndex === undefined) {
+            indexByConversationId.set(conversation.id, next.length);
+            next.push(conversation);
+          } else {
+            next[existingIndex] = conversation;
+          }
+        }
+
+        return next.sort((first, second) => {
+          if (first.isPinned !== second.isPinned) {
+            return first.isPinned ? -1 : 1;
+          }
+
+          const updatedAtDifference =
+            new Date(second.updatedAt).getTime() -
+            new Date(first.updatedAt).getTime();
+
+          if (updatedAtDifference !== 0) {
+            return updatedAtDifference;
+          }
+
+          return second.id.localeCompare(first.id);
+        });
+      });
+      setConversationNextCursor(response.pagination.nextCursor);
+      setConversationHasMore(response.pagination.hasMore);
+      setPageError(null);
+    } catch (error) {
+      setPageError(
+        error instanceof Error
+          ? error.message
+          : "More conversations could not be loaded.",
+      );
+    } finally {
+      setConversationLoadingMore(false);
+    }
+  }, [
+    accessToken,
+    conversationHasMore,
+    conversationListView,
+    conversationLoadingMore,
+    conversationNextCursor,
+    listMode,
+    selectedListId,
+  ]);
 
   const loadChatFolders = useCallback(
     async (silent = false): Promise<void> => {
@@ -6733,36 +7397,93 @@ export function MessageAppPage() {
   }
 
   const loadStarredMessages = useCallback(
-    async (silent = false): Promise<void> => {
+    async (options?: {
+      cursor?: string | null;
+      append?: boolean;
+      silent?: boolean;
+    }): Promise<void> => {
+      const cursor = options?.cursor ?? null;
+      const append = options?.append ?? false;
+      const silent = options?.silent ?? false;
+
       if (!accessToken) {
         setStarredItems([]);
+        setStarredHasMore(false);
+        setStarredNextCursor(null);
         return;
       }
 
-      if (!silent) {
+      if (append) {
+        setStarredLoadingMore(true);
+      } else if (!silent) {
         setStarredLoading(true);
+        setStarredError(null);
       }
 
       try {
-        const response = await listStarredMessages(accessToken);
-        setStarredItems(response.data);
+        const response = await listStarredMessages(accessToken, cursor, 50);
+        setStarredItems((current) => {
+          if (!append) {
+            return response.data;
+          }
+
+          const byMessageId = new Map(
+            current.map((item) => [item.message.id, item] as const),
+          );
+          for (const item of response.data) {
+            byMessageId.set(item.message.id, item);
+          }
+
+          return [...byMessageId.values()];
+        });
+        setStarredHasMore(response.pagination.hasMore);
+        setStarredNextCursor(response.pagination.nextCursor);
         setStarredError(null);
       } catch (error) {
-        if (!silent) {
-          setStarredError(
-            error instanceof Error
-              ? error.message
-              : "Starred messages could not be loaded.",
-          );
+        const message =
+          error instanceof Error
+            ? error.message
+            : append
+              ? "Older starred messages could not be loaded."
+              : "Starred messages could not be loaded.";
+
+        if (append) {
+          setMessageNotice(message);
+        } else {
+          setStarredError(message);
         }
       } finally {
-        if (!silent) {
+        if (append) {
+          setStarredLoadingMore(false);
+        } else if (!silent) {
           setStarredLoading(false);
         }
       }
     },
     [accessToken],
   );
+
+  const loadMoreStarredMessages = useCallback(async (): Promise<void> => {
+    if (
+      !starredHasMore ||
+      !starredNextCursor ||
+      starredLoading ||
+      starredLoadingMore
+    ) {
+      return;
+    }
+
+    await loadStarredMessages({
+      cursor: starredNextCursor,
+      append: true,
+    });
+  }, [
+    loadStarredMessages,
+    starredHasMore,
+    starredLoading,
+    starredLoadingMore,
+    starredNextCursor,
+  ]);
 
   const loadMessageRequests = useCallback(
     async (silent = false): Promise<void> => {
@@ -6847,14 +7568,29 @@ export function MessageAppPage() {
             )
             : response.data;
 
+        const shouldMergeSilentRefresh =
+          silent &&
+          selectedConversationIdRef.current === conversationId &&
+          Boolean(cachedPage);
+        const preserveLoadedHistoryBoundary =
+          shouldMergeSilentRefresh &&
+          Boolean(cachedPage) &&
+          (cachedPage?.messages.length ?? 0) > response.data.length;
+        const resolvedMessages = shouldMergeSilentRefresh && cachedPage
+          ? mergeLatestMessagingPage(cachedPage.messages, nextMessages)
+          : nextMessages;
         const nextPage = {
-          messages: nextMessages,
-          cursor: response.pagination.nextCursor,
-          hasOlder: response.pagination.hasMore,
+          messages: resolvedMessages,
+          cursor: preserveLoadedHistoryBoundary && cachedPage
+            ? cachedPage.cursor
+            : response.pagination.nextCursor,
+          hasOlder: preserveLoadedHistoryBoundary && cachedPage
+            ? cachedPage.hasOlder
+            : response.pagination.hasMore,
         };
 
         messagePageCacheRef.current[conversationId] = nextPage;
-        setMessages(nextMessages);
+        setMessages(resolvedMessages);
         setMessageCursor(nextPage.cursor);
         setHasOlderMessages(nextPage.hasOlder);
         setMessageError(null);
@@ -7225,6 +7961,85 @@ export function MessageAppPage() {
       browserNotificationsEnabled,
     );
   }, [account?.id, browserNotificationsEnabled, preferenceStorageAccountId]);
+
+  useEffect(() => {
+    if (!account?.id || preferenceStorageAccountId !== account.id) {
+      return;
+    }
+
+    if (
+      browserNotificationsEnabled &&
+      (!messagingPushSupported() || window.Notification.permission !== "granted")
+    ) {
+      setBrowserNotificationsEnabled(false);
+      setBackgroundPushReady(false);
+    }
+  }, [
+    account?.id,
+    browserNotificationsEnabled,
+    preferenceStorageAccountId,
+  ]);
+
+  useEffect(() => {
+    if (
+      !accessToken ||
+      !account?.id ||
+      preferenceStorageAccountId !== account.id ||
+      !browserNotificationsEnabled ||
+      !messagingPushSupported() ||
+      window.Notification.permission !== "granted"
+    ) {
+      setBackgroundPushReady(false);
+      return;
+    }
+
+    let active = true;
+
+    void syncMessagingPushSubscription(accessToken, {
+      showPreview: messagingSettings.notificationPreview,
+      isMuted: messagingSettings.muteAllNotifications,
+    })
+      .then((ready) => {
+        if (active) {
+          setBackgroundPushReady(ready);
+        }
+      })
+      .catch(() => {
+        if (active) {
+          setBackgroundPushReady(false);
+        }
+      });
+
+    return () => {
+      active = false;
+    };
+  }, [
+    accessToken,
+    account?.id,
+    browserNotificationsEnabled,
+    messagingSettings.muteAllNotifications,
+    messagingSettings.notificationPreview,
+    preferenceStorageAccountId,
+  ]);
+
+  useEffect(() => {
+    if (
+      !accessToken ||
+      !account?.id ||
+      preferenceStorageAccountId !== account.id ||
+      browserNotificationsEnabled ||
+      !messagingPushSupported()
+    ) {
+      return;
+    }
+
+    void disableMessagingPushSubscription(accessToken).catch(() => undefined);
+  }, [
+    accessToken,
+    account?.id,
+    browserNotificationsEnabled,
+    preferenceStorageAccountId,
+  ]);
 
   useEffect(() => {
     if (!notificationActionNotice) {
@@ -7605,6 +8420,78 @@ export function MessageAppPage() {
     const socket = createMessagingSocket(accessToken);
     messagingSocketRef.current = socket;
 
+    let conversationRefreshTimer: number | null = null;
+    let selectedMessageRefreshTimer: number | null = null;
+    let markReadTimer: number | null = null;
+
+    const scheduleConversationRefresh = (): void => {
+      if (conversationRefreshTimer !== null) {
+        return;
+      }
+
+      conversationRefreshTimer = window.setTimeout(() => {
+        conversationRefreshTimer = null;
+        void loadConversations(
+          true,
+          selectedConversationIdRef.current ?? undefined,
+        );
+      }, 120);
+    };
+
+    const scheduleSelectedMessageRefresh = (
+      conversationId: string,
+    ): void => {
+      if (selectedConversationIdRef.current !== conversationId) {
+        return;
+      }
+
+      if (selectedMessageRefreshTimer !== null) {
+        window.clearTimeout(selectedMessageRefreshTimer);
+      }
+
+      selectedMessageRefreshTimer = window.setTimeout(() => {
+        selectedMessageRefreshTimer = null;
+
+        if (selectedConversationIdRef.current === conversationId) {
+          void loadMessages(conversationId, true);
+        }
+      }, 180);
+    };
+
+    const scheduleConversationRead = (conversationId: string): void => {
+      if (markReadTimer !== null) {
+        window.clearTimeout(markReadTimer);
+      }
+
+      markReadTimer = window.setTimeout(() => {
+        markReadTimer = null;
+
+        if (selectedConversationIdRef.current !== conversationId) {
+          return;
+        }
+
+        void markConversationRead(accessToken, conversationId)
+          .then(() => {
+            setConversations((current) =>
+              current.map((conversation) =>
+                conversation.id === conversationId
+                  ? {
+                    ...conversation,
+                    unreadCount: 0,
+                    isMarkedUnread: false,
+                    markedUnreadAt: null,
+                  }
+                  : conversation,
+              ),
+            );
+          })
+          .catch(() => {
+            // Realtime message delivery remains usable if this non-blocking
+            // read-status update temporarily fails; reconnect revalidates it.
+          });
+      }, 120);
+    };
+
     const setAccountTyping = (
       conversationId: string,
       accountId: string,
@@ -7730,6 +8617,7 @@ export function MessageAppPage() {
 
       if (
         browserNotificationsEnabled &&
+        !backgroundPushReady &&
         "Notification" in window &&
         window.Notification.permission === "granted"
       ) {
@@ -7813,10 +8701,9 @@ export function MessageAppPage() {
         false,
       );
 
-      void loadConversations(
-        true,
-        selectedConversationIdRef.current ?? undefined,
-      );
+      // Bursts of realtime events should not trigger one full conversation-list
+      // request per message. Coalesce them into a single lightweight refresh.
+      scheduleConversationRefresh();
 
       if (payload.conversationId !== selectedConversationIdRef.current) {
         return;
@@ -7830,22 +8717,31 @@ export function MessageAppPage() {
       setMessages((current) => [...current, payload.message]);
 
       if (!messageListNearBottomRef.current) {
+        setShowJumpToLatest(true);
         setNewMessageCount((current) => current + 1);
       }
 
-      void loadMessages(payload.conversationId, true);
+      if (payload.message.senderAccountId !== account?.id) {
+        scheduleConversationRead(payload.conversationId);
+      }
     };
 
     const handleMessageUpdated = (
       payload: MessagingMessageUpdatedPayload,
     ): void => {
-      void loadConversations(
-        true,
-        selectedConversationIdRef.current ?? undefined,
-      );
+      scheduleConversationRefresh();
 
       if (payload.conversationId !== selectedConversationIdRef.current) {
         return;
+      }
+
+      if (
+        pendingBottomScrollConversationIdRef.current !== payload.conversationId
+      ) {
+        // Realtime echoes for react/pin/star/edit/delete can arrive before the
+        // matching HTTP response. Capture the visible message before applying
+        // that update so the socket event cannot pull an older reader to bottom.
+        captureMessageThreadMutationAnchor();
       }
 
       setMessages((current) =>
@@ -7899,13 +8795,16 @@ export function MessageAppPage() {
     const handleMessageHidden = (
       payload: MessagingMessageHiddenPayload,
     ): void => {
-      void loadConversations(
-        true,
-        selectedConversationIdRef.current ?? undefined,
-      );
+      scheduleConversationRefresh();
 
       if (payload.conversationId !== selectedConversationIdRef.current) {
         return;
+      }
+
+      if (
+        pendingBottomScrollConversationIdRef.current !== payload.conversationId
+      ) {
+        captureMessageThreadMutationAnchor();
       }
 
       setMessages((current) =>
@@ -7928,13 +8827,17 @@ export function MessageAppPage() {
     const handleReceiptUpdated = (
       payload: MessagingReceiptUpdatedPayload,
     ): void => {
-      void loadConversations(
-        true,
-        selectedConversationIdRef.current ?? undefined,
-      );
+      scheduleConversationRefresh();
 
-      if (payload.conversationId === selectedConversationIdRef.current) {
-        void loadMessages(payload.conversationId, true);
+      if (
+        payload.conversationId === selectedConversationIdRef.current &&
+        payload.messageIds.some((messageId) =>
+          messageIdsRef.current.has(messageId),
+        )
+      ) {
+        // Receipt bursts can be very noisy in groups. Refresh the visible
+        // message state once after the burst rather than once per receipt event.
+        scheduleSelectedMessageRefresh(payload.conversationId);
       }
     };
 
@@ -7966,6 +8869,13 @@ export function MessageAppPage() {
           setGroupManagementWorkspaceOpen(false);
           resetGroupDialogState();
         }
+      }
+
+      if (
+        payload.reason === "MEMBERS_CHANGED" &&
+        payload.conversationId === selectedConversationIdRef.current
+      ) {
+        setOfficialGroupMembersRefreshVersion((current) => current + 1);
       }
 
       void loadConversations(
@@ -8009,8 +8919,24 @@ export function MessageAppPage() {
       setRealtimeStatus(socket.active ? "RECONNECTING" : "DISCONNECTED");
     };
 
+    const handleSocketError = (payload: MessagingSocketErrorPayload): void => {
+      if (payload.code !== "SESSION_INVALIDATED") {
+        return;
+      }
+
+      /*
+       * Realtime authorization must end with the HTTP session. Clear local
+       * credentials immediately instead of leaving a revoked account looking
+       * connected until the next REST request or token refresh.
+       */
+      void logout().finally(() => {
+        navigate("/login", { replace: true });
+      });
+    };
+
     socket.on("connect", handleConnect);
     socket.on("messaging:ready", handleReady);
+    socket.on("messaging:error", handleSocketError);
     socket.on("messaging:pong", handlePong);
     socket.on("messaging:presence-snapshot", handlePresenceSnapshot);
     socket.on("messaging:presence-updated", handlePresenceUpdated);
@@ -8034,8 +8960,20 @@ export function MessageAppPage() {
 
     return () => {
       stopLocalTyping();
+
+      if (conversationRefreshTimer !== null) {
+        window.clearTimeout(conversationRefreshTimer);
+      }
+      if (selectedMessageRefreshTimer !== null) {
+        window.clearTimeout(selectedMessageRefreshTimer);
+      }
+      if (markReadTimer !== null) {
+        window.clearTimeout(markReadTimer);
+      }
+
       socket.off("connect", handleConnect);
       socket.off("messaging:ready", handleReady);
+      socket.off("messaging:error", handleSocketError);
       socket.off("messaging:pong", handlePong);
       socket.off("messaging:presence-snapshot", handlePresenceSnapshot);
       socket.off("messaging:presence-updated", handlePresenceUpdated);
@@ -8071,7 +9009,10 @@ export function MessageAppPage() {
     loadNotifications,
     loadPinnedMessages,
     loadSelectedGroupAnnouncements,
+    logout,
+    navigate,
     browserNotificationsEnabled,
+    backgroundPushReady,
     messagingSettings.muteAllNotifications,
     messagingSettings.notificationPreview,
     notificationSoundEnabled,
@@ -8091,6 +9032,17 @@ export function MessageAppPage() {
     } catch {
       // Session storage is optional; messaging still works without it.
     }
+  }, [selectedConversationId]);
+
+  useEffect(() => {
+    // Message information belongs to one concrete conversation/message. Never
+    // carry it into another chat when the selected conversation changes.
+    messageInformationRequestIdRef.current += 1;
+    setMessageInformation(null);
+    setMessageInformationError(null);
+    setMessageInformationLoadingId(null);
+    setMessageInformationVisibleReadCount(40);
+    setMessageInformationVisibleDeliveredCount(40);
   }, [selectedConversationId]);
 
   useEffect(() => {
@@ -8292,12 +9244,21 @@ export function MessageAppPage() {
     setEditingMessage(null);
 
     setNewMessageCount(0);
+    setShowJumpToLatest(false);
     setPinnedMessageBrowserOpen(false);
     setActivePinnedMessageIndex(0);
     messageListNearBottomRef.current = true;
     pendingOlderScrollRestoreRef.current = null;
 
-    if (!selectedConversationId || announcementMode) {
+    const conversationThreadUnavailable =
+      announcementMode ||
+      settingsMode ||
+      ownProfileMode ||
+      newConversationMode ||
+      createGroupMode ||
+      listManagementMode;
+
+    if (!selectedConversationId || conversationThreadUnavailable) {
       setMessageText("");
       setMessages([]);
       setPinnedMessages([]);
@@ -8308,8 +9269,22 @@ export function MessageAppPage() {
       return;
     }
 
-    // New conversations should open from the latest message after messages finish loading.
-    pendingBottomScrollConversationIdRef.current = selectedConversationId;
+    // A normal fresh/opened conversation owns its initial bottom position. Search
+    // and other explicit message-focus navigation are allowed to target an older
+    // message instead of being pulled back to the latest content. Once the user
+    // has moved to another conversation, an unconsumed old focus target is stale
+    // and must not suppress the next normal fresh-open bottom anchor.
+    if (
+      pendingSearchResultRef.current &&
+      pendingSearchResultRef.current.conversation.id !== selectedConversationId
+    ) {
+      pendingSearchResultRef.current = null;
+    }
+
+    pendingBottomScrollConversationIdRef.current =
+      pendingSearchResultRef.current?.conversation.id === selectedConversationId
+        ? null
+        : selectedConversationId;
     previousScrollConversationIdRef.current = null;
     previousMessageCountRef.current = 0;
 
@@ -8317,11 +9292,14 @@ export function MessageAppPage() {
     void loadPinnedMessages(selectedConversationId);
   }, [
     announcementMode,
+    createGroupMode,
+    listManagementMode,
     loadMessages,
     loadPinnedMessages,
-    selectedConversation?.groupKind,
-    selectedConversation?.type,
+    newConversationMode,
+    ownProfileMode,
     selectedConversationId,
+    settingsMode,
   ]);
 
   useLayoutEffect(() => {
@@ -8353,30 +9331,142 @@ export function MessageAppPage() {
     return () => window.cancelAnimationFrame(frameId);
   }, [sendingMessage, selectedConversationId]);
 
-  function scrollMessageThreadToBottom(): void {
+  function scrollMessageThreadToBottom(
+    behavior: ScrollBehavior = "auto",
+  ): void {
     const element = messageListRef.current;
 
     if (!element) {
       return;
     }
 
-    const renderedMessages =
-      element.querySelectorAll<HTMLElement>("[data-message-id]");
-    const lastMessage = renderedMessages.item(renderedMessages.length - 1);
+    if (behavior === "smooth") {
+      element.scrollTo({
+        top: element.scrollHeight,
+        behavior,
+      });
+    } else {
+      element.scrollTop = element.scrollHeight;
+    }
 
-    element.scrollTop = element.scrollHeight;
-    lastMessage?.scrollIntoView({
-      block: "end",
-      behavior: "auto",
-    });
-    messageThreadBottomRef.current?.scrollIntoView({
-      block: "end",
-      behavior: "auto",
-    });
-
-    element.scrollTop = element.scrollHeight;
     messageListNearBottomRef.current = true;
+    setShowJumpToLatest(false);
     setNewMessageCount(0);
+  }
+
+  function releaseInitialMessageBottomAnchor(): void {
+    if (
+      selectedConversationIdRef.current &&
+      pendingBottomScrollConversationIdRef.current ===
+        selectedConversationIdRef.current
+    ) {
+      pendingBottomScrollConversationIdRef.current = null;
+    }
+
+    if (initialBottomReanchorFrameRef.current !== null) {
+      window.cancelAnimationFrame(initialBottomReanchorFrameRef.current);
+      initialBottomReanchorFrameRef.current = null;
+    }
+  }
+
+  function captureMessageThreadMutationAnchor(): void {
+    const element = messageListRef.current;
+    const conversationId = selectedConversationIdRef.current;
+
+    if (!element || !conversationId) {
+      return;
+    }
+
+    if (pendingBottomScrollConversationIdRef.current === conversationId) {
+      /*
+       * Fresh-open/refresh owns the bottom until the user really interacts with
+       * the thread. Read/status/socket updates can arrive immediately after a
+       * conversation opens; they must not replace that bottom lock with an old
+       * visible-message anchor before late media finishes sizing.
+       */
+      pendingThreadMutationAnchorRef.current = null;
+      return;
+    }
+
+    const containerRect = element.getBoundingClientRect();
+    const anchors = Array.from(
+      element.querySelectorAll<HTMLElement>("[data-message-id]"),
+    )
+      .filter((messageElement) => {
+        const rect = messageElement.getBoundingClientRect();
+        return (
+          rect.bottom > containerRect.top && rect.top < containerRect.bottom
+        );
+      })
+      .slice(0, 4)
+      .map((messageElement) => ({
+        messageId: messageElement.dataset.messageId ?? "",
+        offsetTop:
+          messageElement.getBoundingClientRect().top - containerRect.top,
+      }))
+      .filter((anchor) => anchor.messageId.length > 0);
+
+    pendingThreadMutationAnchorRef.current = {
+      conversationId,
+      scrollTop: element.scrollTop,
+      anchors,
+    };
+  }
+
+  function restorePendingMessageThreadMutationAnchor(): boolean {
+    const element = messageListRef.current;
+    const pendingAnchor = pendingThreadMutationAnchorRef.current;
+    const conversationId = selectedConversationIdRef.current;
+
+    if (
+      !element ||
+      !pendingAnchor ||
+      !conversationId ||
+      pendingAnchor.conversationId !== conversationId
+    ) {
+      return false;
+    }
+
+    const containerTop = element.getBoundingClientRect().top;
+    let restored = false;
+
+    for (const anchor of pendingAnchor.anchors) {
+      const messageElement = element.querySelector<HTMLElement>(
+        `[data-message-id="${anchor.messageId}"]`,
+      );
+
+      if (!messageElement) {
+        continue;
+      }
+
+      const nextOffsetTop =
+        messageElement.getBoundingClientRect().top - containerTop;
+      element.scrollTop = restoreAnchoredMessageScrollTop(
+        pendingAnchor.scrollTop,
+        anchor.offsetTop,
+        nextOffsetTop,
+      );
+      restored = true;
+      break;
+    }
+
+    if (!restored) {
+      element.scrollTop = Math.min(
+        pendingAnchor.scrollTop,
+        Math.max(0, element.scrollHeight - element.clientHeight),
+      );
+    }
+
+    pendingThreadMutationAnchorRef.current = null;
+    const nearBottom = isMessageThreadNearBottom(
+      element.scrollHeight,
+      element.scrollTop,
+      element.clientHeight,
+    );
+    messageListNearBottomRef.current = nearBottom;
+    setShowJumpToLatest(!nearBottom);
+
+    return true;
   }
 
   function handleMessageThreadScroll(): void {
@@ -8386,9 +9476,15 @@ export function MessageAppPage() {
       return;
     }
 
-    const distanceFromBottom =
-      element.scrollHeight - element.scrollTop - element.clientHeight;
-    const nearBottom = distanceFromBottom < 160;
+    const pendingInitialBottomAnchor =
+      Boolean(selectedConversationIdRef.current) &&
+      pendingBottomScrollConversationIdRef.current ===
+        selectedConversationIdRef.current;
+    const nearBottom = isMessageThreadNearBottom(
+      element.scrollHeight,
+      element.scrollTop,
+      element.clientHeight,
+    );
     const pendingOlderScrollRestore = pendingOlderScrollRestoreRef.current;
 
     if (pendingOlderScrollRestore) {
@@ -8396,7 +9492,52 @@ export function MessageAppPage() {
       pendingOlderScrollRestore.scrollTop = element.scrollTop;
     }
 
+    // A browser refresh can restore the scrollTop of a nested scroll container
+    // after React's layout work. While a fresh conversation is still waiting
+    // for its final post-paint anchor, ignore that browser-restored position so
+    // it cannot turn an old message/attachment into the new scroll baseline.
+    if (pendingInitialBottomAnchor) {
+      /*
+       * Browsers can restore a nested scroll container after React's initial
+       * layout and even after a couple of animation frames. Ignoring that
+       * scroll event leaves the thread at the restored old attachment. While a
+       * fresh-open bottom lock is active, actively correct any late restored
+       * position back to the real bottom. The first genuine user interaction
+       * releases this lock through releaseInitialMessageBottomAnchor().
+       */
+      if (!nearBottom && initialBottomReanchorFrameRef.current === null) {
+        initialBottomReanchorFrameRef.current = window.requestAnimationFrame(
+          () => {
+            initialBottomReanchorFrameRef.current = null;
+
+            const activeThread = messageListRef.current;
+            const activeConversationId = selectedConversationIdRef.current;
+
+            if (
+              !activeThread ||
+              !activeConversationId ||
+              pendingBottomScrollConversationIdRef.current !==
+                activeConversationId
+            ) {
+              return;
+            }
+
+            activeThread.scrollTop = activeThread.scrollHeight;
+            messageListNearBottomRef.current = true;
+            setShowJumpToLatest(false);
+            setNewMessageCount(0);
+          },
+        );
+      }
+
+      messageListNearBottomRef.current = true;
+      setShowJumpToLatest(false);
+      setNewMessageCount(0);
+      return;
+    }
+
     messageListNearBottomRef.current = nearBottom;
+    setShowJumpToLatest(!nearBottom);
 
     if (nearBottom) {
       setNewMessageCount(0);
@@ -8404,77 +9545,67 @@ export function MessageAppPage() {
   }
 
   function jumpToLatestMessages(): void {
-    const element = messageListRef.current;
+    const prefersReducedMotion =
+      messagingCustomization.reduceMotion ||
+      window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
 
-    setNewMessageCount(0);
-    messageListNearBottomRef.current = true;
+    if (selectedConversationIdRef.current) {
+      // Keep the true bottom anchored while any not-yet-loaded attachment in the
+      // latest message finishes sizing. The next real user interaction releases
+      // this lock immediately.
+      pendingBottomScrollConversationIdRef.current =
+        selectedConversationIdRef.current;
+    }
 
-    if (!element) {
+    scrollMessageThreadToBottom(prefersReducedMotion ? "auto" : "smooth");
+  }
+
+  function handleMessageMediaLayoutReady(): void {
+    const conversationId = selectedConversationIdRef.current;
+
+    if (
+      !conversationId ||
+      pendingBottomScrollConversationIdRef.current !== conversationId
+    ) {
       return;
     }
 
-    element.scrollTo({
-      top: element.scrollHeight,
-      behavior: "smooth",
-    });
-    messageThreadBottomRef.current?.scrollIntoView({
-      block: "end",
-      behavior: "smooth",
-    });
-  }
-
-  function scheduleBottomScrollRetries(
-    clearPendingInitialScroll: boolean,
-  ): () => void {
-    const timers: number[] = [];
-    let frameId: number | null = null;
-    let nestedFrameId: number | null = null;
-
-    const run = () => {
-      scrollMessageThreadToBottom();
-    };
-
-    run();
-    frameId = window.requestAnimationFrame(() => {
-      run();
-
-      nestedFrameId = window.requestAnimationFrame(run);
-    });
-
-    [60, 180, 360, 720, 1200].forEach((delay) => {
-      timers.push(window.setTimeout(run, delay));
-    });
-
-    if (clearPendingInitialScroll) {
-      timers.push(
-        window.setTimeout(() => {
-          pendingBottomScrollConversationIdRef.current = null;
-        }, 1250),
-      );
+    /*
+     * Protected attachment previews are loaded lazily. Image/video intrinsic
+     * dimensions are therefore unknown when the initial message page is first
+     * anchored. ResizeObserver remains a general safety net, but the media
+     * element itself is the authoritative signal that its final layout is now
+     * available. Re-anchor only while fresh-open/jump-to-latest follow mode is
+     * active; a real user scroll releases that mode, so reading older history
+     * is never pulled back to the newest message.
+     */
+    if (initialBottomReanchorFrameRef.current !== null) {
+      return;
     }
 
-    return () => {
-      if (frameId !== null) {
-        window.cancelAnimationFrame(frameId);
+    initialBottomReanchorFrameRef.current = window.requestAnimationFrame(() => {
+      initialBottomReanchorFrameRef.current = null;
+
+      if (
+        selectedConversationIdRef.current !== conversationId ||
+        pendingBottomScrollConversationIdRef.current !== conversationId
+      ) {
+        return;
       }
 
-      if (nestedFrameId !== null) {
-        window.cancelAnimationFrame(nestedFrameId);
-      }
-
-      timers.forEach((timer) => window.clearTimeout(timer));
-    };
+      scrollMessageThreadToBottom();
+    });
   }
 
   useLayoutEffect(() => {
     if (messageLoading || olderMessagesLoading) {
-      return undefined;
+      return;
     }
 
     const element = messageListRef.current;
 
     if (!element) {
-      return undefined;
+      return;
     }
 
     const messagesBelongToSelectedConversation =
@@ -8485,27 +9616,35 @@ export function MessageAppPage() {
       );
 
     if (!messagesBelongToSelectedConversation) {
-      return undefined;
+      return;
     }
 
     const pendingOlderScrollRestore = pendingOlderScrollRestoreRef.current;
 
     if (
+      !pendingOlderScrollRestore &&
+      pendingBottomScrollConversationIdRef.current !== selectedConversationId &&
+      restorePendingMessageThreadMutationAnchor()
+    ) {
+      previousScrollConversationIdRef.current = selectedConversationId;
+      previousMessageCountRef.current = messages.length;
+      return;
+    }
+
+    if (
       pendingOlderScrollRestore &&
       pendingOlderScrollRestore.conversationId === selectedConversationId
     ) {
-      const prependedHeight = Math.max(
-        0,
-        element.scrollHeight - pendingOlderScrollRestore.scrollHeight,
+      element.scrollTop = restorePrependedMessageScrollTop(
+        pendingOlderScrollRestore.scrollTop,
+        pendingOlderScrollRestore.scrollHeight,
+        element.scrollHeight,
       );
-
-      element.scrollTop =
-        pendingOlderScrollRestore.scrollTop + prependedHeight;
       pendingOlderScrollRestoreRef.current = null;
       messageListNearBottomRef.current = false;
       previousScrollConversationIdRef.current = selectedConversationId;
       previousMessageCountRef.current = messages.length;
-      return undefined;
+      return;
     }
 
     const conversationChanged =
@@ -8517,7 +9656,6 @@ export function MessageAppPage() {
       Boolean(selectedConversationId) &&
       pendingBottomScrollConversationIdRef.current === selectedConversationId &&
       messages.length > 0;
-
     const preserveScrollForFocusedMessage =
       pendingFocusedMessageScrollRef.current !== null;
     const shouldScrollToBottom =
@@ -8527,13 +9665,12 @@ export function MessageAppPage() {
         viewerWasNearBottom &&
         !preserveScrollForFocusedMessage);
 
-    let cancelBottomScrollRetries: (() => void) | null = null;
-
     if (shouldScrollToBottom) {
-      // Admin refresh can resize after render; repeat the anchor until the shell settles.
-      cancelBottomScrollRetries = scheduleBottomScrollRetries(
-        pendingInitialBottomScroll,
-      );
+      // Anchor before paint so a freshly opened conversation never flashes an
+      // arbitrary position. The initial anchor remains pending until the
+      // post-paint pass below, because browsers may restore nested scrollTop
+      // after this layout effect during a hard refresh.
+      scrollMessageThreadToBottom();
     }
 
     previousScrollConversationIdRef.current = selectedConversationId;
@@ -8542,11 +9679,118 @@ export function MessageAppPage() {
     if (preserveScrollForFocusedMessage) {
       pendingFocusedMessageScrollRef.current = null;
     }
+  }, [messageLoading, messages, olderMessagesLoading, selectedConversationId]);
+
+  useEffect(() => {
+    if (
+      messageLoading ||
+      olderMessagesLoading ||
+      !selectedConversationId ||
+      messages.length === 0 ||
+      pendingBottomScrollConversationIdRef.current !== selectedConversationId
+    ) {
+      return undefined;
+    }
+
+    // Run after two paint opportunities. This deliberately comes after the
+    // layout-time anchor so browser scroll restoration on refresh cannot win
+    // the race and leave the thread at an older text/attachment. Two animation
+    // frames are short and deterministic, unlike the old multi-second retries.
+    let finalFrameId: number | null = null;
+    const frameId = window.requestAnimationFrame(() => {
+      finalFrameId = window.requestAnimationFrame(() => {
+        if (
+          selectedConversationIdRef.current !== selectedConversationId ||
+          pendingBottomScrollConversationIdRef.current !==
+            selectedConversationId
+        ) {
+          return;
+        }
+
+        // Keep the fresh-open bottom lock active after this paint. It is
+        // released by the user's first wheel/touch/pointer/keyboard interaction,
+        // which lets late image/video/audio sizing stay anchored to the true end.
+        scrollMessageThreadToBottom();
+      });
+    });
 
     return () => {
-      cancelBottomScrollRetries?.();
+      window.cancelAnimationFrame(frameId);
+      if (finalFrameId !== null) {
+        window.cancelAnimationFrame(finalFrameId);
+      }
     };
-  }, [messageLoading, messages, olderMessagesLoading, selectedConversationId]);
+  }, [
+    messageLoading,
+    messages.length,
+    olderMessagesLoading,
+    selectedConversationId,
+  ]);
+
+  useLayoutEffect(() => {
+    if (
+      pendingBottomScrollConversationIdRef.current !== selectedConversationId
+    ) {
+      restorePendingMessageThreadMutationAnchor();
+    }
+  }, [editingMessage, replyingTo, selectedConversationId]);
+
+  useEffect(() => {
+    const element = messageListRef.current;
+    const content = messageThreadContentRef.current;
+
+    if (!element || !content || typeof ResizeObserver === "undefined") {
+      return undefined;
+    }
+
+    const keepBottomAnchored = (): void => {
+      const initialBottomAnchorPending =
+        pendingBottomScrollConversationIdRef.current === selectedConversationId;
+
+      if (
+        (!initialBottomAnchorPending && !messageListNearBottomRef.current) ||
+        pendingOlderScrollRestoreRef.current ||
+        pendingFocusedMessageScrollRef.current
+      ) {
+        return;
+      }
+
+      if (messageResizeFrameRef.current !== null) {
+        return;
+      }
+
+      messageResizeFrameRef.current = window.requestAnimationFrame(() => {
+        messageResizeFrameRef.current = null;
+
+        const initialBottomAnchorStillPending =
+          pendingBottomScrollConversationIdRef.current ===
+          selectedConversationId;
+
+        if (
+          selectedConversationIdRef.current !== selectedConversationId ||
+          (!initialBottomAnchorStillPending &&
+            !messageListNearBottomRef.current)
+        ) {
+          return;
+        }
+
+        element.scrollTop = element.scrollHeight;
+        messageListNearBottomRef.current = true;
+      });
+    };
+
+    const observer = new ResizeObserver(keepBottomAnchored);
+    observer.observe(element);
+    observer.observe(content);
+
+    return () => {
+      observer.disconnect();
+      if (messageResizeFrameRef.current !== null) {
+        window.cancelAnimationFrame(messageResizeFrameRef.current);
+        messageResizeFrameRef.current = null;
+      }
+    };
+  }, [selectedConversationId]);
 
   useEffect(() => {
     if (!highlightedMessageId) {
@@ -8565,14 +9809,27 @@ export function MessageAppPage() {
         `[data-message-id="${highlightedMessageId}"]`,
       );
 
-      // Search navigation focuses the exact result when it is loaded in the thread.
-      messageElement?.scrollIntoView({
-        block: "center",
-        behavior: "smooth",
-      });
+      // Search/starred/storage/notification navigation focuses the exact
+      // authorized result once. Consume that target after it is found so a
+      // later normal chat switch is not mistaken for another old-message jump.
+      if (messageElement) {
+        messageElement.scrollIntoView({
+          block: "center",
+          behavior: "smooth",
+        });
+
+        if (
+          pendingSearchResultRef.current?.message.id === highlightedMessageId
+        ) {
+          pendingSearchResultRef.current = null;
+        }
+      }
     }, 120);
 
     const clearTimer = window.setTimeout(() => {
+      if (pendingSearchResultRef.current?.message.id === highlightedMessageId) {
+        pendingSearchResultRef.current = null;
+      }
       setHighlightedMessageId(null);
     }, 3200);
 
@@ -8851,6 +10108,64 @@ export function MessageAppPage() {
   ]);
 
   useEffect(() => {
+    if (!accessToken || location.pathname !== "/messages") {
+      return;
+    }
+
+    const params = new URLSearchParams(location.search);
+    const conversationId = params.get("conversation")?.trim();
+    const messageId = params.get("message")?.trim() ?? null;
+
+    if (!conversationId) {
+      return;
+    }
+
+    const targetKey = `${conversationId}:${messageId ?? "latest"}`;
+    if (pushNavigationTargetRef.current === targetKey) {
+      return;
+    }
+
+    pushNavigationTargetRef.current = targetKey;
+    setPageError(null);
+
+    void (async () => {
+      try {
+        if (messageId) {
+          const target = await getConversationMessageById(
+            accessToken,
+            conversationId,
+            messageId,
+          );
+
+          pendingSearchResultRef.current = {
+            message: target.data,
+            conversation: target.conversation,
+            snippet: target.data.textContent ?? "Notification message",
+            matchedAttachmentFileName: null,
+          };
+          setConversations((current) =>
+            current.some((conversation) => conversation.id === target.conversation.id)
+              ? current
+              : [target.conversation, ...current],
+          );
+          setHighlightedMessageId(target.data.id);
+        }
+
+        setSelectedConversationId(conversationId);
+        navigate("/messages", { replace: true });
+      } catch (error) {
+        pushNavigationTargetRef.current = null;
+        setPageError(
+          error instanceof Error
+            ? error.message
+            : "The notification message could not be opened.",
+        );
+        navigate("/messages", { replace: true });
+      }
+    })();
+  }, [accessToken, location.pathname, location.search, navigate]);
+
+  useEffect(() => {
     if (!accessToken) {
       return;
     }
@@ -8931,6 +10246,7 @@ export function MessageAppPage() {
     }
 
     closeMessageSearchPanel();
+    clearMessageInformationState();
     sharedContentRequestRef.current += 1;
     setSharedContentOpen(false);
     setConversationActionMenuOpen(false);
@@ -8948,6 +10264,7 @@ export function MessageAppPage() {
     }
 
     closeMessageSearchPanel();
+    clearMessageInformationState();
     setConversationActionMenuOpen(false);
     setActiveUtilityPanel(null);
     setProfileReturnToGroupInformation(false);
@@ -9807,6 +11124,7 @@ export function MessageAppPage() {
     }
 
     closeMessageSearchPanel();
+    clearMessageInformationState();
     sharedContentRequestRef.current += 1;
     setSharedContentOpen(false);
     setProfileData((current) =>
@@ -9845,6 +11163,7 @@ export function MessageAppPage() {
       return;
     }
 
+    clearMessageInformationState();
     sharedContentRequestRef.current += 1;
     setSharedContentOpen(false);
     setSharedContentLoading(false);
@@ -10425,29 +11744,61 @@ export function MessageAppPage() {
     setMessagingSettingsError(null);
     setMessagingSettingsNotice(null);
 
-    if (!("Notification" in window)) {
+    if (!messagingPushSupported()) {
       setBrowserNotificationsEnabled(false);
+      setBackgroundPushReady(false);
       setMessagingSettingsError(
-        "Browser notifications are not supported on this device.",
+        "Background browser notifications are not supported on this device.",
       );
       return;
     }
 
     if (!browserNotificationsEnabled) {
-      // Browser permission must be requested from a direct user action. NT
-      // Message can stop using permission, but cannot revoke browser policy.
+      // Browser permission must be requested from a direct user action.
       const permission = await window.Notification.requestPermission();
-      const enabled = permission === "granted";
-      setBrowserNotificationsEnabled(enabled);
-      setMessagingSettingsNotice(
-        enabled
-          ? "Browser notifications enabled for this device."
-          : "Browser notifications remain disabled. Review browser permission settings if access was blocked.",
-      );
+      if (permission !== "granted") {
+        setBrowserNotificationsEnabled(false);
+        setBackgroundPushReady(false);
+        setMessagingSettingsNotice(
+          "Browser notifications remain disabled. Review browser permission settings if access was blocked.",
+        );
+        return;
+      }
+
+      if (!accessToken) {
+        setMessagingSettingsError("Your session is not ready. Please try again.");
+        return;
+      }
+
+      try {
+        const ready = await syncMessagingPushSubscription(accessToken, {
+          showPreview: messagingSettings.notificationPreview,
+          isMuted: messagingSettings.muteAllNotifications,
+        });
+        setBrowserNotificationsEnabled(ready);
+        setBackgroundPushReady(ready);
+        setMessagingSettingsNotice(
+          ready
+            ? "Background browser notifications enabled for this device."
+            : "Background notifications are not configured on the server yet.",
+        );
+      } catch (error) {
+        setBrowserNotificationsEnabled(false);
+        setBackgroundPushReady(false);
+        setMessagingSettingsError(
+          error instanceof Error
+            ? error.message
+            : "Background browser notifications could not be enabled.",
+        );
+      }
       return;
     }
 
+    if (accessToken) {
+      await disableMessagingPushSubscription(accessToken).catch(() => undefined);
+    }
     setBrowserNotificationsEnabled(false);
+    setBackgroundPushReady(false);
     setMessagingSettingsNotice(
       "NT Message browser notifications disabled on this device.",
     );
@@ -10507,6 +11858,7 @@ export function MessageAppPage() {
         : messageSearchTriggerRef.current;
 
     setConversationActionMenuOpen(false);
+    clearMessageInformationState();
     setDetailsPanelOpen(false);
     setSearchError(null);
     setSearchPanelOpen(true);
@@ -10514,6 +11866,7 @@ export function MessageAppPage() {
 
   function openSearchMessageResult(result: MessagingSearchMessageResult): void {
     pendingSearchResultRef.current = result;
+    pendingBottomScrollConversationIdRef.current = null;
 
     if (
       result.conversation.id === selectedConversationId &&
@@ -11048,9 +12401,16 @@ export function MessageAppPage() {
 
     try {
       const position = await getCurrentBrowserPosition();
+      const attemptKey = `${selectedConversationId}:CURRENT`;
+      const sendAttempt = resolveMessagingSendAttempt(
+        locationSendAttemptRef.current,
+        attemptKey,
+      );
+      locationSendAttemptRef.current = sendAttempt;
       const response = await sendConversationLocationMessage(
         accessToken,
         selectedConversationId,
+        sendAttempt.clientMessageId,
         {
           ...browserPositionToLocationInput(position),
           live: false,
@@ -11059,6 +12419,9 @@ export function MessageAppPage() {
 
       applySentLocationMessage(response.data);
       await loadConversations(true);
+      if (locationSendAttemptRef.current?.key === attemptKey) {
+        locationSendAttemptRef.current = null;
+      }
     } catch (error) {
       setMessageError(
         error instanceof Error
@@ -11086,9 +12449,16 @@ export function MessageAppPage() {
 
     try {
       const position = await getCurrentBrowserPosition();
+      const attemptKey = `${selectedConversationId}:LIVE:${locationDurationMinutes}`;
+      const sendAttempt = resolveMessagingSendAttempt(
+        locationSendAttemptRef.current,
+        attemptKey,
+      );
+      locationSendAttemptRef.current = sendAttempt;
       const response = await sendConversationLocationMessage(
         accessToken,
         selectedConversationId,
+        sendAttempt.clientMessageId,
         {
           ...browserPositionToLocationInput(position),
           live: true,
@@ -11113,6 +12483,9 @@ export function MessageAppPage() {
       }
 
       await loadConversations(true);
+      if (locationSendAttemptRef.current?.key === attemptKey) {
+        locationSendAttemptRef.current = null;
+      }
     } catch (error) {
       setMessageError(
         error instanceof Error
@@ -11149,6 +12522,7 @@ export function MessageAppPage() {
         messageId,
       );
 
+      captureMessageThreadMutationAnchor();
       setMessages((current) => applyMessageUpdate(current, response.data));
       clearLiveLocationWatch();
       setActiveLiveLocation(null);
@@ -11366,7 +12740,7 @@ export function MessageAppPage() {
     attachmentViewerRequestRef.current += 1;
 
     setAttachmentViewer((current) => {
-      if (current?.objectUrl) {
+      if (current?.objectUrl?.startsWith("blob:")) {
         URL.revokeObjectURL(current.objectUrl);
       }
 
@@ -11400,7 +12774,7 @@ export function MessageAppPage() {
 
     setMessageError(null);
     setAttachmentViewer((current) => {
-      if (current?.objectUrl) {
+      if (current?.objectUrl?.startsWith("blob:")) {
         URL.revokeObjectURL(current.objectUrl);
       }
 
@@ -11414,15 +12788,25 @@ export function MessageAppPage() {
     });
 
     try {
-      const objectUrl = await createConversationAttachmentObjectUrl(
-        accessToken,
-        message.conversationId,
-        message.id,
-        attachment.id,
-      );
+      const objectUrl =
+        isVideoAttachment(attachment) || isAudioAttachment(attachment)
+          ? await createConversationAttachmentStreamUrl(
+              accessToken,
+              message.conversationId,
+              message.id,
+              attachment.id,
+            )
+          : await createConversationAttachmentObjectUrl(
+              accessToken,
+              message.conversationId,
+              message.id,
+              attachment.id,
+            );
 
       if (attachmentViewerRequestRef.current !== requestId) {
-        URL.revokeObjectURL(objectUrl);
+        if (objectUrl.startsWith("blob:")) {
+          URL.revokeObjectURL(objectUrl);
+        }
         return;
       }
 
@@ -11470,6 +12854,7 @@ export function MessageAppPage() {
         reactionValue,
       );
 
+      captureMessageThreadMutationAnchor();
       setMessages((current) => applyMessageUpdate(current, response.data));
       setConversations((current) =>
         current.map((conversation) =>
@@ -11515,6 +12900,7 @@ export function MessageAppPage() {
           message.id,
         );
 
+      captureMessageThreadMutationAnchor();
       setMessages((current) => applyMessageUpdate(current, response.data));
       setPinnedMessages((current) =>
         applyMessageUpdate(current, response.data),
@@ -11575,6 +12961,7 @@ export function MessageAppPage() {
           message.id,
         );
 
+      captureMessageThreadMutationAnchor();
       setMessages((current) => applyMessageUpdate(current, response.data));
       setPinnedMessages((current) => {
         if (response.data.isPinned) {
@@ -11673,6 +13060,7 @@ export function MessageAppPage() {
 
     // A pinned message can be outside the current page. Merge the authorized
     // server result before scrolling so the pin browser never reveals hidden data.
+    pendingBottomScrollConversationIdRef.current = null;
     pendingFocusedMessageScrollRef.current = message.id;
     setMessages((current) =>
       current.some((item) => item.id === message.id)
@@ -11700,6 +13088,7 @@ export function MessageAppPage() {
     }
 
     // Older shared items may not be present in the current paginated message window.
+    pendingBottomScrollConversationIdRef.current = null;
     pendingFocusedMessageScrollRef.current = message.id;
     setMessages((current) => {
       if (current.some((item) => item.id === message.id)) {
@@ -11736,6 +13125,7 @@ export function MessageAppPage() {
 
     sharedContentRequestRef.current = requestId;
     closeMessageSearchPanel();
+    clearMessageInformationState();
     setConversationActionMenuOpen(false);
     setSharedContentReturnView(
       returnView ??
@@ -11881,6 +13271,7 @@ export function MessageAppPage() {
   }
 
   function openStorageUsage(scope: StorageUsageScope): void {
+    setStorageDeleteConfirmation(null);
     setStorageUsageScope(scope);
     void loadStorageUsage(scope);
   }
@@ -11891,6 +13282,16 @@ export function MessageAppPage() {
     setStorageUsage(null);
     setStorageUsageError(null);
     setStorageUsageActionId(null);
+    setStorageDeleteConfirmation(null);
+  }
+
+  function handleStorageWorkspaceBack(): void {
+    if (storageUsageScope?.kind === "CONVERSATION") {
+      openStorageUsage({ kind: "USER" });
+      return;
+    }
+
+    closeStorageUsage();
   }
 
   async function openStorageOriginalMessage(
@@ -11941,6 +13342,7 @@ export function MessageAppPage() {
       );
       setHighlightedMessageId(response.data.id);
       setSelectedConversationId(file.conversationId);
+      navigate("/messages");
       closeStorageUsage();
     } catch (error) {
       setStorageUsageError(
@@ -11961,16 +13363,7 @@ export function MessageAppPage() {
       return;
     }
 
-    const confirmed = window.confirm(
-      mode === "EVERYONE"
-        ? "Delete the message containing this file for everyone? Separately forwarded copies will remain available where authorized."
-        : "Delete the message containing this file only for you? Other authorized participants will keep their copy.",
-    );
-
-    if (!confirmed) {
-      return;
-    }
-
+    setStorageDeleteConfirmation(null);
     setStorageUsageActionId(`${mode}:${file.attachmentId}`);
     setStorageUsageError(null);
 
@@ -12008,9 +13401,18 @@ export function MessageAppPage() {
     }
   }
 
-  function closeMessageInformationDialog(): void {
+  function clearMessageInformationState(): void {
+    messageInformationRequestIdRef.current += 1;
     setMessageInformation(null);
     setMessageInformationError(null);
+    setMessageInformationLoadingId(null);
+    setMessageInformationVisibleReadCount(40);
+    setMessageInformationVisibleDeliveredCount(40);
+  }
+
+  function closeMessageInformationPanel(): void {
+    clearMessageInformationState();
+    setDetailsPanelOpen(false);
   }
 
   async function handleViewMessageInformation(
@@ -12020,9 +13422,20 @@ export function MessageAppPage() {
       return;
     }
 
+    const requestId = messageInformationRequestIdRef.current + 1;
+    messageInformationRequestIdRef.current = requestId;
+
+    closeMessageSearchPanel();
+    sharedContentRequestRef.current += 1;
+    setSharedContentOpen(false);
+    setConversationActionMenuOpen(false);
+    setActiveUtilityPanel(null);
     setMessageInformation(null);
     setMessageInformationError(null);
+    setMessageInformationVisibleReadCount(40);
+    setMessageInformationVisibleDeliveredCount(40);
     setMessageInformationLoadingId(message.id);
+    setDetailsPanelOpen(true);
 
     try {
       const response = await getConversationMessageInformation(
@@ -12031,15 +13444,25 @@ export function MessageAppPage() {
         message.id,
       );
 
+      if (messageInformationRequestIdRef.current !== requestId) {
+        return;
+      }
+
       setMessageInformation(response.data);
     } catch (error) {
+      if (messageInformationRequestIdRef.current !== requestId) {
+        return;
+      }
+
       setMessageInformationError(
         error instanceof Error
           ? error.message
           : "Message information could not be loaded.",
       );
     } finally {
-      setMessageInformationLoadingId(null);
+      if (messageInformationRequestIdRef.current === requestId) {
+        setMessageInformationLoadingId(null);
+      }
     }
   }
 
@@ -12283,6 +13706,8 @@ export function MessageAppPage() {
       return;
     }
 
+    captureMessageThreadMutationAnchor();
+
     // Reply is a persistent composer action, so temporary reaction/action
     // popovers must close before the composer context changes.
     closeTransientMessagePopups();
@@ -12296,6 +13721,7 @@ export function MessageAppPage() {
       return;
     }
 
+    captureMessageThreadMutationAnchor();
     closeTransientMessagePopups();
     setReplyingTo(null);
     setEditingMessage(message);
@@ -12304,6 +13730,7 @@ export function MessageAppPage() {
   }
 
   function cancelMessageAction(): void {
+    captureMessageThreadMutationAnchor();
     setReplyingTo(null);
     setEditingMessage(null);
     setMessageText("");
@@ -12457,6 +13884,7 @@ export function MessageAppPage() {
         message.id,
       );
 
+      captureMessageThreadMutationAnchor();
       setMessages((current) =>
         current.filter((currentMessage) => currentMessage.id !== message.id),
       );
@@ -12509,6 +13937,7 @@ export function MessageAppPage() {
         message.id,
       );
 
+      captureMessageThreadMutationAnchor();
       setMessages((current) => applyMessageUpdate(current, response.data));
 
       if (replyingTo?.id === message.id || editingMessage?.id === message.id) {
@@ -12546,8 +13975,16 @@ export function MessageAppPage() {
     const nextText = `${beforeMention}${insertedText}${afterMention}`;
     const nextCaretIndex = beforeMention.length + insertedText.length;
 
+    setSelectedComposerMentions((current) => {
+      const byAccountId = new Map(
+        current.map((mention) => [mention.accountId, mention]),
+      );
+      byAccountId.set(participant.accountId, participant);
+      return Array.from(byAccountId.values());
+    });
     setMessageText(nextText);
     setComposerCaretIndex(nextCaretIndex);
+    setMentionSuggestionsDismissed(true);
 
     window.requestAnimationFrame(() => {
       composerRef.current?.focus();
@@ -12604,12 +14041,38 @@ export function MessageAppPage() {
           text,
         );
 
+        captureMessageThreadMutationAnchor();
         setMessages((current) => applyMessageUpdate(current, response.data));
         setEditingMessage(null);
         setMessageText("");
         await loadConversations(true, selectedConversationId);
         return;
       }
+
+      const mentionedAccountIds = attachmentFiles.length === 0
+        ? getMentionedAccountIds(
+          text,
+          selectedConversation,
+          account?.id,
+          selectedComposerMentions,
+        )
+        : [];
+      const attemptKey = JSON.stringify({
+        conversationId: sendingConversationId,
+        kind: isAttachmentSend ? "ATTACHMENT" : "TEXT",
+        text,
+        replyToMessageId: replyingTo?.id ?? null,
+        mentionedAccountIds,
+        attachmentKind: isAttachmentSend ? selectedAttachmentKind : null,
+        attachmentIds: isAttachmentSend
+          ? selectedAttachments.map((attachment) => attachment.id)
+          : [],
+      });
+      const sendAttempt = resolveMessagingSendAttempt(
+        composerSendAttemptRef.current,
+        attemptKey,
+      );
+      composerSendAttemptRef.current = sendAttempt;
 
       if (isAttachmentSend) {
         // Show aggregate progress immediately; XHR events refine the percentage.
@@ -12629,6 +14092,7 @@ export function MessageAppPage() {
         ? await sendConversationAttachmentMessage(
           accessToken,
           selectedConversationId,
+          sendAttempt.clientMessageId,
           attachmentFiles,
           text,
           replyingTo?.id,
@@ -12640,15 +14104,17 @@ export function MessageAppPage() {
         : await sendConversationTextMessage(
           accessToken,
           selectedConversationId,
+          sendAttempt.clientMessageId,
           text,
           replyingTo?.id,
-          getMentionedAccountIds(text, selectedConversation, account?.id),
+          mentionedAccountIds,
           false,
         );
 
       delete draftCacheRef.current[selectedConversationId];
 
       setMessageText("");
+      setSelectedComposerMentions([]);
       setReplyingTo(null);
       clearSelectedAttachment();
       updateConversationPreference(accessToken, selectedConversationId, {
@@ -12682,6 +14148,9 @@ export function MessageAppPage() {
       );
 
       await loadConversations(true);
+      if (composerSendAttemptRef.current?.key === attemptKey) {
+        composerSendAttemptRef.current = null;
+      }
     } catch (error) {
       const errorMessage =
         error instanceof Error
@@ -12716,8 +14185,11 @@ export function MessageAppPage() {
       return;
     }
 
-    if (mentionSuggestionsVisible) {
-      if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+    if (mentionPanelVisible) {
+      if (
+        (event.key === "ArrowDown" || event.key === "ArrowUp") &&
+        mentionSuggestions.length > 0
+      ) {
         event.preventDefault();
         setActiveMentionSuggestionIndex((current) => {
           const direction = event.key === "ArrowDown" ? 1 : -1;
@@ -12729,7 +14201,10 @@ export function MessageAppPage() {
         return;
       }
 
-      if (event.key === "Home" || event.key === "End") {
+      if (
+        (event.key === "Home" || event.key === "End") &&
+        mentionSuggestions.length > 0
+      ) {
         event.preventDefault();
         setActiveMentionSuggestionIndex(
           event.key === "Home" ? 0 : mentionSuggestions.length - 1,
@@ -12741,12 +14216,12 @@ export function MessageAppPage() {
         event.key === "Enter" ||
         (event.key === "Tab" && !event.shiftKey)
       ) {
+        event.preventDefault();
         const participant =
           mentionSuggestions[activeMentionSuggestionIndex] ??
           mentionSuggestions[0];
 
         if (participant) {
-          event.preventDefault();
           handleMentionSelect(participant);
         }
         return;
@@ -12842,13 +14317,19 @@ export function MessageAppPage() {
   const typingAccountIds = selectedConversationId
     ? (typingByConversation[selectedConversationId] ?? [])
     : [];
-  const typingParticipants =
-    selectedConversation?.participants.filter(
-      (participant) =>
-        participant.accountId !== account?.id &&
-        participant.showOnlineStatus !== false &&
-        typingAccountIds.includes(participant.accountId),
-    ) ?? [];
+  const otherTypingAccountIds = typingAccountIds.filter(
+    (accountId) => accountId !== account?.id,
+  );
+  const selectedConversationParticipantDirectory =
+    selectedConversation?.groupKind === "OFFICIAL"
+      ? officialGroupMembers
+      : (selectedConversation?.participants ?? []);
+  const typingParticipants = selectedConversationParticipantDirectory.filter(
+    (participant) =>
+      participant.accountId !== account?.id &&
+      participant.showOnlineStatus !== false &&
+      typingAccountIds.includes(participant.accountId),
+  );
   const peerActivityLabel =
     selectedConversation?.type === "GROUP"
       ? typingParticipants.length > 0
@@ -12857,8 +14338,10 @@ export function MessageAppPage() {
           .map((participant) => participant.displayName)
           .join(
             ", ",
-          )}${typingParticipants.length > 2 ? " and others" : ""} typing…`
-        : `${selectedConversation.memberCount} members`
+          )}${otherTypingAccountIds.length > typingParticipants.length ? " and others" : typingParticipants.length > 2 ? " and others" : ""} typing…`
+        : otherTypingAccountIds.length > 0
+          ? "Someone typing…"
+          : `${selectedConversation.memberCount} members`
       : peer?.showOnlineStatus === false
         ? "Online status hidden"
         : typingParticipants.length > 0
@@ -12893,16 +14376,35 @@ export function MessageAppPage() {
     blockedAccounts.map((block) => block.blockedAccountId),
   );
 
+  const selectedConversationForParticipantChecks = useMemo(() => {
+    if (!selectedConversation || selectedConversation.groupKind !== "OFFICIAL") {
+      return selectedConversation;
+    }
+
+    return {
+      ...selectedConversation,
+      participants: officialGroupMembers,
+      participantsComplete: !officialGroupMembersHasMore,
+    };
+  }, [
+    officialGroupMembers,
+    officialGroupMembersHasMore,
+    selectedConversation,
+  ]);
+
   const groupInfoConversation =
     selectedConversation?.type === "GROUP" ? selectedConversation : null;
+  const groupInfoParticipants =
+    groupInfoConversation?.groupKind === "OFFICIAL"
+      ? officialGroupMembers
+      : (groupInfoConversation?.participants ?? []);
   const groupInfoOwner =
-    groupInfoConversation?.participants.find(
+    groupInfoParticipants.find(
       (participant) => participant.participantRole === "OWNER",
     ) ?? null;
-  const groupInfoAdmins =
-    groupInfoConversation?.participants.filter(
-      (participant) => participant.participantRole === "ADMIN",
-    ) ?? [];
+  const groupInfoAdmins = groupInfoParticipants.filter(
+    (participant) => participant.participantRole === "ADMIN",
+  );
   const selectedConversationSharedContent = useMemo(() => {
     if (!selectedConversation) {
       return emptySharedContent();
@@ -13378,7 +14880,7 @@ export function MessageAppPage() {
       const canDeleteForEveryone = canDeleteMessageForEveryone(
         message,
         account?.id,
-        selectedConversation,
+        selectedConversationForParticipantChecks,
       );
       const hasMoreActions =
         ownMessage ||
@@ -13863,13 +15365,13 @@ export function MessageAppPage() {
           disabled={messageActionId !== null}
         >
           <AttachmentGlyph name="trash" />
-          <span>Delete message for me</span>
+          <span>Delete for me</span>
         </button>
 
         {canDeleteMessageForEveryone(
           message,
           account?.id,
-          selectedConversation,
+          selectedConversationForParticipantChecks,
         ) && (
           <button
             type="button"
@@ -13885,7 +15387,7 @@ export function MessageAppPage() {
             disabled={messageActionId !== null}
           >
             <AttachmentGlyph name="trash" />
-            <span>Delete message for everyone</span>
+            <span>Delete for everyone</span>
           </button>
         )}
       </div>
@@ -14154,7 +15656,7 @@ export function MessageAppPage() {
                   )}
                   {conversation.isMuted && (
                     <span aria-label="Muted">
-                      <MessageNavigationIcon name="bell" />
+                      <MessageNavigationIcon name="bellOff" />
                     </span>
                   )}
                   {conversation.isArchived && (
@@ -14421,6 +15923,31 @@ export function MessageAppPage() {
           </div>
         )}
       </article>
+    );
+  }
+
+  function renderConversationLoadMoreControl(): ReactNode {
+    if (!conversationHasMore) {
+      return null;
+    }
+
+    return (
+      <button
+        type="button"
+        className="message-conversation-load-more"
+        onClick={() => void loadMoreConversations()}
+        disabled={conversationLoadingMore}
+        aria-busy={conversationLoadingMore}
+      >
+        {conversationLoadingMore ? (
+          <>
+            <span className="message-small-spinner" aria-hidden="true" />
+            Loading more conversations...
+          </>
+        ) : (
+          "Load more conversations"
+        )}
+      </button>
     );
   }
 
@@ -14957,6 +16484,288 @@ export function MessageAppPage() {
               )}
             </>
           )}
+        </div>
+      </div>
+    );
+  }
+
+  function renderMessageInformationPanel(): ReactNode {
+    const information = messageInformation;
+    const recipients = information?.recipients ?? [];
+    const readRecipients = recipients
+      .filter((recipient) => Boolean(recipient.readAt))
+      .sort(
+        (first, second) =>
+          new Date(second.readAt ?? 0).getTime() -
+          new Date(first.readAt ?? 0).getTime(),
+      );
+    const deliveredRecipients = recipients
+      .filter(
+        (recipient) => !recipient.readAt && Boolean(recipient.deliveredAt),
+      )
+      .sort(
+        (first, second) =>
+          new Date(second.deliveredAt ?? 0).getTime() -
+          new Date(first.deliveredAt ?? 0).getTime(),
+      );
+    const pendingCount = recipients.filter(
+      (recipient) => !recipient.deliveredAt,
+    ).length;
+    const visibleReadRecipients = readRecipients.slice(
+      0,
+      messageInformationVisibleReadCount,
+    );
+    const visibleDeliveredRecipients = deliveredRecipients.slice(
+      0,
+      messageInformationVisibleDeliveredCount,
+    );
+    const directRecipient = recipients[0] ?? null;
+    const directMessage =
+      selectedConversation?.type === "PRIVATE" ||
+      information?.summary.totalRecipients === 1;
+    const previewLabel = information
+      ? information.message.isDeleted
+        ? "This message was deleted."
+        : attachmentLabel(information.message)
+      : "";
+    const attachmentCount = information?.message.attachments.length ?? 0;
+
+    const renderRecipientRow = (
+      recipient: (typeof recipients)[number],
+      timestamp: string | null,
+    ) => (
+      <article key={recipient.accountId} className="message-info-modern-person">
+        {renderAccountAvatar(recipient.account, "message-avatar small")}
+        <div className="message-info-modern-person-copy">
+          <strong>{recipient.account.displayName}</strong>
+          <small>
+            {recipient.account.employee?.designation ??
+              roleLabel(recipient.account.role)}
+          </small>
+        </div>
+        {timestamp && (
+          <time dateTime={timestamp}>
+            {notificationTimestampLabel(timestamp)}
+          </time>
+        )}
+      </article>
+    );
+
+    return (
+      <div className="message-modern-detail-view message-modern-message-info-view">
+        <header className="message-modern-detail-header">
+          <span className="message-modern-detail-spacer" aria-hidden="true" />
+          <button
+            type="button"
+            className="message-modern-detail-back message-modern-detail-mobile-back"
+            onClick={closeMessageInformationPanel}
+            aria-label="Back to conversation"
+          >
+            <span aria-hidden="true">←</span>
+          </button>
+          <div>
+            <span>Message</span>
+            <strong>Message info</strong>
+          </div>
+          <button
+            type="button"
+            className="message-modern-detail-close"
+            onClick={closeMessageInformationPanel}
+            aria-label="Close message information"
+          >
+            <MessageNavigationIcon name="close" />
+          </button>
+        </header>
+
+        <div className="message-modern-detail-scroll message-info-modern-scroll">
+          {messageInformationLoadingId ? (
+            <div className="message-list-state compact" role="status">
+              <span className="message-small-spinner" aria-hidden="true" />
+              <p>Loading message info...</p>
+            </div>
+          ) : messageInformationError && !information ? (
+            <div className="message-inline-error compact" role="alert">
+              <p>{messageInformationError}</p>
+            </div>
+          ) : information ? (
+            <>
+              <section
+                className={`message-info-modern-preview${
+                  information.message.isDeleted ? " is-deleted" : ""
+                }`}
+                aria-label="Message preview"
+              >
+                <div className="message-info-modern-bubble">
+                  {information.message.forwardedFrom && (
+                    <span className="message-info-modern-forwarded">
+                      Forwarded
+                    </span>
+                  )}
+                  <p>{previewLabel}</p>
+                  {attachmentCount > 0 && information.message.textContent && (
+                    <small>
+                      {attachmentCount} attachment
+                      {attachmentCount === 1 ? "" : "s"}
+                    </small>
+                  )}
+                  <footer>
+                    <time dateTime={information.sentAt}>
+                      {notificationTimestampLabel(information.sentAt)}
+                    </time>
+                    {information.editedAt && <span>Edited</span>}
+                  </footer>
+                </div>
+              </section>
+
+              {directMessage ? (
+                <section
+                  className="message-info-modern-direct"
+                  aria-label="Delivery status"
+                >
+                  <div className="message-info-modern-direct-row delivered">
+                    <span
+                      className="message-info-modern-status-icon"
+                      aria-hidden="true"
+                    >
+                      ✓✓
+                    </span>
+                    <div>
+                      <strong>Delivered</strong>
+                      <span>
+                        {directRecipient?.deliveredAt
+                          ? notificationTimestampLabel(
+                              directRecipient.deliveredAt,
+                            )
+                          : "Pending"}
+                      </span>
+                    </div>
+                  </div>
+                  <div className="message-info-modern-direct-row read">
+                    <span
+                      className="message-info-modern-status-icon"
+                      aria-hidden="true"
+                    >
+                      ✓✓
+                    </span>
+                    <div>
+                      <strong>Read</strong>
+                      <span>
+                        {directRecipient?.readAt
+                          ? notificationTimestampLabel(directRecipient.readAt)
+                          : directRecipient?.readHidden
+                            ? "Hidden by privacy"
+                            : "Not read"}
+                      </span>
+                    </div>
+                  </div>
+                </section>
+              ) : (
+                <div className="message-info-modern-status-sections">
+                  <section className="message-info-modern-section">
+                    <header>
+                      <span
+                        className="message-info-modern-status-icon read"
+                        aria-hidden="true"
+                      >
+                        ✓✓
+                      </span>
+                      <strong>Read by</strong>
+                      <small>{readRecipients.length}</small>
+                    </header>
+
+                    {visibleReadRecipients.length > 0 ? (
+                      <div className="message-info-modern-people">
+                        {visibleReadRecipients.map((recipient) =>
+                          renderRecipientRow(recipient, recipient.readAt),
+                        )}
+                      </div>
+                    ) : (
+                      <p className="message-info-modern-empty">
+                        No visible read receipts yet.
+                      </p>
+                    )}
+
+                    {visibleReadRecipients.length < readRecipients.length && (
+                      <button
+                        type="button"
+                        className="message-info-modern-more"
+                        onClick={() =>
+                          setMessageInformationVisibleReadCount((current) =>
+                            current + 40,
+                          )
+                        }
+                      >
+                        Show more read receipts
+                        <span>
+                          {readRecipients.length - visibleReadRecipients.length}
+                        </span>
+                      </button>
+                    )}
+                  </section>
+
+                  {deliveredRecipients.length > 0 && (
+                    <section className="message-info-modern-section">
+                      <header>
+                        <span
+                          className="message-info-modern-status-icon delivered"
+                          aria-hidden="true"
+                        >
+                          ✓✓
+                        </span>
+                        <strong>Delivered to</strong>
+                        <small>{deliveredRecipients.length}</small>
+                      </header>
+
+                      <div className="message-info-modern-people">
+                        {visibleDeliveredRecipients.map((recipient) =>
+                          renderRecipientRow(
+                            recipient,
+                            recipient.deliveredAt,
+                          ),
+                        )}
+                      </div>
+
+                      {visibleDeliveredRecipients.length <
+                        deliveredRecipients.length && (
+                        <button
+                          type="button"
+                          className="message-info-modern-more"
+                          onClick={() =>
+                            setMessageInformationVisibleDeliveredCount(
+                              (current) => current + 40,
+                            )
+                          }
+                        >
+                          Show more delivery receipts
+                          <span>
+                            {deliveredRecipients.length -
+                              visibleDeliveredRecipients.length}
+                          </span>
+                        </button>
+                      )}
+                    </section>
+                  )}
+
+                  {(pendingCount > 0 || information.summary.readHidden > 0) && (
+                    <div className="message-info-modern-notes">
+                      {pendingCount > 0 && (
+                        <p>
+                          {pendingCount} recipient{pendingCount === 1 ? "" : "s"}{" "}
+                          pending delivery.
+                        </p>
+                      )}
+                      {information.summary.readHidden > 0 && (
+                        <p>
+                          Some read receipts are hidden by recipient privacy
+                          settings.
+                        </p>
+                      )}
+                    </div>
+                  )}
+                </div>
+              )}
+            </>
+          ) : null}
         </div>
       </div>
     );
@@ -15536,12 +17345,18 @@ export function MessageAppPage() {
     }
 
     const query = groupMemberSearch.trim().toLocaleLowerCase();
+    const officialGroup = groupInfoConversation.groupKind === "OFFICIAL";
     const roleRank: Record<string, number> = {
       OWNER: 0,
       ADMIN: 1,
       MEMBER: 2,
     };
-    const sortedParticipants = [...groupInfoConversation.participants].sort(
+    const participantSource = officialGroup
+      ? query
+        ? officialGroupMemberSearchResults
+        : officialGroupMembers
+      : groupInfoConversation.participants;
+    const sortedParticipants = [...participantSource].sort(
       (first, second) =>
         (roleRank[first.participantRole] ?? 3) -
         (roleRank[second.participantRole] ?? 3) ||
@@ -15550,24 +17365,45 @@ export function MessageAppPage() {
         }) ||
         first.accountId.localeCompare(second.accountId),
     );
-    const matchingParticipants = query
-      ? sortedParticipants.filter((participant) =>
-        [
-          participant.displayName,
-          participant.username,
-          participant.employee?.empId,
-          participant.employee?.designation,
-          participant.employee?.department?.name,
-          participant.employee?.division?.name,
-        ]
-          .filter((value): value is string => Boolean(value))
-          .some((value) => value.toLocaleLowerCase().includes(query)),
-      )
-      : sortedParticipants;
+    const matchingParticipants =
+      officialGroup || !query
+        ? sortedParticipants
+        : sortedParticipants.filter((participant) =>
+            [
+              participant.displayName,
+              participant.username,
+              participant.employee?.empId,
+              participant.employee?.designation,
+              participant.employee?.department?.name,
+              participant.employee?.division?.name,
+            ]
+              .filter((value): value is string => Boolean(value))
+              .some((value) => value.toLocaleLowerCase().includes(query)),
+          );
     const visibleParticipants =
       query || groupMembersExpanded
         ? matchingParticipants
         : matchingParticipants.slice(0, 5);
+    const officialMemberListLoading = officialGroup
+      ? query
+        ? officialGroupMemberSearchLoading
+        : officialGroupMembersLoading
+      : false;
+    const officialMemberListLoadingMore = officialGroup
+      ? query
+        ? officialGroupMemberSearchLoadingMore
+        : officialGroupMembersLoadingMore
+      : false;
+    const officialMemberListHasMore = officialGroup
+      ? query
+        ? officialGroupMemberSearchHasMore
+        : officialGroupMembersHasMore
+      : false;
+    const officialMemberListError = officialGroup
+      ? query
+        ? officialGroupMemberSearchError
+        : officialGroupMembersError
+      : null;
     const sharedContentSummary =
       sharedContent ?? selectedConversationSharedContent;
     const sharedContentCount =
@@ -15653,7 +17489,26 @@ export function MessageAppPage() {
               />
             </label>
 
-            {matchingParticipants.length === 0 ? (
+            {officialMemberListLoading && matchingParticipants.length === 0 ? (
+              <p className="message-simple-empty-state">Loading members...</p>
+            ) : officialMemberListError && matchingParticipants.length === 0 ? (
+              <div className="message-simple-empty-state">
+                <p>{officialMemberListError}</p>
+                <button
+                  type="button"
+                  className="message-simple-expand-button"
+                  onClick={() =>
+                    void loadOfficialGroupMemberPage({
+                      search: query,
+                      cursor: null,
+                      append: false,
+                    })
+                  }
+                >
+                  Retry
+                </button>
+              </div>
+            ) : matchingParticipants.length === 0 ? (
               <p className="message-simple-empty-state">
                 No members match “{groupMemberSearch.trim()}”.
               </p>
@@ -15689,7 +17544,7 @@ export function MessageAppPage() {
               </div>
             )}
 
-            {!query && matchingParticipants.length > 5 && (
+            {!officialGroup && !query && matchingParticipants.length > 5 && (
               <button
                 type="button"
                 className="message-simple-expand-button"
@@ -15700,6 +17555,45 @@ export function MessageAppPage() {
                   : `View all ${matchingParticipants.length} members`}
               </button>
             )}
+
+            {officialGroup &&
+              !query &&
+              !groupMembersExpanded &&
+              groupInfoConversation.memberCount > 5 && (
+                <button
+                  type="button"
+                  className="message-simple-expand-button"
+                  onClick={() => setGroupMembersExpanded(true)}
+                >
+                  View all {groupInfoConversation.memberCount} members
+                </button>
+              )}
+
+            {officialGroup &&
+              (query || groupMembersExpanded) &&
+              officialMemberListHasMore && (
+                <button
+                  type="button"
+                  className="message-simple-expand-button"
+                  onClick={loadMoreOfficialGroupMembers}
+                  disabled={officialMemberListLoadingMore}
+                  aria-busy={officialMemberListLoadingMore}
+                >
+                  {officialMemberListLoadingMore
+                    ? "Loading more members..."
+                    : query
+                      ? "Load more results"
+                      : "Load more members"}
+                </button>
+              )}
+
+            {officialGroup &&
+              officialMemberListError &&
+              matchingParticipants.length > 0 && (
+                <p className="message-simple-empty-state">
+                  {officialMemberListError}
+                </p>
+              )}
           </section>
 
           {groupInfoConversation.groupKind === "PERSONAL" ? (
@@ -15997,7 +17891,7 @@ export function MessageAppPage() {
                 )}
 
                 <div className="message-modern-member-list">
-                  {groupInfoConversation.participants.map((participant) => {
+                  {groupInfoParticipants.map((participant) => {
                     const isViewer = participant.accountId === account?.id;
                     const viewerRole =
                       groupInfoConversation.viewerParticipantRole;
@@ -17330,6 +19224,286 @@ export function MessageAppPage() {
                         ? "Groups"
                         : "Conversations";
 
+  function renderStorageUsageWorkspaceContent(): ReactNode {
+    if (!storageUsageScope) {
+      return null;
+    }
+
+    const conversationScoped = storageUsageScope.kind === "CONVERSATION";
+    const conversationTitle =
+      storageUsage?.scope === "CONVERSATION"
+        ? (storageUsage.conversation.title ??
+          conversations.find(
+            (conversation) => conversation.id === storageUsage.conversation.id,
+          )?.title ??
+          (storageUsage.conversation.type === "GROUP"
+            ? "Group storage"
+            : "Private chat storage"))
+        : null;
+
+    return (
+      <div className="message-storage-workspace">
+        <header className="message-storage-workspace-header">
+          <button
+            type="button"
+            className="message-mobile-back"
+            onClick={handleStorageWorkspaceBack}
+            aria-label={conversationScoped ? "Back to all storage" : "Back to storage settings"}
+          >
+            ←
+          </button>
+          <div>
+            <span>Storage</span>
+            <h2>{conversationScoped ? conversationTitle : "Manage storage"}</h2>
+            <p>
+              {conversationScoped
+                ? "Review the files using space in this chat."
+                : "Review files using space in your chats."}
+            </p>
+          </div>
+          <button
+            type="button"
+            className="message-workspace-close-action"
+            onClick={handleStorageWorkspaceBack}
+          >
+            {conversationScoped ? "All storage" : "Back to settings"}
+          </button>
+        </header>
+
+        <div className="message-storage-workspace-scroll">
+          {storageUsageLoading && !storageUsage ? (
+            <div className="message-storage-state" role="status">
+              <span className="message-small-spinner" aria-hidden="true" />
+              <strong>Loading storage...</strong>
+            </div>
+          ) : storageUsageError && !storageUsage ? (
+            <div className="message-storage-state error" role="alert">
+              <MessageNavigationIcon name="storage" />
+              <strong>Storage could not be loaded</strong>
+              <small>{storageUsageError}</small>
+              <button
+                type="button"
+                onClick={() => void loadStorageUsage(storageUsageScope)}
+              >
+                Retry
+              </button>
+            </div>
+          ) : storageUsage ? (
+            <div className="message-storage-content">
+              {storageUsageLoading && (
+                <div className="message-storage-refreshing" role="status">
+                  <span className="message-small-spinner" aria-hidden="true" />
+                  Updating...
+                </div>
+              )}
+
+              {storageUsageError && (
+                <div className="message-storage-inline-error" role="alert">
+                  <span>{storageUsageError}</span>
+                </div>
+              )}
+
+              <section className="message-storage-overview" aria-label="Storage overview">
+                <div className="message-storage-total">
+                  <span>Total storage</span>
+                  <strong>{formatFileSize(storageUsage.totals.logicalVisibleBytes)}</strong>
+                  <small>
+                    {storageUsage.totals.logicalItemCount} file
+                    {storageUsage.totals.logicalItemCount === 1 ? "" : "s"}
+                  </small>
+                </div>
+
+                <div className="message-storage-category-grid">
+                  {storageUsage.categories.map((category) => (
+                    <article key={category.key}>
+                      <span
+                        className={`message-storage-category-icon ${category.key.toLowerCase()}`}
+                        aria-hidden="true"
+                      >
+                        {category.label.slice(0, 1)}
+                      </span>
+                      <div>
+                        <strong>{category.label}</strong>
+                        <small>
+                          {category.itemCount} item
+                          {category.itemCount === 1 ? "" : "s"}
+                        </small>
+                      </div>
+                      <b>{formatFileSize(category.logicalBytes)}</b>
+                    </article>
+                  ))}
+                </div>
+              </section>
+
+              {storageUsage.scope === "USER" && (
+                <section className="message-storage-section">
+                  <header>
+                    <h3>Chats</h3>
+                    <small>{storageUsage.storageByConversation.length} with files</small>
+                  </header>
+                  {storageUsage.storageByConversation.length === 0 ? (
+                    <p className="message-storage-empty">No chat files are using storage.</p>
+                  ) : (
+                    <div className="message-storage-conversation-list">
+                      {storageUsage.storageByConversation.map((item) => (
+                        <button
+                          key={item.conversationId}
+                          type="button"
+                          onClick={() =>
+                            openStorageUsage({
+                              kind: "CONVERSATION",
+                              conversationId: item.conversationId,
+                            })
+                          }
+                        >
+                          <span className="message-storage-conversation-avatar">
+                            {(item.conversationTitle ?? "Conversation")
+                              .slice(0, 2)
+                              .toUpperCase()}
+                          </span>
+                          <span>
+                            <strong>
+                              {item.conversationTitle ??
+                                (item.conversationType === "GROUP"
+                                  ? "Group chat"
+                                  : "Private chat")}
+                            </strong>
+                            <small>
+                              {item.itemCount} file{item.itemCount === 1 ? "" : "s"}
+                            </small>
+                          </span>
+                          <b>{formatFileSize(item.logicalBytes)}</b>
+                          <span className="message-storage-row-chevron" aria-hidden="true">›</span>
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </section>
+              )}
+
+              <section className="message-storage-section message-storage-largest-section">
+                <header>
+                  <h3>Large files</h3>
+                  <small>Largest first</small>
+                </header>
+
+                {storageUsage.largestFiles.length === 0 ? (
+                  <p className="message-storage-empty">No files to show.</p>
+                ) : (
+                  <div className="message-storage-file-list">
+                    {storageUsage.largestFiles.map((file) => {
+                      const actionPending =
+                        storageUsageActionId?.endsWith(file.attachmentId) ?? false;
+                      const deleteConfirmation =
+                        storageDeleteConfirmation?.attachmentId === file.attachmentId
+                          ? storageDeleteConfirmation
+                          : null;
+
+                      return (
+                        <article key={file.attachmentId}>
+                          <span
+                            className={`message-storage-file-type ${file.contentType.toLowerCase()}`}
+                            aria-hidden="true"
+                          >
+                            {file.contentType === "FILE" ? "DOC" : file.contentType.slice(0, 3)}
+                          </span>
+                          <div className="message-storage-file-copy">
+                            <div>
+                              <strong title={file.originalFileName}>{file.originalFileName}</strong>
+                              <b>{formatFileSize(file.fileSizeBytes)}</b>
+                            </div>
+                            <small>
+                              {storageUsage.scope === "USER" &&
+                                `${file.conversationTitle ?? "Conversation"} · `}
+                              {file.sender.displayName} · {formatConversationTime(file.sentAt)}
+                            </small>
+                          </div>
+                          <div className="message-storage-file-actions">
+                            <button
+                              type="button"
+                              onClick={() => void openStorageOriginalMessage(file)}
+                              disabled={actionPending}
+                            >
+                              Open
+                            </button>
+
+                            {deleteConfirmation ? (
+                              <div className="message-storage-inline-confirmation" role="status">
+                                <span>
+                                  {deleteConfirmation.mode === "EVERYONE"
+                                    ? "Delete for everyone?"
+                                    : "Delete for you?"}
+                                </span>
+                                <button
+                                  type="button"
+                                  onClick={() => setStorageDeleteConfirmation(null)}
+                                  disabled={actionPending}
+                                >
+                                  Cancel
+                                </button>
+                                <button
+                                  type="button"
+                                  className="danger"
+                                  onClick={() =>
+                                    void handleStorageFileDelete(file, deleteConfirmation.mode)
+                                  }
+                                  disabled={actionPending}
+                                >
+                                  Delete
+                                </button>
+                              </div>
+                            ) : (
+                              <>
+                                {file.canDeleteForMe && (
+                                  <button
+                                    type="button"
+                                    onClick={() =>
+                                      setStorageDeleteConfirmation({
+                                        attachmentId: file.attachmentId,
+                                        mode: "ME",
+                                      })
+                                    }
+                                    disabled={actionPending}
+                                  >
+                                    Delete for me
+                                  </button>
+                                )}
+                                {file.canDeleteForEveryone && (
+                                  <button
+                                    type="button"
+                                    className="danger"
+                                    onClick={() =>
+                                      setStorageDeleteConfirmation({
+                                        attachmentId: file.attachmentId,
+                                        mode: "EVERYONE",
+                                      })
+                                    }
+                                    disabled={actionPending}
+                                  >
+                                    Delete for everyone
+                                  </button>
+                                )}
+                              </>
+                            )}
+                          </div>
+                        </article>
+                      );
+                    })}
+                  </div>
+                )}
+              </section>
+
+              <footer className="message-storage-privacy-note">
+                <MessageNavigationIcon name="official" />
+                <span>Only files from chats you can access are included.</span>
+              </footer>
+            </div>
+          ) : null}
+        </div>
+      </div>
+    );
+  }
+
   return (
     <main
       className={`message-app-shell${navigationExpanded ? " navigation-expanded" : ""}${announcementComposerOpen || announcementDetailOpen ? " announcement-workspace-active" : ""} theme-${customizationToken(resolvedMessagingTheme)} accent-blue wallpaper-${customizationToken(messagingCustomization.wallpaper)} density-${customizationToken(messagingCustomization.density)}${messagingCustomization.reduceMotion ? " motion-reduced" : ""}`}
@@ -17793,7 +19967,7 @@ export function MessageAppPage() {
                               ? "Search notifications"
                               : listMode
                                 ? `Search in ${selectedChatFolder?.name ?? "list"}`
-                                : "Search conversations"}
+                                : "Search chats"}
                 </span>
                 <span
                   className="message-conversation-search-icon"
@@ -17833,7 +20007,7 @@ export function MessageAppPage() {
                                 ? "Search notifications"
                                 : listMode
                                   ? `Search in ${selectedChatFolder?.name ?? "list"}`
-                                  : "Search conversations"
+                                  : "Search chats"
                   }
                   autoFocus={newConversationMode}
                 />
@@ -18139,13 +20313,31 @@ export function MessageAppPage() {
                 </>
               ) : starredMode ? (
                 <>
-                  <span>{filteredStarredItems.length} starred</span>
-                  <span>{conversationSearch.trim() ? "Search" : "Personal"}</span>
+                  <span>
+                    {filteredStarredItems.length}
+                    {starredHasMore ? " loaded" : " starred"}
+                  </span>
+                  <span>
+                    {conversationSearch.trim()
+                      ? "Search"
+                      : starredHasMore
+                        ? "More available"
+                        : "Personal"}
+                  </span>
                 </>
               ) : archivedMode ? (
                 <>
-                  <span>{filteredConversations.length} archived</span>
-                  <span>{conversationSearch.trim() ? "Search" : "Conversations"}</span>
+                  <span>
+                    {filteredConversations.length}
+                    {conversationHasMore ? " loaded" : " archived"}
+                  </span>
+                  <span>
+                    {conversationSearch.trim()
+                      ? "Search"
+                      : conversationHasMore
+                        ? "More available"
+                        : "Conversations"}
+                  </span>
                 </>
               ) : requestMode ? (
                 <>
@@ -18161,8 +20353,15 @@ export function MessageAppPage() {
                 </>
               ) : listMode ? (
                 <>
-                  <span>{filteredConversations.length} conversations</span>
-                  <span>{totalUnread} unread</span>
+                  <span>
+                    {filteredConversations.length}
+                    {conversationHasMore ? " loaded" : " conversations"}
+                  </span>
+                  <span>
+                    {conversationHasMore
+                      ? "More available"
+                      : `${totalUnread} unread`}
+                  </span>
                 </>
               ) : conversationSearch.trim() ? (
                 <>
@@ -18171,8 +20370,15 @@ export function MessageAppPage() {
                 </>
               ) : (
                 <>
-                  <span>{filteredConversations.length} conversations</span>
-                  <span>{totalUnread} unread</span>
+                  <span>
+                    {filteredConversations.length}
+                    {conversationHasMore ? " loaded" : " conversations"}
+                  </span>
+                  <span>
+                    {conversationHasMore
+                      ? "More available"
+                      : `${totalUnread} unread`}
+                  </span>
                 </>
               )}
             </div>
@@ -18473,25 +20679,55 @@ export function MessageAppPage() {
                     </button>
                   </div>
                 ) : filteredStarredItems.length === 0 ? (
-                  <div className="message-list-state compact" role="status">
-                    <div className="message-empty-icon" aria-hidden="true">
-                      ★
+                  <>
+                    <div className="message-list-state compact" role="status">
+                      <div className="message-empty-icon" aria-hidden="true">
+                        ★
+                      </div>
+                      <h2>
+                        {conversationSearch.trim()
+                          ? "No matching loaded starred messages"
+                          : "No starred messages yet"}
+                      </h2>
+                      <p>
+                        {conversationSearch.trim()
+                          ? starredHasMore
+                            ? "Load more starred messages or try another search."
+                            : "Try a conversation name, sender, message text or file name."
+                          : "Star important messages and they will remain easy to find here."}
+                      </p>
                     </div>
-                    <h2>
-                      {conversationSearch.trim()
-                        ? "No matching starred messages"
-                        : "No starred messages yet"}
-                    </h2>
-                    <p>
-                      {conversationSearch.trim()
-                        ? "Try a conversation name, sender, message text or file name."
-                        : "Star important messages and they will remain easy to find here."}
-                    </p>
-                  </div>
+                    {starredHasMore ? (
+                      <button
+                        type="button"
+                        className="message-conversation-load-more"
+                        onClick={() => void loadMoreStarredMessages()}
+                        disabled={starredLoadingMore}
+                      >
+                        {starredLoadingMore
+                          ? "Loading older starred messages..."
+                          : "Load more starred messages"}
+                      </button>
+                    ) : null}
+                  </>
                 ) : (
-                  <div className="message-starred-workspace-list">
-                    {filteredStarredItems.map(renderStarredMessageRow)}
-                  </div>
+                  <>
+                    <div className="message-starred-workspace-list">
+                      {filteredStarredItems.map(renderStarredMessageRow)}
+                    </div>
+                    {starredHasMore ? (
+                      <button
+                        type="button"
+                        className="message-conversation-load-more"
+                        onClick={() => void loadMoreStarredMessages()}
+                        disabled={starredLoadingMore}
+                      >
+                        {starredLoadingMore
+                          ? "Loading older starred messages..."
+                          : "Load more starred messages"}
+                      </button>
+                    ) : null}
+                  </>
                 )
               ) : requestMode ? (
                 requestError ? (
@@ -18581,17 +20817,24 @@ export function MessageAppPage() {
                         ? "Conversations you archive will appear here."
                         : "Start a private conversation or create a group."}
                   </p>
-                  {!archivedMode && (
-                    <button
-                      type="button"
-                      onClick={listMode ? openSelectedListManager : openNewConversation}
-                    >
-                      {listMode ? "Manage list" : "New conversation"}
-                    </button>
-                  )}
+                  {conversationHasMore
+                    ? renderConversationLoadMoreControl()
+                    : !archivedMode && (
+                        <button
+                          type="button"
+                          onClick={
+                            listMode ? openSelectedListManager : openNewConversation
+                          }
+                        >
+                          {listMode ? "Manage list" : "New conversation"}
+                        </button>
+                      )}
                 </div>
               ) : (
-                filteredConversations.map(renderConversationRow)
+                <>
+                  {filteredConversations.map(renderConversationRow)}
+                  {renderConversationLoadMoreControl()}
+                </>
               )}
             </div>
           </aside>
@@ -18623,7 +20866,9 @@ export function MessageAppPage() {
             </div>
           )}
 
-          {ownProfileMode ? (
+          {storageUsageScope ? (
+            renderStorageUsageWorkspaceContent()
+          ) : ownProfileMode ? (
             <div className="message-profile-workspace">
               <header className="message-profile-workspace-header">
                 <button
@@ -18887,8 +21132,8 @@ export function MessageAppPage() {
                       <span>
                         <strong>Browser notifications</strong>
                         <small>
-                          Show system notifications on this device when the
-                          browser permission is allowed.
+                          Show notifications for new NT Message activity even
+                          while this tab is in the background.
                         </small>
                       </span>
                       <input
@@ -18904,6 +21149,14 @@ export function MessageAppPage() {
                     <p className="message-settings-note">
                       Browser permission:{" "}
                       <strong>{browserNotificationPermissionLabel()}</strong>.
+                      {browserNotificationsEnabled && (
+                        <>
+                          {" "}Background delivery:{" "}
+                          <strong>
+                            {backgroundPushReady ? "Ready" : "Connecting"}
+                          </strong>.
+                        </>
+                      )}
                       NT Message can stop using permission but cannot revoke
                       browser-level permission.
                     </p>
@@ -19069,15 +21322,6 @@ export function MessageAppPage() {
 
                 {settingsTab === "STORAGE" && (
                   <section className="message-settings-section message-settings-storage-section">
-                    <div className="message-settings-security-card">
-                      <span>Storage and Data</span>
-                      <strong>Review your visible file usage</strong>
-                      <small>
-                        See images, videos, documents, audio, largest files
-                        and storage by authorized conversation.
-                      </small>
-                    </div>
-
                     <button
                       type="button"
                       className="message-settings-storage-open"
@@ -19085,18 +21329,13 @@ export function MessageAppPage() {
                     >
                       <MessageNavigationIcon name="storage" />
                       <span>
-                        <strong>Open storage manager</strong>
-                        <small>
-                          Totals reflect files currently visible to your
-                          authenticated account.
-                        </small>
+                        <strong>Manage storage</strong>
+                        <small>Review files using space in your chats.</small>
                       </span>
                     </button>
 
                     <p className="message-settings-note">
-                      Your storage manager never grants management accounts
-                      access to private filenames, participants or message
-                      content outside their own authorized conversations.
+                      Only files from chats you can access are included.
                     </p>
                   </section>
                 )}
@@ -20229,9 +22468,16 @@ export function MessageAppPage() {
                   className="message-thread"
                   ref={messageListRef}
                   onScroll={handleMessageThreadScroll}
+                  onWheelCapture={releaseInitialMessageBottomAnchor}
+                  onTouchStartCapture={releaseInitialMessageBottomAnchor}
+                  onPointerDownCapture={releaseInitialMessageBottomAnchor}
+                  onKeyDownCapture={releaseInitialMessageBottomAnchor}
                   aria-busy={messageLoading || olderMessagesLoading}
                 >
-                  <div className="message-thread-content">
+                  <div
+                    ref={messageThreadContentRef}
+                    className="message-thread-content"
+                  >
                     {!messageLoading && displayMessages.length > 0 && (
                       <div
                         className="message-thread-spacer"
@@ -20327,12 +22573,50 @@ export function MessageAppPage() {
                           !officialAnnouncement &&
                           (isLocationMessage ||
                             (!message.textContent && hasAttachments));
+                        const simpleTextMessage =
+                          !message.isDeleted &&
+                          !message.replyTo &&
+                          !message.forwardedFrom &&
+                          !officialAnnouncement &&
+                          !isLocationMessage &&
+                          !hasAttachments &&
+                          Boolean(message.textContent?.trim());
                         const messageMeta = (
-                          <div
+                          <span
                             className={`message-bubble-meta${
                               attachmentOnlyMessage ? "" : " inside-bubble"
                             }`}
                           >
+                            {!message.isDeleted &&
+                              (message.isPinned || message.isStarred) && (
+                                <span
+                                  className="message-state-icons"
+                                  aria-label={[
+                                    message.isPinned ? "Pinned" : null,
+                                    message.isStarred ? "Starred" : null,
+                                  ]
+                                    .filter(Boolean)
+                                    .join(" and ")}
+                                >
+                                  {message.isPinned && (
+                                    <span
+                                      className="message-state-icon is-pinned"
+                                      title="Pinned"
+                                    >
+                                      <MessageStatusGlyph name="pin" />
+                                    </span>
+                                  )}
+                                  {message.isStarred && (
+                                    <span
+                                      className="message-state-icon is-starred"
+                                      title="Starred"
+                                    >
+                                      <MessageStatusGlyph name="star" />
+                                    </span>
+                                  )}
+                                </span>
+                              )}
+
                             <time>{formatMessageTime(message.sentAt)}</time>
 
                             {message.editedAt && !message.isDeleted && (
@@ -20350,7 +22634,7 @@ export function MessageAppPage() {
                                 </span>
                               </span>
                             )}
-                          </div>
+                          </span>
                         );
 
                         return (
@@ -20378,7 +22662,7 @@ export function MessageAppPage() {
                                   ? " mobile-action-selected"
                                   : ""
                                 }${hasAttachments ? " has-attachments" : ""}${isLocationMessage ? " has-location" : ""
-                                }${attachmentOnlyMessage ? " attachment-only" : ""}${message.isDeleted ? " is-deleted" : ""}`}
+                                }${attachmentOnlyMessage ? " attachment-only" : ""}${simpleTextMessage ? " simple-text-message" : ""}${message.isDeleted ? " is-deleted" : ""}`}
                               onPointerEnter={(event) =>
                                 handleMessagePointerEnter(message.id, event)
                               }
@@ -20413,21 +22697,6 @@ export function MessageAppPage() {
 
                                 <div className="message-bubble-line">
                                   <div className="message-bubble">
-                                    {!message.isDeleted &&
-                                      (message.isStarred || message.isPinned) && (
-                                        <div
-                                          className="message-state-badges"
-                                          aria-label="Message state"
-                                        >
-                                          {message.isPinned && (
-                                            <span>📌 Pinned</span>
-                                          )}
-                                          {message.isStarred && (
-                                            <span>★ Starred</span>
-                                          )}
-                                        </div>
-                                      )}
-
                                     {officialAnnouncement && !message.isDeleted && (
                                       <div className="message-announcement-label">
                                         <strong>
@@ -20440,7 +22709,10 @@ export function MessageAppPage() {
                                     {message.forwardedFrom &&
                                       !message.isDeleted && (
                                         <div className="message-forwarded-label">
-                                          <strong>Forwarded</strong>
+                                          <svg viewBox="0 0 24 24" aria-hidden="true">
+                                            <path d="m14 5 6 7-6 7v-4H9c-3.3 0-5.7 1.1-7 3 1-5.4 4-8 9-8h3V5Z" />
+                                          </svg>
+                                          <span>Forwarded</span>
                                         </div>
                                       )}
 
@@ -20478,13 +22750,23 @@ export function MessageAppPage() {
                                     ) : (
                                       <>
                                         {message.textContent &&
-                                          message.contentType !== "LOCATION" && (
+                                          message.contentType !== "LOCATION" &&
+                                          (simpleTextMessage ? (
+                                            <span className="message-simple-text">
+                                              <span className="message-simple-text-content">
+                                                {renderMessageTextWithMentions(
+                                                  message,
+                                                )}
+                                              </span>
+                                              {messageMeta}
+                                            </span>
+                                          ) : (
                                             <p>
                                               {renderMessageTextWithMentions(
                                                 message,
                                               )}
                                             </p>
-                                          )}
+                                          ))}
 
                                         {message.contentType === "LOCATION" && (
                                           <LocationMessageCard
@@ -20535,51 +22817,21 @@ export function MessageAppPage() {
                                                       selected,
                                                     )
                                                   }
+                                                  onMediaLayoutReady={
+                                                    handleMessageMediaLayoutReady
+                                                  }
                                                 />
                                               ),
                                             )}
                                           </div>
                                         )}
 
-                                        {(message.reactions?.length ?? 0) > 0 && (
-                                          <div className="message-reactions">
-                                            {groupMessageReactions(
-                                              message,
-                                              account?.id,
-                                            ).map((reactionGroup) => (
-                                              <button
-                                                key={reactionGroup.emoji}
-                                                type="button"
-                                                className={
-                                                  reactionGroup.reactedByViewer
-                                                    ? "message-reaction-chip message-reaction-chip-own"
-                                                    : "message-reaction-chip"
-                                                }
-                                                title={reactionGroup.label}
-                                                aria-label={`${reactionGroup.emoji} reaction from ${reactionGroup.count} participant${reactionGroup.count === 1
-                                                  ? ""
-                                                  : "s"
-                                                  }`}
-                                                onClick={() =>
-                                                  void handleReaction(
-                                                    message,
-                                                    reactionGroup.emoji,
-                                                  )
-                                                }
-                                                disabled={reactionActionId !== null}
-                                              >
-                                                <span>{reactionGroup.emoji}</span>
-                                                {reactionGroup.count > 1 && (
-                                                  <span>{reactionGroup.count}</span>
-                                                )}
-                                              </button>
-                                            ))}
-                                          </div>
-                                        )}
                                       </>
                                     )}
 
-                                    {!attachmentOnlyMessage && messageMeta}
+                                    {!attachmentOnlyMessage &&
+                                      !simpleTextMessage &&
+                                      messageMeta}
                                   </div>
 
                                   <div
@@ -20655,6 +22907,45 @@ export function MessageAppPage() {
                                 </div>
 
                                 {attachmentOnlyMessage && messageMeta}
+
+                                {(message.reactions?.length ?? 0) > 0 && (
+                                  <div
+                                    className={`message-reactions${
+                                      ownMessage ? " own" : ""
+                                    }`}
+                                  >
+                                    {groupMessageReactions(
+                                      message,
+                                      account?.id,
+                                    ).map((reactionGroup) => (
+                                      <button
+                                        key={reactionGroup.emoji}
+                                        type="button"
+                                        className={
+                                          reactionGroup.reactedByViewer
+                                            ? "message-reaction-chip message-reaction-chip-own"
+                                            : "message-reaction-chip"
+                                        }
+                                        title={reactionGroup.label}
+                                        aria-label={`${reactionGroup.emoji} reaction from ${reactionGroup.count} participant${
+                                          reactionGroup.count === 1 ? "" : "s"
+                                        }`}
+                                        onClick={() =>
+                                          void handleReaction(
+                                            message,
+                                            reactionGroup.emoji,
+                                          )
+                                        }
+                                        disabled={reactionActionId !== null}
+                                      >
+                                        <span>{reactionGroup.emoji}</span>
+                                        {reactionGroup.count > 1 && (
+                                          <span>{reactionGroup.count}</span>
+                                        )}
+                                      </button>
+                                    ))}
+                                  </div>
+                                )}
                               </div>
                             </article>
                           </Fragment>
@@ -20682,23 +22973,38 @@ export function MessageAppPage() {
                       </div>
                     )}
                     <div
-                      ref={messageThreadBottomRef}
                       className="message-thread-bottom"
                       aria-hidden="true"
                     />
                   </div>
                 </div>
 
-                {newMessageCount > 0 && (
+                {(showJumpToLatest || newMessageCount > 0) && (
                   <button
                     type="button"
                     className="message-new-messages-button"
                     onClick={jumpToLatestMessages}
-                    aria-live="polite"
+                    aria-label={
+                      newMessageCount > 0
+                        ? `Jump to latest message. ${newMessageCount} new ${
+                            newMessageCount === 1 ? "message" : "messages"
+                          }.`
+                        : "Jump to latest message"
+                    }
+                    title="Jump to latest"
                   >
-                    <span aria-hidden="true">↓</span>
-                    {newMessageCount} new {" "}
-                    {newMessageCount === 1 ? "message" : "messages"}
+                    <svg
+                      viewBox="0 0 24 24"
+                      aria-hidden="true"
+                      focusable="false"
+                    >
+                      <path d="m6.5 9 5.5 5.5L17.5 9" />
+                    </svg>
+                    {newMessageCount > 0 && (
+                      <span className="message-new-messages-count">
+                        {newMessageCount > 99 ? "99+" : newMessageCount}
+                      </span>
+                    )}
                   </button>
                 )}
               </div>
@@ -20896,46 +23202,116 @@ export function MessageAppPage() {
                   aria-label="Choose attachment"
                 />
 
-                {mentionSuggestionsVisible && activeMentionQuery && (
-                  <div
-                    id="message-mention-suggestions"
-                    className="message-mention-suggestions"
-                    role="listbox"
-                    aria-label="Mention group member"
-                  >
-                    {mentionSuggestions.map((participant, index) => (
-                      <button
-                        id={`message-mention-option-${participant.accountId}`}
-                        key={participant.accountId}
-                        type="button"
-                        role="option"
-                        className={
-                          index === activeMentionSuggestionIndex
-                            ? "is-keyboard-active"
-                            : undefined
+                {mentionPanelVisible && activeMentionQuery && (
+                  <div className="message-mention-suggestions">
+                    <div className="message-mention-suggestions-header">
+                      <strong>Mention member</strong>
+                      <small>
+                        {activeMentionQuery.query
+                          ? "Matching group members"
+                          : "Type a name or scroll for more"}
+                      </small>
+                    </div>
+
+                    <div
+                      id="message-mention-suggestions"
+                      className="message-mention-options"
+                      role="listbox"
+                      aria-label="Mention group member"
+                      onScroll={(event) => {
+                        if (
+                          selectedConversation?.groupKind !== "OFFICIAL" ||
+                          !officialMentionHasMore ||
+                          officialMentionLoadingMore
+                        ) {
+                          return;
                         }
-                        aria-selected={index === activeMentionSuggestionIndex}
-                        tabIndex={-1}
-                        onMouseEnter={() =>
-                          setActiveMentionSuggestionIndex(index)
+
+                        const target = event.currentTarget;
+                        if (
+                          target.scrollHeight -
+                          target.scrollTop -
+                          target.clientHeight <
+                          56
+                        ) {
+                          void loadMoreOfficialMentionSuggestions();
                         }
-                        onMouseDown={(event) => event.preventDefault()}
-                        onClick={() => handleMentionSelect(participant)}
-                      >
-                        {renderAccountAvatar(
-                          participant,
-                          "message-avatar small",
+                      }}
+                    >
+                      {mentionSuggestions.map((participant, index) => (
+                        <button
+                          id={`message-mention-option-${participant.accountId}`}
+                          key={participant.accountId}
+                          type="button"
+                          role="option"
+                          className={
+                            index === activeMentionSuggestionIndex
+                              ? "is-keyboard-active"
+                              : undefined
+                          }
+                          aria-selected={index === activeMentionSuggestionIndex}
+                          tabIndex={-1}
+                          onMouseEnter={() =>
+                            setActiveMentionSuggestionIndex(index)
+                          }
+                          onMouseDown={(event) => event.preventDefault()}
+                          onClick={() => handleMentionSelect(participant)}
+                        >
+                          {renderAccountAvatar(
+                            participant,
+                            "message-avatar small",
+                          )}
+                          <span>
+                            <strong>{participant.displayName}</strong>
+                            <small>
+                              {participant.employee?.designation ??
+                                participant.username ??
+                                "Group member"}
+                            </small>
+                          </span>
+                        </button>
+                      ))}
+
+                      {selectedConversation?.groupKind === "OFFICIAL" &&
+                        officialMentionLoading && (
+                          <div className="message-mention-status" role="status">
+                            Loading members…
+                          </div>
                         )}
-                        <span>
-                          <strong>{participant.displayName}</strong>
-                          <small>
-                            {participant.employee?.designation ??
-                              participant.username ??
-                              "Group member"}
-                          </small>
-                        </span>
-                      </button>
-                    ))}
+
+                      {selectedConversation?.groupKind === "OFFICIAL" &&
+                        !officialMentionLoading &&
+                        mentionSuggestions.length === 0 && (
+                          <div className="message-mention-status">
+                            {officialMentionError ?? "No matching members"}
+                          </div>
+                        )}
+                    </div>
+
+                    {selectedConversation?.groupKind === "OFFICIAL" &&
+                      officialMentionHasMore && (
+                        <button
+                          type="button"
+                          className="message-mention-more"
+                          disabled={officialMentionLoadingMore}
+                          onMouseDown={(event) => event.preventDefault()}
+                          onClick={() =>
+                            void loadMoreOfficialMentionSuggestions()
+                          }
+                        >
+                          {officialMentionLoadingMore
+                            ? "Loading more…"
+                            : "Load more members"}
+                        </button>
+                      )}
+
+                    {selectedConversation?.groupKind === "OFFICIAL" &&
+                      officialMentionError &&
+                      mentionSuggestions.length > 0 && (
+                        <small className="message-mention-error">
+                          {officialMentionError}
+                        </small>
+                      )}
                   </div>
                 )}
 
@@ -21328,11 +23704,11 @@ export function MessageAppPage() {
                       aria-label="Message text"
                       aria-autocomplete="list"
                       aria-controls={
-                        mentionSuggestionsVisible
+                        mentionPanelVisible
                           ? "message-mention-suggestions"
                           : undefined
                       }
-                      aria-expanded={mentionSuggestionsVisible}
+                      aria-expanded={mentionPanelVisible}
                       aria-activedescendant={activeMentionOptionId}
                       aria-keyshortcuts="Enter Shift+Enter Escape"
                     />
@@ -21410,20 +23786,28 @@ export function MessageAppPage() {
             <aside
               className="message-conversation-details is-open"
               aria-label={
-                sharedContentOpen
-                  ? "Media, documents and links"
-                  : activeUtilityPanel?.kind === "PROFILE"
-                    ? "Profile"
-                    : "Group information"
+                messageInformation ||
+                messageInformationError ||
+                messageInformationLoadingId
+                  ? "Message information"
+                  : sharedContentOpen
+                    ? "Media, documents and links"
+                    : activeUtilityPanel?.kind === "PROFILE"
+                      ? "Profile"
+                      : "Group information"
               }
             >
-              {sharedContentOpen
-                ? renderSharedContentPanel()
-                : activeUtilityPanel?.kind === "PROFILE"
-                  ? renderConversationProfilePanel()
-                  : selectedConversation.type === "GROUP"
-                    ? renderGroupInformationPanel()
-                    : null}
+              {messageInformation ||
+              messageInformationError ||
+              messageInformationLoadingId
+                ? renderMessageInformationPanel()
+                : sharedContentOpen
+                  ? renderSharedContentPanel()
+                  : activeUtilityPanel?.kind === "PROFILE"
+                    ? renderConversationProfilePanel()
+                    : selectedConversation.type === "GROUP"
+                      ? renderGroupInformationPanel()
+                      : null}
             </aside>
           )}
 
@@ -22553,287 +24937,6 @@ export function MessageAppPage() {
         </div>
       )}
 
-      {storageUsageScope && (
-        <div
-          className="message-dialog-backdrop message-storage-backdrop"
-          role="presentation"
-          onMouseDown={(event) => {
-            if (event.currentTarget === event.target) {
-              closeStorageUsage();
-            }
-          }}
-        >
-          <section
-            className="message-storage-dialog"
-            role="dialog"
-            aria-modal="true"
-            aria-labelledby="message-storage-title"
-            data-message-modal="storage-usage"
-            tabIndex={-1}
-          >
-            <header className="message-storage-header">
-              <div>
-                <span>
-                  {storageUsageScope.kind === "USER"
-                    ? "Storage and Data"
-                    : "Conversation Storage"}
-                </span>
-                <h2 id="message-storage-title">
-                  {storageUsage?.scope === "CONVERSATION"
-                    ? (storageUsage.conversation.title ??
-                      conversations.find(
-                        (conversation) =>
-                          conversation.id === storageUsage.conversation.id,
-                      )?.title ??
-                      (storageUsage.conversation.type === "GROUP"
-                        ? "Group storage usage"
-                        : "Private conversation storage"))
-                    : "Your visible storage usage"}
-                </h2>
-                <p>
-                  {storageUsageScope.kind === "USER"
-                    ? "Totals include only files currently visible to your account. Open a conversation below to review its details."
-                    : "Totals include only files currently visible to you in this conversation."}
-                </p>
-              </div>
-              <button
-                type="button"
-                onClick={closeStorageUsage}
-                aria-label="Close storage usage"
-              >
-                ×
-              </button>
-            </header>
-
-            {storageUsageLoading && !storageUsage ? (
-              <div className="message-storage-state" role="status">
-                <span className="message-small-spinner" />
-                <strong>Calculating authorized storage...</strong>
-                <small>
-                  Checking your authorized conversations and visible files.
-                </small>
-              </div>
-            ) : storageUsageError && !storageUsage ? (
-              <div className="message-storage-state error" role="alert">
-                <MessageNavigationIcon name="storage" />
-                <strong>Storage usage could not be loaded</strong>
-                <small>{storageUsageError}</small>
-                <button
-                  type="button"
-                  onClick={() => void loadStorageUsage(storageUsageScope)}
-                >
-                  Retry
-                </button>
-              </div>
-            ) : storageUsage ? (
-              <div className="message-storage-body">
-                {storageUsageLoading && (
-                  <div className="message-storage-refreshing" role="status">
-                    <span className="message-small-spinner" />
-                    Refreshing totals...
-                  </div>
-                )}
-
-                {storageUsageError && (
-                  <div className="message-storage-inline-error" role="alert">
-                    <strong>Storage action could not be completed</strong>
-                    <span>{storageUsageError}</span>
-                  </div>
-                )}
-
-                <section
-                  className="message-storage-total-grid"
-                  aria-label="Storage totals"
-                >
-                  <article className="primary">
-                    <span>Visible storage</span>
-                    <strong>
-                      {formatFileSize(storageUsage.totals.logicalVisibleBytes)}
-                    </strong>
-                    <small>
-                      {storageUsage.totals.logicalItemCount} visible file
-                      {storageUsage.totals.logicalItemCount === 1 ? "" : "s"}
-                    </small>
-                  </article>
-                </section>
-
-                <section className="message-storage-section">
-                  <header>
-                    <div>
-                      <span>Category breakdown</span>
-                      <h3>Files currently visible to you</h3>
-                    </div>
-                  </header>
-                  <div className="message-storage-category-grid">
-                    {storageUsage.categories.map((category) => (
-                      <article key={category.key}>
-                        <span
-                          className={`message-storage-category-icon ${category.key.toLowerCase()}`}
-                          aria-hidden="true"
-                        >
-                          {category.label.slice(0, 1)}
-                        </span>
-                        <div>
-                          <strong>{category.label}</strong>
-                          <small>
-                            {category.itemCount} item
-                            {category.itemCount === 1 ? "" : "s"}
-                          </small>
-                        </div>
-                        <b>{formatFileSize(category.logicalBytes)}</b>
-                      </article>
-                    ))}
-                  </div>
-                </section>
-
-                {storageUsage.scope === "USER" && (
-                  <section className="message-storage-section">
-                    <header>
-                      <div>
-                        <span>Storage by conversation</span>
-                        <h3>Authorized logical usage</h3>
-                      </div>
-                    </header>
-                    {storageUsage.storageByConversation.length === 0 ? (
-                      <p className="message-storage-empty">
-                        No visible conversation files are using storage.
-                      </p>
-                    ) : (
-                      <div className="message-storage-conversation-list">
-                        {storageUsage.storageByConversation.map((item) => (
-                          <button
-                            key={item.conversationId}
-                            type="button"
-                            onClick={() =>
-                              openStorageUsage({
-                                kind: "CONVERSATION",
-                                conversationId: item.conversationId,
-                              })
-                            }
-                          >
-                            <span className="message-storage-conversation-avatar">
-                              {(item.conversationTitle ?? "Conversation")
-                                .slice(0, 2)
-                                .toUpperCase()}
-                            </span>
-                            <span>
-                              <strong>
-                                {item.conversationTitle ??
-                                  (item.conversationType === "GROUP"
-                                    ? "Group conversation"
-                                    : "Private conversation")}
-                              </strong>
-                              <small>
-                                {item.itemCount} visible item
-                                {item.itemCount === 1 ? "" : "s"}
-                              </small>
-                            </span>
-                            <b>{formatFileSize(item.logicalBytes)}</b>
-                          </button>
-                        ))}
-                      </div>
-                    )}
-                  </section>
-                )}
-
-                <section className="message-storage-section message-storage-largest-section">
-                  <header>
-                    <div>
-                      <span>Large-file management</span>
-                      <h3>Largest visible files</h3>
-                    </div>
-                    <small>Largest first · up to 40 records</small>
-                  </header>
-
-                  {storageUsage.largestFiles.length === 0 ? (
-                    <p className="message-storage-empty">
-                      No visible images, videos, documents or audio files.
-                    </p>
-                  ) : (
-                    <div className="message-storage-file-list">
-                      {storageUsage.largestFiles.map((file) => {
-                        const actionPending =
-                          storageUsageActionId?.endsWith(file.attachmentId) ??
-                          false;
-
-                        return (
-                          <article key={file.attachmentId}>
-                            <span
-                              className={`message-storage-file-type ${file.contentType.toLowerCase()}`}
-                              aria-hidden="true"
-                            >
-                              {file.contentType === "FILE"
-                                ? "DOC"
-                                : file.contentType.slice(0, 3)}
-                            </span>
-                            <div className="message-storage-file-copy">
-                              <div>
-                                <strong title={file.originalFileName}>
-                                  {file.originalFileName}
-                                </strong>
-                                <b>{formatFileSize(file.fileSizeBytes)}</b>
-                              </div>
-                              <small>
-                                {storageUsage.scope === "USER" &&
-                                  `${file.conversationTitle ?? "Conversation"} · `}
-                                {file.sender.displayName} ·{" "}
-                                {formatConversationTime(file.sentAt)}
-                              </small>
-                            </div>
-                            <div className="message-storage-file-actions">
-                              <button
-                                type="button"
-                                onClick={() =>
-                                  void openStorageOriginalMessage(file)
-                                }
-                                disabled={actionPending}
-                              >
-                                Open message
-                              </button>
-                              {file.canDeleteForMe && (
-                                <button
-                                  type="button"
-                                  onClick={() =>
-                                    void handleStorageFileDelete(file, "ME")
-                                  }
-                                  disabled={actionPending}
-                                >
-                                  Delete message for me
-                                </button>
-                              )}
-                              {file.canDeleteForEveryone && (
-                                <button
-                                  type="button"
-                                  className="danger"
-                                  onClick={() =>
-                                    void handleStorageFileDelete(
-                                      file,
-                                      "EVERYONE",
-                                    )
-                                  }
-                                  disabled={actionPending}
-                                >
-                                  Delete message for everyone
-                                </button>
-                              )}
-                            </div>
-                          </article>
-                        );
-                      })}
-                    </div>
-                  )}
-                </section>
-
-                <footer className="message-storage-privacy-note">
-                  <MessageNavigationIcon name="official" />
-                  <span>{storageUsage.privacyNotice}</span>
-                </footer>
-              </div>
-            ) : null}
-          </section>
-        </div>
-      )}
-
       {pinnedMessageBrowserOpen && selectedConversation && (
         <div className="message-dialog-backdrop" role="presentation">
           <section
@@ -22893,7 +24996,7 @@ export function MessageAppPage() {
 
       {forwardingMessage && (
         <div
-          className="message-contact-backdrop"
+          className="message-contact-backdrop message-forward-backdrop"
           role="presentation"
           onMouseDown={(event) => {
             if (event.currentTarget === event.target) {
@@ -22909,41 +25012,41 @@ export function MessageAppPage() {
             data-message-modal="forward"
             tabIndex={-1}
           >
-            <header>
+            <header className="message-forward-header">
               <div>
-                <span>Message action</span>
-                <h2 id="forward-message-title">Forward message</h2>
+                <h2 id="forward-message-title">Forward</h2>
+                <p>Choose up to 20 chats</p>
               </div>
 
               <button
                 type="button"
                 onClick={closeForwardDialog}
                 disabled={forwardSubmitting}
-                aria-label="Close forward message dialog"
+                aria-label="Close forward dialog"
               >
                 ×
               </button>
             </header>
 
             <div className="message-forward-source">
-              <strong>
-                {forwardingMessage.forwardedFrom
-                  ? "Forwarded message"
-                  : `From ${forwardingMessage.sender.displayName}`}
-              </strong>
-              <p>{attachmentLabel(forwardingMessage)}</p>
+              <span>Forwarding</span>
+              <strong>{attachmentLabel(forwardingMessage)}</strong>
             </div>
 
-            <label className="message-contact-search">
-              <span>Select up to 20 conversations</span>
+            <div className="message-forward-search">
+              <svg viewBox="0 0 24 24" aria-hidden="true">
+                <circle cx="11" cy="11" r="6.5" />
+                <path d="m16 16 4 4" />
+              </svg>
               <input
                 type="search"
                 value={forwardSearch}
                 onChange={(event) => setForwardSearch(event.target.value)}
-                placeholder="Search conversations"
+                placeholder="Search chats"
+                aria-label="Search chats to forward to"
                 autoFocus
               />
-            </label>
+            </div>
 
             <div className="message-forward-list">
               {listMode && listCandidatesLoading ? (
@@ -23006,7 +25109,11 @@ export function MessageAppPage() {
                           {conversation.title ?? "Private conversation"}
                         </strong>
                         <small>
-                          {messagePreview(conversation, account?.id ?? "")}
+                          {conversation.type === "PRIVATE"
+                            ? "Private chat"
+                            : conversation.groupKind === "OFFICIAL"
+                              ? "Official group"
+                              : "Group"}
                         </small>
                       </span>
                     </label>
@@ -23037,130 +25144,6 @@ export function MessageAppPage() {
                 </button>
               </div>
             </footer>
-          </section>
-        </div>
-      )}
-
-      {(messageInformation || messageInformationError) && (
-        <div
-          className="message-contact-backdrop"
-          role="presentation"
-          onMouseDown={(event) => {
-            if (event.currentTarget === event.target) {
-              closeMessageInformationDialog();
-            }
-          }}
-        >
-          <section
-            className="message-contact-dialog message-info-dialog"
-            role="dialog"
-            aria-modal="true"
-            aria-labelledby="message-info-title"
-            data-message-modal="message-information"
-            tabIndex={-1}
-          >
-            <header>
-              <div>
-                <span>Message action</span>
-                <h2 id="message-info-title">Message information</h2>
-              </div>
-
-              <button
-                type="button"
-                onClick={closeMessageInformationDialog}
-                aria-label="Close message information dialog"
-              >
-                ×
-              </button>
-            </header>
-
-            {messageInformationError && !messageInformation ? (
-              <div className="message-info-state">
-                <strong>Could not load message information</strong>
-                <p>{messageInformationError}</p>
-              </div>
-            ) : messageInformation ? (
-              <div className="message-info-body">
-                <section className="message-info-summary">
-                  <span>Original message</span>
-                  <strong>{attachmentLabel(messageInformation.message)}</strong>
-                  <small>
-                    Sent {notificationTimestampLabel(messageInformation.sentAt)}
-                  </small>
-                </section>
-
-                <section
-                  className="message-info-counts"
-                  aria-label="Delivery summary"
-                >
-                  <div>
-                    <strong>
-                      {messageInformation.summary.totalRecipients}
-                    </strong>
-                    <span>Recipients</span>
-                  </div>
-                  <div>
-                    <strong>{messageInformation.summary.delivered}</strong>
-                    <span>Delivered</span>
-                  </div>
-                  <div>
-                    <strong>{messageInformation.summary.read}</strong>
-                    <span>Read</span>
-                  </div>
-                </section>
-
-                <section className="message-info-recipients">
-                  <h3>Recipient details</h3>
-
-                  {messageInformation.recipients.length === 0 ? (
-                    <p>This message has no separate recipients.</p>
-                  ) : (
-                    messageInformation.recipients.map((recipient) => (
-                      <article
-                        key={recipient.accountId}
-                        className="message-info-recipient"
-                      >
-                        {renderAccountAvatar(
-                          recipient.account,
-                          "message-avatar small",
-                        )}
-
-                        <div>
-                          <strong>{recipient.account.displayName}</strong>
-                          <small>
-                            {recipient.account.employee?.designation ??
-                              roleLabel(recipient.account.role)}
-                          </small>
-                        </div>
-
-                        <dl>
-                          <div>
-                            <dt>Delivered</dt>
-                            <dd>
-                              {recipient.deliveredAt
-                                ? notificationTimestampLabel(
-                                  recipient.deliveredAt,
-                                )
-                                : "Pending"}
-                            </dd>
-                          </div>
-                          <div>
-                            <dt>Read</dt>
-                            <dd>
-                              {recipient.readAt
-                                ? notificationTimestampLabel(recipient.readAt)
-                                : recipient.readHidden
-                                  ? "Hidden by privacy"
-                                  : "Not read"}
-                            </dd>
-                          </div>
-                        </dl>
-                      </article>
-                    ))
-                  )}
-                </section>
-              </div>
-            ) : null}
           </section>
         </div>
       )}

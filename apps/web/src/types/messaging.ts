@@ -300,12 +300,8 @@ export interface MessagingConversation {
   viewerParticipantRole: ConversationParticipantRole | null;
   canManageGroup: boolean;
   memberCount: number;
-  participants: Array<
-    MessagingAccount & {
-      joinedAt: string;
-      participantRole: ConversationParticipantRole;
-    }
-  >;
+  participantsComplete: boolean;
+  participants: MessagingGroupMember[];
   lastMessage: MessagingMessage | null;
   createdAt: string;
   updatedAt: string;
@@ -374,8 +370,18 @@ export interface MessagingContactsResponse {
   };
 }
 
+export interface MessagingGroupMember extends MessagingAccount {
+  joinedAt: string;
+  participantRole: ConversationParticipantRole;
+}
+
 export interface ConversationListResponse {
   data: MessagingConversation[];
+  pagination: CursorPagination;
+}
+
+export interface GroupMemberListResponse {
+  data: MessagingGroupMember[];
   pagination: CursorPagination;
 }
 
@@ -625,6 +631,27 @@ export type MessagingNotificationType =
   | "WORK_ITEM"
   | "DUTY";
 
+
+export interface MessagingPushConfigResponse {
+  enabled: boolean;
+  publicKey: string | null;
+}
+
+export interface MessagingPushSubscriptionInput {
+  endpoint: string;
+  keys: {
+    p256dh: string;
+    auth: string;
+  };
+  showPreview: boolean;
+  isMuted: boolean;
+}
+
+export interface MessagingPushSubscriptionResponse {
+  enabled?: boolean;
+  subscribed: boolean;
+}
+
 export interface MessagingNotification {
   id: string;
   recipientAccountId: string;
@@ -841,6 +868,7 @@ export interface StarredMessageItem {
 
 export interface StarredMessagesResponse {
   data: StarredMessageItem[];
+  pagination: CursorPagination;
 }
 
 export interface PinnedMessagesResponse {

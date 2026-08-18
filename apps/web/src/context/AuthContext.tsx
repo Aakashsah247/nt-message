@@ -2,7 +2,13 @@ import { createContext, useContext, useEffect, useState } from "react";
 import type { ReactNode } from "react";
 import { loginUser, logoutAuth, refreshAuth } from "../services/auth.service";
 import { recordActivityEvent } from "../services/monitoring.service";
+import { syncMessagingPushSubscription } from "../services/messaging-push.service";
 import type { AuthAccount, AuthResponse } from "../types/auth";
+import {
+  BROWSER_NOTIFICATION_STORAGE_KEY,
+  readMessagingBooleanPreference,
+  readMessagingDeviceSettings,
+} from "../utils/messaging-preferences";
 
 const DAILY_LOGOUT_HOUR = 18;
 const DAY_IN_MILLISECONDS = 24 * 60 * 60 * 1000;
@@ -86,6 +92,32 @@ export function AuthProvider({ children }: AuthProviderProps) {
       active = false;
     };
   }, []);
+
+  useEffect(() => {
+    if (!account || !accessToken || !("Notification" in window)) {
+      return;
+    }
+
+    const browserNotificationsEnabled = readMessagingBooleanPreference(
+      window.localStorage,
+      BROWSER_NOTIFICATION_STORAGE_KEY,
+      account.id,
+      false,
+    );
+
+    if (!browserNotificationsEnabled || window.Notification.permission !== "granted") {
+      return;
+    }
+
+    const settings = readMessagingDeviceSettings(window.localStorage, account.id);
+
+    // Re-link the browser's persistent PushSubscription to the newly authenticated
+    // session after login/refresh. The server rejects delivery once that session is revoked.
+    void syncMessagingPushSubscription(accessToken, {
+      showPreview: settings.notificationPreview,
+      isMuted: settings.muteAllNotifications,
+    }).catch(() => undefined);
+  }, [account, accessToken]);
 
   useEffect(() => {
     if (!account || !accessToken || !accessTokenExpiresIn) {
