@@ -1,0 +1,55 @@
+{
+  "brand": {
+    "dashboardAria": "NT Message dashboard",
+    "organization": "Nepal Telecom"
+  },
+  "navigation": {
+    "primaryAria": "{{role}} primary navigation",
+    "close": "Close navigation",
+    "expand": "Expand navigation",
+    "collapse": "Collapse navigation",
+    "sections": {
+      "overview": "Overview",
+      "peopleAccess": "People & Access",
+      "operations": "Operations",
+      "governance": "Governance",
+      "communication": "Communication",
+      "account": "Account",
+      "priority": "Priority"
+    },
+    "items": {
+      "dashboard": "Dashboard",
+      "directory": "Directory",
+      "accountRequests": "Account requests",
+      "managementPositions": "Management positions",
+      "workManagement": "Work Management",
+      "myWork": "My Work",
+      "dutyRoster": "Duty Roster",
+      "myDuty": "My Duty",
+      "teamManagement": "Team Management",
+      "reports": "Reports",
+      "organization": "Organization",
+      "analytics": "Analytics",
+      "monitoring": "Monitoring",
+      "officialProfile": "Official profile",
+      "messages": "Messages",
+      "settings": "Settings"
+    },
+    "open": "Open navigation"
+  },
+  "account": {
+    "signedAs": "Signed as",
+    "signOut": "Sign out",
+    "signingOut": "Signing out..."
+  },
+  "topbar": {
+    "workspace": "{{role}} workspace",
+    "secureSession": "Secure session"
+  },
+  "roles": {
+    "superAdmin": "Super Admin",
+    "seniorManagement": "Senior Management",
+    "teamManager": "Team Manager",
+    "employee": "Employee"
+  }
+}

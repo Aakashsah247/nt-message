@@ -1,3 +1,5 @@
+import type { InterfaceLanguage } from "../i18n/language";
+
 export type AccountRole =
   | "SUPER_ADMIN"
   | "SENIOR_MANAGEMENT"
@@ -10,6 +12,7 @@ export interface AuthAccount {
   role: AccountRole;
   displayName: string;
   positionLabel: string;
+  interfaceLanguage: InterfaceLanguage;
 }
 
 export interface AuthResponse {

@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { useTranslation } from "react-i18next";
 
 import type { CSSProperties, ReactNode } from "react";
 
@@ -62,18 +63,18 @@ function formatBytes(value: number): string {
   return `${amount >= 10 || unitIndex === 0 ? amount.toFixed(0) : amount.toFixed(1)} ${units[unitIndex]}`;
 }
 
-function formatDateTime(value: string | null): string {
+function formatDateTime(value: string | null, locale: string, fallback: string): string {
   if (!value) {
-    return "No activity yet";
+    return fallback;
   }
 
   const date = new Date(value);
 
   if (Number.isNaN(date.getTime())) {
-    return "No activity yet";
+    return fallback;
   }
 
-  return new Intl.DateTimeFormat("en-GB", {
+  return new Intl.DateTimeFormat(locale, {
     day: "2-digit",
     month: "short",
     year: "numeric",
@@ -204,6 +205,9 @@ function AnalyticsIcon({ name }: { name: AnalyticsIconName }): ReactNode {
 export function MessagingAnalyticsPanel({
   accessToken,
 }: MessagingAnalyticsPanelProps) {
+  const { t, i18n } = useTranslation("analytics");
+  const locale = i18n.resolvedLanguage === "ne" ? "ne-NP" : "en-GB";
+
   const [analytics, setAnalytics] = useState<MessagingAnalyticsResponse | null>(
     null,
   );
@@ -213,7 +217,7 @@ export function MessagingAnalyticsPanel({
 
   useEffect(() => {
     if (!accessToken) {
-      setError("Your secure session is not available. Sign in again.");
+      setError(t("errors.session"));
       setLoading(false);
       return;
     }
@@ -241,7 +245,7 @@ export function MessagingAnalyticsPanel({
         setError(
           requestError instanceof Error
             ? requestError.message
-            : "Analytics could not be loaded.",
+            : t("errors.load"),
         );
       })
       .finally(() => {
@@ -253,7 +257,7 @@ export function MessagingAnalyticsPanel({
     return () => {
       active = false;
     };
-  }, [accessToken, refreshKey]);
+  }, [accessToken, refreshKey, t]);
 
   const primaryCards = useMemo<OverviewCard[]>(() => {
     if (!analytics) {
@@ -262,46 +266,46 @@ export function MessagingAnalyticsPanel({
 
     return [
       {
-        label: "Total users",
+        label: t("account.totalUsers"),
         value: analytics.totals.users,
-        hint: `${formatNumber(analytics.totals.enabledUsers)} enabled · ${formatNumber(analytics.totals.disabledUsers)} disabled`,
-        meta: `${percentage(analytics.totals.enabledUsers, analytics.totals.users)} enabled`,
+        hint: t("account.totalUsersHint", { enabled: formatNumber(analytics.totals.enabledUsers), disabled: formatNumber(analytics.totals.disabledUsers) }),
+        meta: t("account.enabledMeta", { percent: percentage(analytics.totals.enabledUsers, analytics.totals.users) }),
         icon: "users",
         tone: "blue",
       },
       {
-        label: "Active employees",
+        label: t("account.activeEmployees"),
         value: analytics.totals.activeEmployeeUsers,
-        hint: "Activated, employed and enabled users",
-        meta: `${percentage(analytics.totals.activeEmployeeUsers, analytics.totals.users)} of users`,
+        hint: t("account.activeEmployeesHint"),
+        meta: t("account.ofUsers", { percent: percentage(analytics.totals.activeEmployeeUsers, analytics.totals.users) }),
         icon: "active",
         tone: "green",
       },
       {
-        label: "Enabled accounts",
+        label: t("account.enabledAccounts"),
         value: analytics.totals.enabledUsers,
-        hint: "Accounts currently permitted to sign in",
-        meta: `${percentage(analytics.totals.enabledUsers, analytics.totals.users)} access rate`,
+        hint: t("account.enabledAccountsHint"),
+        meta: t("account.accessRate", { percent: percentage(analytics.totals.enabledUsers, analytics.totals.users) }),
         icon: "enabled",
         tone: "gold",
       },
       {
-        label: "Disabled accounts",
+        label: t("account.disabledAccounts"),
         value: analytics.totals.disabledUsers,
-        hint: "Accounts currently blocked from access",
-        meta: `${percentage(analytics.totals.disabledUsers, analytics.totals.users)} of users`,
+        hint: t("account.disabledAccountsHint"),
+        meta: t("account.ofUsers", { percent: percentage(analytics.totals.disabledUsers, analytics.totals.users) }),
         icon: "disabled",
         tone: "red",
       },
     ];
-  }, [analytics]);
+  }, [analytics, t]);
 
   if (loading) {
     return (
       <section className="analytics-panel analytics-panel-state" aria-busy="true">
         <div className="spinner" />
-        <strong>Preparing organization analytics</strong>
-        <p>Loading scoped workforce data and your personal communication totals...</p>
+        <strong>{t("state.loadingTitle")}</strong>
+        <p>{t("state.loadingDescription")}</p>
       </section>
     );
   }
@@ -309,13 +313,13 @@ export function MessagingAnalyticsPanel({
   if (error) {
     return (
       <section className="analytics-panel analytics-panel-state" role="alert">
-        <strong>Analytics unavailable</strong>
+        <strong>{t("state.unavailable")}</strong>
         <p>{error}</p>
         <button
           type="button"
           onClick={() => setRefreshKey((current) => current + 1)}
         >
-          Try again
+          {t("common.tryAgain")}
         </button>
       </section>
     );
@@ -358,35 +362,35 @@ export function MessagingAnalyticsPanel({
   );
   const scopeLabel =
     analytics.scope.role === "SENIOR_MANAGEMENT"
-      ? analytics.scope.division?.name ?? "Assigned division"
+      ? analytics.scope.division?.name ?? t("scope.division")
       : analytics.scope.role === "TEAM_MANAGER"
         ? analytics.scope.department?.name ??
           analytics.scope.division?.name ??
-          "Assigned department"
-        : "All Nepal Telecom units";
+          t("scope.department")
+        : t("scope.allUnits");
   const operationCards: OperationCard[] = [
     {
-      label: "Conversations",
+      label: t("personal.conversations"),
       value: analytics.totals.conversations,
-      hint: "Conversations where your account is a participant",
+      hint: t("personal.conversationsHint"),
       icon: "conversations",
     },
     {
-      label: "Messages",
+      label: t("personal.messages"),
       value: analytics.totals.messages,
-      hint: "Messages sent by your account without exposing content",
+      hint: t("personal.messagesHint"),
       icon: "messages",
     },
     {
-      label: "Attachments",
+      label: t("personal.attachments"),
       value: analytics.totals.attachments,
-      hint: `${formatBytes(attachmentBytes)} used by attachments you uploaded`,
+      hint: t("personal.attachmentsHint", { size: formatBytes(attachmentBytes) }),
       icon: "attachments",
     },
     {
-      label: "Notifications",
+      label: t("personal.notifications"),
       value: analytics.totals.notifications,
-      hint: `${formatNumber(analytics.totals.unreadNotifications)} unread for your account`,
+      hint: t("personal.notificationsHint", { value: formatNumber(analytics.totals.unreadNotifications) }),
       icon: "notifications",
     },
   ];
@@ -403,6 +407,7 @@ export function MessagingAnalyticsPanel({
     items: MessagingAnalyticsCountItem[],
     maximum: number,
     emptyMessage: string,
+    labelForItem: (item: MessagingAnalyticsCountItem) => string = (item) => item.label,
   ): ReactNode {
     if (items.length === 0) {
       return <p className="analytics-empty-row">{emptyMessage}</p>;
@@ -418,7 +423,7 @@ export function MessagingAnalyticsPanel({
         } as CSSProperties}
       >
         <div className="analytics-metric-row__heading">
-          <span>{item.label}</span>
+          <span>{labelForItem(item)}</span>
           <strong>{formatNumber(item.count)}</strong>
         </div>
         <div className="analytics-progress" aria-hidden="true">
@@ -431,44 +436,44 @@ export function MessagingAnalyticsPanel({
   return (
     <section
       className="analytics-panel analytics-panel--professional"
-      aria-label="Organization analytics dashboard"
+      aria-label={t("hero.aria")}
     >
       <header className="analytics-header">
         <div className="analytics-header__report">
-          <span>Analytics report</span>
-          <h2>{analytics.scope.label}</h2>
-          <p>{analytics.privacyNotice}</p>
+          <span>{t("hero.eyebrow")}</span>
+          <h2>{scopeLabel}</h2>
+          <p>{t("hero.description")}</p>
 
           <div className="analytics-header__assurance">
-            <strong>Governance scope + personal communication</strong>
+            <strong>{t("hero.title")}</strong>
             <small>
-              Workforce totals follow your role scope. Message, attachment and notification totals belong only to your account.
+              {t("hero.assuranceDescription")}
             </small>
           </div>
         </div>
 
-        <aside className="analytics-scope-card" aria-label="Analytics scope">
+        <aside className="analytics-scope-card" aria-label={t("hero.scope")}>
           <div className="analytics-scope-card__icon">
             <AnalyticsIcon name="scope" />
           </div>
           <div>
-            <small>Authorized scope</small>
-            <strong>{formatRole(analytics.scope.role)}</strong>
+            <small>{t("hero.authorizedScope")}</small>
+            <strong>{t(`role.${analytics.scope.role}`, { defaultValue: formatRole(analytics.scope.role) })}</strong>
             <span>{scopeLabel}</span>
           </div>
           <div className="analytics-scope-card__footer">
-            <small>Generated {formatDateTime(analytics.generatedAt)}</small>
+            <small>{t("hero.generated", { date: formatDateTime(analytics.generatedAt, locale, t("common.noActivity")) })}</small>
             <button
               type="button"
               onClick={() => setRefreshKey((current) => current + 1)}
             >
-              Refresh data
+              {t("hero.refreshData")}
             </button>
           </div>
         </aside>
       </header>
 
-      <section className="analytics-card-grid" aria-label="Account overview">
+      <section className="analytics-card-grid" aria-label={t("account.aria")}>
         {primaryCards.map((card, index) => (
           <article
             className={`analytics-card analytics-card--${card.tone}`}
@@ -495,11 +500,11 @@ export function MessagingAnalyticsPanel({
       <article className="analytics-section-card analytics-section-card--operations">
         <header>
           <div>
-            <span>My communication activity</span>
-            <h3>Personal account snapshot</h3>
-            <p>Only communication records belonging to your authenticated account.</p>
+            <span>{t("personal.eyebrow")}</span>
+            <h3>{t("personal.title")}</h3>
+            <p>{t("personal.description")}</p>
           </div>
-          <div className="analytics-section-card__badge">Current snapshot</div>
+          <div className="analytics-section-card__badge">{t("personal.badge")}</div>
         </header>
 
         <div className="analytics-operation-grid">
@@ -526,9 +531,9 @@ export function MessagingAnalyticsPanel({
         <article className="analytics-section-card">
           <header>
             <div>
-              <span>Workforce distribution</span>
-              <h3>Users by role</h3>
-              <p>Account distribution inside the authorized scope.</p>
+              <span>{t("workforce.eyebrow")}</span>
+              <h3>{t("workforce.title")}</h3>
+              <p>{t("workforce.description")}</p>
             </div>
           </header>
 
@@ -536,7 +541,8 @@ export function MessagingAnalyticsPanel({
             {renderDistribution(
               visibleRoles,
               largestRoleCount,
-              "No role distribution data is available.",
+              t("workforce.empty"),
+              (item) => t(`role.${item.key}`, { defaultValue: item.label }),
             )}
           </div>
         </article>
@@ -544,37 +550,37 @@ export function MessagingAnalyticsPanel({
         <article className="analytics-section-card analytics-section-card--organization">
           <header>
             <div>
-              <span>Organization coverage</span>
-              <h3>Division and department spread</h3>
-              <p>Top organization units by enabled account count.</p>
+              <span>{t("organization.eyebrow")}</span>
+              <h3>{t("organization.title")}</h3>
+              <p>{t("organization.description")}</p>
             </div>
           </header>
 
           <div className="analytics-split-list">
             <section>
               <div className="analytics-split-list__title">
-                <strong>Divisions</strong>
-                <span>{visibleDivisions.length} shown</span>
+                <strong>{t("organization.divisions")}</strong>
+                <span>{t("organization.shown", { count: visibleDivisions.length })}</span>
               </div>
               <div className="analytics-org-list">
                 {renderDistribution(
                   visibleDivisions,
                   largestDivisionCount,
-                  "No division data is available.",
+                  t("organization.noDivisions"),
                 )}
               </div>
             </section>
 
             <section>
               <div className="analytics-split-list__title">
-                <strong>Departments</strong>
-                <span>{visibleDepartments.length} shown</span>
+                <strong>{t("organization.departments")}</strong>
+                <span>{t("organization.shown", { count: visibleDepartments.length })}</span>
               </div>
               <div className="analytics-org-list">
                 {renderDistribution(
                   visibleDepartments,
                   largestDepartmentCount,
-                  "No department data is available.",
+                  t("organization.noDepartments"),
                 )}
               </div>
             </section>
@@ -586,37 +592,39 @@ export function MessagingAnalyticsPanel({
         <article className="analytics-section-card">
           <header>
             <div>
-              <span>My communication mix</span>
-              <h3>My conversation and message types</h3>
-              <p>Personal distribution by system-defined content category.</p>
+              <span>{t("mix.eyebrow")}</span>
+              <h3>{t("mix.title")}</h3>
+              <p>{t("mix.description")}</p>
             </div>
           </header>
 
           <div className="analytics-split-list analytics-split-list--compact">
             <section>
               <div className="analytics-split-list__title">
-                <strong>Conversations</strong>
-                <span>{formatNumber(analytics.totals.conversations)} total</span>
+                <strong>{t("mix.conversations")}</strong>
+                <span>{t("mix.total", { value: formatNumber(analytics.totals.conversations) })}</span>
               </div>
               <div className="analytics-org-list">
                 {renderDistribution(
                   visibleConversationTypes,
                   largestConversationCount,
-                  "No conversation data is available.",
+                  t("mix.noConversations"),
+                  (item) => t(`category.conversation.${item.key}`, { defaultValue: item.label }),
                 )}
               </div>
             </section>
 
             <section>
               <div className="analytics-split-list__title">
-                <strong>Messages</strong>
-                <span>{formatNumber(analytics.totals.messages)} total</span>
+                <strong>{t("mix.messages")}</strong>
+                <span>{t("mix.total", { value: formatNumber(analytics.totals.messages) })}</span>
               </div>
               <div className="analytics-org-list">
                 {renderDistribution(
                   visibleMessageTypes,
                   largestMessageCount,
-                  "No message-type data is available.",
+                  t("mix.noMessages"),
+                  (item) => t(`category.content.${item.key}`, { defaultValue: item.label }),
                 )}
               </div>
             </section>
@@ -626,18 +634,18 @@ export function MessagingAnalyticsPanel({
         <article className="analytics-section-card">
           <header>
             <div>
-              <span>My storage footprint</span>
-              <h3>My attachments by type</h3>
-              <p>Files uploaded by your account and their current retained size.</p>
+              <span>{t("storage.eyebrow")}</span>
+              <h3>{t("storage.title")}</h3>
+              <p>{t("storage.description")}</p>
             </div>
             <div className="analytics-section-card__badge">
-              {formatBytes(attachmentBytes)} total
+              {t("storage.total", { size: formatBytes(attachmentBytes) })}
             </div>
           </header>
 
           <div className="analytics-attachment-list">
             {visibleAttachmentTypes.length === 0 && (
-              <p className="analytics-empty-row">No attachment data is available.</p>
+              <p className="analytics-empty-row">{t("storage.empty")}</p>
             )}
             {visibleAttachmentTypes.map((item, index) => (
               <div
@@ -650,8 +658,8 @@ export function MessagingAnalyticsPanel({
               >
                 <div className="analytics-attachment-row__heading">
                   <div>
-                    <span>{item.label}</span>
-                    <small>{formatNumber(item.count)} files</small>
+                    <span>{t(`category.content.${item.key}`, { defaultValue: item.label })}</span>
+                    <small>{t("storage.files", { count: item.count })}</small>
                   </div>
                   <strong>{formatBytes(item.totalBytes)}</strong>
                 </div>
@@ -667,44 +675,44 @@ export function MessagingAnalyticsPanel({
       <article className="analytics-section-card analytics-activity-card">
         <header>
           <div>
-            <span>Recent activity</span>
-            <h3>Workforce access and my communication</h3>
-            <p>Active-user counts follow your role scope; communication counts are personal.</p>
+            <span>{t("activity.eyebrow")}</span>
+            <h3>{t("activity.title")}</h3>
+            <p>{t("activity.description")}</p>
           </div>
           <div className="analytics-section-card__badge analytics-section-card__badge--secure">
-            Privacy protected
+            {t("activity.privacyProtected")}
           </div>
         </header>
 
         <div className="analytics-activity-grid">
           <div>
             <AnalyticsIcon name="activity" />
-            <span>Active today</span>
+            <span>{t("activity.activeToday")}</span>
             <strong>{formatNumber(analytics.activeUsers.today)}</strong>
           </div>
           <div>
             <AnalyticsIcon name="users" />
-            <span>Active this week</span>
+            <span>{t("activity.activeWeek")}</span>
             <strong>{formatNumber(analytics.activeUsers.thisWeek)}</strong>
           </div>
           <div>
             <AnalyticsIcon name="messages" />
-            <span>My messages today</span>
+            <span>{t("activity.messagesToday")}</span>
             <strong>{formatNumber(analytics.recentActivity.messagesToday)}</strong>
           </div>
           <div>
             <AnalyticsIcon name="messages" />
-            <span>My messages this week</span>
+            <span>{t("activity.messagesWeek")}</span>
             <strong>{formatNumber(analytics.recentActivity.messagesThisWeek)}</strong>
           </div>
           <div>
             <AnalyticsIcon name="attachments" />
-            <span>My attachments today</span>
+            <span>{t("activity.attachmentsToday")}</span>
             <strong>{formatNumber(analytics.recentActivity.attachmentsToday)}</strong>
           </div>
           <div>
             <AnalyticsIcon name="notifications" />
-            <span>My notifications today</span>
+            <span>{t("activity.notificationsToday")}</span>
             <strong>{formatNumber(analytics.recentActivity.notificationsToday)}</strong>
           </div>
         </div>
@@ -714,20 +722,16 @@ export function MessagingAnalyticsPanel({
             <AnalyticsIcon name="activity" />
           </div>
           <div>
-            <span>My latest recorded message activity</span>
-            <strong>{formatDateTime(analytics.recentActivity.latestMessageAt)}</strong>
+            <span>{t("activity.latest")}</span>
+            <strong>{formatDateTime(analytics.recentActivity.latestMessageAt, locale, t("common.noActivity"))}</strong>
           </div>
-          <small>Timestamp only; message content is never included.</small>
+          <small>{t("activity.latestDescription")}</small>
         </footer>
       </article>
 
       <footer className="analytics-data-note">
-        <strong>About this report</strong>
-        <p>
-          This page shows current aggregate snapshots from the existing analytics API.
-          Historical trend charts and date-range comparisons should be added only after
-          the backend provides verified time-series aggregates.
-        </p>
+        <strong>{t("about.title")}</strong>
+        <p>{t("about.description")}</p>
       </footer>
     </section>
   );

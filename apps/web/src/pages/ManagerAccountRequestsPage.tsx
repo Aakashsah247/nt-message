@@ -1,5 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router";
+import type { TFunction } from "i18next";
+import { useTranslation } from "react-i18next";
 
 import { ManagerAccountRequestForm } from "../components/ManagerAccountRequestForm";
 import { ManagerRequestHistory } from "../components/ManagerRequestHistory";
@@ -21,37 +23,35 @@ interface ManagerRequestPageContent {
   scopeLabel: string;
 }
 
-function getPageContent(role: AccountRole | undefined): ManagerRequestPageContent {
+function getPageContent(role: AccountRole | undefined, t: TFunction<"requests">): ManagerRequestPageContent {
   if (role === "SENIOR_MANAGEMENT") {
     return {
-      eyebrow: "Division account governance",
-      title: "Account Requests",
-      description:
-        "Review your own account, manage Team Manager requests and monitor Employee requests submitted under your division.",
-      requestedRoleLabel: "Team Manager",
+      eyebrow: t("managerPage.senior.eyebrow", { ns: "requests" }),
+      title: t("managerPage.senior.title", { ns: "requests" }),
+      description: t("managerPage.senior.description", { ns: "requests" }),
+      requestedRoleLabel: t("managerPage.senior.requestedRole", { ns: "requests" }),
       dashboardPath: "/senior-management",
-      scopeLabel: "Division authority",
+      scopeLabel: t("managerPage.senior.scope", { ns: "requests" }),
     };
   }
 
   return {
-    eyebrow: "Department account governance",
-    title: "Account Requests",
-    description:
-      "Review your own account and manage Employee requests for personnel inside your assigned department.",
-    requestedRoleLabel: "Employee",
+    eyebrow: t("managerPage.manager.eyebrow", { ns: "requests" }),
+    title: t("managerPage.manager.title", { ns: "requests" }),
+    description: t("managerPage.manager.description", { ns: "requests" }),
+    requestedRoleLabel: t("managerPage.manager.requestedRole", { ns: "requests" }),
     dashboardPath: "/team-manager",
-    scopeLabel: "Department authority",
+    scopeLabel: t("managerPage.manager.scope", { ns: "requests" }),
   };
 }
 
-function getErrorMessage(error: unknown): string {
+function getErrorMessage(error: unknown, t: TFunction<"requests">): string {
   return error instanceof Error
     ? error.message
-    : "Your account-request workspace could not be loaded.";
+    : t("managerPage.loadError", { ns: "requests" });
 }
 
-function formatRole(role: string): string {
+function fallbackFormatRole(role: string): string {
   return role
     .toLowerCase()
     .split("_")
@@ -59,7 +59,15 @@ function formatRole(role: string): string {
     .join(" ");
 }
 
+function formatRole(role: string, t: TFunction<"requests">): string {
+  return t(`values.${role}`, {
+    ns: "requests",
+    defaultValue: fallbackFormatRole(role),
+  });
+}
+
 export function ManagerAccountRequestsPage() {
+  const { t } = useTranslation("requests");
   const { account, accessToken } = useAuth();
   const [requestContext, setRequestContext] =
     useState<ManagerRequestContextResponse | null>(null);
@@ -71,8 +79,8 @@ export function ManagerAccountRequestsPage() {
     useState<RequestWorkspaceTab>("MY_STATUS");
 
   const pageContent = useMemo(
-    () => getPageContent(account?.role),
-    [account?.role],
+    () => getPageContent(account?.role, t),
+    [account?.role, t],
   );
   const isSeniorManagement = account?.role === "SENIOR_MANAGEMENT";
 
@@ -100,7 +108,7 @@ export function ManagerAccountRequestsPage() {
         }
 
         setRequestContext(null);
-        setError(getErrorMessage(requestError));
+        setError(getErrorMessage(requestError, t));
       })
       .finally(() => {
         if (active) {
@@ -111,7 +119,7 @@ export function ManagerAccountRequestsPage() {
     return () => {
       active = false;
     };
-  }, [accessToken, retryKey]);
+  }, [accessToken, retryKey, t]);
 
   function retryLoading(): void {
     setLoading(true);
@@ -134,33 +142,33 @@ export function ManagerAccountRequestsPage() {
               <span aria-hidden="true">✓</span>
               <div>
                 <small>{pageContent.scopeLabel}</small>
-                <strong>Request {pageContent.requestedRoleLabel}</strong>
+                <strong>{t("managerPage.requestRole", { role: pageContent.requestedRoleLabel })}</strong>
               </div>
             </div>
 
-            <Link to={pageContent.dashboardPath}>Back to Dashboard</Link>
+            <Link to={pageContent.dashboardPath}>{t("common.backToDashboard")}</Link>
           </div>
         </header>
 
         {loading && (
           <section className="manager-workspace-state" aria-live="polite">
             <div className="spinner" />
-            <p>Loading your trusted request scope...</p>
+            <p>{t("managerPage.loading")}</p>
           </section>
         )}
 
         {!loading && (!accessToken || error) && (
           <section className="manager-workspace-state manager-workspace-state--error" role="alert">
             <div>
-              <strong>Account Requests unavailable</strong>
+              <strong>{t("managerPage.unavailable")}</strong>
               <p>
                 {accessToken
                   ? error
-                  : "Your secure session is not available. Sign in again."}
+                  : t("managerPage.sessionUnavailable")}
               </p>
             </div>
             <button type="button" onClick={retryLoading}>
-              Try again
+              {t("common.tryAgain")}
             </button>
           </section>
         )}
@@ -169,15 +177,15 @@ export function ManagerAccountRequestsPage() {
           <>
             <section
               className="manager-requests-page__scope-strip"
-              aria-label="Trusted account-request scope"
+              aria-label={t("managerPage.scopeAria")}
             >
               <div>
-                <span>Current role</span>
-                <strong>{formatRole(requestContext.role)}</strong>
+                <span>{t("common.currentRole")}</span>
+                <strong>{formatRole(requestContext.role, t)}</strong>
               </div>
 
               <div>
-                <span>Assigned division</span>
+                <span>{t("common.assignedDivision")}</span>
                 <strong>{requestContext.scope.division.name}</strong>
                 <small>{requestContext.scope.division.code}</small>
               </div>
@@ -185,29 +193,29 @@ export function ManagerAccountRequestsPage() {
               <div>
                 <span>
                   {requestContext.role === "SENIOR_MANAGEMENT"
-                    ? "Available departments"
-                    : "Assigned department"}
+                    ? t("common.availableDepartments")
+                    : t("common.assignedDepartment")}
                 </span>
                 <strong>
                   {requestContext.role === "SENIOR_MANAGEMENT"
                     ? requestContext.departments.length
-                    : requestContext.scope.department?.name ?? "Not assigned"}
+                    : requestContext.scope.department?.name ?? t("common.notAssigned")}
                 </strong>
                 <small>
                   {requestContext.role === "SENIOR_MANAGEMENT"
-                    ? "Active departments in your division"
-                    : requestContext.scope.department?.code ?? "Scope unavailable"}
+                    ? t("managerPage.activeDepartments")
+                    : requestContext.scope.department?.code ?? t("common.scopeUnavailable")}
                 </small>
               </div>
 
               <div>
-                <span>Request authority</span>
-                <strong>{formatRole(requestContext.requestedRole)}</strong>
-                <small>Approval authority: Super Admin</small>
+                <span>{t("common.requestAuthority")}</span>
+                <strong>{formatRole(requestContext.requestedRole, t)}</strong>
+                <small>{t("common.approvalAuthority")}</small>
               </div>
             </section>
 
-            <nav className="manager-requests-page__tabs" aria-label="Account request workspace sections">
+            <nav className="manager-requests-page__tabs" aria-label={t("managerPage.tabsAria")}>
               <button
                 type="button"
                 className={activeTab === "MY_STATUS" ? "active" : ""}
@@ -216,8 +224,8 @@ export function ManagerAccountRequestsPage() {
               >
                 <span>01</span>
                 <div>
-                  <strong>My Account Status</strong>
-                  <small>Own identity and activation</small>
+                  <strong>{t("managerPage.myStatus")}</strong>
+                  <small>{t("managerPage.myStatusDescription")}</small>
                 </div>
               </button>
 
@@ -231,13 +239,13 @@ export function ManagerAccountRequestsPage() {
                 <div>
                   <strong>
                     {isSeniorManagement
-                      ? "Request Management"
-                      : "My Employee Requests"}
+                      ? t("managerPage.requestManagement")
+                      : t("managerPage.myEmployeeRequests")}
                   </strong>
                   <small>
                     {isSeniorManagement
-                      ? "Team Manager requests and division oversight"
-                      : "Create and track submitted requests"}
+                      ? t("managerPage.seniorTabDescription")
+                      : t("managerPage.managerTabDescription")}
                   </small>
                 </div>
               </button>
@@ -259,8 +267,8 @@ export function ManagerAccountRequestsPage() {
                 }`}
                 aria-label={
                   isSeniorManagement
-                    ? "Team Manager requests and division Employee request oversight"
-                    : "Employee account request management"
+                    ? t("managerPage.seniorManagementDescription")
+                    : t("managerPage.managerManagementDescription")
                 }
               >
                 <ManagerAccountRequestForm
@@ -296,11 +304,11 @@ export function ManagerAccountRequestsPage() {
             <section className="manager-requests-page__security-notice">
               <span aria-hidden="true">✓</span>
               <div>
-                <strong>Backend scope protection is active</strong>
+                <strong>{t("managerPage.backendProtection")}</strong>
                 <p>
                   {requestContext.role === "SENIOR_MANAGEMENT"
-                    ? "Your account can create Team Manager requests and read Employee requests only inside your assigned division."
-                    : "Your account can create and track Employee requests only for your assigned department."}
+                    ? t("managerPage.seniorProtection")
+                    : t("managerPage.managerProtection")}
                 </p>
               </div>
             </section>

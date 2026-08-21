@@ -1,6 +1,8 @@
 import { useEffect, useState } from "react";
 
 import type { FormEvent } from "react";
+import type { TFunction } from "i18next";
+import { useTranslation } from "react-i18next";
 
 import {
   cancelMyAccountRequest,
@@ -44,37 +46,40 @@ const emptyForm: ResubmitFormState = {
   departmentId: "",
 };
 
-function getErrorMessage(error: unknown): string {
+function getErrorMessage(error: unknown, t: TFunction<"requests">): string {
   return error instanceof Error
     ? error.message
-    : "The request could not be completed.";
+    : t("managerDetail.errorFallback", { ns: "requests" });
 }
 
-function formatRole(role: string): string {
-  return role
+function fallbackFormat(value: string): string {
+  return value
     .toLowerCase()
     .split("_")
     .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
     .join(" ");
 }
 
-function formatStatus(status: string): string {
-  return status
-    .toLowerCase()
-    .split("_")
-    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
-    .join(" ");
+function formatValue(value: string, t: TFunction<"requests">): string {
+  return t(`values.${value}`, {
+    ns: "requests",
+    defaultValue: fallbackFormat(value),
+  });
 }
 
-function formatDate(value: string | null): string {
+function formatDate(
+  value: string | null,
+  locale: string,
+  t: TFunction<"requests">,
+): string {
   if (!value) {
-    return "Not available";
+    return t("common.notAvailable", { ns: "requests" });
   }
 
-  return new Intl.DateTimeFormat("en-GB", {
-    dateStyle: "medium",
-    timeStyle: "short",
-  }).format(new Date(value));
+  return new Intl.DateTimeFormat(
+    locale === "ne" ? "ne-NP-u-ca-gregory" : "en-GB",
+    { dateStyle: "medium", timeStyle: "short" },
+  ).format(new Date(value));
 }
 
 function getStatusClass(status: string): string {
@@ -90,6 +95,7 @@ export function ManagerRequestDetailPanel({
   onCancelled,
   onResubmitted,
 }: ManagerRequestDetailPanelProps) {
+  const { t, i18n } = useTranslation("requests");
   const [detail, setDetail] = useState<
     MyAccountRequestDetail | ScopedAccountRequestDetail | null
   >(null);
@@ -160,7 +166,7 @@ export function ManagerRequestDetailPanel({
           return;
         }
 
-        setError(getErrorMessage(requestError));
+        setError(getErrorMessage(requestError, t));
       })
       .finally(() => {
         if (active) {
@@ -171,7 +177,7 @@ export function ManagerRequestDetailPanel({
     return () => {
       active = false;
     };
-  }, [accessToken, requestId, readOnly, retryKey]);
+  }, [accessToken, requestId, readOnly, retryKey, t]);
 
   function updateField(field: keyof ResubmitFormState, value: string): void {
     setForm((current) => ({
@@ -200,27 +206,27 @@ export function ManagerRequestDetailPanel({
     const officialEmail = form.officialEmail.trim();
 
     if (empId.length < 2) {
-      return "Employee ID must contain at least 2 characters.";
+      return t("form.validationEmployeeIdShort");
     }
 
     if (!/^[a-zA-Z0-9_-]+$/.test(empId)) {
-      return "Employee ID may contain letters, numbers, underscores and hyphens only.";
+      return t("form.validationEmployeeIdPattern");
     }
 
     if (empName.length < 2) {
-      return "Employee name must contain at least 2 characters.";
+      return t("form.validationNameShort");
     }
 
     if (!/^\+?[0-9]{7,20}$/.test(phoneNumber)) {
-      return "Phone number must contain 7 to 20 digits and may start with +.";
+      return t("form.validationPhone");
     }
 
     if (!officialEmail.includes("@")) {
-      return "Enter a valid official email address.";
+      return t("form.validationEmail");
     }
 
     if (isSeniorManagement && !form.departmentId) {
-      return "Select the department this Team Manager will manage.";
+      return t("form.validationManagedDepartment");
     }
 
     return null;
@@ -241,7 +247,7 @@ export function ManagerRequestDetailPanel({
       setSuccess(response.message);
       setRetryKey((current) => current + 1);
     } catch (resendError: unknown) {
-      setError(getErrorMessage(resendError));
+      setError(getErrorMessage(resendError, t));
     } finally {
       setResendingActivationEmail(false);
     }
@@ -267,13 +273,13 @@ export function ManagerRequestDetailPanel({
     const reason = cancelReason.trim().replace(/\s+/g, " ");
 
     if (reason.length < 3) {
-      setError("Enter a cancellation reason of at least 3 characters.");
+      setError(t("managerDetail.cancelReasonShort"));
 
       return;
     }
 
     if (reason.length > 500) {
-      setError("The cancellation reason cannot exceed 500 characters.");
+      setError(t("managerDetail.cancelReasonLong"));
 
       return;
     }
@@ -297,7 +303,7 @@ export function ManagerRequestDetailPanel({
 
       setRetryKey((current) => current + 1);
     } catch (requestError: unknown) {
-      setError(getErrorMessage(requestError));
+      setError(getErrorMessage(requestError, t));
     } finally {
       setCancelling(false);
     }
@@ -343,7 +349,7 @@ export function ManagerRequestDetailPanel({
 
       onResubmitted(response.accountRequest.id);
     } catch (requestError: unknown) {
-      setError(getErrorMessage(requestError));
+      setError(getErrorMessage(requestError, t));
     } finally {
       setSubmitting(false);
     }
@@ -372,17 +378,17 @@ export function ManagerRequestDetailPanel({
         <header className="manager-detail-header">
           <div>
             <span>
-              {readOnly ? "Division employee request" : "Account request"}
+              {readOnly ? t("managerDetail.divisionEmployeeEyebrow") : t("managerDetail.accountEyebrow")}
             </span>
 
-            <h2 id="manager-request-detail-title">Request details</h2>
+            <h2 id="manager-request-detail-title">{t("common.requestDetails")}</h2>
           </div>
 
           <button
             type="button"
             onClick={onClose}
             disabled={submitting || cancelling}
-            aria-label="Close request details"
+            aria-label={t("common.closeRequestDetails")}
           >
             ×
           </button>
@@ -392,7 +398,7 @@ export function ManagerRequestDetailPanel({
           <div className="manager-detail-loading">
             <div className="spinner" />
 
-            <p>Loading request details...</p>
+            <p>{t("common.loadingRequestDetails")}</p>
           </div>
         )}
 
@@ -401,7 +407,7 @@ export function ManagerRequestDetailPanel({
             <p>{error}</p>
 
             <button type="button" onClick={retryLoading}>
-              Try again
+              {t("common.tryAgain")}
             </button>
           </div>
         )}
@@ -410,7 +416,7 @@ export function ManagerRequestDetailPanel({
           <div className="manager-detail-content">
             <section className="manager-detail-summary">
               <div>
-                <span>Employee</span>
+                <span>{t("common.employee")}</span>
 
                 <strong>{detail.empName}</strong>
 
@@ -418,23 +424,23 @@ export function ManagerRequestDetailPanel({
               </div>
 
               <div>
-                <span>Requested role</span>
+                <span>{t("common.requestedRole")}</span>
 
-                <strong>{formatRole(detail.requestedRole)}</strong>
+                <strong>{formatValue(detail.requestedRole, t)}</strong>
 
-                <small>Revision {detail.revisionNumber}</small>
+                <small>{t("managerDetail.revision", { number: detail.revisionNumber })}</small>
               </div>
 
               <div>
-                <span>Status</span>
+                <span>{t("common.status")}</span>
 
                 <strong
                   className={`manager-status ${getStatusClass(detail.status)}`}
                 >
-                  {formatStatus(detail.status)}
+                  {formatValue(detail.status, t)}
                 </strong>
 
-                <small>Submitted {formatDate(detail.submittedAt)}</small>
+                <small>{t("managerDetail.submittedDate", { date: formatDate(detail.submittedAt, i18n.language, t) })}</small>
               </div>
             </section>
 
@@ -455,24 +461,24 @@ export function ManagerRequestDetailPanel({
 
             <section className="activation-delivery-card">
               <div>
-                <span>Activation email</span>
+                <span>{t("common.activationEmail")}</span>
                 <strong
                   className={`activation-delivery-status activation-delivery-status--${detail.activationEmailStatus.toLowerCase()}`}
                 >
-                  {formatStatus(detail.activationEmailStatus)}
+                  {formatValue(detail.activationEmailStatus, t)}
                 </strong>
               </div>
 
               <div>
-                <span>Last attempt</span>
+                <span>{t("managerDetail.lastAttempt")}</span>
                 <strong>
-                  {formatDate(detail.activationEmailLastAttemptAt)}
+                  {formatDate(detail.activationEmailLastAttemptAt, i18n.language, t)}
                 </strong>
               </div>
 
               <div>
-                <span>Sent</span>
-                <strong>{formatDate(detail.activationEmailSentAt)}</strong>
+                <span>{t("managerDetail.sent")}</span>
+                <strong>{formatDate(detail.activationEmailSentAt, i18n.language, t)}</strong>
               </div>
 
               {!readOnly &&
@@ -483,17 +489,17 @@ export function ManagerRequestDetailPanel({
                     disabled={resendingActivationEmail}
                   >
                     {resendingActivationEmail
-                      ? "Sending..."
+                      ? t("managerDetail.sending")
                       : detail.activationEmailStatus === "NOT_SENT"
-                        ? "Send activation email"
-                        : "Resend activation email"}
+                        ? t("managerDetail.sendActivation")
+                        : t("managerDetail.resendActivation")}
                   </button>
                 )}
             </section>
 
             {detail.rejectionReason && (
               <section className="manager-rejection-box" role="alert">
-                <strong>Rejection reason</strong>
+                <strong>{t("managerDetail.rejectionReason")}</strong>
 
                 <p>{detail.rejectionReason}</p>
               </section>
@@ -501,53 +507,53 @@ export function ManagerRequestDetailPanel({
 
             <section className="manager-detail-fields">
               <div>
-                <span>Official email</span>
+                <span>{t("common.officialEmail")}</span>
 
                 <strong>{detail.officialEmail}</strong>
               </div>
 
               <div>
-                <span>Phone number</span>
+                <span>{t("common.phoneNumber")}</span>
 
                 <strong>{detail.phoneNumber}</strong>
               </div>
 
               <div>
-                <span>Designation</span>
+                <span>{t("common.designation")}</span>
 
-                <strong>{detail.designation ?? "Not provided"}</strong>
+                <strong>{detail.designation ?? t("common.notProvided")}</strong>
               </div>
 
               <div>
-                <span>Division</span>
+                <span>{t("common.division")}</span>
 
-                <strong>{detail.division?.name ?? "Not assigned"}</strong>
+                <strong>{detail.division?.name ?? t("common.notAssigned")}</strong>
               </div>
 
               <div>
-                <span>Department</span>
+                <span>{t("common.department")}</span>
 
-                <strong>{detail.department?.name ?? "Not assigned"}</strong>
+                <strong>{detail.department?.name ?? t("common.notAssigned")}</strong>
               </div>
 
               <div>
-                <span>Reviewed</span>
+                <span>{t("managerDetail.reviewed")}</span>
 
-                <strong>{formatDate(detail.reviewedAt)}</strong>
+                <strong>{formatDate(detail.reviewedAt, i18n.language, t)}</strong>
               </div>
 
               {"requestedBy" in detail && (
                 <div>
-                  <span>Requested by</span>
+                  <span>{t("common.requestedBy")}</span>
 
                   <strong>
                     {detail.requestedBy.employee?.empName ??
-                      formatRole(detail.requestedBy.role)}
+                      formatValue(detail.requestedBy.role, t)}
                   </strong>
 
                   <small>
                     {detail.requestedBy.employee?.empId ??
-                      "Authorized requester"}
+                      t("common.authorizedRequester")}
                   </small>
                 </div>
               )}
@@ -555,9 +561,9 @@ export function ManagerRequestDetailPanel({
 
             <section className="manager-history-section">
               <header>
-                <span>Request history</span>
+                <span>{t("managerDetail.history")}</span>
 
-                <h3>Activity timeline</h3>
+                <h3>{t("managerDetail.timeline")}</h3>
               </header>
 
               <div className="manager-history-timeline">
@@ -566,9 +572,9 @@ export function ManagerRequestDetailPanel({
                     <div aria-hidden="true" />
 
                     <div>
-                      <strong>{formatStatus(action.action)}</strong>
+                      <strong>{formatValue(action.action, t)}</strong>
 
-                      <time>{formatDate(action.createdAt)}</time>
+                      <time>{formatDate(action.createdAt, i18n.language, t)}</time>
 
                       {action.reason && <p>{action.reason}</p>}
                     </div>
@@ -579,12 +585,8 @@ export function ManagerRequestDetailPanel({
 
             {readOnly && (
               <section className="manager-detail-readonly">
-                <strong>Read-only division oversight</strong>
-                <p>
-                  You can review this Employee request because it was submitted
-                  by a Team Manager inside your assigned division. Only the
-                  original requester and Super Admin can change its lifecycle.
-                </p>
+                <strong>{t("managerDetail.readOnly")}</strong>
+                <p>{t("managerDetail.readOnlyDescription")}</p>
               </section>
             )}
 
@@ -594,15 +596,11 @@ export function ManagerRequestDetailPanel({
               ) && (
                 <section className="manager-close-section">
                   <header>
-                    <span>Request control</span>
+                    <span>{t("managerDetail.requestControl")}</span>
 
-                    <h3>Cancel this request</h3>
+                    <h3>{t("managerDetail.cancelTitle")}</h3>
 
-                    <p>
-                      Cancelling an approved management request releases its
-                      reserved position and removes the unactivated employee
-                      identity.
-                    </p>
+                    <p>{t("managerDetail.cancelDescription")}</p>
                   </header>
 
                   {!showCancelForm ? (
@@ -616,16 +614,14 @@ export function ManagerRequestDetailPanel({
                       }}
                       disabled={submitting || cancelling}
                     >
-                      Cancel request
+                      {t("managerDetail.cancelAction")}
                     </button>
                   ) : (
                     <form
                       className="manager-cancel-form"
                       onSubmit={handleCancel}
                     >
-                      <label htmlFor="manager-request-cancel-reason">
-                        Cancellation reason
-                      </label>
+                      <label htmlFor="manager-request-cancel-reason">{t("managerDetail.cancelReasonLabel")}</label>
 
                       <textarea
                         id="manager-request-cancel-reason"
@@ -637,13 +633,13 @@ export function ManagerRequestDetailPanel({
                         minLength={3}
                         maxLength={500}
                         rows={4}
-                        placeholder="Explain why this request should be cancelled."
+                        placeholder={t("managerDetail.cancelPlaceholder")}
                         disabled={cancelling}
                         required
                       />
 
                       <div className="manager-cancel-meta">
-                        <span>Minimum 3 characters</span>
+                        <span>{t("common.minimum3")}</span>
 
                         <span>
                           {cancelReason.length}
@@ -658,8 +654,8 @@ export function ManagerRequestDetailPanel({
                           disabled={cancelling}
                         >
                           {cancelling
-                            ? "Cancelling..."
-                            : "Confirm cancellation"}
+                            ? t("managerDetail.cancelling")
+                            : t("managerDetail.confirmCancel")}
                         </button>
 
                         <button
@@ -672,7 +668,7 @@ export function ManagerRequestDetailPanel({
                           }}
                           disabled={cancelling}
                         >
-                          Keep request
+                          {t("managerDetail.keepRequest")}
                         </button>
                       </div>
                     </form>
@@ -683,14 +679,11 @@ export function ManagerRequestDetailPanel({
             {!readOnly && detail.status === "REJECTED" && (
               <form className="manager-resubmit-form" onSubmit={handleResubmit}>
                 <header>
-                  <span>Correct and resubmit</span>
+                  <span>{t("managerDetail.correctResubmit")}</span>
 
-                  <h3>Create the next revision</h3>
+                  <h3>{t("managerDetail.nextRevision")}</h3>
 
-                  <p>
-                    Correct the rejected information and send a new request for
-                    Super Admin review.
-                  </p>
+                  <p>{t("managerDetail.resubmitDescription")}</p>
                 </header>
 
                 {success && (
@@ -707,7 +700,7 @@ export function ManagerRequestDetailPanel({
 
                 <div className="manager-resubmit-grid">
                   <label>
-                    <span>Employee name</span>
+                    <span>{t("common.employeeName")}</span>
 
                     <input
                       type="text"
@@ -721,7 +714,7 @@ export function ManagerRequestDetailPanel({
                   </label>
 
                   <label>
-                    <span>Employee ID</span>
+                    <span>{t("common.employeeId")}</span>
 
                     <input
                       type="text"
@@ -735,7 +728,7 @@ export function ManagerRequestDetailPanel({
                   </label>
 
                   <label>
-                    <span>Phone number</span>
+                    <span>{t("common.phoneNumber")}</span>
 
                     <input
                       type="tel"
@@ -749,7 +742,7 @@ export function ManagerRequestDetailPanel({
                   </label>
 
                   <label>
-                    <span>Official email</span>
+                    <span>{t("common.officialEmail")}</span>
 
                     <input
                       type="email"
@@ -763,7 +756,7 @@ export function ManagerRequestDetailPanel({
                   </label>
 
                   <label>
-                    <span>Designation</span>
+                    <span>{t("common.designation")}</span>
 
                     <input
                       type="text"
@@ -777,7 +770,7 @@ export function ManagerRequestDetailPanel({
 
                   {isSeniorManagement ? (
                     <label>
-                      <span>Managed department</span>
+                      <span>{t("form.managedDepartment")}</span>
 
                       <select
                         value={form.departmentId}
@@ -787,7 +780,7 @@ export function ManagerRequestDetailPanel({
                         disabled={submitting}
                         required
                       >
-                        <option value="">Select department</option>
+                        <option value="">{t("form.selectDepartment")}</option>
 
                         {requestContext.departments.map((department) => (
                           <option key={department.id} value={department.id}>
@@ -796,39 +789,36 @@ export function ManagerRequestDetailPanel({
                         ))}
                       </select>
 
-                      <small>
-                        The Team Manager authority position is created
-                        automatically.
-                      </small>
+                      <small>{t("managerDetail.autoPositionHelp")}</small>
                     </label>
                   ) : (
                     <div className="manager-fixed-field">
-                      <span>Department</span>
+                      <span>{t("common.department")}</span>
 
                       <strong>
                         {requestContext.scope.department?.name ??
-                          "Not assigned"}
+                          t("common.notAssigned")}
                       </strong>
 
-                      <small>Fixed by your account scope.</small>
+                      <small>{t("managerDetail.fixedScope")}</small>
                     </div>
                   )}
                 </div>
 
                 <div className="manager-resubmit-review">
-                  <span>Resubmission department</span>
+                  <span>{t("managerDetail.resubmissionDepartment")}</span>
 
                   <strong>
                     {isSeniorManagement
-                      ? (selectedDepartment?.name ?? "Select a department")
+                      ? (selectedDepartment?.name ?? t("form.selectDepartment"))
                       : (requestContext.scope.department?.name ??
-                        "Not assigned")}
+                        t("common.notAssigned"))}
                   </strong>
                 </div>
 
                 <footer>
                   <button type="submit" disabled={submitting}>
-                    {submitting ? "Resubmitting..." : "Resubmit request"}
+                    {submitting ? t("managerDetail.resubmitting") : t("managerDetail.resubmit")}
                   </button>
                 </footer>
               </form>

@@ -7,6 +7,7 @@ import "./styles/organization-workspace.css";
 import "./styles/monitoring-workspace.css";
 import "./styles/official-profile-workspace.css";
 import "./styles/security-workspace.css";
+import "./styles/settings-workspace.css";
 import "./styles/password-recovery.css";
 import { Navigate, Route, Routes } from "react-router";
 import { ManagementLayout } from "./components/layout/ManagementLayout";
@@ -31,6 +32,7 @@ import { ManagementDutyPage } from "./pages/ManagementDutyPage";
 import { WorkReportsPage } from "./pages/WorkReportsPage";
 import { TeamManagementPage } from "./pages/TeamManagementPage";
 import { SecurityPage } from "./pages/SecurityPage";
+import { SettingsPage } from "./pages/SettingsPage";
 
 export default function App() {
   return (
@@ -286,6 +288,24 @@ export default function App() {
           >
             <ManagementLayout>
               <WorkReportsPage />
+            </ManagementLayout>
+          </ProtectedRoute>
+        }
+      />
+
+      <Route
+        path="/settings"
+        element={
+          <ProtectedRoute
+            roles={[
+              "SUPER_ADMIN",
+              "SENIOR_MANAGEMENT",
+              "TEAM_MANAGER",
+              "EMPLOYEE",
+            ]}
+          >
+            <ManagementLayout>
+              <SettingsPage />
             </ManagementLayout>
           </ProtectedRoute>
         }

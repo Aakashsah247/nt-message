@@ -1,4 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
+import type { TFunction } from "i18next";
+import { useTranslation } from "react-i18next";
 
 import { getOwnAccountStatus } from "../services/account-request.service";
 
@@ -26,7 +28,7 @@ const STATUS_ORDER: AccountRequestStatus[] = [
   "ACTIVATED",
 ];
 
-function formatLabel(value: string): string {
+function fallbackFormatLabel(value: string): string {
   return value
     .toLowerCase()
     .split("_")
@@ -34,25 +36,37 @@ function formatLabel(value: string): string {
     .join(" ");
 }
 
-function formatDate(value: string | null): string {
-  if (!value) {
-    return "Not recorded";
-  }
-
-  return new Intl.DateTimeFormat("en-GB", {
-    dateStyle: "medium",
-    timeStyle: "short",
-  }).format(new Date(value));
+function formatLabel(value: string, t: TFunction<"requests">): string {
+  return t(`values.${value}`, {
+    ns: "requests",
+    defaultValue: fallbackFormatLabel(value),
+  });
 }
 
-function getErrorMessage(error: unknown): string {
+function formatDate(
+  value: string | null,
+  locale: string,
+  t: TFunction<"requests">,
+): string {
+  if (!value) {
+    return t("myStatus.notRecorded", { ns: "requests" });
+  }
+
+  return new Intl.DateTimeFormat(
+    locale === "ne" ? "ne-NP-u-ca-gregory" : "en-GB",
+    { dateStyle: "medium", timeStyle: "short" },
+  ).format(new Date(value));
+}
+
+function getErrorMessage(error: unknown, t: TFunction<"requests">): string {
   return error instanceof Error
     ? error.message
-    : "Your account status could not be loaded.";
+    : t("myStatus.loadError", { ns: "requests" });
 }
 
 function buildTimeline(
   response: OwnAccountStatusResponse,
+  t: TFunction<"requests">,
 ): TimelineStep[] {
   const requestStatus = response.accountRequest?.status;
   const effectiveStatus = response.account.employee?.isActivated
@@ -63,13 +77,13 @@ function buildTimeline(
     return [
       {
         key: "DRAFT",
-        label: "Draft prepared",
+        label: t("myStatus.draftPrepared", { ns: "requests" }),
         complete: false,
         current: true,
       },
       ...STATUS_ORDER.map((status) => ({
         key: status,
-        label: formatLabel(status),
+        label: formatLabel(status, t),
         complete: false,
         current: false,
       })),
@@ -80,13 +94,13 @@ function buildTimeline(
     return [
       {
         key: "PENDING_APPROVAL",
-        label: "Pending Approval",
+        label: t("myStatus.pendingApproval", { ns: "requests" }),
         complete: true,
         current: false,
       },
       {
         key: "REJECTED",
-        label: "Rejected",
+        label: t("common.rejected", { ns: "requests" }),
         complete: false,
         current: true,
       },
@@ -99,7 +113,7 @@ function buildTimeline(
 
   return STATUS_ORDER.map((status, index) => ({
     key: status,
-    label: formatLabel(status),
+    label: formatLabel(status, t),
     complete: effectiveStatus === "ACTIVATED" || index < activeIndex,
     current: index === activeIndex,
   }));
@@ -109,6 +123,7 @@ export function MyAccountStatusPanel({
   accessToken,
   compact = false,
 }: MyAccountStatusPanelProps) {
+  const { t, i18n } = useTranslation("requests");
   const [response, setResponse] = useState<OwnAccountStatusResponse | null>(
     null,
   );
@@ -119,7 +134,7 @@ export function MyAccountStatusPanel({
   useEffect(() => {
     if (!accessToken) {
       setLoading(false);
-      setError("Your secure session is unavailable. Sign in again.");
+      setError(t("myStatus.sessionUnavailable"));
       return;
     }
 
@@ -136,7 +151,7 @@ export function MyAccountStatusPanel({
       .catch((requestError: unknown) => {
         if (active) {
           setResponse(null);
-          setError(getErrorMessage(requestError));
+          setError(getErrorMessage(requestError, t));
         }
       })
       .finally(() => {
@@ -148,11 +163,11 @@ export function MyAccountStatusPanel({
     return () => {
       active = false;
     };
-  }, [accessToken, refreshKey]);
+  }, [accessToken, refreshKey, t]);
 
   const timeline = useMemo(
-    () => (response ? buildTimeline(response) : []),
-    [response],
+    () => (response ? buildTimeline(response, t) : []),
+    [response, t],
   );
 
   if (loading) {
@@ -160,8 +175,8 @@ export function MyAccountStatusPanel({
       <section className="my-account-status my-account-status--state" aria-busy="true">
         <div className="spinner" />
         <div>
-          <strong>Loading your account status</strong>
-          <p>Checking the protected account and activation record...</p>
+          <strong>{t("myStatus.loading")}</strong>
+          <p>{t("myStatus.loadingDescription")}</p>
         </div>
       </section>
     );
@@ -171,11 +186,11 @@ export function MyAccountStatusPanel({
     return (
       <section className="my-account-status my-account-status--state" role="alert">
         <div>
-          <strong>Account status unavailable</strong>
+          <strong>{t("myStatus.unavailable")}</strong>
           <p>{error}</p>
         </div>
         <button type="button" onClick={() => setRefreshKey((value) => value + 1)}>
-          Try again
+          {t("common.tryAgain")}
         </button>
       </section>
     );
@@ -188,12 +203,12 @@ export function MyAccountStatusPanel({
   const { account, accountRequest } = response;
   const employee = account.employee;
   const statusLabel = !account.isEnabled
-    ? "Disabled"
+    ? t("myStatus.disabled")
     : employee?.isActivated
-      ? "Activated"
+      ? t("common.activated")
       : accountRequest
-        ? formatLabel(accountRequest.status)
-        : "Account created";
+        ? formatLabel(accountRequest.status, t)
+        : t("myStatus.accountCreated");
   const statusClass = statusLabel.toLowerCase().replaceAll(" ", "-");
 
   return (
@@ -204,12 +219,9 @@ export function MyAccountStatusPanel({
     >
       <header className="my-account-status__header">
         <div>
-          <span>Personal account record</span>
-          <h2>My Account Status</h2>
-          <p>
-            This section contains only your own identity, activation and request
-            lifecycle information.
-          </p>
+          <span>{t("myStatus.eyebrow")}</span>
+          <h2>{t("myStatus.title")}</h2>
+          <p>{t("myStatus.description")}</p>
         </div>
 
         <div className={`my-account-status__badge my-account-status__badge--${statusClass}`}>
@@ -223,42 +235,42 @@ export function MyAccountStatusPanel({
           {(employee?.empName ?? account.username ?? "NT").charAt(0).toUpperCase()}
         </div>
         <div>
-          <span>{employee?.empId ?? "Administrative account"}</span>
-          <h3>{employee?.empName ?? account.username ?? "NT Message account"}</h3>
-          <p>{employee?.officialEmail ?? account.username ?? "No login identifier"}</p>
+          <span>{employee?.empId ?? t("myStatus.administrativeAccount")}</span>
+          <h3>{employee?.empName ?? account.username ?? t("myStatus.ntAccount")}</h3>
+          <p>{employee?.officialEmail ?? account.username ?? t("myStatus.noIdentifier")}</p>
         </div>
         <dl>
           <div>
-            <dt>Role</dt>
-            <dd>{formatLabel(account.role)}</dd>
+            <dt>{t("common.role")}</dt>
+            <dd>{formatLabel(account.role, t)}</dd>
           </div>
           <div>
-            <dt>Designation</dt>
-            <dd>{employee?.designation ?? "Not assigned"}</dd>
+            <dt>{t("common.designation")}</dt>
+            <dd>{employee?.designation ?? t("common.notAssigned")}</dd>
           </div>
         </dl>
       </section>
 
-      <section className="my-account-status__facts" aria-label="Own account details">
+      <section className="my-account-status__facts" aria-label={t("myStatus.factsAria")}>
         <div>
-          <span>Division</span>
-          <strong>{employee?.division?.name ?? "Not assigned"}</strong>
+          <span>{t("common.division")}</span>
+          <strong>{employee?.division?.name ?? t("common.notAssigned")}</strong>
           <small>{employee?.division?.code ?? "—"}</small>
         </div>
         <div>
-          <span>Department</span>
-          <strong>{employee?.departmentUnit?.name ?? "Not assigned"}</strong>
+          <span>{t("common.department")}</span>
+          <strong>{employee?.departmentUnit?.name ?? t("common.notAssigned")}</strong>
           <small>{employee?.departmentUnit?.code ?? "—"}</small>
         </div>
         <div>
-          <span>Employment</span>
-          <strong>{formatLabel(employee?.employmentStatus ?? "ACTIVE")}</strong>
-          <small>{formatLabel(employee?.status ?? "ACTIVE")}</small>
+          <span>{t("myStatus.employment")}</span>
+          <strong>{formatLabel(employee?.employmentStatus ?? "ACTIVE", t)}</strong>
+          <small>{formatLabel(employee?.status ?? "ACTIVE", t)}</small>
         </div>
         <div>
-          <span>Last successful login</span>
-          <strong>{formatDate(account.lastLoginAt)}</strong>
-          <small>Secure session activity</small>
+          <span>{t("myStatus.lastLogin")}</span>
+          <strong>{formatDate(account.lastLoginAt, i18n.language, t)}</strong>
+          <small>{t("myStatus.secureActivity")}</small>
         </div>
       </section>
 
@@ -266,28 +278,28 @@ export function MyAccountStatusPanel({
         <>
           <section className="my-account-status__request-summary">
             <div>
-              <span>Requested by</span>
+              <span>{t("common.requestedBy")}</span>
               <strong>
                 {accountRequest.requestedBy.employee?.empName ??
-                  formatLabel(accountRequest.requestedBy.role)}
+                  formatLabel(accountRequest.requestedBy.role, t)}
               </strong>
               <small>
-                {accountRequest.requestedBy.employee?.empId ?? "Authorized requester"}
+                {accountRequest.requestedBy.employee?.empId ?? t("common.authorizedRequester")}
               </small>
             </div>
             <div>
-              <span>Requested role</span>
-              <strong>{formatLabel(accountRequest.requestedRole)}</strong>
-              <small>Revision {accountRequest.revisionNumber}</small>
+              <span>{t("common.requestedRole")}</span>
+              <strong>{formatLabel(accountRequest.requestedRole, t)}</strong>
+              <small>{t("myStatus.revision", { number: accountRequest.revisionNumber })}</small>
             </div>
             <div>
-              <span>Submitted</span>
-              <strong>{formatDate(accountRequest.submittedAt)}</strong>
-              <small>Reviewed {formatDate(accountRequest.reviewedAt)}</small>
+              <span>{t("common.submitted")}</span>
+              <strong>{formatDate(accountRequest.submittedAt, i18n.language, t)}</strong>
+              <small>{t("myStatus.reviewedDate", { date: formatDate(accountRequest.reviewedAt, i18n.language, t) })}</small>
             </div>
           </section>
 
-          <ol className="my-account-status__timeline" aria-label="Account request timeline">
+          <ol className="my-account-status__timeline" aria-label={t("myStatus.timelineAria")}>
             {timeline.map((step) => (
               <li
                 key={step.key}
@@ -305,18 +317,15 @@ export function MyAccountStatusPanel({
 
           {accountRequest.rejectionReason && (
             <div className="my-account-status__rejection" role="alert">
-              <strong>Request note</strong>
+              <strong>{t("myStatus.requestNote")}</strong>
               <p>{accountRequest.rejectionReason}</p>
             </div>
           )}
         </>
       ) : (
         <div className="my-account-status__notice">
-          <strong>No linked request history</strong>
-          <p>
-            This account was not created through the standard employee request
-            workflow, or its historical request is unavailable.
-          </p>
+          <strong>{t("myStatus.noHistory")}</strong>
+          <p>{t("myStatus.noHistoryDescription")}</p>
         </div>
       )}
     </article>

@@ -5,6 +5,7 @@ import {
   useState,
 } from "react";
 import type { FormEvent } from "react";
+import { useTranslation } from "react-i18next";
 import { Link } from "react-router";
 
 import {
@@ -15,7 +16,6 @@ import {
 import {
   PASSWORD_MAX_LENGTH,
   PASSWORD_MIN_LENGTH,
-  PASSWORD_REQUIREMENTS_MESSAGE,
   getPasswordRuleChecks,
   isSecurePassword,
 } from "../utils/password-policy";
@@ -23,6 +23,7 @@ import {
 type RecoveryStep = "email" | "otp" | "password" | "success";
 
 export function ForgotPasswordPage() {
+  const { t } = useTranslation(["auth", "common"]);
   const headingRef = useRef<HTMLHeadingElement>(null);
 
   const [step, setStep] = useState<RecoveryStep>("email");
@@ -75,14 +76,14 @@ export function ForgotPasswordPage() {
        * API response is deliberately generic. Advancing every valid email
        * format to OTP entry prevents account enumeration in the UI.
        */
-      setNotice(response.message);
+      setNotice(t("recovery.notices.requested", { ns: "auth" }));
       setResendSeconds(response.resendAfterSeconds);
       setStep("otp");
     } catch (requestError) {
       setError(
         requestError instanceof Error
           ? requestError.message
-          : "The recovery request could not be completed.",
+          : t("recovery.errors.requestFailed", { ns: "auth" }),
       );
     } finally {
       setSubmitting(false);
@@ -100,14 +101,14 @@ export function ForgotPasswordPage() {
     try {
       const response = await requestPasswordReset(officialEmail.trim());
 
-      setNotice(response.message);
+      setNotice(t("recovery.notices.requested", { ns: "auth" }));
       setResendSeconds(response.resendAfterSeconds);
       setOtp("");
     } catch (requestError) {
       setError(
         requestError instanceof Error
           ? requestError.message
-          : "A new recovery code could not be requested.",
+          : t("recovery.errors.resendFailed", { ns: "auth" }),
       );
     } finally {
       setSubmitting(false);
@@ -133,14 +134,14 @@ export function ForgotPasswordPage() {
        */
       setResetToken(response.resetToken);
       setOtp("");
-      setNotice(response.message);
+      setNotice(t("recovery.notices.verified", { ns: "auth" }));
       setStep("password");
     } catch (requestError) {
       setOtp("");
       setError(
         requestError instanceof Error
           ? requestError.message
-          : "The recovery code could not be verified.",
+          : t("recovery.errors.verificationFailed", { ns: "auth" }),
       );
     } finally {
       setSubmitting(false);
@@ -154,19 +155,19 @@ export function ForgotPasswordPage() {
     setError("");
 
     if (!isSecurePassword(newPassword)) {
-      setError(PASSWORD_REQUIREMENTS_MESSAGE);
+      setError(t("password.requirementsMessage", { ns: "common" }));
       return;
     }
 
     if (newPassword !== confirmPassword) {
-      setError("Password confirmation does not match.");
+      setError(t("recovery.errors.passwordMismatch", { ns: "auth" }));
       return;
     }
 
     setSubmitting(true);
 
     try {
-      const response = await completePasswordReset(
+      await completePasswordReset(
         resetToken,
         newPassword,
         confirmPassword,
@@ -175,13 +176,13 @@ export function ForgotPasswordPage() {
       setNewPassword("");
       setConfirmPassword("");
       setResetToken("");
-      setNotice(response.message);
+      setNotice(t("recovery.notices.resetComplete", { ns: "auth" }));
       setStep("success");
     } catch (requestError) {
       setError(
         requestError instanceof Error
           ? requestError.message
-          : "The password could not be reset.",
+          : t("recovery.errors.resetFailed", { ns: "auth" }),
       );
     } finally {
       setSubmitting(false);
@@ -212,90 +213,81 @@ export function ForgotPasswordPage() {
           <div className="left-logo-wrap">
             <img
               src="/nt-logo-transparent.png"
-              alt="Nepal Telecom"
+              alt={t("brand.organization", { ns: "common" })}
               className="left-logo"
             />
           </div>
 
           <div>
-            <h1>NEPAL TELECOM MESSAGE</h1>
-            <p>नेपाल टेलिकम · Secure employee communication</p>
+            <h1>{t("brand.name", { ns: "common" })}</h1>
+            <p>{t("brand.organization", { ns: "common" })} · {t("brand.tagline", { ns: "common" })}</p>
           </div>
         </header>
 
         <div className="visual-copy password-recovery-visual-copy">
-          <span className="secure-badge">Protected account recovery</span>
+          <span className="secure-badge">{t("recovery.visual.badge", { ns: "auth" })}</span>
 
-          <h2>
-            Recover access.
-            <br />
-            Protect every session.
-          </h2>
+          <h2>{t("recovery.visual.headlineLine1", { ns: "auth" })}<br />{t("recovery.visual.headlineLine2", { ns: "auth" })}</h2>
 
-          <p>
-            Reset your NT Message password through your approved official
-            email without exposing account availability or credentials.
-          </p>
+          <p>{t("recovery.visual.description", { ns: "auth" })}</p>
 
           <div className="feature-list">
             <article className="feature-item">
               <span className="feature-number gold">1</span>
               <div>
-                <h3>Private account lookup</h3>
-                <p>Generic responses prevent official-email enumeration.</p>
+                <h3>{t("recovery.visual.features.privacyTitle", { ns: "auth" })}</h3>
+                <p>{t("recovery.visual.features.privacyDescription", { ns: "auth" })}</p>
               </div>
             </article>
 
             <article className="feature-item">
               <span className="feature-number red">2</span>
               <div>
-                <h3>One-time verification</h3>
-                <p>Hashed OTP, expiry, attempt limits and resend cooldown.</p>
+                <h3>{t("recovery.visual.features.otpTitle", { ns: "auth" })}</h3>
+                <p>{t("recovery.visual.features.otpDescription", { ns: "auth" })}</p>
               </div>
             </article>
 
             <article className="feature-item">
               <span className="feature-number green">3</span>
               <div>
-                <h3>Complete session protection</h3>
-                <p>Every active device signs out after a successful reset.</p>
+                <h3>{t("recovery.visual.features.sessionTitle", { ns: "auth" })}</h3>
+                <p>{t("recovery.visual.features.sessionDescription", { ns: "auth" })}</p>
               </div>
             </article>
           </div>
         </div>
 
-        <footer className="visual-footer">
-          Authorized Nepal Telecom employees only
-        </footer>
+        <footer className="visual-footer">{t("brand.authorizedEmployeesOnly", { ns: "common" })}</footer>
       </section>
 
       <section className="login-area password-recovery-area">
         <div className="login-card-new password-recovery-card">
           <div className="card-brand">
             <div className="logo-tile">
-              <img src="/nt-logo.png" alt="Nepal Telecom" />
+              <img src="/nt-logo.png" alt={t("brand.organization", { ns: "common" })} />
             </div>
 
             <div>
-              <strong>NEPAL TELECOM MESSAGE</strong>
-              <span>Nepal Telecom</span>
+              <strong>{t("brand.name", { ns: "common" })}</strong>
+              <span>{t("brand.organization", { ns: "common" })}</span>
             </div>
           </div>
 
           <div className="password-recovery-heading">
             <div>
-              <p>Secure account recovery</p>
+              <p>{t("recovery.card.eyebrow", { ns: "auth" })}</p>
               <h2 ref={headingRef} tabIndex={-1}>
-                {step === "email" && "Forgot your password?"}
-                {step === "otp" && "Verify recovery code"}
-                {step === "password" && "Create a new password"}
-                {step === "success" && "Password reset complete"}
+                {step === "email" && t("recovery.card.titles.email", { ns: "auth" })}
+                {step === "otp" && t("recovery.card.titles.otp", { ns: "auth" })}
+                {step === "password" && t("recovery.card.titles.password", { ns: "auth" })}
+                {step === "success" && t("recovery.card.titles.success", { ns: "auth" })}
               </h2>
             </div>
 
             {step !== "success" && (
               <span className="password-recovery-step-count">
-                Step {stepNumber} of 3
+                {t("recovery.card.stepCount", { ns: "auth", step: stepNumber })}
               </span>
             )}
           </div>
@@ -303,9 +295,9 @@ export function ForgotPasswordPage() {
           {step !== "success" && (
             <ol
               className="password-recovery-progress"
-              aria-label="Password recovery progress"
+              aria-label={t("recovery.card.progressAria", { ns: "auth" })}
             >
-              {["Official email", "Verify code", "New password"].map(
+              {[t("recovery.card.steps.email", { ns: "auth" }), t("recovery.card.steps.otp", { ns: "auth" }), t("recovery.card.steps.password", { ns: "auth" })].map(
                 (label, index) => {
                   const number = index + 1;
                   const active = number === stepNumber;
@@ -335,7 +327,7 @@ export function ForgotPasswordPage() {
 
           {error && (
             <div className="password-recovery-error" role="alert">
-              <strong>Recovery could not continue</strong>
+              <strong>{t("recovery.errors.heading", { ns: "auth" })}</strong>
               <span>{error}</span>
             </div>
           )}
@@ -346,7 +338,7 @@ export function ForgotPasswordPage() {
               onSubmit={handleEmailSubmit}
             >
               <label htmlFor="recovery-email">
-                Official email
+                {t("recovery.email.label", { ns: "auth" })}
 
                 <input
                   id="recovery-email"
@@ -361,10 +353,7 @@ export function ForgotPasswordPage() {
                 />
               </label>
 
-              <p className="password-recovery-help">
-                For privacy, the same confirmation is shown whether or not
-                the email belongs to an eligible NT Message account.
-              </p>
+              <p className="password-recovery-help">{t("recovery.email.privacyHelp", { ns: "auth" })}</p>
 
               <button
                 className="sign-in-btn"
@@ -372,7 +361,7 @@ export function ForgotPasswordPage() {
                 disabled={submitting}
               >
                 <span>
-                  {submitting ? "Requesting code..." : "Continue securely"}
+                  {submitting ? t("recovery.email.requesting", { ns: "auth" }) : t("recovery.email.continue", { ns: "auth" })}
                 </span>
               </button>
             </form>
@@ -385,7 +374,7 @@ export function ForgotPasswordPage() {
             >
               <div className="password-recovery-account">
                 <div>
-                  <small>Recovery email</small>
+                  <small>{t("recovery.otp.recoveryEmail", { ns: "auth" })}</small>
                   <strong>{officialEmail}</strong>
                 </div>
 
@@ -394,12 +383,12 @@ export function ForgotPasswordPage() {
                   onClick={restartRecovery}
                   disabled={submitting}
                 >
-                  Change
+                  {t("actions.change", { ns: "common" })}
                 </button>
               </div>
 
               <label htmlFor="recovery-otp">
-                Six-digit recovery code
+                {t("recovery.otp.codeLabel", { ns: "auth" })}
 
                 <input
                   id="recovery-otp"
@@ -420,7 +409,7 @@ export function ForgotPasswordPage() {
               </label>
 
               <div className="password-recovery-resend">
-                <span>Didn&apos;t receive the code?</span>
+                <span>{t("recovery.otp.notReceived", { ns: "auth" })}</span>
 
                 <button
                   type="button"
@@ -428,8 +417,8 @@ export function ForgotPasswordPage() {
                   disabled={submitting || resendSeconds > 0}
                 >
                   {resendSeconds > 0
-                    ? `Request again in ${resendSeconds}s`
-                    : "Request a new code"}
+                    ? t("recovery.otp.requestAgainIn", { ns: "auth", seconds: resendSeconds })
+                    : t("recovery.otp.requestNew", { ns: "auth" })}
                 </button>
               </div>
 
@@ -439,7 +428,7 @@ export function ForgotPasswordPage() {
                 disabled={submitting || otp.length !== 6}
               >
                 <span>
-                  {submitting ? "Verifying code..." : "Verify code"}
+                  {submitting ? t("recovery.otp.verifying", { ns: "auth" }) : t("recovery.otp.verify", { ns: "auth" })}
                 </span>
               </button>
             </form>
@@ -451,7 +440,7 @@ export function ForgotPasswordPage() {
               onSubmit={handlePasswordSubmit}
             >
               <label htmlFor="reset-new-password">
-                New password
+                {t("recovery.password.newPassword", { ns: "auth" })}
 
                 <div className="password-field">
                   <input
@@ -470,18 +459,18 @@ export function ForgotPasswordPage() {
                     type="button"
                     className="password-toggle"
                     onClick={() => setShowPasswords((current) => !current)}
-                    aria-label={
-                      showPasswords ? "Hide passwords" : "Show passwords"
-                    }
+                    aria-label={showPasswords
+                      ? t("actions.hidePasswords", { ns: "common" })
+                      : t("actions.showPasswords", { ns: "common" })}
                     disabled={submitting}
                   >
-                    {showPasswords ? "Hide" : "Show"}
+                    {showPasswords ? t("actions.hide", { ns: "common" }) : t("actions.show", { ns: "common" })}
                   </button>
                 </div>
               </label>
 
               <label htmlFor="reset-confirm-password">
-                Confirm new password
+                {t("recovery.password.confirmPassword", { ns: "auth" })}
 
                 <input
                   id="reset-confirm-password"
@@ -503,22 +492,16 @@ export function ForgotPasswordPage() {
                 aria-live="polite"
               >
                 <header>
-                  <strong>Password standard</strong>
+                  <strong>{t("password.standard", { ns: "common" })}</strong>
                   <span>{completedRules}/5</span>
                 </header>
 
                 <ul>
-                  <li data-valid={passwordRules.length}>12–128 characters</li>
-                  <li data-valid={passwordRules.uppercase}>
-                    One uppercase letter
-                  </li>
-                  <li data-valid={passwordRules.lowercase}>
-                    One lowercase letter
-                  </li>
-                  <li data-valid={passwordRules.number}>One number</li>
-                  <li data-valid={passwordRules.special}>
-                    One special character
-                  </li>
+                  <li data-valid={passwordRules.length}>{t("password.rules.length", { ns: "common" })}</li>
+                  <li data-valid={passwordRules.uppercase}>{t("password.rules.uppercase", { ns: "common" })}</li>
+                  <li data-valid={passwordRules.lowercase}>{t("password.rules.lowercase", { ns: "common" })}</li>
+                  <li data-valid={passwordRules.number}>{t("password.rules.number", { ns: "common" })}</li>
+                  <li data-valid={passwordRules.special}>{t("password.rules.special", { ns: "common" })}</li>
                 </ul>
               </section>
 
@@ -528,7 +511,7 @@ export function ForgotPasswordPage() {
                 disabled={submitting}
               >
                 <span>
-                  {submitting ? "Resetting password..." : "Reset password"}
+                  {submitting ? t("recovery.password.resetting", { ns: "auth" }) : t("recovery.password.reset", { ns: "auth" })}
                 </span>
               </button>
             </form>
@@ -538,31 +521,31 @@ export function ForgotPasswordPage() {
             <section className="password-recovery-success">
               <span aria-hidden="true">✓</span>
 
-              <h3>Your password is secure and ready</h3>
+              <h3>{t("recovery.success.title", { ns: "auth" })}</h3>
               <p>{notice}</p>
 
               <ul>
-                <li>Your previous password no longer works.</li>
-                <li>Every active NT Message session was signed out.</li>
-                <li>A security confirmation was sent to your official email.</li>
+                <li>{t("recovery.success.previousInvalid", { ns: "auth" })}</li>
+                <li>{t("recovery.success.sessionsSignedOut", { ns: "auth" })}</li>
+                <li>{t("recovery.success.confirmationSent", { ns: "auth" })}</li>
               </ul>
 
               <Link className="sign-in-btn" to="/login">
-                <span>Return to sign in</span>
+                <span>{t("recovery.success.returnToSignIn", { ns: "auth" })}</span>
               </Link>
             </section>
           )}
 
           {step !== "success" && (
             <p className="password-recovery-login-link">
-              Remembered your password?{" "}
-              <Link to="/login">Return to sign in</Link>
+              {t("recovery.footer.remembered", { ns: "auth" })}{" "}
+              <Link to="/login">{t("recovery.footer.returnToSignIn", { ns: "auth" })}</Link>
             </p>
           )}
 
           <div className="security-strip">
-            <strong>Protected by Nepal Telecom security policies</strong>
-            <span>नेपाल टेलिकम — राष्ट्रको सञ्चार</span>
+            <strong>{t("brand.securityPolicies", { ns: "common" })}</strong>
+            <span>{t("brand.motto", { ns: "common" })}</span>
           </div>
         </div>
       </section>

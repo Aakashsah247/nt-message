@@ -1,4 +1,6 @@
 import { useEffect, useState } from "react";
+import type { TFunction } from "i18next";
+import { useTranslation } from "react-i18next";
 
 import { ProtectedAvatar } from "./ProtectedAvatar";
 
@@ -97,13 +99,16 @@ function getEmploymentEffectiveAt(
   ).toISOString();
 }
 
-function getErrorMessage(error: unknown): string {
+function getErrorMessage(
+  error: unknown,
+  t: TFunction<"directory">,
+): string {
   return error instanceof Error
     ? error.message
-    : "The employee details could not be loaded.";
+    : t("detail.errorFallback", { ns: "directory" });
 }
 
-function formatValue(value: string): string {
+function fallbackFormatValue(value: string): string {
   return value
     .toLowerCase()
     .split("_")
@@ -115,34 +120,44 @@ function formatValue(value: string): string {
     .join(" ");
 }
 
-function formatDate(value: string | null): string {
+function formatValue(
+  value: string,
+  t: TFunction<"directory">,
+): string {
+  return t(`values.${value}`, {
+    ns: "directory",
+    defaultValue: fallbackFormatValue(value),
+  });
+}
+
+function formatDate(
+  value: string | null,
+  locale: string,
+  t: TFunction<"directory">,
+): string {
   if (!value) {
-    return "Not available";
+    return t("common.notAvailable", { ns: "directory" });
   }
 
   const date = new Date(value);
 
   if (Number.isNaN(date.getTime())) {
-    return "Not available";
+    return t("common.notAvailable", { ns: "directory" });
   }
 
-  return new Intl.DateTimeFormat("en-GB", {
+  return new Intl.DateTimeFormat(locale === "ne" ? "ne-NP" : "en-GB", {
     dateStyle: "medium",
     timeStyle: "short",
   }).format(date);
 }
 
 function getMetadataString(
-  metadata:
-    Record<string, unknown> | null,
+  metadata: Record<string, unknown> | null,
   key: string,
 ): string | null {
-  const value =
-    metadata?.[key];
+  const value = metadata?.[key];
 
-  return typeof value === "string"
-    ? value
-    : null;
+  return typeof value === "string" ? value : null;
 }
 
 function getStatusClass(value: string): string {
@@ -153,23 +168,29 @@ function getStatusClass(value: string): string {
 
 function getCurrentPositionLabel(
   employee: DirectoryEmployee,
+  t: TFunction<"directory">,
 ): string {
-  const position =
-    employee.currentPosition;
+  const position = employee.currentPosition;
 
   if (!position) {
-    return "No management position";
+    return t("position.none", { ns: "directory" });
   }
 
-  if (
-    position.positionType ===
-    "SENIOR_MANAGEMENT"
-  ) {
-    return `${position.division.name} Senior Management`;
+  if (position.positionType === "SENIOR_MANAGEMENT") {
+    return t("position.seniorManagement", {
+      ns: "directory",
+      division: position.division.name,
+    });
   }
 
-  return `${position.department?.name ?? "Department"} Team Manager`;
+  return t("position.teamManager", {
+    ns: "directory",
+    department:
+      position.department?.name ??
+        t("common.department", { ns: "directory" }),
+  });
 }
+
 
 export function EmployeeDirectoryDetailPanel({
   accessToken,
@@ -178,6 +199,7 @@ export function EmployeeDirectoryDetailPanel({
   onStatusChanged,
   onClose,
 }: EmployeeDirectoryDetailPanelProps) {
+  const { t, i18n } = useTranslation("directory");
   const [response, setResponse] =
     useState<DirectoryEmployeeDetailResponse | null>(null);
 
@@ -360,7 +382,7 @@ export function EmployeeDirectoryDetailPanel({
         }
 
         setResponse(null);
-        setError(getErrorMessage(requestError));
+        setError(getErrorMessage(requestError, t));
       });
 
     return () => {
@@ -370,6 +392,7 @@ export function EmployeeDirectoryDetailPanel({
     accessToken,
     employeeId,
     retryKey,
+    t,
   ]);
 
   useEffect(() => {
@@ -411,6 +434,7 @@ export function EmployeeDirectoryDetailPanel({
           setLifecycleError(
             getErrorMessage(
               requestError,
+              t,
             ),
           );
         },
@@ -429,6 +453,7 @@ export function EmployeeDirectoryDetailPanel({
     employeeId,
     retryKey,
     viewerRole,
+    t,
   ]);
 
   useEffect(() => {
@@ -481,6 +506,7 @@ export function EmployeeDirectoryDetailPanel({
           setOrganizationError(
             getErrorMessage(
               requestError,
+              t,
             ),
           );
         },
@@ -497,6 +523,7 @@ export function EmployeeDirectoryDetailPanel({
   }, [
     accessToken,
     viewerRole,
+    t,
   ]);
 
   useEffect(() => {
@@ -615,8 +642,8 @@ export function EmployeeDirectoryDetailPanel({
 
       setActionMessage(
         pendingStatus === "INACTIVE"
-          ? "Account suspended. Login is blocked and all active sessions were revoked."
-          : "Account reactivated. The user can sign in again with the existing password.",
+          ? t("detail.accountAccess.suspendedMessage")
+          : t("detail.accountAccess.reactivatedMessage"),
       );
 
       setPendingStatus(null);
@@ -634,6 +661,7 @@ export function EmployeeDirectoryDetailPanel({
       setActionError(
         getErrorMessage(
           requestError,
+          t,
         ),
       );
     } finally {
@@ -695,7 +723,7 @@ export function EmployeeDirectoryDetailPanel({
 
     if (reason.length < 3) {
       setActionError(
-        "Enter a reason of at least 3 characters.",
+        t("detail.lifecycle.reasonError"),
       );
 
       return;
@@ -724,7 +752,10 @@ export function EmployeeDirectoryDetailPanel({
         );
 
       setActionMessage(
-        result.message,
+        t("detail.lifecycle.success", {
+          count: result.revokedSessions,
+          status: formatValue(pendingEmploymentStatus, t),
+        }),
       );
 
       setPendingEmploymentStatus(
@@ -747,6 +778,7 @@ export function EmployeeDirectoryDetailPanel({
       setActionError(
         getErrorMessage(
           requestError,
+          t,
         ),
       );
     } finally {
@@ -786,7 +818,7 @@ export function EmployeeDirectoryDetailPanel({
 
     if (reason.length < 3) {
       setActionError(
-        "Enter an archive reason of at least 3 characters.",
+        t("detail.archive.reasonError"),
       );
 
       return;
@@ -807,7 +839,9 @@ export function EmployeeDirectoryDetailPanel({
         );
 
       setActionMessage(
-        result.message,
+        t("detail.archive.success", {
+          count: result.revokedSessions,
+        }),
       );
 
       setShowArchiveForm(false);
@@ -826,6 +860,7 @@ export function EmployeeDirectoryDetailPanel({
       setActionError(
         getErrorMessage(
           requestError,
+          t,
         ),
       );
     } finally {
@@ -887,7 +922,7 @@ export function EmployeeDirectoryDetailPanel({
 
     if (!targetRole) {
       setActionError(
-        "Select the new organizational role.",
+        t("detail.roleChange.selectRoleError"),
       );
 
       return;
@@ -895,7 +930,7 @@ export function EmployeeDirectoryDetailPanel({
 
     if (!roleDivisionId) {
       setActionError(
-        "Select a division.",
+        t("detail.roleChange.selectDivision"),
       );
 
       return;
@@ -906,7 +941,7 @@ export function EmployeeDirectoryDetailPanel({
       !roleDepartmentId
     ) {
       setActionError(
-        "Select a department.",
+        t("detail.roleChange.selectDepartment"),
       );
 
       return;
@@ -923,7 +958,7 @@ export function EmployeeDirectoryDetailPanel({
       designation.length < 2
     ) {
       setActionError(
-        "Designation must contain at least 2 characters.",
+        t("detail.roleChange.designationError"),
       );
 
       return;
@@ -936,7 +971,7 @@ export function EmployeeDirectoryDetailPanel({
 
     if (reason.length < 3) {
       setActionError(
-        "Enter an official role-change reason of at least 3 characters.",
+        t("detail.roleChange.reasonError"),
       );
 
       return;
@@ -969,11 +1004,9 @@ export function EmployeeDirectoryDetailPanel({
         );
 
       setActionMessage(
-        `${result.message} ${result.revokedSessions} active session${
-          result.revokedSessions === 1
-            ? ""
-            : "s"
-        } revoked.`,
+        t("detail.roleChange.success", {
+          count: result.revokedSessions,
+        }),
       );
 
       setShowRoleForm(false);
@@ -994,6 +1027,7 @@ export function EmployeeDirectoryDetailPanel({
       setActionError(
         getErrorMessage(
           requestError,
+          t,
         ),
       );
     } finally {
@@ -1010,24 +1044,22 @@ export function EmployeeDirectoryDetailPanel({
         className="directory-detail-panel"
         role="dialog"
         aria-modal="true"
-        aria-label="Employee directory details"
+        aria-label={t("detail.dialogAria")}
         onMouseDown={(event) =>
           event.stopPropagation()
         }
       >
         <header className="directory-detail-topbar">
           <div>
-            <span>Employee profile</span>
+            <span>{t("detail.eyebrow")}</span>
 
-            <strong>
-              Directory details
-            </strong>
+            <strong>{t("detail.title")}</strong>
           </div>
 
           <button
             type="button"
             onClick={onClose}
-            aria-label="Close employee details"
+            aria-label={t("detail.closeAria")}
           >
             ×
           </button>
@@ -1037,9 +1069,7 @@ export function EmployeeDirectoryDetailPanel({
           <div className="directory-detail-loading">
             <div className="spinner" />
 
-            <p>
-              Loading employee details...
-            </p>
+            <p>{t("detail.loading")}</p>
           </div>
         )}
 
@@ -1048,18 +1078,14 @@ export function EmployeeDirectoryDetailPanel({
             className="directory-detail-error"
             role="alert"
           >
-            <strong>
-              Employee details unavailable
-            </strong>
+            <strong>{t("detail.errorTitle")}</strong>
 
             <p>{error}</p>
 
             <button
               type="button"
               onClick={retryLoading}
-            >
-              Try again
-            </button>
+            >{t("common.tryAgain")}</button>
           </div>
         )}
 
@@ -1071,7 +1097,7 @@ export function EmployeeDirectoryDetailPanel({
                 photoKey={employee.profilePhotoKey}
                 displayName={employee.empName}
                 className="directory-detail-avatar"
-                ariaLabel={`${employee.empName} profile`}
+                ariaLabel={t("list.avatarAria", { name: employee.empName })}
               />
 
               <div>
@@ -1085,7 +1111,7 @@ export function EmployeeDirectoryDetailPanel({
 
                 <p>
                   {employee.designation ??
-                    "No designation assigned"}
+                    t("detail.noDesignation")}
                 </p>
               </div>
             </section>
@@ -1098,10 +1124,8 @@ export function EmployeeDirectoryDetailPanel({
                 )}`}
               >
                 {employee.effectiveRole
-                  ? `Effective: ${formatValue(
-                      employee.effectiveRole,
-                    )}`
-                  : "No account"}
+                  ? t("detail.effectiveBadge", { role: formatValue(employee.effectiveRole, t) })
+                  : t("common.noAccount")}
               </span>
 
               <span
@@ -1109,9 +1133,7 @@ export function EmployeeDirectoryDetailPanel({
                   employee.accountStatus,
                 )}`}
               >
-                {formatValue(
-                  employee.accountStatus,
-                )}
+                {formatValue(employee.accountStatus, t)}
               </span>
 
               <span
@@ -1119,9 +1141,7 @@ export function EmployeeDirectoryDetailPanel({
                   employee.activationStatus,
                 )}`}
               >
-                {formatValue(
-                  employee.activationStatus,
-                )}
+                {formatValue(employee.activationStatus, t)}
               </span>
 
               <span
@@ -1129,9 +1149,7 @@ export function EmployeeDirectoryDetailPanel({
                   employee.status,
                 )}`}
               >
-                {formatValue(
-                  employee.status,
-                )}
+                {formatValue(employee.status, t)}
               </span>
 
               <span
@@ -1139,270 +1157,208 @@ export function EmployeeDirectoryDetailPanel({
                   employee.employmentStatus,
                 )}`}
               >
-                {formatValue(
-                  employee.employmentStatus,
-                )}
+                {formatValue(employee.employmentStatus, t)}
               </span>
             </section>
 
             <section className="directory-detail-section">
-              <h3>
-                Organization
-              </h3>
+              <h3>{t("detail.organization.title")}</h3>
 
               <dl className="directory-detail-list">
                 <div>
-                  <dt>Division</dt>
+                  <dt>{t("detail.organization.division")}</dt>
 
                   <dd>
                     {employee.division
                       ?.name ??
-                      "Not assigned"}
+                      t("common.notAssigned")}
                   </dd>
                 </div>
 
                 <div>
-                  <dt>Division code</dt>
+                  <dt>{t("detail.organization.divisionCode")}</dt>
 
                   <dd>
                     {employee.division
                       ?.code ??
-                      "Not available"}
+                      t("common.notAvailable")}
                   </dd>
                 </div>
 
                 <div>
-                  <dt>Department</dt>
+                  <dt>{t("detail.organization.department")}</dt>
 
                   <dd>
                     {employee.department
                       ?.name ??
-                      "Not assigned"}
+                      t("common.notAssigned")}
                   </dd>
                 </div>
 
                 <div>
-                  <dt>Department code</dt>
+                  <dt>{t("detail.organization.departmentCode")}</dt>
 
                   <dd>
                     {employee.department
                       ?.code ??
-                      "Not available"}
+                      t("common.notAvailable")}
                   </dd>
                 </div>
 
                 <div>
-                  <dt>
-                    Current position
-                  </dt>
+                  <dt>{t("detail.organization.currentPosition")}</dt>
 
                   <dd>
-                    {getCurrentPositionLabel(
-                      employee,
-                    )}
+                    {getCurrentPositionLabel(employee, t)}
                   </dd>
                 </div>
 
                 <div>
-                  <dt>
-                    Position status
-                  </dt>
+                  <dt>{t("detail.organization.positionStatus")}</dt>
 
                   <dd>
                     {employee.currentPosition
-                      ? formatValue(
-                          employee.currentPosition.status,
-                        )
-                      : "No current assignment"}
+                      ? formatValue(employee.currentPosition.status, t)
+                      : t("position.noCurrentAssignment")}
                   </dd>
                 </div>
 
                 <div>
-                  <dt>
-                    Position started
-                  </dt>
+                  <dt>{t("detail.organization.positionStarted")}</dt>
 
                   <dd>
                     {employee.currentPosition
-                      ? formatDate(
-                          employee.currentPosition.startedAt,
-                        )
-                      : "Not applicable"}
+                      ? formatDate(employee.currentPosition.startedAt, i18n.language, t)
+                      : t("common.notApplicable")}
                   </dd>
                 </div>
               </dl>
             </section>
 
             <section className="directory-detail-section">
-              <h3>
-                Employment information
-              </h3>
+              <h3>{t("detail.employment.title")}</h3>
 
               <dl className="directory-detail-list">
                 <div>
-                  <dt>
-                    Employment status
-                  </dt>
+                  <dt>{t("detail.employment.status")}</dt>
 
                   <dd>
-                    {formatValue(
-                      employee.employmentStatus,
-                    )}
+                    {formatValue(employee.employmentStatus, t)}
                   </dd>
                 </div>
 
                 <div>
-                  <dt>
-                    Employment ended
-                  </dt>
+                  <dt>{t("detail.employment.ended")}</dt>
 
                   <dd>
                     {employee.employmentStatus ===
                     "ACTIVE"
-                      ? "Still employed"
-                      : formatDate(
-                          employee.employmentEndedAt,
-                        )}
+                      ? t("detail.employment.stillEmployed")
+                      : formatDate(employee.employmentEndedAt, i18n.language, t)}
                   </dd>
                 </div>
 
                 <div>
-                  <dt>
-                    End reason
-                  </dt>
+                  <dt>{t("detail.employment.endReason")}</dt>
 
                   <dd>
                     {employee.employmentEndReason ??
-                      "Not applicable"}
+                      t("common.notApplicable")}
                   </dd>
                 </div>
 
                 <div>
-                  <dt>
-                    Archive status
-                  </dt>
+                  <dt>{t("detail.employment.archiveStatus")}</dt>
 
                   <dd>
                     {employee.archivedAt
-                      ? `Archived ${formatDate(
-                          employee.archivedAt,
-                        )}`
-                      : "Not archived"}
+                      ? t("detail.employment.archived", {
+                          date: formatDate(employee.archivedAt, i18n.language, t),
+                        })
+                      : t("detail.employment.notArchived")}
                   </dd>
                 </div>
               </dl>
             </section>
 
             <section className="directory-detail-section">
-              <h3>
-                Contact information
-              </h3>
+              <h3>{t("detail.contact.title")}</h3>
 
               {employee.officialEmail ||
               employee.phoneNumber ? (
                 <dl className="directory-detail-list">
                   <div>
-                    <dt>
-                      Official email
-                    </dt>
+                    <dt>{t("detail.contact.officialEmail")}</dt>
 
                     <dd>
                       {employee.officialEmail ??
-                        "Hidden"}
+                        t("common.hidden")}
                     </dd>
                   </div>
 
                   <div>
-                    <dt>
-                      Phone number
-                    </dt>
+                    <dt>{t("detail.contact.phone")}</dt>
 
                     <dd>
                       {employee.phoneNumber ??
-                        "Hidden"}
+                        t("common.hidden")}
                     </dd>
                   </div>
                 </dl>
               ) : (
                 <div className="directory-contact-limited">
-                  <strong>
-                    Limited contact access
-                  </strong>
+                  <strong>{t("detail.contact.limitedTitle")}</strong>
 
-                  <p>
-                    Contact information is hidden for your current role.
-                  </p>
+                  <p>{t("detail.contact.limitedDescription")}</p>
                 </div>
               )}
             </section>
 
             <section className="directory-detail-section">
-              <h3>
-                Account information
-              </h3>
+              <h3>{t("detail.account.title")}</h3>
 
               <dl className="directory-detail-list">
                 <div>
-                  <dt>
-                    Account role
-                  </dt>
+                  <dt>{t("detail.account.role")}</dt>
 
                   <dd>
                     {employee.accountRole
-                      ? formatValue(
-                          employee.accountRole,
-                        )
-                      : "No account"}
+                      ? formatValue(employee.accountRole, t)
+                      : t("common.noAccount")}
                   </dd>
                 </div>
 
                 <div>
-                  <dt>
-                    Effective role
-                  </dt>
+                  <dt>{t("detail.account.effectiveRole")}</dt>
 
                   <dd>
                     {employee.effectiveRole
-                      ? formatValue(
-                          employee.effectiveRole,
-                        )
-                      : "No authority"}
+                      ? formatValue(employee.effectiveRole, t)
+                      : t("common.noAuthority")}
                   </dd>
                 </div>
 
                 <div>
-                  <dt>
-                    Account status
-                  </dt>
+                  <dt>{t("detail.account.status")}</dt>
 
                   <dd>
-                    {formatValue(
-                      employee.accountStatus,
-                    )}
+                    {formatValue(employee.accountStatus, t)}
                   </dd>
                 </div>
 
                 <div>
-                  <dt>
-                    Activation status
-                  </dt>
+                  <dt>{t("detail.account.activationStatus")}</dt>
 
                   <dd>
-                    {formatValue(
-                      employee.activationStatus,
-                    )}
+                    {formatValue(employee.activationStatus, t)}
                   </dd>
                 </div>
 
                 <div>
-                  <dt>
-                    Last login
-                  </dt>
+                  <dt>{t("detail.account.lastLogin")}</dt>
 
                   <dd>
-                    {formatDate(
-                      employee.lastLoginAt,
-                    )}
+                    {formatDate(employee.lastLoginAt, i18n.language, t)}
                   </dd>
                 </div>
               </dl>
@@ -1411,17 +1367,11 @@ export function EmployeeDirectoryDetailPanel({
             {canChangeRole && (
               <section className="dir-role-box">
                 <div className="dir-role-head">
-                  <span>
-                    Organization authority
-                  </span>
+                  <span>{t("detail.roleChange.eyebrow")}</span>
 
-                  <strong>
-                    Change organizational role
-                  </strong>
+                  <strong>{t("detail.roleChange.title")}</strong>
 
-                  <p>
-                    Promotion or demotion keeps the same account and employee history. Existing login sessions are revoked after confirmation.
-                  </p>
+                  <p>{t("detail.roleChange.description")}</p>
                 </div>
 
                 {organizationError && (
@@ -1463,8 +1413,8 @@ export function EmployeeDirectoryDetailPanel({
                     }
                   >
                     {organizationLoading
-                      ? "Loading organization..."
-                      : "Promote, demote or transfer employee"}
+                      ? t("detail.roleChange.loadingOrganization")
+                      : t("detail.roleChange.open")}
                   </button>
                 )}
 
@@ -1476,23 +1426,17 @@ export function EmployeeDirectoryDetailPanel({
                     }
                   >
                     <div className="dir-role-current">
-                      <span>
-                        Current effective role
-                      </span>
+                      <span>{t("detail.roleChange.currentRole")}</span>
 
                       <strong>
                         {employee.effectiveRole
-                          ? formatValue(
-                              employee.effectiveRole,
-                            )
-                          : "Employee"}
+                          ? formatValue(employee.effectiveRole, t)
+                          : t("roles.EMPLOYEE")}
                       </strong>
                     </div>
 
                     <label>
-                      <span>
-                        New role
-                      </span>
+                      <span>{t("detail.roleChange.newRole")}</span>
 
                       <select
                         value={
@@ -1527,9 +1471,7 @@ export function EmployeeDirectoryDetailPanel({
                         }
                         required
                       >
-                        <option value="">
-                          Select new role
-                        </option>
+                        <option value="">{t("detail.roleChange.selectRole")}</option>
 
                         {assignableRoles
                           .map(
@@ -1542,12 +1484,10 @@ export function EmployeeDirectoryDetailPanel({
                                   role
                                 }
                               >
-                                {formatValue(
-                                  role,
-                                )}
+                                {formatValue(role, t)}
                                 {role ===
                                 employee.effectiveRole
-                                  ? " (transfer)"
+                                  ? t("detail.roleChange.transferSuffix")
                                   : ""}
                               </option>
                             ),
@@ -1556,9 +1496,7 @@ export function EmployeeDirectoryDetailPanel({
                     </label>
 
                     <label>
-                      <span>
-                        Division
-                      </span>
+                      <span>{t("detail.organization.division")}</span>
 
                       <select
                         value={
@@ -1582,9 +1520,7 @@ export function EmployeeDirectoryDetailPanel({
                         }
                         required
                       >
-                        <option value="">
-                          Select division
-                        </option>
+                        <option value="">{t("detail.roleChange.division")}</option>
 
                         {organizationDivisions
                           .filter(
@@ -1610,9 +1546,7 @@ export function EmployeeDirectoryDetailPanel({
 
                     {roleRequiresDepartment && (
                       <label>
-                        <span>
-                          Department
-                        </span>
+                        <span>{t("detail.organization.department")}</span>
 
                         <select
                           value={
@@ -1633,9 +1567,7 @@ export function EmployeeDirectoryDetailPanel({
                           }
                           required
                         >
-                          <option value="">
-                            Select department
-                          </option>
+                          <option value="">{t("detail.roleChange.department")}</option>
 
                           {availableRoleDepartments.map(
                             (
@@ -1659,9 +1591,7 @@ export function EmployeeDirectoryDetailPanel({
 
 
                     <label>
-                      <span>
-                        New designation
-                      </span>
+                      <span>{t("detail.roleChange.designation")}</span>
 
                       <input
                         type="text"
@@ -1677,7 +1607,7 @@ export function EmployeeDirectoryDetailPanel({
                         }
                         minLength={2}
                         maxLength={120}
-                        placeholder="Example: Sales Team Manager"
+                        placeholder={t("detail.roleChange.designationPlaceholder")}
                         disabled={
                           changingRole
                         }
@@ -1685,9 +1615,7 @@ export function EmployeeDirectoryDetailPanel({
                     </label>
 
                     <label>
-                      <span>
-                        Official reason
-                      </span>
+                      <span>{t("detail.roleChange.reason")}</span>
 
                       <textarea
                         value={
@@ -1702,7 +1630,7 @@ export function EmployeeDirectoryDetailPanel({
                         }
                         minLength={3}
                         maxLength={500}
-                        placeholder="Enter the approved promotion or demotion reason."
+                        placeholder={t("detail.roleChange.reasonPlaceholder")}
                         disabled={
                           changingRole
                         }
@@ -1710,9 +1638,7 @@ export function EmployeeDirectoryDetailPanel({
                       />
                     </label>
 
-                    <div className="dir-role-warning">
-                      The employee keeps the same password, employee ID and history. The correct internal authority position is created or reused automatically, the assignment is updated atomically, and all login sessions are revoked.
-                    </div>
+                    <div className="dir-role-warning">{t("detail.roleChange.warning")}</div>
 
                     <div className="dir-role-actions">
                       <button
@@ -1723,8 +1649,8 @@ export function EmployeeDirectoryDetailPanel({
                         }
                       >
                         {changingRole
-                          ? "Applying change..."
-                          : "Confirm organization change"}
+                          ? t("detail.roleChange.confirming")
+                          : t("detail.roleChange.confirm")}
                       </button>
 
                       <button
@@ -1736,9 +1662,7 @@ export function EmployeeDirectoryDetailPanel({
                         disabled={
                           changingRole
                         }
-                      >
-                        Cancel
-                      </button>
+                      >{t("common.cancel")}</button>
                     </div>
                   </form>
                 )}
@@ -1748,19 +1672,17 @@ export function EmployeeDirectoryDetailPanel({
             {canManageStatus && (
               <section className="dir-status-box">
                 <div className="dir-status-head">
-                  <span>
-                    Super Admin control
-                  </span>
+                  <span>{t("detail.accountAccess.eyebrow")}</span>
 
                   <strong>
                     {employee.status ===
                     "ACTIVE"
-                      ? "Active account"
-                      : "Suspended account"}
+                      ? t("detail.accountAccess.active")
+                      : t("detail.accountAccess.suspended")}
                   </strong>
 
                   <p>
-                    Suspend or reactivate temporary access without ending the employee's employment record.
+                    {t("detail.accountAccess.description")}
                   </p>
                 </div>
 
@@ -1806,8 +1728,8 @@ export function EmployeeDirectoryDetailPanel({
                   >
                     {employee.status ===
                     "ACTIVE"
-                      ? "Suspend account"
-                      : "Reactivate account"}
+                      ? t("detail.accountAccess.suspend")
+                      : t("detail.accountAccess.reactivate")}
                   </button>
                 )}
 
@@ -1816,15 +1738,15 @@ export function EmployeeDirectoryDetailPanel({
                     <strong>
                       {pendingStatus ===
                       "INACTIVE"
-                        ? "Confirm account suspension"
-                        : "Confirm account reactivation"}
+                        ? t("detail.accountAccess.confirmSuspend")
+                        : t("detail.accountAccess.confirmReactivate")}
                     </strong>
 
                     <p>
                       {pendingStatus ===
                       "INACTIVE"
-                        ? "This will immediately block login and revoke every active session on all devices."
-                        : "This will enable the account again. Previously revoked sessions will remain invalid, so the user must sign in again."}
+                        ? t("detail.accountAccess.suspendDescription")
+                        : t("detail.accountAccess.reactivateDescription")}
                     </p>
 
                     <div className="dir-status-actions">
@@ -1844,11 +1766,11 @@ export function EmployeeDirectoryDetailPanel({
                         }
                       >
                         {changingStatus
-                          ? "Updating..."
+                          ? t("detail.accountAccess.updating")
                           : pendingStatus ===
                               "INACTIVE"
-                            ? "Yes, suspend"
-                            : "Yes, reactivate"}
+                            ? t("detail.accountAccess.yesSuspend")
+                            : t("detail.accountAccess.yesReactivate")}
                       </button>
 
                       <button
@@ -1860,9 +1782,7 @@ export function EmployeeDirectoryDetailPanel({
                         disabled={
                           changingStatus
                         }
-                      >
-                        Cancel
-                      </button>
+                      >{t("common.cancel")}</button>
                     </div>
                   </div>
                 )}
@@ -1872,17 +1792,11 @@ export function EmployeeDirectoryDetailPanel({
             {canEndEmployment && (
               <section className="dir-life-box">
                 <div className="dir-life-head">
-                  <span>
-                    Employment lifecycle
-                  </span>
+                  <span>{t("detail.lifecycle.eyebrow")}</span>
 
-                  <strong>
-                    End Patan Branch access
-                  </strong>
+                  <strong>{t("detail.lifecycle.title")}</strong>
 
-                  <p>
-                    This permanently ends the current Patan Branch employment record, disables login and revokes every active session.
-                  </p>
+                  <p>{t("detail.lifecycle.description")}</p>
                 </div>
 
                 {actionMessage && (
@@ -1909,9 +1823,7 @@ export function EmployeeDirectoryDetailPanel({
                           "RESIGNED",
                         )
                       }
-                    >
-                      Resigned
-                    </button>
+                    >{t("detail.lifecycle.resigned")}</button>
 
                     <button
                       type="button"
@@ -1920,9 +1832,7 @@ export function EmployeeDirectoryDetailPanel({
                           "RETIRED",
                         )
                       }
-                    >
-                      Retired
-                    </button>
+                    >{t("detail.lifecycle.retired")}</button>
 
                     <button
                       type="button"
@@ -1932,9 +1842,7 @@ export function EmployeeDirectoryDetailPanel({
                           "TERMINATED",
                         )
                       }
-                    >
-                      Terminated
-                    </button>
+                    >{t("detail.lifecycle.terminated")}</button>
 
                     <button
                       type="button"
@@ -1943,9 +1851,7 @@ export function EmployeeDirectoryDetailPanel({
                           "TRANSFERRED",
                         )
                       }
-                    >
-                      Transferred
-                    </button>
+                    >{t("detail.lifecycle.transferred")}</button>
                   </div>
                 )}
 
@@ -1957,21 +1863,15 @@ export function EmployeeDirectoryDetailPanel({
                     }
                   >
                     <div className="dir-life-selected">
-                      <span>
-                        Selected action
-                      </span>
+                      <span>{t("detail.lifecycle.selectedAction")}</span>
 
                       <strong>
-                        {formatValue(
-                          pendingEmploymentStatus,
-                        )}
+                        {formatValue(pendingEmploymentStatus, t)}
                       </strong>
                     </div>
 
                     <label>
-                      <span>
-                        Effective date
-                      </span>
+                      <span>{t("detail.lifecycle.effectiveDate")}</span>
 
                       <input
                         type="date"
@@ -1995,9 +1895,7 @@ export function EmployeeDirectoryDetailPanel({
                     </label>
 
                     <label>
-                      <span>
-                        Official reason
-                      </span>
+                      <span>{t("detail.roleChange.reason")}</span>
 
                       <textarea
                         value={
@@ -2012,7 +1910,7 @@ export function EmployeeDirectoryDetailPanel({
                         }
                         minLength={3}
                         maxLength={500}
-                        placeholder="Enter the approved employment-exit reason."
+                        placeholder={t("detail.lifecycle.reasonPlaceholder")}
                         disabled={
                           endingEmployment
                         }
@@ -2029,10 +1927,10 @@ export function EmployeeDirectoryDetailPanel({
                         }
                       >
                         {endingEmployment
-                          ? "Processing..."
-                          : `Confirm ${formatValue(
-                              pendingEmploymentStatus,
-                            )}`}
+                          ? t("detail.lifecycle.processing")
+                          : t("detail.lifecycle.confirm", {
+                              status: formatValue(pendingEmploymentStatus, t),
+                            })}
                       </button>
 
                       <button
@@ -2044,9 +1942,7 @@ export function EmployeeDirectoryDetailPanel({
                         disabled={
                           endingEmployment
                         }
-                      >
-                        Cancel
-                      </button>
+                      >{t("common.cancel")}</button>
                     </div>
                   </form>
                 )}
@@ -2057,26 +1953,18 @@ export function EmployeeDirectoryDetailPanel({
               "SUPER_ADMIN" && (
               <section className="dir-history-box">
                 <div className="dir-history-head">
-                  <span>
-                    Audit trail
-                  </span>
+                  <span>{t("detail.history.eyebrow")}</span>
 
-                  <strong>
-                    Lifecycle history
-                  </strong>
+                  <strong>{t("detail.history.title")}</strong>
 
-                  <p>
-                    Administrative lifecycle actions are displayed newest first.
-                  </p>
+                  <p>{t("detail.history.description")}</p>
                 </div>
 
                 {lifecycleLoading && (
                   <div className="dir-history-loading">
                     <div className="spinner" />
 
-                    <span>
-                      Loading lifecycle history...
-                    </span>
+                    <span>{t("detail.history.loading")}</span>
                   </div>
                 )}
 
@@ -2095,9 +1983,7 @@ export function EmployeeDirectoryDetailPanel({
                     lifecycleHistory?.data
                       .length ?? 0
                   ) === 0 && (
-                    <div className="dir-history-empty">
-                      No lifecycle actions have been recorded.
-                    </div>
+                    <div className="dir-history-empty">{t("detail.history.empty")}</div>
                   )}
 
                 {!lifecycleLoading &&
@@ -2116,8 +2002,8 @@ export function EmployeeDirectoryDetailPanel({
                             action.actor
                               .username ??
                             formatValue(
-                              action.actor
-                                .role,
+                              action.actor.role,
+                              t,
                             );
 
                           const previousRole =
@@ -2143,66 +2029,38 @@ export function EmployeeDirectoryDetailPanel({
                               <div>
                                 <header>
                                   <strong>
-                                    {formatValue(
-                                      action.action,
-                                    )}
+                                    {formatValue(action.action, t)}
                                   </strong>
 
                                   <time>
-                                    {formatDate(
-                                      action.effectiveAt ??
-                                        action.createdAt,
-                                    )}
+                                    {formatDate(action.effectiveAt ?? action.createdAt, i18n.language, t)}
                                   </time>
                                 </header>
 
-                                <p>
-                                  Action performed by{" "}
-                                  <strong>
-                                    {actorName}
-                                  </strong>
-                                </p>
+                                <p>{t("detail.history.performedBy", { name: actorName })}</p>
 
                                 {action.previousEmployeeStatus &&
                                   action.newEmployeeStatus && (
-                                    <small>
-                                      Account:{" "}
-                                      {formatValue(
-                                        action.previousEmployeeStatus,
-                                      )}
-                                      {" → "}
-                                      {formatValue(
-                                        action.newEmployeeStatus,
-                                      )}
-                                    </small>
+                                    <small>{t("detail.history.account", {
+                                      from: formatValue(action.previousEmployeeStatus, t),
+                                      to: formatValue(action.newEmployeeStatus, t),
+                                    })}</small>
                                   )}
 
                                 {action.previousEmploymentStatus &&
                                   action.newEmploymentStatus && (
-                                    <small>
-                                      Employment:{" "}
-                                      {formatValue(
-                                        action.previousEmploymentStatus,
-                                      )}
-                                      {" → "}
-                                      {formatValue(
-                                        action.newEmploymentStatus,
-                                      )}
-                                    </small>
+                                    <small>{t("detail.history.employment", {
+                                      from: formatValue(action.previousEmploymentStatus, t),
+                                      to: formatValue(action.newEmploymentStatus, t),
+                                    })}</small>
                                   )}
 
                                 {previousRole &&
                                   newRole && (
-                                    <small>
-                                      Role:{" "}
-                                      {formatValue(
-                                        previousRole,
-                                      )}
-                                      {" → "}
-                                      {formatValue(
-                                        newRole,
-                                      )}
-                                    </small>
+                                    <small>{t("detail.history.role", {
+                                      from: formatValue(previousRole, t),
+                                      to: formatValue(newRole, t),
+                                    })}</small>
                                   )}
 
                                 {action.reason && (
@@ -2223,17 +2081,11 @@ export function EmployeeDirectoryDetailPanel({
             {canArchiveFormerEmployee && (
               <section className="dir-archive-box">
                 <div className="dir-archive-head">
-                  <span>
-                    Historical record
-                  </span>
+                  <span>{t("detail.archive.eyebrow")}</span>
 
-                  <strong>
-                    Archive former employee
-                  </strong>
+                  <strong>{t("detail.archive.title")}</strong>
 
-                  <p>
-                    Archiving keeps messages, audit records and employment history, but marks the profile as a historical Patan Branch record.
-                  </p>
+                  <p>{t("detail.archive.description")}</p>
                 </div>
 
                 {!showArchiveForm && (
@@ -2248,9 +2100,7 @@ export function EmployeeDirectoryDetailPanel({
                       setActionError("");
                       setActionMessage("");
                     }}
-                  >
-                    Archive employee record
-                  </button>
+                  >{t("detail.archive.open")}</button>
                 )}
 
                 {showArchiveForm && (
@@ -2261,9 +2111,7 @@ export function EmployeeDirectoryDetailPanel({
                     }
                   >
                     <label>
-                      <span>
-                        Archive reason
-                      </span>
+                      <span>{t("detail.archive.reason")}</span>
 
                       <textarea
                         value={
@@ -2278,7 +2126,7 @@ export function EmployeeDirectoryDetailPanel({
                         }
                         minLength={3}
                         maxLength={500}
-                        placeholder="Enter why this former employee record is being archived."
+                        placeholder={t("detail.archive.reasonPlaceholder")}
                         disabled={
                           archiving
                         }
@@ -2304,8 +2152,8 @@ export function EmployeeDirectoryDetailPanel({
                         }
                       >
                         {archiving
-                          ? "Archiving..."
-                          : "Confirm archive"}
+                          ? t("detail.archive.archiving")
+                          : t("detail.archive.confirm")}
                       </button>
 
                       <button
@@ -2317,9 +2165,7 @@ export function EmployeeDirectoryDetailPanel({
                         disabled={
                           archiving
                         }
-                      >
-                        Cancel
-                      </button>
+                      >{t("common.cancel")}</button>
                     </div>
                   </form>
                 )}
@@ -2327,30 +2173,22 @@ export function EmployeeDirectoryDetailPanel({
             )}
 
             <section className="directory-detail-section">
-              <h3>
-                Record information
-              </h3>
+              <h3>{t("detail.record.title")}</h3>
 
               <dl className="directory-detail-list">
                 <div>
-                  <dt>Created</dt>
+                  <dt>{t("detail.record.created")}</dt>
 
                   <dd>
-                    {formatDate(
-                      employee.createdAt,
-                    )}
+                    {formatDate(employee.createdAt, i18n.language, t)}
                   </dd>
                 </div>
 
                 <div>
-                  <dt>
-                    Last updated
-                  </dt>
+                  <dt>{t("detail.record.updated")}</dt>
 
                   <dd>
-                    {formatDate(
-                      employee.updatedAt,
-                    )}
+                    {formatDate(employee.updatedAt, i18n.language, t)}
                   </dd>
                 </div>
               </dl>
@@ -2360,9 +2198,7 @@ export function EmployeeDirectoryDetailPanel({
               <button
                 type="button"
                 onClick={onClose}
-              >
-                Close
-              </button>
+              >{t("common.close")}</button>
             </footer>
           </div>
         )}
