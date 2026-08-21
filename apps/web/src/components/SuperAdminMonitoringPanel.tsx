@@ -1,5 +1,4 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { useTranslation } from "react-i18next";
 import type { FormEvent } from "react";
 
 import {
@@ -81,18 +80,18 @@ function createDefaultFilters(): MonitoringFilterState {
   };
 }
 
-function formatDateTime(value: string | null, locale: string, fallback: string): string {
+function formatDateTime(value: string | null): string {
   if (!value) {
-    return fallback;
+    return "Not recorded";
   }
 
   const date = new Date(value);
 
   if (Number.isNaN(date.getTime())) {
-    return fallback;
+    return "Not recorded";
   }
 
-  return new Intl.DateTimeFormat(locale, {
+  return new Intl.DateTimeFormat("en-GB", {
     day: "2-digit",
     month: "short",
     year: "numeric",
@@ -101,14 +100,14 @@ function formatDateTime(value: string | null, locale: string, fallback: string):
   }).format(date);
 }
 
-function formatTime(value: string, locale: string, fallback: string): string {
+function formatTime(value: string): string {
   const date = new Date(value);
 
   if (Number.isNaN(date.getTime())) {
-    return fallback;
+    return "Not recorded";
   }
 
-  return new Intl.DateTimeFormat(locale, {
+  return new Intl.DateTimeFormat("en-GB", {
     hour: "2-digit",
     minute: "2-digit",
     second: "2-digit",
@@ -146,14 +145,11 @@ function isEmailIdentity(value: string): boolean {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value.trim());
 }
 
-function getEmployeeDisplayName(
-  employee: MonitoringEmployeeRow,
-  roleLabel?: string,
-): string {
+function getEmployeeDisplayName(employee: MonitoringEmployeeRow): string {
   // System-created identities can fall back to an email address. Present the
-  // localized role as the readable heading while keeping the exact email visible below.
+  // role as the readable heading while keeping the exact email visible below.
   return isEmailIdentity(employee.employeeName)
-    ? roleLabel ?? formatLabel(employee.role)
+    ? formatLabel(employee.role)
     : employee.employeeName;
 }
 
@@ -165,9 +161,9 @@ function getEmployeeContactLine(employee: MonitoringEmployeeRow): string | null 
   return employee.designation;
 }
 
-function maskSessionLabel(value: string, fallback: string): string {
+function maskSessionLabel(value: string): string {
   if (!value) {
-    return fallback;
+    return "Not recorded";
   }
 
   if (value.length <= 7) {
@@ -195,8 +191,6 @@ function getActiveFilterCount(filters: MonitoringFilterState): number {
 export function SuperAdminMonitoringPanel({
   accessToken,
 }: SuperAdminMonitoringPanelProps) {
-  const { t, i18n } = useTranslation("monitoring");
-  const locale = i18n.resolvedLanguage === "ne" ? "ne-NP" : "en-GB";
   const [monitoring, setMonitoring] =
     useState<SuperAdminMonitoringResponse | null>(null);
   const [activityLogs, setActivityLogs] =
@@ -221,7 +215,7 @@ export function SuperAdminMonitoringPanel({
 
   useEffect(() => {
     if (!accessToken) {
-      setError(t("errors.session"));
+      setError("Your secure session is not available. Sign in again.");
       setLoading(false);
       return;
     }
@@ -253,7 +247,7 @@ export function SuperAdminMonitoringPanel({
           setError(
             requestError instanceof Error
               ? requestError.message
-              : t("errors.load"),
+              : "Monitoring data could not be loaded.",
           );
         })
         .finally(() => {
@@ -277,7 +271,7 @@ export function SuperAdminMonitoringPanel({
         window.clearInterval(intervalId);
       }
     };
-  }, [accessToken, autoRefresh, refreshKey, t]);
+  }, [accessToken, autoRefresh, refreshKey]);
 
   const activityQuery = useMemo<MonitoringActivityLogQuery>(
     () => ({
@@ -329,7 +323,7 @@ export function SuperAdminMonitoringPanel({
           setLogsError(
             requestError instanceof Error
               ? requestError.message
-              : t("errors.logs"),
+              : "Activity logs could not be loaded.",
           );
         })
         .finally(() => {
@@ -359,7 +353,6 @@ export function SuperAdminMonitoringPanel({
     logsRefreshKey,
     monitoringReady,
     view,
-    t,
   ]);
 
   const sortedEmployees = useMemo(() => {
@@ -371,7 +364,7 @@ export function SuperAdminMonitoringPanel({
   const roles = useMemo(
     () =>
       Array.from(new Set(sortedEmployees.map((employee) => employee.role))).sort(),
-    [sortedEmployees, t],
+    [sortedEmployees],
   );
 
   const departments = useMemo(
@@ -381,7 +374,7 @@ export function SuperAdminMonitoringPanel({
           sortedEmployees
             .map(
               (employee) =>
-                employee.department ?? employee.division ?? t("common.noUnit"),
+                employee.department ?? employee.division ?? "No unit",
             )
             .filter(Boolean),
         ),
@@ -407,8 +400,8 @@ export function SuperAdminMonitoringPanel({
     return (
       <section className="monitoring-panel monitoring-console monitoring-state">
         <div className="spinner" />
-        <strong>{t("state.loadingTitle")}</strong>
-        <p>{t("state.loadingDescription")}</p>
+        <strong>Preparing monitoring console</strong>
+        <p>Loading privacy-safe workforce activity metadata...</p>
       </section>
     );
   }
@@ -419,13 +412,13 @@ export function SuperAdminMonitoringPanel({
         className="monitoring-panel monitoring-console monitoring-state"
         role="alert"
       >
-        <strong>{t("state.unavailable")}</strong>
+        <strong>Monitoring unavailable</strong>
         <p>{error}</p>
         <button
           type="button"
           onClick={() => setRefreshKey((current) => current + 1)}
         >
-          {t("state.tryAgain")}
+          Try again
         </button>
       </section>
     );
@@ -502,19 +495,22 @@ export function SuperAdminMonitoringPanel({
   return (
     <section
       className="monitoring-panel monitoring-console"
-      aria-label={t("hero.aria")}
+      aria-label="Privacy-safe employee monitoring"
     >
       <header className="monitoring-console-header">
         <div className="monitoring-console-intro">
-          <span className="monitoring-eyebrow">{t("hero.eyebrow")}</span>
-          <h2>{t("hero.title")}</h2>
+          <span className="monitoring-eyebrow">Privacy-safe monitoring</span>
+          <h2>Employee activity monitoring</h2>
           <p>{monitoring.privacyNotice}</p>
 
           <div className="monitoring-boundary-note">
             <MonitoringGlyph name="privacy" />
             <div>
-              <strong>{t("hero.metadataOnly")}</strong>
-              <span>{t("hero.metadataDescription")}</span>
+              <strong>Metadata only</strong>
+              <span>
+                Message text, recipients, attachment contents and private chat
+                relationships are never recorded.
+              </span>
             </div>
           </div>
         </div>
@@ -523,12 +519,12 @@ export function SuperAdminMonitoringPanel({
           <div className="monitoring-control-heading">
             <MonitoringGlyph name="retention" />
             <div>
-              <span>{t("hero.retention")}</span>
+              <span>Retention policy</span>
               <strong>
-                {t("hero.retentionDetailed", { value: monitoring.retention.detailedActivityDays })}
+                {monitoring.retention.detailedActivityDays} days detailed logs
               </strong>
               <small>
-                {t("hero.retentionSummary", { value: monitoring.retention.dailySummaryDays })}
+                {monitoring.retention.dailySummaryDays} days daily summaries
               </small>
             </div>
           </div>
@@ -536,9 +532,9 @@ export function SuperAdminMonitoringPanel({
           <div className="monitoring-refresh-status">
             <span className={autoRefresh ? "is-live" : "is-paused"}>
               <i />
-              {autoRefresh ? t("controls.autoOn") : t("controls.autoPaused")}
+              {autoRefresh ? "Auto-refresh on" : "Auto-refresh paused"}
             </span>
-            <small>{t("hero.updated", { date: formatDateTime(monitoring.generatedAt, locale, t("common.notRecorded")) })}</small>
+            <small>Updated {formatDateTime(monitoring.generatedAt)}</small>
           </div>
 
           <div className="monitoring-control-actions">
@@ -547,7 +543,7 @@ export function SuperAdminMonitoringPanel({
               className="monitoring-secondary-button"
               onClick={() => setAutoRefresh((current) => !current)}
             >
-              {autoRefresh ? t("controls.pause") : t("controls.resume")}
+              {autoRefresh ? "Pause" : "Resume"}
             </button>
             <button
               type="button"
@@ -556,7 +552,7 @@ export function SuperAdminMonitoringPanel({
               disabled={refreshing || logsLoading}
             >
               <MonitoringGlyph name="refresh" />
-              {refreshing || logsLoading ? t("controls.refreshing") : t("controls.refresh")}
+              {refreshing || logsLoading ? "Refreshing" : "Refresh now"}
             </button>
           </div>
         </aside>
@@ -564,54 +560,55 @@ export function SuperAdminMonitoringPanel({
 
       {error && (
         <div className="monitoring-soft-warning" role="alert">
-          {t("hero.latestRefreshFailed", { error })}
+          Latest refresh failed: {error}. The last successful snapshot remains
+          visible.
         </div>
       )}
 
-      <section className="monitoring-summary-grid" aria-label={t("summary.aria")}>
+      <section className="monitoring-summary-grid" aria-label="Monitoring summary">
         <MonitoringMetric
-          label={t("summary.active")}
+          label="Active now"
           value={monitoring.totals.active}
-          description={t("summary.activeDescription")}
+          description="Employees with recent activity"
           glyph="active"
           tone="green"
         />
         <MonitoringMetric
-          label={t("summary.idle")}
+          label="Idle"
           value={monitoring.totals.idle}
-          description={t("summary.idleDescription")}
+          description="No interaction during the idle interval"
           glyph="idle"
           tone="amber"
         />
         <MonitoringMetric
-          label={t("summary.offline")}
+          label="Offline"
           value={monitoring.totals.offline}
-          description={t("summary.offlineDescription")}
+          description="No current monitored session"
           glyph="offline"
           tone="slate"
         />
         <MonitoringMetric
-          label={t("summary.events")}
+          label="Activity events"
           value={monitoring.totals.actions}
-          description={t("summary.eventsDescription")}
+          description="Privacy-safe events recorded today"
           glyph="actions"
           tone="blue"
         />
         <MonitoringMetric
-          label={t("summary.emergency")}
+          label="Emergency alerts"
           value={monitoring.totals.emergencyAlerts}
-          description={t("summary.emergencyDescription")}
+          description="Emergency actions recorded today"
           glyph="emergency"
           tone="red"
         />
       </section>
 
-      <nav className="monitoring-view-tabs" aria-label={t("views.aria")}>
+      <nav className="monitoring-view-tabs" aria-label="Monitoring views">
         {(
           [
-            ["OVERVIEW", t("views.overview"), t("views.overviewDescription")],
-            ["LOGS", t("views.logs"), t("views.logsDescription")],
-            ["EMPLOYEE", t("views.employee"), t("views.employeeDescription")],
+            ["OVERVIEW", "Overview", "Live workforce status"],
+            ["LOGS", "Activity logs", "Search the audit trail"],
+            ["EMPLOYEE", "Employee detail", "Review one employee"],
           ] as Array<[MonitoringView, string, string]>
         ).map(([nextView, label, description]) => (
           <button
@@ -636,27 +633,31 @@ export function SuperAdminMonitoringPanel({
         <>
           <form
             className="monitoring-filter-card"
-            aria-label={t("filters.aria")}
+            aria-label="Activity log filters"
             onSubmit={applyFilters}
           >
             <header className="monitoring-filter-header">
               <div>
-                <span>{t("filters.eyebrow")}</span>
+                <span>Audit filters</span>
                 <h3>
                   {view === "EMPLOYEE"
-                    ? t("filters.selectedEmployee")
-                    : t("filters.systemSearch")}
+                    ? "Selected employee activity"
+                    : "System activity search"}
                 </h3>
-                <p>{t("filters.description")}</p>
+                <p>
+                  Filters are applied only after confirmation to avoid unnecessary
+                  repeated database queries.
+                </p>
               </div>
               <div className="monitoring-filter-summary">
-                <strong>{t("filters.active", { count: activeFilterCount })}</strong>
+                <strong>{activeFilterCount}</strong>
+                <span>active filters</span>
               </div>
             </header>
 
             <div className="monitoring-filter-grid">
               <label>
-                {t("filters.date")}
+                Date
                 <input
                   type="date"
                   value={draftFilters.date}
@@ -666,7 +667,7 @@ export function SuperAdminMonitoringPanel({
                 />
               </label>
               <label>
-                {t("filters.from")}
+                From
                 <input
                   type="time"
                   value={draftFilters.fromTime}
@@ -676,7 +677,7 @@ export function SuperAdminMonitoringPanel({
                 />
               </label>
               <label>
-                {t("filters.to")}
+                To
                 <input
                   type="time"
                   value={draftFilters.toTime}
@@ -686,7 +687,7 @@ export function SuperAdminMonitoringPanel({
                 />
               </label>
               <label>
-                {t("filters.employee")}
+                Employee
                 <select
                   value={draftFilters.accountId}
                   onChange={(event) =>
@@ -694,7 +695,7 @@ export function SuperAdminMonitoringPanel({
                   }
                 >
                   <option value="ALL" disabled={view === "EMPLOYEE"}>
-                    {view === "EMPLOYEE" ? t("filters.chooseEmployee") : t("filters.allEmployees")}
+                    {view === "EMPLOYEE" ? "Choose employee" : "All employees"}
                   </option>
                   {sortedEmployees.map((employee) => (
                     <option key={employee.accountId} value={employee.accountId}>
@@ -704,30 +705,30 @@ export function SuperAdminMonitoringPanel({
                 </select>
               </label>
               <label>
-                {t("filters.role")}
+                Role
                 <select
                   value={draftFilters.role}
                   onChange={(event) =>
                     updateDraftFilter("role", event.target.value)
                   }
                 >
-                  <option value="ALL">{t("filters.allRoles")}</option>
+                  <option value="ALL">All roles</option>
                   {roles.map((roleOption) => (
                     <option key={roleOption} value={roleOption}>
-                      {t(`role.${roleOption}`, { defaultValue: formatLabel(roleOption) })}
+                      {formatLabel(roleOption)}
                     </option>
                   ))}
                 </select>
               </label>
               <label>
-                {t("filters.department")}
+                Department
                 <select
                   value={draftFilters.department}
                   onChange={(event) =>
                     updateDraftFilter("department", event.target.value)
                   }
                 >
-                  <option value="ALL">{t("filters.allDepartments")}</option>
+                  <option value="ALL">All departments</option>
                   {departments.map((departmentOption) => (
                     <option key={departmentOption} value={departmentOption}>
                       {departmentOption}
@@ -736,7 +737,7 @@ export function SuperAdminMonitoringPanel({
                 </select>
               </label>
               <label>
-                {t("filters.activity")}
+                Activity
                 <select
                   value={draftFilters.eventType}
                   onChange={(event) =>
@@ -749,18 +750,18 @@ export function SuperAdminMonitoringPanel({
                   {ACTIVITY_EVENT_OPTIONS.map((eventOption) => (
                     <option key={eventOption} value={eventOption}>
                       {eventOption === "ALL"
-                        ? t("filters.allActivities")
-                        : t(`event.${eventOption}`, { defaultValue: formatLabel(eventOption) })}
+                        ? "All activities"
+                        : formatLabel(eventOption)}
                     </option>
                   ))}
                 </select>
               </label>
               <label className="monitoring-search-filter">
-                {t("filters.searchSafe")}
+                Search safe metadata
                 <input
                   type="search"
                   value={draftFilters.search}
-                  placeholder={t("filters.placeholder")}
+                  placeholder="Employee, page or activity description"
                   onChange={(event) =>
                     updateDraftFilter("search", event.target.value)
                   }
@@ -770,28 +771,28 @@ export function SuperAdminMonitoringPanel({
 
             {invalidTimeRange && (
               <p className="monitoring-filter-error" role="alert">
-                {t("filters.invalidTime")}
+                The “To” time must be later than the “From” time.
               </p>
             )}
 
             <footer className="monitoring-filter-actions">
               <div>
-                <strong>{t("filters.timezone")}</strong>
-                <span>{t("filters.officeDefault")}</span>
+                <strong>Asia/Kathmandu</strong>
+                <span>Office-hours default: 09:00–18:00</span>
               </div>
               <button
                 type="button"
                 className="monitoring-secondary-button"
                 onClick={resetFilters}
               >
-                {t("filters.reset")}
+                Reset filters
               </button>
               <button
                 type="submit"
                 className="monitoring-primary-button"
                 disabled={invalidTimeRange || logsLoading}
               >
-                {t("filters.apply")}
+                Apply filters
               </button>
             </footer>
           </form>
@@ -811,13 +812,13 @@ export function SuperAdminMonitoringPanel({
             onPageChange={setPage}
             title={
               view === "EMPLOYEE"
-                ? t("logs.titleSelected")
-                : t("logs.titleSystem")
+                ? "Selected employee audit trail"
+                : "System activity log"
             }
             description={
               view === "EMPLOYEE"
-                ? t("logs.descriptionSelected")
-                : t("logs.descriptionSystem")
+                ? "Privacy-safe activity metadata for the selected employee and applied time range."
+                : "Organization-wide activity metadata for the applied filters. Private message content remains hidden."
             }
           />
         </>
@@ -862,27 +863,27 @@ function OverviewTable({
   employees: MonitoringEmployeeRow[];
   onOpenEmployee: (accountId: string) => void;
 }) {
-  const { t, i18n } = useTranslation("monitoring");
-  const locale = i18n.resolvedLanguage === "ne" ? "ne-NP" : "en-GB";
   return (
     <section className="monitoring-table-card monitoring-overview-card">
       <header>
         <div>
-          <span className="monitoring-section-eyebrow">{t("overview.eyebrow")}</span>
-          <h3>{t("overview.title")}</h3>
-          <p>{t("overview.autoRefreshDescription")}</p>
+          <span className="monitoring-section-eyebrow">Live workforce status</span>
+          <h3>Real-time employee activity</h3>
+          <p>
+            Automatically refreshed every 15 seconds while auto-refresh is enabled.
+          </p>
         </div>
 
         <div className="monitoring-generated-at">
-          <span>{t("overview.snapshot")}</span>
-          <strong>{formatDateTime(monitoring.generatedAt, locale, t("common.notRecorded"))}</strong>
+          <span>Snapshot generated</span>
+          <strong>{formatDateTime(monitoring.generatedAt)}</strong>
         </div>
       </header>
 
       {employees.length === 0 ? (
         <MonitoringEmptyState
-          title={t("overview.emptyTitle")}
-          description={t("overview.emptyDescription")}
+          title="No monitored employees"
+          description="Employee activity will appear after an authorized account starts a monitored session."
         />
       ) : (
         <>
@@ -890,14 +891,14 @@ function OverviewTable({
             <table className="monitoring-table monitoring-overview-table">
               <thead>
                 <tr>
-                  <th>{t("overview.employee")}</th>
-                  <th>{t("overview.status")}</th>
-                  <th>{t("overview.lastActivity")}</th>
-                  <th>{t("overview.today")}</th>
-                  <th>{t("overview.recorded")}</th>
-                  <th>{t("overview.emergency")}</th>
-                  <th>{t("overview.session")}</th>
-                  <th aria-label={t("overview.tableAria")} />
+                  <th>Employee</th>
+                  <th>Status</th>
+                  <th>Last activity</th>
+                  <th>Today</th>
+                  <th>Recorded activity</th>
+                  <th>Emergency</th>
+                  <th>Session</th>
+                  <th aria-label="Employee actions" />
                 </tr>
               </thead>
               <tbody>
@@ -912,7 +913,7 @@ function OverviewTable({
             </table>
           </div>
 
-          <div className="monitoring-overview-cards" aria-label={t("overview.cardsAria")}>
+          <div className="monitoring-overview-cards" aria-label="Employee activity cards">
             {employees.map((employee) => (
               <MonitoringEmployeeCard
                 key={employee.accountId}
@@ -934,8 +935,6 @@ function MonitoringRow({
   employee: MonitoringEmployeeRow;
   onOpen: () => void;
 }) {
-  const { t, i18n } = useTranslation("monitoring");
-  const locale = i18n.resolvedLanguage === "ne" ? "ne-NP" : "en-GB";
   return (
     <tr>
       <td>
@@ -944,41 +943,41 @@ function MonitoringRow({
             {getEmployeeInitials(employee.employeeName)}
           </span>
           <span>
-            <strong>{getEmployeeDisplayName(employee, t(`role.${employee.role}`, { defaultValue: formatLabel(employee.role) }))}</strong>
+            <strong>{getEmployeeDisplayName(employee)}</strong>
             {getEmployeeContactLine(employee) && (
               <small>{getEmployeeContactLine(employee)}</small>
             )}
             {!isEmailIdentity(employee.employeeName) && (
-              <small>{t(`role.${employee.role}`, { defaultValue: formatLabel(employee.role) })}</small>
+              <small>{formatLabel(employee.role)}</small>
             )}
-            <small>{employee.department ?? employee.division ?? t("common.noUnit")}</small>
+            <small>{employee.department ?? employee.division ?? "No unit"}</small>
           </span>
         </div>
       </td>
       <td>
         <span className={`monitoring-status ${employee.status.toLowerCase()}`}>
-          {t(`status.${employee.status}`, { defaultValue: getStatusLabel(employee.status) })}
+          {getStatusLabel(employee.status)}
         </span>
       </td>
       <td>
-        <strong>{formatDateTime(employee.lastActiveAt, locale, t("common.notRecorded"))}</strong>
-        <small>{employee.currentPage ?? t("common.noPage")}</small>
+        <strong>{formatDateTime(employee.lastActiveAt)}</strong>
+        <small>{employee.currentPage ?? "No page recorded"}</small>
       </td>
       <td>
-        <strong>{t("overview.activeMinutes", { value: formatNumber(employee.totalActiveMinutesToday) })}</strong>
-        <small>{t("overview.idleMinutes", { value: formatNumber(employee.idleMinutesToday) })}</small>
+        <strong>{formatNumber(employee.totalActiveMinutesToday)}m active</strong>
+        <small>{formatNumber(employee.idleMinutesToday)}m idle</small>
       </td>
       <td>
-        <strong>{t("overview.actionsCount", { value: formatNumber(employee.actionsCount) })}</strong>
-        <small>{t("overview.pageViewsCount", { value: formatNumber(employee.pagesVisited) })}</small>
+        <strong>{formatNumber(employee.actionsCount)} actions</strong>
+        <small>{formatNumber(employee.pagesVisited)} page views</small>
       </td>
       <td>
         <strong>{formatNumber(employee.emergencyAlertsSent)}</strong>
-        <small>{t("overview.alertsSent")}</small>
+        <small>alerts sent</small>
       </td>
       <td>
-        <strong>{formatDateTime(employee.firstLoginAt, locale, t("common.notRecorded"))}</strong>
-        <small>{t("overview.logout", { date: formatDateTime(employee.lastLogoutAt, locale, t("common.notRecorded")) })}</small>
+        <strong>{formatDateTime(employee.firstLoginAt)}</strong>
+        <small>Logout: {formatDateTime(employee.lastLogoutAt)}</small>
       </td>
       <td>
         <button
@@ -986,7 +985,7 @@ function MonitoringRow({
           className="monitoring-row-action"
           onClick={onOpen}
         >
-          {t("overview.viewEmployee")}
+          View employee
           <span aria-hidden="true">→</span>
         </button>
       </td>
@@ -1001,8 +1000,6 @@ function MonitoringEmployeeCard({
   employee: MonitoringEmployeeRow;
   onOpen: () => void;
 }) {
-  const { t, i18n } = useTranslation("monitoring");
-  const locale = i18n.resolvedLanguage === "ne" ? "ne-NP" : "en-GB";
   return (
     <article className="monitoring-employee-card">
       <header>
@@ -1011,44 +1008,44 @@ function MonitoringEmployeeCard({
             {getEmployeeInitials(employee.employeeName)}
           </span>
           <span>
-            <strong>{getEmployeeDisplayName(employee, t(`role.${employee.role}`, { defaultValue: formatLabel(employee.role) }))}</strong>
+            <strong>{getEmployeeDisplayName(employee)}</strong>
             {getEmployeeContactLine(employee) && (
               <small>{getEmployeeContactLine(employee)}</small>
             )}
             {!isEmailIdentity(employee.employeeName) && (
-              <small>{t(`role.${employee.role}`, { defaultValue: formatLabel(employee.role) })}</small>
+              <small>{formatLabel(employee.role)}</small>
             )}
-            <small>{employee.department ?? employee.division ?? t("common.noUnit")}</small>
+            <small>{employee.department ?? employee.division ?? "No unit"}</small>
           </span>
         </div>
         <span className={`monitoring-status ${employee.status.toLowerCase()}`}>
-          {t(`status.${employee.status}`, { defaultValue: getStatusLabel(employee.status) })}
+          {getStatusLabel(employee.status)}
         </span>
       </header>
 
       <dl>
         <div>
-          <dt>{t("overview.lastActivity")}</dt>
-          <dd>{formatDateTime(employee.lastActiveAt, locale, t("common.notRecorded"))}</dd>
+          <dt>Last activity</dt>
+          <dd>{formatDateTime(employee.lastActiveAt)}</dd>
         </div>
         <div>
-          <dt>{t("overview.currentPage")}</dt>
-          <dd>{employee.currentPage ?? t("common.notRecorded")}</dd>
+          <dt>Current page</dt>
+          <dd>{employee.currentPage ?? "Not recorded"}</dd>
         </div>
         <div>
-          <dt>{t("overview.activeIdle")}</dt>
+          <dt>Active / idle</dt>
           <dd>
-            {t("employee.minutes", { value: formatNumber(employee.totalActiveMinutesToday) })} / {t("employee.minutes", { value: formatNumber(employee.idleMinutesToday) })}
+            {formatNumber(employee.totalActiveMinutesToday)}m / {formatNumber(employee.idleMinutesToday)}m
           </dd>
         </div>
         <div>
-          <dt>{t("overview.events")}</dt>
+          <dt>Events</dt>
           <dd>{formatNumber(employee.actionsCount)}</dd>
         </div>
       </dl>
 
       <button type="button" className="monitoring-row-action" onClick={onOpen}>
-        {t("overview.viewDetail")}
+        View employee detail
         <span aria-hidden="true">→</span>
       </button>
     </article>
@@ -1072,8 +1069,6 @@ function ActivityLogTable({
   title: string;
   description: string;
 }) {
-  const { t, i18n } = useTranslation("monitoring");
-  const locale = i18n.resolvedLanguage === "ne" ? "ne-NP" : "en-GB";
   const total = logs?.pagination.total ?? 0;
   const firstRecord = total === 0 ? 0 : (page - 1) * DEFAULT_LOG_LIMIT + 1;
   const lastRecord = Math.min(page * DEFAULT_LOG_LIMIT, total);
@@ -1083,35 +1078,35 @@ function ActivityLogTable({
     <section className="monitoring-table-card monitoring-log-card">
       <header>
         <div>
-          <span className="monitoring-section-eyebrow">{t("logs.eyebrow")}</span>
+          <span className="monitoring-section-eyebrow">Audit trail</span>
           <h3>{title}</h3>
           <p>{description}</p>
         </div>
         <div className="monitoring-result-summary">
-          {loading && <span className="monitoring-loading-dot">{t("logs.refreshing")}</span>}
+          {loading && <span className="monitoring-loading-dot">Refreshing</span>}
           <strong>
             {total === 0
-              ? t("logs.zero")
-              : t("logs.showing", { first: firstRecord, last: lastRecord, total: formatNumber(total) })}
+              ? "0 records"
+              : `Showing ${firstRecord}–${lastRecord} of ${formatNumber(total)}`}
           </strong>
-          <small>{logs ? t("logs.generated", { date: formatDateTime(logs.generatedAt, locale, t("common.notRecorded")) }) : t("logs.loadingShort")}</small>
+          <small>{logs ? `Generated ${formatDateTime(logs.generatedAt)}` : "Loading"}</small>
         </div>
       </header>
 
       {error ? (
         <div className="monitoring-inline-state" role="alert">
-          <strong>{t("logs.unavailable")}</strong>
+          <strong>Activity logs unavailable</strong>
           <span>{error}</span>
         </div>
       ) : loading && !logs ? (
         <div className="monitoring-inline-state">
           <div className="spinner" />
-          <strong>{t("logs.loading")}</strong>
+          <strong>Loading activity logs</strong>
         </div>
       ) : (logs?.records ?? []).length === 0 ? (
         <MonitoringEmptyState
-          title={t("logs.emptyTitle")}
-          description={t("logs.emptyDescription")}
+          title="No activity matches these filters"
+          description="Adjust the employee, date, time or activity filters and apply them again."
         />
       ) : (
         <>
@@ -1119,13 +1114,13 @@ function ActivityLogTable({
             <table className="monitoring-table monitoring-log-table">
               <thead>
                 <tr>
-                  <th>{t("logs.time")}</th>
-                  <th>{t("overview.employee")}</th>
-                  <th>{t("logs.scope")}</th>
-                  <th>{t("logs.activity")}</th>
-                  <th>{t("logs.details")}</th>
-                  <th>{t("overview.status")}</th>
-                  <th>{t("overview.session")}</th>
+                  <th>Time</th>
+                  <th>Employee</th>
+                  <th>Scope</th>
+                  <th>Activity</th>
+                  <th>Safe details</th>
+                  <th>Status</th>
+                  <th>Session</th>
                 </tr>
               </thead>
               <tbody>
@@ -1136,7 +1131,7 @@ function ActivityLogTable({
             </table>
           </div>
 
-          <div className="monitoring-log-cards" aria-label={t("logs.cardsAria")}>
+          <div className="monitoring-log-cards" aria-label="Activity log cards">
             {logs?.records.map((record) => (
               <ActivityLogCard key={record.id} record={record} />
             ))}
@@ -1144,22 +1139,22 @@ function ActivityLogTable({
 
           <div className="monitoring-pagination">
             <div>
-              <strong>{t("common.page", { page: logs?.pagination.page ?? page })}</strong>
-              <span>{t("common.ofPages", { total: totalPages })}</span>
+              <strong>Page {logs?.pagination.page ?? page}</strong>
+              <span>of {totalPages}</span>
             </div>
             <button
               type="button"
               onClick={() => onPageChange(Math.max(page - 1, 1))}
               disabled={page <= 1 || loading}
             >
-              {t("common.previous")}
+              Previous
             </button>
             <button
               type="button"
               onClick={() => onPageChange(Math.min(page + 1, totalPages))}
               disabled={page >= totalPages || loading}
             >
-              {t("common.next")}
+              Next
             </button>
           </div>
         </>
@@ -1169,35 +1164,33 @@ function ActivityLogTable({
 }
 
 function ActivityLogRow({ record }: { record: MonitoringActivityLogRow }) {
-  const { t, i18n } = useTranslation("monitoring");
-  const locale = i18n.resolvedLanguage === "ne" ? "ne-NP" : "en-GB";
   return (
     <tr>
       <td>
-        <strong>{formatTime(record.occurredAt, locale, t("common.notRecorded"))}</strong>
-        <small>{record.isOfficeHours ? t("common.officeHours") : t("common.afterHours")}</small>
+        <strong>{formatTime(record.occurredAt)}</strong>
+        <small>{record.isOfficeHours ? "Office hours" : "After hours"}</small>
       </td>
       <td>
         <strong>{record.employeeName}</strong>
-        <small>{record.designation ?? t("common.noDesignation")}</small>
+        <small>{record.designation ?? "No designation"}</small>
       </td>
       <td>
-        <strong>{t(`role.${record.role}`, { defaultValue: formatLabel(record.role) })}</strong>
-        <small>{record.department ?? t("common.noUnit")}</small>
+        <strong>{formatLabel(record.role)}</strong>
+        <small>{record.department ?? "No unit"}</small>
       </td>
       <td>
         <span className={`monitoring-action-badge ${record.eventType.toLowerCase()}`}>
-          {t(`event.${record.eventType}`, { defaultValue: formatLabel(record.eventType) })}
+          {formatLabel(record.eventType)}
         </span>
-        <small>{record.pageName ?? t("common.application")}</small>
+        <small>{record.pageName ?? "Application"}</small>
       </td>
       <td>{record.details}</td>
       <td>
-        <span className="monitoring-status active">{t(`status.${record.status}`, { defaultValue: formatLabel(record.status) })}</span>
+        <span className="monitoring-status active">{formatLabel(record.status)}</span>
       </td>
       <td>
-        <code className="monitoring-session-code" title={t("common.maskedSession")}>
-          {maskSessionLabel(record.sessionLabel, t("common.notRecorded"))}
+        <code className="monitoring-session-code" title="Masked session identifier">
+          {maskSessionLabel(record.sessionLabel)}
         </code>
       </td>
     </tr>
@@ -1205,39 +1198,37 @@ function ActivityLogRow({ record }: { record: MonitoringActivityLogRow }) {
 }
 
 function ActivityLogCard({ record }: { record: MonitoringActivityLogRow }) {
-  const { t, i18n } = useTranslation("monitoring");
-  const locale = i18n.resolvedLanguage === "ne" ? "ne-NP" : "en-GB";
   return (
     <article className="monitoring-log-mobile-card">
       <header>
         <div>
           <strong>{record.employeeName}</strong>
-          <span>{formatTime(record.occurredAt, locale, t("common.notRecorded"))} · {record.isOfficeHours ? t("common.officeHours") : t("common.afterHours")}</span>
+          <span>{formatTime(record.occurredAt)} · {record.isOfficeHours ? "Office hours" : "After hours"}</span>
         </div>
-        <span className="monitoring-status active">{t(`status.${record.status}`, { defaultValue: formatLabel(record.status) })}</span>
+        <span className="monitoring-status active">{formatLabel(record.status)}</span>
       </header>
 
       <div className="monitoring-log-mobile-activity">
         <span className={`monitoring-action-badge ${record.eventType.toLowerCase()}`}>
-          {t(`event.${record.eventType}`, { defaultValue: formatLabel(record.eventType) })}
+          {formatLabel(record.eventType)}
         </span>
-        <strong>{record.pageName ?? t("common.application")}</strong>
+        <strong>{record.pageName ?? "Application"}</strong>
       </div>
 
       <p>{record.details}</p>
 
       <dl>
         <div>
-          <dt>{t("common.role")}</dt>
-          <dd>{t(`role.${record.role}`, { defaultValue: formatLabel(record.role) })}</dd>
+          <dt>Role</dt>
+          <dd>{formatLabel(record.role)}</dd>
         </div>
         <div>
-          <dt>{t("common.department")}</dt>
-          <dd>{record.department ?? t("common.noUnit")}</dd>
+          <dt>Department</dt>
+          <dd>{record.department ?? "No unit"}</dd>
         </div>
         <div>
-          <dt>{t("common.session")}</dt>
-          <dd>{maskSessionLabel(record.sessionLabel, t("common.notRecorded"))}</dd>
+          <dt>Session</dt>
+          <dd>{maskSessionLabel(record.sessionLabel)}</dd>
         </div>
       </dl>
     </article>
@@ -1251,14 +1242,12 @@ function EmployeeDetailCard({
   employee: MonitoringEmployeeRow | null;
   logs: MonitoringActivityLogRow[];
 }) {
-  const { t, i18n } = useTranslation("monitoring");
-  const locale = i18n.resolvedLanguage === "ne" ? "ne-NP" : "en-GB";
   if (!employee) {
     return (
       <section className="monitoring-employee-detail empty">
         <MonitoringGlyph name="employee" />
-        <strong>{t("employee.emptyTitle")}</strong>
-        <span>{t("employee.emptyDescription")}</span>
+        <strong>Select an employee</strong>
+        <span>Choose an employee and apply the filters to review their activity timeline.</span>
       </section>
     );
   }
@@ -1268,7 +1257,7 @@ function EmployeeDetailCard({
   return (
     <section
       className="monitoring-employee-detail"
-      aria-label={t("employee.aria")}
+      aria-label="Selected employee activity detail"
     >
       <header className="monitoring-employee-detail-header">
         <div className="monitoring-employee-identity">
@@ -1276,77 +1265,75 @@ function EmployeeDetailCard({
             {getEmployeeInitials(employee.employeeName)}
           </span>
           <span>
-            <span className="monitoring-section-eyebrow">{t("employee.eyebrow")}</span>
-            <h3>{getEmployeeDisplayName(employee, t(`role.${employee.role}`, { defaultValue: formatLabel(employee.role) }))}</h3>
+            <span className="monitoring-section-eyebrow">Employee detail</span>
+            <h3>{getEmployeeDisplayName(employee)}</h3>
             {isEmailIdentity(employee.employeeName) && (
               <small className="monitoring-employee-contact">
                 {employee.employeeName}
               </small>
             )}
             <p>
-              {employee.department ?? employee.division ?? t("common.noUnit")} · {t(`role.${employee.role}`, { defaultValue: formatLabel(employee.role) })}
+              {employee.department ?? employee.division ?? "No unit"} · {formatLabel(employee.role)}
             </p>
           </span>
         </div>
         <span className={`monitoring-status ${employee.status.toLowerCase()}`}>
-          {t(`status.${employee.status}`, { defaultValue: getStatusLabel(employee.status) })}
+          {getStatusLabel(employee.status)}
         </span>
       </header>
 
       <dl className="monitoring-employee-metrics">
         <div>
-          <dt>{t("employee.activeToday")}</dt>
-          <dd>{t("employee.minutes", { value: formatNumber(employee.totalActiveMinutesToday) })}</dd>
+          <dt>Active today</dt>
+          <dd>{formatNumber(employee.totalActiveMinutesToday)}m</dd>
         </div>
         <div>
-          <dt>{t("employee.idleToday")}</dt>
-          <dd>{t("employee.minutes", { value: formatNumber(employee.idleMinutesToday) })}</dd>
+          <dt>Idle today</dt>
+          <dd>{formatNumber(employee.idleMinutesToday)}m</dd>
         </div>
         <div>
-          <dt>{t("employee.events")}</dt>
+          <dt>Activity events</dt>
           <dd>{formatNumber(employee.actionsCount)}</dd>
         </div>
         <div>
-          <dt>{t("employee.pageViews")}</dt>
+          <dt>Page views</dt>
           <dd>{formatNumber(employee.pagesVisited)}</dd>
         </div>
       </dl>
 
       <section className="monitoring-employee-session-grid">
         <div>
-          <span>{t("employee.lastActive")}</span>
-          <strong>{formatDateTime(employee.lastActiveAt, locale, t("common.notRecorded"))}</strong>
-          <small>{employee.currentPage ?? t("common.noPage")}</small>
+          <span>Last active</span>
+          <strong>{formatDateTime(employee.lastActiveAt)}</strong>
+          <small>{employee.currentPage ?? "No page recorded"}</small>
         </div>
         <div>
-          <span>{t("employee.firstLogin")}</span>
-          <strong>{formatDateTime(employee.firstLoginAt, locale, t("common.notRecorded"))}</strong>
-          <small>{t("employee.lastLogout", {
-            date: formatDateTime(employee.lastLogoutAt, locale, t("common.notRecorded")),
-          })}</small>
+          <span>First login today</span>
+          <strong>{formatDateTime(employee.firstLoginAt)}</strong>
+          <small>Last logout: {formatDateTime(employee.lastLogoutAt)}</small>
         </div>
       </section>
 
       <div className="monitoring-employee-timeline">
         <header>
           <div>
-            <strong>{t("employee.timeline")}</strong>
-            <span>{t("employee.latestEvents", { value: Math.min(timelineLogs.length, 8) })}</span>
+            <strong>Applied-range timeline</strong>
+            <span>Latest {Math.min(timelineLogs.length, 8)} privacy-safe events</span>
           </div>
         </header>
 
         {timelineLogs.length === 0 ? (
-          <p>{t("employee.noActivity")}</p>
+          <p>No activity records found for this employee and time range.</p>
         ) : (
           <ol>
             {timelineLogs.map((record) => (
               <li key={record.id}>
-                <time>{formatTime(record.occurredAt, locale, t("common.notRecorded"))}</time>
+                <time>{formatTime(record.occurredAt)}</time>
                 <span className={`monitoring-action-badge ${record.eventType.toLowerCase()}`}>
-                  {t(`event.${record.eventType}`, { defaultValue: formatLabel(record.eventType) })}
+                  {formatLabel(record.eventType)}
                 </span>
                 <div>
-                  <strong>{record.pageName ?? t("common.application")}</strong>
+                  <strong>{record.pageName ?? "Application"}</strong>
                   <p>{record.details}</p>
                 </div>
               </li>

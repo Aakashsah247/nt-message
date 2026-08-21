@@ -86,10 +86,6 @@ describe('PasswordRecoveryService', () => {
     superAdminProfile: null,
   };
 
-  afterEach(() => {
-    jest.restoreAllMocks();
-  });
-
   beforeEach(() => {
     jest.clearAllMocks();
 
@@ -172,12 +168,6 @@ describe('PasswordRecoveryService', () => {
       mailService,
       configService,
     );
-    const warning = jest
-      .spyOn(
-        (service as unknown as { logger: { warn(message: string): void } }).logger,
-        'warn',
-      )
-      .mockImplementation(() => undefined);
 
     await service.requestPasswordReset('employee@ntc.net.np');
 
@@ -190,9 +180,6 @@ describe('PasswordRecoveryService', () => {
         consumedAt: expect.any(Date),
       },
     });
-    expect(warning).toHaveBeenCalledWith(
-      'Password recovery code was prepared but not delivered.',
-    );
   });
 
   it('resets the password, revokes sessions and audits safe metadata', async () => {

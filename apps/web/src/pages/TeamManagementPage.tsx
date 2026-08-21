@@ -5,8 +5,6 @@ import {
   useState,
 } from "react";
 import type { CSSProperties } from "react";
-import type { TFunction } from "i18next";
-import { useTranslation } from "react-i18next";
 
 import { useAuth } from "../context/AuthContext";
 import {
@@ -45,10 +43,10 @@ const emptyForm: TeamFormState = {
   adminEmployeeId: "",
 };
 
-function errorMessage(error: unknown, t: TFunction<"teams">): string {
+function errorMessage(error: unknown): string {
   return error instanceof Error
     ? error.message
-    : t("errorFallback", { ns: "teams" });
+    : "The team operation could not be completed.";
 }
 
 function initials(name: string): string {
@@ -63,14 +61,12 @@ function initials(name: string): string {
   return result || "TM";
 }
 
-function teamUseLabel(teamCount: number, t: TFunction<"teams">): string {
+function teamUseLabel(teamCount: number): string {
   if (teamCount === 0) {
-    return t("membership.none", { ns: "teams" });
+    return "Not in a team";
   }
 
-  return teamCount === 1
-    ? t("membership.one", { ns: "teams" })
-    : t("membership.many", { ns: "teams", teamCount });
+  return teamCount === 1 ? "In 1 team" : `In ${teamCount} teams`;
 }
 
 function departmentLabel(department: TeamDepartmentOption): string {
@@ -78,7 +74,6 @@ function departmentLabel(department: TeamDepartmentOption): string {
 }
 
 export function TeamManagementPage() {
-  const { t } = useTranslation("teams");
   const { accessToken } = useAuth();
   const [context, setContext] = useState<TeamManagementContext | null>(null);
   const [teams, setTeams] = useState<DepartmentTeam[]>([]);
@@ -160,7 +155,7 @@ export function TeamManagementPage() {
       })
       .catch((requestError) => {
         if (active) {
-          setError(errorMessage(requestError, t));
+          setError(errorMessage(requestError));
         }
       })
       .finally(() => {
@@ -172,7 +167,7 @@ export function TeamManagementPage() {
     return () => {
       active = false;
     };
-  }, [accessToken, t]);
+  }, [accessToken]);
 
   useEffect(() => {
     if (!accessToken || !context) {
@@ -200,7 +195,7 @@ export function TeamManagementPage() {
           }
         })
         .catch((requestError) => {
-          setError(errorMessage(requestError, t));
+          setError(errorMessage(requestError));
         })
         .finally(() => {
           setLoading(false);
@@ -210,7 +205,7 @@ export function TeamManagementPage() {
     return () => {
       window.clearTimeout(timeoutId);
     };
-  }, [accessToken, context, departmentId, divisionId, search, t]);
+  }, [accessToken, context, departmentId, divisionId, search]);
 
   useEffect(() => {
     if (!accessToken || !form?.departmentId) {
@@ -241,7 +236,7 @@ export function TeamManagementPage() {
           });
         })
         .catch((requestError) => {
-          setFormError(errorMessage(requestError, t));
+          setFormError(errorMessage(requestError));
         })
         .finally(() => {
           setMembersLoading(false);
@@ -251,7 +246,7 @@ export function TeamManagementPage() {
     return () => {
       window.clearTimeout(timeoutId);
     };
-  }, [accessToken, form?.departmentId, memberSearch, t]);
+  }, [accessToken, form?.departmentId, memberSearch]);
 
   useEffect(() => {
     return () => {
@@ -330,7 +325,7 @@ export function TeamManagementPage() {
       setFormSnapshot(JSON.stringify(nextForm));
       setMemberSearch("");
     } catch (requestError) {
-      setError(errorMessage(requestError, t));
+      setError(errorMessage(requestError));
     } finally {
       setMembersLoading(false);
     }
@@ -403,19 +398,19 @@ export function TeamManagementPage() {
 
     const teamName = form.teamName.trim();
     if (!form.departmentId) {
-      setFormError(t("form.validationDepartment"));
+      setFormError("Choose a department.");
       return;
     }
     if (!teamName) {
-      setFormError(t("form.validationName"));
+      setFormError("Enter a team name.");
       return;
     }
     if (form.memberIds.length === 0) {
-      setFormError(t("form.validationMembers"));
+      setFormError("Choose at least one member.");
       return;
     }
     if (!form.adminEmployeeId) {
-      setFormError(t("form.validationAdmin"));
+      setFormError("Choose a team admin.");
       return;
     }
 
@@ -448,7 +443,7 @@ export function TeamManagementPage() {
       closeForm();
       showNotice(result.message);
     } catch (requestError) {
-      setFormError(errorMessage(requestError, t));
+      setFormError(errorMessage(requestError));
     } finally {
       setSaving(false);
     }
@@ -473,7 +468,7 @@ export function TeamManagementPage() {
       setDeleteTarget(null);
       showNotice(result.message);
     } catch (requestError) {
-      setError(errorMessage(requestError, t));
+      setError(errorMessage(requestError));
     } finally {
       setDeleting(false);
     }
@@ -484,25 +479,25 @@ export function TeamManagementPage() {
       ? context.scope.department?.name
       : context?.scope.type === "DIVISION"
         ? context.scope.division?.name
-        : t("page.teams");
+        : "Branch teams";
 
   return (
     <main className="team-management-page">
       <div className="team-management-page__canvas">
         <section className="team-management-hero">
           <div>
-            <span>{t("page.eyebrow")}</span>
-            <h1>{t("page.title")}</h1>
-            <p>{t("page.description")}</p>
+            <span>Operations</span>
+            <h1>Team Management</h1>
+            <p>Manage employee teams with a clear admin and flexible members.</p>
           </div>
           <div className="team-management-hero__actions">
             <div className="team-management-scope">
-              <small>{t("page.managing")}</small>
-              <strong>{scopeLabel ?? t("page.teams")}</strong>
+              <small>Managing</small>
+              <strong>{scopeLabel ?? "Teams"}</strong>
             </div>
             <button type="button" onClick={openCreateForm}>
               <span aria-hidden="true">+</span>
-              {t("page.create")}
+              Create Team
             </button>
           </div>
         </section>
@@ -513,20 +508,20 @@ export function TeamManagementPage() {
           </div>
         ) : null}
 
-        <section className="team-management-toolbar" aria-label={t("page.filtersAria")}>
+        <section className="team-management-toolbar" aria-label="Team filters">
           <label className="team-management-search">
-            <span>{t("search.label")}</span>
+            <span>Search teams</span>
             <input
               type="search"
               value={search}
               onChange={(event) => setSearch(event.target.value)}
-              placeholder={t("search.placeholder")}
+              placeholder="Team, admin, member or employee ID"
             />
           </label>
 
           {context?.scope.type === "BRANCH" ? (
             <label>
-              <span>{t("common.division")}</span>
+              <span>Division</span>
               <select
                 value={divisionId}
                 onChange={(event) => {
@@ -534,7 +529,7 @@ export function TeamManagementPage() {
                   setDepartmentId("");
                 }}
               >
-                <option value="">{t("common.allDivisions")}</option>
+                <option value="">All divisions</option>
                 {context.divisions.map((division) => (
                   <option key={division.id} value={division.id}>
                     {division.name}
@@ -546,12 +541,12 @@ export function TeamManagementPage() {
 
           {context && context.scope.type !== "DEPARTMENT" ? (
             <label>
-              <span>{t("common.department")}</span>
+              <span>Department</span>
               <select
                 value={departmentId}
                 onChange={(event) => setDepartmentId(event.target.value)}
               >
-                <option value="">{t("common.allDepartments")}</option>
+                <option value="">All departments</option>
                 {filteredDepartments.map((department) => (
                   <option key={department.id} value={department.id}>
                     {context.scope.type === "BRANCH"
@@ -567,31 +562,31 @@ export function TeamManagementPage() {
         {error ? (
           <section className="team-management-state team-management-state--error">
             <div>
-              <strong>{t("state.loadError")}</strong>
+              <strong>Team Management could not load.</strong>
               <p>{error}</p>
             </div>
             <button type="button" onClick={() => window.location.reload()}>
-              {t("state.tryAgain")}
+              Try Again
             </button>
           </section>
         ) : loading && teams.length === 0 ? (
           <section className="team-management-state">
             <span className="team-management-loader" aria-hidden="true" />
-            <p>{t("state.loading")}</p>
+            <p>Loading teams…</p>
           </section>
         ) : teams.length === 0 ? (
           <section className="team-management-state team-management-state--empty">
             <div className="team-management-empty-icon" aria-hidden="true">TM</div>
-            <h2>{search ? t("state.noSearch") : t("state.none")}</h2>
+            <h2>{search ? "No team matches your search." : "No teams have been created yet."}</h2>
             {!search ? (
               <>
-                <p>{t("state.noneDescription")}</p>
-                <button type="button" onClick={openCreateForm}>{t("state.create")}</button>
+                <p>Create the first team and choose its members and admin.</p>
+                <button type="button" onClick={openCreateForm}>Create Team</button>
               </>
             ) : null}
           </section>
         ) : (
-          <section className="team-management-grid" aria-label={t("page.gridAria")}>
+          <section className="team-management-grid" aria-label="Employee teams">
             {teams.map((team, index) => (
               <article
                 className="team-card"
@@ -608,7 +603,7 @@ export function TeamManagementPage() {
                     <button
                       type="button"
                       className="team-card__menu-button"
-                      aria-label={t("card.actionsAria", { name: team.name })}
+                      aria-label={`Actions for ${team.name}`}
                       aria-expanded={openMenuId === team.id}
                       onClick={(event) => {
                         event.stopPropagation();
@@ -629,7 +624,7 @@ export function TeamManagementPage() {
                             void openEditForm(team);
                           }}
                         >
-                          {t("card.edit")}
+                          Edit Team
                         </button>
                         <button
                           type="button"
@@ -641,7 +636,7 @@ export function TeamManagementPage() {
                             setOpenMenuId(null);
                           }}
                         >
-                          {t("card.delete")}
+                          Delete Team
                         </button>
                       </div>
                     ) : null}
@@ -651,13 +646,13 @@ export function TeamManagementPage() {
                 <div className="team-card__admin">
                   <span>{initials(team.admin.name)}</span>
                   <div>
-                    <small>{t("common.teamAdmin")}</small>
+                    <small>Team Admin</small>
                     <strong>{team.admin.name}</strong>
                   </div>
                 </div>
 
                 <footer>
-                  <div className="team-card__avatars" aria-label={t("card.membersAria", { count: team.memberCount })}>
+                  <div className="team-card__avatars" aria-label={`${team.memberCount} members`}>
                     {team.members.slice(0, 3).map((member) => (
                       <span key={member.id} title={member.name}>
                         {initials(member.name)}
@@ -665,7 +660,7 @@ export function TeamManagementPage() {
                     ))}
                     {team.memberCount > 3 ? <span>+{team.memberCount - 3}</span> : null}
                   </div>
-                  <strong>{t("card.memberCount", { count: team.memberCount })}</strong>
+                  <strong>{team.memberCount} {team.memberCount === 1 ? "member" : "members"}</strong>
                 </footer>
               </article>
             ))}
@@ -677,7 +672,7 @@ export function TeamManagementPage() {
         <div className="team-detail-backdrop" onClick={() => setSelectedTeam(null)}>
           <aside
             className="team-detail-panel"
-            aria-label={t("card.detailAria", { name: selectedTeam.name })}
+            aria-label={`${selectedTeam.name} details`}
             onClick={(event) => event.stopPropagation()}
           >
             <header>
@@ -685,13 +680,13 @@ export function TeamManagementPage() {
                 <small>{selectedTeam.department.name}</small>
                 <h2>{selectedTeam.name}</h2>
               </div>
-              <button type="button" aria-label={t("card.closeDetails")} onClick={() => setSelectedTeam(null)}>×</button>
+              <button type="button" aria-label="Close team details" onClick={() => setSelectedTeam(null)}>×</button>
             </header>
 
             <section className="team-detail-admin">
               <span>{initials(selectedTeam.admin.name)}</span>
               <div>
-                <small>{t("common.teamAdmin")}</small>
+                <small>Team Admin</small>
                 <strong>{selectedTeam.admin.name}</strong>
                 <p>{selectedTeam.admin.empId}{selectedTeam.admin.designation ? ` · ${selectedTeam.admin.designation}` : ""}</p>
               </div>
@@ -699,7 +694,7 @@ export function TeamManagementPage() {
 
             <section className="team-detail-members">
               <div>
-                <h3>{t("common.members")}</h3>
+                <h3>Members</h3>
                 <span>{selectedTeam.memberCount}</span>
               </div>
               <ul>
@@ -710,14 +705,14 @@ export function TeamManagementPage() {
                       <strong>{member.name}</strong>
                       <small>{member.empId}{member.designation ? ` · ${member.designation}` : ""}</small>
                     </div>
-                    {member.isAdmin ? <em>{t("common.admin")}</em> : null}
+                    {member.isAdmin ? <em>Admin</em> : null}
                   </li>
                 ))}
               </ul>
             </section>
 
             <footer>
-              <button type="button" onClick={() => void openEditForm(selectedTeam)}>{t("card.edit")}</button>
+              <button type="button" onClick={() => void openEditForm(selectedTeam)}>Edit Team</button>
             </footer>
           </aside>
         </div>
@@ -734,10 +729,10 @@ export function TeamManagementPage() {
           >
             <header>
               <div>
-                <small>{form.mode === "CREATE" ? t("form.new") : t("form.update")}</small>
-                <h2 id="team-form-title">{form.mode === "CREATE" ? t("form.create") : t("form.edit")}</h2>
+                <small>{form.mode === "CREATE" ? "New team" : "Update team"}</small>
+                <h2 id="team-form-title">{form.mode === "CREATE" ? "Create Team" : "Edit Team"}</h2>
               </div>
-              <button type="button" aria-label={t("form.close")} onClick={requestCloseForm}>×</button>
+              <button type="button" aria-label="Close team form" onClick={requestCloseForm}>×</button>
             </header>
 
             <div className="team-form-body">
@@ -745,12 +740,12 @@ export function TeamManagementPage() {
 
               {form.mode === "CREATE" && context?.scope.type !== "DEPARTMENT" ? (
                 <label className="team-form-field">
-                  <span>{t("form.departmentRequired")}</span>
+                  <span>Department *</span>
                   <select
                     value={form.departmentId}
                     onChange={(event) => setFormDepartment(event.target.value)}
                   >
-                    <option value="">{t("form.chooseDepartment")}</option>
+                    <option value="">Choose department</option>
                     {context?.departments.map((department) => (
                       <option key={department.id} value={department.id}>
                         {departmentLabel(department)}
@@ -761,7 +756,7 @@ export function TeamManagementPage() {
               ) : null}
 
               <label className="team-form-field">
-                <span>{t("form.nameRequired")}</span>
+                <span>Team name *</span>
                 <input
                   value={form.teamName}
                   maxLength={120}
@@ -770,21 +765,21 @@ export function TeamManagementPage() {
                       current ? { ...current, teamName: event.target.value } : current,
                     )
                   }
-                  placeholder={t("form.namePlaceholder")}
+                  placeholder="Example: Team A"
                 />
               </label>
 
               <section className="team-member-picker">
                 <div className="team-member-picker__heading">
                   <div>
-                    <span>{t("form.membersRequired")}</span>
-                    <small>{t("form.selected", { count: form.memberIds.length })}</small>
+                    <span>Choose members *</span>
+                    <small>{form.memberIds.length} selected</small>
                   </div>
                   <input
                     type="search"
                     value={memberSearch}
                     onChange={(event) => setMemberSearch(event.target.value)}
-                    placeholder={t("form.memberSearch")}
+                    placeholder="Search name or employee ID"
                     disabled={!form.departmentId}
                   />
                 </div>
@@ -805,11 +800,11 @@ export function TeamManagementPage() {
 
                 <div className="team-member-list">
                   {!form.departmentId ? (
-                    <p>{t("form.chooseDepartmentFirst")}</p>
+                    <p>Choose a department first.</p>
                   ) : membersLoading ? (
-                    <p>{t("form.loadingEmployees")}</p>
+                    <p>Loading employees…</p>
                   ) : members.length === 0 ? (
-                    <p>{t("form.noEmployees")}</p>
+                    <p>No active employees found.</p>
                   ) : (
                     members.map((member) => {
                       const checked = form.memberIds.includes(member.id);
@@ -825,7 +820,7 @@ export function TeamManagementPage() {
                             <strong>{member.name}</strong>
                             <small>{member.empId}{member.designation ? ` · ${member.designation}` : ""}</small>
                           </span>
-                          <em>{teamUseLabel(member.teamCount, t)}</em>
+                          <em>{teamUseLabel(member.teamCount)}</em>
                         </label>
                       );
                     })
@@ -834,7 +829,7 @@ export function TeamManagementPage() {
               </section>
 
               <label className="team-form-field">
-                <span>{t("form.adminRequired")}</span>
+                <span>Choose team admin *</span>
                 <select
                   value={form.adminEmployeeId}
                   onChange={(event) =>
@@ -846,7 +841,7 @@ export function TeamManagementPage() {
                   }
                   disabled={selectedMembers.length === 0}
                 >
-                  <option value="">{t("form.chooseAdmin")}</option>
+                  <option value="">Choose from selected members</option>
                   {selectedMembers.map((member) => (
                     <option key={member.id} value={member.id}>
                       {member.name} · {member.empId}
@@ -857,9 +852,9 @@ export function TeamManagementPage() {
             </div>
 
             <footer>
-              <button type="button" className="secondary" onClick={requestCloseForm}>{t("common.cancel")}</button>
+              <button type="button" className="secondary" onClick={requestCloseForm}>Cancel</button>
               <button type="button" onClick={() => void saveTeam()} disabled={saving}>
-                {saving ? t("form.saving") : form.mode === "CREATE" ? t("form.create") : t("form.save")}
+                {saving ? "Saving…" : form.mode === "CREATE" ? "Create Team" : "Save Team"}
               </button>
             </footer>
           </section>
@@ -869,11 +864,11 @@ export function TeamManagementPage() {
       {showDiscardConfirm ? (
         <div className="team-confirm-backdrop">
           <section className="team-confirm-dialog" role="alertdialog" aria-modal="true">
-            <h2>{t("discard.title")}</h2>
-            <p>{t("discard.description")}</p>
+            <h2>Discard unsaved changes?</h2>
+            <p>Your team changes have not been saved.</p>
             <div>
-              <button type="button" onClick={() => setShowDiscardConfirm(false)}>{t("discard.continue")}</button>
-              <button type="button" className="danger" onClick={closeForm}>{t("discard.discard")}</button>
+              <button type="button" onClick={() => setShowDiscardConfirm(false)}>Continue Editing</button>
+              <button type="button" className="danger" onClick={closeForm}>Discard Changes</button>
             </div>
           </section>
         </div>
@@ -882,12 +877,12 @@ export function TeamManagementPage() {
       {deleteTarget ? (
         <div className="team-confirm-backdrop">
           <section className="team-confirm-dialog" role="alertdialog" aria-modal="true">
-            <h2>{t("delete.title", { name: deleteTarget.name })}</h2>
-            <p>{t("delete.description")}</p>
+            <h2>Remove {deleteTarget.name}?</h2>
+            <p>This action permanently deletes the team and cannot be undone.</p>
             <div>
-              <button type="button" onClick={() => setDeleteTarget(null)} disabled={deleting}>{t("delete.keep")}</button>
+              <button type="button" onClick={() => setDeleteTarget(null)} disabled={deleting}>Keep Team</button>
               <button type="button" className="danger" onClick={() => void confirmDelete()} disabled={deleting}>
-                {deleting ? t("delete.deleting") : t("delete.confirm")}
+                {deleting ? "Deleting…" : "Delete Team"}
               </button>
             </div>
           </section>

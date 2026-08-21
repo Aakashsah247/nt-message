@@ -1,7 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "react-router";
-import type { TFunction } from "i18next";
-import { useTranslation } from "react-i18next";
 
 import { AdminRequestDetailPanel } from "../components/AdminRequestDetailPanel";
 import { ProtectedAvatar } from "../components/ProtectedAvatar";
@@ -25,13 +23,13 @@ import type { AdminDepartment, AdminDivision } from "../types/admin-account";
 import type { AccountRole } from "../types/auth";
 
 const PAGE_SIZE = 20;
-const STATUS_OPTIONS: Array<{ value: AccountRequestStatus; labelKey: string }> = [
-  { value: "PENDING_APPROVAL", labelKey: "common.pending" },
-  { value: "APPROVED", labelKey: "common.approved" },
-  { value: "REJECTED", labelKey: "common.rejected" },
-  { value: "ACTIVATION_PENDING", labelKey: "common.activating" },
-  { value: "ACTIVATED", labelKey: "common.activated" },
-  { value: "DRAFT", labelKey: "common.draft" },
+const STATUS_OPTIONS: Array<{ value: AccountRequestStatus; label: string }> = [
+  { value: "PENDING_APPROVAL", label: "Pending" },
+  { value: "APPROVED", label: "Approved" },
+  { value: "REJECTED", label: "Rejected" },
+  { value: "ACTIVATION_PENDING", label: "Activating" },
+  { value: "ACTIVATED", label: "Activated" },
+  { value: "DRAFT", label: "Draft" },
 ];
 const VALID_STATUSES = new Set<AccountRequestStatus>(
   STATUS_OPTIONS.map((option) => option.value),
@@ -43,7 +41,7 @@ function parseStatus(value: string | null): AccountRequestStatus {
     : "PENDING_APPROVAL";
 }
 
-function fallbackFormatValue(value: string): string {
+function formatValue(value: string): string {
   return value
     .toLowerCase()
     .split("_")
@@ -51,27 +49,16 @@ function fallbackFormatValue(value: string): string {
     .join(" ");
 }
 
-function formatValue(value: string, t: TFunction<"requests">): string {
-  return t(`values.${value}`, {
-    ns: "requests",
-    defaultValue: fallbackFormatValue(value),
-  });
-}
-
-function formatDate(
-  value: string | null,
-  locale: string,
-  t: TFunction<"requests">,
-): string {
+function formatDate(value: string | null): string {
   if (!value) {
-    return t("common.notReviewed", { ns: "requests" });
+    return "Not reviewed";
   }
 
   const date = new Date(value);
 
   return Number.isNaN(date.getTime())
-    ? t("common.notAvailable", { ns: "requests" })
-    : new Intl.DateTimeFormat(locale === "ne" ? "ne-NP-u-ca-gregory" : "en-GB", {
+    ? "Not available"
+    : new Intl.DateTimeFormat("en-GB", {
         day: "2-digit",
         month: "short",
         year: "numeric",
@@ -84,25 +71,30 @@ function getStatusClass(status: AccountRequestStatus): string {
   return status.toLowerCase().replaceAll("_", "-");
 }
 
-function getRequesterName(
-  request: AdminAccountRequestListItem,
-  t: TFunction<"requests">,
-): string {
+function getRequesterName(request: AdminAccountRequestListItem): string {
   return (
     request.requestedBy.employee?.empName ??
     request.requestedBy.username ??
-    t("common.unknownRequester", { ns: "requests" })
+    "Unknown requester"
   );
 }
 
-function getLifecycleText(
-  request: AdminAccountRequestListItem,
-  t: TFunction<"requests">,
-): string {
-  return t(`lifecycle.${request.status}`, {
-    ns: "requests",
-    defaultValue: t("lifecycle.DRAFT", { ns: "requests" }),
-  });
+function getLifecycleText(request: AdminAccountRequestListItem): string {
+  switch (request.status) {
+    case "ACTIVATED":
+      return "Account activation complete";
+    case "ACTIVATION_PENDING":
+      return "Awaiting employee activation";
+    case "APPROVED":
+      return "Approved; activation preparation in progress";
+    case "REJECTED":
+      return "Returned to requester for correction";
+    case "PENDING_APPROVAL":
+      return "Waiting for Super Admin review";
+    case "DRAFT":
+    default:
+      return "Not yet submitted for review";
+  }
 }
 
 function RequestEmployeeAvatar({
@@ -110,7 +102,6 @@ function RequestEmployeeAvatar({
 }: {
   request: AdminAccountRequestListItem;
 }) {
-  const { t } = useTranslation("requests");
   if (request.status !== "ACTIVATED") {
     return (
       <span
@@ -128,13 +119,12 @@ function RequestEmployeeAvatar({
       officialEmail={request.officialEmail}
       displayName={request.empName}
       className="admin-account-requests-page__request-avatar"
-      ariaLabel={t("adminList.profileAria", { name: request.empName })}
+      ariaLabel={`${request.empName} profile`}
     />
   );
 }
 
 export function AdminAccountRequestsPage() {
-  const { t, i18n } = useTranslation("requests");
   const { accessToken } = useAuth();
   const [searchParams, setSearchParams] = useSearchParams();
   const status = parseStatus(searchParams.get("status"));
@@ -205,14 +195,14 @@ export function AdminAccountRequestsPage() {
         setOrganizationError(
           requestError instanceof Error
             ? requestError.message
-            : t("adminList.organizationError"),
+            : "Organization filters could not be loaded.",
         );
       });
 
     return () => {
       active = false;
     };
-  }, [accessToken, t]);
+  }, [accessToken]);
 
   useEffect(() => {
     if (!accessToken) {
@@ -307,7 +297,7 @@ export function AdminAccountRequestsPage() {
         setError(
           requestError instanceof Error
             ? requestError.message
-            : t("adminList.loadError"),
+            : "Account requests could not be loaded.",
         );
       })
       .finally(() => {
@@ -319,7 +309,7 @@ export function AdminAccountRequestsPage() {
     return () => {
       active = false;
     };
-  }, [accessToken, query, refreshKey, t]);
+  }, [accessToken, query, refreshKey]);
 
   const filteredDepartments = useMemo(
     () =>
@@ -388,26 +378,29 @@ export function AdminAccountRequestsPage() {
     <main className="management-page admin-account-requests-page">
       <header className="admin-account-requests-page__header">
         <div className="admin-account-requests-page__header-copy">
-          <span>{t("adminList.eyebrow")}</span>
-          <h1>{t("adminList.title")}</h1>
-          <p>{t("adminList.description")}</p>
+          <span>Account governance</span>
+          <h1>Account Requests</h1>
+          <p>
+            Search, review and manage organization-wide employee and management
+            account requests from one controlled workspace.
+          </p>
         </div>
 
         <div className="admin-account-requests-page__refresh">
           <span>
             {lastRefreshedAt
-              ? t("adminList.updated", { date: formatDate(lastRefreshedAt, i18n.language, t) })
-              : t("adminList.loadingQueue")}
+              ? `Updated ${formatDate(lastRefreshedAt)}`
+              : "Loading current queue"}
           </span>
           <button type="button" onClick={refreshRequests} disabled={loading}>
-            {loading ? t("adminList.refreshing") : t("adminList.refresh")}
+            {loading ? "Refreshing…" : "Refresh requests"}
           </button>
         </div>
       </header>
 
       <nav
         className="admin-account-requests-page__statuses"
-        aria-label={t("adminList.statusAria")}
+        aria-label="Request status"
       >
         {STATUS_OPTIONS.map((option) => (
           <button
@@ -417,7 +410,7 @@ export function AdminAccountRequestsPage() {
             aria-pressed={status === option.value}
             onClick={() => changeStatus(option.value)}
           >
-            <span>{t(option.labelKey)}</span>
+            <span>{option.label}</span>
             <strong>
               {summaryLoading && !summary
                 ? "—"
@@ -429,35 +422,36 @@ export function AdminAccountRequestsPage() {
 
       <section
         className="admin-account-requests-page__filters"
-        aria-label={t("adminList.filtersAria")}
+        aria-label="Request filters"
       >
         <div className="admin-account-requests-page__filter-heading">
           <div>
             <ManagementIcon name="requests" />
             <span>
-              <strong>{t("adminList.filtersTitle")}</strong>
+              <strong>Search and filters</strong>
               <small>
-                {t("adminList.filterDescription", { status: formatValue(status, t).toLowerCase() })}
+                Narrow the current {formatValue(status).toLowerCase()} queue.
               </small>
             </span>
           </div>
           <span className="admin-account-requests-page__filter-count">
-            {t("adminList.activeFilters", { count: activeFilterCount })}
+            {activeFilterCount} active filter
+            {activeFilterCount === 1 ? "" : "s"}
           </span>
         </div>
 
         <label className="admin-account-requests-page__search">
-          <span>{t("adminList.employeeOrRequester")}</span>
+          <span>Employee or requester</span>
           <input
             type="search"
             value={searchInput}
-            placeholder={t("adminList.searchPlaceholder")}
+            placeholder="Name, employee ID, official email or requester"
             onChange={(event) => setSearchInput(event.target.value)}
           />
         </label>
 
         <label>
-          <span>{t("common.requestedRole")}</span>
+          <span>Requested role</span>
           <select
             value={requestedRole}
             onChange={(event) => {
@@ -465,15 +459,15 @@ export function AdminAccountRequestsPage() {
               setPage(1);
             }}
           >
-            <option value="">{t("adminList.allRoles")}</option>
-            <option value="EMPLOYEE">{t("common.employee")}</option>
-            <option value="TEAM_MANAGER">{t("common.teamManager")}</option>
-            <option value="SENIOR_MANAGEMENT">{t("common.seniorManagement")}</option>
+            <option value="">All roles</option>
+            <option value="EMPLOYEE">Employee</option>
+            <option value="TEAM_MANAGER">Team Manager</option>
+            <option value="SENIOR_MANAGEMENT">Senior Management</option>
           </select>
         </label>
 
         <label>
-          <span>{t("common.division")}</span>
+          <span>Division</span>
           <select
             value={divisionId}
             onChange={(event) => {
@@ -494,7 +488,7 @@ export function AdminAccountRequestsPage() {
               }
             }}
           >
-            <option value="">{t("common.allDivisions")}</option>
+            <option value="">All divisions</option>
             {divisions
               .filter((division) => division.isActive)
               .map((division) => (
@@ -506,7 +500,7 @@ export function AdminAccountRequestsPage() {
         </label>
 
         <label>
-          <span>{t("common.department")}</span>
+          <span>Department</span>
           <select
             value={departmentId}
             onChange={(event) => {
@@ -514,7 +508,7 @@ export function AdminAccountRequestsPage() {
               setPage(1);
             }}
           >
-            <option value="">{t("common.allDepartments")}</option>
+            <option value="">All departments</option>
             {filteredDepartments.map((department) => (
               <option key={department.id} value={department.id}>
                 {department.name} ({department.code})
@@ -524,7 +518,7 @@ export function AdminAccountRequestsPage() {
         </label>
 
         <label>
-          <span>{t("adminList.submittedFrom")}</span>
+          <span>Submitted from</span>
           <input
             type="date"
             value={dateFrom}
@@ -536,7 +530,7 @@ export function AdminAccountRequestsPage() {
         </label>
 
         <label>
-          <span>{t("adminList.submittedTo")}</span>
+          <span>Submitted to</span>
           <input
             type="date"
             value={dateTo}
@@ -554,7 +548,7 @@ export function AdminAccountRequestsPage() {
           onClick={resetFilters}
           disabled={activeFilterCount === 0}
         >
-          {t("adminList.clearFilters")}
+          Clear filters
         </button>
 
         {organizationError && (
@@ -562,7 +556,8 @@ export function AdminAccountRequestsPage() {
             className="admin-account-requests-page__filter-warning"
             role="status"
           >
-            {t("adminList.filterWarning", { error: organizationError })}
+            Organization filters are temporarily unavailable:{" "}
+            {organizationError}
           </p>
         )}
       </section>
@@ -570,23 +565,23 @@ export function AdminAccountRequestsPage() {
       <section className="admin-account-requests-page__records">
         <header>
           <div>
-            <span>{t("adminList.queue", { status: formatValue(status, t) })}</span>
+            <span>{formatValue(status)} queue</span>
             <h2>
-              {t("adminList.requestCount", { count: total })}
+              {total} request{total === 1 ? "" : "s"}
             </h2>
           </div>
           {total > 0 ? (
             <small>
-              {t("adminList.showing", { first: firstResult, last: lastResult, total })}
+              Showing {firstResult}–{lastResult} of {total}
             </small>
           ) : (
-            <small>{t("adminList.requestsInView", { count: 0 })}</small>
+            <small>0 requests in this view</small>
           )}
         </header>
 
         {!accessToken && (
           <div className="admin-request-error">
-            {t("adminList.sessionUnavailable")}
+            Your secure session is unavailable.
           </div>
         )}
         {error && <div className="admin-request-error">{error}</div>}
@@ -596,7 +591,7 @@ export function AdminAccountRequestsPage() {
               className="admin-account-requests-page__loader"
               aria-hidden="true"
             />
-            {t("adminList.loadingRequests")}
+            Loading account requests…
           </div>
         )}
 
@@ -606,18 +601,18 @@ export function AdminAccountRequestsPage() {
             <div>
               <strong>
                 {activeFilterCount > 0
-                  ? t("adminList.emptyFilteredTitle")
-                  : t("adminList.queueClear", { status: formatValue(status, t) })}
+                  ? "No requests match these filters"
+                  : `${formatValue(status)} queue is clear`}
               </strong>
               <p>
                 {activeFilterCount > 0
-                  ? t("adminList.emptyFilteredDescription")
-                  : t("adminList.emptyStatusDescription")}
+                  ? "Clear or adjust the filters to broaden the results."
+                  : "There are no requests requiring attention in this status."}
               </p>
             </div>
             {activeFilterCount > 0 && (
               <button type="button" onClick={resetFilters}>
-                {t("adminList.resetFilters")}
+                Reset filters
               </button>
             )}
           </div>
@@ -629,14 +624,14 @@ export function AdminAccountRequestsPage() {
               <table>
                 <thead>
                   <tr>
-                    <th>{t("adminList.tableEmployee")}</th>
-                    <th>{t("adminList.tableRequest")}</th>
-                    <th>{t("common.organization")}</th>
-                    <th>{t("common.requestedBy")}</th>
-                    <th>{t("common.lifecycle")}</th>
-                    <th>{t("common.activationEmail")}</th>
-                    <th>{t("common.submitted")}</th>
-                    <th aria-label={t("common.actions")} />
+                    <th>Employee</th>
+                    <th>Request</th>
+                    <th>Organization</th>
+                    <th>Requested by</th>
+                    <th>Lifecycle</th>
+                    <th>Activation email</th>
+                    <th>Submitted</th>
+                    <th aria-label="Actions" />
                   </tr>
                 </thead>
                 <tbody>
@@ -653,51 +648,49 @@ export function AdminAccountRequestsPage() {
                         </span>
                       </td>
                       <td>
-                        <strong>{formatValue(request.requestedRole, t)}</strong>
-                        <span>{t("adminList.revision", { number: request.revisionNumber })}</span>
+                        <strong>{formatValue(request.requestedRole)}</strong>
+                        <span>Revision {request.revisionNumber}</span>
                       </td>
                       <td>
                         <strong>
-                          {request.department?.name ?? t("common.noDepartment")}
+                          {request.department?.name ?? "No department"}
                         </strong>
-                        <span>{request.division?.name ?? t("common.noDivision")}</span>
+                        <span>{request.division?.name ?? "No division"}</span>
                       </td>
                       <td>
-                        <strong>{getRequesterName(request, t)}</strong>
-                        <span>{formatValue(request.requestedBy.role, t)}</span>
+                        <strong>{getRequesterName(request)}</strong>
+                        <span>{formatValue(request.requestedBy.role)}</span>
                       </td>
                       <td>
                         <span
                           className={`admin-status-badge ${getStatusClass(request.status)}`}
                         >
-                          {formatValue(request.status, t)}
+                          {formatValue(request.status)}
                         </span>
-                        <small>{getLifecycleText(request, t)}</small>
+                        <small>{getLifecycleText(request)}</small>
                       </td>
                       <td>
                         <strong
                           className={`activation-delivery-status activation-delivery-status--${request.activationEmailStatus.toLowerCase()}`}
                         >
-                          {formatValue(request.activationEmailStatus, t)}
+                          {formatValue(request.activationEmailStatus)}
                         </strong>
                         <span>
                           {request.activationEmailSentAt
-                            ? t("adminList.sentDate", { date: formatDate(request.activationEmailSentAt, i18n.language, t) })
+                            ? `Sent ${formatDate(request.activationEmailSentAt)}`
                             : request.activationEmailLastAttemptAt
-                              ? t("adminList.attemptedDate", { date: formatDate(
+                              ? `Attempted ${formatDate(
                                   request.activationEmailLastAttemptAt,
-                                  i18n.language,
-                                  t,
-                                ) })
-                              : t("common.notAttempted")}
+                                )}`
+                              : "Not attempted"}
                         </span>
                       </td>
                       <td>
-                        <strong>{formatDate(request.submittedAt, i18n.language, t)}</strong>
+                        <strong>{formatDate(request.submittedAt)}</strong>
                         <span>
                           {request.reviewedAt
-                            ? t("adminList.reviewedDate", { date: formatDate(request.reviewedAt, i18n.language, t) })
-                            : t("common.notReviewed")}
+                            ? `Reviewed ${formatDate(request.reviewedAt)}`
+                            : "Not reviewed"}
                         </span>
                       </td>
                       <td>
@@ -705,7 +698,7 @@ export function AdminAccountRequestsPage() {
                           type="button"
                           onClick={() => openRequest(request.id)}
                         >
-                          {t("adminList.viewDetails")} <span aria-hidden="true">→</span>
+                          View details <span aria-hidden="true">→</span>
                         </button>
                       </td>
                     </tr>
@@ -728,38 +721,38 @@ export function AdminAccountRequestsPage() {
                     <span
                       className={`admin-status-badge ${getStatusClass(request.status)}`}
                     >
-                      {formatValue(request.status, t)}
+                      {formatValue(request.status)}
                     </span>
                   </header>
                   <dl>
                     <div>
-                      <dt>{t("common.requestedRole")}</dt>
-                      <dd>{formatValue(request.requestedRole, t)}</dd>
+                      <dt>Requested role</dt>
+                      <dd>{formatValue(request.requestedRole)}</dd>
                     </div>
                     <div>
-                      <dt>{t("common.organization")}</dt>
+                      <dt>Organization</dt>
                       <dd>
                         {request.department?.name ??
                           request.division?.name ??
-                          t("common.notAssigned")}
+                          "Unassigned"}
                       </dd>
                     </div>
                     <div>
-                      <dt>{t("common.activationEmail")}</dt>
-                      <dd>{formatValue(request.activationEmailStatus, t)}</dd>
+                      <dt>Activation email</dt>
+                      <dd>{formatValue(request.activationEmailStatus)}</dd>
                     </div>
                     <div>
-                      <dt>{t("common.requestedBy")}</dt>
-                      <dd>{getRequesterName(request, t)}</dd>
+                      <dt>Requested by</dt>
+                      <dd>{getRequesterName(request)}</dd>
                     </div>
                     <div>
-                      <dt>{t("common.submitted")}</dt>
-                      <dd>{formatDate(request.submittedAt, i18n.language, t)}</dd>
+                      <dt>Submitted</dt>
+                      <dd>{formatDate(request.submittedAt)}</dd>
                     </div>
                   </dl>
-                  <p>{getLifecycleText(request, t)}</p>
+                  <p>{getLifecycleText(request)}</p>
                   <button type="button" onClick={() => openRequest(request.id)}>
-                    {t("adminList.viewRequestDetails")} <span aria-hidden="true">→</span>
+                    View request details <span aria-hidden="true">→</span>
                   </button>
                 </article>
               ))}
@@ -774,17 +767,17 @@ export function AdminAccountRequestsPage() {
               disabled={page <= 1}
               onClick={() => setPage((current) => current - 1)}
             >
-              {t("adminList.previous")}
+              ← Previous
             </button>
             <span>
-              {t("adminList.page", { page, total: totalPages })}
+              Page <strong>{page}</strong> of <strong>{totalPages}</strong>
             </span>
             <button
               type="button"
               disabled={page >= totalPages}
               onClick={() => setPage((current) => current + 1)}
             >
-              {t("adminList.next")}
+              Next →
             </button>
           </footer>
         )}

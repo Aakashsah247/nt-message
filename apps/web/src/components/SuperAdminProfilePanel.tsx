@@ -3,8 +3,6 @@ import {
   useRef,
   useState,
 } from "react";
-import type { TFunction } from "i18next";
-import { useTranslation } from "react-i18next";
 
 import { ProtectedAvatar } from "./ProtectedAvatar";
 import { useAuth } from "../context/AuthContext";
@@ -116,45 +114,38 @@ function OfficialProfileIcon({
   }
 }
 
-function getErrorMessage(
-  error: unknown,
-  fallback: string,
-): string {
-  return error instanceof Error ? error.message : fallback;
+function getErrorMessage(error: unknown): string {
+  return error instanceof Error
+    ? error.message
+    : "Unable to load Super Admin official profile.";
 }
 
-function getSourceLabel(
-  profile: SuperAdminEmergencyProfile,
-  t: TFunction<"officialProfile">,
-): string {
+function getSourceLabel(profile: SuperAdminEmergencyProfile): string {
   if (profile.source === "SYSTEM_CONFIG") {
-    return t("source.SYSTEM_CONFIG", { ns: "officialProfile" });
+    return "System configuration";
   }
 
   if (profile.source === "DATABASE_SETUP") {
-    return t("source.DATABASE_SETUP", { ns: "officialProfile" });
+    return "Database setup record";
   }
 
-  return t("source.ACCOUNT_FALLBACK", { ns: "officialProfile" });
+  return "Account fallback";
 }
 
-function getStatusLabel(
-  status: SuperAdminProfileStatus,
-  t: TFunction<"officialProfile">,
-): string {
+function getStatusLabel(status: SuperAdminProfileStatus): string {
   switch (status) {
     case "READY":
-      return t("status.READY", { ns: "officialProfile" });
+      return "Ready for emergency use";
     case "NOT_CONFIGURED":
-      return t("status.NOT_CONFIGURED", { ns: "officialProfile" });
+      return "Configuration required";
     case "INVALID_PHONE":
-      return t("status.INVALID_PHONE", { ns: "officialProfile" });
+      return "Phone configuration invalid";
     case "DUPLICATE_EMAIL":
-      return t("status.DUPLICATE_EMAIL", { ns: "officialProfile" });
+      return "Email identity conflict";
     case "DUPLICATE_PHONE":
-      return t("status.DUPLICATE_PHONE", { ns: "officialProfile" });
+      return "Phone identity conflict";
     default:
-      return t("status.DEFAULT", { ns: "officialProfile" });
+      return "Profile requires review";
   }
 }
 
@@ -170,24 +161,20 @@ function getStatusTone(status: SuperAdminProfileStatus): string {
   return "is-danger";
 }
 
-function formatUpdatedAt(
-  profile: SuperAdminEmergencyProfile,
-  locale: string,
-  t: TFunction<"officialProfile">,
-): string {
+function formatUpdatedAt(profile: SuperAdminEmergencyProfile): string {
   if (!profile.updatedAt) {
     return profile.source === "SYSTEM_CONFIG"
-      ? t("date.managedOutside", { ns: "officialProfile" })
-      : t("date.notRecorded", { ns: "officialProfile" });
+      ? "Managed outside the application"
+      : "Not recorded";
   }
 
   const parsedDate = new Date(profile.updatedAt);
 
   if (Number.isNaN(parsedDate.getTime())) {
-    return t("date.notRecorded", { ns: "officialProfile" });
+    return "Not recorded";
   }
 
-  return new Intl.DateTimeFormat(locale, {
+  return new Intl.DateTimeFormat("en-GB", {
     day: "2-digit",
     month: "short",
     year: "numeric",
@@ -215,15 +202,13 @@ async function copyText(value: string): Promise<void> {
   document.body.removeChild(temporaryInput);
 
   if (!copied) {
-    throw new Error("COPY_UNSUPPORTED");
+    throw new Error("Copy was not supported by this browser.");
   }
 }
 
 export function SuperAdminProfilePanel({
   accessToken,
 }: SuperAdminProfilePanelProps) {
-  const { t, i18n } = useTranslation("officialProfile");
-  const locale = i18n.resolvedLanguage === "ne" ? "ne-NP" : "en-GB";
   const { account } = useAuth();
   const [profile, setProfile] =
     useState<SuperAdminEmergencyProfile | null>(null);
@@ -251,7 +236,7 @@ export function SuperAdminProfilePanel({
       .catch((loadError: unknown) => {
         if (active) {
           setProfile(null);
-          setError(getErrorMessage(loadError, t("errors.load")));
+          setError(getErrorMessage(loadError));
         }
       })
       .finally(() => {
@@ -298,7 +283,7 @@ export function SuperAdminProfilePanel({
       }, 2200);
     } catch (copyFailure: unknown) {
       setCopiedField(null);
-      setCopyError(copyFailure instanceof Error && copyFailure.message !== "COPY_UNSUPPORTED" ? copyFailure.message : t("errors.copy"));
+      setCopyError(getErrorMessage(copyFailure));
     }
   }
 
@@ -306,9 +291,14 @@ export function SuperAdminProfilePanel({
     <section className="super-admin-profile-panel official-profile-workspace">
       <header className="official-profile-hero">
         <div className="official-profile-hero-copy">
-          <span className="official-profile-eyebrow">{t("hero.eyebrow")}</span>
-          <h2>{t("hero.title")}</h2>
-          <p>{t("hero.description")}</p>
+          <span className="official-profile-eyebrow">
+            Official Super Admin profile
+          </span>
+          <h2>Official identity and emergency contact</h2>
+          <p>
+            System-managed contact information used for authorized governance
+            and emergency workflows.
+          </p>
         </div>
 
         <div
@@ -320,13 +310,13 @@ export function SuperAdminProfilePanel({
             name={profile?.profileStatus === "READY" ? "shield" : "alert"}
           />
           <div>
-            <span>{t("hero.profileStatus")}</span>
+            <span>Profile status</span>
             <strong>
               {profile
-                ? getStatusLabel(profile.profileStatus, t)
+                ? getStatusLabel(profile.profileStatus)
                 : loading
-                  ? t("status.checking")
-                  : t("status.unavailable")}
+                  ? "Checking configuration"
+                  : "Status unavailable"}
             </strong>
           </div>
         </div>
@@ -336,8 +326,8 @@ export function SuperAdminProfilePanel({
         <div className="official-profile-state-card" aria-live="polite">
           <span className="official-profile-spinner" aria-hidden="true" />
           <div>
-            <strong>{t("state.loadingTitle")}</strong>
-            <p>{t("state.loadingDescription")}</p>
+            <strong>Loading official profile</strong>
+            <p>Verifying the configured identity and contact details.</p>
           </div>
         </div>
       )}
@@ -346,14 +336,14 @@ export function SuperAdminProfilePanel({
         <div className="official-profile-state-card is-error" role="alert">
           <OfficialProfileIcon name="alert" />
           <div>
-            <strong>{t("state.errorTitle")}</strong>
+            <strong>Official profile could not be loaded</strong>
             <p>{error}</p>
           </div>
           <button
             type="button"
             onClick={() => setRefreshKey((currentValue) => currentValue + 1)}
           >
-            {t("state.retry")}
+            Try again
           </button>
         </div>
       )}
@@ -364,13 +354,15 @@ export function SuperAdminProfilePanel({
             <article className="official-profile-card official-profile-identity-card">
               <div className="official-profile-card-heading">
                 <div>
-                  <span className="official-profile-section-eyebrow">{t("identity.eyebrow")}</span>
-                  <h3>{t("identity.title")}</h3>
+                  <span className="official-profile-section-eyebrow">
+                    Official identity
+                  </span>
+                  <h3>Super Admin</h3>
                 </div>
 
                 <span className="official-profile-badge is-locked">
                   <OfficialProfileIcon name="lock" />
-                  {t("identity.locked")}
+                  Read-only
                 </span>
               </div>
 
@@ -379,13 +371,13 @@ export function SuperAdminProfilePanel({
                   accountId={account?.id}
                   displayName={profile.fullName}
                   className="official-profile-avatar"
-                  ariaLabel={t("identity.profileAria", { name: profile.fullName })}
+                  ariaLabel={`${profile.fullName} profile`}
                 />
 
                 <div>
                   <strong>{profile.fullName}</strong>
-                  <span>{t("identity.role")}</span>
-                  <small>{t("identity.description")}</small>
+                  <span>Super Admin</span>
+                  <small>System-managed official profile</small>
                 </div>
               </div>
             </article>
@@ -393,8 +385,10 @@ export function SuperAdminProfilePanel({
             <article className="official-profile-card official-profile-contact-card">
               <div className="official-profile-card-heading">
                 <div>
-                  <span className="official-profile-section-eyebrow">{t("contact.eyebrow")}</span>
-                  <h3>{t("contact.title")}</h3>
+                  <span className="official-profile-section-eyebrow">
+                    Contact details
+                  </span>
+                  <h3>Official communication channels</h3>
                 </div>
               </div>
 
@@ -405,20 +399,20 @@ export function SuperAdminProfilePanel({
                   </span>
 
                   <div>
-                    <span>{t("contact.email")}</span>
-                    <strong>{profile.email ?? t("contact.notConfigured")}</strong>
+                    <span>Official email</span>
+                    <strong>{profile.email ?? "Not configured"}</strong>
                   </div>
 
                   <button
                     type="button"
                     disabled={!profile.email}
                     onClick={() => handleCopy("email", profile.email)}
-                    aria-label={t("contact.copyEmail")}
+                    aria-label="Copy official email"
                   >
                     <OfficialProfileIcon
                       name={copiedField === "email" ? "check" : "copy"}
                     />
-                    {copiedField === "email" ? t("contact.copied") : t("contact.copy")}
+                    {copiedField === "email" ? "Copied" : "Copy"}
                   </button>
                 </div>
 
@@ -428,20 +422,20 @@ export function SuperAdminProfilePanel({
                   </span>
 
                   <div>
-                    <span>{t("contact.phone")}</span>
-                    <strong>{profile.phoneNumber ?? t("contact.notConfigured")}</strong>
+                    <span>Emergency phone</span>
+                    <strong>{profile.phoneNumber ?? "Not configured"}</strong>
                   </div>
 
                   <button
                     type="button"
                     disabled={!profile.phoneNumber}
                     onClick={() => handleCopy("phone", profile.phoneNumber)}
-                    aria-label={t("contact.copyPhone")}
+                    aria-label="Copy emergency phone number"
                   >
                     <OfficialProfileIcon
                       name={copiedField === "phone" ? "check" : "copy"}
                     />
-                    {copiedField === "phone" ? t("contact.copied") : t("contact.copy")}
+                    {copiedField === "phone" ? "Copied" : "Copy"}
                   </button>
                 </div>
               </div>
@@ -457,8 +451,10 @@ export function SuperAdminProfilePanel({
           <article className="official-profile-card official-profile-configuration-card">
             <div className="official-profile-card-heading">
               <div>
-                <span className="official-profile-section-eyebrow">{t("control.eyebrow")}</span>
-                <h3>{t("control.title")}</h3>
+                <span className="official-profile-section-eyebrow">
+                  Configuration
+                </span>
+                <h3>Profile control status</h3>
               </div>
             </div>
 
@@ -466,37 +462,40 @@ export function SuperAdminProfilePanel({
               <div>
                 <dt>
                   <OfficialProfileIcon name="settings" />
-                  {t("control.source")}
+                  Source
                 </dt>
-                <dd>{getSourceLabel(profile, t)}</dd>
+                <dd>{getSourceLabel(profile)}</dd>
               </div>
               <div>
                 <dt>
                   <OfficialProfileIcon name="shield" />
-                  {t("control.status")}
+                  Status
                 </dt>
-                <dd>{getStatusLabel(profile.profileStatus, t)}</dd>
+                <dd>{getStatusLabel(profile.profileStatus)}</dd>
               </div>
               <div>
                 <dt>
                   <OfficialProfileIcon name="lock" />
-                  {t("control.editing")}
+                  Editing
                 </dt>
-                <dd>{t("control.editingValue")}</dd>
+                <dd>Secure configuration only</dd>
               </div>
               <div>
                 <dt>
                   <OfficialProfileIcon name="check" />
-                  {t("control.updated")}
+                  Last updated
                 </dt>
-                <dd>{formatUpdatedAt(profile, locale, t)}</dd>
+                <dd>{formatUpdatedAt(profile)}</dd>
               </div>
             </dl>
           </article>
 
           <aside className="official-profile-notice">
             <OfficialProfileIcon name="lock" />
-            <p>{t("notice.description")}</p>
+            <p>
+              This profile is used only for authorized governance and emergency
+              workflows. Changes must be made through secure system configuration.
+            </p>
           </aside>
         </>
       )}

@@ -1,11 +1,11 @@
 import { useEffect, useMemo, useState } from "react";
 import type { CSSProperties } from "react";
-import { useTranslation } from "react-i18next";
 import { Link } from "react-router";
 
 import { getAdminAccountRequestSummary } from "../services/account-request.service";
 import type {
   AccountRequestStatus,
+  AdminAccountRequestListItem,
   AdminAccountRequestSummaryResponse,
 } from "../types/account-request";
 import { ManagementIcon } from "./layout/ManagementIcon";
@@ -16,38 +16,26 @@ interface SuperAdminDashboardOverviewProps {
 
 const STATUS_META: Record<
   AccountRequestStatus,
-  { labelKey: string; shortLabelKey: string; tone: string }
+  { label: string; shortLabel: string; tone: string }
 > = {
-  DRAFT: {
-    labelKey: "accountRequest.status.DRAFT.label",
-    shortLabelKey: "accountRequest.status.DRAFT.short",
-    tone: "neutral",
-  },
+  DRAFT: { label: "Draft", shortLabel: "Draft", tone: "neutral" },
   PENDING_APPROVAL: {
-    labelKey: "accountRequest.status.PENDING_APPROVAL.label",
-    shortLabelKey: "accountRequest.status.PENDING_APPROVAL.short",
+    label: "Pending approval",
+    shortLabel: "Pending",
     tone: "info",
   },
-  APPROVED: {
-    labelKey: "accountRequest.status.APPROVED.label",
-    shortLabelKey: "accountRequest.status.APPROVED.short",
-    tone: "blue",
-  },
+  APPROVED: { label: "Approved", shortLabel: "Approved", tone: "blue" },
   REJECTED: {
-    labelKey: "accountRequest.status.REJECTED.label",
-    shortLabelKey: "accountRequest.status.REJECTED.short",
+    label: "Returned for correction",
+    shortLabel: "Correction",
     tone: "danger",
   },
   ACTIVATION_PENDING: {
-    labelKey: "accountRequest.status.ACTIVATION_PENDING.label",
-    shortLabelKey: "accountRequest.status.ACTIVATION_PENDING.short",
+    label: "Activation pending",
+    shortLabel: "Activating",
     tone: "warning",
   },
-  ACTIVATED: {
-    labelKey: "accountRequest.status.ACTIVATED.label",
-    shortLabelKey: "accountRequest.status.ACTIVATED.short",
-    tone: "success",
-  },
+  ACTIVATED: { label: "Activated", shortLabel: "Activated", tone: "success" },
 };
 
 const LIFECYCLE_STATUSES: AccountRequestStatus[] = [
@@ -59,14 +47,22 @@ const LIFECYCLE_STATUSES: AccountRequestStatus[] = [
   "DRAFT",
 ];
 
-function formatDate(value: string, locale: string): string {
+function formatRole(value: string): string {
+  return value
+    .toLowerCase()
+    .split("_")
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(" ");
+}
+
+function formatDate(value: string): string {
   const date = new Date(value);
 
   if (Number.isNaN(date.getTime())) {
-    return "";
+    return "Time unavailable";
   }
 
-  return new Intl.DateTimeFormat(locale === "ne" ? "ne-NP" : "en-GB", {
+  return new Intl.DateTimeFormat("en-GB", {
     day: "2-digit",
     month: "short",
     year: "numeric",
@@ -75,11 +71,17 @@ function formatDate(value: string, locale: string): string {
   }).format(date);
 }
 
+function getRequesterName(request: AdminAccountRequestListItem): string {
+  return (
+    request.requestedBy.employee?.empName ??
+    request.requestedBy.username ??
+    "Unknown requester"
+  );
+}
 
 export function SuperAdminDashboardOverview({
   accessToken,
 }: SuperAdminDashboardOverviewProps) {
-  const { t, i18n } = useTranslation("admin");
   const [summary, setSummary] =
     useState<AdminAccountRequestSummaryResponse | null>(null);
   const [loading, setLoading] = useState(true);
@@ -109,7 +111,7 @@ export function SuperAdminDashboardOverview({
         setError(
           requestError instanceof Error
             ? requestError.message
-            : t("dashboard.error"),
+            : "Dashboard information could not be loaded.",
         );
       })
       .finally(() => {
@@ -121,7 +123,7 @@ export function SuperAdminDashboardOverview({
     return () => {
       active = false;
     };
-  }, [accessToken, refreshKey, t]);
+  }, [accessToken, refreshKey]);
 
   const counts = summary?.counts ?? {
     DRAFT: 0,
@@ -139,33 +141,35 @@ export function SuperAdminDashboardOverview({
 
   const metricCards = [
     {
-      label: t("dashboard.metrics.pendingApprovals"),
+      label: "Pending approvals",
       value: counts.PENDING_APPROVAL,
-      detail: t("dashboard.metrics.pendingApprovalsDetail"),
+      detail: "Requests waiting for your review",
       href: "/super-admin/account-requests?status=PENDING_APPROVAL",
       icon: "requests" as const,
       tone: "urgent",
     },
     {
-      label: t("dashboard.metrics.activationPending"),
+      label: "Activation pending",
       value: counts.ACTIVATION_PENDING,
-      detail: t("dashboard.metrics.activationPendingDetail"),
+      detail: "Approved identities completing activation",
       href: "/super-admin/account-requests?status=ACTIVATION_PENDING",
       icon: "profile" as const,
       tone: "activation",
     },
     {
-      label: t("dashboard.metrics.returned"),
+      label: "Returned for correction",
       value: counts.REJECTED,
-      detail: t("dashboard.metrics.returnedDetail"),
+      detail: "Requests requiring requester follow-up",
       href: "/super-admin/account-requests?status=REJECTED",
       icon: "monitoring" as const,
       tone: "rejected",
     },
     {
-      label: t("dashboard.metrics.activationCompletion"),
+      label: "Activation completion",
       value: `${summary?.activationCompletionRate ?? 100}%`,
-      detail: t("dashboard.metrics.activated", { count: counts.ACTIVATED }),
+      detail: `${counts.ACTIVATED} fully activated request${
+        counts.ACTIVATED === 1 ? "" : "s"
+      }`,
       href: "/super-admin/account-requests?status=ACTIVATED",
       icon: "analytics" as const,
       tone: "healthy",
@@ -176,25 +180,24 @@ export function SuperAdminDashboardOverview({
     <main className="super-admin-overview">
       <header className="super-admin-overview__hero">
         <div className="super-admin-overview__hero-copy">
-          <span className="super-admin-overview__eyebrow">{t("dashboard.eyebrow")}</span>
-          <h1>{t("dashboard.title")}</h1>
-          <p>{t("dashboard.description")}</p>
+          <span className="super-admin-overview__eyebrow">Operations center</span>
+          <h1>Super Admin Dashboard</h1>
+          <p>
+            Prioritize account governance, activation follow-up and recent
+            administrative activity across Nepal Telecom.
+          </p>
         </div>
 
         <div className="super-admin-overview__refresh">
           <span>
-            {summary
-              ? t("dashboard.updated", {
-                  date: formatDate(summary.generatedAt, i18n.language),
-                })
-              : t("dashboard.loadingCurrentData")}
+            {summary ? `Updated ${formatDate(summary.generatedAt)}` : "Loading current data"}
           </span>
           <button
             type="button"
             onClick={() => setRefreshKey((current) => current + 1)}
             disabled={loading}
           >
-            {loading ? t("dashboard.refreshing") : t("dashboard.refresh")}
+            {loading ? "Refreshing…" : "Refresh dashboard"}
           </button>
         </div>
       </header>
@@ -207,7 +210,7 @@ export function SuperAdminDashboardOverview({
 
       <section
         className="super-admin-overview__metrics"
-        aria-label={t("dashboard.governanceSummary")}
+        aria-label="Governance summary"
       >
         {metricCards.map((metric, index) => (
           <Link
@@ -225,7 +228,7 @@ export function SuperAdminDashboardOverview({
               <small>{metric.detail}</small>
             </span>
             <span className="super-admin-overview__metric-link" aria-hidden="true">
-              {t("dashboard.openQueue")}
+              Open queue →
             </span>
           </Link>
         ))}
@@ -235,19 +238,25 @@ export function SuperAdminDashboardOverview({
         <article className="super-admin-overview__panel super-admin-overview__attention">
           <header>
             <div>
-              <span>{t("dashboard.attention.eyebrow")}</span>
-              <h2>{t("dashboard.attention.title")}</h2>
-              <p>{t("dashboard.attention.count", { count: summary?.attentionTotal ?? 0 })}</p>
+              <span>Attention center</span>
+              <h2>Governance work requiring follow-up</h2>
+              <p>
+                {summary?.attentionTotal ?? 0} request
+                {(summary?.attentionTotal ?? 0) === 1 ? "" : "s"} currently need attention.
+              </p>
             </div>
-            <Link to="/super-admin/account-requests">{t("dashboard.attention.reviewAll")}</Link>
+            <Link to="/super-admin/account-requests">Review all requests</Link>
           </header>
 
           {!loading && summary?.attentionRequests.length === 0 ? (
             <div className="super-admin-overview__all-clear">
               <span aria-hidden="true">✓</span>
               <div>
-                <strong>{t("dashboard.attention.clearTitle")}</strong>
-                <p>{t("dashboard.attention.clearDescription")}</p>
+                <strong>Governance queue is clear</strong>
+                <p>
+                  There are no pending approvals, activation follow-ups or
+                  returned requests at this time.
+                </p>
               </div>
             </div>
           ) : (
@@ -263,16 +272,16 @@ export function SuperAdminDashboardOverview({
                   <span className="super-admin-overview__request-copy">
                     <strong>{request.empName}</strong>
                     <small>
-                      {request.empId} · {t(`roles.${request.requestedRole}`, { defaultValue: request.requestedRole })} ·{" "}
-                      {request.requestedBy.employee?.empName ?? request.requestedBy.username ?? t("dashboard.unknownRequester")}
+                      {request.empId} · {formatRole(request.requestedRole)} ·{" "}
+                      {getRequesterName(request)}
                     </small>
                   </span>
                   <span
                     className={`super-admin-overview__status super-admin-overview__status--${STATUS_META[request.status].tone}`}
                   >
-                    {t(STATUS_META[request.status].shortLabelKey)}
+                    {STATUS_META[request.status].shortLabel}
                   </span>
-                  <time>{formatDate(request.updatedAt, i18n.language) || t("dashboard.timeUnavailable")}</time>
+                  <time>{formatDate(request.updatedAt)}</time>
                 </Link>
               ))}
             </div>
@@ -282,9 +291,9 @@ export function SuperAdminDashboardOverview({
         <article className="super-admin-overview__panel super-admin-overview__quick-actions">
           <header>
             <div>
-              <span>{t("dashboard.quickActions.eyebrow")}</span>
-              <h2>{t("dashboard.quickActions.title")}</h2>
-              <p>{t("dashboard.quickActions.description")}</p>
+              <span>Governance workflow</span>
+              <h2>Quick actions</h2>
+              <p>Open the most frequently used administrative workspaces.</p>
             </div>
           </header>
 
@@ -292,36 +301,36 @@ export function SuperAdminDashboardOverview({
             <Link to="/work-management">
               <ManagementIcon name="management" />
               <span>
-                <strong>{t("dashboard.quickActions.work")}</strong>
-                <small>{t("dashboard.quickActions.workDescription")}</small>
+                <strong>Open Work Management</strong>
+                <small>Assign branch work and verify operational ticket completion.</small>
               </span>
             </Link>
             <Link to="/super-admin/account-requests">
               <ManagementIcon name="requests" />
               <span>
-                <strong>{t("dashboard.quickActions.requests")}</strong>
-                <small>{t("dashboard.quickActions.requestsDescription")}</small>
+                <strong>Review account requests</strong>
+                <small>Approve, reject and inspect activation progress.</small>
               </span>
             </Link>
             <Link to="/directory">
               <ManagementIcon name="directory" />
               <span>
-                <strong>{t("dashboard.quickActions.directory")}</strong>
-                <small>{t("dashboard.quickActions.directoryDescription")}</small>
+                <strong>Open employee directory</strong>
+                <small>Review identities, roles and account status.</small>
               </span>
             </Link>
             <Link to="/super-admin/management-positions">
               <ManagementIcon name="management" />
               <span>
-                <strong>{t("dashboard.quickActions.positions")}</strong>
-                <small>{t("dashboard.quickActions.positionsDescription")}</small>
+                <strong>Management positions</strong>
+                <small>Inspect occupied, reserved and vacant positions.</small>
               </span>
             </Link>
             <Link to="/super-admin?view=analytics">
               <ManagementIcon name="analytics" />
               <span>
-                <strong>{t("dashboard.quickActions.analytics")}</strong>
-                <small>{t("dashboard.quickActions.analyticsDescription")}</small>
+                <strong>View full analytics</strong>
+                <small>Open privacy-safe workforce and governance analytics.</small>
               </span>
             </Link>
           </div>
@@ -332,9 +341,9 @@ export function SuperAdminDashboardOverview({
         <article className="super-admin-overview__panel super-admin-overview__lifecycle">
           <header>
             <div>
-              <span>{t("dashboard.lifecycle.eyebrow")}</span>
-              <h2>{t("dashboard.lifecycle.title")}</h2>
-              <p>{t("dashboard.lifecycle.total", { count: summary?.totalRequests ?? 0 })}</p>
+              <span>Request lifecycle</span>
+              <h2>Current workflow distribution</h2>
+              <p>{summary?.totalRequests ?? 0} total account requests.</p>
             </div>
           </header>
 
@@ -344,7 +353,7 @@ export function SuperAdminDashboardOverview({
                 key={status}
                 to={`/super-admin/account-requests?status=${status}`}
               >
-                <span>{t(STATUS_META[status].labelKey)}</span>
+                <span>{STATUS_META[status].label}</span>
                 <span className="super-admin-overview__lifecycle-track" aria-hidden="true">
                   <span
                     style={{
@@ -364,9 +373,9 @@ export function SuperAdminDashboardOverview({
         <article className="super-admin-overview__panel super-admin-overview__activity">
           <header>
             <div>
-              <span>{t("dashboard.activity.eyebrow")}</span>
-              <h2>{t("dashboard.activity.title")}</h2>
-              <p>{t("dashboard.activity.description")}</p>
+              <span>Recent governance activity</span>
+              <h2>Latest request updates</h2>
+              <p>Administrative metadata only—no communication content.</p>
             </div>
           </header>
 
@@ -384,16 +393,16 @@ export function SuperAdminDashboardOverview({
                   <span>
                     <strong>{request.empName}</strong>
                     <small>
-                      {t(STATUS_META[request.status].labelKey)} · {request.empId}
+                      {STATUS_META[request.status].label} · {request.empId}
                     </small>
                   </span>
-                  <time>{formatDate(request.updatedAt, i18n.language) || t("dashboard.timeUnavailable")}</time>
+                  <time>{formatDate(request.updatedAt)}</time>
                 </Link>
               ))}
             </div>
           ) : (
             <div className="super-admin-overview__compact-empty">
-              {t("dashboard.activity.empty")}
+              No request activity has been recorded yet.
             </div>
           )}
         </article>
@@ -402,8 +411,12 @@ export function SuperAdminDashboardOverview({
       <footer className="super-admin-overview__notice">
         <ManagementIcon name="monitoring" />
         <div>
-          <strong>{t("dashboard.privacy.title")}</strong>
-          <p>{t("dashboard.privacy.description")}</p>
+          <strong>Privacy-safe governance overview</strong>
+          <p>
+            This dashboard uses account-request and activation metadata only.
+            Private messages, attachment contents and communication relationships
+            are never displayed.
+          </p>
         </div>
       </footer>
     </main>

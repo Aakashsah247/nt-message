@@ -4,7 +4,6 @@ import {
 import type {
   ReactNode,
 } from "react";
-import { useTranslation } from "react-i18next";
 import { useAuth } from "../context/AuthContext";
 
 interface PublicRouteProps {
@@ -14,7 +13,6 @@ interface PublicRouteProps {
 export function PublicRoute({
   children,
 }: PublicRouteProps) {
-  const { t } = useTranslation("common");
   const {
     account,
     loading,
@@ -24,7 +22,7 @@ export function PublicRoute({
     return (
       <div className="loading">
         <div className="spinner" />
-        <p>{t("loading.loadingNtMessage")}</p>
+        <p>Loading NT Message...</p>
       </div>
     );
   }

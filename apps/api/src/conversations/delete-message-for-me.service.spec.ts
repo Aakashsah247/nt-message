@@ -19,12 +19,7 @@ describe('ConversationsService delete message for me', () => {
     },
   };
 
-  const conversationFindUnique = jest.fn();
-
   const prisma = {
-    conversation: {
-      findUnique: conversationFindUnique,
-    },
     $transaction: jest.fn(
       async (callback: (value: typeof transaction) => Promise<unknown>) =>
         callback(transaction),
@@ -62,10 +57,6 @@ describe('ConversationsService delete message for me', () => {
         showReadReceipts: true,
       });
 
-    conversationFindUnique.mockResolvedValue({
-      type: 'PRIVATE',
-      groupKind: null,
-    });
     transaction.messageHiddenForAccount.upsert.mockResolvedValue({
       messageId: 'message-1',
       accountId: 'viewer-account',

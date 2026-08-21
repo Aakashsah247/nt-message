@@ -8,20 +8,14 @@
     "build": "tsc -b && vite build",
     "test": "node --test --experimental-strip-types tests/*.test.mjs",
     "lint": "eslint .",
-    "preview": "vite preview",
-    "i18n:extract": "i18next-cli extract --sync-primary",
-    "i18n:status": "i18next-cli status",
-    "i18n:types": "i18next-cli types",
-    "i18n:check": "node --test --experimental-strip-types tests/i18n-catalogs.test.mjs && i18next-cli status"
+    "preview": "vite preview"
   },
   "dependencies": {
     "react": "^19.2.6",
     "react-dom": "^19.2.6",
     "react-router": "^7.17.0",
     "socket.io-client": "^4.8.3",
-    "nepali-date-converter": "^3.4.0",
-    "i18next": "^26.3.6",
-    "react-i18next": "^17.0.11"
+    "nepali-date-converter": "^3.4.0"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
@@ -37,7 +31,6 @@
     "tailwindcss": "^4.3.1",
     "typescript": "~6.0.2",
     "typescript-eslint": "^8.59.2",
-    "vite": "^8.0.12",
-    "i18next-cli": "^1.67.4"
+    "vite": "^8.0.12"
   }
 }

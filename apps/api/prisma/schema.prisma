@@ -483,7 +483,6 @@ model Account {
   showOnlineStatus       Boolean     @default(true) @map("show_online_status")
   showReadReceipts       Boolean     @default(true) @map("show_read_receipts")
   requireMessageRequests Boolean     @default(true) @map("require_message_requests")
-  interfaceLanguage     String      @default("en") @map("interface_language") @db.VarChar(8)
   createdAt              DateTime    @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt           DateTime    @updatedAt @map("updated_at") @db.Timestamptz(3)
 

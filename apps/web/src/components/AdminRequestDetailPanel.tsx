@@ -1,8 +1,6 @@
 import { useEffect, useState } from "react";
-import { useTranslation } from "react-i18next";
 
 import type { FormEvent, ReactNode } from "react";
-import type { TFunction } from "i18next";
 
 import { ProtectedAvatar } from "./ProtectedAvatar";
 
@@ -46,22 +44,13 @@ function DetailField({ label, value, secondary }: DetailFieldProps) {
   );
 }
 
-function getErrorMessage(error: unknown, t: TFunction): string {
+function getErrorMessage(error: unknown): string {
   return error instanceof Error
     ? error.message
-    : t("adminDetail.errorFallback", { ns: "requests" });
+    : "The requested operation could not be completed.";
 }
 
-function formatLabel(value: string, t: TFunction): string {
-  const translated = t(`values.${value}`, {
-    ns: "requests",
-    defaultValue: "",
-  });
-
-  if (translated) {
-    return translated;
-  }
-
+function formatLabel(value: string): string {
   return value
     .toLowerCase()
     .split("_")
@@ -73,22 +62,18 @@ function getStatusClass(status: AccountRequestStatus): string {
   return status.toLowerCase().replaceAll("_", "-");
 }
 
-function formatDate(
-  value: string | null,
-  language: string,
-  t: TFunction,
-): string {
+function formatDate(value: string | null): string {
   if (!value) {
-    return t("common.notAvailable", { ns: "requests" });
+    return "Not available";
   }
 
   const date = new Date(value);
 
   if (Number.isNaN(date.getTime())) {
-    return t("common.notAvailable", { ns: "requests" });
+    return "Not available";
   }
 
-  return new Intl.DateTimeFormat(language.startsWith("ne") ? "ne-NP-u-ca-gregory" : "en-GB", {
+  return new Intl.DateTimeFormat("en-GB", {
     day: "2-digit",
     month: "short",
     year: "numeric",
@@ -103,7 +88,6 @@ export function AdminRequestDetailPanel({
   onClose,
   onRequestUpdated,
 }: AdminRequestDetailPanelProps) {
-  const { t, i18n } = useTranslation("requests");
   const [request, setRequest] = useState<AdminAccountRequestDetail | null>(
     null,
   );
@@ -150,7 +134,7 @@ export function AdminRequestDetailPanel({
 
         setRequest(null);
 
-        setError(getErrorMessage(requestError, t));
+        setError(getErrorMessage(requestError));
       })
       .finally(() => {
         if (active) {
@@ -161,7 +145,7 @@ export function AdminRequestDetailPanel({
     return () => {
       active = false;
     };
-  }, [accessToken, requestId, retryKey, t]);
+  }, [accessToken, requestId, retryKey]);
 
   function reloadDetails(): void {
     setLoading(true);
@@ -244,7 +228,7 @@ export function AdminRequestDetailPanel({
 
       setRetryKey((current) => current + 1);
     } catch (approveError: unknown) {
-      setActionError(getErrorMessage(approveError, t));
+      setActionError(getErrorMessage(approveError));
     } finally {
       setActionLoading(null);
     }
@@ -266,7 +250,7 @@ export function AdminRequestDetailPanel({
       onRequestUpdated();
       setRetryKey((current) => current + 1);
     } catch (resendError: unknown) {
-      setActionError(getErrorMessage(resendError, t));
+      setActionError(getErrorMessage(resendError));
     } finally {
       setActionLoading(null);
     }
@@ -284,13 +268,13 @@ export function AdminRequestDetailPanel({
     const reason = rejectionReason.trim().replace(/\s+/g, " ");
 
     if (reason.length < 3) {
-      setActionError(t("adminDetail.rejectReasonShort"));
+      setActionError("Enter a rejection reason of at least 3 characters.");
 
       return;
     }
 
     if (reason.length > 500) {
-      setActionError(t("adminDetail.rejectReasonLong"));
+      setActionError("The rejection reason cannot exceed 500 characters.");
 
       return;
     }
@@ -317,7 +301,7 @@ export function AdminRequestDetailPanel({
 
       setRetryKey((current) => current + 1);
     } catch (rejectError: unknown) {
-      setActionError(getErrorMessage(rejectError, t));
+      setActionError(getErrorMessage(rejectError));
     } finally {
       setActionLoading(null);
     }
@@ -339,13 +323,13 @@ export function AdminRequestDetailPanel({
     const reason = invalidationReason.trim().replace(/\s+/g, " ");
 
     if (reason.length < 3) {
-      setActionError(t("adminDetail.invalidateReasonShort"));
+      setActionError("Enter an invalidation reason of at least 3 characters.");
 
       return;
     }
 
     if (reason.length > 500) {
-      setActionError(t("adminDetail.invalidateReasonLong"));
+      setActionError("The invalidation reason cannot exceed 500 characters.");
 
       return;
     }
@@ -369,7 +353,7 @@ export function AdminRequestDetailPanel({
 
       setRetryKey((current) => current + 1);
     } catch (invalidateError: unknown) {
-      setActionError(getErrorMessage(invalidateError, t));
+      setActionError(getErrorMessage(invalidateError));
     } finally {
       setActionLoading(null);
     }
@@ -393,16 +377,16 @@ export function AdminRequestDetailPanel({
       >
         <header className="admin-detail-header">
           <div>
-            <span>{t("adminDetail.eyebrow")}</span>
+            <span>Account request</span>
 
-            <h2 id="request-detail-title">{t("adminDetail.title")}</h2>
+            <h2 id="request-detail-title">Request details</h2>
           </div>
 
           <button
             type="button"
             onClick={onClose}
             disabled={Boolean(actionLoading)}
-            aria-label={t("common.closeRequestDetails")}
+            aria-label="Close request details"
           >
             ×
           </button>
@@ -412,7 +396,7 @@ export function AdminRequestDetailPanel({
           <div className="admin-detail-loading">
             <div className="spinner" />
 
-            <p>{t("common.loadingRequestDetails")}</p>
+            <p>Loading request details...</p>
           </div>
         )}
 
@@ -421,7 +405,7 @@ export function AdminRequestDetailPanel({
             <p>{error}</p>
 
             <button type="button" onClick={reloadDetails}>
-              {t("common.tryAgain")}
+              Try again
             </button>
           </div>
         )}
@@ -435,7 +419,7 @@ export function AdminRequestDetailPanel({
                     request.status,
                   )}`}
                 >
-                  {formatLabel(request.status, t)}
+                  {formatLabel(request.status)}
                 </span>
 
                 <h3>{request.empName}</h3>
@@ -443,12 +427,12 @@ export function AdminRequestDetailPanel({
                 <p>
                   {request.empId}
                   {" · "}
-                  {formatLabel(request.requestedRole, t)}
+                  {formatLabel(request.requestedRole)}
                 </p>
               </div>
 
               <div className="admin-detail-revision">
-                <span>{t("adminDetail.revision")}</span>
+                <span>Revision</span>
 
                 <strong>{request.revisionNumber}</strong>
               </div>
@@ -468,24 +452,24 @@ export function AdminRequestDetailPanel({
 
             <section className="activation-delivery-card">
               <div>
-                <span>{t("common.activationEmail")}</span>
+                <span>Activation email</span>
                 <strong
                   className={`activation-delivery-status activation-delivery-status--${request.activationEmailStatus.toLowerCase()}`}
                 >
-                  {formatLabel(request.activationEmailStatus, t)}
+                  {formatLabel(request.activationEmailStatus)}
                 </strong>
               </div>
 
               <div>
-                <span>{t("adminDetail.lastAttempt")}</span>
+                <span>Last attempt</span>
                 <strong>
-                  {formatDate(request.activationEmailLastAttemptAt, i18n.language, t)}
+                  {formatDate(request.activationEmailLastAttemptAt)}
                 </strong>
               </div>
 
               <div>
-                <span>{t("adminDetail.sent")}</span>
-                <strong>{formatDate(request.activationEmailSentAt, i18n.language, t)}</strong>
+                <span>Sent</span>
+                <strong>{formatDate(request.activationEmailSentAt)}</strong>
               </div>
 
               {["APPROVED", "ACTIVATION_PENDING"].includes(request.status) &&
@@ -497,10 +481,10 @@ export function AdminRequestDetailPanel({
                     disabled={Boolean(actionLoading)}
                   >
                     {actionLoading === "resend"
-                      ? t("common.sending")
+                      ? "Sending..."
                       : request.activationEmailStatus === "NOT_SENT"
-                        ? t("adminDetail.sendActivation")
-                        : t("adminDetail.resendActivation")}
+                        ? "Send activation email"
+                        : "Resend activation email"}
                   </button>
                 )}
             </section>
@@ -508,10 +492,11 @@ export function AdminRequestDetailPanel({
             {request.status === "PENDING_APPROVAL" && (
               <section className="admin-detail-actions">
                 <div>
-                  <h4>{t("adminDetail.reviewDecision")}</h4>
+                  <h4>Review decision</h4>
 
                   <p>
-                    {t("adminDetail.reviewDescription")}
+                    Approve the verified request or reject it with a correction
+                    reason.
                   </p>
                 </div>
 
@@ -523,7 +508,7 @@ export function AdminRequestDetailPanel({
                       onClick={openApproveConfirmation}
                       disabled={Boolean(actionLoading)}
                     >
-                      {t("adminDetail.approveAction")}
+                      Approve request
                     </button>
 
                     <button
@@ -532,17 +517,19 @@ export function AdminRequestDetailPanel({
                       onClick={openRejectForm}
                       disabled={Boolean(actionLoading)}
                     >
-                      {t("adminDetail.rejectAction")}
+                      Reject request
                     </button>
                   </div>
                 )}
 
                 {showApproveConfirmation && (
                   <div className="admin-approve-confirmation">
-                    <strong>{t("adminDetail.approveQuestion")}</strong>
+                    <strong>Approve this account request?</strong>
 
                     <p>
-                      {t("adminDetail.approveDescription", { name: request.empName })}
+                      An inactive employee identity will be created for{" "}
+                      {request.empName}. The employee must then complete OTP
+                      activation.
                     </p>
 
                     <div>
@@ -553,8 +540,8 @@ export function AdminRequestDetailPanel({
                         disabled={Boolean(actionLoading)}
                       >
                         {actionLoading === "approve"
-                          ? t("adminDetail.approving")
-                          : t("adminDetail.confirmApproval")}
+                          ? "Approving..."
+                          : "Confirm approval"}
                       </button>
 
                       <button
@@ -563,7 +550,7 @@ export function AdminRequestDetailPanel({
                         onClick={resetDecisionForms}
                         disabled={Boolean(actionLoading)}
                       >
-                        {t("adminDetail.cancel")}
+                        Cancel
                       </button>
                     </div>
                   </div>
@@ -572,7 +559,7 @@ export function AdminRequestDetailPanel({
                 {showRejectForm && (
                   <form className="admin-reject-form" onSubmit={handleReject}>
                     <label htmlFor="account-request-rejection-reason">
-                      {t("adminDetail.rejectionReason")}
+                      Rejection reason
                     </label>
 
                     <textarea
@@ -586,13 +573,13 @@ export function AdminRequestDetailPanel({
                       minLength={3}
                       maxLength={500}
                       rows={5}
-                      placeholder={t("adminDetail.rejectPlaceholder")}
+                      placeholder="Explain what information must be corrected before resubmission."
                       disabled={Boolean(actionLoading)}
                       required
                     />
 
                     <div className="admin-reject-form-meta">
-                      <span>{t("common.minimum3")}</span>
+                      <span>Minimum 3 characters</span>
 
                       <span>
                         {rejectionReason.length}
@@ -607,8 +594,8 @@ export function AdminRequestDetailPanel({
                         disabled={Boolean(actionLoading)}
                       >
                         {actionLoading === "reject"
-                          ? t("adminDetail.rejecting")
-                          : t("adminDetail.confirmRejection")}
+                          ? "Rejecting..."
+                          : "Confirm rejection"}
                       </button>
 
                       <button
@@ -617,7 +604,7 @@ export function AdminRequestDetailPanel({
                         onClick={resetDecisionForms}
                         disabled={Boolean(actionLoading)}
                       >
-                        {t("adminDetail.cancel")}
+                        Cancel
                       </button>
                     </div>
                   </form>
@@ -628,10 +615,11 @@ export function AdminRequestDetailPanel({
             {["APPROVED", "ACTIVATION_PENDING"].includes(request.status) && (
               <section className="admin-detail-actions admin-invalidate-section">
                 <div>
-                  <h4>{t("adminDetail.invalidate")}</h4>
+                  <h4>Invalidate request</h4>
 
                   <p>
-                    {t("adminDetail.invalidationDescription")}
+                    Use this when an approved request must not continue. Its
+                    reserved management position will become vacant.
                   </p>
                 </div>
 
@@ -642,7 +630,7 @@ export function AdminRequestDetailPanel({
                     onClick={openInvalidateForm}
                     disabled={Boolean(actionLoading)}
                   >
-                    {t("adminDetail.invalidate")}
+                    Invalidate request
                   </button>
                 ) : (
                   <form
@@ -650,7 +638,7 @@ export function AdminRequestDetailPanel({
                     onSubmit={handleInvalidate}
                   >
                     <label htmlFor="account-request-invalidation-reason">
-                      {t("adminDetail.invalidationReason")}
+                      Invalidation reason
                     </label>
 
                     <textarea
@@ -663,13 +651,13 @@ export function AdminRequestDetailPanel({
                       minLength={3}
                       maxLength={500}
                       rows={5}
-                      placeholder={t("adminDetail.invalidatePlaceholder")}
+                      placeholder="Explain why this approved request is no longer valid."
                       disabled={Boolean(actionLoading)}
                       required
                     />
 
                     <div className="admin-reject-form-meta">
-                      <span>{t("common.minimum3")}</span>
+                      <span>Minimum 3 characters</span>
 
                       <span>
                         {invalidationReason.length}
@@ -684,8 +672,8 @@ export function AdminRequestDetailPanel({
                         disabled={Boolean(actionLoading)}
                       >
                         {actionLoading === "invalidate"
-                          ? t("adminDetail.invalidating")
-                          : t("adminDetail.confirmInvalidation")}
+                          ? "Invalidating..."
+                          : "Confirm invalidation"}
                       </button>
 
                       <button
@@ -694,7 +682,7 @@ export function AdminRequestDetailPanel({
                         onClick={resetDecisionForms}
                         disabled={Boolean(actionLoading)}
                       >
-                        {t("adminDetail.keepRequest")}
+                        Keep request
                       </button>
                     </div>
                   </form>
@@ -703,89 +691,89 @@ export function AdminRequestDetailPanel({
             )}
 
             <section className="admin-detail-section">
-              <h4>{t("adminDetail.employeeInformation")}</h4>
+              <h4>Employee information</h4>
 
               <div className="admin-detail-grid">
-                <DetailField label={t("adminDetail.fullName")} value={request.empName} />
+                <DetailField label="Full name" value={request.empName} />
 
-                <DetailField label={t("common.employeeId")} value={request.empId} />
+                <DetailField label="Employee ID" value={request.empId} />
 
-                <DetailField label={t("common.phoneNumber")} value={request.phoneNumber} />
+                <DetailField label="Phone number" value={request.phoneNumber} />
 
                 <DetailField
-                  label={t("common.officialEmail")}
+                  label="Official email"
                   value={request.officialEmail}
                 />
 
                 <DetailField
-                  label={t("common.designation")}
-                  value={request.designation ?? t("common.notProvided")}
+                  label="Designation"
+                  value={request.designation ?? "Not provided"}
                 />
 
                 <DetailField
-                  label={t("common.requestedRole")}
-                  value={formatLabel(request.requestedRole, t)}
+                  label="Requested role"
+                  value={formatLabel(request.requestedRole)}
                 />
               </div>
             </section>
 
             <section className="admin-detail-section">
-              <h4>{t("adminDetail.organizationAssignment")}</h4>
+              <h4>Organization assignment</h4>
 
               <div className="admin-detail-grid">
                 <DetailField
-                  label={t("common.division")}
-                  value={request.division?.name ?? t("common.notAssigned")}
+                  label="Division"
+                  value={request.division?.name ?? "Not assigned"}
                   secondary={request.division?.code}
                 />
 
                 <DetailField
-                  label={t("common.department")}
-                  value={request.department?.name ?? t("common.notAssigned")}
+                  label="Department"
+                  value={request.department?.name ?? "Not assigned"}
                   secondary={request.department?.code}
                 />
               </div>
             </section>
 
             <section className="admin-detail-section">
-              <h4>{t("adminDetail.submissionReview")}</h4>
+              <h4>Submission and review</h4>
 
               <div className="admin-detail-grid">
                 <DetailField
-                  label={t("common.requestedBy")}
+                  label="Requested by"
                   value={
                     request.requestedBy.employee?.empName ??
                     request.requestedBy.username ??
-                    t("common.unknownRequester")
+                    "Unknown requester"
                   }
-                  secondary={formatLabel(request.requestedBy.role, t)}
+                  secondary={formatLabel(request.requestedBy.role)}
                 />
 
                 <DetailField
-                  label={t("common.submitted")}
-                  value={formatDate(request.submittedAt, i18n.language, t)}
+                  label="Submitted"
+                  value={formatDate(request.submittedAt)}
                 />
 
                 <DetailField
-                  label={t("common.reviewedBy")}
-                  value={request.reviewedBy?.username ?? t("common.notReviewed")}
+                  label="Reviewed by"
+                  value={request.reviewedBy?.username ?? "Not reviewed"}
                   secondary={
                     request.reviewedBy
-                      ? formatLabel(request.reviewedBy.role, t)
+                      ? formatLabel(request.reviewedBy.role)
                       : undefined
                   }
                 />
 
                 <DetailField
-                  label={t("common.reviewed")}
-                  value={formatDate(request.reviewedAt, i18n.language, t)}
+                  label="Reviewed"
+                  value={formatDate(request.reviewedAt)}
                 />
               </div>
             </section>
 
             {request.rejectionReason && (
               <section className="admin-detail-rejection">
-                <span>{t("adminDetail.rejectionReason")}</span>
+                <span>Rejection reason</span>
 
                 <p>{request.rejectionReason}</p>
               </section>
@@ -793,7 +781,7 @@ export function AdminRequestDetailPanel({
 
             {request.employee && (
               <section className="admin-detail-section">
-                <h4>{t("adminDetail.linkedAccount")}</h4>
+                <h4>Linked employee account</h4>
 
                 <div className="admin-linked-employee">
                   <div className="admin-linked-employee__identity">
@@ -801,7 +789,7 @@ export function AdminRequestDetailPanel({
                       employeeId={request.employee.id}
                       displayName={request.employee.empName}
                       className="admin-linked-employee__avatar"
-                      ariaLabel={t("adminDetail.profileAria", { name: request.employee.empName })}
+                      ariaLabel={`${request.employee.empName} profile`}
                     />
 
                     <div>
@@ -818,19 +806,19 @@ export function AdminRequestDetailPanel({
                     }
                   >
                     {request.employee.isActivated
-                      ? t("adminDetail.activated")
-                      : t("adminDetail.awaitingActivation")}
+                      ? "Activated"
+                      : "Awaiting activation"}
                   </span>
                 </div>
               </section>
             )}
 
             <section className="admin-detail-section">
-              <h4>{t("adminDetail.history")}</h4>
+              <h4>Request history</h4>
 
               {request.actions.length === 0 ? (
                 <p className="admin-detail-no-history">
-                  {t("adminDetail.noHistory")}
+                  No request history is available.
                 </p>
               ) : (
                 <div className="admin-request-timeline">
@@ -843,16 +831,16 @@ export function AdminRequestDetailPanel({
 
                       <div>
                         <header>
-                          <strong>{formatLabel(action.action, t)}</strong>
+                          <strong>{formatLabel(action.action)}</strong>
 
-                          <time>{formatDate(action.createdAt, i18n.language, t)}</time>
+                          <time>{formatDate(action.createdAt)}</time>
                         </header>
 
                         <p>
                           {action.actor?.username ??
                             (action.actor
-                              ? formatLabel(action.actor.role, t)
-                              : t("common.systemAction"))}
+                              ? formatLabel(action.actor.role)
+                              : "System action")}
                         </p>
 
                         {action.reason && <small>{action.reason}</small>}

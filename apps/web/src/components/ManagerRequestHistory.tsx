@@ -1,7 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
 import type { FormEvent } from "react";
-import type { TFunction } from "i18next";
-import { useTranslation } from "react-i18next";
 
 import { ManagerRequestDetailPanel } from "./ManagerRequestDetailPanel";
 import {
@@ -25,17 +23,17 @@ interface ManagerRequestHistoryProps {
 }
 
 interface StatusFilter {
-  labelKey: string;
+  label: string;
   value: AccountRequestStatus | undefined;
 }
 
 const statusFilters: StatusFilter[] = [
-  { labelKey: "common.all", value: undefined },
-  { labelKey: "common.pending", value: "PENDING_APPROVAL" },
-  { labelKey: "common.approved", value: "APPROVED" },
-  { labelKey: "common.rejected", value: "REJECTED" },
-  { labelKey: "common.activationPending", value: "ACTIVATION_PENDING" },
-  { labelKey: "common.activated", value: "ACTIVATED" },
+  { label: "All", value: undefined },
+  { label: "Pending", value: "PENDING_APPROVAL" },
+  { label: "Approved", value: "APPROVED" },
+  { label: "Rejected", value: "REJECTED" },
+  { label: "Activation pending", value: "ACTIVATION_PENDING" },
+  { label: "Activated", value: "ACTIVATED" },
 ];
 
 const emptyFilters: AccountRequestListFilters = {
@@ -45,13 +43,13 @@ const emptyFilters: AccountRequestListFilters = {
   dateTo: "",
 };
 
-function getErrorMessage(error: unknown, t: TFunction<"requests">): string {
+function getErrorMessage(error: unknown): string {
   return error instanceof Error
     ? error.message
-    : t("history.loadError", { ns: "requests" });
+    : "The account-request records could not be loaded.";
 }
 
-function fallbackFormatStatus(value: string): string {
+function formatStatus(value: string): string {
   return value
     .toLowerCase()
     .split("_")
@@ -59,26 +57,15 @@ function fallbackFormatStatus(value: string): string {
     .join(" ");
 }
 
-function formatStatus(value: string, t: TFunction<"requests">): string {
-  return t(`values.${value}`, {
-    ns: "requests",
-    defaultValue: fallbackFormatStatus(value),
-  });
-}
-
-function formatDate(
-  value: string | null,
-  locale: string,
-  t: TFunction<"requests">,
-): string {
+function formatDate(value: string | null): string {
   if (!value) {
-    return t("common.notAvailable", { ns: "requests" });
+    return "Not available";
   }
 
-  return new Intl.DateTimeFormat(
-    locale === "ne" ? "ne-NP-u-ca-gregory" : "en-GB",
-    { dateStyle: "medium", timeStyle: "short" },
-  ).format(new Date(value));
+  return new Intl.DateTimeFormat("en-GB", {
+    dateStyle: "medium",
+    timeStyle: "short",
+  }).format(new Date(value));
 }
 
 function getStatusClass(status: string): string {
@@ -97,7 +84,6 @@ export function ManagerRequestHistory({
   refreshKey,
   mode = "SUBMITTED",
 }: ManagerRequestHistoryProps) {
-  const { t, i18n } = useTranslation("requests");
   const [requests, setRequests] = useState<
     Array<MyAccountRequestListItem | ScopedAccountRequestListItem>
   >([]);
@@ -128,26 +114,29 @@ export function ManagerRequestHistory({
   const copy = useMemo(() => {
     if (isDivisionEmployeeView) {
       return {
-        eyebrow: t("history.divisionEyebrow"),
-        title: t("history.divisionTitle"),
-        description: t("history.divisionDescription"),
+        eyebrow: "Division oversight",
+        title: "Employee Requests Under My Division",
+        description:
+          "Read-only visibility of Employee requests submitted by Team Managers inside your assigned division.",
       };
     }
 
     if (isSeniorManagement) {
       return {
-        eyebrow: t("history.trackingEyebrow"),
-        title: t("history.seniorTitle"),
-        description: t("history.seniorDescription"),
+        eyebrow: "Request tracking",
+        title: "My Team Manager Requests",
+        description:
+          "Create, correct and track Team Manager requests that you submitted for departments in your division.",
       };
     }
 
     return {
-      eyebrow: t("history.trackingEyebrow"),
-      title: t("history.managerTitle"),
-      description: t("history.managerDescription"),
+      eyebrow: "Request tracking",
+      title: "My Employee Requests",
+      description:
+        "Create, correct and track Employee requests that you submitted for your assigned department.",
     };
-  }, [isDivisionEmployeeView, isSeniorManagement, t]);
+  }, [isDivisionEmployeeView, isSeniorManagement]);
 
   useEffect(() => {
     let active = true;
@@ -185,7 +174,7 @@ export function ManagerRequestHistory({
         }
 
         setRequests([]);
-        setError(getErrorMessage(requestError, t));
+        setError(getErrorMessage(requestError));
       })
       .finally(() => {
         if (active) {
@@ -204,7 +193,6 @@ export function ManagerRequestHistory({
     page,
     refreshKey,
     statusFilter,
-    t,
   ]);
 
   function changeStatus(status: AccountRequestStatus | undefined): void {
@@ -236,7 +224,7 @@ export function ManagerRequestHistory({
       draftFilters.dateTo &&
       draftFilters.dateFrom > draftFilters.dateTo
     ) {
-      setError(t("history.dateError"));
+      setError("The start date cannot be after the end date.");
       return;
     }
 
@@ -273,10 +261,9 @@ export function ManagerRequestHistory({
     setLocalRefreshKey((current) => current + 1);
   }
 
-  const activeFilterLabel = t(
-    statusFilters.find((filter) => filter.value === statusFilter)?.labelKey ??
-      "common.all",
-  );
+  const activeFilterLabel =
+    statusFilters.find((filter) => filter.value === statusFilter)?.label ??
+    "All";
   const hasAdvancedFilters = Boolean(
     appliedFilters.search ||
       appliedFilters.departmentId ||
@@ -301,16 +288,16 @@ export function ManagerRequestHistory({
           </div>
 
           <div className="manager-request-history__total">
-            <small>{t("common.showingStatus")}</small>
+            <small>Showing status</small>
             <span>{activeFilterLabel}</span>
             <strong>{pagination.total}</strong>
-            <p>{isDivisionEmployeeView ? t("common.visibleRequests") : t("common.myRequests")}</p>
+            <p>{isDivisionEmployeeView ? "Visible requests" : "My requests"}</p>
           </div>
         </header>
 
         <nav
           className="manager-request-history__filters"
-          aria-label={t("history.statusFiltersAria")}
+          aria-label="Request status filters"
         >
           {statusFilters.map((filter) => {
             const active = filter.value === statusFilter;
@@ -323,7 +310,7 @@ export function ManagerRequestHistory({
                 aria-pressed={active}
                 onClick={() => changeStatus(filter.value)}
               >
-                {t(filter.labelKey)}
+                {filter.label}
               </button>
             );
           })}
@@ -334,7 +321,7 @@ export function ManagerRequestHistory({
           onSubmit={applyFilters}
         >
           <label className="manager-request-history__search">
-            <span>{t("common.searchRecords")}</span>
+            <span>Search records</span>
             <input
               type="search"
               value={draftFilters.search ?? ""}
@@ -346,15 +333,15 @@ export function ManagerRequestHistory({
               }
               placeholder={
                 isDivisionEmployeeView
-                  ? t("history.searchDivisionPlaceholder")
-                  : t("history.searchOwnPlaceholder")
+                  ? "Employee, ID, email or Team Manager"
+                  : "Employee name, ID or official email"
               }
             />
           </label>
 
           {isSeniorManagement && (
             <label>
-              <span>{t("common.department")}</span>
+              <span>Department</span>
               <select
                 value={draftFilters.departmentId ?? ""}
                 onChange={(event) =>
@@ -364,7 +351,7 @@ export function ManagerRequestHistory({
                   }))
                 }
               >
-                <option value="">{t("common.allDepartments")}</option>
+                <option value="">All departments</option>
                 {requestContext.departments.map((department) => (
                   <option key={department.id} value={department.id}>
                     {department.name} ({department.code})
@@ -375,7 +362,7 @@ export function ManagerRequestHistory({
           )}
 
           <label>
-            <span>{t("common.from")}</span>
+            <span>From</span>
             <input
               type="date"
               value={draftFilters.dateFrom ?? ""}
@@ -389,7 +376,7 @@ export function ManagerRequestHistory({
           </label>
 
           <label>
-            <span>{t("common.to")}</span>
+            <span>To</span>
             <input
               type="date"
               value={draftFilters.dateTo ?? ""}
@@ -403,7 +390,7 @@ export function ManagerRequestHistory({
           </label>
 
           <div className="manager-request-history__advanced-actions">
-            <button type="submit">{t("common.applyFilters")}</button>
+            <button type="submit">Apply filters</button>
             <button
               type="button"
               onClick={clearFilters}
@@ -411,7 +398,7 @@ export function ManagerRequestHistory({
                 !hasDraftFilters && !hasAdvancedFilters && !statusFilter
               }
             >
-              {t("history.clear")}
+              Clear
             </button>
           </div>
         </form>
@@ -422,11 +409,11 @@ export function ManagerRequestHistory({
             role="alert"
           >
             <div>
-              <strong>{t("history.unavailable")}</strong>
+              <strong>Request history unavailable</strong>
               <p>{error}</p>
             </div>
             <button type="button" onClick={retryLoading}>
-              {t("common.tryAgain")}
+              Try again
             </button>
           </div>
         )}
@@ -434,22 +421,22 @@ export function ManagerRequestHistory({
         {loading && requests.length === 0 && (
           <div className="manager-request-history__state">
             <div className="spinner" />
-            <p>{t("history.loading")}</p>
+            <p>Loading authorized requests...</p>
           </div>
         )}
 
         {!loading && !error && requests.length === 0 && (
           <div className="manager-request-history__empty">
             <span aria-hidden="true">≡</span>
-            <h3>{t("history.empty")}</h3>
+            <h3>No matching requests</h3>
             <p>
               {isDivisionEmployeeView
-                ? t("history.emptyDivision")
-                : t("history.emptyOwn")}
+                ? "Employee requests submitted by Team Managers under your division will appear here."
+                : "Requests submitted by your account will appear here."}
             </p>
             {hasAdvancedFilters && (
               <button type="button" onClick={clearFilters}>
-                {t("history.clearFilters")}
+                Clear filters
               </button>
             )}
           </div>
@@ -460,14 +447,14 @@ export function ManagerRequestHistory({
             <table className="manager-request-history__table">
               <thead>
                 <tr>
-                  <th>{t("common.employee")}</th>
-                  <th>{t("common.role")}</th>
-                  <th>{t("common.department")}</th>
-                  {isDivisionEmployeeView && <th>{t("common.requestedBy")}</th>}
-                  <th>{t("common.status")}</th>
-                  <th>{t("common.activationEmail")}</th>
-                  <th>{t("common.submitted")}</th>
-                  <th>{t("common.action")}</th>
+                  <th>Employee</th>
+                  <th>Role</th>
+                  <th>Department</th>
+                  {isDivisionEmployeeView && <th>Requested by</th>}
+                  <th>Status</th>
+                  <th>Activation email</th>
+                  <th>Submitted</th>
+                  <th>Action</th>
                 </tr>
               </thead>
 
@@ -481,48 +468,48 @@ export function ManagerRequestHistory({
                         : "manager-request-history__row"
                     }
                   >
-                    <td data-label={t("common.employee")}>
+                    <td data-label="Employee">
                       <strong>{request.empName}</strong>
                       <span>{request.empId}</span>
                       <small>{request.officialEmail}</small>
                     </td>
 
-                    <td data-label={t("common.role")}>
-                      <strong>{formatStatus(request.requestedRole, t)}</strong>
-                      <small>{t("history.revision", { number: request.revisionNumber })}</small>
+                    <td data-label="Role">
+                      <strong>{formatStatus(request.requestedRole)}</strong>
+                      <small>Revision {request.revisionNumber}</small>
                     </td>
 
-                    <td data-label={t("common.department")}>
+                    <td data-label="Department">
                       <strong>
-                        {request.department?.name ?? t("common.notAssigned")}
+                        {request.department?.name ?? "Not assigned"}
                       </strong>
-                      <small>{request.division?.name ?? t("common.notAssigned")}</small>
+                      <small>{request.division?.name ?? "Not assigned"}</small>
                     </td>
 
                     {isDivisionEmployeeView && (
-                      <td data-label={t("common.requestedBy")}>
+                      <td data-label="Requested by">
                         <strong>
                           {isScopedRequest(request)
                             ? (request.requestedBy.employee?.empName ??
-                              t("common.teamManager"))
-                            : t("common.teamManager")}
+                              "Team Manager")
+                            : "Team Manager"}
                         </strong>
                         <small>
                           {isScopedRequest(request)
                             ? (request.requestedBy.employee?.empId ??
-                              t("common.authorizedRequester"))
-                            : t("common.authorizedRequester")}
+                              "Authorized requester")
+                            : "Authorized requester"}
                         </small>
                       </td>
                     )}
 
-                    <td data-label={t("common.status")}>
+                    <td data-label="Status">
                       <span
                         className={`manager-request-status manager-request-status--${getStatusClass(
                           request.status,
                         )}`}
                       >
-                        {formatStatus(request.status, t)}
+                        {formatStatus(request.status)}
                       </span>
                       {request.rejectionReason && (
                         <small className="manager-request-history__reason">
@@ -531,35 +518,29 @@ export function ManagerRequestHistory({
                       )}
                     </td>
 
-                    <td data-label={t("common.activationEmail")}>
+                    <td data-label="Activation email">
                       <strong
                         className={`activation-delivery-status activation-delivery-status--${request.activationEmailStatus.toLowerCase()}`}
                       >
-                        {formatStatus(request.activationEmailStatus, t)}
+                        {formatStatus(request.activationEmailStatus)}
                       </strong>
                       <small>
                         {request.activationEmailSentAt
-                          ? t("history.sentDate", {
-                              date: formatDate(request.activationEmailSentAt, i18n.language, t),
-                            })
+                          ? `Sent ${formatDate(request.activationEmailSentAt)}`
                           : request.activationEmailLastAttemptAt
-                            ? t("history.attemptedDate", {
-                                date: formatDate(
-                                  request.activationEmailLastAttemptAt,
-                                  i18n.language,
-                                  t,
-                                ),
-                              })
-                            : t("common.notAttempted")}
+                            ? `Attempted ${formatDate(
+                                request.activationEmailLastAttemptAt,
+                              )}`
+                            : "Not attempted"}
                       </small>
                     </td>
 
-                    <td data-label={t("common.submitted")}>
-                      <strong>{formatDate(request.submittedAt, i18n.language, t)}</strong>
-                      <small>{t("history.updatedDate", { date: formatDate(request.updatedAt, i18n.language, t) })}</small>
+                    <td data-label="Submitted">
+                      <strong>{formatDate(request.submittedAt)}</strong>
+                      <small>Updated {formatDate(request.updatedAt)}</small>
                     </td>
 
-                    <td data-label={t("common.action")}>
+                    <td data-label="Action">
                       <button
                         type="button"
                         className="manager-request-history__view"
@@ -568,7 +549,7 @@ export function ManagerRequestHistory({
                           setSelectedRequestId(request.id);
                         }}
                       >
-                        {t("history.viewDetails")}
+                        View details
                       </button>
                     </td>
                   </tr>
@@ -585,11 +566,11 @@ export function ManagerRequestHistory({
               onClick={() => changePage(page - 1)}
               disabled={loading || page <= 1}
             >
-              {t("history.previous")}
+              Previous
             </button>
 
             <span>
-              {t("history.page", { page: pagination.page, total: pagination.totalPages })}
+              Page {pagination.page} of {pagination.totalPages}
             </span>
 
             <button
@@ -597,7 +578,7 @@ export function ManagerRequestHistory({
               onClick={() => changePage(page + 1)}
               disabled={loading || page >= pagination.totalPages}
             >
-              {t("history.next")}
+              Next
             </button>
           </footer>
         )}

@@ -2,8 +2,6 @@ import {
   useEffect,
   useState,
 } from "react";
-import type { TFunction } from "i18next";
-import { useTranslation } from "react-i18next";
 
 import type {
   FormEvent,
@@ -63,14 +61,15 @@ const PAGE_SIZE = 20;
 
 function getErrorMessage(
   error: unknown,
-  t: TFunction<"directory">,
 ): string {
   return error instanceof Error
     ? error.message
-    : t("list.errorFallback", { ns: "directory" });
+    : "The employee directory could not be loaded.";
 }
 
-function fallbackFormatValue(value: string): string {
+function formatValue(
+  value: string,
+): string {
   return value
     .toLowerCase()
     .split("_")
@@ -82,33 +81,26 @@ function fallbackFormatValue(value: string): string {
     .join(" ");
 }
 
-function formatValue(
-  value: string,
-  t: TFunction<"directory">,
-): string {
-  return t(`values.${value}`, {
-    ns: "directory",
-    defaultValue: fallbackFormatValue(value),
-  });
-}
-
 function formatDate(
   value: string | null,
-  locale: string,
-  t: TFunction<"directory">,
 ): string {
   if (!value) {
-    return t("common.never", { ns: "directory" });
+    return "Never";
   }
 
-  const date = new Date(value);
+  const date =
+    new Date(value);
 
-  if (Number.isNaN(date.getTime())) {
-    return t("common.notAvailable", { ns: "directory" });
+  if (
+    Number.isNaN(
+      date.getTime(),
+    )
+  ) {
+    return "Not available";
   }
 
   return new Intl.DateTimeFormat(
-    locale === "ne" ? "ne-NP" : "en-GB",
+    "en-GB",
     {
       dateStyle: "medium",
       timeStyle: "short",
@@ -116,50 +108,46 @@ function formatDate(
   ).format(date);
 }
 
-function getStatusClass(value: string): string {
+function getStatusClass(
+  value: string,
+): string {
   return value
     .toLowerCase()
-    .replaceAll("_", "-");
+    .replaceAll(
+      "_",
+      "-",
+    );
 }
 
 function getCurrentPositionLabel(
   employee: DirectoryEmployee,
-  t: TFunction<"directory">,
 ): string {
-  const position = employee.currentPosition;
+  const position =
+    employee.currentPosition;
 
   if (!position) {
-    return t("position.none", { ns: "directory" });
+    return "No management position";
   }
 
-  if (position.positionType === "SENIOR_MANAGEMENT") {
-    return t("position.seniorManagement", {
-      ns: "directory",
-      division: position.division.name,
-    });
+  if (
+    position.positionType ===
+    "SENIOR_MANAGEMENT"
+  ) {
+    return `${position.division.name} Senior Management`;
   }
 
-  return t("position.teamManager", {
-    ns: "directory",
-    department:
-      position.department?.name ??
-        t("common.department", { ns: "directory" }),
-  });
+  return `${position.department?.name ?? "Department"} Team Manager`;
 }
-
 
 export function EmployeeDirectory({
   accessToken,
   reloadKey = 0,
-  title,
-  description,
+  title = "Employee Directory",
+  description =
+    "Search authorized Nepal Telecom employees within your permitted organization scope.",
   onSelectEmployee,
   selectedEmployeeId = null,
 }: EmployeeDirectoryProps) {
-  const { t, i18n } = useTranslation("directory");
-  const resolvedTitle = title ?? t("list.defaultTitle");
-  const resolvedDescription =
-    description ?? t("list.defaultDescription");
   const [
     response,
     setResponse,
@@ -298,7 +286,6 @@ export function EmployeeDirectory({
           setError(
             getErrorMessage(
               requestError,
-              t,
             ),
           );
         },
@@ -324,7 +311,6 @@ export function EmployeeDirectory({
     recordStatus,
     role,
     search,
-    t,
   ]);
 
   function renderDirectoryAvatar(employee: DirectoryEmployee) {
@@ -334,7 +320,7 @@ export function EmployeeDirectory({
         photoKey={employee.profilePhotoKey}
         displayName={employee.empName}
         className="directory-avatar"
-        ariaLabel={t("list.avatarAria", { name: employee.empName })}
+        ariaLabel={`${employee.empName} profile`}
       />
     );
   }
@@ -524,20 +510,22 @@ export function EmployeeDirectory({
     >
       <header className="directory-header">
         <div className="directory-header__copy">
-          <span>{t("list.eyebrow")}</span>
+          <span>
+            Organization directory
+          </span>
 
           <h2>
             {recordStatus ===
             "ARCHIVED"
-              ? t("list.archivedTitle")
-              : resolvedTitle}
+              ? "Archived Employee Records"
+              : title}
           </h2>
 
           <p>
             {recordStatus ===
             "ARCHIVED"
-              ? t("list.archivedDescription")
-              : resolvedDescription}
+              ? "Review archived Nepal Telecom employees and their preserved lifecycle records."
+              : description}
           </p>
         </div>
 
@@ -559,8 +547,8 @@ export function EmployeeDirectory({
           <span>
             {recordStatus ===
             "ARCHIVED"
-              ? t("list.archivedRecords")
-              : t("list.currentRecords")}
+              ? "Archived records"
+              : "Current records"}
           </span>
 
           <strong>
@@ -574,7 +562,7 @@ export function EmployeeDirectory({
         "SUPER_ADMIN" && (
         <nav
           className="directory-record-tabs"
-          aria-label={t("list.recordSectionsAria")}
+          aria-label="Employee record sections"
         >
           <button
             type="button"
@@ -590,7 +578,7 @@ export function EmployeeDirectory({
               )
             }
           >
-            {t("list.currentRecords")}
+            Current records
           </button>
 
           <button
@@ -607,7 +595,7 @@ export function EmployeeDirectory({
               )
             }
           >
-            {t("list.archivedRecords")}
+            Archived records
           </button>
         </nav>
       )}
@@ -616,50 +604,48 @@ export function EmployeeDirectory({
         <section className="directory-scope">
           <div>
             <span>
-              {t("list.scope.title")}
+              Directory scope
             </span>
 
             <strong>
               {formatValue(
                 scope.type,
-                t,
               )}
             </strong>
           </div>
 
           <div>
             <span>
-              {t("list.scope.division")}
+              Division
             </span>
 
             <strong>
               {scope.division
                 ?.name ??
-                t("list.scope.allDivisions")}
+                "All divisions"}
             </strong>
           </div>
 
           <div>
             <span>
-              {t("list.scope.department")}
+              Department
             </span>
 
             <strong>
               {scope.department
                 ?.name ??
-                t("list.scope.allDepartments")}
+                "All departments"}
             </strong>
           </div>
 
           <div>
             <span>
-              {t("list.scope.contactAccess")}
+              Contact access
             </span>
 
             <strong>
               {formatValue(
                 scope.contactVisibility,
-                t,
               )}
             </strong>
           </div>
@@ -668,7 +654,7 @@ export function EmployeeDirectory({
 
       <section
         className="directory-toolbar"
-        aria-label={t("list.toolbarAria")}
+        aria-label="Directory search and filters"
       >
         <form
           className="directory-search"
@@ -678,7 +664,7 @@ export function EmployeeDirectory({
         >
           <label>
             <span>
-              {t("list.search.label")}
+              Search directory
             </span>
 
             <div className="directory-search__control">
@@ -712,13 +698,13 @@ export function EmployeeDirectory({
                   )
                 }
                 maxLength={100}
-                placeholder={t("list.search.placeholder")}
+                placeholder="Name, employee ID, designation or department"
               />
 
               <button
                 type="submit"
               >
-                {t("list.search.action")}
+                Search
               </button>
             </div>
           </label>
@@ -726,7 +712,7 @@ export function EmployeeDirectory({
 
         <section className="directory-filters">
           <label>
-            <span>{t("list.filters.role")}</span>
+            <span>Role</span>
 
             <select
               value={role}
@@ -741,30 +727,30 @@ export function EmployeeDirectory({
               }
             >
               <option value="">
-                {t("list.filters.allRoles")}
+                All roles
               </option>
 
               <option value="SUPER_ADMIN">
-                {t("roles.SUPER_ADMIN")}
+                Super Admin
               </option>
 
               <option value="SENIOR_MANAGEMENT">
-                {t("roles.SENIOR_MANAGEMENT")}
+                Senior Management
               </option>
 
               <option value="TEAM_MANAGER">
-                {t("roles.TEAM_MANAGER")}
+                Team Manager
               </option>
 
               <option value="EMPLOYEE">
-                {t("roles.EMPLOYEE")}
+                Employee
               </option>
             </select>
           </label>
 
           <label>
             <span>
-              {t("list.filters.employeeStatus")}
+              Employee status
             </span>
 
             <select
@@ -782,22 +768,22 @@ export function EmployeeDirectory({
               }
             >
               <option value="">
-                {t("list.filters.allStatuses")}
+                All statuses
               </option>
 
               <option value="ACTIVE">
-                {t("values.ACTIVE")}
+                Active
               </option>
 
               <option value="INACTIVE">
-                {t("values.INACTIVE")}
+                Inactive
               </option>
             </select>
           </label>
 
           <label>
             <span>
-              {t("list.filters.employment")}
+              Employment
             </span>
 
             <select
@@ -815,34 +801,34 @@ export function EmployeeDirectory({
               }
             >
               <option value="">
-                {t("list.filters.allEmployment")}
+                All employment states
               </option>
 
               <option value="ACTIVE">
-                {t("values.ACTIVE")}
+                Active
               </option>
 
               <option value="RESIGNED">
-                {t("values.RESIGNED")}
+                Resigned
               </option>
 
               <option value="RETIRED">
-                {t("values.RETIRED")}
+                Retired
               </option>
 
               <option value="TERMINATED">
-                {t("values.TERMINATED")}
+                Terminated
               </option>
 
               <option value="TRANSFERRED">
-                {t("values.TRANSFERRED")}
+                Transferred
               </option>
             </select>
           </label>
 
           <label>
             <span>
-              {t("list.filters.accountStatus")}
+              Account status
             </span>
 
             <select
@@ -860,26 +846,26 @@ export function EmployeeDirectory({
               }
             >
               <option value="">
-                {t("list.filters.allAccounts")}
+                All accounts
               </option>
 
               <option value="ENABLED">
-                {t("values.ENABLED")}
+                Enabled
               </option>
 
               <option value="DISABLED">
-                {t("values.DISABLED")}
+                Disabled
               </option>
 
               <option value="NO_ACCOUNT">
-                {t("values.NO_ACCOUNT")}
+                No account
               </option>
             </select>
           </label>
 
           <label>
             <span>
-              {t("list.filters.activation")}
+              Activation
             </span>
 
             <select
@@ -897,15 +883,15 @@ export function EmployeeDirectory({
               }
             >
               <option value="">
-                {t("list.filters.allActivation")}
+                All activation states
               </option>
 
               <option value="ACTIVATED">
-                {t("values.ACTIVATED")}
+                Activated
               </option>
 
               <option value="AWAITING_ACTIVATION">
-                {t("values.AWAITING_ACTIVATION")}
+                Awaiting activation
               </option>
             </select>
           </label>
@@ -920,7 +906,7 @@ export function EmployeeDirectory({
               !hasActiveFilters
             }
           >
-            {t("list.filters.clear")}
+            Clear filters
           </button>
         </section>
       </section>
@@ -932,7 +918,7 @@ export function EmployeeDirectory({
         >
           <div>
             <strong>
-              {t("list.errorTitle")}
+              Directory unavailable
             </strong>
 
             <p>{error}</p>
@@ -944,7 +930,7 @@ export function EmployeeDirectory({
               retryLoading
             }
           >
-            {t("common.tryAgain")}
+            Try again
           </button>
         </div>
       )}
@@ -955,7 +941,8 @@ export function EmployeeDirectory({
             <div className="spinner" />
 
             <p>
-              {t("list.loading")}
+              Loading employee
+              directory...
             </p>
           </div>
         )}
@@ -974,15 +961,15 @@ export function EmployeeDirectory({
             <h3>
               {recordStatus ===
               "ARCHIVED"
-                ? t("list.empty.archivedTitle")
-                : t("list.empty.currentTitle")}
+                ? "No archived employees"
+                : "No employees found"}
             </h3>
 
             <p>
               {recordStatus ===
               "ARCHIVED"
-                ? t("list.empty.archivedDescription")
-                : t("list.empty.currentDescription")}
+                ? "Archived employee records will appear here."
+                : "Change the search or filters and try again."}
             </p>
           </div>
         )}
@@ -995,12 +982,12 @@ export function EmployeeDirectory({
               <strong>
                 {recordStatus ===
                 "ARCHIVED"
-                  ? t("list.results.archivedEmployees")
-                  : t("list.results.employees")}
+                  ? "Archived employees"
+                  : "Employees"}
               </strong>
 
               <span>
-                {t("list.results.showing", { first: firstVisibleRecord, last: lastVisibleRecord, total: pagination?.total ?? 0 })}
+                Showing {firstVisibleRecord}–{lastVisibleRecord} of {pagination?.total ?? 0}
               </span>
             </div>
 
@@ -1010,7 +997,7 @@ export function EmployeeDirectory({
                 className="directory-results-bar__updating"
                 role="status"
               >
-                {t("list.results.updating")}
+                Updating results…
               </span>
             )}
           </div>
@@ -1018,48 +1005,48 @@ export function EmployeeDirectory({
           <div className="directory-table-wrap">
           <table className="directory-table">
             <caption className="sr-only">
-              {t("list.table.caption")}
+              Authorized Nepal Telecom employee directory
             </caption>
 
             <thead>
               <tr>
                 <th>
-                  {t("roles.EMPLOYEE")}
+                  Employee
                 </th>
 
                 <th>
-                  {t("list.table.effectiveRole")}
+                  Effective role
                 </th>
 
                 <th>
-                  {t("list.table.currentPosition")}
+                  Current position
                 </th>
 
                 <th>
-                  {t("list.table.organization")}
+                  Organization
                 </th>
 
                 <th>
-                  {t("list.filters.employment")}
+                  Employment
                 </th>
 
                 <th>
-                  {t("list.table.account")}
+                  Account
                 </th>
 
                 <th>
-                  {t("list.filters.activation")}
+                  Activation
                 </th>
 
                 <th>
                   {recordStatus ===
                   "ARCHIVED"
-                    ? t("list.table.archivedOn")
-                    : t("list.table.lastLogin")}
+                    ? "Archived on"
+                    : "Last login"}
                 </th>
 
                 <th
-                  aria-label={t("list.table.profileActions")}
+                  aria-label="Profile actions"
                 />
               </tr>
             </thead>
@@ -1080,7 +1067,7 @@ export function EmployeeDirectory({
                         : ""
                     }
                   >
-                    <td data-label={t("list.table.employee")}>
+                    <td data-label="Employee">
                       <button
                         type="button"
                         className="directory-employee-button"
@@ -1107,13 +1094,13 @@ export function EmployeeDirectory({
 
                           <small>
                             {employee.designation ??
-                              t("list.table.noDesignation")}
+                              "No designation"}
                           </small>
                         </span>
                       </button>
                     </td>
 
-                    <td data-label={t("list.table.effectiveRole")}>
+                    <td data-label="Effective role">
                       <span
                         className={`directory-badge role-${getStatusClass(
                           employee.effectiveRole ??
@@ -1123,47 +1110,42 @@ export function EmployeeDirectory({
                         {employee.effectiveRole
                           ? formatValue(
                               employee.effectiveRole,
-                              t,
                             )
-                          : t("common.noAccount")}
+                          : "No account"}
                       </span>
                     </td>
 
-                    <td data-label={t("list.table.currentPosition")}>
+                    <td data-label="Current position">
                       <strong>
                         {getCurrentPositionLabel(
                           employee,
-                          t,
                         )}
                       </strong>
 
                       <small>
                         {employee.currentPosition
-                          ? t("position.status", {
-                              status: formatValue(
-                                employee.currentPosition.status,
-                                t,
-                              ),
-                            })
-                          : t("position.noCurrentAssignment")}
+                          ? `${formatValue(
+                              employee.currentPosition.status,
+                            )} position`
+                          : "No current assignment"}
                       </small>
                     </td>
 
-                    <td data-label={t("list.table.organization")}>
+                    <td data-label="Organization">
                       <strong>
                         {employee.department
                           ?.name ??
-                          t("list.table.noDepartment")}
+                          "No department"}
                       </strong>
 
                       <small>
                         {employee.division
                           ?.name ??
-                          t("list.table.noDivision")}
+                          "No division"}
                       </small>
                     </td>
 
-                    <td data-label={t("list.table.employment")}>
+                    <td data-label="Employment">
                       <span
                         className={`directory-badge ${getStatusClass(
                           employee.employmentStatus,
@@ -1171,12 +1153,11 @@ export function EmployeeDirectory({
                       >
                         {formatValue(
                           employee.employmentStatus,
-                          t,
                         )}
                       </span>
                     </td>
 
-                    <td data-label={t("list.table.account")}>
+                    <td data-label="Account">
                       <span
                         className={`directory-badge ${getStatusClass(
                           employee.accountStatus,
@@ -1184,12 +1165,11 @@ export function EmployeeDirectory({
                       >
                         {formatValue(
                           employee.accountStatus,
-                          t,
                         )}
                       </span>
                     </td>
 
-                    <td data-label={t("list.table.activation")}>
+                    <td data-label="Activation">
                       <span
                         className={`directory-badge ${getStatusClass(
                           employee.activationStatus,
@@ -1197,7 +1177,6 @@ export function EmployeeDirectory({
                       >
                         {formatValue(
                           employee.activationStatus,
-                          t,
                         )}
                       </span>
                     </td>
@@ -1207,8 +1186,8 @@ export function EmployeeDirectory({
                       data-label={
                         recordStatus ===
                         "ARCHIVED"
-                          ? t("list.table.archivedOn")
-                          : t("list.table.lastLogin")
+                          ? "Archived on"
+                          : "Last login"
                       }
                     >
                       <strong>
@@ -1217,26 +1196,24 @@ export function EmployeeDirectory({
                           "ARCHIVED"
                             ? employee.archivedAt
                             : employee.lastLoginAt,
-                          i18n.language,
-                          t,
                         )}
                       </strong>
                     </td>
 
                     <td
                       className="directory-row-action"
-                      data-label={t("common.profile")}
+                      data-label="Profile"
                     >
                       <button
                         type="button"
-                        aria-label={t("list.table.viewProfileAria", { name: employee.empName })}
+                        aria-label={`View ${employee.empName} profile`}
                         onClick={() =>
                           selectEmployee(
                             employee,
                           )
                         }
                       >
-                        <span>{t("common.view")}</span>
+                        <span>View</span>
                         <span aria-hidden="true">›</span>
                       </button>
                     </td>
@@ -1265,11 +1242,15 @@ export function EmployeeDirectory({
                 page <= 1
               }
             >
-              {t("list.pagination.previous")}
+              Previous
             </button>
 
             <span>
-              {t("list.pagination.page", { page: pagination.page, totalPages: pagination.totalPages })}
+              Page{" "}
+              {pagination.page} of{" "}
+              {
+                pagination.totalPages
+              }
             </span>
 
             <button
@@ -1285,7 +1266,7 @@ export function EmployeeDirectory({
                   pagination.totalPages
               }
             >
-              {t("list.pagination.next")}
+              Next
             </button>
           </footer>
         )}

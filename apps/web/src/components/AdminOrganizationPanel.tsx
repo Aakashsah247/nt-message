@@ -3,8 +3,6 @@ import {
   useMemo,
   useState,
 } from "react";
-import type { TFunction } from "i18next";
-import { useTranslation } from "react-i18next";
 
 import type {
   FormEvent,
@@ -103,18 +101,19 @@ const emptyDepartment: DepartmentForm = {
   workFunction: "GENERAL",
 };
 
-const DEPARTMENT_WORK_FUNCTIONS: DepartmentWorkFunction[] = [
-  "GENERAL",
-  "FIELD_OPERATIONS",
-  "SALES",
-  "SUPPORT",
+const DEPARTMENT_WORK_FUNCTIONS: Array<{
+  value: DepartmentWorkFunction;
+  label: string;
+  description: string;
+}> = [
+  { value: "GENERAL", label: "General", description: "No specialist work-assignment function" },
+  { value: "FIELD_OPERATIONS", label: "Field operations", description: "Teams that own field and installation work" },
+  { value: "SALES", label: "Sales", description: "Customer and sales coordination members" },
+  { value: "SUPPORT", label: "Support", description: "Optional supporting staff for all work types" },
 ];
 
-function formatDepartmentWorkFunction(
-  value: DepartmentWorkFunction,
-  t: TFunction<"organization">,
-): string {
-  return t(`workFunction.${value}.label`, { ns: "organization", defaultValue: value });
+function formatDepartmentWorkFunction(value: DepartmentWorkFunction): string {
+  return DEPARTMENT_WORK_FUNCTIONS.find((option) => option.value === value)?.label ?? value;
 }
 
 const fieldClass =
@@ -131,11 +130,10 @@ const secondaryButtonClass =
 
 function getErrorMessage(
   error: unknown,
-  t: TFunction<"organization">,
 ): string {
   return error instanceof Error
     ? error.message
-    : t("errors.operationFailed", { ns: "organization" });
+    : "The organization operation could not be completed.";
 }
 
 function normalizeCode(
@@ -155,21 +153,19 @@ function normalizeName(
 }
 
 function formatOrganizationDate(
-  value: string | undefined,
-  locale: string,
-  fallback: string,
+  value?: string,
 ): string {
   if (!value) {
-    return fallback;
+    return "Not available";
   }
 
   const date = new Date(value);
 
   if (Number.isNaN(date.getTime())) {
-    return fallback;
+    return "Not available";
   }
 
-  return new Intl.DateTimeFormat(locale, {
+  return new Intl.DateTimeFormat("en-GB", {
     day: "2-digit",
     month: "short",
     year: "numeric",
@@ -178,24 +174,23 @@ function formatOrganizationDate(
 
 function getDivisionBlockers(
   division: AdminDivision,
-  t: TFunction<"organization">,
 ): string[] {
   const blockers: string[] = [];
 
   if (division._count.departments > 0) {
-    blockers.push(t("blockers.departments", { ns: "organization", count: division._count.departments }));
+    blockers.push(`${division._count.departments} department(s)`);
   }
 
   if (division._count.employees > 0) {
-    blockers.push(t("blockers.employees", { ns: "organization", count: division._count.employees }));
+    blockers.push(`${division._count.employees} employee(s)`);
   }
 
   if (division._count.accountRequests > 0) {
-    blockers.push(t("blockers.requests", { ns: "organization", count: division._count.accountRequests }));
+    blockers.push(`${division._count.accountRequests} account request(s)`);
   }
 
   if (division._count.managementPositions > 0) {
-    blockers.push(t("blockers.positions", { ns: "organization", count: division._count.managementPositions }));
+    blockers.push(`${division._count.managementPositions} management position(s)`);
   }
 
   return blockers;
@@ -203,20 +198,19 @@ function getDivisionBlockers(
 
 function getDepartmentBlockers(
   department: AdminDepartment,
-  t: TFunction<"organization">,
 ): string[] {
   const blockers: string[] = [];
 
   if (department._count.employees > 0) {
-    blockers.push(t("blockers.employees", { ns: "organization", count: department._count.employees }));
+    blockers.push(`${department._count.employees} employee(s)`);
   }
 
   if (department._count.accountRequests > 0) {
-    blockers.push(t("blockers.requests", { ns: "organization", count: department._count.accountRequests }));
+    blockers.push(`${department._count.accountRequests} account request(s)`);
   }
 
   if (department._count.managementPositions > 0) {
-    blockers.push(t("blockers.positions", { ns: "organization", count: department._count.managementPositions }));
+    blockers.push(`${department._count.managementPositions} management position(s)`);
   }
 
   return blockers;
@@ -246,9 +240,6 @@ function getDivisionDependencyCount(
 export function AdminOrganizationPanel({
   accessToken,
 }: AdminOrganizationPanelProps) {
-  const { t, i18n } = useTranslation("organization");
-  const locale = i18n.resolvedLanguage === "ne" ? "ne-NP" : "en-GB";
-
   const [
     divisions,
     setDivisions,
@@ -380,13 +371,13 @@ export function AdminOrganizationPanel({
           department.code.toLowerCase().includes(normalizedSearch) ||
           department.division.name.toLowerCase().includes(normalizedSearch) ||
           department.division.code.toLowerCase().includes(normalizedSearch) ||
-          formatDepartmentWorkFunction(department.workFunction, t)
+          formatDepartmentWorkFunction(department.workFunction)
             .toLowerCase()
             .includes(normalizedSearch);
 
         return matchesSearch && matchesStatus(department.isActive);
       }),
-    [departments, normalizedSearch, statusFilter, t],
+    [departments, normalizedSearch, statusFilter],
   );
 
   const directMatchingDivisionIds = useMemo(
@@ -432,8 +423,8 @@ export function AdminOrganizationPanel({
       departments.filter((department) => department.isActive).length;
 
     const protectedUnits =
-      divisions.filter((division) => getDivisionBlockers(division, t).length > 0).length +
-      departments.filter((department) => getDepartmentBlockers(department, t).length > 0).length;
+      divisions.filter((division) => getDivisionBlockers(division).length > 0).length +
+      departments.filter((department) => getDepartmentBlockers(department).length > 0).length;
 
     return {
       divisions: divisions.length,
@@ -441,7 +432,7 @@ export function AdminOrganizationPanel({
       activeUnits,
       protectedUnits,
     };
-  }, [departments, divisions, t]);
+  }, [departments, divisions]);
 
   const matchingUnitCount =
     directMatchingDivisionIds.size + filteredDepartments.length;
@@ -467,7 +458,7 @@ export function AdminOrganizationPanel({
           return;
         }
 
-        setError(getErrorMessage(requestError, t));
+        setError(getErrorMessage(requestError));
       })
       .finally(() => {
         if (active) {
@@ -506,7 +497,7 @@ export function AdminOrganizationPanel({
     const name = normalizeName(divisionForm.name);
 
     if (code.length < 2 || name.length < 2) {
-      setDialogError(t("errors.invalidDivision"));
+      setDialogError("Enter a valid division code and name.");
       return;
     }
 
@@ -526,7 +517,7 @@ export function AdminOrganizationPanel({
       closeCreateDialog();
       refreshOrganization();
     } catch (requestError: unknown) {
-      setDialogError(getErrorMessage(requestError, t));
+      setDialogError(getErrorMessage(requestError));
     } finally {
       setSavingDivision(false);
     }
@@ -541,12 +532,12 @@ export function AdminOrganizationPanel({
     const name = normalizeName(departmentForm.name);
 
     if (!departmentForm.divisionId) {
-      setDialogError(t("errors.selectDivision"));
+      setDialogError("Select a division.");
       return;
     }
 
     if (code.length < 2 || name.length < 2) {
-      setDialogError(t("errors.invalidDepartment"));
+      setDialogError("Enter a valid department code and name.");
       return;
     }
 
@@ -568,7 +559,7 @@ export function AdminOrganizationPanel({
       closeCreateDialog();
       refreshOrganization();
     } catch (requestError: unknown) {
-      setDialogError(getErrorMessage(requestError, t));
+      setDialogError(getErrorMessage(requestError));
     } finally {
       setSavingDepartment(false);
     }
@@ -617,7 +608,7 @@ export function AdminOrganizationPanel({
     const name = normalizeName(editTarget.name);
 
     if (code.length < 2 || name.length < 2) {
-      setDialogError(t("errors.invalidUnit"));
+      setDialogError("Enter a valid code and name.");
       return;
     }
 
@@ -641,7 +632,7 @@ export function AdminOrganizationPanel({
         setSuccess(response.message);
       } else {
         if (!editTarget.divisionId) {
-          setDialogError(t("errors.selectDivision"));
+          setDialogError("Select a division.");
           return;
         }
 
@@ -664,7 +655,7 @@ export function AdminOrganizationPanel({
       setEditTarget(null);
       refreshOrganization();
     } catch (requestError: unknown) {
-      setDialogError(getErrorMessage(requestError, t));
+      setDialogError(getErrorMessage(requestError));
     } finally {
       setSavingAction(false);
     }
@@ -673,11 +664,11 @@ export function AdminOrganizationPanel({
   function requestDivisionDelete(
     division: AdminDivision,
   ): void {
-    const blockers = getDivisionBlockers(division, t);
+    const blockers = getDivisionBlockers(division);
 
     if (blockers.length > 0) {
       setError(
-        t("errors.deleteBlocked", { name: division.name, blockers: blockers.join(", ") }),
+        `Cannot delete ${division.name}. It has ${blockers.join(", ")}. Edit or deactivate it instead.`,
       );
       return;
     }
@@ -695,11 +686,11 @@ export function AdminOrganizationPanel({
   function requestDepartmentDelete(
     department: AdminDepartment,
   ): void {
-    const blockers = getDepartmentBlockers(department, t);
+    const blockers = getDepartmentBlockers(department);
 
     if (blockers.length > 0) {
       setError(
-        t("errors.deleteBlocked", { name: department.name, blockers: blockers.join(", ") }),
+        `Cannot delete ${department.name}. It has ${blockers.join(", ")}. Edit or deactivate it instead.`,
       );
       return;
     }
@@ -720,7 +711,7 @@ export function AdminOrganizationPanel({
     }
 
     if (deleteConfirmation !== "DELETE") {
-      setDialogError(t("errors.confirmDelete"));
+      setDialogError("Type DELETE exactly to confirm permanent deletion.");
       return;
     }
 
@@ -742,7 +733,7 @@ export function AdminOrganizationPanel({
       setDeleteConfirmation("");
       refreshOrganization();
     } catch (requestError: unknown) {
-      setDialogError(getErrorMessage(requestError, t));
+      setDialogError(getErrorMessage(requestError));
     } finally {
       setSavingAction(false);
     }
@@ -750,17 +741,20 @@ export function AdminOrganizationPanel({
 
   const detailBlockers = detailTarget
     ? detailTarget.kind === "division"
-      ? getDivisionBlockers(detailTarget.item, t)
-      : getDepartmentBlockers(detailTarget.item, t)
+      ? getDivisionBlockers(detailTarget.item)
+      : getDepartmentBlockers(detailTarget.item)
     : [];
 
   return (
     <section className="organization-workspace">
       <header className="organization-workspace__hero">
         <div>
-          <span className="organization-eyebrow">{t("hero.eyebrow")}</span>
-          <h2>{t("hero.title")}</h2>
-          <p>{t("hero.description")}</p>
+          <span className="organization-eyebrow">Organization control</span>
+          <h2>Organization Management</h2>
+          <p>
+            Maintain Nepal Telecom divisions and departments with protected,
+            dependency-aware administration.
+          </p>
         </div>
 
         <div className="organization-workspace__hero-actions">
@@ -774,7 +768,7 @@ export function AdminOrganizationPanel({
               setShowCreateAccount(true);
             }}
           >
-            {t("hero.createAccount")}
+            Create account
           </button>
 
           <button
@@ -785,7 +779,7 @@ export function AdminOrganizationPanel({
               setCreateTarget("division");
             }}
           >
-            {t("hero.createDivision")}
+            Create division
           </button>
 
           <button
@@ -797,7 +791,7 @@ export function AdminOrganizationPanel({
             }}
             disabled={activeDivisions.length === 0}
           >
-            {t("hero.createDepartment")}
+            Create department
           </button>
 
           <button
@@ -806,7 +800,7 @@ export function AdminOrganizationPanel({
             onClick={refreshOrganization}
             disabled={loading}
           >
-            {loading ? t("hero.refreshing") : t("hero.refresh")}
+            {loading ? "Refreshing..." : "Refresh"}
           </button>
         </div>
       </header>
@@ -820,63 +814,64 @@ export function AdminOrganizationPanel({
       {error && (
         <div className="organization-feedback organization-feedback--error" role="alert">
           <span>{error}</span>
-          <button type="button" onClick={() => setError("")}>{t("common.close")}</button>
+          <button type="button" onClick={() => setError("")}>Close</button>
         </div>
       )}
 
-      <section className="organization-summary-grid" aria-label={t("summary.aria")}>
+      <section className="organization-summary-grid" aria-label="Organization summary">
         <article className="organization-summary-card organization-summary-card--blue">
-          <span>{t("summary.divisions")}</span>
+          <span>Divisions</span>
           <strong>{organizationSummary.divisions}</strong>
-          <small>{t("summary.divisionsDetail")}</small>
+          <small>Top-level organization units</small>
         </article>
 
         <article className="organization-summary-card organization-summary-card--green">
-          <span>{t("summary.departments")}</span>
+          <span>Departments</span>
           <strong>{organizationSummary.departments}</strong>
-          <small>{t("summary.departmentsDetail")}</small>
+          <small>Operational units across divisions</small>
         </article>
 
         <article className="organization-summary-card organization-summary-card--gold">
-          <span>{t("summary.active")}</span>
+          <span>Active units</span>
           <strong>{organizationSummary.activeUnits}</strong>
-          <small>{t("summary.activeDetail")}</small>
+          <small>Divisions and departments currently enabled</small>
         </article>
 
         <article className="organization-summary-card organization-summary-card--red">
-          <span>{t("summary.protected")}</span>
+          <span>Deletion-protected units</span>
           <strong>{organizationSummary.protectedUnits}</strong>
-          <small>{t("summary.protectedDetail")}</small>
+          <small>Units that contain linked organization records</small>
         </article>
       </section>
 
-      <section className="organization-control-bar" aria-label={t("filters.aria")}>
+      <section className="organization-control-bar" aria-label="Organization filters">
         <label>
-          <span>{t("filters.search")}</span>
+          <span>Search organization</span>
           <input
             type="search"
             value={searchTerm}
             onChange={(event) => setSearchTerm(event.target.value)}
-            placeholder={t("filters.placeholder")}
+            placeholder="Division, department or code"
           />
         </label>
 
         <label>
-          <span>{t("filters.status")}</span>
+          <span>Status</span>
           <select
             value={statusFilter}
             onChange={(event) =>
               setStatusFilter(event.target.value as OrganizationStatusFilter)
             }
           >
-            <option value="ALL">{t("filters.all")}</option>
-            <option value="ACTIVE">{t("filters.active")}</option>
-            <option value="INACTIVE">{t("filters.inactive")}</option>
+            <option value="ALL">All statuses</option>
+            <option value="ACTIVE">Active</option>
+            <option value="INACTIVE">Inactive</option>
           </select>
         </label>
 
         <div className="organization-control-bar__result">
-          <strong>{t("filters.matching", { count: matchingUnitCount })}</strong>
+          <strong>{matchingUnitCount}</strong>
+          <span>matching units</span>
         </div>
 
         {(searchTerm || statusFilter !== "ALL") && (
@@ -888,7 +883,7 @@ export function AdminOrganizationPanel({
               setStatusFilter("ALL");
             }}
           >
-            {t("filters.clear")}
+            Clear filters
           </button>
         )}
       </section>
@@ -896,21 +891,24 @@ export function AdminOrganizationPanel({
       <section className="organization-hierarchy-panel">
         <header>
           <div>
-            <span>{t("hierarchy.eyebrow")}</span>
-            <h3>{t("hierarchy.title")}</h3>
-            <p>{t("hierarchy.description")}</p>
+            <span>Organization hierarchy</span>
+            <h3>Division and department structure</h3>
+            <p>
+              Use the explicit controls to view departments or manage a unit.
+              The row itself is not clickable, and destructive actions stay inside the management drawer.
+            </p>
           </div>
         </header>
 
         {loading && divisions.length === 0 ? (
           <div className="organization-empty-state">
-            <strong>{t("hierarchy.loadingTitle")}</strong>
-            <span>{t("hierarchy.loadingDescription")}</span>
+            <strong>Loading organization structure</strong>
+            <span>Please wait while the latest organization units are loaded.</span>
           </div>
         ) : filteredDivisions.length === 0 ? (
           <div className="organization-empty-state">
-            <strong>{t("hierarchy.emptyTitle")}</strong>
-            <span>{t("hierarchy.emptyDescription")}</span>
+            <strong>No matching organization units</strong>
+            <span>Change the search or status filter to view divisions and departments.</span>
           </div>
         ) : (
           <div className="organization-hierarchy-list">
@@ -931,11 +929,9 @@ export function AdminOrganizationPanel({
 
                     <span className="organization-hierarchy-item__identity">
                       <strong>{division.name}</strong>
-                      <small>{t("hierarchy.divisionSummary", {
-                        code: division.code,
-                        departments: division._count.departments,
-                        employees: division._count.employees,
-                      })}</small>
+                      <small>
+                        {division.code} · {division._count.departments} departments · {division._count.employees} employees
+                      </small>
                     </span>
 
                     <span
@@ -945,7 +941,7 @@ export function AdminOrganizationPanel({
                           : "organization-status"
                       }
                     >
-                      {division.isActive ? t("common.active") : t("common.inactive")}
+                      {division.isActive ? "Active" : "Inactive"}
                     </span>
 
                     <div className="organization-hierarchy-item__row-actions">
@@ -954,7 +950,7 @@ export function AdminOrganizationPanel({
                         className="organization-action organization-action--quiet"
                         onClick={() => setDetailTarget({ kind: "division", item: division })}
                       >
-                        {t("hierarchy.manageUnit")}
+                        Manage unit
                       </button>
 
                       <button
@@ -962,7 +958,7 @@ export function AdminOrganizationPanel({
                         className="organization-action organization-action--quiet"
                         onClick={() => openDivisionEdit(division)}
                       >
-                        {t("hierarchy.edit")}
+                        Edit
                       </button>
 
                       <button
@@ -977,22 +973,26 @@ export function AdminOrganizationPanel({
                       >
                         {hasVisibleDepartments
                           ? isExpanded
-                            ? t("hierarchy.hideDepartments")
-                            : t("hierarchy.viewDepartments", { value: childDepartments.length })
+                            ? "Hide departments ↑"
+                            : `View departments (${childDepartments.length}) ↓`
                           : normalizedSearch || statusFilter !== "ALL"
-                            ? t("hierarchy.noMatchingDepartments")
-                            : t("hierarchy.noDepartments")}
+                            ? "No matching departments"
+                            : "No departments"}
                       </button>
                     </div>
                   </div>
 
                   <div className="organization-hierarchy-item__context">
-                    <span>{t("hierarchy.accountRequests", { value: division._count.accountRequests })}</span>
-                    <span>{t("hierarchy.managementPositions", { value: division._count.managementPositions })}</span>
+                    <span>
+                      <strong>{division._count.accountRequests}</strong> account requests
+                    </span>
+                    <span>
+                      <strong>{division._count.managementPositions}</strong> management positions
+                    </span>
                     <span className={blockerCount > 0 ? "organization-protection-badge" : ""}>
                       {blockerCount > 0
-                        ? t("hierarchy.protected", { value: blockerCount })
-                        : t("hierarchy.eligible")}
+                        ? `Protected by ${blockerCount} linked records`
+                        : "Eligible for deletion"}
                     </span>
                   </div>
 
@@ -1013,10 +1013,9 @@ export function AdminOrganizationPanel({
                             >
                               <div className="organization-department-card__identity">
                                 <strong>{department.name}</strong>
-                                <small>{t("hierarchy.departmentSummary", {
-                                  code: department.code,
-                                  employees: department._count.employees,
-                                })}</small>
+                                <small>
+                                  {department.code} · {department._count.employees} employees
+                                </small>
                               </div>
 
                               <span
@@ -1026,13 +1025,13 @@ export function AdminOrganizationPanel({
                                     : "organization-status"
                                 }
                               >
-                                {department.isActive ? t("common.active") : t("common.inactive")}
+                                {department.isActive ? "Active" : "Inactive"}
                               </span>
 
                               <span className="organization-department-card__protection">
                                 {departmentDependencies > 0
-                                  ? t("hierarchy.linkedRecords", { count: departmentDependencies })
-                                  : t("hierarchy.noDependencies")}
+                                  ? `${departmentDependencies} linked records`
+                                  : "No dependencies"}
                               </span>
 
                               <div className="organization-department-card__actions">
@@ -1043,7 +1042,7 @@ export function AdminOrganizationPanel({
                                     setDetailTarget({ kind: "department", item: department })
                                   }
                                 >
-                                  {t("hierarchy.manageUnit")}
+                                  Manage unit
                                 </button>
 
                                 <button
@@ -1051,7 +1050,7 @@ export function AdminOrganizationPanel({
                                   className="organization-action organization-action--quiet"
                                   onClick={() => openDepartmentEdit(department)}
                                 >
-                                  {t("hierarchy.edit")}
+                                  Edit
                                 </button>
                               </div>
                             </article>
@@ -1073,18 +1072,18 @@ export function AdminOrganizationPanel({
             className="organization-dialog"
             role="dialog"
             aria-modal="true"
-            aria-label={t("create.dialogAria", { kind: t(`common.${createTarget}`) })}
+            aria-label={`Create ${createTarget}`}
           >
             <header>
               <div>
-                <span>{t("create.eyebrow")}</span>
+                <span>Create organization unit</span>
                 <h3>
                   {createTarget === "division"
-                    ? t("create.division")
-                    : t("create.department")}
+                    ? "Create Division"
+                    : "Create Department"}
                 </h3>
               </div>
-              <button type="button" onClick={closeCreateDialog} aria-label={t("create.close")}>
+              <button type="button" onClick={closeCreateDialog} aria-label="Close create dialog">
                 ×
               </button>
             </header>
@@ -1099,7 +1098,7 @@ export function AdminOrganizationPanel({
                   )}
 
                   <label className={labelClass}>
-                    {t("create.divisionCode")}
+                    Division code
                     <input
                       className={fieldClass}
                       type="text"
@@ -1111,7 +1110,7 @@ export function AdminOrganizationPanel({
                         }));
                         setDialogError("");
                       }}
-                      placeholder={t("create.divisionCodePlaceholder")}
+                      placeholder="Example: TECH"
                       maxLength={50}
                       disabled={savingDivision}
                       required
@@ -1119,7 +1118,7 @@ export function AdminOrganizationPanel({
                   </label>
 
                   <label className={labelClass}>
-                    {t("create.divisionName")}
+                    Division name
                     <input
                       className={fieldClass}
                       type="text"
@@ -1131,7 +1130,7 @@ export function AdminOrganizationPanel({
                         }));
                         setDialogError("");
                       }}
-                      placeholder={t("create.divisionNamePlaceholder")}
+                      placeholder="Technical Division"
                       maxLength={120}
                       disabled={savingDivision}
                       required
@@ -1146,14 +1145,14 @@ export function AdminOrganizationPanel({
                     onClick={closeCreateDialog}
                     disabled={savingDivision}
                   >
-                    {t("common.cancel")}
+                    Cancel
                   </button>
                   <button
                     type="submit"
                     className={primaryButtonClass}
                     disabled={savingDivision}
                   >
-                    {savingDivision ? t("create.creating") : t("create.createDivision")}
+                    {savingDivision ? "Creating..." : "Create division"}
                   </button>
                 </footer>
               </form>
@@ -1167,7 +1166,7 @@ export function AdminOrganizationPanel({
                   )}
 
                   <label className={labelClass}>
-                    {t("common.divisionLabel")}
+                    Division
                     <select
                       className={fieldClass}
                       value={departmentForm.divisionId}
@@ -1181,7 +1180,7 @@ export function AdminOrganizationPanel({
                       disabled={savingDepartment}
                       required
                     >
-                      <option value="">{t("create.selectDivision")}</option>
+                      <option value="">Select division</option>
                       {activeDivisions.map((division) => (
                         <option key={division.id} value={division.id}>
                           {division.name} ({division.code})
@@ -1191,7 +1190,7 @@ export function AdminOrganizationPanel({
                   </label>
 
                   <label className={labelClass}>
-                    {t("create.departmentCode")}
+                    Department code
                     <input
                       className={fieldClass}
                       type="text"
@@ -1203,7 +1202,7 @@ export function AdminOrganizationPanel({
                         }));
                         setDialogError("");
                       }}
-                      placeholder={t("create.departmentCodePlaceholder")}
+                      placeholder="Example: NETWORK"
                       maxLength={50}
                       disabled={savingDepartment}
                       required
@@ -1211,7 +1210,7 @@ export function AdminOrganizationPanel({
                   </label>
 
                   <label className={labelClass}>
-                    {t("create.departmentName")}
+                    Department name
                     <input
                       className={fieldClass}
                       type="text"
@@ -1223,7 +1222,7 @@ export function AdminOrganizationPanel({
                         }));
                         setDialogError("");
                       }}
-                      placeholder={t("create.departmentNamePlaceholder")}
+                      placeholder="Network Department"
                       maxLength={120}
                       disabled={savingDepartment}
                       required
@@ -1231,7 +1230,7 @@ export function AdminOrganizationPanel({
                   </label>
 
                   <label className={labelClass}>
-                    {t("workFunction.label")}
+                    Work assignment function
                     <select
                       className={fieldClass}
                       value={departmentForm.workFunction}
@@ -1244,9 +1243,9 @@ export function AdminOrganizationPanel({
                       }}
                       disabled={savingDepartment}
                     >
-                      {DEPARTMENT_WORK_FUNCTIONS.map((value) => (
-                        <option key={value} value={value}>
-                          {t(`workFunction.${value}.label`)} — {t(`workFunction.${value}.description`)}
+                      {DEPARTMENT_WORK_FUNCTIONS.map((option) => (
+                        <option key={option.value} value={option.value}>
+                          {option.label} — {option.description}
                         </option>
                       ))}
                     </select>
@@ -1260,14 +1259,14 @@ export function AdminOrganizationPanel({
                     onClick={closeCreateDialog}
                     disabled={savingDepartment}
                   >
-                    {t("common.cancel")}
+                    Cancel
                   </button>
                   <button
                     type="submit"
                     className={primaryButtonClass}
                     disabled={savingDepartment}
                   >
-                    {savingDepartment ? t("create.creating") : t("create.createDepartment")}
+                    {savingDepartment ? "Creating..." : "Create department"}
                   </button>
                 </footer>
               </form>
@@ -1282,15 +1281,15 @@ export function AdminOrganizationPanel({
             className="organization-drawer"
             role="dialog"
             aria-modal="true"
-            aria-label={t("detail.aria", { kind: t(`common.${detailTarget.kind}`) })}
+            aria-label={`${detailTarget.kind} details`}
           >
             <header>
               <div>
-                <span>{t(`common.${detailTarget.kind}`)}</span>
+                <span>{detailTarget.kind}</span>
                 <h3>{detailTarget.item.name}</h3>
                 <p>{detailTarget.item.code}</p>
               </div>
-              <button type="button" onClick={() => setDetailTarget(null)} aria-label={t("detail.close")}>
+              <button type="button" onClick={() => setDetailTarget(null)} aria-label="Close details">
                 ×
               </button>
             </header>
@@ -1304,18 +1303,18 @@ export function AdminOrganizationPanel({
                       : "organization-status"
                   }
                 >
-                  {detailTarget.item.isActive ? t("common.active") : t("common.inactive")}
+                  {detailTarget.item.isActive ? "Active" : "Inactive"}
                 </span>
                 <span className={detailBlockers.length > 0 ? "organization-protection-badge" : ""}>
                   {detailBlockers.length > 0
-                    ? t("detail.deletionProtected")
-                    : t("hierarchy.eligible")}
+                    ? "Deletion protected"
+                    : "Eligible for deletion"}
                 </span>
               </div>
 
               {detailTarget.kind === "department" && (
                 <section className="organization-drawer__section">
-                  <span>{t("detail.parentDivision")}</span>
+                  <span>Parent division</span>
                   <strong>{detailTarget.item.division.name}</strong>
                   <small>{detailTarget.item.division.code}</small>
                 </section>
@@ -1324,26 +1323,26 @@ export function AdminOrganizationPanel({
               <section className="organization-drawer__metrics">
                 {detailTarget.kind === "division" && (
                   <article>
-                    <span>{t("summary.departments")}</span>
+                    <span>Departments</span>
                     <strong>{detailTarget.item._count.departments}</strong>
                   </article>
                 )}
                 <article>
-                  <span>{t("common.employees")}</span>
+                  <span>Employees</span>
                   <strong>{detailTarget.item._count.employees}</strong>
                 </article>
                 <article>
-                  <span>{t("common.requests")}</span>
+                  <span>Requests</span>
                   <strong>{detailTarget.item._count.accountRequests}</strong>
                 </article>
                 <article>
-                  <span>{t("common.positions")}</span>
+                  <span>Positions</span>
                   <strong>{detailTarget.item._count.managementPositions}</strong>
                 </article>
               </section>
 
               <section className="organization-drawer__section">
-                <span>{t("detail.dependencyProtection")}</span>
+                <span>Dependency protection</span>
                 {detailBlockers.length > 0 ? (
                   <ul>
                     {detailBlockers.map((blocker) => (
@@ -1351,29 +1350,32 @@ export function AdminOrganizationPanel({
                     ))}
                   </ul>
                 ) : (
-                  <p>{t("detail.noLinkedRecords")}</p>
+                  <p>No linked records currently prevent permanent deletion.</p>
                 )}
               </section>
 
               {detailTarget.kind === "department" && (
                 <section className="organization-drawer__section">
-                  <span>{t("workFunction.label")}</span>
-                  <p>{formatDepartmentWorkFunction(detailTarget.item.workFunction, t)}</p>
+                  <span>Work assignment function</span>
+                  <p>{formatDepartmentWorkFunction(detailTarget.item.workFunction)}</p>
                 </section>
               )}
 
               <section className="organization-drawer__dates">
                 <div>
-                  <span>{t("detail.created")}</span>
-                  <strong>{formatOrganizationDate(detailTarget.item.createdAt, locale, t("common.notAvailable"))}</strong>
+                  <span>Created</span>
+                  <strong>{formatOrganizationDate(detailTarget.item.createdAt)}</strong>
                 </div>
                 <div>
-                  <span>{t("detail.updated")}</span>
-                  <strong>{formatOrganizationDate(detailTarget.item.updatedAt, locale, t("common.notAvailable"))}</strong>
+                  <span>Last updated</span>
+                  <strong>{formatOrganizationDate(detailTarget.item.updatedAt)}</strong>
                 </div>
               </section>
 
-              <div className="organization-drawer__notice">{t("detail.notice")}</div>
+              <div className="organization-drawer__notice">
+                Deactivation preserves employees, requests, positions and history.
+                Permanent deletion is only available for a completely unused unit.
+              </div>
             </div>
 
             <footer>
@@ -1386,7 +1388,7 @@ export function AdminOrganizationPanel({
                     : openDepartmentEdit(detailTarget.item)
                 }
               >
-                {t("detail.editUnit")}
+                Edit unit
               </button>
 
               <button
@@ -1400,13 +1402,13 @@ export function AdminOrganizationPanel({
                 disabled={detailBlockers.length > 0}
                 title={
                   detailBlockers.length > 0
-                    ? t("detail.deleteBlocked", { blockers: detailBlockers.join(", ") })
-                    : t("detail.deleteUnused")
+                    ? `Cannot delete: ${detailBlockers.join(", ")}`
+                    : "Delete this unused organization unit"
                 }
               >
                 {detailBlockers.length > 0
-                  ? t("detail.deleteUnavailable")
-                  : t("detail.deletePermanently")}
+                  ? "Delete unavailable"
+                  : "Delete permanently"}
               </button>
             </footer>
           </aside>
@@ -1420,12 +1422,12 @@ export function AdminOrganizationPanel({
             onSubmit={submitEdit}
             role="dialog"
             aria-modal="true"
-            aria-label={t("edit.aria", { kind: t(`common.${editTarget.kind}`) })}
+            aria-label={`Edit ${editTarget.kind}`}
           >
             <header>
               <div>
-                <span>{t("edit.eyebrow")}</span>
-                <h3>{t("edit.title", { kind: t(`common.${editTarget.kind}`) })}</h3>
+                <span>Organization maintenance</span>
+                <h3>Edit {editTarget.kind}</h3>
               </div>
               <button
                 type="button"
@@ -1433,7 +1435,7 @@ export function AdminOrganizationPanel({
                   setEditTarget(null);
                   setDialogError("");
                 }}
-                aria-label={t("edit.close")}
+                aria-label="Close edit dialog"
               >
                 ×
               </button>
@@ -1448,7 +1450,7 @@ export function AdminOrganizationPanel({
 
               {editTarget.kind === "department" && (
                 <label className={labelClass}>
-                  {t("common.divisionLabel")}
+                  Division
                   <select
                     className={fieldClass}
                     value={editTarget.divisionId}
@@ -1475,7 +1477,7 @@ export function AdminOrganizationPanel({
               )}
 
               <label className={labelClass}>
-                {t("common.code")}
+                Code
                 <input
                   className={fieldClass}
                   type="text"
@@ -1497,7 +1499,7 @@ export function AdminOrganizationPanel({
               </label>
 
               <label className={labelClass}>
-                {t("common.name")}
+                Name
                 <input
                   className={fieldClass}
                   type="text"
@@ -1520,7 +1522,7 @@ export function AdminOrganizationPanel({
 
               {editTarget.kind === "department" && (
                 <label className={labelClass}>
-                  {t("workFunction.label")}
+                  Work assignment function
                   <select
                     className={fieldClass}
                     value={editTarget.workFunction}
@@ -1536,9 +1538,9 @@ export function AdminOrganizationPanel({
                     }
                     disabled={savingAction}
                   >
-                    {DEPARTMENT_WORK_FUNCTIONS.map((value) => (
-                      <option key={value} value={value}>
-                        {t(`workFunction.${value}.label`)} — {t(`workFunction.${value}.description`)}
+                    {DEPARTMENT_WORK_FUNCTIONS.map((option) => (
+                      <option key={option.value} value={option.value}>
+                        {option.label} — {option.description}
                       </option>
                     ))}
                   </select>
@@ -1546,7 +1548,7 @@ export function AdminOrganizationPanel({
               )}
 
               <label className={labelClass}>
-                {t("common.status")}
+                Status
                 <select
                   className={fieldClass}
                   value={editTarget.isActive ? "ACTIVE" : "INACTIVE"}
@@ -1562,12 +1564,15 @@ export function AdminOrganizationPanel({
                   }
                   disabled={savingAction}
                 >
-                  <option value="ACTIVE">{t("filters.active")}</option>
-                  <option value="INACTIVE">{t("filters.inactive")}</option>
+                  <option value="ACTIVE">Active</option>
+                  <option value="INACTIVE">Inactive</option>
                 </select>
               </label>
 
-              <div className="organization-dialog__notice">{t("edit.notice")}</div>
+              <div className="organization-dialog__notice">
+                Deactivation is the safe option for a unit that already contains
+                employees, account requests, management positions or history.
+              </div>
             </div>
 
             <footer>
@@ -1580,14 +1585,14 @@ export function AdminOrganizationPanel({
                 }}
                 disabled={savingAction}
               >
-                {t("common.cancel")}
+                Cancel
               </button>
               <button
                 type="submit"
                 className={primaryButtonClass}
                 disabled={savingAction}
               >
-                {savingAction ? t("edit.saving") : t("edit.save")}
+                {savingAction ? "Saving..." : "Save changes"}
               </button>
             </footer>
           </form>
@@ -1600,12 +1605,12 @@ export function AdminOrganizationPanel({
             className="organization-dialog organization-dialog--danger"
             role="dialog"
             aria-modal="true"
-            aria-label={t("delete.aria", { kind: t(`common.${deleteTarget.kind}`) })}
+            aria-label={`Delete ${deleteTarget.kind}`}
           >
             <header>
               <div>
-                <span>{t("delete.eyebrow")}</span>
-                <h3>{t("delete.title", { kind: t(`common.${deleteTarget.kind}`) })}</h3>
+                <span>Permanent deletion</span>
+                <h3>Delete {deleteTarget.kind}</h3>
               </div>
               <button
                 type="button"
@@ -1614,7 +1619,7 @@ export function AdminOrganizationPanel({
                   setDeleteConfirmation("");
                   setDialogError("");
                 }}
-                aria-label={t("delete.close")}
+                aria-label="Close delete dialog"
               >
                 ×
               </button>
@@ -1627,12 +1632,18 @@ export function AdminOrganizationPanel({
                 </div>
               )}
 
-              <p className="organization-dialog__copy">{t("delete.description", { name: deleteTarget.name })}</p>
+              <p className="organization-dialog__copy">
+                You are permanently deleting <strong>{deleteTarget.name}</strong>.
+                This action cannot be undone.
+              </p>
 
-              <div className="organization-dialog__notice">{t("delete.serverProtection")}</div>
+              <div className="organization-dialog__notice">
+                The server will reject deletion if another record started using
+                this unit after the current organization snapshot was loaded.
+              </div>
 
               <label className={labelClass}>
-                {t("delete.confirmLabel")}
+                Type DELETE to confirm
                 <input
                   className={fieldClass}
                   type="text"
@@ -1659,7 +1670,7 @@ export function AdminOrganizationPanel({
                 }}
                 disabled={savingAction}
               >
-                {t("common.cancel")}
+                Cancel
               </button>
               <button
                 type="button"
@@ -1667,7 +1678,7 @@ export function AdminOrganizationPanel({
                 onClick={confirmDelete}
                 disabled={savingAction || deleteConfirmation !== "DELETE"}
               >
-                {savingAction ? t("delete.deleting") : t("delete.delete")}
+                {savingAction ? "Deleting..." : "Delete permanently"}
               </button>
             </footer>
           </section>

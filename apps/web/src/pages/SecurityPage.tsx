@@ -1,17 +1,14 @@
 import { useMemo, useState } from "react";
 import type { FormEvent } from "react";
 import { Link, useNavigate } from "react-router";
-import { useTranslation } from "react-i18next";
 
-import {
-  SettingsSecurityIcon,
-  SettingsShell,
-} from "../components/settings/SettingsShell";
 import { useAuth } from "../context/AuthContext";
 import { changePassword } from "../services/auth.service";
+import { getRoleHomePath } from "../utils/get-role-home-path";
 import {
   PASSWORD_MAX_LENGTH,
   PASSWORD_MIN_LENGTH,
+  PASSWORD_REQUIREMENTS_MESSAGE,
   getPasswordRuleChecks,
   isSecurePassword,
 } from "../utils/password-policy";
@@ -24,7 +21,6 @@ interface FieldErrors {
 
 export function SecurityPage() {
   const navigate = useNavigate();
-  const { t } = useTranslation(["settings", "auth", "common"]);
   const { account, accessToken, logout } = useAuth();
   const [currentPassword, setCurrentPassword] = useState("");
   const [newPassword, setNewPassword] = useState("");
@@ -47,21 +43,26 @@ export function SecurityPage() {
     Boolean,
   ).length;
 
-  const homePath = "/settings";
+  const homePath = account
+    ? account.role === "EMPLOYEE"
+      ? "/employee"
+      : getRoleHomePath(account.role)
+    : "/";
 
   function validateForm(): boolean {
     const nextErrors: FieldErrors = {};
     if (!currentPassword) {
-      nextErrors.currentPassword = t("security.validation.currentRequired", { ns: "auth" });
+      nextErrors.currentPassword = "Enter your current password.";
     }
     if (!isSecurePassword(newPassword)) {
-      nextErrors.newPassword = t("password.requirementsMessage", { ns: "common" });
+      nextErrors.newPassword = PASSWORD_REQUIREMENTS_MESSAGE;
     }
     if (newPassword === currentPassword && newPassword) {
-      nextErrors.newPassword = t("security.validation.differentPassword", { ns: "auth" });
+      nextErrors.newPassword =
+        "New password must be different from the current password.";
     }
     if (confirmPassword !== newPassword) {
-      nextErrors.confirmPassword = t("security.validation.confirmationMismatch", { ns: "auth" });
+      nextErrors.confirmPassword = "Password confirmation does not match.";
     }
     setFieldErrors(nextErrors);
     return Object.keys(nextErrors).length === 0;
@@ -73,7 +74,7 @@ export function SecurityPage() {
 
     if (!accessToken || !validateForm()) {
       if (!accessToken) {
-        setError(t("security.validation.sessionUnavailable", { ns: "auth" }));
+        setError("Your secure session is unavailable. Sign in again.");
       }
       return;
     }
@@ -84,7 +85,7 @@ export function SecurityPage() {
        * Password values stay only in component memory. They are never copied
        * to localStorage, sessionStorage, URLs or analytics events.
        */
-      await changePassword(accessToken, {
+      const response = await changePassword(accessToken, {
         currentPassword,
         newPassword,
         confirmPassword,
@@ -102,7 +103,7 @@ export function SecurityPage() {
       navigate("/login", {
         replace: true,
         state: {
-          notice: t("security.notices.changed", { ns: "auth" }),
+          notice: response.message,
         },
       });
     } catch (requestError) {
@@ -110,7 +111,7 @@ export function SecurityPage() {
       setError(
         requestError instanceof Error
           ? requestError.message
-          : t("security.errors.fallback", { ns: "auth" }),
+          : "Password could not be changed.",
       );
     } finally {
       setSubmitting(false);
@@ -121,293 +122,315 @@ export function SecurityPage() {
     return null;
   }
 
-  return (
-    <SettingsShell activeSection="security">
-      <article
-        className="settings-page__panel settings-page__panel--security"
-        aria-labelledby="settings-security-title"
-      >
-        <header className="settings-page__panel-header">
-          <span className="settings-page__panel-icon" aria-hidden="true">
-            <SettingsSecurityIcon />
-          </span>
+return (
+  <main className="security-page">
+    <header className="security-page__header">
+      <div className="security-page__header-main">
+        <span className="security-page__header-icon" aria-hidden="true">
+          <svg viewBox="0 0 24 24">
+            <path d="M12 3 5 6v5c0 4.7 2.7 8 7 10 4.3-2 7-5.3 7-10V6z" />
+            <path d="M9.5 12.2 11.2 14l3.7-4" />
+          </svg>
+        </span>
 
-          <div className="settings-page__panel-heading">
-            <div className="settings-page__panel-title-row">
-              <h2 id="settings-security-title">{t("security.title")}</h2>
-              <span className="settings-page__scope-badge settings-page__scope-badge--secure">
-                {t("security.badge")}
-              </span>
-            </div>
-            <p>{t("security.panelDescription")}</p>
+        <div>
+          <span className="security-page__eyebrow">Account security</span>
+          <h1>Change password</h1>
+          <p>
+            Verify your current password, set a stronger replacement and
+            securely sign out every active NT Message session.
+          </p>
+        </div>
+      </div>
+
+      <div className="security-page__identity" aria-label="Current account">
+        <span className="security-page__identity-avatar" aria-hidden="true">
+          {account.displayName.trim().charAt(0).toUpperCase()}
+        </span>
+
+        <span className="security-page__identity-copy">
+          <small>Protected account</small>
+          <strong>{account.displayName}</strong>
+          <span>{account.positionLabel}</span>
+        </span>
+      </div>
+    </header>
+
+    <section className="security-page__workspace">
+      <form
+        className="security-page__form-card"
+        onSubmit={handleSubmit}
+        noValidate
+      >
+        <header className="security-page__form-header">
+          <div>
+            <span>Credential update</span>
+            <h2>Verify and replace your password</h2>
+            <p>
+              Only the authenticated account owner can complete this action.
+            </p>
           </div>
+
+          <span className="security-page__session-badge">
+            All devices sign out
+          </span>
         </header>
 
-        <section className="security-page__workspace">
-          <form
-            className="security-page__form-card"
-            onSubmit={handleSubmit}
-            noValidate
-          >
-            <header className="security-page__form-header">
-              <div>
-                <span>{t("security.form.eyebrow", { ns: "auth" })}</span>
-                <h3>{t("security.form.title", { ns: "auth" })}</h3>
-                <p>{t("security.form.description", { ns: "auth" })}</p>
-              </div>
+        <div className="security-page__field security-page__field--current">
+          <label htmlFor="current-password">Current password</label>
 
-              <span className="security-page__session-badge">{t("security.form.sessionBadge", { ns: "auth" })}</span>
-            </header>
+          <input
+            id="current-password"
+            type={showPasswords ? "text" : "password"}
+            value={currentPassword}
+            onChange={(event) => {
+              setCurrentPassword(event.target.value);
+              setFieldErrors((current) => ({
+                ...current,
+                currentPassword: undefined,
+              }));
+            }}
+            autoComplete="current-password"
+            maxLength={PASSWORD_MAX_LENGTH}
+            aria-invalid={Boolean(fieldErrors.currentPassword)}
+            aria-describedby={
+              fieldErrors.currentPassword
+                ? "current-password-error"
+                : "current-password-help"
+            }
+            disabled={submitting}
+            required
+          />
 
-            <div className="security-page__field security-page__field--current">
-              <label htmlFor="current-password">{t("security.form.currentPassword", { ns: "auth" })}</label>
+          <small id="current-password-help" className="security-page__field-help">
+            Confirms that this request belongs to your signed-in account.
+          </small>
 
-              <input
-                id="current-password"
-                type={showPasswords ? "text" : "password"}
-                value={currentPassword}
-                onChange={(event) => {
-                  setCurrentPassword(event.target.value);
-                  setFieldErrors((current) => ({
-                    ...current,
-                    currentPassword: undefined,
-                  }));
-                }}
-                autoComplete="current-password"
-                maxLength={PASSWORD_MAX_LENGTH}
-                aria-invalid={Boolean(fieldErrors.currentPassword)}
-                aria-describedby={
-                  fieldErrors.currentPassword
-                    ? "current-password-error"
-                    : "current-password-help"
-                }
-                disabled={submitting}
-                required
-              />
-
-              <small id="current-password-help" className="security-page__field-help">{t("security.form.currentHelp", { ns: "auth" })}</small>
-
-              {fieldErrors.currentPassword && (
-                <small
-                  id="current-password-error"
-                  className="security-page__field-error"
-                >
-                  {fieldErrors.currentPassword}
-                </small>
-              )}
-            </div>
-
-            <div className="security-page__password-grid">
-              <div className="security-page__field">
-                <label htmlFor="new-password">{t("security.form.newPassword", { ns: "auth" })}</label>
-
-                <input
-                  id="new-password"
-                  type={showPasswords ? "text" : "password"}
-                  value={newPassword}
-                  onChange={(event) => {
-                    setNewPassword(event.target.value);
-                    setFieldErrors((current) => ({
-                      ...current,
-                      newPassword: undefined,
-                    }));
-                  }}
-                  autoComplete="new-password"
-                  minLength={PASSWORD_MIN_LENGTH}
-                  maxLength={PASSWORD_MAX_LENGTH}
-                  aria-invalid={Boolean(fieldErrors.newPassword)}
-                  aria-describedby={
-                    fieldErrors.newPassword
-                      ? "new-password-error new-password-rules"
-                      : "new-password-rules"
-                  }
-                  disabled={submitting}
-                  required
-                />
-
-                {fieldErrors.newPassword && (
-                  <small
-                    id="new-password-error"
-                    className="security-page__field-error"
-                  >
-                    {fieldErrors.newPassword}
-                  </small>
-                )}
-              </div>
-
-              <div className="security-page__field">
-                <label htmlFor="confirm-password">{t("security.form.confirmPassword", { ns: "auth" })}</label>
-
-                <input
-                  id="confirm-password"
-                  type={showPasswords ? "text" : "password"}
-                  value={confirmPassword}
-                  onChange={(event) => {
-                    setConfirmPassword(event.target.value);
-                    setFieldErrors((current) => ({
-                      ...current,
-                      confirmPassword: undefined,
-                    }));
-                  }}
-                  autoComplete="new-password"
-                  minLength={PASSWORD_MIN_LENGTH}
-                  maxLength={PASSWORD_MAX_LENGTH}
-                  aria-invalid={Boolean(fieldErrors.confirmPassword)}
-                  aria-describedby={
-                    fieldErrors.confirmPassword
-                      ? "confirm-password-error"
-                      : undefined
-                  }
-                  disabled={submitting}
-                  required
-                />
-
-                {fieldErrors.confirmPassword && (
-                  <small
-                    id="confirm-password-error"
-                    className="security-page__field-error"
-                  >
-                    {fieldErrors.confirmPassword}
-                  </small>
-                )}
-              </div>
-            </div>
-
-            <div className="security-page__form-controls">
-              <button
-                type="button"
-                className="security-page__visibility"
-                aria-pressed={showPasswords}
-                onClick={() => setShowPasswords((current) => !current)}
-                disabled={submitting}
-              >
-                <svg viewBox="0 0 24 24" aria-hidden="true">
-                  <path d="M2.8 12s3.3-5.5 9.2-5.5 9.2 5.5 9.2 5.5-3.3 5.5-9.2 5.5S2.8 12 2.8 12Z" />
-                  <circle cx="12" cy="12" r="2.6" />
-                </svg>
-                {showPasswords
-                  ? t("actions.hidePasswords", { ns: "common" })
-                  : t("actions.showPasswords", { ns: "common" })}
-              </button>
-
-              <span>{t("security.form.storageNotice", { ns: "auth" })}</span>
-            </div>
-
-            {error && (
-              <div className="security-page__error" role="alert">
-                <strong>{t("security.errors.heading", { ns: "auth" })}</strong>
-                <span>{error}</span>
-              </div>
-            )}
-
-            <footer className="security-page__actions">
-              <Link to={homePath}>{t("actions.cancel", { ns: "common" })}</Link>
-
-              <button type="submit" disabled={submitting}>
-                {submitting ? (
-                  <>
-                    <span className="security-page__button-spinner" aria-hidden="true" />
-                    {t("security.form.changing", { ns: "auth" })}
-                  </>
-                ) : (
-                  <>
-                    {t("security.form.change", { ns: "auth" })}
-                    <span aria-hidden="true">→</span>
-                  </>
-                )}
-              </button>
-            </footer>
-          </form>
-
-          <aside className="security-page__rail" aria-label={t("security.guidance.aria", { ns: "auth" })}>
-            <section
-              id="new-password-rules"
-              className="security-page__rules-card"
-              aria-live="polite"
+          {fieldErrors.currentPassword && (
+            <small
+              id="current-password-error"
+              className="security-page__field-error"
             >
-              <header>
-                <div>
-                  <span>{t("password.standard", { ns: "common" })}</span>
-                  <h3>{t("password.strong", { ns: "common" })}</h3>
-                </div>
+              {fieldErrors.currentPassword}
+            </small>
+          )}
+        </div>
 
-                <strong aria-label={t("password.requirementsMet", { ns: "common", count: completedPasswordRules })}>
-                  {completedPasswordRules}/5
-                </strong>
-              </header>
+        <div className="security-page__password-grid">
+          <div className="security-page__field">
+            <label htmlFor="new-password">New password</label>
 
-              <div
-                className="security-page__progress"
-                role="progressbar"
-                aria-valuemin={0}
-                aria-valuemax={5}
-                aria-valuenow={completedPasswordRules}
+            <input
+              id="new-password"
+              type={showPasswords ? "text" : "password"}
+              value={newPassword}
+              onChange={(event) => {
+                setNewPassword(event.target.value);
+                setFieldErrors((current) => ({
+                  ...current,
+                  newPassword: undefined,
+                }));
+              }}
+              autoComplete="new-password"
+              minLength={PASSWORD_MIN_LENGTH}
+              maxLength={PASSWORD_MAX_LENGTH}
+              aria-invalid={Boolean(fieldErrors.newPassword)}
+              aria-describedby={
+                fieldErrors.newPassword
+                  ? "new-password-error new-password-rules"
+                  : "new-password-rules"
+              }
+              disabled={submitting}
+              required
+            />
+
+            {fieldErrors.newPassword && (
+              <small
+                id="new-password-error"
+                className="security-page__field-error"
               >
-                <span
-                  style={{
-                    width: `${(completedPasswordRules / 5) * 100}%`,
-                  }}
-                />
-              </div>
+                {fieldErrors.newPassword}
+              </small>
+            )}
+          </div>
 
-              <ul>
-                <li data-valid={passwordRules.length}>
-                  <span aria-hidden="true">✓</span>
-                  {t("password.rules.length", { ns: "common" })}
-                </li>
-                <li data-valid={passwordRules.uppercase}>
-                  <span aria-hidden="true">✓</span>
-                  {t("password.rules.uppercase", { ns: "common" })}
-                </li>
-                <li data-valid={passwordRules.lowercase}>
-                  <span aria-hidden="true">✓</span>
-                  {t("password.rules.lowercase", { ns: "common" })}
-                </li>
-                <li data-valid={passwordRules.number}>
-                  <span aria-hidden="true">✓</span>
-                  {t("password.rules.number", { ns: "common" })}
-                </li>
-                <li data-valid={passwordRules.special}>
-                  <span aria-hidden="true">✓</span>
-                  {t("password.rules.special", { ns: "common" })}
-                </li>
-              </ul>
-            </section>
+          <div className="security-page__field">
+            <label htmlFor="confirm-password">Confirm new password</label>
 
-            <section className="security-page__impact-card">
-              <header>
-                <span className="security-page__impact-icon" aria-hidden="true">
-                  <svg viewBox="0 0 24 24">
-                    <path d="M12 3a9 9 0 1 0 9 9" />
-                    <path d="M12 7v5l3 2" />
-                    <path d="M16.5 3H21v4.5" />
-                    <path d="M21 3l-4.5 4.5" />
-                  </svg>
-                </span>
+            <input
+              id="confirm-password"
+              type={showPasswords ? "text" : "password"}
+              value={confirmPassword}
+              onChange={(event) => {
+                setConfirmPassword(event.target.value);
+                setFieldErrors((current) => ({
+                  ...current,
+                  confirmPassword: undefined,
+                }));
+              }}
+              autoComplete="new-password"
+              minLength={PASSWORD_MIN_LENGTH}
+              maxLength={PASSWORD_MAX_LENGTH}
+              aria-invalid={Boolean(fieldErrors.confirmPassword)}
+              aria-describedby={
+                fieldErrors.confirmPassword
+                  ? "confirm-password-error"
+                  : undefined
+              }
+              disabled={submitting}
+              required
+            />
 
-                <div>
-                  <span>{t("security.guidance.afterConfirmation", { ns: "auth" })}</span>
-                  <h3>{t("security.guidance.sessionsRevoked", { ns: "auth" })}</h3>
-                </div>
-              </header>
+            {fieldErrors.confirmPassword && (
+              <small
+                id="confirm-password-error"
+                className="security-page__field-error"
+              >
+                {fieldErrors.confirmPassword}
+              </small>
+            )}
+          </div>
+        </div>
 
-              <ul>
-                <li>{t("security.guidance.oldPasswordStops", { ns: "auth" })}</li>
-                <li>{t("security.guidance.returnLogin", { ns: "auth" })}</li>
-                <li>{t("security.guidance.noticeSent", { ns: "auth" })}</li>
-              </ul>
-            </section>
+        <div className="security-page__form-controls">
+          <button
+            type="button"
+            className="security-page__visibility"
+            aria-pressed={showPasswords}
+            onClick={() => setShowPasswords((current) => !current)}
+            disabled={submitting}
+          >
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M2.8 12s3.3-5.5 9.2-5.5 9.2 5.5 9.2 5.5-3.3 5.5-9.2 5.5S2.8 12 2.8 12Z" />
+              <circle cx="12" cy="12" r="2.6" />
+            </svg>
+            {showPasswords ? "Hide passwords" : "Show passwords"}
+          </button>
 
-            <section className="security-page__privacy-card">
-              <span aria-hidden="true">i</span>
-              <div>
-                <strong>{t("security.guidance.privateBoundary", { ns: "auth" })}</strong>
-                <p>{t("security.guidance.privateBoundaryDescription", { ns: "auth" })}</p>
-              </div>
-            </section>
-          </aside>
+          <span>
+            Password values stay only in this secure form and are never
+            written to browser storage.
+          </span>
+        </div>
+
+        {error && (
+          <div className="security-page__error" role="alert">
+            <strong>Password could not be changed</strong>
+            <span>{error}</span>
+          </div>
+        )}
+
+        <footer className="security-page__actions">
+          <Link to={homePath}>Cancel</Link>
+
+          <button type="submit" disabled={submitting}>
+            {submitting ? (
+              <>
+                <span className="security-page__button-spinner" aria-hidden="true" />
+                Changing password...
+              </>
+            ) : (
+              <>
+                Change password
+                <span aria-hidden="true">→</span>
+              </>
+            )}
+          </button>
+        </footer>
+      </form>
+
+      <aside className="security-page__rail" aria-label="Password security guidance">
+        <section
+          id="new-password-rules"
+          className="security-page__rules-card"
+          aria-live="polite"
+        >
+          <header>
+            <div>
+              <span>Password standard</span>
+              <h2>Build a strong password</h2>
+            </div>
+
+            <strong aria-label={`${completedPasswordRules} of 5 requirements met`}>
+              {completedPasswordRules}/5
+            </strong>
+          </header>
+
+          <div
+            className="security-page__progress"
+            role="progressbar"
+            aria-valuemin={0}
+            aria-valuemax={5}
+            aria-valuenow={completedPasswordRules}
+          >
+            <span
+              style={{
+                width: `${(completedPasswordRules / 5) * 100}%`,
+              }}
+            />
+          </div>
+
+          <ul>
+            <li data-valid={passwordRules.length}>
+              <span aria-hidden="true">✓</span>
+              12–128 characters
+            </li>
+            <li data-valid={passwordRules.uppercase}>
+              <span aria-hidden="true">✓</span>
+              One uppercase letter
+            </li>
+            <li data-valid={passwordRules.lowercase}>
+              <span aria-hidden="true">✓</span>
+              One lowercase letter
+            </li>
+            <li data-valid={passwordRules.number}>
+              <span aria-hidden="true">✓</span>
+              One number
+            </li>
+            <li data-valid={passwordRules.special}>
+              <span aria-hidden="true">✓</span>
+              One special character
+            </li>
+          </ul>
         </section>
-      </article>
-    </SettingsShell>
-  );
+
+        <section className="security-page__impact-card">
+          <header>
+            <span className="security-page__impact-icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24">
+                <path d="M12 3a9 9 0 1 0 9 9" />
+                <path d="M12 7v5l3 2" />
+                <path d="M16.5 3H21v4.5" />
+                <path d="M21 3l-4.5 4.5" />
+              </svg>
+            </span>
+
+            <div>
+              <span>After confirmation</span>
+              <h2>Every session is revoked</h2>
+            </div>
+          </header>
+
+          <ul>
+            <li>The old password stops working immediately.</li>
+            <li>You return to the login page for a fresh sign-in.</li>
+            <li>A security notice is sent to your official email.</li>
+          </ul>
+        </section>
+
+        <section className="security-page__privacy-card">
+          <span aria-hidden="true">i</span>
+          <div>
+            <strong>Private credential boundary</strong>
+            <p>
+              Nepal Telecom administrators cannot view your password and
+              will never ask you to share a password or OTP.
+            </p>
+          </div>
+        </section>
+      </aside>
+    </section>
+  </main>
+);
+
 }

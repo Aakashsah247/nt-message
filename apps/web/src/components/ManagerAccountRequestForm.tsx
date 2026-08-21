@@ -1,7 +1,5 @@
 import { useState } from "react";
 import type { FormEvent } from "react";
-import type { TFunction } from "i18next";
-import { useTranslation } from "react-i18next";
 
 import { createMyAccountRequest } from "../services/account-request.service";
 import type { ManagerRequestContextResponse } from "../types/account-request";
@@ -30,13 +28,13 @@ const initialFormState: RequestFormState = {
   departmentId: "",
 };
 
-function getErrorMessage(error: unknown, t: TFunction<"requests">): string {
+function getErrorMessage(error: unknown): string {
   return error instanceof Error
     ? error.message
-    : t("form.errorFallback", { ns: "requests" });
+    : "The account request could not be submitted.";
 }
 
-function fallbackFormatRole(role: string): string {
+function formatRole(role: string): string {
   return role
     .toLowerCase()
     .split("_")
@@ -44,19 +42,11 @@ function fallbackFormatRole(role: string): string {
     .join(" ");
 }
 
-function formatRole(role: string, t: TFunction<"requests">): string {
-  return t(`values.${role}`, {
-    ns: "requests",
-    defaultValue: fallbackFormatRole(role),
-  });
-}
-
 export function ManagerAccountRequestForm({
   accessToken,
   requestContext,
   onSubmitted,
 }: ManagerAccountRequestFormProps) {
-  const { t } = useTranslation("requests");
   const [form, setForm] = useState<RequestFormState>(initialFormState);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
@@ -95,27 +85,27 @@ export function ManagerAccountRequestForm({
     const officialEmail = form.officialEmail.trim();
 
     if (empId.length < 2) {
-      return t("form.validationEmployeeIdShort");
+      return "Employee ID must contain at least 2 characters.";
     }
 
     if (!/^[a-zA-Z0-9_-]+$/.test(empId)) {
-      return t("form.validationEmployeeIdPattern");
+      return "Employee ID may contain letters, numbers, underscores and hyphens only.";
     }
 
     if (empName.length < 2) {
-      return t("form.validationNameShort");
+      return "Employee name must contain at least 2 characters.";
     }
 
     if (!/^\+?[0-9]{7,20}$/.test(phoneNumber)) {
-      return t("form.validationPhone");
+      return "Phone number must contain 7 to 20 digits and may start with +.";
     }
 
     if (!officialEmail.includes("@")) {
-      return t("form.validationEmail");
+      return "Enter a valid official email address.";
     }
 
     if (isSeniorManagement && !form.departmentId) {
-      return t("form.validationManagedDepartment");
+      return "Select the department this Team Manager will manage.";
     }
 
     return null;
@@ -156,25 +146,25 @@ export function ManagerAccountRequestForm({
       setForm(initialFormState);
       onSubmitted?.();
     } catch (requestError: unknown) {
-      setError(getErrorMessage(requestError, t));
+      setError(getErrorMessage(requestError));
     } finally {
       setSubmitting(false);
     }
   }
 
-  const requestedRole = formatRole(requestContext.requestedRole, t);
+  const requestedRole = formatRole(requestContext.requestedRole);
   const formTitle = isSeniorManagement
-    ? t("form.requestTeamManager")
-    : t("form.requestEmployee");
+    ? "Request a Team Manager"
+    : "Request an Employee";
   const formDescription = isSeniorManagement
-    ? t("form.teamManagerDescription")
-    : t("form.employeeDescription");
+    ? "Enter the approved leadership candidate and select the department they will manage."
+    : "Enter the approved employee identity for onboarding inside your assigned department.";
 
   return (
     <article className="manager-request-form-card">
       <header className="manager-request-form-card__header">
         <div>
-          <span>{t("form.new")}</span>
+          <span>New account request</span>
           <h2>{formTitle}</h2>
           <p>{formDescription}</p>
         </div>
@@ -188,12 +178,12 @@ export function ManagerAccountRequestForm({
             {isSeniorManagement ? "TM" : "EM"}
           </span>
           <div>
-            <small>{t("common.requestedRole")}</small>
+            <small>Requested role</small>
             <strong>{requestedRole}</strong>
             <p>
               {isSeniorManagement
-                ? t("form.divisionLeadership")
-                : t("form.departmentOnboarding")}
+                ? "Division-approved leadership onboarding"
+                : "Department employee onboarding"}
             </p>
           </div>
         </div>
@@ -216,21 +206,21 @@ export function ManagerAccountRequestForm({
           <header>
             <span>01</span>
             <div>
-              <h3>{isSeniorManagement ? t("form.leadershipCandidate") : t("form.employeeIdentity")}</h3>
-              <p>{t("form.officialRecordHelp")}</p>
+              <h3>{isSeniorManagement ? "Leadership candidate" : "Employee identity"}</h3>
+              <p>Use the same information recorded in the official employment record.</p>
             </div>
           </header>
 
           <div className="manager-request-form__grid">
             <label>
-              <span>{t("form.employeeFullName")}</span>
+              <span>Employee full name</span>
               <input
                 type="text"
                 value={form.empName}
                 onChange={(event) => updateField("empName", event.target.value)}
                 minLength={2}
                 maxLength={150}
-                placeholder={t("form.namePlaceholder")}
+                placeholder="Enter official full name"
                 autoComplete="name"
                 disabled={submitting}
                 required
@@ -238,7 +228,7 @@ export function ManagerAccountRequestForm({
             </label>
 
             <label>
-              <span>{t("common.employeeId")}</span>
+              <span>Employee ID</span>
               <input
                 type="text"
                 value={form.empId}
@@ -247,7 +237,7 @@ export function ManagerAccountRequestForm({
                 }
                 minLength={2}
                 maxLength={50}
-                placeholder={t("form.employeeIdPlaceholder")}
+                placeholder="Example: NTC-1025"
                 autoComplete="off"
                 disabled={submitting}
                 required
@@ -255,14 +245,14 @@ export function ManagerAccountRequestForm({
             </label>
 
             <label>
-              <span>{t("common.phoneNumber")}</span>
+              <span>Phone number</span>
               <input
                 type="tel"
                 value={form.phoneNumber}
                 onChange={(event) =>
                   updateField("phoneNumber", event.target.value)
                 }
-                placeholder={t("form.phonePlaceholder")}
+                placeholder="9801234567"
                 autoComplete="tel"
                 disabled={submitting}
                 required
@@ -270,7 +260,7 @@ export function ManagerAccountRequestForm({
             </label>
 
             <label>
-              <span>{t("common.officialEmail")}</span>
+              <span>Official email</span>
               <input
                 type="email"
                 value={form.officialEmail}
@@ -278,7 +268,7 @@ export function ManagerAccountRequestForm({
                   updateField("officialEmail", event.target.value.toLowerCase())
                 }
                 maxLength={255}
-                placeholder={t("form.emailPlaceholder")}
+                placeholder="employee@ntc.net.np"
                 autoComplete="email"
                 disabled={submitting}
                 required
@@ -286,7 +276,7 @@ export function ManagerAccountRequestForm({
             </label>
 
             <label>
-              <span>{t("common.designation")}</span>
+              <span>Designation</span>
               <input
                 type="text"
                 value={form.designation}
@@ -294,14 +284,14 @@ export function ManagerAccountRequestForm({
                   updateField("designation", event.target.value)
                 }
                 maxLength={120}
-                placeholder={t("form.optionalDesignation")}
+                placeholder="Optional designation"
                 disabled={submitting}
               />
             </label>
 
             {isSeniorManagement ? (
               <label>
-                <span>{t("form.managedDepartment")}</span>
+                <span>Managed department</span>
                 <select
                   value={form.departmentId}
                   onChange={(event) =>
@@ -310,22 +300,22 @@ export function ManagerAccountRequestForm({
                   disabled={submitting}
                   required
                 >
-                  <option value="">{t("form.selectDepartment")}</option>
+                  <option value="">Select department</option>
                   {requestContext.departments.map((department) => (
                     <option key={department.id} value={department.id}>
                       {department.name} ({department.code})
                     </option>
                   ))}
                 </select>
-                <small>{t("form.teamManagerPositionHelp")}</small>
+                <small>The Team Manager position is controlled by the selected department.</small>
               </label>
             ) : (
               <div className="manager-request-form__fixed-field">
-                <span>{t("common.assignedDepartment")}</span>
+                <span>Assigned department</span>
                 <strong>
-                  {requestContext.scope.department?.name ?? t("common.notAssigned")}
+                  {requestContext.scope.department?.name ?? "Not assigned"}
                 </strong>
-                <small>{t("form.departmentFixed")}</small>
+                <small>Department is fixed by your authenticated scope.</small>
               </div>
             )}
           </div>
@@ -335,42 +325,44 @@ export function ManagerAccountRequestForm({
           <header>
             <span>02</span>
             <div>
-              <h3>{t("form.organizationAssignment")}</h3>
-              <p>{t("form.scopeEnforced")}</p>
+              <h3>Organizational assignment</h3>
+              <p>Role and organizational scope are enforced by the backend after submission.</p>
             </div>
           </header>
 
           <div className="manager-request-form__review">
             <div>
-              <span>{t("common.division")}</span>
+              <span>Division</span>
               <strong>{requestContext.scope.division.name}</strong>
               <small>{requestContext.scope.division.code}</small>
             </div>
 
             <div>
-              <span>{t("common.department")}</span>
+              <span>Department</span>
               <strong>
                 {isSeniorManagement
-                  ? selectedDepartment?.name ?? t("form.selectDepartment")
-                  : requestContext.scope.department?.name ?? t("common.notAssigned")}
+                  ? selectedDepartment?.name ?? "Select a department"
+                  : requestContext.scope.department?.name ?? "Not assigned"}
               </strong>
               <small>
                 {isSeniorManagement
-                  ? selectedDepartment?.code ?? t("form.requiredForTeamManager")
-                  : requestContext.scope.department?.code ?? t("common.scopeUnavailable")}
+                  ? selectedDepartment?.code ?? "Required for Team Manager authority"
+                  : requestContext.scope.department?.code ?? "Scope unavailable"}
               </small>
             </div>
 
             <div>
-              <span>{t("common.role")}</span>
+              <span>Account role</span>
               <strong>{requestedRole}</strong>
-              <small>{t("common.approvalAuthority")}</small>
+              <small>Approval authority: Super Admin</small>
             </div>
           </div>
         </section>
 
         <footer className="manager-request-form__footer">
-          <p>{t("form.activationNote")}</p>
+          <p>
+            The person cannot activate the account until the Super Admin approves this request.
+          </p>
 
           <div>
             <button
@@ -379,7 +371,7 @@ export function ManagerAccountRequestForm({
               onClick={resetForm}
               disabled={submitting}
             >
-              {t("form.clear")}
+              Clear form
             </button>
 
             <button
@@ -387,7 +379,7 @@ export function ManagerAccountRequestForm({
               className="manager-request-form__submit"
               disabled={submitting}
             >
-              {submitting ? t("common.submitting") : t("form.submit")}
+              {submitting ? "Submitting request..." : "Submit account request"}
             </button>
           </div>
         </footer>

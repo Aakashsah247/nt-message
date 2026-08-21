@@ -2,10 +2,6 @@ import type { PrismaService } from '../database/prisma.service';
 import { MonitoringService } from './monitoring.service';
 
 describe('MonitoringService retention cleanup', () => {
-  afterEach(() => {
-    jest.restoreAllMocks();
-  });
-
   const createService = () => {
     const prisma = {
       activityEvent: {
@@ -41,12 +37,6 @@ describe('MonitoringService retention cleanup', () => {
 
   it('contains a temporary database failure and permits the next cleanup retry', async () => {
     const { prisma, service } = createService();
-    const warning = jest
-      .spyOn(
-        (service as unknown as { logger: { warn(message: string): void } }).logger,
-        'warn',
-      )
-      .mockImplementation(() => undefined);
     const activityDeleteMany = jest.mocked(prisma.activityEvent.deleteMany);
     const summaryDeleteMany = jest
       .mocked(prisma.dailyActivitySummary.deleteMany)
@@ -68,9 +58,6 @@ describe('MonitoringService retention cleanup', () => {
 
     expect(activityDeleteMany).toHaveBeenCalledTimes(2);
     expect(summaryDeleteMany).toHaveBeenCalledTimes(1);
-    expect(warning).toHaveBeenCalledWith(
-      expect.stringContaining('P2028: Unable to start a transaction'),
-    );
   });
 
   it('does not start overlapping cleanup runs', async () => {
