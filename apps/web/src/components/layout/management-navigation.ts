@@ -20,6 +20,7 @@ export type ManagementNavigationSectionId =
 export interface ManagementNavigationItem {
   icon: ManagementIconName;
   label: string;
+  labelKey: string;
   path: string;
   view?: string;
 }
@@ -27,17 +28,20 @@ export interface ManagementNavigationItem {
 export interface ManagementNavigationSection {
   id: ManagementNavigationSectionId;
   label: string;
+  labelKey: string;
   items: ManagementNavigationItem[];
 }
 
-const ACCOUNT_SECURITY_SECTION: ManagementNavigationSection = {
+const ACCOUNT_SETTINGS_SECTION: ManagementNavigationSection = {
   id: "account",
   label: "Account",
+  labelKey: "navigation.sections.account",
   items: [
     {
-      icon: "security",
-      label: "Security",
-      path: "/settings/security",
+      icon: "settings",
+      label: "Settings",
+      labelKey: "navigation.items.settings",
+      path: "/settings",
     },
   ],
 };
@@ -45,25 +49,30 @@ const ACCOUNT_SECURITY_SECTION: ManagementNavigationSection = {
 const MANAGEMENT_OPERATIONS_SECTION: ManagementNavigationSection = {
   id: "operations",
   label: "Operations",
+  labelKey: "navigation.sections.operations",
   items: [
     {
       icon: "work",
       label: "Work Management",
+      labelKey: "navigation.items.workManagement",
       path: "/work-management",
     },
     {
       icon: "duty",
       label: "Duty Roster",
+      labelKey: "navigation.items.dutyRoster",
       path: "/duty-management",
     },
     {
       icon: "teams",
       label: "Team Management",
+      labelKey: "navigation.items.teamManagement",
       path: "/team-management",
     },
     {
       icon: "reports",
       label: "Reports",
+      labelKey: "navigation.items.reports",
       path: "/work-reports",
     },
   ],
@@ -73,10 +82,12 @@ const SUPER_ADMIN_NAVIGATION: ManagementNavigationSection[] = [
   {
     id: "overview",
     label: "Overview",
+    labelKey: "navigation.sections.overview",
     items: [
       {
         icon: "dashboard",
         label: "Dashboard",
+        labelKey: "navigation.items.dashboard",
         path: "/super-admin",
       },
     ],
@@ -84,20 +95,24 @@ const SUPER_ADMIN_NAVIGATION: ManagementNavigationSection[] = [
   {
     id: "people-access",
     label: "People & Access",
+    labelKey: "navigation.sections.peopleAccess",
     items: [
       {
         icon: "directory",
         label: "Directory",
+        labelKey: "navigation.items.directory",
         path: "/directory",
       },
       {
         icon: "requests",
         label: "Account requests",
+        labelKey: "navigation.items.accountRequests",
         path: "/super-admin/account-requests",
       },
       {
         icon: "management",
         label: "Management positions",
+        labelKey: "navigation.items.managementPositions",
         path: "/super-admin/management-positions",
       },
     ],
@@ -106,28 +121,33 @@ const SUPER_ADMIN_NAVIGATION: ManagementNavigationSection[] = [
   {
     id: "governance",
     label: "Governance",
+    labelKey: "navigation.sections.governance",
     items: [
       {
         icon: "organization",
         label: "Organization",
+        labelKey: "navigation.items.organization",
         path: "/super-admin",
         view: "organization",
       },
       {
         icon: "analytics",
         label: "Analytics",
+        labelKey: "navigation.items.analytics",
         path: "/super-admin",
         view: "analytics",
       },
       {
         icon: "monitoring",
         label: "Monitoring",
+        labelKey: "navigation.items.monitoring",
         path: "/super-admin",
         view: "monitoring",
       },
       {
         icon: "profile",
         label: "Official profile",
+        labelKey: "navigation.items.officialProfile",
         path: "/super-admin",
         view: "profile",
       },
@@ -136,10 +156,12 @@ const SUPER_ADMIN_NAVIGATION: ManagementNavigationSection[] = [
   {
     id: "communication",
     label: "Communication",
+    labelKey: "navigation.sections.communication",
     items: [
       {
         icon: "messages",
         label: "Messages",
+        labelKey: "navigation.items.messages",
         path: "/messages",
       },
     ],
@@ -150,10 +172,12 @@ const EMPLOYEE_NAVIGATION: ManagementNavigationSection[] = [
   {
     id: "overview",
     label: "Overview",
+    labelKey: "navigation.sections.overview",
     items: [
       {
         icon: "dashboard",
         label: "Dashboard",
+        labelKey: "navigation.items.dashboard",
         path: "/employee",
       },
     ],
@@ -161,15 +185,18 @@ const EMPLOYEE_NAVIGATION: ManagementNavigationSection[] = [
   {
     id: "operations",
     label: "Operations",
+    labelKey: "navigation.sections.operations",
     items: [
       {
         icon: "work",
         label: "My Work",
+        labelKey: "navigation.items.myWork",
         path: "/employee/work",
       },
       {
         icon: "duty",
         label: "My Duty",
+        labelKey: "navigation.items.myDuty",
         path: "/employee/duty",
       },
     ],
@@ -177,10 +204,12 @@ const EMPLOYEE_NAVIGATION: ManagementNavigationSection[] = [
   {
     id: "communication",
     label: "Communication",
+    labelKey: "navigation.sections.communication",
     items: [
       {
         icon: "messages",
         label: "Messages",
+        labelKey: "navigation.items.messages",
         path: "/messages",
       },
     ],
@@ -198,10 +227,12 @@ function getManagerNavigation(
     {
       id: "overview",
       label: "Overview",
+      labelKey: "navigation.sections.overview",
       items: [
         {
           icon: "dashboard",
           label: "Dashboard",
+          labelKey: "navigation.items.dashboard",
           path: dashboardPath,
         },
       ],
@@ -209,15 +240,18 @@ function getManagerNavigation(
     {
       id: "people-access",
       label: "People & Access",
+      labelKey: "navigation.sections.peopleAccess",
       items: [
         {
           icon: "directory",
           label: "Directory",
+          labelKey: "navigation.items.directory",
           path: "/directory",
         },
         {
           icon: "requests",
           label: "Account requests",
+          labelKey: "navigation.items.accountRequests",
           path: `${dashboardPath}/account-requests`,
         },
       ],
@@ -230,6 +264,7 @@ function getManagerNavigation(
         {
           icon: "duty",
           label: "My Duty",
+          labelKey: "navigation.items.myDuty",
           path: "/my-duty",
         },
         ...MANAGEMENT_OPERATIONS_SECTION.items.slice(2),
@@ -238,10 +273,12 @@ function getManagerNavigation(
     {
       id: "communication",
       label: "Communication",
+      labelKey: "navigation.sections.communication",
       items: [
         {
           icon: "messages",
           label: "Messages",
+          labelKey: "navigation.items.messages",
           path: "/messages",
         },
       ],
@@ -254,15 +291,15 @@ export function getManagementNavigation(
   role: AccountRole,
 ): ManagementNavigationSection[] {
   if (role === "SUPER_ADMIN") {
-    return [...SUPER_ADMIN_NAVIGATION, ACCOUNT_SECURITY_SECTION];
+    return [...SUPER_ADMIN_NAVIGATION, ACCOUNT_SETTINGS_SECTION];
   }
 
   if (role === "SENIOR_MANAGEMENT" || role === "TEAM_MANAGER") {
-    return [...getManagerNavigation(role), ACCOUNT_SECURITY_SECTION];
+    return [...getManagerNavigation(role), ACCOUNT_SETTINGS_SECTION];
   }
 
   if (role === "EMPLOYEE") {
-    return [...EMPLOYEE_NAVIGATION, ACCOUNT_SECURITY_SECTION];
+    return [...EMPLOYEE_NAVIGATION, ACCOUNT_SETTINGS_SECTION];
   }
 
   return [];

@@ -1,8 +1,20 @@
 import { createContext, useContext, useEffect, useState } from "react";
 import type { ReactNode } from "react";
 import { loginUser, logoutAuth, refreshAuth } from "../services/auth.service";
+import { updateAccountLanguage } from "../services/account-settings.service";
 import { recordActivityEvent } from "../services/monitoring.service";
+import { syncMessagingPushSubscription } from "../services/messaging-push.service";
 import type { AuthAccount, AuthResponse } from "../types/auth";
+import {
+  applyInterfaceLanguage,
+  normalizeInterfaceLanguage,
+  type InterfaceLanguage,
+} from "../i18n";
+import {
+  BROWSER_NOTIFICATION_STORAGE_KEY,
+  readMessagingBooleanPreference,
+  readMessagingDeviceSettings,
+} from "../utils/messaging-preferences";
 
 const DAILY_LOGOUT_HOUR = 18;
 const DAY_IN_MILLISECONDS = 24 * 60 * 60 * 1000;
@@ -18,6 +30,8 @@ interface AuthContextValue {
   login: (identifier: string, password: string) => Promise<AuthAccount>;
 
   logout: () => Promise<void>;
+
+  setInterfaceLanguage: (language: InterfaceLanguage) => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextValue | null>(null);
@@ -50,10 +64,22 @@ export function AuthProvider({ children }: AuthProviderProps) {
 
   const [loading, setLoading] = useState(true);
 
-  function saveSession(result: AuthResponse): void {
-    setAccount(result.account);
+  function saveSession(result: AuthResponse): AuthAccount {
+    const normalizedAccount: AuthAccount = {
+      ...result.account,
+      interfaceLanguage: normalizeInterfaceLanguage(
+        result.account.interfaceLanguage,
+      ),
+    };
+
+    setAccount(normalizedAccount);
     setAccessToken(result.accessToken);
     setAccessTokenExpiresIn(result.accessTokenExpiresIn);
+
+    // Authenticated account preference overrides the anonymous/local choice.
+    void applyInterfaceLanguage(normalizedAccount.interfaceLanguage);
+
+    return normalizedAccount;
   }
 
   function clearSession(): void {
@@ -86,6 +112,32 @@ export function AuthProvider({ children }: AuthProviderProps) {
       active = false;
     };
   }, []);
+
+  useEffect(() => {
+    if (!account || !accessToken || !("Notification" in window)) {
+      return;
+    }
+
+    const browserNotificationsEnabled = readMessagingBooleanPreference(
+      window.localStorage,
+      BROWSER_NOTIFICATION_STORAGE_KEY,
+      account.id,
+      false,
+    );
+
+    if (!browserNotificationsEnabled || window.Notification.permission !== "granted") {
+      return;
+    }
+
+    const settings = readMessagingDeviceSettings(window.localStorage, account.id);
+
+    // Re-link the browser's persistent PushSubscription to the newly authenticated
+    // session after login/refresh. The server rejects delivery once that session is revoked.
+    void syncMessagingPushSubscription(accessToken, {
+      showPreview: settings.notificationPreview,
+      isMuted: settings.muteAllNotifications,
+    }).catch(() => undefined);
+  }, [account, accessToken]);
 
   useEffect(() => {
     if (!account || !accessToken || !accessTokenExpiresIn) {
@@ -136,10 +188,44 @@ export function AuthProvider({ children }: AuthProviderProps) {
   ): Promise<AuthAccount> {
     const result = await loginUser(identifier, password);
 
-    saveSession(result);
+    const authenticatedAccount = saveSession(result);
     recordSessionActivity(result.accessToken, "LOGIN");
 
-    return result.account;
+    return authenticatedAccount;
+  }
+
+  async function setInterfaceLanguage(
+    language: InterfaceLanguage,
+  ): Promise<void> {
+    if (!account || !accessToken) {
+      throw new Error("Your secure session is unavailable. Sign in again.");
+    }
+
+    const previousLanguage = account.interfaceLanguage;
+
+    // Update immediately for a responsive switch, then roll back if persistence fails.
+    setAccount((current) => current
+      ? { ...current, interfaceLanguage: language }
+      : current);
+    await applyInterfaceLanguage(language);
+
+    try {
+      const response = await updateAccountLanguage(accessToken, language);
+      const confirmedLanguage = normalizeInterfaceLanguage(
+        response.interfaceLanguage,
+      );
+
+      setAccount((current) => current
+        ? { ...current, interfaceLanguage: confirmedLanguage }
+        : current);
+      await applyInterfaceLanguage(confirmedLanguage);
+    } catch (error) {
+      setAccount((current) => current
+        ? { ...current, interfaceLanguage: previousLanguage }
+        : current);
+      await applyInterfaceLanguage(previousLanguage);
+      throw error;
+    }
   }
 
   async function logout(): Promise<void> {
@@ -158,6 +244,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
         accessToken,
         loading,
         login,
+        setInterfaceLanguage,
         logout,
       }}
     >

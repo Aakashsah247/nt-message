@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import type { FormEvent } from "react";
+import { Trans, useTranslation } from "react-i18next";
 import { Link, useSearchParams } from "react-router";
 
 import {
@@ -22,7 +23,6 @@ import type {
 import {
   PASSWORD_MAX_LENGTH,
   PASSWORD_MIN_LENGTH,
-  PASSWORD_REQUIREMENTS_MESSAGE,
   isSecurePassword,
 } from "../utils/password-policy";
 
@@ -49,20 +49,28 @@ function formatRole(role: string): string {
     .join(" ");
 }
 
-function formatDate(value: string): string {
+function formatDate(
+  value: string,
+  language: string,
+  fallback: string,
+): string {
   const date = new Date(value);
 
   if (Number.isNaN(date.getTime())) {
-    return "the stated expiry time";
+    return fallback;
   }
 
-  return new Intl.DateTimeFormat("en-GB", {
+  // UI language may localize labels/digits, but activation expiry stays AD/Gregorian.
+  const locale = language === "ne" ? "ne-NP-u-ca-gregory" : "en-GB";
+
+  return new Intl.DateTimeFormat(locale, {
     dateStyle: "medium",
     timeStyle: "short",
   }).format(date);
 }
 
 export function ActivationPage() {
+  const { t, i18n } = useTranslation(["auth", "common", "workspace"]);
   const [searchParams] = useSearchParams();
   // The bearer token is read only from the invitation URL and is never copied
   // into localStorage, sessionStorage, analytics state, or visible form fields.
@@ -95,6 +103,21 @@ export function ActivationPage() {
 
   const usingInvitation = Boolean(invitation && !manualMode);
 
+  function getRoleLabel(role: string): string {
+    switch (role) {
+      case "SUPER_ADMIN":
+        return t("roles.superAdmin", { ns: "workspace" });
+      case "SENIOR_MANAGEMENT":
+        return t("roles.seniorManagement", { ns: "workspace" });
+      case "TEAM_MANAGER":
+        return t("roles.teamManager", { ns: "workspace" });
+      case "EMPLOYEE":
+        return t("roles.employee", { ns: "workspace" });
+      default:
+        return formatRole(role);
+    }
+  }
+
   async function loadOrganization(): Promise<void> {
     setOrganizationLoading(true);
     setOrganizationError("");
@@ -111,7 +134,7 @@ export function ActivationPage() {
       setOrganizationError(
         getErrorMessage(
           requestError,
-          "Organization information could not be loaded.",
+          t("activation.errors.organizationLoad", { ns: "auth" }),
         ),
       );
     } finally {
@@ -164,7 +187,7 @@ export function ActivationPage() {
         setInvitationError(
           getErrorMessage(
             requestError,
-            "The activation invitation is invalid or expired.",
+            t("activation.errors.invitationInvalid", { ns: "auth" }),
           ),
         );
       })
@@ -227,7 +250,7 @@ export function ActivationPage() {
     setNotice("");
 
     if (!identity.divisionId) {
-      setError("Select your official division.");
+      setError(t("activation.errors.selectDivision", { ns: "auth" }));
       return;
     }
 
@@ -243,16 +266,16 @@ export function ActivationPage() {
     setSubmitting(true);
 
     try {
-      const response = await requestActivationOtp(normalizedIdentity);
+      await requestActivationOtp(normalizedIdentity);
 
       setIdentity(normalizedIdentity);
-      setNotice(response.message);
+      setNotice(t("activation.notices.otpSent", { ns: "auth" }));
       setStage("otp");
     } catch (requestError) {
       setError(
         getErrorMessage(
           requestError,
-          "The activation request could not be completed.",
+          t("activation.errors.requestFailed", { ns: "auth" }),
         ),
       );
     } finally {
@@ -268,7 +291,7 @@ export function ActivationPage() {
     setNotice("");
 
     if (!/^[0-9]{6}$/.test(otp)) {
-      setError("Enter the complete six-digit OTP.");
+      setError(t("activation.errors.otpIncomplete", { ns: "auth" }));
       return;
     }
 
@@ -278,16 +301,14 @@ export function ActivationPage() {
       const response = await verifyActivationOtp(identity, otp);
 
       setVerifiedResult(response);
-      setNotice(
-        "Official email verification completed. Create your secure password.",
-      );
+      setNotice(t("activation.notices.emailVerified", { ns: "auth" }));
       setStage("password");
     } catch (requestError) {
       setOtp("");
       setError(
         getErrorMessage(
           requestError,
-          "The activation code could not be verified.",
+          t("activation.errors.otpVerificationFailed", { ns: "auth" }),
         ),
       );
     } finally {
@@ -301,15 +322,15 @@ export function ActivationPage() {
     setSubmitting(true);
 
     try {
-      const response = await requestActivationOtp(identity);
+      await requestActivationOtp(identity);
 
       setOtp("");
-      setNotice(response.message);
+      setNotice(t("activation.notices.otpResent", { ns: "auth" }));
     } catch (requestError) {
       setError(
         getErrorMessage(
           requestError,
-          "Another activation code could not be requested.",
+          t("activation.errors.otpResendFailed", { ns: "auth" }),
         ),
       );
     } finally {
@@ -325,18 +346,18 @@ export function ActivationPage() {
     setNotice("");
 
     if (!verifiedResult) {
-      setError("Verify the activation OTP before creating a password.");
+      setError(t("activation.errors.verifyOtpFirst", { ns: "auth" }));
       return;
     }
 
     if (password !== confirmPassword) {
       setConfirmPassword("");
-      setError("Password confirmation does not match.");
+      setError(t("activation.errors.passwordMismatch", { ns: "auth" }));
       return;
     }
 
     if (!isSecurePassword(password)) {
-      setError(PASSWORD_REQUIREMENTS_MESSAGE);
+      setError(t("password.requirementsMessage", { ns: "common" }));
       return;
     }
 
@@ -357,7 +378,7 @@ export function ActivationPage() {
       setPassword("");
       setConfirmPassword("");
       setError(
-        getErrorMessage(requestError, "The account could not be activated."),
+        getErrorMessage(requestError, t("activation.errors.activationFailed", { ns: "auth" })),
       );
     } finally {
       setSubmitting(false);
@@ -370,60 +391,53 @@ export function ActivationPage() {
         <div className="activation-info-overlay" />
 
         <header className="activation-brand">
-          <img src="/nt-logo-transparent.png" alt="Nepal Telecom" />
+          <img src="/nt-logo-transparent.png" alt={t("brand.organization", { ns: "common" })} />
 
           <div>
-            <strong>NEPAL TELECOM MESSAGE</strong>
-            <span>Secure employee communication</span>
+            <strong>{t("brand.name", { ns: "common" })}</strong>
+            <span>{t("brand.tagline", { ns: "common" })}</span>
           </div>
         </header>
 
         <div className="activation-info-copy">
-          <span className="activation-secure-label">
-            Verified employee onboarding
-          </span>
+          <span className="activation-secure-label">{t("activation.visual.badge", { ns: "auth" })}</span>
 
-          <h1>Activate your official communication account.</h1>
+          <h1>{t("activation.visual.title", { ns: "auth" })}</h1>
 
-          <p>
-            Your identity must match an approved Nepal Telecom employee record
-            before access is granted.
-          </p>
+          <p>{t("activation.visual.description", { ns: "auth" })}</p>
 
           <div className="activation-benefits">
             <div>
               <strong>1</strong>
-              <span>Verify your approved employee information</span>
+              <span>{t("activation.visual.benefit1", { ns: "auth" })}</span>
             </div>
             <div>
               <strong>2</strong>
-              <span>Confirm the OTP sent to your official email</span>
+              <span>{t("activation.visual.benefit2", { ns: "auth" })}</span>
             </div>
             <div>
               <strong>3</strong>
-              <span>Create a secure password and activate access</span>
+              <span>{t("activation.visual.benefit3", { ns: "auth" })}</span>
             </div>
           </div>
         </div>
 
-        <footer className="activation-info-footer">
-          Authorized Nepal Telecom personnel only
-        </footer>
+        <footer className="activation-info-footer">{t("brand.authorizedPersonnelOnly", { ns: "common" })}</footer>
       </section>
 
       <section className="activation-workspace">
         <article className="activation-card">
           <header className="activation-card-header">
             <div className="activation-logo-tile">
-              <img src="/nt-logo.png" alt="Nepal Telecom" />
+              <img src="/nt-logo.png" alt={t("brand.organization", { ns: "common" })} />
             </div>
 
             <div>
               <span>NT Message</span>
               <h2>
                 {stage === "success"
-                  ? "Account activated"
-                  : "Employee activation"}
+                  ? t("activation.card.accountActivated", { ns: "auth" })
+                  : t("activation.card.employeeActivation", { ns: "auth" })}
               </h2>
             </div>
           </header>
@@ -431,12 +445,12 @@ export function ActivationPage() {
           {stage !== "success" && (
             <div
               className="activation-progress"
-              aria-label="Activation progress"
+              aria-label={t("activation.card.progressAria", { ns: "auth" })}
             >
               {[
-                { number: 1, label: "Identity" },
-                { number: 2, label: "OTP" },
-                { number: 3, label: "Password" },
+                { number: 1, label: t("activation.card.steps.identity", { ns: "auth" }) },
+                { number: 2, label: t("activation.card.steps.otp", { ns: "auth" }) },
+                { number: 3, label: t("activation.card.steps.password", { ns: "auth" }) },
               ].map((step) => (
                 <div
                   className={
@@ -456,18 +470,16 @@ export function ActivationPage() {
           {stage === "identity" && invitationLoading && (
             <div className="activation-invitation-state" aria-live="polite">
               <div className="spinner" aria-hidden="true" />
-              <strong>Checking activation invitation</strong>
-              <p>Verifying that this secure link is active and unused.</p>
+              <strong>{t("activation.invitation.checkingTitle", { ns: "auth" })}</strong>
+              <p>{t("activation.invitation.checkingDescription", { ns: "auth" })}</p>
             </div>
           )}
 
           {stage === "identity" && !invitationLoading && invitationError && (
             <div className="activation-invitation-state" role="alert">
-              <strong>Invitation unavailable</strong>
+              <strong>{t("activation.invitation.unavailableTitle", { ns: "auth" })}</strong>
               <p>{invitationError}</p>
-              <button type="button" onClick={switchToManualActivation}>
-                Continue with manual activation
-              </button>
+              <button type="button" onClick={switchToManualActivation}>{t("activation.invitation.manualAction", { ns: "auth" })}</button>
             </div>
           )}
 
@@ -476,32 +488,37 @@ export function ActivationPage() {
             (!invitationError || manualMode) && (
               <>
                 <div className="activation-heading">
-                  <p>Step 1 of 3</p>
-                  <h3>Verify employee identity</h3>
+                  <p>{t("activation.identity.step", { ns: "auth" })}</p>
+                  <h3>{t("activation.identity.title", { ns: "auth" })}</h3>
                   <span>
                     {usingInvitation
-                      ? `This invitation is valid until ${formatDate(
-                          invitation!.expiresAt,
-                        )}. Confirm your Employee ID and phone number.`
-                      : "Enter the same information approved by Nepal Telecom management."}
+                      ? t("activation.invitation.validUntil", {
+                          ns: "auth",
+                          expiry: formatDate(
+                            invitation!.expiresAt,
+                            i18n.resolvedLanguage ?? i18n.language,
+                            t("activation.date.invalidExpiry", { ns: "auth" }),
+                          ),
+                        })
+                      : t("activation.invitation.manualDescription", { ns: "auth" })}
                   </span>
                 </div>
 
                 {usingInvitation && (
                   <section className="activation-invitation-summary">
                     <div>
-                      <span>Approved role</span>
-                      <strong>{formatRole(invitation!.requestedRole)}</strong>
+                      <span>{t("activation.invitation.approvedRole", { ns: "auth" })}</span>
+                      <strong>{getRoleLabel(invitation!.requestedRole)}</strong>
                     </div>
                     <div>
-                      <span>Official division</span>
+                      <span>{t("activation.identity.officialDivision", { ns: "auth" })}</span>
                       <strong>{invitation!.organization.divisionName}</strong>
                     </div>
                     <div>
-                      <span>Official department</span>
+                      <span>{t("activation.identity.officialDepartment", { ns: "auth" })}</span>
                       <strong>
                         {invitation!.organization.departmentName ??
-                          "Division-level role"}
+                          t("activation.invitation.divisionLevelRole", { ns: "auth" })}
                       </strong>
                     </div>
                   </section>
@@ -512,14 +529,14 @@ export function ActivationPage() {
                   onSubmit={handleIdentitySubmit}
                 >
                   <label className="activation-field">
-                    <span>Employee full name</span>
+                    <span>{t("activation.identity.employeeFullName", { ns: "auth" })}</span>
                     <input
                       type="text"
                       value={identity.empName}
                       onChange={(event) =>
                         updateIdentity("empName", event.target.value)
                       }
-                      placeholder="Official employee name"
+                      placeholder={t("activation.identity.employeeNamePlaceholder", { ns: "auth" })}
                       autoComplete="name"
                       minLength={2}
                       maxLength={150}
@@ -529,7 +546,7 @@ export function ActivationPage() {
                   </label>
 
                   <label className="activation-field">
-                    <span>Employee ID</span>
+                    <span>{t("activation.identity.employeeId", { ns: "auth" })}</span>
                     <input
                       type="text"
                       value={identity.empId}
@@ -539,7 +556,7 @@ export function ActivationPage() {
                           event.target.value.toUpperCase(),
                         )
                       }
-                      placeholder="Example: NTC-1001"
+                      placeholder={t("activation.identity.employeeIdPlaceholder", { ns: "auth" })}
                       minLength={2}
                       maxLength={50}
                       pattern="[A-Za-z0-9_-]+"
@@ -548,7 +565,7 @@ export function ActivationPage() {
                   </label>
 
                   <label className="activation-field">
-                    <span>Phone number</span>
+                    <span>{t("activation.identity.phoneNumber", { ns: "auth" })}</span>
                     <input
                       type="tel"
                       value={identity.phoneNumber}
@@ -563,7 +580,7 @@ export function ActivationPage() {
                   </label>
 
                   <label className="activation-field">
-                    <span>Official email</span>
+                    <span>{t("activation.identity.officialEmail", { ns: "auth" })}</span>
                     <input
                       type="email"
                       value={identity.officialEmail}
@@ -581,7 +598,7 @@ export function ActivationPage() {
                   {usingInvitation ? (
                     <>
                       <label className="activation-field">
-                        <span>Official division</span>
+                        <span>{t("activation.identity.officialDivision", { ns: "auth" })}</span>
                         <input
                           type="text"
                           value={invitation!.organization.divisionName}
@@ -590,12 +607,12 @@ export function ActivationPage() {
                       </label>
 
                       <label className="activation-field">
-                        <span>Official department</span>
+                        <span>{t("activation.identity.officialDepartment", { ns: "auth" })}</span>
                         <input
                           type="text"
                           value={
                             invitation!.organization.departmentName ??
-                            "No department — division-level role"
+                            t("activation.identity.noDepartment", { ns: "auth" })
                           }
                           readOnly
                         />
@@ -604,7 +621,7 @@ export function ActivationPage() {
                   ) : (
                     <>
                       <label className="activation-field">
-                        <span>Official division</span>
+                        <span>{t("activation.identity.officialDivision", { ns: "auth" })}</span>
                         <select
                           value={identity.divisionId}
                           onChange={(event) => {
@@ -618,8 +635,8 @@ export function ActivationPage() {
                         >
                           <option value="">
                             {organizationLoading
-                              ? "Loading divisions..."
-                              : "Select your official division"}
+                              ? t("activation.identity.loadingDivisions", { ns: "auth" })
+                              : t("activation.identity.selectDivision", { ns: "auth" })}
                           </option>
                           {divisions.map((division) => (
                             <option key={division.id} value={division.id}>
@@ -630,7 +647,7 @@ export function ActivationPage() {
                       </label>
 
                       <label className="activation-field">
-                        <span>Official department</span>
+                        <span>{t("activation.identity.officialDepartment", { ns: "auth" })}</span>
                         <select
                           value={identity.departmentId ?? ""}
                           onChange={(event) =>
@@ -646,7 +663,7 @@ export function ActivationPage() {
                           }
                         >
                           <option value="">
-                            No department — division-level role
+                            {t("activation.identity.noDepartment", { ns: "auth" })}
                           </option>
                           {visibleDepartments.map((department) => (
                             <option key={department.id} value={department.id}>
@@ -656,9 +673,9 @@ export function ActivationPage() {
                         </select>
                         {selectedDivision && (
                           <small>
-                            Division: {selectedDivision.name}
+                            {t("activation.identity.divisionContext", { ns: "auth", division: selectedDivision.name })}
                             {selectedDepartment
-                              ? ` · Department: ${selectedDepartment.name}`
+                              ? t("activation.identity.departmentContext", { ns: "auth", department: selectedDepartment.name })
                               : ""}
                           </small>
                         )}
@@ -673,7 +690,7 @@ export function ActivationPage() {
                         type="button"
                         onClick={() => void loadOrganization()}
                       >
-                        Try again
+                        {t("actions.tryAgain", { ns: "common" })}
                       </button>
                     </div>
                   )}
@@ -697,8 +714,8 @@ export function ActivationPage() {
                     }
                   >
                     {submitting
-                      ? "Verifying information..."
-                      : "Verify identity and send OTP"}
+                      ? t("activation.identity.verifying", { ns: "auth" })
+                      : t("activation.identity.submit", { ns: "auth" })}
                   </button>
 
                   {usingInvitation && (
@@ -708,7 +725,7 @@ export function ActivationPage() {
                         onClick={switchToManualActivation}
                         disabled={submitting}
                       >
-                        Use manual activation instead
+                        {t("activation.identity.manualInstead", { ns: "auth" })}
                       </button>
                     </div>
                   )}
@@ -719,12 +736,9 @@ export function ActivationPage() {
           {stage === "otp" && (
             <>
               <div className="activation-heading">
-                <p>Step 2 of 3</p>
-                <h3>Verify official email</h3>
-                <span>
-                  Enter the six-digit code sent to{" "}
-                  <strong>{identity.officialEmail}</strong>.
-                </span>
+                <p>{t("activation.otp.step", { ns: "auth" })}</p>
+                <h3>{t("activation.otp.title", { ns: "auth" })}</h3>
+                <span><Trans ns="auth" i18nKey="activation.otp.description" values={{ email: identity.officialEmail }} components={{ strong: <strong /> }} /></span>
               </div>
 
               <form
@@ -738,7 +752,7 @@ export function ActivationPage() {
                 )}
 
                 <label className="activation-field activation-field-wide">
-                  <span>Six-digit activation code</span>
+                  <span>{t("activation.otp.codeLabel", { ns: "auth" })}</span>
                   <input
                     className="activation-otp-input"
                     type="text"
@@ -767,7 +781,7 @@ export function ActivationPage() {
                   type="submit"
                   disabled={submitting || otp.length !== 6}
                 >
-                  {submitting ? "Verifying code..." : "Verify activation code"}
+                  {submitting ? t("activation.otp.verifying", { ns: "auth" }) : t("activation.otp.submit", { ns: "auth" })}
                 </button>
 
                 <div className="activation-secondary-actions">
@@ -776,7 +790,7 @@ export function ActivationPage() {
                     onClick={() => void handleResendOtp()}
                     disabled={submitting}
                   >
-                    Request another code
+                    {t("activation.otp.requestAnother", { ns: "auth" })}
                   </button>
 
                   <button
@@ -789,7 +803,7 @@ export function ActivationPage() {
                     }}
                     disabled={submitting}
                   >
-                    Change employee details
+                    {t("activation.otp.changeDetails", { ns: "auth" })}
                   </button>
                 </div>
               </form>
@@ -799,16 +813,9 @@ export function ActivationPage() {
           {stage === "password" && verifiedResult && (
             <>
               <div className="activation-heading">
-                <p>Step 3 of 3</p>
-                <h3>Create secure password</h3>
-                <span>
-                  Activating <strong>{verifiedResult.employee.empName}</strong>{" "}
-                  as{" "}
-                  <strong>
-                    {formatRole(verifiedResult.accountRequest.requestedRole)}
-                  </strong>
-                  .
-                </span>
+                <p>{t("activation.password.step", { ns: "auth" })}</p>
+                <h3>{t("activation.password.title", { ns: "auth" })}</h3>
+                <span><Trans ns="auth" i18nKey="activation.password.activatingAs" values={{ name: verifiedResult.employee.empName, role: getRoleLabel(verifiedResult.accountRequest.requestedRole) }} components={{ strong: <strong /> }} /></span>
               </div>
 
               <form
@@ -822,13 +829,13 @@ export function ActivationPage() {
                 )}
 
                 <label className="activation-field activation-field-wide">
-                  <span>New password</span>
+                  <span>{t("activation.password.newPassword", { ns: "auth" })}</span>
                   <div className="activation-password-field">
                     <input
                       type={showPassword ? "text" : "password"}
                       value={password}
                       onChange={(event) => setPassword(event.target.value)}
-                      placeholder="Create a secure password"
+                      placeholder={t("activation.password.newPasswordPlaceholder", { ns: "auth" })}
                       autoComplete="new-password"
                       minLength={PASSWORD_MIN_LENGTH}
                       maxLength={PASSWORD_MAX_LENGTH}
@@ -838,21 +845,21 @@ export function ActivationPage() {
                       type="button"
                       onClick={() => setShowPassword((current) => !current)}
                       aria-label={
-                        showPassword ? "Hide password" : "Show password"
+                        showPassword ? t("actions.hidePassword", { ns: "common" }) : t("actions.showPassword", { ns: "common" })
                       }
                     >
-                      {showPassword ? "Hide" : "Show"}
+                      {showPassword ? t("actions.hide", { ns: "common" }) : t("actions.show", { ns: "common" })}
                     </button>
                   </div>
                 </label>
 
                 <label className="activation-field activation-field-wide">
-                  <span>Confirm password</span>
+                  <span>{t("activation.password.confirmPassword", { ns: "auth" })}</span>
                   <input
                     type={showPassword ? "text" : "password"}
                     value={confirmPassword}
                     onChange={(event) => setConfirmPassword(event.target.value)}
-                    placeholder="Enter the password again"
+                    placeholder={t("activation.password.confirmPasswordPlaceholder", { ns: "auth" })}
                     autoComplete="new-password"
                     minLength={PASSWORD_MIN_LENGTH}
                     maxLength={PASSWORD_MAX_LENGTH}
@@ -861,7 +868,7 @@ export function ActivationPage() {
                 </label>
 
                 <div className="activation-password-rules">
-                  {PASSWORD_REQUIREMENTS_MESSAGE}
+                  {t("password.requirementsMessage", { ns: "common" })}
                 </div>
 
                 {error && (
@@ -876,8 +883,8 @@ export function ActivationPage() {
                   disabled={submitting}
                 >
                   {submitting
-                    ? "Activating account..."
-                    : "Create password and activate"}
+                    ? t("activation.password.activating", { ns: "auth" })
+                    : t("activation.password.submit", { ns: "auth" })}
                 </button>
               </form>
             </>
@@ -888,26 +895,21 @@ export function ActivationPage() {
               <div className="activation-success-icon" aria-hidden="true">
                 ✓
               </div>
-              <p>Activation completed</p>
-              <h3>Welcome to NT Message</h3>
-              <span>
-                The account for{" "}
-                <strong>{completionResult.employee.empName}</strong> has been
-                activated as{" "}
-                <strong>{formatRole(completionResult.account.role)}</strong>.
-              </span>
+              <p>{t("activation.success.eyebrow", { ns: "auth" })}</p>
+              <h3>{t("activation.success.title", { ns: "auth" })}</h3>
+              <span><Trans ns="auth" i18nKey="activation.success.description" values={{ name: completionResult.employee.empName, role: getRoleLabel(completionResult.account.role) }} components={{ strong: <strong /> }} /></span>
               <Link
                 className="activation-primary activation-login-link"
                 to="/login"
               >
-                Continue to secure login
+                {t("activation.success.continue", { ns: "auth" })}
               </Link>
             </section>
           )}
 
           {stage !== "success" && (
             <footer className="activation-card-footer">
-              Already activated? <Link to="/login">Return to login</Link>
+              {t("activation.footer.alreadyActivated", { ns: "auth" })}{" "}<Link to="/login">{t("activation.footer.returnToLogin", { ns: "auth" })}</Link>
             </footer>
           )}
         </article>

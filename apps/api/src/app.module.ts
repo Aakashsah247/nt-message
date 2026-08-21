@@ -5,6 +5,7 @@ import { AnnouncementsModule } from './announcements/announcements.module';
 import { ConversationsModule } from './conversations/conversations.module';
 
 import { AccountRequestsModule } from './account-requests/account-requests.module';
+import { AccountSettingsModule } from './account-settings/account-settings.module';
 import { ActivationModule } from './activation/activation.module';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
@@ -38,6 +39,7 @@ import { TeamManagementModule } from './team-management/team-management.module';
     OrganizationModule,
     ActivationModule,
     AccountRequestsModule,
+    AccountSettingsModule,
     WorkManagementModule,
     TeamManagementModule,
   ],

@@ -44,6 +44,7 @@ export interface AccountResult {
   role: AccountRole;
   displayName: string;
   positionLabel: string;
+  interfaceLanguage: string;
 }
 
 export interface LoginResult extends TokenResult {
@@ -563,6 +564,7 @@ export class AuthService {
         id: true,
         username: true,
         role: true,
+        interfaceLanguage: true,
 
         employee: {
           select: {
@@ -606,6 +608,8 @@ export class AuthService {
           ? 'Super Admin'
           : account.employee?.designation ??
             this.formatRoleLabel(effectiveRole),
+
+      interfaceLanguage: account.interfaceLanguage,
     };
   }
 

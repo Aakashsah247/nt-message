@@ -13,6 +13,7 @@ export type MessagingConversationUpdateReason =
   // M16: distinguish a new private group copied from a one-to-one private chat.
   | 'PRIVATE_GROUP_CREATED'
   | 'GROUP_UPDATED'
+  | 'GROUP_DELETED'
   | 'MEMBERS_CHANGED'
   | 'OFFICIAL_GROUP_CREATED'
   | 'OFFICIAL_GROUP_SYNCED'
@@ -35,6 +36,7 @@ export interface MessagingReadyPayload {
 
 export interface MessagingErrorPayload {
   message: string;
+  code?: 'SESSION_INVALIDATED';
 }
 
 export interface MessagingPongPayload {
@@ -231,6 +233,7 @@ export interface MessagingClientToServerEvents {
 
 export interface MessagingSocketData {
   user?: AuthenticatedUser;
+  accessTokenExpiresAt?: string;
 }
 
 export type MessagingNamespace = Namespace<

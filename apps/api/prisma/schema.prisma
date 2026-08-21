@@ -483,11 +483,13 @@ model Account {
   showOnlineStatus       Boolean     @default(true) @map("show_online_status")
   showReadReceipts       Boolean     @default(true) @map("show_read_receipts")
   requireMessageRequests Boolean     @default(true) @map("require_message_requests")
+  interfaceLanguage     String      @default("en") @map("interface_language") @db.VarChar(8)
   createdAt              DateTime    @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt           DateTime    @updatedAt @map("updated_at") @db.Timestamptz(3)
 
   employee                        Employee?                         @relation(fields: [employeeId], references: [id], onDelete: Restrict)
   sessions                        AuthSession[]
+  messagingPushSubscriptions       MessagingPushSubscription[]
   submittedAccountRequests        AccountRequest[]                  @relation("AccountRequestsRequestedBy")
   reviewedAccountRequests         AccountRequest[]                  @relation("AccountRequestsReviewedBy")
   accountRequestActions           AccountRequestAction[]
@@ -497,6 +499,7 @@ model Account {
   endedManagementAssignments      ManagementAssignment[]            @relation("ManagementAssignmentsEndedBy")
   createdConversations            Conversation[]                    @relation("ConversationsCreatedBy")
   conversationParticipants        ConversationParticipant[]
+  officialGroupReceiptIntervals   OfficialGroupReceiptInterval[]
   sentMessages                    Message[]                         @relation("MessagesSentBy")
   deletedMessages                 Message[]                         @relation("MessagesDeletedBy")
   messageReceipts                 MessageReceipt[]
@@ -568,6 +571,8 @@ model Account {
   @@index([profilePhotoKey], map: "accounts_profile_photo_key_idx")
   @@map("accounts")
 }
+
+/// MessageList models removed — migration should drop the corresponding tables.
 
 model PasswordResetChallenge {
   id        String @id @default(uuid()) @db.Uuid
@@ -669,6 +674,7 @@ model AuthSession {
 
   account        Account         @relation(fields: [accountId], references: [id], onDelete: Cascade)
   activityEvents ActivityEvent[]
+  messagingPushSubscriptions MessagingPushSubscription[]
 
   @@index([accountId, revokedAt], map: "auth_sessions_account_revoked_idx")
   @@index([expiresAt], map: "auth_sessions_expires_at_idx")
@@ -937,6 +943,7 @@ model Conversation {
   officialDivision   Division?                 @relation("OfficialGroupDivision", fields: [officialDivisionId], references: [id], onDelete: Restrict)
   officialDepartment Department?               @relation("OfficialGroupDepartment", fields: [officialDepartmentId], references: [id], onDelete: Restrict)
   participants       ConversationParticipant[]
+  officialReceiptIntervals OfficialGroupReceiptInterval[]
   messages           Message[]
   messageRequest     MessageRequest?
   officialAuditLogs  OfficialGroupAuditLog[]
@@ -973,6 +980,17 @@ model ConversationParticipant {
   archivedAt     DateTime?                   @map("archived_at") @db.Timestamptz(3)
   markedUnreadAt DateTime?                   @map("marked_unread_at") @db.Timestamptz(3)
 
+  // M-FINAL-1.5C: official groups use participant watermarks instead of
+  // creating one MessageReceipt row per message x recipient. The sent-at +
+  // message-id pair is a stable keyset boundary; the through-at value records
+  // when this account actually advanced to that boundary for Message Info.
+  deliveredThroughMessageId String?   @map("delivered_through_message_id") @db.Uuid
+  deliveredThroughSentAt    DateTime? @map("delivered_through_sent_at") @db.Timestamptz(3)
+  deliveredThroughAt        DateTime? @map("delivered_through_at") @db.Timestamptz(3)
+  readThroughMessageId      String?   @map("read_through_message_id") @db.Uuid
+  readThroughSentAt         DateTime? @map("read_through_sent_at") @db.Timestamptz(3)
+  readThroughAt             DateTime? @map("read_through_at") @db.Timestamptz(3)
+
   // M19: these boundaries hide history/list state only for this participant.
   historyClearedAt  DateTime? @map("history_cleared_at") @db.Timestamptz(3)
   deletedFromListAt DateTime? @map("deleted_from_list_at") @db.Timestamptz(3)
@@ -996,7 +1014,35 @@ model ConversationParticipant {
   @@index([accountId, draftUpdatedAt], map: "conversation_participants_account_draft_idx")
   @@index([accountId, leftAt, deletedFromListAt], map: "conversation_participants_account_deleted_idx")
   @@index([conversationId, historyClearedAt], map: "conversation_participants_history_cleared_idx")
+  @@index([conversationId, leftAt, deliveredThroughSentAt, deliveredThroughMessageId], map: "conversation_participants_delivery_watermark_idx")
+  @@index([conversationId, leftAt, readThroughSentAt, readThroughMessageId], map: "conversation_participants_read_watermark_idx")
   @@map("conversation_participants")
+}
+
+model OfficialGroupReceiptInterval {
+  id String @id @default(uuid()) @db.Uuid
+
+  conversationId String @map("conversation_id") @db.Uuid
+  accountId      String @map("account_id") @db.Uuid
+
+  joinedAt DateTime  @map("joined_at") @db.Timestamptz(3)
+  leftAt   DateTime  @map("left_at") @db.Timestamptz(3)
+
+  deliveredThroughMessageId String?   @map("delivered_through_message_id") @db.Uuid
+  deliveredThroughSentAt    DateTime? @map("delivered_through_sent_at") @db.Timestamptz(3)
+  deliveredThroughAt        DateTime? @map("delivered_through_at") @db.Timestamptz(3)
+  readThroughMessageId      String?   @map("read_through_message_id") @db.Uuid
+  readThroughSentAt         DateTime? @map("read_through_sent_at") @db.Timestamptz(3)
+  readThroughAt             DateTime? @map("read_through_at") @db.Timestamptz(3)
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  conversation Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  account      Account      @relation(fields: [accountId], references: [id], onDelete: Restrict)
+
+  @@index([conversationId, joinedAt, leftAt], map: "official_group_receipt_intervals_conversation_window_idx")
+  @@index([accountId, conversationId, leftAt], map: "official_group_receipt_intervals_account_idx")
+  @@map("official_group_receipt_intervals")
 }
 
 model GroupInvitationLink {
@@ -1112,6 +1158,8 @@ model Message {
 
   @@unique([senderAccountId, clientMessageId], map: "messages_sender_client_message_key")
   @@index([conversationId, sentAt, id], map: "messages_conversation_sent_idx")
+  @@index([conversationId, senderAccountId, sentAt, id], map: "messages_conversation_sender_sent_idx")
+  @@index([textContent(ops: raw("gin_trgm_ops"))], type: Gin, map: "messages_text_content_trgm_idx")
   @@index([senderAccountId, sentAt], map: "messages_sender_sent_idx")
   @@index([replyToMessageId], map: "messages_reply_to_idx")
   @@index([deletedAt], map: "messages_deleted_at_idx")
@@ -1130,13 +1178,22 @@ model MessageAttachment {
   contentType      MessageContentType @map("content_type")
   scanStatus       String             @default("PENDING") @map("scan_status") @db.VarChar(40)
 
+  // Retention belongs to the logical message reference, not the shared physical file.
+  // Forwarding therefore gets a fresh expiry while the same storageKey can be reused.
+  expiresAt DateTime  @map("expires_at") @db.Timestamptz(3)
+  expiredAt DateTime? @map("expired_at") @db.Timestamptz(3)
+  purgedAt  DateTime? @map("purged_at") @db.Timestamptz(3)
+
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
 
   message Message @relation(fields: [messageId], references: [id], onDelete: Cascade)
 
   @@index([messageId], map: "message_attachments_message_idx")
+  @@index([originalFileName(ops: raw("gin_trgm_ops"))], type: Gin, map: "message_attachments_original_file_name_trgm_idx")
   @@index([storageKey], map: "message_attachments_storage_key_idx")
+  @@index([expiresAt, expiredAt], map: "message_attachments_expiry_idx")
+  @@index([purgedAt, expiresAt], map: "message_attachments_purge_idx")
   @@index([contentType], map: "message_attachments_content_type_idx")
   @@map("message_attachments")
 }
@@ -1371,6 +1428,11 @@ model AnnouncementAttachment {
   addedRevision   Int  @map("added_revision")
   removedRevision Int? @map("removed_revision")
 
+  // Draft attachments begin their retention clock only when the announcement is published.
+  expiresAt DateTime? @map("expires_at") @db.Timestamptz(3)
+  expiredAt DateTime? @map("expired_at") @db.Timestamptz(3)
+  purgedAt  DateTime? @map("purged_at") @db.Timestamptz(3)
+
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
 
@@ -1378,8 +1440,35 @@ model AnnouncementAttachment {
 
   @@index([announcementId, addedRevision, removedRevision], map: "announcement_attachments_revision_idx")
   @@index([storageKey], map: "announcement_attachments_storage_key_idx")
+  @@index([expiresAt, expiredAt], map: "announcement_attachments_expiry_idx")
+  @@index([purgedAt, expiresAt], map: "announcement_attachments_purge_idx")
   @@index([contentCategory], map: "announcement_attachments_category_idx")
   @@map("announcement_attachments")
+}
+
+model MessagingPushSubscription {
+  id String @id @default(uuid()) @db.Uuid
+
+  accountId     String @map("account_id") @db.Uuid
+  authSessionId String @map("auth_session_id") @db.Uuid
+  endpoint      String @unique @db.VarChar(2048)
+  p256dh        String @db.VarChar(512)
+  auth          String @db.VarChar(255)
+
+  showPreview Boolean @default(true) @map("show_preview")
+  isMuted     Boolean @default(false) @map("is_muted")
+  userAgent   String? @map("user_agent") @db.VarChar(500)
+
+  lastSuccessfulPushAt DateTime? @map("last_successful_push_at") @db.Timestamptz(3)
+  createdAt            DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt            DateTime  @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  account     Account     @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  authSession AuthSession @relation(fields: [authSessionId], references: [id], onDelete: Cascade)
+
+  @@index([accountId, isMuted, updatedAt], map: "messaging_push_subscriptions_account_muted_updated_idx")
+  @@index([authSessionId], map: "messaging_push_subscriptions_session_idx")
+  @@map("messaging_push_subscriptions")
 }
 
 model MessagingNotification {
@@ -1944,6 +2033,7 @@ model ChatFolder {
   accountId String   @map("account_id") @db.Uuid
 
   name      String   @db.VarChar(100)
+  nameKey   String   @map("name_key") @db.VarChar(100)
   icon      String   @default("folder") @db.VarChar(50)
   color     String?  @db.VarChar(30)
   position  Int      @default(0)
@@ -1960,6 +2050,7 @@ model ChatFolder {
   account Account          @relation(fields: [accountId], references: [id], onDelete: Cascade)
   items   ChatFolderItem[]
 
+  @@unique([accountId, nameKey], map: "chat_folders_account_name_key_key")
   @@index([accountId, position], map: "chat_folders_account_position_idx")
   @@map("chat_folders")
 }

@@ -10,11 +10,15 @@ import { randomBytes, randomUUID } from 'node:crypto';
 import { promises as fs } from 'node:fs';
 import path from 'node:path';
 
+import { assertAttachmentFileMatchesDeclaredType } from '../attachments/attachment-file-validation';
+import { AttachmentSecurityService } from '../attachments/attachment-security.service';
+import { AttachmentStorageService } from '../attachments/attachment-storage.service';
 import type { AuthenticatedUser } from '../auth/types/auth.types';
 import { PrismaService } from '../database/prisma.service';
 import {
   AccountRole,
   ActivityEventType,
+  AnnouncementStatus,
   ConversationParticipantRole,
   ConversationType,
   EmployeeStatus,
@@ -29,6 +33,10 @@ import {
 } from '../generated/prisma/client';
 
 import type { Prisma } from '../generated/prisma/client';
+import {
+  getMessageAttachmentExpiresAt,
+  isAttachmentReferenceExpired,
+} from '../attachments/attachment-retention';
 import { MessagingEventsService } from '../realtime/messaging-events.service';
 import type { MessagingMessageUpdateAction } from '../realtime/messaging-events.service';
 
@@ -47,6 +55,8 @@ import type { PrivateGroupHistoryWindow } from './dto/create-private-group-from-
 import { ForwardTextMessageDto } from './dto/forward-text-message.dto';
 import { ListConversationsQueryDto } from './dto/list-conversations-query.dto';
 import { ListMessagesQueryDto } from './dto/list-messages-query.dto';
+import { ListStarredMessagesQueryDto } from './dto/list-starred-messages-query.dto';
+import { ListGroupMembersQueryDto } from './dto/list-group-members-query.dto';
 import { ListOfficialGroupAuditQueryDto } from './dto/list-official-group-audit-query.dto';
 import { SearchMessagingContactsQueryDto } from './dto/search-messaging-contacts-query.dto';
 import { SearchMessagesQueryDto } from './dto/search-messages-query.dto';
@@ -68,6 +78,7 @@ import { ReorderChatFoldersDto } from './dto/reorder-chat-folders.dto';
 import { ManageFolderItemDto } from './dto/manage-folder-item.dto';
 import type { UploadedMessageAttachmentFile } from './types/uploaded-message-attachment-file';
 import { ConversationStorageService } from './conversation-storage.service';
+import { MessagingPushService } from './messaging-push.service';
 import { requiresMessageRequestApproval } from './message-request-policy';
 import {
   MAX_MESSAGE_ATTACHMENT_FILES,
@@ -97,6 +108,12 @@ interface OfficialGroupParticipantSyncRecord {
   joinedAt: Date;
   leftAt: Date | null;
   role: ConversationParticipantRole;
+  deliveredThroughMessageId: string | null;
+  deliveredThroughSentAt: Date | null;
+  deliveredThroughAt: Date | null;
+  readThroughMessageId: string | null;
+  readThroughSentAt: Date | null;
+  readThroughAt: Date | null;
 }
 
 interface OfficialGroupSyncResult {
@@ -107,6 +124,23 @@ interface OfficialGroupSyncResult {
 }
 
 type DeliveryStatus = 'SENT' | 'DELIVERED' | 'READ';
+
+interface OfficialMessageReceiptAggregateRow {
+  messageId: string;
+  totalRecipients: number;
+  delivered: number;
+  read: number;
+  deliveredAt: Date | null;
+  readAt: Date | null;
+}
+
+interface MessageReceiptAggregate {
+  total: number;
+  delivered: number;
+  read: number;
+  deliveredAt: Date | null;
+  readAt: Date | null;
+}
 type MessageReactionMutationAction = 'ADDED' | 'UPDATED' | 'REMOVED';
 type MessagingBlockDirection = 'BLOCKED_BY_ME' | 'BLOCKED_ME' | 'MUTUAL' | null;
 
@@ -210,17 +244,13 @@ export interface MessagingProfileSharedGroup {
 }
 
 const MESSAGE_REQUEST_COOLDOWN_MS = 24 * 60 * 60 * 1000;
-const MESSAGE_EDIT_WINDOW_MS = 15 * 60 * 1000;
+const MESSAGE_EDIT_WINDOW_MS = 20 * 60 * 1000;
 const GROUP_INVITATION_TOKEN_BYTES = 32;
 const MAX_IMAGE_ATTACHMENT_BYTES = 20 * 1024 * 1024;
 const MAX_DOCUMENT_ATTACHMENT_BYTES = 50 * 1024 * 1024;
 const MAX_AUDIO_ATTACHMENT_BYTES = 25 * 1024 * 1024;
 const MAX_VIDEO_ATTACHMENT_BYTES = 200 * 1024 * 1024;
 const MAX_PROFILE_PHOTO_BYTES = 5 * 1024 * 1024;
-const MESSAGE_ATTACHMENT_STORAGE_DIR = path.resolve(
-  process.env.MESSAGE_ATTACHMENT_STORAGE_DIR ??
-    path.join(process.cwd(), 'storage', 'message-attachments'),
-);
 const PROFILE_PHOTO_STORAGE_DIR = path.resolve(
   process.env.PROFILE_PHOTO_STORAGE_DIR ??
     path.join(process.cwd(), 'storage', 'profile-photos'),
@@ -272,6 +302,14 @@ const messagingAccountSelect = {
   showOnlineStatus: true,
   showReadReceipts: true,
   requireMessageRequests: true,
+
+  superAdminProfile: {
+    select: {
+      fullName: true,
+      email: true,
+      phoneNumber: true,
+    },
+  },
 
   employee: {
     select: {
@@ -440,6 +478,8 @@ const messageSelect = {
       fileSizeBytes: true,
       contentType: true,
       scanStatus: true,
+      expiresAt: true,
+      expiredAt: true,
       createdAt: true,
       updatedAt: true,
     },
@@ -454,6 +494,119 @@ type MessageRecord = Prisma.MessageGetPayload<{
   select: typeof messageSelect;
 }>;
 
+const officialGroupMessageSelect = {
+  ...messageSelect,
+  // Historical official-group messages may already have thousands of legacy
+  // receipt rows. Watermark-based official-group paths must never hydrate them.
+  receipts: false,
+} satisfies Prisma.MessageSelect;
+
+type OfficialGroupMessageRecord = Prisma.MessageGetPayload<{
+  select: typeof officialGroupMessageSelect;
+}>;
+
+/*
+ * Conversation-list previews intentionally avoid recipient receipts, reactions,
+ * stars, pins and reply chains. A large official group can have thousands of
+ * recipients, and loading those relations merely to render the sidebar would
+ * make list cost grow with group size rather than the requested page size.
+ */
+const conversationListMessageSelect = {
+  id: true,
+  conversationId: true,
+  senderAccountId: true,
+  clientMessageId: true,
+  contentType: true,
+  textContent: true,
+  payload: true,
+  replyToMessageId: true,
+  sentAt: true,
+  editedAt: true,
+  deletedAt: true,
+  deletedByAccountId: true,
+  createdAt: true,
+  updatedAt: true,
+
+  sender: {
+    select: messagingAccountSelect,
+  },
+
+  attachments: {
+    select: {
+      id: true,
+      messageId: true,
+      storageKey: true,
+      originalFileName: true,
+      mimeType: true,
+      fileSizeBytes: true,
+      contentType: true,
+      scanStatus: true,
+      expiresAt: true,
+      expiredAt: true,
+      createdAt: true,
+      updatedAt: true,
+    },
+    orderBy: {
+      createdAt: 'asc',
+    },
+  },
+} satisfies Prisma.MessageSelect;
+
+type ConversationListMessageRecord = Prisma.MessageGetPayload<{
+  select: typeof conversationListMessageSelect;
+}>;
+
+interface ConversationListStatsRow {
+  conversationId: string;
+  lastMessageId: string | null;
+  unreadCount: number;
+}
+
+interface ConversationListMembershipInput {
+  conversationId: string;
+  joinedAt: Date;
+  historyClearedAt: Date | null;
+  groupKind: GroupKind | null;
+  readThroughMessageId: string | null;
+  readThroughSentAt: Date | null;
+}
+
+const conversationListConversationSelect = {
+  id: true,
+  type: true,
+  title: true,
+  description: true,
+  groupPhotoKey: true,
+  groupKind: true,
+  officialScopeType: true,
+  officialDivisionId: true,
+  officialDepartmentId: true,
+  privateParticipantKey: true,
+  createdByAccountId: true,
+  lastMessageAt: true,
+  createdAt: true,
+  updatedAt: true,
+
+  officialDivision: {
+    select: {
+      id: true,
+      code: true,
+      name: true,
+      isActive: true,
+    },
+  },
+
+  officialDepartment: {
+    select: {
+      id: true,
+      divisionId: true,
+      code: true,
+      name: true,
+      isActive: true,
+    },
+  },
+} satisfies Prisma.ConversationSelect;
+
 const PRIVATE_GROUP_CONTEXT_MESSAGE_LIMIT = 100;
 
 const sharedContentAttachmentSelect = {
@@ -465,6 +618,8 @@ const sharedContentAttachmentSelect = {
   fileSizeBytes: true,
   contentType: true,
   scanStatus: true,
+  expiresAt: true,
+  expiredAt: true,
   createdAt: true,
   updatedAt: true,
 
@@ -588,6 +743,11 @@ type ConversationRecord = Prisma.ConversationGetPayload<{
   select: typeof conversationSelect;
 }>;
 
+type ConversationListParticipantRecord =
+  ConversationRecord['participants'][number] & {
+    conversationId: string;
+  };
+
 const groupInvitationLinkSelect = {
   id: true,
   conversationId: true,
@@ -699,7 +859,28 @@ export class ConversationsService {
     private readonly prisma: PrismaService,
     private readonly messagingEventsService: MessagingEventsService,
     private readonly conversationStorageService: ConversationStorageService,
+    private readonly attachmentStorageService: AttachmentStorageService =
+      new AttachmentStorageService(),
+    private readonly attachmentSecurityService: AttachmentSecurityService =
+      new AttachmentSecurityService(),
+    private readonly messagingPushService?: MessagingPushService,
   ) {}
+
+  private usesDetailedMessageReceipts(
+    conversationType: ConversationType,
+    groupKind: GroupKind | null,
+  ): boolean {
+    /*
+     * Private chats and personal groups are bounded, so per-message receipt
+     * rows remain useful and affordable. Official groups can reach thousands
+     * of members; those conversations use participant delivery/read watermarks
+     * instead of message x recipient fan-out.
+     */
+    return !(
+      conversationType === ConversationType.GROUP &&
+      groupKind === GroupKind.OFFICIAL
+    );
+  }
 
   private getRoleRank(role: AccountRole): number {
     switch (role) {
@@ -1310,6 +1491,91 @@ export class ConversationsService {
     return account.profileBio ?? account.employee?.profileBio ?? null;
   }
 
+  private getConfiguredSuperAdminValue(key: string): string | null {
+    return process.env[key]?.trim() || null;
+  }
+
+  private matchesConfiguredSuperAdminSearch(search: string): boolean {
+    const normalizedSearch = search.trim().toLowerCase();
+
+    if (!normalizedSearch) {
+      return false;
+    }
+
+    const compactSearch = normalizedSearch.replace(/[\s_-]+/g, '');
+    const aliases = [
+      this.getConfiguredSuperAdminValue('SUPER_ADMIN_NAME'),
+      this.getConfiguredSuperAdminValue('SUPER_ADMIN_EMAIL'),
+      'Super Admin',
+    ].filter((value): value is string => Boolean(value));
+
+    return aliases.some((alias) => {
+      const normalizedAlias = alias.toLowerCase();
+      const compactAlias = normalizedAlias.replace(/[\s_-]+/g, '');
+
+      return (
+        normalizedAlias.includes(normalizedSearch) ||
+        compactAlias.includes(compactSearch)
+      );
+    });
+  }
+
+  private getSuperAdminDisplayName(account: MessagingAccountRecord): string {
+    // Messaging must show the same system-managed identity as the official
+    // Super Admin profile instead of falling back to the login email.
+    return (
+      this.getConfiguredSuperAdminValue('SUPER_ADMIN_NAME') ??
+      account.superAdminProfile?.fullName ??
+      account.username ??
+      'Super Admin'
+    );
+  }
+
+  private getSuperAdminOfficialEmail(
+    account: MessagingAccountRecord,
+  ): string | null {
+    const configuredEmail =
+      this.getConfiguredSuperAdminValue('SUPER_ADMIN_EMAIL');
+
+    if (configuredEmail) {
+      return configuredEmail.toLowerCase();
+    }
+
+    if (account.superAdminProfile?.email) {
+      return account.superAdminProfile.email.toLowerCase();
+    }
+
+    return account.username?.includes('@')
+      ? account.username.toLowerCase()
+      : null;
+  }
+
+  private getSuperAdminOfficialPhone(
+    account: MessagingAccountRecord,
+  ): string | null {
+    const rawPhoneNumber =
+      this.getConfiguredSuperAdminValue('SUPER_ADMIN_PHONE') ??
+      account.superAdminProfile?.phoneNumber ??
+      null;
+    const digits = rawPhoneNumber?.replace(/\D/g, '') ?? '';
+
+    // Keep the messaging profile format aligned with the official emergency
+    // profile: expose only a valid Nepal mobile number in canonical E.164 form.
+    if (digits.length === 10 && digits.startsWith('9')) {
+      return `+977${digits}`;
+    }
+
+    if (digits.length === 11 && digits.startsWith('0')) {
+      return `+977${digits.slice(1)}`;
+    }
+
+    if (digits.length === 13 && digits.startsWith('9779')) {
+      return `+${digits}`;
+    }
+
+    return null;
+  }
+
   private serializeAccount(account: MessagingAccountRecord) {
     const employee = account.employee;
     const profilePhotoKey = this.getAccountProfilePhotoKey(account);
@@ -1324,11 +1590,9 @@ export class ConversationsService {
       showOnlineStatus: account.showOnlineStatus,
       showReadReceipts: account.showReadReceipts,
       displayName:
-        employee?.empName ??
-        account.username ??
-        (account.role === AccountRole.SUPER_ADMIN
-          ? 'Super Admin'
-          : 'NT Message User'),
+        account.role === AccountRole.SUPER_ADMIN
+          ? this.getSuperAdminDisplayName(account)
+          : employee?.empName ?? account.username ?? 'NT Message User',
 
       employee: employee
         ? {
@@ -1366,17 +1630,29 @@ export class ConversationsService {
       contactMode,
       blockDirection,
       profileBio: this.getAccountProfileBio(account),
-      official: employee
-        ? {
-            // Official identity stays read-only and comes from activation/admin workflows.
-            employeeId: employee.empId,
-            officialEmail: employee.officialEmail,
-            contactNumber: employee.phoneNumber,
-            designation: employee.designation,
-            division: employee.division,
-            department: employee.departmentUnit,
-          }
-        : null,
+      official:
+        account.role === AccountRole.SUPER_ADMIN
+          ? {
+              // Super Admin is a system account, but its official identity and
+              // emergency phone are still visible through authorized profiles.
+              employeeId: null,
+              officialEmail: this.getSuperAdminOfficialEmail(account),
+              contactNumber: this.getSuperAdminOfficialPhone(account),
+              designation: null,
+              division: null,
+              department: null,
+            }
+          : employee
+            ? {
+                // Official identity stays read-only and comes from activation/admin workflows.
+                employeeId: employee.empId,
+                officialEmail: employee.officialEmail,
+                contactNumber: employee.phoneNumber,
+                designation: employee.designation,
+                division: employee.division,
+                department: employee.departmentUnit,
+              }
+            : null,
       sharedGroups,
     };
   }
@@ -1398,7 +1674,7 @@ export class ConversationsService {
       throw new BadRequestException('Profile photo file is required.');
     }
 
-    if (!file.buffer || file.size <= 0) {
+    if ((!file.buffer && !file.path) || file.size <= 0) {
       throw new BadRequestException('Profile photo file is empty.');
     }
 
@@ -1459,7 +1735,7 @@ export class ConversationsService {
       throw new BadRequestException('Group photo file is required.');
     }
 
-    if (!file.buffer || file.size <= 0) {
+    if ((!file.buffer && !file.path) || file.size <= 0) {
       throw new BadRequestException('Group photo file is empty.');
     }
 
@@ -1945,6 +2221,198 @@ export class ConversationsService {
     return publicPayload;
   }
 
+  private async getOfficialMessageReceiptAggregates(
+    conversationId: string,
+    messageIds: string[],
+  ): Promise<Map<string, MessageReceiptAggregate>> {
+    if (messageIds.length === 0) {
+      return new Map();
+    }
+
+    const rows = await this.prisma.$queryRawUnsafe<
+      OfficialMessageReceiptAggregateRow[]
+    >(
+      `
+        WITH requested_messages AS (
+          SELECT value::uuid AS id
+          FROM jsonb_array_elements_text($2::jsonb)
+        ),
+        selected_messages AS (
+          SELECT message.id, message.sender_account_id, message.sent_at
+          FROM messages AS message
+          INNER JOIN requested_messages AS requested
+            ON requested.id = message.id
+          WHERE message.conversation_id = $1::uuid
+        ),
+        legacy_receipts AS (
+          SELECT
+            message.id AS "messageId",
+            COUNT(receipt.account_id)::int AS "totalRecipients",
+            COUNT(receipt.account_id) FILTER (
+              WHERE receipt.delivered_at IS NOT NULL
+            )::int AS "delivered",
+            COUNT(receipt.account_id) FILTER (
+              WHERE receipt.read_at IS NOT NULL
+                AND account.show_read_receipts = TRUE
+            )::int AS "read",
+            CASE
+              WHEN COUNT(receipt.account_id) > 0
+                AND COUNT(receipt.account_id) = COUNT(receipt.account_id) FILTER (
+                  WHERE receipt.delivered_at IS NOT NULL
+                )
+              THEN MAX(receipt.delivered_at)
+              ELSE NULL
+            END AS "deliveredAt",
+            CASE
+              WHEN COUNT(receipt.account_id) > 0
+                AND COUNT(receipt.account_id) = COUNT(receipt.account_id) FILTER (
+                  WHERE receipt.read_at IS NOT NULL
+                    AND account.show_read_receipts = TRUE
+                )
+              THEN MAX(receipt.read_at) FILTER (
+                WHERE account.show_read_receipts = TRUE
+              )
+              ELSE NULL
+            END AS "readAt"
+          FROM selected_messages AS message
+          INNER JOIN message_receipts AS receipt
+            ON receipt.message_id = message.id
+          INNER JOIN accounts AS account
+            ON account.id = receipt.account_id
+          GROUP BY message.id
+        ),
+        membership_periods AS (
+          SELECT
+            participant.conversation_id,
+            participant.account_id,
+            participant.joined_at,
+            participant.left_at,
+            participant.delivered_through_message_id,
+            participant.delivered_through_sent_at,
+            participant.delivered_through_at,
+            participant.read_through_message_id,
+            participant.read_through_sent_at,
+            participant.read_through_at
+          FROM conversation_participants AS participant
+          WHERE participant.conversation_id = $1::uuid
+            AND participant.left_at IS NULL
+          UNION ALL
+          SELECT
+            interval.conversation_id,
+            interval.account_id,
+            interval.joined_at,
+            interval.left_at,
+            interval.delivered_through_message_id,
+            interval.delivered_through_sent_at,
+            interval.delivered_through_at,
+            interval.read_through_message_id,
+            interval.read_through_sent_at,
+            interval.read_through_at
+          FROM official_group_receipt_intervals AS interval
+          WHERE interval.conversation_id = $1::uuid
+        ),
+        watermark_receipts AS (
+          SELECT
+            message.id AS "messageId",
+            COUNT(period.account_id)::int AS "totalRecipients",
+            COUNT(period.account_id) FILTER (
+              WHERE period.delivered_through_sent_at > message.sent_at
+                OR (
+                  period.delivered_through_sent_at = message.sent_at
+                  AND period.delivered_through_message_id >= message.id
+                )
+            )::int AS "delivered",
+            COUNT(period.account_id) FILTER (
+              WHERE account.show_read_receipts = TRUE
+                AND (
+                  period.read_through_sent_at > message.sent_at
+                  OR (
+                    period.read_through_sent_at = message.sent_at
+                    AND period.read_through_message_id >= message.id
+                  )
+                )
+            )::int AS "read",
+            CASE
+              WHEN COUNT(period.account_id) > 0
+                AND COUNT(period.account_id) = COUNT(period.account_id) FILTER (
+                  WHERE period.delivered_through_sent_at > message.sent_at
+                    OR (
+                      period.delivered_through_sent_at = message.sent_at
+                      AND period.delivered_through_message_id >= message.id
+                    )
+                )
+              THEN MAX(period.delivered_through_at)
+              ELSE NULL
+            END AS "deliveredAt",
+            CASE
+              WHEN COUNT(period.account_id) > 0
+                AND COUNT(period.account_id) = COUNT(period.account_id) FILTER (
+                  WHERE account.show_read_receipts = TRUE
+                    AND (
+                      period.read_through_sent_at > message.sent_at
+                      OR (
+                        period.read_through_sent_at = message.sent_at
+                        AND period.read_through_message_id >= message.id
+                      )
+                    )
+                )
+              THEN MAX(period.read_through_at) FILTER (
+                WHERE account.show_read_receipts = TRUE
+              )
+              ELSE NULL
+            END AS "readAt"
+          FROM selected_messages AS message
+          LEFT JOIN membership_periods AS period
+            ON period.account_id <> message.sender_account_id
+            AND period.joined_at <= message.sent_at
+            AND (period.left_at IS NULL OR period.left_at > message.sent_at)
+          LEFT JOIN accounts AS account
+            ON account.id = period.account_id
+          GROUP BY message.id
+        )
+        SELECT
+          message.id AS "messageId",
+          COALESCE(legacy."totalRecipients", watermark."totalRecipients", 0)::int AS "totalRecipients",
+          CASE
+            WHEN COALESCE(legacy."totalRecipients", 0) > 0 THEN legacy."delivered"
+            ELSE COALESCE(watermark."delivered", 0)
+          END::int AS "delivered",
+          CASE
+            WHEN COALESCE(legacy."totalRecipients", 0) > 0 THEN legacy."read"
+            ELSE COALESCE(watermark."read", 0)
+          END::int AS "read",
+          CASE
+            WHEN COALESCE(legacy."totalRecipients", 0) > 0 THEN legacy."deliveredAt"
+            ELSE watermark."deliveredAt"
+          END AS "deliveredAt",
+          CASE
+            WHEN COALESCE(legacy."totalRecipients", 0) > 0 THEN legacy."readAt"
+            ELSE watermark."readAt"
+          END AS "readAt"
+        FROM selected_messages AS message
+        LEFT JOIN legacy_receipts AS legacy
+          ON legacy."messageId" = message.id
+        LEFT JOIN watermark_receipts AS watermark
+          ON watermark."messageId" = message.id
+      `,
+      conversationId,
+      JSON.stringify(messageIds),
+    );
+
+    return new Map(
+      rows.map((row) => [
+        row.messageId,
+        {
+          total: row.totalRecipients,
+          delivered: row.delivered,
+          read: row.read,
+          deliveredAt: row.deliveredAt,
+          readAt: row.readAt,
+        },
+      ]),
+    );
+  }
+
   private getAggregateReceiptDate(dates: Array<Date | null>): Date | null {
     if (dates.length === 0 || dates.some((date) => date === null)) {
       return null;
@@ -2062,6 +2530,27 @@ export class ConversationsService {
     };
   }
 
+  private isReceiptWatermarkAtOrAfter(
+    messageSentAt: Date,
+    messageId: string,
+    watermarkSentAt: Date | null,
+    watermarkMessageId: string | null,
+  ): boolean {
+    if (!watermarkSentAt) {
+      return false;
+    }
+
+    if (watermarkSentAt.getTime() > messageSentAt.getTime()) {
+      return true;
+    }
+
+    return (
+      watermarkSentAt.getTime() === messageSentAt.getTime() &&
+      watermarkMessageId !== null &&
+      watermarkMessageId >= messageId
+    );
+  }
+
   private getVisibleMessageInformationReadAt(
     message: Pick<MessageInformationRecord, 'senderAccountId'>,
     receipt: MessageInformationRecord['receipts'][number],
@@ -2073,6 +2562,154 @@ export class ConversationsService {
 
     // Recipient privacy can hide read time from the sender while delivery remains visible.
     return receipt.account.showReadReceipts ? receipt.readAt : null;
+  }
+
+  private async getOfficialMessageInformationRecipients(
+    message: Pick<
+      MessageRecord,
+      'id' | 'conversationId' | 'senderAccountId' | 'sentAt'
+    >,
+  ) {
+    /*
+     * Messages created before M-FINAL-1.5C keep their original detailed rows.
+     * They are authoritative for historical membership even if someone later
+     * left and rejoined the official group.
+     */
+    const legacyReceipts = await this.prisma.messageReceipt.findMany({
+      where: {
+        messageId: message.id,
+      },
+      orderBy: {
+        accountId: 'asc',
+      },
+      select: {
+        accountId: true,
+        deliveredAt: true,
+        readAt: true,
+        createdAt: true,
+        updatedAt: true,
+        account: {
+          select: messagingAccountSelect,
+        },
+      },
+    });
+
+    if (legacyReceipts.length > 0) {
+      return legacyReceipts.map((receipt) => ({
+        accountId: receipt.accountId,
+        account: this.serializeAccount(receipt.account),
+        deliveredAt: receipt.deliveredAt,
+        readAt: receipt.account.showReadReceipts ? receipt.readAt : null,
+        readHidden:
+          receipt.readAt !== null && !receipt.account.showReadReceipts,
+        createdAt: receipt.createdAt,
+        updatedAt: receipt.updatedAt,
+      }));
+    }
+
+    const [activeParticipants, historicalIntervals] = await Promise.all([
+      this.prisma.conversationParticipant.findMany({
+        where: {
+          conversationId: message.conversationId,
+          accountId: {
+            not: message.senderAccountId,
+          },
+          leftAt: null,
+          joinedAt: {
+            lte: message.sentAt,
+          },
+        },
+        orderBy: [{ joinedAt: 'asc' }, { accountId: 'asc' }],
+        select: {
+          accountId: true,
+          deliveredThroughMessageId: true,
+          deliveredThroughSentAt: true,
+          deliveredThroughAt: true,
+          readThroughMessageId: true,
+          readThroughSentAt: true,
+          readThroughAt: true,
+          createdAt: true,
+          updatedAt: true,
+          account: {
+            select: messagingAccountSelect,
+          },
+        },
+      }),
+      this.prisma.officialGroupReceiptInterval.findMany({
+        where: {
+          conversationId: message.conversationId,
+          accountId: {
+            not: message.senderAccountId,
+          },
+          joinedAt: {
+            lte: message.sentAt,
+          },
+          leftAt: {
+            gt: message.sentAt,
+          },
+        },
+        orderBy: [{ joinedAt: 'asc' }, { accountId: 'asc' }],
+        select: {
+          accountId: true,
+          deliveredThroughMessageId: true,
+          deliveredThroughSentAt: true,
+          deliveredThroughAt: true,
+          readThroughMessageId: true,
+          readThroughSentAt: true,
+          readThroughAt: true,
+          createdAt: true,
+          leftAt: true,
+          account: {
+            select: messagingAccountSelect,
+          },
+        },
+      }),
+    ]);
+
+    const periods = [
+      ...activeParticipants.map((participant) => ({
+        ...participant,
+        updatedAt: participant.updatedAt,
+      })),
+      ...historicalIntervals.map((interval) => ({
+        ...interval,
+        updatedAt: interval.leftAt,
+      })),
+    ];
+    const recipients = new Map<string, (typeof periods)[number]>();
+
+    for (const period of periods) {
+      recipients.set(period.accountId, period);
+    }
+
+    return [...recipients.values()].map((period) => {
+      const delivered = this.isReceiptWatermarkAtOrAfter(
+        message.sentAt,
+        message.id,
+        period.deliveredThroughSentAt,
+        period.deliveredThroughMessageId,
+      );
+      const internallyRead = this.isReceiptWatermarkAtOrAfter(
+        message.sentAt,
+        message.id,
+        period.readThroughSentAt,
+        period.readThroughMessageId,
+      );
+      const readAt =
+        internallyRead && period.account.showReadReceipts
+          ? period.readThroughAt
+          : null;
+
+      return {
+        accountId: period.accountId,
+        account: this.serializeAccount(period.account),
+        deliveredAt: delivered ? period.deliveredThroughAt : null,
+        readAt,
+        readHidden: internallyRead && !period.account.showReadReceipts,
+        createdAt: period.createdAt,
+        updatedAt: period.updatedAt,
+      };
+    });
   }
 
   private serializeMessageInformation(
@@ -2178,6 +2815,12 @@ export class ConversationsService {
         fileSizeBytes: attachment.fileSizeBytes,
         contentType: attachment.contentType,
         scanStatus: attachment.scanStatus,
+        expiresAt: attachment.expiresAt,
+        expiredAt: attachment.expiredAt,
+        isExpired: isAttachmentReferenceExpired(
+          attachment.expiresAt,
+          attachment.expiredAt,
+        ),
         createdAt: attachment.createdAt,
         updatedAt: attachment.updatedAt,
       },
@@ -2213,16 +2856,21 @@ export class ConversationsService {
     message: MessageRecord,
     viewerAccountId?: string,
     viewerParticipant?: ConversationVisibilityParticipant,
+    receiptAggregate?: MessageReceiptAggregate,
   ) {
-    const deliveredAt = this.getAggregateReceiptDate(
-      message.receipts.map((receipt) => receipt.deliveredAt),
-    );
+    const deliveredAt =
+      receiptAggregate?.deliveredAt ??
+      this.getAggregateReceiptDate(
+        message.receipts.map((receipt) => receipt.deliveredAt),
+      );
 
-    const readAt = this.getAggregateReceiptDate(
-      message.receipts.map((receipt) =>
-        this.getVisibleReadAt(message, receipt, viewerAccountId),
-      ),
-    );
+    const readAt =
+      receiptAggregate?.readAt ??
+      this.getAggregateReceiptDate(
+        message.receipts.map((receipt) =>
+          this.getVisibleReadAt(message, receipt, viewerAccountId),
+        ),
+      );
 
     const viewerStar = viewerAccountId
       ? (message.stars?.find((star) => star.accountId === viewerAccountId) ??
@@ -2258,19 +2906,33 @@ export class ConversationsService {
       editedAt: message.editedAt,
       deletedAt: message.deletedAt,
       isDeleted: message.deletedAt !== null,
-      deliveryStatus: this.getDeliveryStatus(message, viewerAccountId),
+      deliveryStatus: receiptAggregate
+        ? receiptAggregate.total > 0 &&
+          receiptAggregate.read === receiptAggregate.total
+          ? 'READ'
+          : receiptAggregate.total > 0 &&
+              receiptAggregate.delivered === receiptAggregate.total
+            ? 'DELIVERED'
+            : 'SENT'
+        : this.getDeliveryStatus(message, viewerAccountId),
       deliveredAt,
       readAt,
-      receiptSummary: {
-        total: message.receipts.length,
-        delivered: message.receipts.filter(
-          (receipt) => receipt.deliveredAt !== null,
-        ).length,
-        read: message.receipts.filter(
-          (receipt) =>
-            this.getVisibleReadAt(message, receipt, viewerAccountId) !== null,
-        ).length,
-      },
+      receiptSummary: receiptAggregate
+        ? {
+            total: receiptAggregate.total,
+            delivered: receiptAggregate.delivered,
+            read: receiptAggregate.read,
+          }
+        : {
+            total: message.receipts.length,
+            delivered: message.receipts.filter(
+              (receipt) => receipt.deliveredAt !== null,
+            ).length,
+            read: message.receipts.filter(
+              (receipt) =>
+                this.getVisibleReadAt(message, receipt, viewerAccountId) !== null,
+            ).length,
+          },
 
       reactions:
         message.reactions?.map((reaction) => ({
@@ -2291,6 +2953,12 @@ export class ConversationsService {
             fileSizeBytes: attachment.fileSizeBytes,
             contentType: attachment.contentType,
             scanStatus: attachment.scanStatus,
+            expiresAt: attachment.expiresAt,
+            expiredAt: attachment.expiredAt,
+            isExpired: isAttachmentReferenceExpired(
+              attachment.expiresAt,
+              attachment.expiredAt,
+            ),
             createdAt: attachment.createdAt,
             updatedAt: attachment.updatedAt,
           })),
@@ -2333,6 +3001,8 @@ export class ConversationsService {
     conversation: ConversationRecord,
     viewerAccountId: string,
     unreadCount: number,
+    memberCountOverride?: number,
+    participantsComplete = true,
   ) {
     const viewerParticipant = conversation.participants.find(
       (participant) => participant.accountId === viewerAccountId,
@@ -2403,7 +3073,8 @@ export class ConversationsService {
         conversation.type === ConversationType.GROUP &&
         (viewerParticipant?.role === ConversationParticipantRole.OWNER ||
           viewerParticipant?.role === ConversationParticipantRole.ADMIN),
-      memberCount: activeParticipants.length,
+      memberCount: memberCountOverride ?? activeParticipants.length,
+      participantsComplete,
       participants: activeParticipants.map((participant) => ({
         ...this.serializeAccount(participant.account),
         joinedAt: participant.joinedAt,
@@ -2563,6 +3234,7 @@ export class ConversationsService {
 
   private buildMessageSearchConditions(
     filters: MessageSearchFilters,
+    resolvedSenderAccountIds?: string[],
   ): Prisma.MessageWhereInput[] {
     const andConditions: Prisma.MessageWhereInput[] = [
       {
@@ -2592,7 +3264,90 @@ export class ConversationsService {
     }
 
     if (filters.searchText) {
+      const senderSearchConditions: Prisma.AccountWhereInput[] = [
+        {
+          username: {
+            contains: filters.searchText,
+            mode: 'insensitive',
+          },
+        },
+        {
+          employee: {
+            is: {
+              OR: [
+                {
+                  empName: {
+                    contains: filters.searchText,
+                    mode: 'insensitive',
+                  },
+                },
+                {
+                  empId: {
+                    contains: filters.searchText,
+                    mode: 'insensitive',
+                  },
+                },
+                {
+                  designation: {
+                    contains: filters.searchText,
+                    mode: 'insensitive',
+                  },
+                },
+              ],
+            },
+          },
+        },
+        {
+          superAdminProfile: {
+            is: {
+              OR: [
+                {
+                  fullName: {
+                    contains: filters.searchText,
+                    mode: 'insensitive',
+                  },
+                },
+                {
+                  email: {
+                    contains: filters.searchText,
+                    mode: 'insensitive',
+                  },
+                },
+              ],
+            },
+          },
+        },
+      ];
+
+      // The rendered Super Admin name/email may be configured outside the
+      // database. Match that same identity in message search so searching a
+      // sender by the name shown in the chat header returns their messages.
+      if (this.matchesConfiguredSuperAdminSearch(filters.searchText)) {
+        senderSearchConditions.push({
+          role: AccountRole.SUPER_ADMIN,
+        });
+      }
+
+      const senderCondition: Prisma.MessageWhereInput | null =
+        resolvedSenderAccountIds === undefined
+          ? {
+              sender: {
+                is: {
+                  OR: senderSearchConditions,
+                },
+              },
+            }
+          : resolvedSenderAccountIds.length > 0
+            ? {
+                senderAccountId: {
+                  in: resolvedSenderAccountIds,
+                },
+              }
+            : null;
+
       // Search only approved visible fields so private payload data is not exposed accidentally.
+      // In-conversation search pre-resolves sender identities to account IDs so the
+      // million-row message query does not join employee/profile tables per candidate row.
       andConditions.push({
         OR: [
           {
@@ -2611,51 +3366,103 @@ export class ConversationsService {
               },
             },
           },
-          {
-            sender: {
-              is: {
-                OR: [
-                  {
-                    username: {
-                      contains: filters.searchText,
-                      mode: 'insensitive',
-                    },
-                  },
-                  {
-                    employee: {
-                      is: {
-                        OR: [
-                          {
-                            empName: {
-                              contains: filters.searchText,
-                              mode: 'insensitive',
-                            },
-                          },
-                          {
-                            empId: {
-                              contains: filters.searchText,
-                              mode: 'insensitive',
-                            },
-                          },
-                          {
-                            designation: {
-                              contains: filters.searchText,
-                              mode: 'insensitive',
-                            },
-                          },
-                        ],
-                      },
-                    },
-                  },
-                ],
-              },
-            },
-          },
+          ...(senderCondition ? [senderCondition] : []),
         ],
       });
     }
 
     return andConditions;
+  }
+
+  private async resolveConversationMessageSearchSenderAccountIds(
+    conversationId: string,
+    searchText: string,
+  ): Promise<string[]> {
+    const accountSearchConditions: Prisma.AccountWhereInput[] = [
+      {
+        username: {
+          contains: searchText,
+          mode: 'insensitive',
+        },
+      },
+      {
+        employee: {
+          is: {
+            OR: [
+              {
+                empName: {
+                  contains: searchText,
+                  mode: 'insensitive',
+                },
+              },
+              {
+                empId: {
+                  contains: searchText,
+                  mode: 'insensitive',
+                },
+              },
+              {
+                designation: {
+                  contains: searchText,
+                  mode: 'insensitive',
+                },
+              },
+              {
+                officialEmail: {
+                  contains: searchText,
+                  mode: 'insensitive',
+                },
+              },
+            ],
+          },
+        },
+      },
+      {
+        superAdminProfile: {
+          is: {
+            OR: [
+              {
+                fullName: {
+                  contains: searchText,
+                  mode: 'insensitive',
+                },
+              },
+              {
+                email: {
+                  contains: searchText,
+                  mode: 'insensitive',
+                },
+              },
+            ],
+          },
+        },
+      },
+    ];
+
+    if (this.matchesConfiguredSuperAdminSearch(searchText)) {
+      accountSearchConditions.push({
+        role: AccountRole.SUPER_ADMIN,
+      });
+    }
+
+    // ConversationParticipant is bounded by the conversation membership rather
+    // than message history size. Include former members so their historical
+    // messages remain searchable after they leave a group.
+    const participants = await this.prisma.conversationParticipant.findMany({
+      where: {
+        conversationId,
+        account: {
+          is: {
+            OR: accountSearchConditions,
+          },
+        },
+      },
+      select: {
+        accountId: true,
+      },
+    });
+
+    return participants.map((participant) => participant.accountId);
   }
 
   private buildSearchSnippet(
@@ -2739,6 +3546,12 @@ export class ConversationsService {
     ConversationVisibilityParticipant & {
       role: ConversationParticipantRole;
       deletedFromListAt: Date | null;
+      deliveredThroughMessageId: string | null;
+      deliveredThroughSentAt: Date | null;
+      deliveredThroughAt: Date | null;
+      readThroughMessageId: string | null;
+      readThroughSentAt: Date | null;
+      readThroughAt: Date | null;
       updatedAt: Date;
     }
   > {
@@ -2756,6 +3569,12 @@ export class ConversationsService {
         role: true,
         historyClearedAt: true,
         deletedFromListAt: true,
+        deliveredThroughMessageId: true,
+        deliveredThroughSentAt: true,
+        deliveredThroughAt: true,
+        readThroughMessageId: true,
+        readThroughSentAt: true,
+        readThroughAt: true,
         updatedAt: true,
       },
     });
@@ -2769,6 +3588,12 @@ export class ConversationsService {
       role: participant.role,
       historyClearedAt: participant.historyClearedAt,
       deletedFromListAt: participant.deletedFromListAt,
+      deliveredThroughMessageId: participant.deliveredThroughMessageId,
+      deliveredThroughSentAt: participant.deliveredThroughSentAt,
+      deliveredThroughAt: participant.deliveredThroughAt,
+      readThroughMessageId: participant.readThroughMessageId,
+      readThroughSentAt: participant.readThroughSentAt,
+      readThroughAt: participant.readThroughAt,
       updatedAt: participant.updatedAt,
     };
   }
@@ -2921,13 +3746,15 @@ export class ConversationsService {
       throw new BadRequestException('Attachment file is required.');
     }
 
-    if (!file.buffer || file.size <= 0) {
+    if ((!file.buffer && !file.path) || file.size <= 0) {
       throw new BadRequestException('Attachment file is empty.');
     }
 
     const originalFileName = this.normalizeAttachmentFileName(
       file.originalname,
     );
+
+    assertAttachmentFileMatchesDeclaredType(file);
 
     if (IMAGE_ATTACHMENT_MIME_TYPES.has(file.mimetype)) {
       if (file.size > MAX_IMAGE_ATTACHMENT_BYTES) {
@@ -3034,42 +3861,21 @@ export class ConversationsService {
       : MessageContentType.FILE;
   }
 
-  private resolveAttachmentPath(storageKey: string): string {
-    const absolutePath = path.resolve(
-      MESSAGE_ATTACHMENT_STORAGE_DIR,
-      storageKey,
-    );
-
-    if (
-      !absolutePath.startsWith(`${MESSAGE_ATTACHMENT_STORAGE_DIR}${path.sep}`)
-    ) {
-      throw new BadRequestException('Attachment storage key is invalid.');
-    }
-
-    return absolutePath;
-  }
-
   private async writeAttachmentFile(
     storageKey: string,
     file: UploadedMessageAttachmentFile,
   ): Promise<void> {
-    const absolutePath = this.resolveAttachmentPath(storageKey);
-
-    await fs.mkdir(path.dirname(absolutePath), {
-      recursive: true,
-    });
-
-    await fs.writeFile(absolutePath, file.buffer);
+    await this.attachmentStorageService.writeUploadedFile(
+      'messages',
+      storageKey,
+      file,
+    );
   }
 
   private async deleteAttachmentFileIfExists(
     storageKey: string,
   ): Promise<void> {
-    try {
-      await fs.unlink(this.resolveAttachmentPath(storageKey));
-    } catch {
-      // Attachment cleanup is best-effort. The database remains authoritative.
-    }
+    await this.attachmentStorageService.deleteFile('messages', storageKey);
   }
 
   private async getActiveGroupAccess(
@@ -3141,6 +3947,20 @@ export class ConversationsService {
         'Only a group owner or administrator can manage this group.',
       );
     }
+  }
+
+  /**
+   * Personal groups keep the creator as OWNER. A Super Admin who is explicitly
+   * added to the group receives ADMIN authority, but is never auto-added.
+   * This preserves private-group membership boundaries while applying the
+   * approved governance rule once the account becomes a participant.
+   */
+  private getPersonalGroupMemberRole(
+    accountRole: AccountRole,
+  ): ConversationParticipantRole {
+    return accountRole === AccountRole.SUPER_ADMIN
+      ? ConversationParticipantRole.ADMIN
+      : ConversationParticipantRole.MEMBER;
   }
 
   private async getEligibleGroupAccounts(
@@ -3514,6 +4334,12 @@ export class ConversationsService {
             joinedAt: true,
             leftAt: true,
             role: true,
+            deliveredThroughMessageId: true,
+            deliveredThroughSentAt: true,
+            deliveredThroughAt: true,
+            readThroughMessageId: true,
+            readThroughSentAt: true,
+            readThroughAt: true,
           },
         },
       },
@@ -3608,6 +4434,12 @@ export class ConversationsService {
             ...(current?.leftAt !== null
               ? {
                   joinedAt: now,
+                  deliveredThroughMessageId: null,
+                  deliveredThroughSentAt: null,
+                  deliveredThroughAt: null,
+                  readThroughMessageId: null,
+                  readThroughSentAt: null,
+                  readThroughAt: null,
                 }
               : {}),
             leftAt: null,
@@ -3624,6 +4456,30 @@ export class ConversationsService {
       }
 
       if (removedAccountIds.length > 0) {
+        const removedParticipants = conversation.participants.filter(
+          (participant) => removedAccountIds.includes(participant.accountId),
+        );
+
+        if (removedParticipants.length > 0) {
+          // One compact row preserves this membership period's receipt state.
+          // Storage grows with membership changes, not message x recipient.
+          await transaction.officialGroupReceiptInterval.createMany({
+            data: removedParticipants.map((participant) => ({
+              conversationId,
+              accountId: participant.accountId,
+              joinedAt: participant.joinedAt,
+              leftAt: now,
+              deliveredThroughMessageId:
+                participant.deliveredThroughMessageId,
+              deliveredThroughSentAt: participant.deliveredThroughSentAt,
+              deliveredThroughAt: participant.deliveredThroughAt,
+              readThroughMessageId: participant.readThroughMessageId,
+              readThroughSentAt: participant.readThroughSentAt,
+              readThroughAt: participant.readThroughAt,
+            })),
+          });
+        }
+
         await transaction.conversationParticipant.updateMany({
           where: {
             conversationId,
@@ -4655,11 +5511,123 @@ export class ConversationsService {
         conversationId: true,
         joinedAt: true,
         historyClearedAt: true,
+        conversation: {
+          select: {
+            type: true,
+            groupKind: true,
+          },
+        },
       },
     });
 
     if (memberships.length === 0) {
       return 0;
+    }
+
+    const detailedMemberships = memberships.filter((membership) =>
+      this.usesDetailedMessageReceipts(
+        membership.conversation.type,
+        membership.conversation.groupKind,
+      ),
+    );
+    const officialMemberships = memberships.filter(
+      (membership) =>
+        !this.usesDetailedMessageReceipts(
+          membership.conversation.type,
+          membership.conversation.groupKind,
+        ),
+    );
+
+    const now = new Date();
+    let updatedCount = 0;
+
+    if (officialMemberships.length > 0) {
+      const payload = officialMemberships.map((membership) => {
+        const historyClearedAt = membership.historyClearedAt;
+        const clearBoundaryApplies =
+          historyClearedAt !== null &&
+          historyClearedAt.getTime() >= membership.joinedAt.getTime();
+
+        return {
+          conversationId: membership.conversationId,
+          visibleFrom: (clearBoundaryApplies
+            ? historyClearedAt
+            : membership.joinedAt
+          ).toISOString(),
+          strictAfter: clearBoundaryApplies,
+        };
+      });
+
+      const advanced = await this.prisma.$queryRawUnsafe<
+        Array<{ conversationId: string }>
+      >(
+        `
+          WITH memberships AS (
+            SELECT *
+            FROM jsonb_to_recordset($2::jsonb) AS membership(
+              "conversationId" uuid,
+              "visibleFrom" timestamptz,
+              "strictAfter" boolean
+            )
+          ),
+          latest_visible AS (
+            SELECT
+              membership."conversationId",
+              latest.id AS "messageId",
+              latest.sent_at AS "sentAt"
+            FROM memberships AS membership
+            CROSS JOIN LATERAL (
+              SELECT message.id, message.sent_at
+              FROM messages AS message
+              WHERE message.conversation_id = membership."conversationId"
+                AND (
+                  (membership."strictAfter" AND message.sent_at > membership."visibleFrom")
+                  OR
+                  (NOT membership."strictAfter" AND message.sent_at >= membership."visibleFrom")
+                )
+                AND NOT EXISTS (
+                  SELECT 1
+                  FROM message_hidden_for_accounts AS hidden
+                  WHERE hidden.message_id = message.id
+                    AND hidden.account_id = $1::uuid
+                )
+              ORDER BY message.sent_at DESC, message.id DESC
+              LIMIT 1
+            ) AS latest
+          ),
+          advanced AS (
+            UPDATE conversation_participants AS participant
+            SET
+              delivered_through_message_id = latest."messageId",
+              delivered_through_sent_at = latest."sentAt",
+              delivered_through_at = $3::timestamptz
+            FROM latest_visible AS latest
+            WHERE participant.conversation_id = latest."conversationId"
+              AND participant.account_id = $1::uuid
+              AND (
+                participant.delivered_through_sent_at IS NULL
+                OR latest."sentAt" > participant.delivered_through_sent_at
+                OR (
+                  latest."sentAt" = participant.delivered_through_sent_at
+                  AND (
+                    participant.delivered_through_message_id IS NULL
+                    OR latest."messageId" > participant.delivered_through_message_id
+                  )
+                )
+              )
+            RETURNING participant.conversation_id AS "conversationId"
+          )
+          SELECT "conversationId" FROM advanced
+        `,
+        accountId,
+        JSON.stringify(payload),
+        now.toISOString(),
+      );
+      updatedCount += advanced.length;
+    }
+
+    if (detailedMemberships.length === 0) {
+      return updatedCount;
     }
 
     const pendingReceipts = await this.prisma.messageReceipt.findMany({
@@ -4668,7 +5636,7 @@ export class ConversationsService {
         deliveredAt: null,
         message: {
           is: {
-            OR: memberships.map((membership) =>
+            OR: detailedMemberships.map((membership) =>
               buildMembershipMessageVisibilityWhere(membership),
             ),
             hiddenForAccounts: {
@@ -4693,10 +5661,8 @@ export class ConversationsService {
     });
 
     if (pendingReceipts.length === 0) {
-      return 0;
+      return updatedCount;
     }
-
-    const now = new Date();
 
     const result = await this.prisma.messageReceipt.updateMany({
       where: {
@@ -4746,7 +5712,7 @@ export class ConversationsService {
       });
     }
 
-    return result.count;
+    return updatedCount + result.count;
   }
 
   private async getConversationRecord(
@@ -5260,6 +6226,7 @@ export class ConversationsService {
     ]);
 
     const now = new Date();
+    const joiningRole = this.getPersonalGroupMemberRole(viewer.role);
 
     await this.prisma.$transaction([
       this.prisma.conversationParticipant.upsert({
@@ -5272,14 +6239,14 @@ export class ConversationsService {
         update: {
           joinedAt: now,
           leftAt: null,
-          role: ConversationParticipantRole.MEMBER,
+          role: joiningRole,
           isArchived: false,
         },
         create: {
           conversationId: invitation.conversationId,
           accountId: viewer.accountId,
           joinedAt: now,
-          role: ConversationParticipantRole.MEMBER,
+          role: joiningRole,
         },
       }),
       this.prisma.conversation.update({
@@ -5327,6 +6294,10 @@ export class ConversationsService {
         scanStatus: {
           notIn: ['FAILED', 'QUARANTINED'],
         },
+        expiredAt: null,
+        expiresAt: {
+          gt: new Date(),
+        },
         message: {
           conversationId,
           deletedAt: null,
@@ -5363,7 +6334,13 @@ export class ConversationsService {
       select: messageSelect,
     });
 
-    const media = attachments
+    const accessibleAttachments = attachments.filter((attachment) =>
+      this.attachmentSecurityService.canAccessStoredAttachment(
+        attachment.scanStatus,
+      ),
+    );
+
+    const media = accessibleAttachments
       .filter(
         (attachment) =>
           attachment.contentType === MessageContentType.IMAGE ||
@@ -5377,7 +6354,7 @@ export class ConversationsService {
         ),
       );
 
-    const documents = attachments
+    const documents = accessibleAttachments
       .filter(
         (attachment) =>
           attachment.contentType !== MessageContentType.IMAGE &&
@@ -5431,6 +6408,12 @@ export class ConversationsService {
     );
 
     const conversation = await this.getConversationRecord(conversationId);
+    const resolvedSenderAccountIds = filters.searchText
+      ? await this.resolveConversationMessageSearchSenderAccountIds(
+          conversationId,
+          filters.searchText,
+        )
+      : undefined;
 
     const messages = await this.prisma.message.findMany({
       where: {
@@ -5442,7 +6425,10 @@ export class ConversationsService {
               viewerParticipant,
             ),
           },
-          ...this.buildMessageSearchConditions(filters),
+          ...this.buildMessageSearchConditions(
+            filters,
+            resolvedSenderAccountIds,
+          ),
         ],
       },
 
@@ -6040,47 +7026,78 @@ export class ConversationsService {
     ];
 
     if (search) {
+      const searchConditions: Prisma.AccountWhereInput[] = [
+        {
+          username: {
+            contains: search,
+            mode: 'insensitive',
+          },
+        },
+        {
+          employee: {
+            is: {
+              OR: [
+                {
+                  empId: {
+                    contains: search,
+                    mode: 'insensitive',
+                  },
+                },
+                {
+                  empName: {
+                    contains: search,
+                    mode: 'insensitive',
+                  },
+                },
+                {
+                  designation: {
+                    contains: search,
+                    mode: 'insensitive',
+                  },
+                },
+                {
+                  officialEmail: {
+                    contains: search,
+                    mode: 'insensitive',
+                  },
+                },
+              ],
+            },
+          },
+        },
+        {
+          superAdminProfile: {
+            is: {
+              OR: [
+                {
+                  fullName: {
+                    contains: search,
+                    mode: 'insensitive',
+                  },
+                },
+                {
+                  email: {
+                    contains: search,
+                    mode: 'insensitive',
+                  },
+                },
+              ],
+            },
+          },
+        },
+      ];
+
+      // The visible Super Admin identity may be configured outside PostgreSQL.
+      // Include that system account when the query matches the actual displayed
+      // name/email so contact search and profile rendering stay consistent.
+      if (this.matchesConfiguredSuperAdminSearch(search)) {
+        searchConditions.push({
+          role: AccountRole.SUPER_ADMIN,
+        });
+      }
+
       andConditions.push({
-        OR: [
-          {
-            username: {
-              contains: search,
-              mode: 'insensitive',
-            },
-          },
-          {
-            employee: {
-              is: {
-                OR: [
-                  {
-                    empId: {
-                      contains: search,
-                      mode: 'insensitive',
-                    },
-                  },
-                  {
-                    empName: {
-                      contains: search,
-                      mode: 'insensitive',
-                    },
-                  },
-                  {
-                    designation: {
-                      contains: search,
-                      mode: 'insensitive',
-                    },
-                  },
-                  {
-                    officialEmail: {
-                      contains: search,
-                      mode: 'insensitive',
-                    },
-                  },
-                ],
-              },
-            },
-          },
-        ],
+        OR: searchConditions,
       });
     }
 
@@ -6328,6 +7345,13 @@ export class ConversationsService {
       ...originalAccountIds,
       ...newMembers.map((member) => member.id),
     ];
+    const participantGlobalRoles = new Map<string, AccountRole>([
+      ...sourceConversation.participants.map(
+        (participant) =>
+          [participant.accountId, participant.account.role] as const,
+      ),
+      ...newMembers.map((member) => [member.id, member.role] as const),
+    ]);
 
     await this.assertNoPersonalGroupBlocks(participantAccountIds);
 
@@ -6404,7 +7428,10 @@ export class ConversationsService {
                 role:
                   accountId === viewer.accountId
                     ? ConversationParticipantRole.OWNER
-                    : ConversationParticipantRole.MEMBER,
+                    : this.getPersonalGroupMemberRole(
+                        participantGlobalRoles.get(accountId) ??
+                          AccountRole.EMPLOYEE,
+                      ),
               })),
             },
           },
@@ -6438,6 +7465,13 @@ export class ConversationsService {
                   fileSizeBytes: attachment.fileSizeBytes,
                   contentType: attachment.contentType,
                   scanStatus: attachment.scanStatus,
+                  // A copied history item is a new logical reference. Start
+                  // its retention window when the personal group is created.
+                  expiresAt: getMessageAttachmentExpiresAt(
+                    ConversationType.GROUP,
+                    GroupKind.PERSONAL,
+                    now,
+                  ),
                 })),
               },
               receipts: {
@@ -6559,7 +7593,7 @@ export class ConversationsService {
                 },
                 ...members.map((member) => ({
                   accountId: member.id,
-                  role: ConversationParticipantRole.MEMBER,
+                  role: this.getPersonalGroupMemberRole(member.role),
                 })),
               ],
             },
@@ -6585,6 +7619,143 @@ export class ConversationsService {
     return {
       message: 'Group created successfully.',
       data: this.serializeConversation(conversation, viewer.accountId, 0),
+    };
+  }
+
+  async deleteGroupConversation(
+    user: AuthenticatedUser,
+    conversationId: string,
+  ) {
+    const viewer = await this.getMessagingViewer(user);
+    const access = await this.getActiveGroupAccess(
+      viewer.accountId,
+      conversationId,
+    );
+
+    if (access.conversation.groupKind === GroupKind.PERSONAL) {
+      if (
+        access.viewerParticipant.role !== ConversationParticipantRole.OWNER
+      ) {
+        throw new ForbiddenException(
+          'Only the personal group owner can delete this group.',
+        );
+      }
+    } else if (access.conversation.groupKind === GroupKind.OFFICIAL) {
+      /*
+       * Official organization/division/department groups are synchronized with
+       * the Super Admin as OWNER. Deletion is therefore a Super Admin owner-only
+       * governance action and never mutates the underlying organization tree.
+       */
+      if (
+        viewer.role !== AccountRole.SUPER_ADMIN ||
+        access.viewerParticipant.role !== ConversationParticipantRole.OWNER
+      ) {
+        throw new ForbiddenException(
+          'Only the Super Admin owner can delete an official group.',
+        );
+      }
+    } else {
+      throw new ConflictException('This conversation is not a deletable group.');
+    }
+
+    const attachmentRows = await this.prisma.messageAttachment.findMany({
+      where: {
+        message: {
+          conversationId,
+        },
+      },
+      select: {
+        storageKey: true,
+      },
+      distinct: ['storageKey'],
+    });
+
+    const storageKeys = attachmentRows.map(
+      (attachment) => attachment.storageKey,
+    );
+    const participantAccountIds = access.conversation.participants.map(
+      (participant) => participant.accountId,
+    );
+    const groupPhotoKey = access.conversation.groupPhotoKey;
+    const deletedAt = new Date();
+
+    const unreferencedStorageKeys = await this.prisma.$transaction(
+      async (transaction) => {
+        /*
+         * Forwarded messages can reference the same physical attachment. Lock
+         * those storage keys before the group cascade so another conversation's
+         * valid attachment is never removed with this group.
+         */
+        await this.conversationStorageService.lockStorageKeys(
+          transaction,
+          storageKeys,
+        );
+
+        if (access.conversation.groupKind === GroupKind.OFFICIAL) {
+          /*
+           * Announcement -> officialConversation uses a restrictive foreign key.
+           * Recheck publishing state inside this transaction so a concurrent
+           * publisher cannot race the group deletion.
+           */
+          const publishingAnnouncementCount =
+            await transaction.announcement.count({
+              where: {
+                officialConversationId: conversationId,
+                status: AnnouncementStatus.PUBLISHING,
+              },
+            });
+
+          if (publishingAnnouncementCount > 0) {
+            throw new ConflictException(
+              'This official group cannot be deleted while an announcement is being published.',
+            );
+          }
+
+          /*
+           * Linked official-group announcements belong to this messaging group,
+           * so remove them before the conversation. Existing announcement orphan
+           * cleanup safely removes their physical attachment directories.
+           */
+          await transaction.announcement.deleteMany({
+            where: {
+              officialConversationId: conversationId,
+            },
+          });
+        }
+
+        await transaction.conversation.delete({
+          where: {
+            id: conversationId,
+          },
+        });
+
+        return this.conversationStorageService.findUnreferencedStorageKeys(
+          transaction,
+          storageKeys,
+        );
+      },
+    );
+
+    // The database is authoritative; physical cleanup runs only after commit.
+    await this.conversationStorageService.deletePhysicalStorageObjects(
+      unreferencedStorageKeys,
+    );
+    await this.deleteGroupPhotoIfExists(groupPhotoKey);
+
+    this.messagingEventsService.emitConversationUpdated(participantAccountIds, {
+      conversationId,
+      reason: 'GROUP_DELETED',
+      occurredAt: deletedAt.toISOString(),
+    });
+
+    return {
+      message:
+        access.conversation.groupKind === GroupKind.OFFICIAL
+          ? 'Official group deleted successfully.'
+          : 'Group deleted successfully.',
+      conversationId,
+      groupKind: access.conversation.groupKind,
+      deletedAt,
     };
   }
 
@@ -6896,14 +8067,14 @@ export class ConversationsService {
           update: {
             joinedAt: now,
             leftAt: null,
-            role: ConversationParticipantRole.MEMBER,
+            role: this.getPersonalGroupMemberRole(member.role),
             isArchived: false,
           },
           create: {
             conversationId,
             accountId: member.id,
             joinedAt: now,
-            role: ConversationParticipantRole.MEMBER,
+            role: this.getPersonalGroupMemberRole(member.role),
           },
         });
       }
@@ -6974,6 +8145,24 @@ export class ConversationsService {
     if (target.role === ConversationParticipantRole.OWNER) {
       throw new ForbiddenException(
         'The group owner role cannot be changed here.',
+      );
+    }
+
+    const targetAccount = await this.prisma.account.findUnique({
+      where: {
+        id: accountId,
+      },
+      select: {
+        role: true,
+      },
+    });
+
+    if (
+      targetAccount?.role === AccountRole.SUPER_ADMIN &&
+      dto.role !== 'ADMIN'
+    ) {
+      throw new ForbiddenException(
+        'The Super Admin remains a group administrator while they are a member.',
       );
     }
 
@@ -7718,6 +8907,168 @@ export class ConversationsService {
     };
   }
 
+  private async getConversationListStats(
+    accountId: string,
+    memberships: ConversationListMembershipInput[],
+  ): Promise<ConversationListStatsRow[]> {
+    if (memberships.length === 0) {
+      return [];
+    }
+
+    /*
+     * Keep the list query count constant as the page grows. Private/personal
+     * chats keep detailed MessageReceipt rows; official groups count unread
+     * messages from the participant's read watermark instead of requiring a
+     * receipt row for every message x recipient.
+     */
+    const membershipPayload = memberships.map((membership) => {
+      const historyClearedAt = membership.historyClearedAt;
+      const clearBoundaryApplies =
+        historyClearedAt !== null &&
+        historyClearedAt.getTime() >= membership.joinedAt.getTime();
+
+      return {
+        conversationId: membership.conversationId,
+        visibleFrom: (clearBoundaryApplies
+          ? historyClearedAt
+          : membership.joinedAt
+        ).toISOString(),
+        strictAfter: clearBoundaryApplies,
+        isOfficial: membership.groupKind === GroupKind.OFFICIAL,
+        readThroughSentAt: membership.readThroughSentAt?.toISOString() ?? null,
+        readThroughMessageId: membership.readThroughMessageId,
+      };
+    });
+
+    return this.prisma.$queryRawUnsafe<ConversationListStatsRow[]>(
+      `
+        WITH memberships AS (
+          SELECT *
+          FROM jsonb_to_recordset($2::jsonb) AS membership(
+            "conversationId" uuid,
+            "visibleFrom" timestamptz,
+            "strictAfter" boolean,
+            "isOfficial" boolean,
+            "readThroughSentAt" timestamptz,
+            "readThroughMessageId" uuid
+          )
+        ),
+        latest_messages AS (
+          SELECT
+            membership."conversationId",
+            (
+              SELECT message.id
+              FROM messages AS message
+              WHERE message.conversation_id = membership."conversationId"
+                AND (
+                  (membership."strictAfter" AND message.sent_at > membership."visibleFrom")
+                  OR
+                  (NOT membership."strictAfter" AND message.sent_at >= membership."visibleFrom")
+                )
+                AND NOT EXISTS (
+                  SELECT 1
+                  FROM message_hidden_for_accounts AS hidden
+                  WHERE hidden.message_id = message.id
+                    AND hidden.account_id = $1::uuid
+                )
+              ORDER BY message.sent_at DESC, message.id DESC
+              LIMIT 1
+            ) AS "lastMessageId"
+          FROM memberships AS membership
+        ),
+        unread_counts AS (
+          SELECT
+            membership."conversationId",
+            COUNT(message.id)::int AS "unreadCount"
+          FROM memberships AS membership
+          INNER JOIN messages AS message
+            ON message.conversation_id = membership."conversationId"
+          WHERE message.deleted_at IS NULL
+            AND message.sender_account_id <> $1::uuid
+            AND (
+              (membership."strictAfter" AND message.sent_at > membership."visibleFrom")
+              OR
+              (NOT membership."strictAfter" AND message.sent_at >= membership."visibleFrom")
+            )
+            AND NOT EXISTS (
+              SELECT 1
+              FROM message_hidden_for_accounts AS hidden
+              WHERE hidden.message_id = message.id
+                AND hidden.account_id = $1::uuid
+            )
+            AND (
+              (
+                membership."isOfficial"
+                AND (
+                  membership."readThroughSentAt" IS NULL
+                  OR message.sent_at > membership."readThroughSentAt"
+                  OR (
+                    message.sent_at = membership."readThroughSentAt"
+                    AND (
+                      membership."readThroughMessageId" IS NULL
+                      OR message.id > membership."readThroughMessageId"
+                    )
+                  )
+                )
+              )
+              OR
+              (
+                NOT membership."isOfficial"
+                AND EXISTS (
+                  SELECT 1
+                  FROM message_receipts AS receipt
+                  WHERE receipt.message_id = message.id
+                    AND receipt.account_id = $1::uuid
+                    AND receipt.read_at IS NULL
+                )
+              )
+            )
+          GROUP BY membership."conversationId"
+        )
+        SELECT
+          membership."conversationId",
+          latest."lastMessageId",
+          COALESCE(unread."unreadCount", 0)::int AS "unreadCount"
+        FROM memberships AS membership
+        LEFT JOIN latest_messages AS latest
+          ON latest."conversationId" = membership."conversationId"
+        LEFT JOIN unread_counts AS unread
+          ON unread."conversationId" = membership."conversationId"
+      `,
+      accountId,
+      JSON.stringify(membershipPayload),
+    );
+  }
+
+  private toOfficialGroupMessageRecord(
+    message: OfficialGroupMessageRecord,
+  ): MessageRecord {
+    return {
+      ...message,
+      receipts: [],
+    };
+  }
+
+  private toConversationListMessageRecord(
+    message: ConversationListMessageRecord,
+  ): MessageRecord {
+    /*
+     * Sidebar previews do not render delivery/read/reaction/star/pin details.
+     * Fill those relations with empty values so the canonical message
+     * serializer can keep the existing API shape without loading thousands of
+     * recipient receipt rows for a large group.
+     */
+    return {
+      ...message,
+      replyTo: null,
+      receipts: [],
+      hiddenForAccounts: [],
+      reactions: [],
+      stars: [],
+      pins: [],
+    };
+  }
+
   async listConversations(
     user: AuthenticatedUser,
     query: ListConversationsQueryDto,
@@ -7730,6 +9081,24 @@ export class ConversationsService {
       'MESSAGING_ACCESS',
     );
 
+    if (query.folderId) {
+      const ownedFolder = await this.prisma.chatFolder.findFirst({
+        where: {
+          id: query.folderId,
+          accountId: viewer.accountId,
+        },
+        select: {
+          id: true,
+        },
+      });
+
+      if (!ownedFolder) {
+        // A list ID is account-private. Return not-found rather than exposing
+        // whether another user's list exists.
+        throw new NotFoundException('Message list was not found.');
+      }
+    }
+
     const take = query.limit + 1;
     const participantListFilter =
       query.view === 'ALL'
@@ -7740,24 +9109,46 @@ export class ConversationsService {
             ? { isArchived: false, isFavorite: true }
             : { isArchived: false };
 
-    const conversations = await this.prisma.conversation.findMany({
+    /*
+     * Conversation list order is viewer-specific because pin state belongs to
+     * ConversationParticipant. Paginating Conversation first and sorting pins
+     * afterwards can move the cursor boundary and skip/duplicate rows between
+     * pages. Query the viewer's participant rows so PostgreSQL applies the
+     * complete order before the cursor and limit are evaluated.
+     */
+    const participantRows = await this.prisma.conversationParticipant.findMany({
       where: {
-        participants: {
-          some: {
-            accountId: viewer.accountId,
-            leftAt: null,
-            deletedFromListAt: null,
-            ...participantListFilter,
-          },
-        },
+        accountId: viewer.accountId,
+        leftAt: null,
+        deletedFromListAt: null,
+        ...participantListFilter,
+        ...(query.folderId
+          ? {
+              conversation: {
+                chatFolderItems: {
+                  some: {
+                    folderId: query.folderId,
+                    folder: {
+                      accountId: viewer.accountId,
+                    },
+                  },
+                },
+              },
+            }
+          : {}),
       },
 
       orderBy: [
         {
-          updatedAt: 'desc',
+          isPinned: 'desc',
         },
         {
-          id: 'desc',
+          conversation: {
+            updatedAt: 'desc',
+          },
+        },
+        {
+          conversationId: 'desc',
         },
       ],
 
@@ -7766,118 +9157,215 @@ export class ConversationsService {
       ...(query.cursor
         ? {
             cursor: {
-              id: query.cursor,
+              conversationId_accountId: {
+                conversationId: query.cursor,
+                accountId: viewer.accountId,
+              },
             },
             skip: 1,
           }
         : {}),
 
-      select: conversationSelect,
+      select: {
+        accountId: true,
+        joinedAt: true,
+        leftAt: true,
+        role: true,
+        isMuted: true,
+        isArchived: true,
+        isPinned: true,
+        isFavorite: true,
+        pinnedAt: true,
+        favoritedAt: true,
+        mutedUntil: true,
+        archivedAt: true,
+        markedUnreadAt: true,
+        historyClearedAt: true,
+        deliveredThroughMessageId: true,
+        deliveredThroughSentAt: true,
+        deliveredThroughAt: true,
+        readThroughMessageId: true,
+        readThroughSentAt: true,
+        readThroughAt: true,
+        deletedFromListAt: true,
+        draftText: true,
+        draftUpdatedAt: true,
+        account: {
+          select: messagingAccountSelect,
+        },
+        conversation: {
+          // Conversation-list pages need metadata only. Loading every
+          // participant here makes a single 10,000-member official group
+          // expand the sidebar response by 10,000 account records.
+          select: conversationListConversationSelect,
+        },
+      },
     });
 
-    const sortedConversations = [...conversations].sort((first, second) => {
-      const firstParticipant = first.participants.find(
-        (participant) => participant.accountId === viewer.accountId,
-      );
-      const secondParticipant = second.participants.find(
-        (participant) => participant.accountId === viewer.accountId,
-      );
-
-      if (
-        (firstParticipant?.isPinned ?? false) !==
-        (secondParticipant?.isPinned ?? false)
-      ) {
-        return firstParticipant?.isPinned ? -1 : 1;
-      }
-
-      return (
-        new Date(second.updatedAt).getTime() -
-        new Date(first.updatedAt).getTime()
-      );
-    });
-
-    const hasMore = sortedConversations.length > query.limit;
-    const page = hasMore
-      ? sortedConversations.slice(0, query.limit)
-      : sortedConversations;
+    const hasMore = participantRows.length > query.limit;
+    const participantPage = hasMore
+      ? participantRows.slice(0, query.limit)
+      : participantRows;
+    const page = participantPage.map((item) => item.conversation);
 
     const conversationIds = page.map((conversation) => conversation.id);
+    const boundedParticipantConversationIds = page
+      .filter(
+        (conversation) =>
+          conversation.type === ConversationType.PRIVATE ||
+          conversation.groupKind === GroupKind.PERSONAL,
+      )
+      .map((conversation) => conversation.id);
+
+    const boundedParticipantsPromise: Promise<
+      ConversationListParticipantRecord[]
+    > =
+      boundedParticipantConversationIds.length === 0
+        ? Promise.resolve([])
+        : this.prisma.conversationParticipant.findMany({
+            where: {
+              conversationId: {
+                in: boundedParticipantConversationIds,
+              },
+              leftAt: null,
+            },
+            orderBy: [
+              { conversationId: 'asc' },
+              { joinedAt: 'asc' },
+              { accountId: 'asc' },
+            ],
+            select: {
+              conversationId: true,
+              accountId: true,
+              joinedAt: true,
+              leftAt: true,
+              role: true,
+              isMuted: true,
+              isArchived: true,
+              isPinned: true,
+              isFavorite: true,
+              pinnedAt: true,
+              favoritedAt: true,
+              mutedUntil: true,
+              archivedAt: true,
+              markedUnreadAt: true,
+              historyClearedAt: true,
+              deletedFromListAt: true,
+              draftText: true,
+              draftUpdatedAt: true,
+              account: {
+                select: messagingAccountSelect,
+              },
+            },
+          });
+
+    const memberCountsPromise =
+      conversationIds.length === 0
+        ? Promise.resolve([])
+        : this.prisma.conversationParticipant.groupBy({
+            by: ['conversationId'],
+            where: {
+              conversationId: {
+                in: conversationIds,
+              },
+              leftAt: null,
+            },
+            _count: {
+              _all: true,
+            },
+          });
+
+    const [boundedParticipants, memberCounts] = await Promise.all([
+      boundedParticipantsPromise,
+      memberCountsPromise,
+    ]);
+    const participantsByConversationId = new Map<
+      string,
+      typeof boundedParticipants
+    >();
+
+    boundedParticipants.forEach((participant) => {
+      const current =
+        participantsByConversationId.get(participant.conversationId) ?? [];
+      current.push(participant);
+      participantsByConversationId.set(participant.conversationId, current);
+    });
+
+    const memberCountByConversationId = new Map(
+      memberCounts.map((item) => [item.conversationId, item._count._all]),
+    );
+    const viewerParticipantByConversationId = new Map(
+      participantPage.map((participant) => [
+        participant.conversation.id,
+        participant,
+      ]),
+    );
 
     await this.markReceiptsDelivered(viewer.accountId, conversationIds);
 
-    const [unreadCounts, visibleLastMessages] = await Promise.all([
-      Promise.all(
-        page.map((conversation) => {
-          const participant = conversation.participants.find(
-            (item) => item.accountId === viewer.accountId,
-          );
+    const stats = await this.getConversationListStats(
+      viewer.accountId,
+      participantPage.map((participant) => ({
+        conversationId: participant.conversation.id,
+        joinedAt: participant.joinedAt,
+        historyClearedAt: participant.historyClearedAt,
+        groupKind: participant.conversation.groupKind,
+        readThroughMessageId: participant.readThroughMessageId,
+        readThroughSentAt: participant.readThroughSentAt,
+      })),
+    );
+    const statsByConversationId = new Map(
+      stats.map((item) => [item.conversationId, item]),
+    );
+    const lastMessageIds = stats
+      .map((item) => item.lastMessageId)
+      .filter((messageId): messageId is string => Boolean(messageId));
 
-          if (!participant) {
-            return 0;
-          }
-
-          return this.prisma.messageReceipt.count({
+    const lastMessages =
+      lastMessageIds.length === 0
+        ? []
+        : await this.prisma.message.findMany({
             where: {
-              accountId: viewer.accountId,
-              readAt: null,
-
-              message: {
-                is: {
-                  conversationId: conversation.id,
-                  deletedAt: null,
-                  ...buildViewerMessageVisibilityWhere(
-                    viewer.accountId,
-                    participant,
-                  ),
-                },
+              id: {
+                in: lastMessageIds,
               },
             },
+            select: conversationListMessageSelect,
           });
-        }),
-      ),
-      Promise.all(
-        page.map((conversation) => {
-          const participant = conversation.participants.find(
-            (item) => item.accountId === viewer.accountId,
-          );
-
-          if (!participant) {
-            return null;
-          }
-
-          return this.prisma.message.findFirst({
-            where: {
-              conversationId: conversation.id,
-              ...buildViewerMessageVisibilityWhere(
-                viewer.accountId,
-                participant,
-              ),
-            },
-            orderBy: [
-              {
-                sentAt: 'desc',
-              },
-              {
-                id: 'desc',
-              },
-            ],
-            select: messageSelect,
-          });
-        }),
-      ),
-    ]);
+    const lastMessageById = new Map(
+      lastMessages.map((message) => [message.id, message]),
+    );
 
     return {
-      data: page.map((conversation, index) => {
-        const visibleLastMessage = visibleLastMessages[index];
+      data: page.map((conversation) => {
+        const conversationStats = statsByConversationId.get(conversation.id);
+        const previewMessage = conversationStats?.lastMessageId
+          ? (lastMessageById.get(conversationStats.lastMessageId) ?? null)
+          : null;
+
+        const viewerParticipant = viewerParticipantByConversationId.get(
+          conversation.id,
+        );
+        const participants =
+          conversation.groupKind === GroupKind.OFFICIAL
+            ? viewerParticipant
+              ? [viewerParticipant]
+              : []
+            : (participantsByConversationId.get(conversation.id) ?? []);
 
         return this.serializeConversation(
           {
             ...conversation,
-            messages: visibleLastMessage ? [visibleLastMessage] : [],
+            participants,
+            messages: previewMessage
+              ? [this.toConversationListMessageRecord(previewMessage)]
+              : [],
           },
           viewer.accountId,
-          unreadCounts[index] ?? 0,
+          conversationStats?.unreadCount ?? 0,
+          memberCountByConversationId.get(conversation.id) ??
+            participants.length,
+          conversation.groupKind !== GroupKind.OFFICIAL,
         );
       }),
       pagination: {
@@ -7885,6 +9373,193 @@ export class ConversationsService {
         hasMore,
         nextCursor:
           hasMore && page.length > 0 ? page[page.length - 1].id : null,
+      },
+    };
+  }
+
+  async listGroupMembers(
+    user: AuthenticatedUser,
+    conversationId: string,
+    query: ListGroupMembersQueryDto,
+  ) {
+    const viewer = await this.getMessagingViewer(user);
+
+    await this.synchronizeOfficialGroupsForAccountSafely(
+      viewer.accountId,
+      viewer.accountId,
+      'MESSAGING_ACCESS',
+    );
+
+    await this.assertActiveParticipant(viewer.accountId, conversationId);
+
+    const conversation = await this.prisma.conversation.findUnique({
+      where: {
+        id: conversationId,
+      },
+      select: {
+        type: true,
+      },
+    });
+
+    if (!conversation || conversation.type !== ConversationType.GROUP) {
+      throw new NotFoundException('Group conversation was not found.');
+    }
+
+    const search = query.search?.trim() ?? '';
+    const accountSearchConditions: Prisma.AccountWhereInput[] = [];
+
+    if (search) {
+      accountSearchConditions.push(
+        {
+          username: {
+            contains: search,
+            mode: 'insensitive',
+          },
+        },
+        {
+          employee: {
+            is: {
+              OR: [
+                {
+                  empId: {
+                    contains: search,
+                    mode: 'insensitive',
+                  },
+                },
+                {
+                  empName: {
+                    contains: search,
+                    mode: 'insensitive',
+                  },
+                },
+                {
+                  designation: {
+                    contains: search,
+                    mode: 'insensitive',
+                  },
+                },
+                {
+                  officialEmail: {
+                    contains: search,
+                    mode: 'insensitive',
+                  },
+                },
+                {
+                  departmentUnit: {
+                    is: {
+                      name: {
+                        contains: search,
+                        mode: 'insensitive',
+                      },
+                    },
+                  },
+                },
+                {
+                  division: {
+                    is: {
+                      name: {
+                        contains: search,
+                        mode: 'insensitive',
+                      },
+                    },
+                  },
+                },
+              ],
+            },
+          },
+        },
+        {
+          superAdminProfile: {
+            is: {
+              OR: [
+                {
+                  fullName: {
+                    contains: search,
+                    mode: 'insensitive',
+                  },
+                },
+                {
+                  email: {
+                    contains: search,
+                    mode: 'insensitive',
+                  },
+                },
+              ],
+            },
+          },
+        },
+      );
+
+      if (this.matchesConfiguredSuperAdminSearch(search)) {
+        accountSearchConditions.push({
+          role: AccountRole.SUPER_ADMIN,
+        });
+      }
+    }
+
+    const rows = await this.prisma.conversationParticipant.findMany({
+      where: {
+        conversationId,
+        leftAt: null,
+        ...(accountSearchConditions.length > 0
+          ? {
+              account: {
+                is: {
+                  OR: accountSearchConditions,
+                },
+              },
+            }
+          : {}),
+      },
+      take: query.limit + 1,
+      ...(query.cursor
+        ? {
+            cursor: {
+              conversationId_accountId: {
+                conversationId,
+                accountId: query.cursor,
+              },
+            },
+            skip: 1,
+          }
+        : {}),
+      orderBy: [
+        {
+          role: 'asc',
+        },
+        {
+          joinedAt: 'asc',
+        },
+        {
+          accountId: 'asc',
+        },
+      ],
+      select: {
+        accountId: true,
+        joinedAt: true,
+        role: true,
+        account: {
+          select: messagingAccountSelect,
+        },
+      },
+    });
+
+    const hasMore = rows.length > query.limit;
+    const page = hasMore ? rows.slice(0, query.limit) : rows;
+
+    return {
+      data: page.map((participant) => ({
+        ...this.serializeAccount(participant.account),
+        joinedAt: participant.joinedAt,
+        participantRole: participant.role,
+      })),
+      pagination: {
+        limit: query.limit,
+        hasMore,
+        nextCursor:
+          hasMore && page.length > 0
+            ? page[page.length - 1].accountId
+            : null,
       },
     };
   }
@@ -7900,40 +9575,97 @@ export class ConversationsService {
       viewer.accountId,
       conversationId,
     );
+    const conversation = await this.prisma.conversation.findUnique({
+      where: { id: conversationId },
+      select: {
+        type: true,
+        groupKind: true,
+      },
+    });
+
+    if (!conversation) {
+      throw new NotFoundException('Conversation was not found.');
+    }
 
     await this.markReceiptsDelivered(viewer.accountId, [conversationId]);
 
-    const messages = await this.prisma.message.findMany({
+    const usesDetailedReceipts = this.usesDetailedMessageReceipts(
+      conversation.type,
+      conversation.groupKind,
+    );
+
+    /*
+     * M-FINAL-1.5E: resolve the opaque message UUID to the ordered keyset
+     * boundary explicitly. The hot history index is
+     * (conversation_id, sent_at, id), so old-page retrieval stays predictable
+     * even when one conversation grows to millions of rows. A cursor from a
+     * different conversation is rejected instead of being allowed to influence
+     * this conversation's page boundary.
+     */
+    const cursorMessage = query.cursor
+      ? await this.prisma.message.findUnique({
+          where: { id: query.cursor },
+          select: {
+            id: true,
+            conversationId: true,
+            sentAt: true,
+          },
+        })
+      : null;
+
+    if (
+      query.cursor &&
+      (!cursorMessage || cursorMessage.conversationId !== conversationId)
+    ) {
+      throw new BadRequestException(
+        'Message cursor does not belong to this conversation.',
+      );
+    }
+
+    const keysetBoundary = cursorMessage
+      ? {
+          OR: [
+            { sentAt: { lt: cursorMessage.sentAt } },
+            {
+              sentAt: cursorMessage.sentAt,
+              id: { lt: cursorMessage.id },
+            },
+          ],
+        }
+      : {};
+
+    const messageQuery = {
       where: {
         conversationId,
         ...buildViewerMessageVisibilityWhere(
           viewer.accountId,
           viewerParticipant,
         ),
+        ...keysetBoundary,
       },
 
       orderBy: [
         {
-          sentAt: 'desc',
+          sentAt: 'desc' as const,
         },
         {
-          id: 'desc',
+          id: 'desc' as const,
         },
       ],
 
       take: query.limit + 1,
-
-      ...(query.cursor
-        ? {
-            cursor: {
-              id: query.cursor,
-            },
-            skip: 1,
-          }
-        : {}),
-
-      select: messageSelect,
-    });
+    };
+    const messages: MessageRecord[] = usesDetailedReceipts
+      ? await this.prisma.message.findMany({
+          ...messageQuery,
+          select: messageSelect,
+        })
+      : (
+          await this.prisma.message.findMany({
+            ...messageQuery,
+            select: officialGroupMessageSelect,
+          })
+        ).map((message) => this.toOfficialGroupMessageRecord(message));
 
     const hasMore = messages.length > query.limit;
     const pageDescending = hasMore ? messages.slice(0, query.limit) : messages;
@@ -7942,11 +9674,26 @@ export class ConversationsService {
         ? pageDescending[pageDescending.length - 1].id
         : null;
 
+    const officialReceiptAggregates =
+      !usesDetailedReceipts
+        ? await this.getOfficialMessageReceiptAggregates(
+            conversationId,
+            pageDescending
+              .filter((message) => message.senderAccountId === viewer.accountId)
+              .map((message) => message.id),
+          )
+        : new Map<string, MessageReceiptAggregate>();
+
     return {
       data: [...pageDescending]
         .reverse()
         .map((message) =>
-          this.serializeMessage(message, viewer.accountId, viewerParticipant),
+          this.serializeMessage(
+            message,
+            viewer.accountId,
+            viewerParticipant,
+            officialReceiptAggregates.get(message.id),
+          ),
         ),
       pagination: {
         limit: query.limit,
@@ -7966,14 +9713,96 @@ export class ConversationsService {
       viewer.accountId,
       conversationId,
     );
+    const conversation = await this.prisma.conversation.findUnique({
+      where: { id: conversationId },
+      select: {
+        type: true,
+        groupKind: true,
+      },
+    });
+
+    if (!conversation) {
+      throw new NotFoundException('Conversation was not found.');
+    }
+
+    const where = {
+      id: messageId,
+      conversationId,
+      ...buildViewerMessageVisibilityWhere(viewer.accountId, participant),
+    };
+
+    if (
+      !this.usesDetailedMessageReceipts(
+        conversation.type,
+        conversation.groupKind,
+      )
+    ) {
+      const rawMessage = await this.prisma.message.findFirst({
+        where,
+        select: officialGroupMessageSelect,
+      });
+
+      if (!rawMessage) {
+        throw new NotFoundException('Message was not found.');
+      }
+
+      const message = this.toOfficialGroupMessageRecord(rawMessage);
+
+      if (message.senderAccountId !== viewer.accountId) {
+        throw new ForbiddenException(
+          'Only the sender can view message information.',
+        );
+      }
+
+      const recipients =
+        await this.getOfficialMessageInformationRecipients(message);
+      const aggregate: MessageReceiptAggregate = {
+        total: recipients.length,
+        delivered: recipients.filter((receipt) => receipt.deliveredAt !== null)
+          .length,
+        read: recipients.filter((receipt) => receipt.readAt !== null).length,
+        deliveredAt:
+          recipients.length > 0 &&
+          recipients.every((receipt) => receipt.deliveredAt !== null)
+            ? this.getAggregateReceiptDate(
+                recipients.map((receipt) => receipt.deliveredAt),
+              )
+            : null,
+        readAt:
+          recipients.length > 0 &&
+          recipients.every((receipt) => receipt.readAt !== null)
+            ? this.getAggregateReceiptDate(
+                recipients.map((receipt) => receipt.readAt),
+              )
+            : null,
+      };
+
+      return {
+        data: {
+          message: this.serializeMessage(
+            message,
+            viewer.accountId,
+            participant,
+            aggregate,
+          ),
+          sender: this.serializeAccount(message.sender),
+          sentAt: message.sentAt,
+          editedAt: message.editedAt,
+          deletedAt: message.deletedAt,
+          recipients,
+          summary: {
+            totalRecipients: recipients.length,
+            delivered: aggregate.delivered,
+            read: aggregate.read,
+            readHidden: recipients.filter((receipt) => receipt.readHidden)
+              .length,
+          },
+        },
+      };
+    }
 
     const message = await this.prisma.message.findFirst({
-      where: {
-        id: messageId,
-        conversationId,
-        ...buildViewerMessageVisibilityWhere(viewer.accountId, participant),
-      },
-
+      where,
       select: messageInformationSelect,
     });
 
@@ -8152,11 +9981,18 @@ export class ConversationsService {
         }));
       unreadCounts.set(recipient.accountId, unreadCount);
 
+      const serializedNotification = this.serializeNotification(notification);
       this.messagingEventsService.emitNotificationCreated(recipient.accountId, {
-        notification: this.serializeNotification(notification),
+        notification: serializedNotification,
         unreadCount,
         occurredAt: new Date().toISOString(),
       });
+
+      // Browser push is best-effort and must never block message delivery.
+      void this.messagingPushService?.sendNotification(
+        recipient.accountId,
+        serializedNotification,
+      );
     }
   }
 
@@ -8231,13 +10067,18 @@ export class ConversationsService {
       },
     });
 
+    const serializedNotification = this.serializeNotification(notification);
     this.messagingEventsService.emitNotificationCreated(
       message.senderAccountId,
       {
-        notification: this.serializeNotification(notification),
+        notification: serializedNotification,
         unreadCount,
         occurredAt: new Date().toISOString(),
       },
+    );
+    void this.messagingPushService?.sendNotification(
+      message.senderAccountId,
+      serializedNotification,
     );
   }
 
@@ -8452,11 +10293,18 @@ export class ConversationsService {
                 announcementPayload,
               ),
 
-              receipts: {
-                create: recipientAccountIds.map((accountId) => ({
-                  accountId,
-                })),
-              },
+              ...(this.usesDetailedMessageReceipts(
+                conversation.type,
+                conversation.groupKind,
+              )
+                ? {
+                    receipts: {
+                      create: recipientAccountIds.map((accountId) => ({
+                        accountId,
+                      })),
+                    },
+                  }
+                : {}),
             },
 
             select: {
@@ -8713,11 +10561,18 @@ export class ConversationsService {
               isLive ? 'LIVE' : 'CURRENT',
               liveExpiresAt,
             ),
-            receipts: {
-              create: recipientAccountIds.map((accountId) => ({
-                accountId,
-              })),
-            },
+            ...(this.usesDetailedMessageReceipts(
+              conversation.type,
+              conversation.groupKind,
+            )
+              ? {
+                  receipts: {
+                    create: recipientAccountIds.map((accountId) => ({
+                      accountId,
+                    })),
+                  },
+                }
+              : {}),
           },
           select: {
             id: true,
@@ -9117,12 +10972,29 @@ export class ConversationsService {
       .map((participant) => participant.accountId)
       .filter((accountId) => accountId !== viewer.accountId);
 
+    // Perform malware scanning only after conversation authorization and
+    // idempotency checks so rejected/duplicate requests cannot waste scanner capacity.
+    const scanStatuses: Array<'FORMAT_VALIDATED' | 'CLEAN'> = [];
+    for (const attachment of attachments) {
+      // Scan sequentially so one multi-file message cannot monopolize the NTC scanner.
+      scanStatuses.push(
+        await this.attachmentSecurityService.scanValidatedUpload(attachment.file),
+      );
+    }
+
+    const attachmentReferenceAt = new Date();
+    const attachmentExpiresAt = getMessageAttachmentExpiresAt(
+      conversation.type,
+      conversation.groupKind,
+      attachmentReferenceAt,
+    );
     const storedAttachments: Array<{
       storageKey: string;
       originalFileName: string;
       mimeType: string;
       fileSizeBytes: number;
       contentType: MessageContentType;
+      scanStatus: 'FORMAT_VALIDATED' | 'CLEAN';
     }> = [];
 
     try {
@@ -9132,10 +11004,9 @@ export class ConversationsService {
        * multi-file message atomic from the user's perspective.
        */
       for (const attachment of attachments) {
-        const storageKey = [
-          conversationId,
-          `${randomUUID()}-${attachment.originalFileName.replace(/[^a-zA-Z0-9._-]/g, '_')}`,
-        ].join('/');
+        // Keep physical storage paths opaque. Original names remain only in
+        // protected database metadata and are never used as disk identifiers.
+        const storageKey = [conversationId, randomUUID()].join('/');
 
         storedAttachments.push({
           storageKey,
@@ -9143,6 +11014,7 @@ export class ConversationsService {
           mimeType: attachment.file.mimetype,
           fileSizeBytes: attachment.file.size,
           contentType: attachment.contentType,
+          scanStatus: scanStatuses[storedAttachments.length] ?? 'FORMAT_VALIDATED',
         });
 
         await this.writeAttachmentFile(storageKey, attachment.file);
@@ -9158,6 +11030,7 @@ export class ConversationsService {
               contentType: messageContentType,
               textContent: caption,
               replyToMessageId: dto.replyToMessageId ?? null,
+              sentAt: attachmentReferenceAt,
               payload: {
                 attachmentCount: storedAttachments.length,
                 // Voice notes remain a single-audio subtype of the attachment pipeline.
@@ -9171,15 +11044,23 @@ export class ConversationsService {
                   mimeType: attachment.mimeType,
                   fileSizeBytes: attachment.fileSizeBytes,
                   contentType: attachment.contentType,
-                  scanStatus: 'PENDING',
+                  scanStatus: attachment.scanStatus,
+                  expiresAt: attachmentExpiresAt,
                 })),
               },
 
-              receipts: {
-                create: recipientAccountIds.map((accountId) => ({
-                  accountId,
-                })),
-              },
+              ...(this.usesDetailedMessageReceipts(
+                conversation.type,
+                conversation.groupKind,
+              )
+                ? {
+                    receipts: {
+                      create: recipientAccountIds.map((accountId) => ({
+                        accountId,
+                      })),
+                    },
+                  }
+                : {}),
             },
 
             select: {
@@ -9335,6 +11216,8 @@ export class ConversationsService {
         mimeType: true,
         fileSizeBytes: true,
         scanStatus: true,
+        expiresAt: true,
+        expiredAt: true,
       },
     });
 
@@ -9342,17 +11225,33 @@ export class ConversationsService {
       throw new NotFoundException('Attachment was not found.');
     }
 
-    if (attachment.scanStatus === 'FAILED') {
-      throw new ForbiddenException(
-        'This attachment is not available for download.',
+    if (
+      isAttachmentReferenceExpired(
+        attachment.expiresAt,
+        attachment.expiredAt,
+      )
+    ) {
+      throw new NotFoundException(
+        'This attachment has expired and is no longer available.',
       );
     }
 
-    const absolutePath = this.resolveAttachmentPath(attachment.storageKey);
+    if (
+      !this.attachmentSecurityService.canAccessStoredAttachment(
+        attachment.scanStatus,
+      )
+    ) {
+      throw new ForbiddenException(
+        'This attachment has not passed the required security checks.',
+      );
+    }
 
-    try {
-      await fs.access(absolutePath);
-    } catch {
+    const absolutePath = this.attachmentStorageService.resolvePath(
+      'messages',
+      attachment.storageKey,
+    );
+
+    if (!(await this.attachmentStorageService.exists('messages', attachment.storageKey))) {
       throw new NotFoundException(
         'This file is currently unavailable. Please contact technical support.',
       );
@@ -9420,10 +11319,28 @@ export class ConversationsService {
     }
 
     if (
-      sourceAttachments.some((attachment) => attachment.scanStatus === 'FAILED')
+      sourceAttachments.some((attachment) =>
+        isAttachmentReferenceExpired(
+          attachment.expiresAt,
+          attachment.expiredAt,
+        ),
+      )
     ) {
       throw new ForbiddenException(
-        'A failed or quarantined attachment cannot be forwarded.',
+        'An expired attachment cannot be forwarded.',
+      );
+    }
+
+    if (
+      sourceAttachments.some(
+        (attachment) =>
+          !this.attachmentSecurityService.canAccessStoredAttachment(
+            attachment.scanStatus,
+          ),
+      )
+    ) {
+      throw new ForbiddenException(
+        'An attachment that has not passed the required security checks cannot be forwarded.',
       );
     }
 
@@ -9520,6 +11437,7 @@ export class ConversationsService {
       originalSentAt: sourceMessage.sentAt.toISOString(),
       originalTextContent: forwardedPreviewText,
     };
+    const forwardedReferenceAt = new Date();
 
     const forwardedMessages = await this.prisma.$transaction(
       async (transaction) => {
@@ -9619,6 +11537,7 @@ export class ConversationsService {
               clientMessageId,
               contentType: sourceMessage.contentType,
               textContent: forwardedTextContent,
+              sentAt: forwardedReferenceAt,
               payload: {
                 ...sourcePayload,
                 attachmentCount: forwardedAttachments.length,
@@ -9637,15 +11556,31 @@ export class ConversationsService {
               ...(forwardedAttachments.length > 0
                 ? {
                     attachments: {
-                      create: forwardedAttachments,
+                      create: forwardedAttachments.map((attachment) => ({
+                        ...attachment,
+                        // A forward is a new logical reference with its own
+                        // destination-specific retention window.
+                        expiresAt: getMessageAttachmentExpiresAt(
+                          conversation.type,
+                          conversation.groupKind,
+                          forwardedReferenceAt,
+                        ),
+                      })),
                     },
                   }
                 : {}),
-              receipts: {
-                create: recipientAccountIds.map((accountId) => ({
-                  accountId,
-                })),
-              },
+              ...(this.usesDetailedMessageReceipts(
+                conversation.type,
+                conversation.groupKind,
+              )
+                ? {
+                    receipts: {
+                      create: recipientAccountIds.map((accountId) => ({
+                        accountId,
+                      })),
+                    },
+                  }
+                : {}),
             },
             select: messageSelect,
           });
@@ -9772,7 +11707,7 @@ export class ConversationsService {
 
     if (Date.now() - message.sentAt.getTime() > MESSAGE_EDIT_WINDOW_MS) {
       throw new ForbiddenException(
-        'The 15-minute message editing period has ended.',
+        'The 20-minute message editing period has ended.',
       );
     }
 
@@ -10001,7 +11936,10 @@ export class ConversationsService {
     };
   }
 
-  async listStarredMessages(user: AuthenticatedUser) {
+  async listStarredMessages(
+    user: AuthenticatedUser,
+    query: ListStarredMessagesQueryDto,
+  ) {
     const viewer = await this.getMessagingViewer(user);
 
     const memberships = await this.prisma.conversationParticipant.findMany({
@@ -10020,16 +11958,35 @@ export class ConversationsService {
     if (memberships.length === 0) {
       return {
         data: [],
+        pagination: {
+          limit: query.limit,
+          hasMore: false,
+          nextCursor: null,
+        },
       };
     }
 
     const membershipByConversationId = new Map(
       memberships.map((membership) => [membership.conversationId, membership]),
     );
+    const cursorBoundary = query.cursor
+      ? this.decodeStarredMessagesCursor(query.cursor)
+      : null;
 
     const starredMessages = await this.prisma.messageStar.findMany({
       where: {
         accountId: viewer.accountId,
+        ...(cursorBoundary
+          ? {
+              OR: [
+                { starredAt: { lt: cursorBoundary.starredAt } },
+                {
+                  starredAt: cursorBoundary.starredAt,
+                  messageId: { lt: cursorBoundary.messageId },
+                },
+              ],
+            }
+          : {}),
         message: {
           deletedAt: null,
           OR: memberships.map((membership) =>
@@ -10043,13 +12000,15 @@ export class ConversationsService {
         },
       },
 
-      orderBy: {
-        starredAt: 'desc',
-      },
+      orderBy: [
+        { starredAt: 'desc' },
+        { messageId: 'desc' },
+      ],
 
-      take: 100,
+      take: query.limit + 1,
 
       select: {
+        messageId: true,
         starredAt: true,
         message: {
           select: messageSelect,
@@ -10057,25 +12016,30 @@ export class ConversationsService {
       },
     });
 
+    const hasMore = starredMessages.length > query.limit;
+    const page = hasMore ? starredMessages.slice(0, query.limit) : starredMessages;
+    const lastStar = page[page.length - 1] ?? null;
     const conversationIds = [
-      ...new Set(starredMessages.map((star) => star.message.conversationId)),
+      ...new Set(page.map((star) => star.message.conversationId)),
     ];
 
-    const conversations = await this.prisma.conversation.findMany({
-      where: {
-        id: {
-          in: conversationIds,
-        },
-      },
-      select: conversationSelect,
-    });
+    const conversations = conversationIds.length
+      ? await this.prisma.conversation.findMany({
+          where: {
+            id: {
+              in: conversationIds,
+            },
+          },
+          select: conversationSelect,
+        })
+      : [];
 
     const conversationById = new Map(
       conversations.map((conversation) => [conversation.id, conversation]),
     );
 
     return {
-      data: starredMessages.flatMap((star) => {
+      data: page.flatMap((star) => {
         const conversation = conversationById.get(star.message.conversationId);
         const membership = membershipByConversationId.get(
           star.message.conversationId,
@@ -10101,7 +12065,52 @@ export class ConversationsService {
           },
         ];
       }),
+      pagination: {
+        limit: query.limit,
+        hasMore,
+        nextCursor:
+          hasMore && lastStar
+            ? this.encodeStarredMessagesCursor(lastStar.starredAt, lastStar.messageId)
+            : null,
+      },
     };
+  }
+
+  private encodeStarredMessagesCursor(starredAt: Date, messageId: string): string {
+    return Buffer.from(
+      JSON.stringify({ starredAt: starredAt.toISOString(), messageId }),
+      'utf8',
+    ).toString('base64url');
+  }
+
+  private decodeStarredMessagesCursor(cursor: string): {
+    starredAt: Date;
+    messageId: string;
+  } {
+    try {
+      const decoded = JSON.parse(
+        Buffer.from(cursor, 'base64url').toString('utf8'),
+      ) as { starredAt?: unknown; messageId?: unknown };
+      const starredAt =
+        typeof decoded.starredAt === 'string'
+          ? new Date(decoded.starredAt)
+          : new Date(Number.NaN);
+      const messageId =
+        typeof decoded.messageId === 'string' ? decoded.messageId : '';
+
+      if (
+        Number.isNaN(starredAt.getTime()) ||
+        !/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
+          messageId,
+        )
+      ) {
+        throw new Error('Invalid starred cursor payload.');
+      }
+
+      return { starredAt, messageId };
+    } catch {
+      throw new BadRequestException('Starred message cursor is invalid.');
+    }
   }
 
   async listPinnedMessages(user: AuthenticatedUser, conversationId: string) {
@@ -10433,6 +12442,22 @@ export class ConversationsService {
       senderAccountId: visibleMessage.senderAccountId,
     };
 
+    const conversation = await this.prisma.conversation.findUnique({
+      where: { id: conversationId },
+      select: {
+        type: true,
+        groupKind: true,
+      },
+    });
+
+    if (!conversation) {
+      throw new NotFoundException('Conversation was not found.');
+    }
+
+    const usesDetailedReceipts = this.usesDetailedMessageReceipts(
+      conversation.type,
+      conversation.groupKind,
+    );
     const now = new Date();
 
     await this.prisma.$transaction(async (transaction) => {
@@ -10453,16 +12478,45 @@ export class ConversationsService {
         },
       });
 
-      await transaction.messageReceipt.updateMany({
-        where: {
-          messageId: message.id,
-          accountId: viewer.accountId,
-        },
-        data: {
-          deliveredAt: now,
-          readAt: now,
-        },
-      });
+      if (message.senderAccountId !== viewer.accountId) {
+        if (usesDetailedReceipts) {
+          await transaction.messageReceipt.updateMany({
+            where: {
+              messageId: message.id,
+              accountId: viewer.accountId,
+            },
+            data: {
+              deliveredAt: now,
+              readAt: now,
+            },
+          });
+        } else {
+          /*
+           * Official groups normally avoid message x recipient fan-out. Delete
+           * for me is a sparse per-message exception that cannot be represented
+           * by a monotonic read watermark without falsely marking earlier unread
+           * messages as read. Persist exactly one receipt row for this exception.
+           */
+          await transaction.messageReceipt.upsert({
+            where: {
+              messageId_accountId: {
+                messageId: message.id,
+                accountId: viewer.accountId,
+              },
+            },
+            update: {
+              deliveredAt: now,
+              readAt: now,
+            },
+            create: {
+              messageId: message.id,
+              accountId: viewer.accountId,
+              deliveredAt: now,
+              readAt: now,
+            },
+          });
+        }
+      }
     });
 
     this.messagingEventsService.emitMessageHidden(viewer.accountId, {
@@ -10472,7 +12526,10 @@ export class ConversationsService {
       occurredAt: now.toISOString(),
     });
 
-    if (message.senderAccountId !== viewer.accountId) {
+    if (
+      message.senderAccountId !== viewer.accountId &&
+      viewer.showReadReceipts
+    ) {
       this.messagingEventsService.emitReceiptUpdated(
         [message.senderAccountId],
         {
@@ -10491,6 +12548,70 @@ export class ConversationsService {
       messageId: message.id,
       hiddenAt: now,
     };
+  }
+
+  private async assertCanDeleteMessageForEveryone(
+    viewerAccountId: string,
+    viewerParticipant: { role: ConversationParticipantRole },
+    message: Pick<MessageRecord, 'conversationId' | 'senderAccountId'>,
+  ): Promise<void> {
+    if (message.senderAccountId === viewerAccountId) {
+      return;
+    }
+
+    // Group moderation is shared by personal and official groups. Private
+    // one-to-one conversations preserve the sender-only delete rule. The role
+    // hierarchy remains authoritative: OWNER > ADMIN > MEMBER.
+    const groupConversation = await this.prisma.conversation.findFirst({
+      where: {
+        id: message.conversationId,
+        type: ConversationType.GROUP,
+      },
+      select: {
+        id: true,
+      },
+    });
+
+    if (!groupConversation) {
+      throw new ForbiddenException(
+        'You can delete only messages that you sent.',
+      );
+    }
+
+    if (viewerParticipant.role === ConversationParticipantRole.OWNER) {
+      return;
+    }
+
+    if (viewerParticipant.role !== ConversationParticipantRole.ADMIN) {
+      throw new ForbiddenException(
+        'You can delete only messages that you sent.',
+      );
+    }
+
+    const senderParticipant =
+      await this.prisma.conversationParticipant.findUnique({
+        where: {
+          conversationId_accountId: {
+            conversationId: message.conversationId,
+            accountId: message.senderAccountId,
+          },
+        },
+        select: {
+          role: true,
+        },
+      });
+
+    if (!senderParticipant) {
+      throw new ForbiddenException(
+        'The sender is not a recognized participant in this group.',
+      );
+    }
+
+    if (senderParticipant.role === ConversationParticipantRole.OWNER) {
+      throw new ForbiddenException(
+        "A group administrator cannot delete the group owner's message.",
+      );
+    }
   }
 
   async deleteMessageForEveryone(
@@ -10514,11 +12635,11 @@ export class ConversationsService {
       },
     );
 
-    if (message.senderAccountId !== viewer.accountId) {
-      throw new ForbiddenException(
-        'You can delete only messages that you sent.',
-      );
-    }
+    await this.assertCanDeleteMessageForEveryone(
+      viewer.accountId,
+      viewerParticipant,
+      message,
+    );
 
     if (message.deletedAt) {
       return {
@@ -10699,6 +12820,57 @@ export class ConversationsService {
       currentParticipant,
     );
     const now = new Date();
+    const usesDetailedReceipts = this.usesDetailedMessageReceipts(
+      conversation.type,
+      conversation.groupKind,
+    );
+
+    /*
+     * Clearing an official group must advance the compact receipt watermark to
+     * the same boundary that becomes hidden. The legacy receipt-row path below
+     * already marks hidden unread rows delivered/read; without this equivalent
+     * update a sender could later see stale Message Info for watermark-only
+     * official-group messages.
+     */
+    const officialClearBoundaryMessage = !usesDetailedReceipts
+      ? await this.prisma.message.findFirst({
+          where: {
+            conversationId,
+            sentAt: { lte: now },
+            ...currentVisibility,
+          },
+          orderBy: [{ sentAt: 'desc' }, { id: 'desc' }],
+          select: {
+            id: true,
+            sentAt: true,
+          },
+        })
+      : null;
+
+    const officialClearSenderAccountIds =
+      !usesDetailedReceipts &&
+      viewer.showReadReceipts &&
+      officialClearBoundaryMessage
+        ? [
+            ...new Set(
+              (
+                await this.prisma.message.findMany({
+                  where: {
+                    conversationId,
+                    senderAccountId: { not: viewer.accountId },
+                    sentAt: { lte: now },
+                    ...currentVisibility,
+                  },
+                  orderBy: [{ sentAt: 'desc' }, { id: 'desc' }],
+                  take: 200,
+                  select: {
+                    senderAccountId: true,
+                  },
+                })
+              ).map((message) => message.senderAccountId),
+            ),
+          ]
+        : [];
 
     const pendingReceipts = await this.prisma.messageReceipt.findMany({
       where: {
@@ -10767,6 +12939,18 @@ export class ConversationsService {
                    */
                   historyClearedAt: now,
                   markedUnreadAt: null,
+                  ...(!usesDetailedReceipts && officialClearBoundaryMessage
+                    ? {
+                        deliveredThroughMessageId:
+                          officialClearBoundaryMessage.id,
+                        deliveredThroughSentAt:
+                          officialClearBoundaryMessage.sentAt,
+                        deliveredThroughAt: now,
+                        readThroughMessageId: officialClearBoundaryMessage.id,
+                        readThroughSentAt: officialClearBoundaryMessage.sentAt,
+                        readThroughAt: now,
+                      }
+                    : {}),
                 },
         });
 
@@ -10891,6 +13075,25 @@ export class ConversationsService {
         this.messagingEventsService.emitReceiptUpdated([senderAccountId], {
           conversationId,
           messageIds,
+          accountId: viewer.accountId,
+          status: 'READ',
+          occurredAt: now.toISOString(),
+        });
+      }
+
+      /*
+       * Watermark-only official messages have no MessageReceipt IDs to emit.
+       * Notify only senders represented in a bounded recent window; clients
+       * refresh their visible page and derive exact status from the watermark.
+       */
+      for (const senderAccountId of officialClearSenderAccountIds) {
+        if (receiptsBySender.has(senderAccountId)) {
+          continue;
+        }
+
+        this.messagingEventsService.emitReceiptUpdated([senderAccountId], {
+          conversationId,
+          messageIds: [],
           accountId: viewer.accountId,
           status: 'READ',
           occurredAt: now.toISOString(),
@@ -11038,10 +13241,141 @@ export class ConversationsService {
       viewer.accountId,
       conversationId,
     );
+    const conversation = await this.prisma.conversation.findUnique({
+      where: { id: conversationId },
+      select: {
+        type: true,
+        groupKind: true,
+      },
+    });
+
+    if (!conversation) {
+      throw new NotFoundException('Conversation was not found.');
+    }
+
     const messageVisibility = buildViewerMessageVisibilityWhere(
       viewer.accountId,
       participant,
     );
+    const now = new Date();
+
+    if (
+      !this.usesDetailedMessageReceipts(
+        conversation.type,
+        conversation.groupKind,
+      )
+    ) {
+      const previousReadBoundary = participant.readThroughSentAt
+        ? {
+            sentAt: participant.readThroughSentAt,
+            messageId: participant.readThroughMessageId,
+          }
+        : null;
+      const latestVisibleMessage = await this.prisma.message.findFirst({
+        where: {
+          conversationId,
+          ...messageVisibility,
+        },
+        orderBy: [{ sentAt: 'desc' }, { id: 'desc' }],
+        select: {
+          id: true,
+          sentAt: true,
+        },
+      });
+
+      const unreadBoundaryWhere = previousReadBoundary
+        ? {
+            OR: [
+              { sentAt: { gt: previousReadBoundary.sentAt } },
+              ...(previousReadBoundary.messageId
+                ? [
+                    {
+                      sentAt: previousReadBoundary.sentAt,
+                      id: { gt: previousReadBoundary.messageId },
+                    },
+                  ]
+                : []),
+            ],
+          }
+        : {};
+
+      const readMessages = await this.prisma.message.count({
+        where: {
+          conversationId,
+          senderAccountId: { not: viewer.accountId },
+          deletedAt: null,
+          ...messageVisibility,
+          ...unreadBoundaryWhere,
+        },
+      });
+
+      await this.prisma.conversationParticipant.update({
+        where: {
+          conversationId_accountId: {
+            conversationId,
+            accountId: viewer.accountId,
+          },
+        },
+        data: {
+          markedUnreadAt: null,
+          ...(latestVisibleMessage
+            ? {
+                deliveredThroughMessageId: latestVisibleMessage.id,
+                deliveredThroughSentAt: latestVisibleMessage.sentAt,
+                deliveredThroughAt: now,
+                readThroughMessageId: latestVisibleMessage.id,
+                readThroughSentAt: latestVisibleMessage.sentAt,
+                readThroughAt: now,
+              }
+            : {}),
+        },
+      });
+
+      if (viewer.showReadReceipts && latestVisibleMessage) {
+        /*
+         * Do not broadcast thousands/millions of message IDs when a user
+         * catches up on a large official group. Notify only senders represented
+         * in the most recent window; clients reload their visible page and
+         * Message Info derives older state from the durable watermark.
+         */
+        const recentlyReadMessages = await this.prisma.message.findMany({
+          where: {
+            conversationId,
+            senderAccountId: { not: viewer.accountId },
+            deletedAt: null,
+            ...messageVisibility,
+            ...unreadBoundaryWhere,
+          },
+          orderBy: [{ sentAt: 'desc' }, { id: 'desc' }],
+          take: 200,
+          select: {
+            senderAccountId: true,
+          },
+        });
+        const senderAccountIds = [
+          ...new Set(
+            recentlyReadMessages.map((message) => message.senderAccountId),
+          ),
+        ];
+
+        if (senderAccountIds.length > 0) {
+          this.messagingEventsService.emitReceiptUpdated(senderAccountIds, {
+            conversationId,
+            messageIds: [],
+            accountId: viewer.accountId,
+            status: 'READ',
+            occurredAt: now.toISOString(),
+          });
+        }
+      }
+
+      return {
+        message: 'Conversation marked as read.',
+        conversationId,
+        readMessages,
+        readAt: now,
+      };
+    }
 
     const pendingReceipts = await this.prisma.messageReceipt.findMany({
       where: {
@@ -11066,8 +13400,6 @@ export class ConversationsService {
         },
       },
     });
-
-    const now = new Date();
 
     const readResult = await this.prisma.$transaction(async (transaction) => {
       await transaction.conversationParticipant.update({
@@ -11149,12 +13481,116 @@ export class ConversationsService {
     };
   }
 
+  private normalizeChatFolderName(name: string): string {
+    return name.trim().replace(/\s+/g, ' ');
+  }
+
+  private getChatFolderNameKey(name: string): string {
+    return this.normalizeChatFolderName(name).toLocaleLowerCase('en-US');
+  }
+
+  private async assertChatFolderNameAvailable(
+    accountId: string,
+    nameKey: string,
+    excludeFolderId?: string,
+  ): Promise<void> {
+    const existing = await this.prisma.chatFolder.findFirst({
+      where: {
+        accountId,
+        nameKey,
+        ...(excludeFolderId
+          ? {
+              id: {
+                not: excludeFolderId,
+              },
+            }
+          : {}),
+      },
+      select: {
+        id: true,
+      },
+    });
+
+    if (existing) {
+      throw new ConflictException('You already have a list with this name.');
+    }
+  }
+
+  private async assertChatFolderConversationAccess(
+    accountId: string,
+    conversationIds: string[],
+  ): Promise<string[]> {
+    const uniqueConversationIds = [...new Set(conversationIds)];
+
+    if (uniqueConversationIds.length === 0) {
+      return [];
+    }
+
+    const participants = await this.prisma.conversationParticipant.findMany({
+      where: {
+        accountId,
+        conversationId: {
+          in: uniqueConversationIds,
+        },
+        leftAt: null,
+        deletedFromListAt: null,
+      },
+      select: {
+        conversationId: true,
+      },
+    });
+
+    const visibleConversationIds = new Set(
+      participants.map((participant) => participant.conversationId),
+    );
+
+    if (
+      uniqueConversationIds.some(
+        (conversationId) => !visibleConversationIds.has(conversationId),
+      )
+    ) {
+      // Do not reveal which UUID belongs to an inaccessible conversation.
+      throw new NotFoundException(
+        'One or more conversations were not found or are no longer available.',
+      );
+    }
+
+    return uniqueConversationIds;
+  }
+
+  private isChatFolderUniqueConstraintError(error: unknown): boolean {
+    return (
+      typeof error === 'object' &&
+      error !== null &&
+      'code' in error &&
+      (error as { code?: unknown }).code === 'P2002'
+    );
+  }
+
   async listChatFolders(viewer: AuthenticatedUser) {
     const folders = await this.prisma.chatFolder.findMany({
       where: { accountId: viewer.accountId },
-      orderBy: { position: 'asc' },
+      orderBy: [{ position: 'asc' }, { createdAt: 'asc' }],
       include: {
         items: {
+          // Lists expose only conversations that are still visible to their
+          // owner. Legacy target-account items are intentionally not surfaced.
+          where: {
+            conversation: {
+              is: {
+                participants: {
+                  some: {
+                    accountId: viewer.accountId,
+                    leftAt: null,
+                    deletedFromListAt: null,
+                  },
+                },
+              },
+            },
+          },
+          orderBy: {
+            createdAt: 'asc',
+          },
           include: {
             conversation: {
               select: {
@@ -11162,19 +13598,6 @@ export class ConversationsService {
                 type: true,
                 title: true,
                 groupKind: true,
-              },
-            },
-            targetAccount: {
-              select: {
-                id: true,
-                username: true,
-                profilePhotoKey: true,
-                employee: {
-                  select: {
-                    empName: true,
-                    designation: true,
-                  },
-                },
               },
             },
           },
@@ -11210,62 +13633,62 @@ export class ConversationsService {
                 groupKind: item.conversation.groupKind,
               }
             : null,
-          targetAccount: item.targetAccount
-            ? {
-                id: item.targetAccount.id,
-                displayName:
-                  item.targetAccount.employee?.empName ||
-                  item.targetAccount.username ||
-                  'User',
-                profilePhotoKey: item.targetAccount.profilePhotoKey,
-                empName: item.targetAccount.employee?.empName || null,
-                designation: item.targetAccount.employee?.designation || null,
-              }
-            : null,
+          targetAccount: null,
         })),
       })),
     };
   }
 
   async createChatFolder(viewer: AuthenticatedUser, dto: CreateChatFolderDto) {
+    const name = this.normalizeChatFolderName(dto.name);
+
+    if (!name) {
+      throw new BadRequestException('List name is required.');
+    }
+
+    const nameKey = this.getChatFolderNameKey(name);
+
+    await this.assertChatFolderNameAvailable(viewer.accountId, nameKey);
+    const conversationIds = await this.assertChatFolderConversationAccess(
+      viewer.accountId,
+      dto.conversationIds ?? [],
+    );
+
     const maxPosition = await this.prisma.chatFolder.aggregate({
       where: { accountId: viewer.accountId },
       _max: { position: true },
     });
     const nextPosition = (maxPosition._max.position ?? -1) + 1;
 
-    const folder = await this.prisma.chatFolder.create({
-      data: {
-        accountId: viewer.accountId,
-        name: dto.name,
-        icon: dto.icon || 'folder',
-        color: dto.color || null,
-        position: nextPosition,
-        includePrivate: dto.includePrivate ?? false,
-        includeGroups: dto.includeGroups ?? false,
-        includeOfficial: dto.includeOfficial ?? false,
-        includeUnreadOnly: dto.includeUnreadOnly ?? false,
-        excludeMuted: dto.excludeMuted ?? false,
-        items: {
-          create: [
-            ...(dto.conversationIds || []).map((cid) => ({
-              conversationId: cid,
+    try {
+      const folder = await this.prisma.chatFolder.create({
+        data: {
+          accountId: viewer.accountId,
+          name,
+          nameKey,
+          position: nextPosition,
+          items: {
+            create: conversationIds.map((conversationId) => ({
+              conversationId,
             })),
-            ...(dto.targetAccountIds || []).map((aid) => ({
-              targetAccountId: aid,
-            })),
-          ],
+          },
         },
-      },
-      include: {
-        items: true,
-      },
-    });
+        include: {
+          items: true,
+        },
+      });
 
-    return {
-      message: 'Folder created successfully.',
-      data: folder,
-    };
+      return {
+        message: 'List created successfully.',
+        data: folder,
+      };
+    } catch (error) {
+      if (this.isChatFolderUniqueConstraintError(error)) {
+        throw new ConflictException('You already have a list with this name.');
+      }
+
+      throw error;
+    }
   }
 
   async updateChatFolder(
@@ -11277,60 +13700,80 @@ export class ConversationsService {
       where: { id: folderId, accountId: viewer.accountId },
     });
     if (!existing) {
-      throw new NotFoundException('Folder not found.');
+      throw new NotFoundException('Message list was not found.');
     }
 
-    const folder = await this.prisma.$transaction(async (tx) => {
-      if (dto.conversationIds !== undefined || dto.targetAccountIds !== undefined) {
-        await tx.chatFolderItem.deleteMany({
-          where: { folderId },
-        });
+    const name =
+      dto.name !== undefined
+        ? this.normalizeChatFolderName(dto.name)
+        : undefined;
 
-        const newItems: { conversationId?: string; targetAccountId?: string }[] = [];
-        if (dto.conversationIds) {
-          for (const cid of dto.conversationIds) {
-            newItems.push({ conversationId: cid });
-          }
-        }
-        if (dto.targetAccountIds) {
-          for (const aid of dto.targetAccountIds) {
-            newItems.push({ targetAccountId: aid });
-          }
-        }
+    if (name !== undefined && !name) {
+      throw new BadRequestException('List name is required.');
+    }
 
-        if (newItems.length > 0) {
-          await tx.chatFolderItem.createMany({
-            data: newItems.map((item) => ({
-              folderId,
-              ...item,
-            })),
-            skipDuplicates: true,
+    const nameKey =
+      name !== undefined ? this.getChatFolderNameKey(name) : undefined;
+
+    if (nameKey !== undefined) {
+      await this.assertChatFolderNameAvailable(
+        viewer.accountId,
+        nameKey,
+        folderId,
+      );
+    }
+
+    const conversationIds =
+      dto.conversationIds !== undefined
+        ? await this.assertChatFolderConversationAccess(
+            viewer.accountId,
+            dto.conversationIds,
+          )
+        : undefined;
+
+    try {
+      const folder = await this.prisma.$transaction(async (tx) => {
+        if (conversationIds !== undefined) {
+          // Membership is account-specific metadata. Replacing these rows must
+          // never mutate the underlying conversation, participants or messages.
+          await tx.chatFolderItem.deleteMany({
+            where: { folderId },
           });
+
+          if (conversationIds.length > 0) {
+            await tx.chatFolderItem.createMany({
+              data: conversationIds.map((conversationId) => ({
+                folderId,
+                conversationId,
+              })),
+              skipDuplicates: true,
+            });
+          }
         }
+
+        return tx.chatFolder.update({
+          where: { id: folderId },
+          data: {
+            name,
+            nameKey,
+          },
+          include: {
+            items: true,
+          },
+        });
+      });
+
+      return {
+        message: 'List updated successfully.',
+        data: folder,
+      };
+    } catch (error) {
+      if (this.isChatFolderUniqueConstraintError(error)) {
+        throw new ConflictException('You already have a list with this name.');
       }
 
-      return tx.chatFolder.update({
-        where: { id: folderId },
-        data: {
-          name: dto.name !== undefined ? dto.name : undefined,
-          icon: dto.icon !== undefined ? dto.icon : undefined,
-          color: dto.color !== undefined ? dto.color : undefined,
-          includePrivate: dto.includePrivate !== undefined ? dto.includePrivate : undefined,
-          includeGroups: dto.includeGroups !== undefined ? dto.includeGroups : undefined,
-          includeOfficial: dto.includeOfficial !== undefined ? dto.includeOfficial : undefined,
-          includeUnreadOnly: dto.includeUnreadOnly !== undefined ? dto.includeUnreadOnly : undefined,
-          excludeMuted: dto.excludeMuted !== undefined ? dto.excludeMuted : undefined,
-        },
-        include: {
-          items: true,
-        },
-      });
-    });
-
-    return {
-      message: 'Folder updated successfully.',
-      data: folder,
-    };
+      throw error;
+    }
   }
 
   async deleteChatFolder(viewer: AuthenticatedUser, folderId: string) {
@@ -11338,20 +13781,40 @@ export class ConversationsService {
       where: { id: folderId, accountId: viewer.accountId },
     });
     if (!existing) {
-      throw new NotFoundException('Folder not found.');
+      throw new NotFoundException('Message list was not found.');
     }
 
+    /*
+     * Deleting a list cascades only to ChatFolderItem rows. Conversation and
+     * message records are intentionally independent and must remain untouched.
+     */
     await this.prisma.chatFolder.delete({
       where: { id: folderId },
     });
 
     return {
-      message: 'Folder deleted successfully.',
+      message: 'List deleted successfully.',
       folderId,
     };
   }
 
   async reorderChatFolders(viewer: AuthenticatedUser, dto: ReorderChatFoldersDto) {
+    const ownedFolders = await this.prisma.chatFolder.findMany({
+      where: {
+        accountId: viewer.accountId,
+        id: {
+          in: dto.folderIds,
+        },
+      },
+      select: {
+        id: true,
+      },
+    });
+
+    if (ownedFolders.length !== new Set(dto.folderIds).size) {
+      throw new NotFoundException('One or more message lists were not found.');
+    }
+
     await this.prisma.$transaction(
       dto.folderIds.map((id, index) =>
         this.prisma.chatFolder.updateMany({
@@ -11362,7 +13825,7 @@ export class ConversationsService {
     );
 
     return {
-      message: 'Folders reordered successfully.',
+      message: 'Lists reordered successfully.',
     };
   }
 
@@ -11375,37 +13838,29 @@ export class ConversationsService {
       where: { id: folderId, accountId: viewer.accountId },
     });
     if (!folder) {
-      throw new NotFoundException('Folder not found.');
+      throw new NotFoundException('Message list was not found.');
     }
 
-    if (!dto.conversationId && !dto.targetAccountId) {
-      throw new BadRequestException('Either conversationId or targetAccountId is required.');
-    }
+    await this.assertChatFolderConversationAccess(viewer.accountId, [
+      dto.conversationId,
+    ]);
 
     const item = await this.prisma.chatFolderItem.upsert({
-      where: dto.conversationId
-        ? {
-            folderId_conversationId: {
-              folderId,
-              conversationId: dto.conversationId,
-            },
-          }
-        : {
-            folderId_targetAccountId: {
-              folderId,
-              targetAccountId: dto.targetAccountId!,
-            },
-          },
+      where: {
+        folderId_conversationId: {
+          folderId,
+          conversationId: dto.conversationId,
+        },
+      },
       create: {
         folderId,
-        conversationId: dto.conversationId || null,
-        targetAccountId: dto.targetAccountId || null,
+        conversationId: dto.conversationId,
       },
       update: {},
     });
 
     return {
-      message: 'Item added to folder.',
+      message: 'Conversation added to list.',
       data: item,
     };
   }
@@ -11419,18 +13874,22 @@ export class ConversationsService {
       where: { id: folderId, accountId: viewer.accountId },
     });
     if (!folder) {
-      throw new NotFoundException('Folder not found.');
+      throw new NotFoundException('Message list was not found.');
     }
 
-    await this.prisma.chatFolderItem.deleteMany({
+    const result = await this.prisma.chatFolderItem.deleteMany({
       where: {
         id: itemId,
         folderId,
       },
     });
 
+    if (result.count === 0) {
+      throw new NotFoundException('List conversation was not found.');
+    }
+
     return {
-      message: 'Item removed from folder.',
+      message: 'Conversation removed from list.',
       itemId,
     };
   }

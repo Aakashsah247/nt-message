@@ -16,6 +16,8 @@ import type {
   ReactNode,
 } from "react";
 import { useLocation, useNavigate } from "react-router";
+import { useTranslation } from "react-i18next";
+import type { TFunction } from "i18next";
 
 import { useAuth } from "../context/AuthContext";
 import { useAvatarRegistry } from "../context/AvatarContext";
@@ -26,6 +28,7 @@ import {
   blockMessageRequest,
   blockMessagingAccount,
   clearMessagingConversation,
+  createChatFolder,
   createGroupConversation,
   createGroupInvitationLink,
   createOfficialGroupConversation,
@@ -33,6 +36,8 @@ import {
   createPrivateGroupFromPrivateConversation,
   createMessagingProfilePhotoObjectUrl,
   createGroupPhotoObjectUrl,
+  deleteChatFolder,
+  deleteGroupConversation,
   deleteGroupPhoto,
   deleteMyMessagingProfilePhoto,
   declineMessageRequest,
@@ -50,18 +55,21 @@ import {
   deleteConversationMessage,
   deleteMessagingConversation,
   createConversationAttachmentObjectUrl,
+  createConversationAttachmentStreamUrl,
   deleteConversationMessageForMe,
   downloadConversationAttachment,
   editConversationTextMessage,
   forwardConversationMessage,
   joinGroupInvitation,
   leaveGroupConversation,
+  listChatFolders,
   listConversationMessages,
   listConversationPinnedMessages,
   listStarredMessages,
   listMessageRequests,
   listBlockedMessagingAccounts,
   listMessagingConversations,
+  listGroupMembers,
   listMessagingNotifications,
   markAllMessagingNotificationsRead,
   markMessagingNotificationRead,
@@ -75,6 +83,7 @@ import {
   reactToMessage,
   searchMessagingContacts,
   starConversationMessage,
+  updateChatFolder,
   updateConversationPreference,
   updateMyMessagingProfile,
   updateMessagingPrivacySettings,
@@ -93,6 +102,11 @@ import {
   updateGroupPhoto,
 } from "../services/messaging.service";
 import type { AttachmentUploadProgress } from "../services/messaging.service";
+import {
+  disableMessagingPushSubscription,
+  messagingPushSupported,
+  syncMessagingPushSubscription,
+} from "../services/messaging-push.service";
 import {
   connectMessagingSocketAfterEffectCommit,
   createMessagingSocket,
@@ -122,6 +136,7 @@ import type {
   MessagingPresenceState,
   MessagingReceiptUpdatedPayload,
   MessagingSocket,
+  MessagingSocketErrorPayload,
   MessagingTypingUpdatedPayload,
 } from "../services/messaging-socket.service";
 import type {
@@ -159,6 +174,14 @@ import {
   writeMessagingCustomization,
   writeMessagingDeviceSettings,
 } from "../utils/messaging-preferences";
+import { resolveMessagingSendAttempt } from "../utils/messaging-send-attempt";
+import type { MessagingSendAttempt } from "../utils/messaging-send-attempt";
+import {
+  isMessageThreadNearBottom,
+  mergeLatestMessagingPage,
+  restoreAnchoredMessageScrollTop,
+  restorePrependedMessageScrollTop,
+} from "../utils/messaging-thread-state";
 import type {
   ActiveUtilityPanel,
   MessagingCustomization,
@@ -173,6 +196,7 @@ import type {
   MessagingAccount,
   MessagingBlockedAccount,
   MessagingContact,
+  MessagingGroupMember,
   MessagingAttachment,
   MessagingConversation,
   ConversationListView,
@@ -196,6 +220,7 @@ import type {
   StarredMessageItem,
   ConversationStorageUsageResponse,
   UserStorageUsageResponse,
+  ChatFolder,
 } from "../types/messaging";
 
 type RealtimeConnectionStatus =
@@ -225,6 +250,12 @@ type DestructiveConfirmation =
   | { kind: "DELETE_MESSAGE_FOR_ME"; message: MessagingMessage }
   | { kind: "DELETE_MESSAGE_FOR_EVERYONE"; message: MessagingMessage }
   | { kind: "LEAVE_GROUP"; conversationId: string; conversationTitle: string }
+  | {
+      kind: "DELETE_GROUP";
+      conversationId: string;
+      conversationTitle: string;
+      groupKind: GroupKind;
+    }
   | { kind: "BLOCK_PRIVATE_CONTACT"; target: MessagingAccount };
 
 interface DestructiveConfirmationCopy {
@@ -270,94 +301,122 @@ interface AnnouncementPendingAttachment {
 
 function destructiveConfirmationCopy(
   action: DestructiveConfirmation,
+  t: TFunction,
 ): DestructiveConfirmationCopy {
   switch (action.kind) {
     case "DELETE_MESSAGE_FOR_ME":
       return {
-        eyebrow: "Personal message action",
-        title: "Delete this message for me?",
-        description:
-          "This message will be removed from your account only. Other participants will continue to see it.",
+        eyebrow: t("confirmation.deleteForMe.eyebrow", { ns: "messaging" }),
+        title: t("confirmation.deleteForMe.title", { ns: "messaging" }),
+        description: t("confirmation.deleteForMe.description", { ns: "messaging" }),
         consequences: [
-          "This action cannot be undone from your account.",
-          "Other participants and their copies are not affected.",
-          "Shared attachment files remain available to authorized participants.",
+          t("confirmation.deleteForMe.consequence1", { ns: "messaging" }),
+          t("confirmation.deleteForMe.consequence2", { ns: "messaging" }),
+          t("confirmation.deleteForMe.consequence3", { ns: "messaging" }),
         ],
-        confirmLabel: "Delete message for me",
+        confirmLabel: t("confirmation.deleteForMe.confirm", { ns: "messaging" }),
       };
     case "DELETE_MESSAGE_FOR_EVERYONE":
       return {
-        eyebrow: "Conversation-wide action",
-        title: "Delete this message for everyone?",
-        description:
-          "The message content will be removed for conversation participants and replaced by the existing deleted-message state.",
+        eyebrow: t("confirmation.deleteForEveryone.eyebrow", { ns: "messaging" }),
+        title: t("confirmation.deleteForEveryone.title", { ns: "messaging" }),
+        description: t("confirmation.deleteForEveryone.description", { ns: "messaging" }),
         consequences: [
-          "This action cannot be undone.",
-          "Separately forwarded copies remain available where authorized.",
-          "Attachment cleanup follows the existing storage-reference rules.",
+          t("confirmation.deleteForEveryone.consequence1", { ns: "messaging" }),
+          t("confirmation.deleteForEveryone.consequence2", { ns: "messaging" }),
+          t("confirmation.deleteForEveryone.consequence3", { ns: "messaging" }),
         ],
-        confirmLabel: "Delete message for everyone",
+        confirmLabel: t("confirmation.deleteForEveryone.confirm", { ns: "messaging" }),
       };
     case "LEAVE_GROUP":
       return {
-        eyebrow: "Group membership",
-        title: `Leave ${action.conversationTitle}?`,
-        description:
-          "Your membership will end and you will stop receiving new messages from this group.",
+        eyebrow: t("confirmation.leaveGroup.eyebrow", { ns: "messaging" }),
+        title: t("confirmation.leaveGroup.title", {
+          name: action.conversationTitle,
+          ns: "messaging",
+        }),
+        description: t("confirmation.leaveGroup.description", { ns: "messaging" }),
         consequences: [
-          "You may lose access to group-only actions and future content.",
-          "Existing history remains subject to the group history policy.",
-          "A group administrator must add you again if you need to rejoin.",
+          t("confirmation.leaveGroup.consequence1", { ns: "messaging" }),
+          t("confirmation.leaveGroup.consequence2", { ns: "messaging" }),
+          t("confirmation.leaveGroup.consequence3", { ns: "messaging" }),
         ],
-        confirmLabel: "Leave group",
+        confirmLabel: t("confirmation.leaveGroup.confirm", { ns: "messaging" }),
       };
+    case "DELETE_GROUP":
+      return action.groupKind === "OFFICIAL"
+        ? {
+            eyebrow: t("confirmation.deleteOfficialGroup.eyebrow", { ns: "messaging" }),
+            title: t("confirmation.deleteOfficialGroup.title", { name: action.conversationTitle, ns: "messaging" }),
+            description: t("confirmation.deleteOfficialGroup.description", { ns: "messaging" }),
+            consequences: [
+              t("confirmation.deleteOfficialGroup.consequence1", { ns: "messaging" }),
+              t("confirmation.deleteOfficialGroup.consequence2", { ns: "messaging" }),
+              t("confirmation.deleteOfficialGroup.consequence3", { ns: "messaging" }),
+            ],
+            confirmLabel: t("confirmation.deleteOfficialGroup.confirm", { ns: "messaging" }),
+          }
+        : {
+            eyebrow: t("confirmation.deleteGroup.eyebrow", { ns: "messaging" }),
+            title: t("confirmation.deleteGroup.title", { name: action.conversationTitle, ns: "messaging" }),
+            description: t("confirmation.deleteGroup.description", { ns: "messaging" }),
+            consequences: [
+              t("confirmation.deleteGroup.consequence1", { ns: "messaging" }),
+              t("confirmation.deleteGroup.consequence2", { ns: "messaging" }),
+              t("confirmation.deleteGroup.consequence3", { ns: "messaging" }),
+            ],
+            confirmLabel: t("confirmation.deleteGroup.confirm", { ns: "messaging" }),
+          };
     case "BLOCK_PRIVATE_CONTACT":
       return {
-        eyebrow: "Private messaging privacy",
-        title: `Block ${action.target.displayName}?`,
-        description:
-          "Private messages and new private-message requests with this account will be blocked.",
+        eyebrow: t("confirmation.blockContact.eyebrow", { ns: "messaging" }),
+        title: t("confirmation.blockContact.title", {
+          name: action.target.displayName,
+          ns: "messaging",
+        }),
+        description: t("confirmation.blockContact.description", { ns: "messaging" }),
         consequences: [
-          "Official groups and announcements remain visible where authorized.",
-          "This does not remove the employee from organizational groups.",
-          "You can unblock the account later from Settings.",
+          t("confirmation.blockContact.consequence1", { ns: "messaging" }),
+          t("confirmation.blockContact.consequence2", { ns: "messaging" }),
+          t("confirmation.blockContact.consequence3", { ns: "messaging" }),
         ],
-        confirmLabel: "Block private contact",
+        confirmLabel: t("confirmation.blockContact.confirm", { ns: "messaging" }),
       };
   }
 }
 
+
 const PRIVATE_GROUP_HISTORY_OPTIONS: Array<{
   value: PrivateGroupHistoryWindow;
-  label: string;
-  description: string;
+  labelKey: string;
+  descriptionKey: string;
 }> = [
-    {
-      value: "NONE",
-      label: "No previous messages",
-      description: "Only future private-group messages will be visible.",
-    },
-    {
-      value: "LAST_15_MINUTES",
-      label: "Last 15 minutes",
-      description: "Copy only the most recent private-chat context.",
-    },
-    {
-      value: "LAST_1_HOUR",
-      label: "Last 1 hour",
-      description: "Copy private-chat context from the last hour.",
-    },
-    {
-      value: "LAST_24_HOURS",
-      label: "Last 24 hours",
-      description: "Copy private-chat context from the last day only.",
-    },
-  ];
+  {
+    value: "NONE",
+    labelKey: "privateGroup.history.none.label",
+    descriptionKey: "privateGroup.history.none.description",
+  },
+  {
+    value: "LAST_15_MINUTES",
+    labelKey: "privateGroup.history.last_15_minutes.label",
+    descriptionKey: "privateGroup.history.last_15_minutes.description",
+  },
+  {
+    value: "LAST_1_HOUR",
+    labelKey: "privateGroup.history.last_1_hour.label",
+    descriptionKey: "privateGroup.history.last_1_hour.description",
+  },
+  {
+    value: "LAST_24_HOURS",
+    labelKey: "privateGroup.history.last_24_hours.label",
+    descriptionKey: "privateGroup.history.last_24_hours.description",
+  },
+];
 const SELECTED_CONVERSATION_STORAGE_KEY = "nt-message:selected-conversation";
 const HIGHLIGHT_MESSAGE_STORAGE_KEY = "nt-message:highlight-message";
 const MESSAGE_NAVIGATION_STORAGE_KEY = "nt-message:navigation-expanded";
 const NOTIFICATION_SOUND_URL = "/sounds/web-whatsapp.mp3";
-const MESSAGE_EDIT_WINDOW_MS = 15 * 60 * 1000;
+const MESSAGE_EDIT_WINDOW_MS = 20 * 60 * 1000;
 const QUICK_REACTIONS = ["👍", "❤️", "😂", "😮", "😢", "🙏"] as const;
 type QuickReaction = (typeof QUICK_REACTIONS)[number];
 const QUICK_REACTION_SET = new Set<string>(QUICK_REACTIONS);
@@ -388,13 +447,16 @@ const DEFAULT_MESSAGING_SETTINGS: MessagingSettings = {
   muteAllNotifications: false,
 };
 
-const SETTINGS_TABS: Array<{ value: MessagingSettingsTab; label: string }> = [
-  { value: "PRIVACY", label: "Privacy & requests" },
-  { value: "NOTIFICATIONS", label: "Notifications" },
-  { value: "APPEARANCE", label: "Appearance" },
-  { value: "STORAGE", label: "Storage & data" },
-  { value: "BLOCKED", label: "Blocked users" },
-  { value: "SECURITY", label: "Security" },
+const SETTINGS_TABS: Array<{
+  value: MessagingSettingsTab;
+  labelKey: string;
+}> = [
+  { value: "PRIVACY", labelKey: "messageSettings.tabs.privacy" },
+  { value: "NOTIFICATIONS", labelKey: "messageSettings.tabs.notifications" },
+  { value: "APPEARANCE", labelKey: "messageSettings.tabs.appearance" },
+  { value: "STORAGE", labelKey: "messageSettings.tabs.storage" },
+  { value: "BLOCKED", labelKey: "messageSettings.tabs.blocked" },
+  { value: "SECURITY", labelKey: "messageSettings.tabs.security" },
 ];
 
 function buildGroupInviteUrl(token: string): string {
@@ -459,7 +521,7 @@ const ACCEPTED_ATTACHMENT_TYPES = [
 ].join(",");
 const COMPOSER_EMOJI_SECTIONS = [
   {
-    label: "Smileys",
+    labelKey: "composer.emojiSections.smileys",
     emojis: [
       "😀",
       "😃",
@@ -488,7 +550,7 @@ const COMPOSER_EMOJI_SECTIONS = [
     ],
   },
   {
-    label: "Gestures",
+    labelKey: "composer.emojiSections.gestures",
     emojis: [
       "👍",
       "👎",
@@ -509,7 +571,7 @@ const COMPOSER_EMOJI_SECTIONS = [
     ],
   },
   {
-    label: "Hearts & symbols",
+    labelKey: "composer.emojiSections.heartsSymbols",
     emojis: [
       "❤️",
       "🩷",
@@ -530,7 +592,7 @@ const COMPOSER_EMOJI_SECTIONS = [
     ],
   },
   {
-    label: "Celebration",
+    labelKey: "composer.emojiSections.celebration",
     emojis: [
       "🎉",
       "🎊",
@@ -551,7 +613,7 @@ const COMPOSER_EMOJI_SECTIONS = [
     ],
   },
   {
-    label: "Food & nature",
+    labelKey: "composer.emojiSections.foodNature",
     emojis: [
       "☕",
       "🍵",
@@ -606,7 +668,8 @@ interface MessageReactionGroup {
 
 function groupMessageReactions(
   message: MessagingMessage,
-  viewerAccountId?: string | null,
+  viewerAccountId: string | null | undefined,
+  t: TFunction,
 ): MessageReactionGroup[] {
   const grouped = new Map<string, MessageReactionGroup>();
 
@@ -618,7 +681,9 @@ function groupMessageReactions(
     const existing = grouped.get(reaction.reactionValue);
     const displayName =
       reaction.account?.displayName ??
-      (reaction.accountId === viewerAccountId ? "You" : "Unknown user");
+      (reaction.accountId === viewerAccountId
+        ? t("thread.message.you", { ns: "messaging" })
+        : t("thread.message.unknownUser", { ns: "messaging" }));
 
     if (existing) {
       existing.count += 1;
@@ -660,6 +725,7 @@ interface MessageAttachmentCardProps {
   senderDisplayName: string;
   senderPhotoUrl: string | null;
   onPreview: (attachment: MessagingAttachment) => void;
+  onMediaLayoutReady: () => void;
 }
 
 interface AttachmentViewerState {
@@ -869,12 +935,15 @@ function CompactAttachmentAudio({
   voiceNote,
   senderDisplayName,
   senderPhotoUrl,
+  onMediaLayoutReady,
 }: {
   src: string;
   voiceNote: boolean;
   senderDisplayName?: string;
   senderPhotoUrl?: string | null;
+  onMediaLayoutReady?: () => void;
 }) {
+  const { t } = useTranslation("messaging");
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const [playing, setPlaying] = useState(false);
   const [duration, setDuration] = useState(0);
@@ -923,7 +992,7 @@ function CompactAttachmentAudio({
           {voiceNote && senderPhotoUrl ? (
             <img src={senderPhotoUrl} alt="" />
           ) : voiceNote ? (
-            <span>{initials(senderDisplayName ?? "Voice message")}</span>
+            <span>{initials(senderDisplayName ?? t("attachment.voiceMessage"))}</span>
           ) : (
             <AttachmentGlyph name="audio" />
           )}
@@ -939,7 +1008,7 @@ function CompactAttachmentAudio({
         type="button"
         className="message-audio-play-v3"
         onClick={togglePlayback}
-        aria-label={playing ? "Pause audio" : "Play audio"}
+        aria-label={playing ? t("attachment.pauseAudio") : t("attachment.playAudio")}
       >
         <AttachmentGlyph name={playing ? "pause" : "play"} />
       </button>
@@ -964,14 +1033,14 @@ function CompactAttachmentAudio({
           step={0.1}
           value={Math.min(currentTime, Math.max(duration, 1))}
           onChange={(event) => handleSeek(Number(event.target.value))}
-          aria-label="Audio playback position"
+          aria-label={t("attachment.audioPlaybackPosition")}
         />
 
         <div className="message-audio-meta-v3">
           <span>
             {formatRecordingDuration(currentTime > 0 ? currentTime : duration)}
           </span>
-          <span>{voiceNote ? "Voice message" : "Audio"}</span>
+          <span>{voiceNote ? t("attachment.voiceMessage") : t("attachment.audio")}</span>
         </div>
       </div>
 
@@ -979,13 +1048,14 @@ function CompactAttachmentAudio({
         ref={audioRef}
         src={src}
         preload="metadata"
-        onLoadedMetadata={(event) =>
+        onLoadedMetadata={(event) => {
           setDuration(
             Number.isFinite(event.currentTarget.duration)
               ? event.currentTarget.duration
               : 0,
-          )
-        }
+          );
+          onMediaLayoutReady?.();
+        }}
         onTimeUpdate={(event) =>
           setCurrentTime(event.currentTarget.currentTime)
         }
@@ -1031,19 +1101,61 @@ function MessageAttachmentCard({
   senderDisplayName,
   senderPhotoUrl,
   onPreview,
+  onMediaLayoutReady,
 }: MessageAttachmentCardProps) {
+  const { t } = useTranslation("messaging");
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [previewError, setPreviewError] = useState<string | null>(null);
   const [previewRequestVersion, setPreviewRequestVersion] = useState(0);
+  const [previewEligible, setPreviewEligible] = useState(false);
+  const cardRef = useRef<HTMLElement | null>(null);
   const visualKind = attachmentVisualKind(attachment);
   const canPreview = canPreviewAttachment(attachment);
   const mediaPreview =
     isImageAttachment(attachment) || isVideoAttachment(attachment);
   const audioPreview = isAudioAttachment(attachment);
-  const needsProtectedPreview = mediaPreview || audioPreview;
+  const needsProtectedPreview =
+    !attachment.isExpired && (mediaPreview || audioPreview);
 
   useEffect(() => {
-    if (!accessToken || !needsProtectedPreview) {
+    if (!needsProtectedPreview) {
+      setPreviewEligible(false);
+      return undefined;
+    }
+
+    const element = cardRef.current;
+
+    if (!element || typeof IntersectionObserver === "undefined") {
+      setPreviewEligible(true);
+      return undefined;
+    }
+
+    setPreviewEligible(false);
+    const scrollRoot = element.closest<HTMLElement>(".message-thread");
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (!entries.some((entry) => entry.isIntersecting)) {
+          return;
+        }
+
+        // Attachment binaries are private API resources. Delay fetching them
+        // until the card is close to the viewport so opening a conversation
+        // does not start dozens of image/video/audio requests at once.
+        setPreviewEligible(true);
+        observer.disconnect();
+      },
+      {
+        root: scrollRoot,
+        rootMargin: "480px 0px",
+      },
+    );
+
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, [attachment.id, needsProtectedPreview]);
+
+  useEffect(() => {
+    if (!accessToken || !needsProtectedPreview || !previewEligible) {
       return;
     }
 
@@ -1053,17 +1165,29 @@ function MessageAttachmentCard({
     setPreviewUrl(null);
     setPreviewError(null);
 
-    // Media remains behind the authenticated API; a temporary object URL keeps
-    // access tokens and private attachment endpoints out of the rendered DOM.
-    void createConversationAttachmentObjectUrl(
-      accessToken,
-      conversationId,
-      messageId,
-      attachment.id,
-    )
+    // Images keep the authenticated Blob preview. Video/audio use a short-lived
+    // protected URL so the browser can request only the byte ranges it needs.
+    const previewRequest =
+      isVideoAttachment(attachment) || isAudioAttachment(attachment)
+        ? createConversationAttachmentStreamUrl(
+            accessToken,
+            conversationId,
+            messageId,
+            attachment.id,
+          )
+        : createConversationAttachmentObjectUrl(
+            accessToken,
+            conversationId,
+            messageId,
+            attachment.id,
+          );
+
+    void previewRequest
       .then((url) => {
         if (cancelled) {
-          URL.revokeObjectURL(url);
+          if (url.startsWith("blob:")) {
+            URL.revokeObjectURL(url);
+          }
           return;
         }
 
@@ -1078,14 +1202,14 @@ function MessageAttachmentCard({
         setPreviewError(
           error instanceof Error
             ? error.message
-            : "Attachment preview could not be loaded.",
+            : t("attachment.previewLoadError"),
         );
       });
 
     return () => {
       cancelled = true;
 
-      if (objectUrl) {
+      if (objectUrl?.startsWith("blob:")) {
         URL.revokeObjectURL(objectUrl);
       }
     };
@@ -1095,33 +1219,64 @@ function MessageAttachmentCard({
     conversationId,
     messageId,
     needsProtectedPreview,
+    previewEligible,
     previewRequestVersion,
   ]);
 
-  const displayName = isVoiceNote ? "Voice note" : attachment.originalFileName;
-  const attachmentMeta = `${attachmentTypeLabel(attachment)} · ${formatFileSize(
+  const displayName = isVoiceNote ? t("attachment.voiceNote") : attachment.originalFileName;
+  const attachmentMeta = `${t(attachmentTypeTranslationKey(attachment))} · ${formatFileSize(
     attachment.fileSizeBytes,
   )}`;
 
   return (
     <article
-      className={`message-attachment-card-v2 message-attachment-${visualKind}-v2${previewError ? " has-preview-error" : ""
+      ref={cardRef}
+      className={`message-attachment-card-v2 message-attachment-${visualKind}-v2${attachment.isExpired ? " is-expired" : ""}${previewError ? " has-preview-error" : ""
         }`}
       aria-label={`${displayName}, ${attachmentMeta}`}
     >
-      {mediaPreview && (
+      {attachment.isExpired && (
+        <div className="message-attachment-expired-v2" role="status">
+          <span
+            className="message-attachment-expired-icon-v2"
+            aria-hidden="true"
+          >
+            <AttachmentGlyph name={visualKind} />
+          </span>
+          <span>
+            <strong>{displayName}</strong>
+            <small>
+              {t("attachment.expired")}
+            </small>
+          </span>
+        </div>
+      )}
+
+      {!attachment.isExpired && mediaPreview && (
         <div className="message-attachment-media-v2">
           {previewUrl ? (
             <button
               type="button"
               className="message-attachment-media-open-v2"
               onClick={() => onPreview(attachment)}
-              aria-label={`Preview ${attachment.originalFileName}`}
+              aria-label={t("attachment.previewNamed", { name: attachment.originalFileName })}
             >
               {isImageAttachment(attachment) ? (
-                <img src={previewUrl} alt={attachment.originalFileName} />
+                <img
+                  src={previewUrl}
+                  alt={attachment.originalFileName}
+                  onLoad={onMediaLayoutReady}
+                  onError={onMediaLayoutReady}
+                />
               ) : (
-                <video src={previewUrl} muted playsInline preload="metadata" />
+                <video
+                  src={previewUrl}
+                  muted
+                  playsInline
+                  preload="metadata"
+                  onLoadedMetadata={onMediaLayoutReady}
+                  onError={onMediaLayoutReady}
+                />
               )}
               {isVideoAttachment(attachment) && (
                 <span className="message-attachment-media-overlay-v2">
@@ -1132,12 +1287,12 @@ function MessageAttachmentCard({
           ) : previewError ? (
             <div className="message-attachment-preview-state-v2 error">
               <AttachmentGlyph name="retry" />
-              <strong>Preview unavailable</strong>
+              <strong>{t("attachment.previewUnavailable")}</strong>
               <button
                 type="button"
                 onClick={() => setPreviewRequestVersion((value) => value + 1)}
               >
-                Try again
+                {t("actions.tryAgain")}
               </button>
             </div>
           ) : (
@@ -1151,30 +1306,36 @@ function MessageAttachmentCard({
               </span>
               <span className="message-small-spinner" />
               <strong>
-                Loading {isVideoAttachment(attachment) ? "video" : "image"}
+                {t("attachment.loadingMedia", {
+                  type: isVideoAttachment(attachment)
+                    ? t("attachment.types.video").toLowerCase()
+                    : t("attachment.types.image").toLowerCase(),
+                })}
               </strong>
             </div>
           )}
         </div>
       )}
 
-      {audioPreview &&
+      {!attachment.isExpired &&
+        audioPreview &&
         (previewUrl ? (
           <CompactAttachmentAudio
             src={previewUrl}
             voiceNote={isVoiceNote}
             senderDisplayName={senderDisplayName}
             senderPhotoUrl={senderPhotoUrl}
+            onMediaLayoutReady={onMediaLayoutReady}
           />
         ) : previewError ? (
           <div className="message-attachment-preview-state-v2 error audio">
             <AttachmentGlyph name="audio" />
-            <span>Audio unavailable</span>
+            <span>{t("attachment.audioUnavailable")}</span>
             <button
               type="button"
               onClick={() => setPreviewRequestVersion((value) => value + 1)}
             >
-              Retry
+              {t("actions.retry")}
             </button>
           </div>
         ) : (
@@ -1188,12 +1349,12 @@ function MessageAttachmentCard({
             </span>
             <span className="message-small-spinner" />
             <span>
-              {isVoiceNote ? "Loading voice message" : "Loading audio"}
+              {isVoiceNote ? t("attachment.loadingVoiceMessage") : t("attachment.loadingAudio")}
             </span>
           </div>
         ))}
 
-      {!needsProtectedPreview && (
+      {!attachment.isExpired && !needsProtectedPreview && (
         <button
           type="button"
           className="message-attachment-document-v2"
@@ -1330,12 +1491,40 @@ function createAnnouncementAttachmentClientId(file: File): string {
   return `${file.name}-${file.size}-${file.lastModified}-${randomPart}`;
 }
 
-function announcementEnumLabel(value: string): string {
-  return value
-    .toLowerCase()
-    .replaceAll("_", " ")
-    .replace(/(^|\s)\S/g, (letter) => letter.toUpperCase());
+function announcementEnumLabel(value: string, t: TFunction): string {
+  switch (value) {
+    case "NORMAL":
+      return t("announcement.enums.normal");
+    case "IMPORTANT":
+      return t("announcement.enums.important");
+    case "URGENT":
+      return t("announcement.enums.urgent");
+    case "EMERGENCY":
+      return t("announcement.enums.emergency");
+    case "DRAFT":
+      return t("announcement.enums.draft");
+    case "SCHEDULED":
+      return t("announcement.enums.scheduled");
+    case "PUBLISHING":
+      return t("announcement.enums.publishing");
+    case "PUBLISHED":
+      return t("announcement.enums.published");
+    case "EXPIRED":
+      return t("announcement.enums.expired");
+    case "IMAGE":
+      return t("announcement.enums.image");
+    case "VIDEO":
+      return t("announcement.enums.video");
+    case "DOCUMENT":
+      return t("announcement.enums.document");
+    default:
+      return value
+        .toLowerCase()
+        .replaceAll("_", " ")
+        .replace(/(^|\s)\S/g, (letter) => letter.toUpperCase());
+  }
 }
+
 
 function announcementAttachmentShortLabel(
   category: AnnouncementAttachmentCategory,
@@ -1391,6 +1580,10 @@ function isAnnouncementTextAttachment(
 function canPreviewAnnouncementAttachment(
   attachment: AnnouncementAttachment,
 ): boolean {
+  if (attachment.isExpired) {
+    return false;
+  }
+
   return (
     isAnnouncementImageAttachment(attachment) ||
     isAnnouncementVideoAttachment(attachment) ||
@@ -1516,6 +1709,7 @@ function getMessagePayloadValue(
 // Reads the trusted official-announcement marker from a message payload.
 function getOfficialAnnouncementPayload(
   message: Pick<MessagingMessage, "payload">,
+  t?: TFunction,
 ): MessagingAnnouncementPayload | null {
   const announcement = getMessagePayloadValue(message, "announcement");
 
@@ -1536,7 +1730,9 @@ function getOfficialAnnouncementPayload(
   return {
     kind: "OFFICIAL",
     label:
-      typeof value.label === "string" ? value.label : "Official announcement",
+      typeof value.label === "string"
+        ? value.label
+        : t?.("announcement.messageLabel") ?? "Official announcement",
   };
 }
 
@@ -1589,12 +1785,24 @@ function getMentionedAccountIds(
   text: string,
   conversation: MessagingConversation | null,
   viewerAccountId?: string | null,
+  selectedMentions: MessagingAccount[] = [],
 ): string[] {
   if (!conversation || conversation.type !== "GROUP") {
     return [];
   }
 
-  return conversation.participants
+  // Official groups intentionally keep only a bounded participant page in the
+  // conversation payload. Merge explicitly selected server-side mention
+  // candidates so their account IDs are still sent with the message.
+  const candidates = new Map<string, MessagingAccount>();
+  conversation.participants.forEach((participant) => {
+    candidates.set(participant.accountId, participant);
+  });
+  selectedMentions.forEach((participant) => {
+    candidates.set(participant.accountId, participant);
+  });
+
+  return Array.from(candidates.values())
     .filter((participant) => participant.accountId !== viewerAccountId)
     .filter((participant) => {
       const pattern = new RegExp(
@@ -1834,25 +2042,6 @@ function isLiveLocationActive(
   return new Date(location.liveExpiresAt).getTime() > Date.now();
 }
 
-function locationStatusLabel(location: MessagingLocationPayload): string {
-  if (location.kind === "CURRENT") {
-    return "Current location";
-  }
-
-  if (location.liveStoppedAt) {
-    return "Live location stopped";
-  }
-
-  if (
-    location.liveExpiresAt &&
-    new Date(location.liveExpiresAt).getTime() <= Date.now()
-  ) {
-    return "Live location expired";
-  }
-
-  return "Live location active";
-}
-
 function formatLocationCoordinate(value: number): string {
   return value.toFixed(5);
 }
@@ -1861,24 +2050,24 @@ function formatLocationUpdatedAt(value: string): string {
   const date = new Date(value);
 
   if (Number.isNaN(date.getTime())) {
-    return "Updated just now";
+    return "just now";
   }
 
-  return `Updated ${formatMessageTime(value)}`;
+  return formatMessageTime(value);
 }
 
-function browserNotificationPermissionLabel(): string {
+function browserNotificationPermissionLabel(t: TFunction): string {
   if (!("Notification" in window)) {
-    return "Unsupported";
+    return t("messageSettings.notifications.permission.unsupported");
   }
 
   switch (window.Notification.permission) {
     case "granted":
-      return "Allowed";
+      return t("messageSettings.notifications.permission.allowed");
     case "denied":
-      return "Blocked";
+      return t("messageSettings.notifications.permission.blocked");
     default:
-      return "Not requested";
+      return t("messageSettings.notifications.permission.notRequested");
   }
 }
 
@@ -1921,6 +2110,7 @@ function LocationMessageCard({
   stopping,
   onStop,
 }: LocationMessageCardProps) {
+  const { t } = useTranslation("messaging");
   const location = getMessageLocationPayload(message);
 
   if (!location) {
@@ -1929,7 +2119,13 @@ function LocationMessageCard({
 
   const active = isLiveLocationActive(location);
   const ownMessage = message.senderAccountId === viewerAccountId;
-  const statusLabel = location.label ?? locationStatusLabel(location);
+  const statusLabel = location.label ?? (location.kind === "CURRENT"
+    ? t("location.current")
+    : location.liveStoppedAt
+      ? t("location.stopped")
+      : location.liveExpiresAt && new Date(location.liveExpiresAt).getTime() <= Date.now()
+        ? t("location.expired")
+        : t("location.active"));
 
   return (
     <article className={`message-location-card-v2${active ? " live" : ""}`}>
@@ -1938,7 +2134,7 @@ function LocationMessageCard({
         href={location.mapUrl}
         target="_blank"
         rel="noreferrer"
-        aria-label={`Open ${statusLabel} in maps`}
+        aria-label={t("location.openInMaps", { label: statusLabel })}
       >
         <span className="message-location-pin-v2">
           <AttachmentGlyph name="location" />
@@ -1958,7 +2154,11 @@ function LocationMessageCard({
           {formatLocationCoordinate(location.longitude)}
         </span>
         <small>
-          Updated {formatLocationUpdatedAt(location.updatedAt)}
+          {t("location.updated", {
+            time: formatLocationUpdatedAt(location.updatedAt) === "just now"
+              ? t("location.justNow")
+              : formatLocationUpdatedAt(location.updatedAt),
+          })}
           {location.accuracyMeters !== null
             ? ` · ±${Math.round(location.accuracyMeters)}m`
             : ""}
@@ -1966,7 +2166,7 @@ function LocationMessageCard({
 
         <div className="message-location-actions-v2">
           <a href={location.mapUrl} target="_blank" rel="noreferrer">
-            Open map
+            {t("location.openMap")}
           </a>
 
           {ownMessage && active && (
@@ -1975,7 +2175,7 @@ function LocationMessageCard({
               onClick={() => onStop(message)}
               disabled={stopping}
             >
-              {stopping ? "Stopping…" : "Stop sharing"}
+              {stopping ? t("location.stopping") : t("location.stopSharing")}
             </button>
           )}
         </div>
@@ -2041,7 +2241,7 @@ function isZipAttachment(attachment: MessagingAttachment): boolean {
 }
 
 function canPreviewAttachment(attachment: MessagingAttachment): boolean {
-  if (isZipAttachment(attachment)) {
+  if (attachment.isExpired || isZipAttachment(attachment)) {
     return false;
   }
 
@@ -2054,28 +2254,36 @@ function canPreviewAttachment(attachment: MessagingAttachment): boolean {
   );
 }
 
-function attachmentTypeLabel(attachment: MessagingAttachment): string {
+function attachmentTypeTranslationKey(
+  attachment: MessagingAttachment,
+):
+  | "attachment.types.image"
+  | "attachment.types.video"
+  | "attachment.types.audio"
+  | "attachment.types.pdf"
+  | "attachment.types.text"
+  | "attachment.types.document" {
   if (isImageAttachment(attachment)) {
-    return "Image";
+    return "attachment.types.image";
   }
 
   if (isVideoAttachment(attachment)) {
-    return "Video";
+    return "attachment.types.video";
   }
 
   if (isAudioAttachment(attachment)) {
-    return "Audio";
+    return "attachment.types.audio";
   }
 
   if (isPdfAttachment(attachment)) {
-    return "PDF document";
+    return "attachment.types.pdf";
   }
 
   if (isTextPreviewAttachment(attachment)) {
-    return "Text document";
+    return "attachment.types.text";
   }
 
-  return "Document";
+  return "attachment.types.document";
 }
 
 function attachmentLabel(
@@ -2083,6 +2291,7 @@ function attachmentLabel(
     MessagingMessage,
     "contentType" | "attachments" | "textContent" | "payload"
   >,
+  t: TFunction,
 ): string {
   if (message.textContent) {
     return message.textContent;
@@ -2091,24 +2300,24 @@ function attachmentLabel(
   const firstAttachment = message.attachments?.[0];
 
   if (!firstAttachment) {
-    return "Message";
+    return t("preview.message");
   }
 
   if (isImageAttachment(firstAttachment)) {
-    return "Photo";
+    return t("preview.photo");
   }
 
   if (isVideoAttachment(firstAttachment)) {
-    return "Video";
+    return t("preview.video");
   }
 
   if (isAudioAttachment(firstAttachment)) {
     return getMessagePayloadValue(message, "attachmentKind") === "VOICE_NOTE"
-      ? "Voice note"
-      : "Audio";
+      ? t("preview.voiceNote")
+      : t("preview.audio");
   }
 
-  return `File: ${firstAttachment.originalFileName}`;
+  return t("preview.fileNamed", { name: firstAttachment.originalFileName });
 }
 
 // Creates an empty shared-content result for media, documents and links.
@@ -2275,11 +2484,11 @@ function groupSharedContentByMonth<T extends { sharedAt: string }>(
   }));
 }
 
-function sharedLinkDomain(url: string): string {
+function sharedLinkDomain(url: string, t: TFunction): string {
   try {
     return new URL(url).hostname.replace(/^www\./, "");
   } catch {
-    return "External link";
+    return t("sharedContent.externalLink");
   }
 }
 
@@ -2346,15 +2555,26 @@ function SharedMediaThumbnail({
 
     setPreviewError(false);
 
-    void createConversationAttachmentObjectUrl(
-      accessToken,
-      item.conversationId,
-      item.messageId,
-      item.attachment.id,
-    )
+    const previewRequest = isVideoAttachment(item.attachment)
+      ? createConversationAttachmentStreamUrl(
+          accessToken,
+          item.conversationId,
+          item.messageId,
+          item.attachment.id,
+        )
+      : createConversationAttachmentObjectUrl(
+          accessToken,
+          item.conversationId,
+          item.messageId,
+          item.attachment.id,
+        );
+
+    void previewRequest
       .then((url) => {
         if (cancelled) {
-          URL.revokeObjectURL(url);
+          if (url.startsWith("blob:")) {
+            URL.revokeObjectURL(url);
+          }
           return;
         }
 
@@ -2370,7 +2590,7 @@ function SharedMediaThumbnail({
     return () => {
       cancelled = true;
 
-      if (createdObjectUrl) {
+      if (createdObjectUrl?.startsWith("blob:")) {
         URL.revokeObjectURL(createdObjectUrl);
       }
     };
@@ -2438,21 +2658,46 @@ function canForwardMessage(message: MessagingMessage): boolean {
     return false;
   }
 
+  // Forwarding must not offer a path that the API will reject because a
+  // referenced physical attachment has already reached its retention limit.
+  if (message.attachments?.some((attachment) => attachment.isExpired)) {
+    return false;
+  }
+
   // Text and attachment messages share the same forward dialog.
   return Boolean(message.textContent || (message.attachments?.length ?? 0) > 0);
 }
 
-function roleLabel(value: string): string {
-  return value
-    .toLowerCase()
-    .split("_")
-    .map((part) => part[0]?.toUpperCase() + part.slice(1))
-    .join(" ");
+function roleLabel(value: string, t: TFunction): string {
+  switch (value) {
+    case "SUPER_ADMIN":
+      return t("roles.superAdmin");
+    case "SENIOR_MANAGEMENT":
+      return t("roles.seniorManagement");
+    case "TEAM_MANAGER":
+      return t("roles.teamManager");
+    case "OWNER":
+      return t("roles.owner");
+    case "ADMIN":
+      return t("roles.admin");
+    case "MEMBER":
+      return t("roles.member");
+    case "EMPLOYEE":
+      return t("roles.employee");
+    default:
+      return value
+        .toLowerCase()
+        .split("_")
+        .map((part) => part[0]?.toUpperCase() + part.slice(1))
+        .join(" ");
+  }
 }
 
 type MessageNavigationIconName =
   | "search"
   | "chats"
+  | "list"
+  | "edit"
   | "requests"
   | "groups"
   | "official"
@@ -2461,6 +2706,7 @@ type MessageNavigationIconName =
   | "settings"
   | "starred"
   | "bell"
+  | "bellOff"
   | "profile"
   | "workspace"
   | "logout"
@@ -2508,6 +2754,20 @@ function MessageNavigationIcon({ name }: { name: MessageNavigationIconName }) {
         <svg {...commonProps}>
           <path d="M5 17.5 3.5 21l4-1.7c1.2.5 2.6.7 4 .7 4.7 0 8.5-3.2 8.5-7.2S16.2 5.5 11.5 5.5 3 8.7 3 12.8c0 1.8.8 3.4 2 4.7Z" />
           <path d="M8 11h7M8 14h4.5" />
+        </svg>
+      );
+    case "list":
+      return (
+        <svg {...commonProps}>
+          <rect x="4" y="4" width="16" height="16" rx="3" />
+          <path d="M8 9h8M8 13h8M8 17h5" />
+        </svg>
+      );
+    case "edit":
+      return (
+        <svg {...commonProps}>
+          <path d="M5 19h4l9.5-9.5a2.1 2.1 0 0 0-3-3L6 16v3Z" />
+          <path d="m13.8 8.2 3 3" />
         </svg>
       );
     case "requests":
@@ -2568,6 +2828,14 @@ function MessageNavigationIcon({ name }: { name: MessageNavigationIconName }) {
         <svg {...commonProps}>
           <path d="M18 9a6 6 0 0 0-12 0c0 7-3 7-3 8.5h18C21 16 18 16 18 9Z" />
           <path d="M10 21h4" />
+        </svg>
+      );
+    case "bellOff":
+      return (
+        <svg {...commonProps}>
+          <path d="M18 9a6 6 0 0 0-12 0c0 7-3 7-3 8.5h18C21 16 18 16 18 9Z" />
+          <path d="M10 21h4" />
+          <path d="M3 3l18 18" />
         </svg>
       );
     case "profile":
@@ -2739,6 +3007,33 @@ function MessageNavigationIcon({ name }: { name: MessageNavigationIconName }) {
   }
 }
 
+type MessageStatusGlyphName = "pin" | "star";
+
+function MessageStatusGlyph({ name }: { name: MessageStatusGlyphName }) {
+  if (name === "star") {
+    return (
+      <svg
+        className="message-status-svg"
+        viewBox="0 0 24 24"
+        aria-hidden="true"
+      >
+        <path d="m12 2.8 2.9 5.9 6.5.9-4.7 4.6 1.1 6.5-5.8-3-5.8 3 1.1-6.5-4.7-4.6 6.5-.9L12 2.8Z" />
+      </svg>
+    );
+  }
+
+  return (
+    <svg
+      className="message-status-svg"
+      viewBox="0 0 24 24"
+      aria-hidden="true"
+    >
+      <path d="M8.2 3.5h7.6l-1 5 3.2 3.2v2.1H6v-2.1l3.2-3.2-1-5Z" />
+      <path d="M12 13.8v7" fill="none" />
+    </svg>
+  );
+}
+
 function workspacePathForRole(role: string | undefined): string {
   switch (role) {
     case "SUPER_ADMIN":
@@ -2754,57 +3049,68 @@ function workspacePathForRole(role: string | undefined): string {
   }
 }
 
-function officialScopeLabel(conversation: MessagingConversation): string {
+function officialScopeLabel(
+  conversation: MessagingConversation,
+  t: TFunction,
+): string {
   const scope = conversation.officialScope;
 
   if (!scope) {
-    return "Official organizational group";
+    return t("groupInfo.scope.organizational");
   }
 
   if (scope.scopeType === "ORGANIZATION") {
-    return "Organization-wide official group";
+    return t("groupInfo.scope.organizationWide");
   }
 
   if (scope.scopeType === "DIVISION") {
-    return `${scope.division?.name ?? "Division"} official group`;
+    return t("groupInfo.scope.division", {
+      name: scope.division?.name ?? t("profileDetail.division"),
+    });
   }
 
-  return `${scope.department?.name ?? "Department"} official group`;
+  return t("groupInfo.scope.department", {
+    name: scope.department?.name ?? t("profileDetail.department"),
+  });
 }
 
-function officialAuditLabel(entry: OfficialGroupAuditEntry): string {
+function officialAuditLabel(entry: OfficialGroupAuditEntry, t: TFunction): string {
   if (entry.action === "CREATED") {
-    return "Official group created";
+    return t("groupManagement.audit.created");
   }
 
   if (entry.action === "DETAILS_UPDATED") {
-    return "Group details updated";
+    return t("groupManagement.audit.detailsUpdated");
   }
 
   if (entry.action === "RECONCILED") {
-    return "Membership reconciled";
+    return t("groupManagement.audit.reconciled");
   }
 
-  return "Membership synchronized";
+  return t("groupManagement.audit.synchronized");
 }
 
-function requestReasonLabel(reason: MessagingMessageRequest["reason"]): string {
+function requestReasonLabel(
+  reason: MessagingMessageRequest["reason"],
+  t: TFunction,
+): string {
   if (reason === "PROTECTED_RECIPIENT") {
-    return "Protected first contact";
+    return t("requestWorkspace.reasons.protectedRecipient");
   }
 
   if (reason === "CROSS_DIVISION") {
-    return "Different division";
+    return t("requestWorkspace.reasons.crossDivision");
   }
 
-  return "Different department";
+  return t("requestWorkspace.reasons.crossDepartment");
 }
 
-function starredMessagePreview(item: StarredMessageItem): string {
+
+function starredMessagePreview(item: StarredMessageItem, t: TFunction): string {
   const { message } = item;
 
   if (message.isDeleted) {
-    return "This message is no longer available.";
+    return t("starred.unavailableMessage");
   }
 
   if (message.textContent?.trim()) {
@@ -2812,7 +3118,7 @@ function starredMessagePreview(item: StarredMessageItem): string {
   }
 
   if (message.contentType === "LOCATION") {
-    return "Shared location";
+    return t("starred.sharedLocation");
   }
 
   const firstAttachment = message.attachments?.[0];
@@ -2820,41 +3126,59 @@ function starredMessagePreview(item: StarredMessageItem): string {
   if (firstAttachment) {
     const attachmentCount = message.attachments?.length ?? 1;
     return attachmentCount > 1
-      ? `${firstAttachment.originalFileName} and ${attachmentCount - 1} more`
+      ? t("starred.andMore", {
+          name: firstAttachment.originalFileName,
+          count: attachmentCount - 1,
+        })
       : firstAttachment.originalFileName;
   }
 
-  return "Message";
+  return t("starred.messageFallback");
 }
 
-function requestStatusLabel(request: MessagingMessageRequest): string {
+function requestStatusLabel(
+  request: MessagingMessageRequest,
+  t: TFunction,
+): string {
   if (request.status === "PENDING") {
     return request.direction === "RECEIVED"
-      ? "Awaiting your response"
-      : "Awaiting response";
+      ? t("requestWorkspace.awaitingYourResponse")
+      : t("requestWorkspace.awaitingResponse");
   }
 
-  return roleLabel(request.status);
+  if (request.status === "ACCEPTED") {
+    return t("requestWorkspace.accepted");
+  }
+
+  if (request.status === "DECLINED") {
+    return t("requestWorkspace.declined");
+  }
+
+  if (request.status === "BLOCKED") {
+    return t("requestWorkspace.blocked");
+  }
+
+  return roleLabel(request.status, t);
 }
 
-function contactActionLabel(contact: MessagingContact): string {
+function contactActionLabel(contact: MessagingContact, t: TFunction): string {
   if (contact.contactMode === "REQUEST_REQUIRED") {
-    return "Request";
+    return t("contactActions.request");
   }
 
   if (contact.contactMode === "REQUEST_SENT") {
-    return "Pending";
+    return t("contactActions.pending");
   }
 
   if (contact.contactMode === "REQUEST_RECEIVED") {
-    return "Review";
+    return t("contactActions.review");
   }
 
   if (contact.contactMode === "BLOCKED") {
-    return "Blocked";
+    return t("contactActions.blocked");
   }
 
-  return "Message";
+  return t("contactActions.message");
 }
 
 function applyMessageUpdate(
@@ -2912,27 +3236,67 @@ function canEditMessage(
   );
 }
 
+function canDeleteMessageForEveryone(
+  message: MessagingMessage,
+  accountId: string | undefined,
+  conversation: MessagingConversation | null,
+): boolean {
+  if (!accountId || message.isDeleted) {
+    return false;
+  }
+
+  if (message.senderAccountId === accountId) {
+    return true;
+  }
+
+  if (conversation?.type !== "GROUP") {
+    return false;
+  }
+
+  if (conversation.viewerParticipantRole === "OWNER") {
+    return true;
+  }
+
+  if (conversation.viewerParticipantRole !== "ADMIN") {
+    return false;
+  }
+
+  const sender = conversation.participants.find(
+    (participant) => participant.accountId === message.senderAccountId,
+  );
+
+  if (!sender && !conversation.participantsComplete) {
+    // Large official groups are loaded in bounded member pages. Do not expose
+    // an admin moderation action when the sender's hierarchy is not known yet;
+    // the backend remains authoritative for all delete permissions.
+    return false;
+  }
+
+  return sender?.participantRole !== "OWNER";
+}
+
 function messagePreview(
   conversation: MessagingConversation,
   accountId: string,
+  t: TFunction,
 ): string {
   const message = conversation.lastMessage;
 
   if (!message) {
-    return "Start the conversation";
+    return t("preview.startConversation");
   }
 
   if (message.isDeleted) {
-    return "Message deleted";
+    return t("preview.messageDeleted");
   }
 
-  const prefix = message.senderAccountId === accountId ? "You: " : "";
+  const prefix = message.senderAccountId === accountId ? t("preview.youPrefix") : "";
 
   const announcementPrefix = isOfficialAnnouncementMessage(message)
-    ? "Announcement: "
+    ? t("preview.announcementPrefix")
     : "";
 
-  return `${prefix}${announcementPrefix}${message.forwardedFrom ? "Forwarded: " : ""}${attachmentLabel(message)}`;
+  return `${prefix}${announcementPrefix}${message.forwardedFrom ? t("preview.forwardedPrefix") : ""}${attachmentLabel(message, t)}`;
 }
 
 function playGeneratedNotificationFallback(): void {
@@ -3185,6 +3549,7 @@ function handleLinearKeyboardNavigation(
 export function MessageAppPage() {
   const navigate = useNavigate();
   const location = useLocation();
+  const { t } = useTranslation("messaging");
   const { account, accessToken, logout } = useAuth();
   const { refreshAvatar } = useAvatarRegistry();
   const mainWorkspacePath = workspacePathForRole(account?.role);
@@ -3192,6 +3557,7 @@ export function MessageAppPage() {
     "/messages/announcements",
   );
   const starredMode = location.pathname.startsWith("/messages/starred");
+  const archivedMode = location.pathname.startsWith("/messages/archived");
   const requestMode = location.pathname.startsWith("/messages/requests");
   const notificationMode = location.pathname.startsWith(
     "/messages/notifications",
@@ -3200,6 +3566,20 @@ export function MessageAppPage() {
   const ownProfileMode = location.pathname.startsWith("/messages/profile");
   const newConversationMode = location.pathname.startsWith("/messages/new");
   const createGroupMode = location.pathname.startsWith("/messages/groups/new");
+  const listCreateMode = location.pathname === "/messages/lists/new";
+  const listEditRouteMatch = listCreateMode
+    ? null
+    : location.pathname.match(/^\/messages\/lists\/([^/]+)\/edit$/);
+  const listViewRouteMatch =
+    listCreateMode || listEditRouteMatch
+      ? null
+      : location.pathname.match(/^\/messages\/lists\/([^/]+)$/);
+  const selectedListId =
+    listEditRouteMatch?.[1] ?? listViewRouteMatch?.[1] ?? null;
+  const listMode = selectedListId !== null;
+  const listEditMode = listEditRouteMatch !== null;
+  const listWorkspaceMode = listCreateMode || listMode;
+  const listManagementMode = listCreateMode || listEditMode;
 
   const [loggingOut, setLoggingOut] = useState(false);
   const [realtimeStatus, setRealtimeStatus] =
@@ -3212,6 +3592,28 @@ export function MessageAppPage() {
   >({});
   const [conversations, setConversations] = useState<MessagingConversation[]>(
     [],
+  );
+  const [conversationNextCursor, setConversationNextCursor] = useState<
+    string | null
+  >(null);
+  const [conversationHasMore, setConversationHasMore] = useState(false);
+  const [conversationLoadingMore, setConversationLoadingMore] = useState(false);
+  const [chatFolders, setChatFolders] = useState<ChatFolder[]>([]);
+  const [chatFoldersLoading, setChatFoldersLoading] = useState(false);
+  const [chatFoldersError, setChatFoldersError] = useState<string | null>(null);
+  const [listCandidateConversations, setListCandidateConversations] = useState<
+    MessagingConversation[]
+  >([]);
+  const [listCandidatesLoading, setListCandidatesLoading] = useState(false);
+  const [listNameDraft, setListNameDraft] = useState("");
+  const [listSelectedConversationIds, setListSelectedConversationIds] =
+    useState<string[]>([]);
+  const [listCandidateSearch, setListCandidateSearch] = useState("");
+  const [listSaving, setListSaving] = useState(false);
+  const [listDeleting, setListDeleting] = useState(false);
+  const [listDeleteConfirmOpen, setListDeleteConfirmOpen] = useState(false);
+  const [listWorkspaceError, setListWorkspaceError] = useState<string | null>(
+    null,
   );
 
   const [announcementItems, setAnnouncementItems] = useState<
@@ -3273,7 +3675,7 @@ export function MessageAppPage() {
   const [announcementAttachmentActionId, setAnnouncementAttachmentActionId] =
     useState<string | null>(null);
   const [conversationListView, setConversationListView] =
-    useState<ConversationListView>("ACTIVE");
+    useState<ConversationListView>(archivedMode ? "ARCHIVED" : "ACTIVE");
   const [conversationCategory, setConversationCategory] =
     useState<ConversationCategory>("ALL");
   const [detailsPanelOpen, setDetailsPanelOpen] = useState(false);
@@ -3363,6 +3765,9 @@ export function MessageAppPage() {
   const [activeMobileMessageId, setActiveMobileMessageId] = useState<
     string | null
   >(null);
+  const [mobileMessageActionView, setMobileMessageActionView] = useState<
+    "PRIMARY" | "MORE"
+  >("PRIMARY");
   const [reactionMenuPosition, setReactionMenuPosition] = useState<{
     top: number;
     left: number;
@@ -3376,6 +3781,7 @@ export function MessageAppPage() {
     useState(false);
   const [activePinnedMessageIndex, setActivePinnedMessageIndex] = useState(0);
   const [newMessageCount, setNewMessageCount] = useState(0);
+  const [showJumpToLatest, setShowJumpToLatest] = useState(false);
   const [conversationSearch, setConversationSearch] = useState("");
   const [mentionSuggestionsDismissed, setMentionSuggestionsDismissed] =
     useState(false);
@@ -3397,6 +3803,14 @@ export function MessageAppPage() {
   const [messageInformationError, setMessageInformationError] = useState<
     string | null
   >(null);
+  const [
+    messageInformationVisibleReadCount,
+    setMessageInformationVisibleReadCount,
+  ] = useState(40);
+  const [
+    messageInformationVisibleDeliveredCount,
+    setMessageInformationVisibleDeliveredCount,
+  ] = useState(40);
   const [conversationPreferenceLoading, setConversationPreferenceLoading] =
     useState<string | null>(null);
   const [conversationLoading, setConversationLoading] = useState(true);
@@ -3404,6 +3818,8 @@ export function MessageAppPage() {
   const [olderMessagesLoading, setOlderMessagesLoading] = useState(false);
   const [sendingMessage, setSendingMessage] = useState(false);
   const [sendAttemptFailed, setSendAttemptFailed] = useState(false);
+  const composerSendAttemptRef = useRef<MessagingSendAttempt | null>(null);
+  const locationSendAttemptRef = useRef<MessagingSendAttempt | null>(null);
   const [selectedAttachments, setSelectedAttachments] = useState<
     SelectedComposerAttachment[]
   >([]);
@@ -3455,6 +3871,10 @@ export function MessageAppPage() {
   const [storageUsageActionId, setStorageUsageActionId] = useState<
     string | null
   >(null);
+  const [storageDeleteConfirmation, setStorageDeleteConfirmation] = useState<{
+    attachmentId: string;
+    mode: "ME" | "EVERYONE";
+  } | null>(null);
   const [messageCursor, setMessageCursor] = useState<string | null>(null);
   const [hasOlderMessages, setHasOlderMessages] = useState(false);
   const [pageError, setPageError] = useState<string | null>(null);
@@ -3467,6 +3887,9 @@ export function MessageAppPage() {
   );
   const [forwardSearch, setForwardSearch] = useState("");
   const [forwardClientId, setForwardClientId] = useState<string | null>(null);
+  const [forwardDestinationError, setForwardDestinationError] = useState<
+    string | null
+  >(null);
   const [forwardSubmitting, setForwardSubmitting] = useState(false);
   const newConversationOpen = newConversationMode;
   const [groupDialogMode, setGroupDialogMode] = useState<
@@ -3478,6 +3901,51 @@ export function MessageAppPage() {
     useState(false);
   const [groupMemberSearch, setGroupMemberSearch] = useState("");
   const [groupMembersExpanded, setGroupMembersExpanded] = useState(false);
+  const [officialGroupMembers, setOfficialGroupMembers] = useState<
+    MessagingGroupMember[]
+  >([]);
+  const [officialGroupMemberCursor, setOfficialGroupMemberCursor] = useState<
+    string | null
+  >(null);
+  const [officialGroupMembersHasMore, setOfficialGroupMembersHasMore] =
+    useState(false);
+  const [officialGroupMembersLoading, setOfficialGroupMembersLoading] =
+    useState(false);
+  const [officialGroupMembersLoadingMore, setOfficialGroupMembersLoadingMore] =
+    useState(false);
+  const [officialGroupMembersError, setOfficialGroupMembersError] = useState<
+    string | null
+  >(null);
+  const [officialGroupMemberSearchResults, setOfficialGroupMemberSearchResults] =
+    useState<MessagingGroupMember[]>([]);
+  const [officialGroupMemberSearchCursor, setOfficialGroupMemberSearchCursor] =
+    useState<string | null>(null);
+  const [officialGroupMemberSearchHasMore, setOfficialGroupMemberSearchHasMore] =
+    useState(false);
+  const [officialGroupMemberSearchLoading, setOfficialGroupMemberSearchLoading] =
+    useState(false);
+  const [officialGroupMemberSearchLoadingMore, setOfficialGroupMemberSearchLoadingMore] =
+    useState(false);
+  const [officialGroupMemberSearchError, setOfficialGroupMemberSearchError] =
+    useState<string | null>(null);
+  const [officialMentionSuggestions, setOfficialMentionSuggestions] = useState<
+    MessagingGroupMember[]
+  >([]);
+  const [officialMentionCursor, setOfficialMentionCursor] = useState<
+    string | null
+  >(null);
+  const [officialMentionHasMore, setOfficialMentionHasMore] = useState(false);
+  const [officialMentionLoading, setOfficialMentionLoading] = useState(false);
+  const [officialMentionLoadingMore, setOfficialMentionLoadingMore] =
+    useState(false);
+  const [officialMentionError, setOfficialMentionError] = useState<
+    string | null
+  >(null);
+  const [selectedComposerMentions, setSelectedComposerMentions] = useState<
+    MessagingAccount[]
+  >([]);
+  const [officialGroupMembersRefreshVersion, setOfficialGroupMembersRefreshVersion] =
+    useState(0);
   const [profileReturnToGroupInformation, setProfileReturnToGroupInformation] =
     useState(false);
   const [profileSharedGroupsExpanded, setProfileSharedGroupsExpanded] =
@@ -3521,6 +3989,7 @@ export function MessageAppPage() {
   const [groupInviteError, setGroupInviteError] = useState<string | null>(null);
   const [inviteJoinLoading, setInviteJoinLoading] = useState(false);
   const groupInviteJoinTokenRef = useRef<string | null>(null);
+  const pushNavigationTargetRef = useRef<string | null>(null);
   const [groupPhotoUploading, setGroupPhotoUploading] = useState(false);
   const groupPhotoInputRef = useRef<HTMLInputElement | null>(null);
   const [privateGroupDialogOpen, setPrivateGroupDialogOpen] = useState(false);
@@ -3549,6 +4018,9 @@ export function MessageAppPage() {
   >(null);
   const [starredItems, setStarredItems] = useState<StarredMessageItem[]>([]);
   const [starredLoading, setStarredLoading] = useState(false);
+  const [starredLoadingMore, setStarredLoadingMore] = useState(false);
+  const [starredHasMore, setStarredHasMore] = useState(false);
+  const [starredNextCursor, setStarredNextCursor] = useState<string | null>(null);
   const [starredError, setStarredError] = useState<string | null>(null);
   const [starredActionId, setStarredActionId] = useState<string | null>(null);
   const [messageRequests, setMessageRequests] =
@@ -3617,6 +4089,7 @@ export function MessageAppPage() {
         false,
       ),
     );
+  const [backgroundPushReady, setBackgroundPushReady] = useState(false);
   const [settingsTab, setSettingsTab] =
     useState<MessagingSettingsTab>("PRIVACY");
   const [messagingSettingsLoading, setMessagingSettingsLoading] =
@@ -3770,6 +4243,7 @@ export function MessageAppPage() {
       setOpenReactionMenuId(null);
       setReactionMenuPosition(null);
       setActiveMobileMessageId(null);
+      setMobileMessageActionView("PRIMARY");
     };
 
     const handlePointerDown = (event: PointerEvent) => {
@@ -3889,7 +4363,7 @@ export function MessageAppPage() {
         .querySelector<HTMLButtonElement>(
           "[data-message-mobile-actions] [data-message-action-menu] button",
         )
-        ?.focus();
+        ?.focus({ preventScroll: true });
     });
 
     return () => window.cancelAnimationFrame(frameId);
@@ -3909,7 +4383,7 @@ export function MessageAppPage() {
     const menuRect = messageActionMenuRef.current.getBoundingClientRect();
     const viewportPadding = 10;
     const threadPadding = 8;
-    const gap = 8;
+    const horizontalGap = 8;
     const minLeft = Math.max(
       viewportPadding,
       messageActionMenuAnchor.boundaryLeft + threadPadding,
@@ -3921,14 +4395,19 @@ export function MessageAppPage() {
         messageActionMenuAnchor.boundaryRight - menuRect.width - threadPadding,
       ),
     );
+
+    // The anchor represents the whole React / Reply / More cluster. Keep the
+    // popup beside that cluster so it never covers the More trigger or another
+    // quick-action button. Incoming messages prefer the right side and outgoing
+    // messages prefer the left; flip sides when the preferred side has no room.
     const preferredLeft = messageActionMenuAnchor.ownMessage
-      ? messageActionMenuAnchor.left - menuRect.width - gap
-      : messageActionMenuAnchor.right + gap;
+      ? messageActionMenuAnchor.left - menuRect.width - horizontalGap
+      : messageActionMenuAnchor.right + horizontalGap;
     const alternateLeft = messageActionMenuAnchor.ownMessage
-      ? messageActionMenuAnchor.right + gap
-      : messageActionMenuAnchor.left - menuRect.width - gap;
-    const fitsHorizontally = (left: number) =>
-      left >= minLeft && left <= maxLeft;
+      ? messageActionMenuAnchor.right + horizontalGap
+      : messageActionMenuAnchor.left - menuRect.width - horizontalGap;
+    const fitsHorizontally = (candidate: number) =>
+      candidate >= minLeft && candidate <= maxLeft;
     const left = fitsHorizontally(preferredLeft)
       ? preferredLeft
       : fitsHorizontally(alternateLeft)
@@ -3946,27 +4425,11 @@ export function MessageAppPage() {
         messageActionMenuAnchor.boundaryBottom - menuRect.height - threadPadding,
       ),
     );
-    const availableBelow =
-      messageActionMenuAnchor.boundaryBottom -
-      threadPadding -
-      messageActionMenuAnchor.bottom;
-    const availableAbove =
-      messageActionMenuAnchor.top -
-      (messageActionMenuAnchor.boundaryTop + threadPadding);
-    const belowTop = messageActionMenuAnchor.bottom + gap;
-    const aboveTop = messageActionMenuAnchor.top - menuRect.height - gap;
 
-    // A message menu behaves like an anchored popover: it opens directly
-    // below the More button when space allows, otherwise directly above it.
-    // Clamping is only the final fallback for unusually small thread areas.
-    const preferredTop =
-      availableBelow >= menuRect.height + gap
-        ? belowTop
-        : availableAbove >= menuRect.height + gap
-          ? aboveTop
-          : availableBelow >= availableAbove
-            ? belowTop
-            : aboveTop;
+    // Align the popup with the trigger instead of opening a long dropdown
+    // underneath the message. Only shift it vertically when needed to keep the
+    // complete menu inside the conversation viewport above the composer.
+    const preferredTop = messageActionMenuAnchor.top - 4;
     const top = Math.min(maxTop, Math.max(minTop, preferredTop));
 
     setMessageActionMenuPosition({
@@ -4160,7 +4623,7 @@ export function MessageAppPage() {
         setMessagingSettingsError(
           error instanceof Error
             ? error.message
-            : "Messaging privacy settings could not be loaded.",
+            : t("feedback.privacyLoadError"),
         );
       })
       .finally(() => {
@@ -4190,7 +4653,7 @@ export function MessageAppPage() {
       setBlockSettingsError(
         error instanceof Error
           ? error.message
-          : "Blocked accounts could not be loaded.",
+          : t("feedback.blockedLoadError"),
       );
     } finally {
       setBlockedAccountsLoading(false);
@@ -4239,13 +4702,20 @@ export function MessageAppPage() {
   const [profileError, setProfileError] = useState<string | null>(null);
 
   const messageListRef = useRef<HTMLDivElement | null>(null);
-  const messageThreadBottomRef = useRef<HTMLDivElement | null>(null);
+  const messageThreadContentRef = useRef<HTMLDivElement | null>(null);
+  const messageResizeFrameRef = useRef<number | null>(null);
+  const initialBottomReanchorFrameRef = useRef<number | null>(null);
   const messageIdsRef = useRef<Set<string>>(new Set());
   const messageListNearBottomRef = useRef(true);
   const pendingOlderScrollRestoreRef = useRef<{
     conversationId: string;
     scrollHeight: number;
     scrollTop: number;
+  } | null>(null);
+  const pendingThreadMutationAnchorRef = useRef<{
+    conversationId: string;
+    scrollTop: number;
+    anchors: Array<{ messageId: string; offsetTop: number }>;
   } | null>(null);
   const pendingFocusedMessageScrollRef = useRef<string | null>(null);
   const conversationActionButtonRef = useRef<HTMLButtonElement | null>(null);
@@ -4265,6 +4735,7 @@ export function MessageAppPage() {
   const messageSearchTriggerRef = useRef<HTMLButtonElement | null>(null);
   const messageSearchReturnFocusRef = useRef<HTMLElement | null>(null);
   const messageSearchRequestIdRef = useRef(0);
+  const messageInformationRequestIdRef = useRef(0);
   const closeMessageSearchPanel = useCallback((): void => {
     messageSearchRequestIdRef.current += 1;
 
@@ -4294,6 +4765,7 @@ export function MessageAppPage() {
     selectedConversationId,
   );
   const composerRef = useRef<HTMLTextAreaElement | null>(null);
+  const pendingComposerRefocusConversationIdRef = useRef<string | null>(null);
   const conversationSearchInputRef = useRef<HTMLInputElement | null>(null);
   const conversationListRef = useRef<HTMLDivElement | null>(null);
   const attachmentInputRef = useRef<HTMLInputElement | null>(null);
@@ -4325,6 +4797,20 @@ export function MessageAppPage() {
   const selectedConversationIdRef = useRef<string | null>(
     selectedConversationId,
   );
+  const messageLoadRequestRef = useRef(0);
+  const officialGroupMembersRequestRef = useRef(0);
+  const officialGroupMemberSearchRequestRef = useRef(0);
+  const officialMentionRequestRef = useRef(0);
+  const messagePageCacheRef = useRef<
+    Record<
+      string,
+      {
+        messages: MessagingMessage[];
+        cursor: string | null;
+        hasOlder: boolean;
+      }
+    >
+  >({});
   const announcementLoadRequestRef = useRef(0);
   const announcementDetailRequestRef = useRef(0);
   const announcementDetailIdRef = useRef<string | null>(null);
@@ -4340,6 +4826,229 @@ export function MessageAppPage() {
         (conversation) => conversation.id === selectedConversationId,
       ) ?? null,
     [conversations, selectedConversationId],
+  );
+  const selectedOfficialConversationId =
+    selectedConversation?.groupKind === "OFFICIAL"
+      ? selectedConversation.id
+      : null;
+
+  const loadOfficialGroupMemberPage = useCallback(
+    async (options: {
+      search: string;
+      cursor: string | null;
+      append: boolean;
+    }): Promise<void> => {
+      if (
+        !accessToken ||
+        !selectedOfficialConversationId
+      ) {
+        return;
+      }
+
+      const search = options.search.trim();
+      const searchMode = search.length > 0;
+      const requestRef = searchMode
+        ? officialGroupMemberSearchRequestRef
+        : officialGroupMembersRequestRef;
+      const requestId = requestRef.current + 1;
+      requestRef.current = requestId;
+
+      if (searchMode) {
+        if (options.append) {
+          setOfficialGroupMemberSearchLoadingMore(true);
+        } else {
+          setOfficialGroupMemberSearchLoading(true);
+          setOfficialGroupMemberSearchResults([]);
+          setOfficialGroupMemberSearchCursor(null);
+          setOfficialGroupMemberSearchHasMore(false);
+        }
+        setOfficialGroupMemberSearchError(null);
+      } else {
+        if (options.append) {
+          setOfficialGroupMembersLoadingMore(true);
+        } else {
+          setOfficialGroupMembersLoading(true);
+          setOfficialGroupMemberCursor(null);
+          setOfficialGroupMembersHasMore(false);
+        }
+        setOfficialGroupMembersError(null);
+      }
+
+      try {
+        const response = await listGroupMembers(
+          accessToken,
+          selectedOfficialConversationId,
+          {
+            search: search || undefined,
+            cursor: options.cursor,
+            limit: 25,
+          },
+        );
+
+        if (requestRef.current !== requestId) {
+          return;
+        }
+
+        const mergeMembers = (
+          current: MessagingGroupMember[],
+          incoming: MessagingGroupMember[],
+        ): MessagingGroupMember[] => {
+          const byAccountId = new Map(
+            current.map((member) => [member.accountId, member]),
+          );
+          incoming.forEach((member) => byAccountId.set(member.accountId, member));
+          return Array.from(byAccountId.values());
+        };
+
+        if (searchMode) {
+          setOfficialGroupMemberSearchResults((current) =>
+            options.append ? mergeMembers(current, response.data) : response.data,
+          );
+          setOfficialGroupMemberSearchCursor(response.pagination.nextCursor);
+          setOfficialGroupMemberSearchHasMore(response.pagination.hasMore);
+        } else {
+          setOfficialGroupMembers((current) =>
+            options.append ? mergeMembers(current, response.data) : response.data,
+          );
+          setOfficialGroupMemberCursor(response.pagination.nextCursor);
+          setOfficialGroupMembersHasMore(response.pagination.hasMore);
+        }
+      } catch (error) {
+        if (requestRef.current !== requestId) {
+          return;
+        }
+
+        const message =
+          error instanceof Error
+            ? error.message
+            : t("feedback.groupMembersLoadError");
+
+        if (searchMode) {
+          setOfficialGroupMemberSearchError(message);
+        } else {
+          setOfficialGroupMembersError(message);
+        }
+      } finally {
+        if (requestRef.current === requestId) {
+          if (searchMode) {
+            setOfficialGroupMemberSearchLoading(false);
+            setOfficialGroupMemberSearchLoadingMore(false);
+          } else {
+            setOfficialGroupMembersLoading(false);
+            setOfficialGroupMembersLoadingMore(false);
+          }
+        }
+      }
+    },
+    [accessToken, selectedOfficialConversationId],
+  );
+
+  useEffect(() => {
+    if (!selectedOfficialConversationId) {
+      officialGroupMembersRequestRef.current += 1;
+      officialGroupMemberSearchRequestRef.current += 1;
+      setOfficialGroupMembers([]);
+      setOfficialGroupMemberCursor(null);
+      setOfficialGroupMembersHasMore(false);
+      setOfficialGroupMembersLoading(false);
+      setOfficialGroupMembersLoadingMore(false);
+      setOfficialGroupMembersError(null);
+      setOfficialGroupMemberSearchResults([]);
+      setOfficialGroupMemberSearchCursor(null);
+      setOfficialGroupMemberSearchHasMore(false);
+      setOfficialGroupMemberSearchLoading(false);
+      setOfficialGroupMemberSearchLoadingMore(false);
+      setOfficialGroupMemberSearchError(null);
+      return;
+    }
+
+    void loadOfficialGroupMemberPage({
+      search: "",
+      cursor: null,
+      append: false,
+    });
+  }, [
+    loadOfficialGroupMemberPage,
+    officialGroupMembersRefreshVersion,
+    selectedOfficialConversationId,
+  ]);
+
+  const normalizedGroupMemberSearch = groupMemberSearch.trim();
+
+  useEffect(() => {
+    if (
+      !selectedOfficialConversationId ||
+      !normalizedGroupMemberSearch
+    ) {
+      officialGroupMemberSearchRequestRef.current += 1;
+      setOfficialGroupMemberSearchResults([]);
+      setOfficialGroupMemberSearchCursor(null);
+      setOfficialGroupMemberSearchHasMore(false);
+      setOfficialGroupMemberSearchLoading(false);
+      setOfficialGroupMemberSearchLoadingMore(false);
+      setOfficialGroupMemberSearchError(null);
+      return;
+    }
+
+    const timer = window.setTimeout(() => {
+      void loadOfficialGroupMemberPage({
+        search: normalizedGroupMemberSearch,
+        cursor: null,
+        append: false,
+      });
+    }, 220);
+
+    return () => window.clearTimeout(timer);
+  }, [
+    loadOfficialGroupMemberPage,
+    normalizedGroupMemberSearch,
+    officialGroupMembersRefreshVersion,
+    selectedOfficialConversationId,
+  ]);
+
+  function loadMoreOfficialGroupMembers(): void {
+    if (!selectedOfficialConversationId) {
+      return;
+    }
+
+    if (normalizedGroupMemberSearch) {
+      if (
+        !officialGroupMemberSearchHasMore ||
+        !officialGroupMemberSearchCursor ||
+        officialGroupMemberSearchLoadingMore
+      ) {
+        return;
+      }
+
+      void loadOfficialGroupMemberPage({
+        search: normalizedGroupMemberSearch,
+        cursor: officialGroupMemberSearchCursor,
+        append: true,
+      });
+      return;
+    }
+
+    if (
+      !officialGroupMembersHasMore ||
+      !officialGroupMemberCursor ||
+      officialGroupMembersLoadingMore
+    ) {
+      return;
+    }
+
+    void loadOfficialGroupMemberPage({
+      search: "",
+      cursor: officialGroupMemberCursor,
+      append: true,
+    });
+  }
+
+  const selectedChatFolder = useMemo(
+    () =>
+      selectedListId
+        ? chatFolders.find((folder) => folder.id === selectedListId) ?? null
+        : null,
+    [chatFolders, selectedListId],
   );
   const conversationHistoryTarget = useMemo(
     () =>
@@ -4367,14 +5076,15 @@ export function MessageAppPage() {
     destructiveConfirmation?.kind === "DELETE_MESSAGE_FOR_ME" ||
       destructiveConfirmation?.kind === "DELETE_MESSAGE_FOR_EVERYONE"
       ? messageActionId === destructiveConfirmation.message.id
-      : destructiveConfirmation?.kind === "LEAVE_GROUP"
+      : destructiveConfirmation?.kind === "LEAVE_GROUP" ||
+          destructiveConfirmation?.kind === "DELETE_GROUP"
         ? groupSubmitting
         : destructiveConfirmation?.kind === "BLOCK_PRIVATE_CONTACT"
           ? blockActionAccountId === destructiveConfirmation.target.accountId
           : false,
   );
   const destructiveConfirmationContent = destructiveConfirmation
-    ? destructiveConfirmationCopy(destructiveConfirmation)
+    ? destructiveConfirmationCopy(destructiveConfirmation, t)
     : null;
 
   useMessageModalKeyboardBoundary(
@@ -4402,11 +5112,6 @@ export function MessageAppPage() {
     announcementComposerSubmitting !== null,
   );
   useMessageModalKeyboardBoundary(
-    storageUsageScope !== null,
-    "storage-usage",
-    closeStorageUsage,
-  );
-  useMessageModalKeyboardBoundary(
     pinnedMessageBrowserOpen,
     "pinned-messages",
     closePinnedMessageBrowser,
@@ -4416,11 +5121,6 @@ export function MessageAppPage() {
     "forward",
     closeForwardDialog,
     forwardSubmitting,
-  );
-  useMessageModalKeyboardBoundary(
-    messageInformation !== null || messageInformationError !== null,
-    "message-information",
-    closeMessageInformationDialog,
   );
   useMessageModalKeyboardBoundary(
     destructiveConfirmation !== null,
@@ -4485,6 +5185,131 @@ export function MessageAppPage() {
     [composerCaretIndex, messageText],
   );
 
+  useEffect(() => {
+    if (
+      !accessToken ||
+      !selectedOfficialConversationId ||
+      !activeMentionQuery ||
+      editingMessage
+    ) {
+      officialMentionRequestRef.current += 1;
+      setOfficialMentionSuggestions([]);
+      setOfficialMentionCursor(null);
+      setOfficialMentionHasMore(false);
+      setOfficialMentionLoading(false);
+      setOfficialMentionLoadingMore(false);
+      setOfficialMentionError(null);
+      return;
+    }
+
+    const requestId = officialMentionRequestRef.current + 1;
+    officialMentionRequestRef.current = requestId;
+    setOfficialMentionSuggestions([]);
+    setOfficialMentionCursor(null);
+    setOfficialMentionHasMore(false);
+    setOfficialMentionLoading(true);
+    setOfficialMentionLoadingMore(false);
+    setOfficialMentionError(null);
+    const query = activeMentionQuery.query.trim();
+    const timer = window.setTimeout(() => {
+      void listGroupMembers(accessToken, selectedOfficialConversationId, {
+        search: query || undefined,
+        limit: 25,
+      })
+        .then((response) => {
+          if (officialMentionRequestRef.current !== requestId) {
+            return;
+          }
+
+          setOfficialMentionSuggestions(
+            response.data.filter(
+              (participant) => participant.accountId !== account?.id,
+            ),
+          );
+          setOfficialMentionCursor(response.pagination.nextCursor);
+          setOfficialMentionHasMore(response.pagination.hasMore);
+          setOfficialMentionError(null);
+        })
+        .catch(() => {
+          if (officialMentionRequestRef.current === requestId) {
+            setOfficialMentionSuggestions([]);
+            setOfficialMentionCursor(null);
+            setOfficialMentionHasMore(false);
+            setOfficialMentionError(t("feedback.groupMembersLoadError"));
+          }
+        })
+        .finally(() => {
+          if (officialMentionRequestRef.current === requestId) {
+            setOfficialMentionLoading(false);
+          }
+        });
+    }, query ? 160 : 0);
+
+    return () => window.clearTimeout(timer);
+  }, [
+    accessToken,
+    account?.id,
+    activeMentionQuery,
+    editingMessage,
+    selectedOfficialConversationId,
+  ]);
+
+  async function loadMoreOfficialMentionSuggestions(): Promise<void> {
+    if (
+      !accessToken ||
+      !selectedOfficialConversationId ||
+      !activeMentionQuery ||
+      !officialMentionHasMore ||
+      !officialMentionCursor ||
+      officialMentionLoadingMore
+    ) {
+      return;
+    }
+
+    const requestId = officialMentionRequestRef.current;
+    const query = activeMentionQuery.query.trim();
+    setOfficialMentionLoadingMore(true);
+    setOfficialMentionError(null);
+
+    try {
+      const response = await listGroupMembers(
+        accessToken,
+        selectedOfficialConversationId,
+        {
+          search: query || undefined,
+          cursor: officialMentionCursor,
+          limit: 25,
+        },
+      );
+
+      if (officialMentionRequestRef.current !== requestId) {
+        return;
+      }
+
+      setOfficialMentionSuggestions((current) => {
+        const byAccountId = new Map(
+          current.map((participant) => [participant.accountId, participant]),
+        );
+        response.data
+          .filter((participant) => participant.accountId !== account?.id)
+          .forEach((participant) =>
+            byAccountId.set(participant.accountId, participant),
+          );
+        return Array.from(byAccountId.values());
+      });
+      setOfficialMentionCursor(response.pagination.nextCursor);
+      setOfficialMentionHasMore(response.pagination.hasMore);
+    } catch {
+      if (officialMentionRequestRef.current === requestId) {
+        setOfficialMentionError(t("feedback.moreGroupMembersLoadError"));
+      }
+    } finally {
+      if (officialMentionRequestRef.current === requestId) {
+        setOfficialMentionLoadingMore(false);
+      }
+    }
+  }
+
   const mentionSuggestions = useMemo(() => {
     if (
       !activeMentionQuery ||
@@ -4495,23 +5320,38 @@ export function MessageAppPage() {
       return [];
     }
 
+    if (selectedConversation.groupKind === "OFFICIAL") {
+      return officialMentionSuggestions;
+    }
+
     const query = activeMentionQuery.query;
 
     return selectedConversation.participants
       .filter((participant) => participant.accountId !== account?.id)
       .filter((participant) =>
         query ? mentionSearchText(participant).includes(query) : true,
-      )
-      .slice(0, 6);
-  }, [account?.id, activeMentionQuery, editingMessage, selectedConversation]);
+      );
+  }, [
+    account?.id,
+    activeMentionQuery,
+    editingMessage,
+    officialMentionSuggestions,
+    selectedConversation,
+  ]);
 
   const activeMentionQueryKey = activeMentionQuery
     ? `${activeMentionQuery.startIndex}:${activeMentionQuery.endIndex}:${activeMentionQuery.query}`
     : "";
-  const mentionSuggestionsVisible = Boolean(
+  const mentionPanelVisible = Boolean(
     !mentionSuggestionsDismissed &&
     activeMentionQuery &&
-    mentionSuggestions.length > 0,
+    selectedConversation?.type === "GROUP" &&
+    !editingMessage &&
+    (selectedConversation.groupKind === "OFFICIAL" ||
+      mentionSuggestions.length > 0),
+  );
+  const mentionSuggestionsVisible = Boolean(
+    mentionPanelVisible && mentionSuggestions.length > 0,
   );
   const activeMentionSuggestion = mentionSuggestionsVisible
     ? mentionSuggestions[activeMentionSuggestionIndex] ?? mentionSuggestions[0]
@@ -4532,6 +5372,22 @@ export function MessageAppPage() {
         : Math.min(current, mentionSuggestions.length - 1),
     );
   }, [mentionSuggestions.length]);
+
+  useEffect(() => {
+    setSelectedComposerMentions([]);
+  }, [selectedConversationId]);
+
+  useEffect(() => {
+    setSelectedComposerMentions((current) =>
+      current.filter((participant) => {
+        const pattern = new RegExp(
+          `(^|\\s)@${escapeRegExp(participant.displayName)}(?=\\s|$|[.,!?;:])`,
+          "i",
+        );
+        return pattern.test(messageText);
+      }),
+    );
+  }, [messageText]);
 
   useEffect(() => {
     const handleMessagingSearchShortcut = (
@@ -4648,7 +5504,7 @@ export function MessageAppPage() {
           setSearchError(
             error instanceof Error
               ? error.message
-              : "Search could not be completed.",
+              : t("feedback.searchError"),
           );
         })
         .finally(() => {
@@ -4732,7 +5588,7 @@ export function MessageAppPage() {
 
   useEffect(() => {
     return () => {
-      if (attachmentViewer?.objectUrl) {
+      if (attachmentViewer?.objectUrl?.startsWith("blob:")) {
         URL.revokeObjectURL(attachmentViewer.objectUrl);
       }
     };
@@ -4817,22 +5673,10 @@ export function MessageAppPage() {
   }, [attachmentViewer?.attachment.id]);
 
   useEffect(() => {
-    if (!storageUsageScope) {
-      return;
+    if (!settingsMode && storageUsageScope) {
+      closeStorageUsage();
     }
-
-    function handleStorageDialogKeyDown(event: globalThis.KeyboardEvent): void {
-      if (event.key === "Escape") {
-        closeStorageUsage();
-      }
-    }
-
-    window.addEventListener("keydown", handleStorageDialogKeyDown);
-
-    return () => {
-      window.removeEventListener("keydown", handleStorageDialogKeyDown);
-    };
-  }, [storageUsageScope]);
+  }, [settingsMode, storageUsageScope]);
 
   useEffect(() => {
     if (!accessToken || !account?.id) {
@@ -4898,7 +5742,7 @@ export function MessageAppPage() {
         setProfileError(
           error instanceof Error
             ? error.message
-            : "Profile could not be loaded.",
+            : t("feedback.profileLoadError"),
         );
       })
       .finally(() => {
@@ -4982,9 +5826,20 @@ export function MessageAppPage() {
     searchResults.forEach((result) => collectAccount(result.message.sender));
     messageRequests.received.forEach((request) => collectAccount(request.peer));
     messageRequests.sent.forEach((request) => collectAccount(request.peer));
-    messageInformation?.recipients.forEach((recipient) =>
-      collectAccount(recipient.account),
-    );
+    if (messageInformation) {
+      const visibleReadRecipients = messageInformation.recipients
+        .filter((recipient) => Boolean(recipient.readAt))
+        .slice(0, messageInformationVisibleReadCount);
+      const visibleDeliveredRecipients = messageInformation.recipients
+        .filter(
+          (recipient) => !recipient.readAt && Boolean(recipient.deliveredAt),
+        )
+        .slice(0, messageInformationVisibleDeliveredCount);
+
+      [...visibleReadRecipients, ...visibleDeliveredRecipients].forEach(
+        (recipient) => collectAccount(recipient.account),
+      );
+    }
     collectAccount(profileData);
     collectAccount(ownProfileAccount);
 
@@ -5115,6 +5970,8 @@ export function MessageAppPage() {
     contacts,
     conversations,
     messageInformation,
+    messageInformationVisibleDeliveredCount,
+    messageInformationVisibleReadCount,
     messageRequests,
     messages,
     ownProfileAccount,
@@ -5253,6 +6110,10 @@ export function MessageAppPage() {
       return officialGroupConversations;
     }
 
+    if (listMode) {
+      return conversations;
+    }
+
     return conversations.filter(
       (conversation) =>
         conversationCategory === "ALL" ||
@@ -5267,6 +6128,7 @@ export function MessageAppPage() {
     announcementMode,
     conversationCategory,
     conversations,
+    listMode,
     officialGroupConversations,
   ]);
 
@@ -5339,6 +6201,43 @@ export function MessageAppPage() {
     return { directChats, groupsInCommon };
   }, [account?.id, conversationSearch, conversations]);
 
+  const filteredListCandidateConversations = useMemo(() => {
+    const query = listCandidateSearch.trim().toLowerCase();
+
+    if (!query) {
+      return listCandidateConversations;
+    }
+
+    return listCandidateConversations.filter((conversation) => {
+      const participantText = conversation.participants
+        .map((participant) =>
+          [
+            participant.displayName,
+            participant.username,
+            participant.employee?.empId,
+            participant.employee?.designation,
+            participant.employee?.department?.name,
+            participant.employee?.division?.name,
+          ]
+            .filter(Boolean)
+            .join(" "),
+        )
+        .join(" ");
+
+      return [
+        conversation.title,
+        conversation.description,
+        participantText,
+        conversation.groupKind === "OFFICIAL" ? "official group" : null,
+        conversation.type === "PRIVATE" ? "private chat" : "group",
+      ]
+        .filter(Boolean)
+        .join(" ")
+        .toLowerCase()
+        .includes(query);
+    });
+  }, [listCandidateConversations, listCandidateSearch]);
+
   const announcementGroupSearchResults = useMemo(() => {
     const query = conversationSearch.trim().toLowerCase();
 
@@ -5350,7 +6249,7 @@ export function MessageAppPage() {
       [
         conversation.title,
         conversation.description,
-        officialScopeLabel(conversation),
+        officialScopeLabel(conversation, t),
       ]
         .filter(Boolean)
         .join(" ")
@@ -5370,7 +6269,7 @@ export function MessageAppPage() {
       [
         item.conversation.title,
         item.message.sender.displayName,
-        starredMessagePreview(item),
+        starredMessagePreview(item, t),
         ...(item.message.attachments ?? []).map(
           (attachment) => attachment.originalFileName,
         ),
@@ -5404,8 +6303,8 @@ export function MessageAppPage() {
         request.peer.employee?.empId,
         request.peer.employee?.designation,
         request.peer.employee?.department?.name,
-        requestReasonLabel(request.reason),
-        requestStatusLabel(request),
+        requestReasonLabel(request.reason, t),
+        requestStatusLabel(request, t),
       ]
         .filter(Boolean)
         .join(" ")
@@ -5494,12 +6393,13 @@ export function MessageAppPage() {
 
   const filteredForwardConversations = useMemo(() => {
     const search = forwardSearch.trim().toLowerCase();
+    const source = listMode ? listCandidateConversations : conversations;
 
     if (!search) {
-      return conversations;
+      return source;
     }
 
-    return conversations.filter((conversation) => {
+    return source.filter((conversation) => {
       const participantText = conversation.participants
         .map((participant) =>
           [
@@ -5519,7 +6419,7 @@ export function MessageAppPage() {
         .toLowerCase()
         .includes(search);
     });
-  }, [conversations, forwardSearch]);
+  }, [conversations, forwardSearch, listCandidateConversations, listMode]);
 
   const totalUnread = useMemo(
     () =>
@@ -5545,10 +6445,35 @@ export function MessageAppPage() {
           accessToken,
           undefined,
           100,
-          conversationListView,
+          listMode ? "ALL" : conversationListView,
+          listMode ? selectedListId ?? undefined : undefined,
         );
+        const preservePreferredConversation =
+          silent && preferredConversationId !== undefined;
 
-        setConversations(response.data);
+        setConversations((current) => {
+          if (!preservePreferredConversation || !preferredConversationId) {
+            return response.data;
+          }
+
+          if (
+            response.data.some(
+              (conversation) => conversation.id === preferredConversationId,
+            )
+          ) {
+            return response.data;
+          }
+
+          const currentPreferredConversation = current.find(
+            (conversation) => conversation.id === preferredConversationId,
+          );
+
+          return currentPreferredConversation
+            ? [...response.data, currentPreferredConversation]
+            : response.data;
+        });
+        setConversationNextCursor(response.pagination.nextCursor);
+        setConversationHasMore(response.pagination.hasMore);
         setPageError(null);
 
         setSelectedConversationId((current) => {
@@ -5561,6 +6486,13 @@ export function MessageAppPage() {
             return candidate;
           }
 
+          if (
+            preservePreferredConversation &&
+            candidate === preferredConversationId
+          ) {
+            return candidate;
+          }
+
           return null;
         });
       } catch (error) {
@@ -5568,7 +6500,7 @@ export function MessageAppPage() {
           setPageError(
             error instanceof Error
               ? error.message
-              : "Conversations could not be loaded.",
+              : t("feedback.conversationsLoadError"),
           );
         }
       } finally {
@@ -5577,7 +6509,188 @@ export function MessageAppPage() {
         }
       }
     },
-    [accessToken, conversationListView],
+    [accessToken, conversationListView, listMode, selectedListId],
+  );
+
+  const loadMoreConversations = useCallback(async (): Promise<void> => {
+    if (
+      !accessToken ||
+      !conversationHasMore ||
+      !conversationNextCursor ||
+      conversationLoadingMore
+    ) {
+      return;
+    }
+
+    setConversationLoadingMore(true);
+
+    try {
+      const response = await listMessagingConversations(
+        accessToken,
+        conversationNextCursor,
+        100,
+        listMode ? "ALL" : conversationListView,
+        listMode ? selectedListId ?? undefined : undefined,
+      );
+
+      setConversations((current) => {
+        const next = [...current];
+        const indexByConversationId = new Map(
+          current.map((conversation, index) => [conversation.id, index]),
+        );
+
+        for (const conversation of response.data) {
+          const existingIndex = indexByConversationId.get(conversation.id);
+
+          if (existingIndex === undefined) {
+            indexByConversationId.set(conversation.id, next.length);
+            next.push(conversation);
+          } else {
+            next[existingIndex] = conversation;
+          }
+        }
+
+        return next.sort((first, second) => {
+          if (first.isPinned !== second.isPinned) {
+            return first.isPinned ? -1 : 1;
+          }
+
+          const updatedAtDifference =
+            new Date(second.updatedAt).getTime() -
+            new Date(first.updatedAt).getTime();
+
+          if (updatedAtDifference !== 0) {
+            return updatedAtDifference;
+          }
+
+          return second.id.localeCompare(first.id);
+        });
+      });
+      setConversationNextCursor(response.pagination.nextCursor);
+      setConversationHasMore(response.pagination.hasMore);
+      setPageError(null);
+    } catch (error) {
+      setPageError(
+        error instanceof Error
+          ? error.message
+          : t("feedback.moreConversationsLoadError"),
+      );
+    } finally {
+      setConversationLoadingMore(false);
+    }
+  }, [
+    accessToken,
+    conversationHasMore,
+    conversationListView,
+    conversationLoadingMore,
+    conversationNextCursor,
+    listMode,
+    selectedListId,
+  ]);
+
+  const loadChatFolders = useCallback(
+    async (silent = false): Promise<void> => {
+      if (!accessToken) {
+        setChatFolders([]);
+        return;
+      }
+
+      if (!silent) {
+        setChatFoldersLoading(true);
+      }
+
+      try {
+        const response = await listChatFolders(accessToken);
+        setChatFolders(response.data);
+        setChatFoldersError(null);
+      } catch (error) {
+        if (!silent) {
+          setChatFoldersError(
+            error instanceof Error
+              ? error.message
+              : t("feedback.listsLoadError"),
+          );
+        }
+      } finally {
+        if (!silent) {
+          setChatFoldersLoading(false);
+        }
+      }
+    },
+    [accessToken],
+  );
+
+  const loadListCandidateConversations = useCallback(
+    async (
+      errorTarget: "workspace" | "forward" = "workspace",
+    ): Promise<void> => {
+      if (!accessToken) {
+        setListCandidateConversations([]);
+        return;
+      }
+
+      setListCandidatesLoading(true);
+
+      try {
+        const collected: MessagingConversation[] = [];
+        const seenConversationIds = new Set<string>();
+        const seenCursors = new Set<string>();
+        let cursor: string | undefined;
+
+        do {
+          const response = await listMessagingConversations(
+            accessToken,
+            cursor,
+            100,
+            "ALL",
+          );
+
+          response.data.forEach((conversation) => {
+            if (!seenConversationIds.has(conversation.id)) {
+              seenConversationIds.add(conversation.id);
+              collected.push(conversation);
+            }
+          });
+
+          const nextCursor = response.pagination.nextCursor ?? undefined;
+
+          if (
+            !response.pagination.hasMore ||
+            !nextCursor ||
+            seenCursors.has(nextCursor)
+          ) {
+            cursor = undefined;
+          } else {
+            seenCursors.add(nextCursor);
+            cursor = nextCursor;
+          }
+        } while (cursor);
+
+        setListCandidateConversations(collected);
+
+        if (errorTarget === "forward") {
+          setForwardDestinationError(null);
+        } else {
+          setListWorkspaceError(null);
+        }
+      } catch (error) {
+        setListCandidateConversations([]);
+
+        const errorMessage =
+          error instanceof Error
+            ? error.message
+            : t("feedback.listConversationsLoadError");
+
+        if (errorTarget === "forward") {
+          setForwardDestinationError(errorMessage);
+        } else {
+          setListWorkspaceError(errorMessage);
+        }
+      } finally {
+        setListCandidatesLoading(false);
+      }
+    },
+    [accessToken],
   );
 
   const loadSelectedGroupAnnouncements = useCallback(
@@ -5616,7 +6729,7 @@ export function MessageAppPage() {
         setAnnouncementError(
           error instanceof Error
             ? error.message
-            : "Announcements could not be loaded for this official group.",
+            : t("feedback.announcementLoadError"),
         );
       } finally {
         if (!silent && requestId === announcementLoadRequestRef.current) {
@@ -5742,7 +6855,7 @@ export function MessageAppPage() {
         setAnnouncementDetailError(
           error instanceof Error
             ? error.message
-            : "Announcement details could not be loaded.",
+            : t("feedback.announcementDetailLoadError"),
         );
       }
     } finally {
@@ -5780,13 +6893,13 @@ export function MessageAppPage() {
 
       if (!detail.canEdit || !isAnnouncementEditable(detail.status)) {
         throw new Error(
-          "This announcement cannot be edited in its current state.",
+          t("feedback.announcementEditStateError"),
         );
       }
 
       if (detail.audience.officialGroup?.id !== selectedConversation.id) {
         throw new Error(
-          "The announcement does not belong to the selected official group.",
+          t("feedback.announcementWrongGroupError"),
         );
       }
 
@@ -5807,7 +6920,7 @@ export function MessageAppPage() {
       setAnnouncementDetailError(
         error instanceof Error
           ? error.message
-          : "Announcement could not be prepared for editing.",
+          : t("feedback.announcementPrepareEditError"),
       );
     }
   }
@@ -5891,7 +7004,7 @@ export function MessageAppPage() {
                 error:
                   error instanceof Error
                     ? error.message
-                    : "Attachment could not be removed.",
+                    : t("feedback.attachmentRemoveError"),
               }
               : attachment,
           ),
@@ -5909,7 +7022,7 @@ export function MessageAppPage() {
     announcementId: string,
   ): Promise<void> {
     if (!accessToken) {
-      throw new Error("Your session is required to upload announcement files.");
+      throw new Error(t("feedback.announcementUploadSessionError"));
     }
 
     for (const pending of announcementComposerPendingAttachments) {
@@ -5945,7 +7058,7 @@ export function MessageAppPage() {
             ),
         );
         if (!response.data) {
-          throw new Error("The uploaded attachment record was not returned.");
+          throw new Error(t("feedback.announcementUploadRecordError"));
         }
         setAnnouncementComposerPendingAttachments((current) =>
           current.map((attachment) =>
@@ -5964,7 +7077,7 @@ export function MessageAppPage() {
         const message =
           error instanceof Error
             ? error.message
-            : "Announcement attachment could not be uploaded.";
+            : t("feedback.announcementAttachmentUploadError");
         setAnnouncementComposerPendingAttachments((current) =>
           current.map((attachment) =>
             attachment.clientId === pending.clientId
@@ -5984,11 +7097,11 @@ export function MessageAppPage() {
     const body = announcementComposerValues.body.trim();
 
     if (title.length < 5) {
-      throw new Error("Announcement title must contain at least 5 characters.");
+      throw new Error(t("feedback.announcementTitleMin"));
     }
 
     if (!body) {
-      throw new Error("Announcement message is required.");
+      throw new Error(t("feedback.announcementMessageRequired"));
     }
 
     const now = Date.now();
@@ -5996,7 +7109,7 @@ export function MessageAppPage() {
 
     if (announcementComposerValues.publishTiming === "SCHEDULE") {
       if (!announcementComposerValues.scheduledAt) {
-        throw new Error("Choose a future date and time for the announcement.");
+        throw new Error(t("feedback.announcementFutureSchedule"));
       }
 
       const scheduledDate = new Date(announcementComposerValues.scheduledAt);
@@ -6004,7 +7117,7 @@ export function MessageAppPage() {
         Number.isNaN(scheduledDate.getTime()) ||
         scheduledDate.getTime() <= now
       ) {
-        throw new Error("Scheduled publication time must be in the future.");
+        throw new Error(t("feedback.announcementScheduleFuture"));
       }
       scheduledAt = scheduledDate.toISOString();
     }
@@ -6022,8 +7135,8 @@ export function MessageAppPage() {
       ) {
         throw new Error(
           scheduledAt
-            ? "Expiry time must be after the scheduled publication time."
-            : "Expiry time must be in the future.",
+            ? t("feedback.announcementExpiryAfterSchedule")
+            : t("feedback.announcementExpiryFuture"),
         );
       }
       expiresAt = expiryDate.toISOString();
@@ -6060,7 +7173,7 @@ export function MessageAppPage() {
       announcementComposerGroup.id !== selectedConversation?.id
     ) {
       setAnnouncementComposerError(
-        "Publishing access is no longer available for this official group.",
+        t("feedback.announcementAccessLost"),
       );
       return;
     }
@@ -6092,7 +7205,7 @@ export function MessageAppPage() {
       if (announcementComposerMode === "EDIT") {
         if (!workingAnnouncementId || !announcementComposerStatus) {
           throw new Error(
-            "The announcement selected for editing is no longer available.",
+            t("feedback.announcementEditMissing"),
           );
         }
 
@@ -6113,7 +7226,7 @@ export function MessageAppPage() {
         const groupId = announcementComposerGroup.id;
         resetAnnouncementComposer();
         setAnnouncementComposerNotice(
-          "Announcement and attachments updated successfully.",
+          t("feedback.announcementUpdated"),
         );
         await loadSelectedGroupAnnouncements(groupId);
         return;
@@ -6145,7 +7258,7 @@ export function MessageAppPage() {
       setAnnouncementComposerError(
         error instanceof Error
           ? error.message
-          : "Announcement could not be published.",
+          : t("feedback.announcementPublishError"),
       );
     } finally {
       setAnnouncementComposerSubmitting(null);
@@ -6181,7 +7294,7 @@ export function MessageAppPage() {
       setAnnouncementComposerError(
         error instanceof Error
           ? error.message
-          : "The temporary announcement draft could not be removed.",
+          : t("feedback.announcementDraftRemoveError"),
       );
       setAnnouncementComposerSubmitting(null);
     }
@@ -6233,7 +7346,7 @@ export function MessageAppPage() {
       setAnnouncementDetailError(
         error instanceof Error
           ? error.message
-          : "Announcement could not be acknowledged.",
+          : t("feedback.announcementAcknowledgeError"),
       );
     } finally {
       setAnnouncementDetailAction(null);
@@ -6265,7 +7378,7 @@ export function MessageAppPage() {
       setAnnouncementDetailError(
         error instanceof Error
           ? error.message
-          : "Announcement could not be deleted.",
+          : t("feedback.announcementDeleteError"),
       );
     } finally {
       setAnnouncementDetailAction(null);
@@ -6345,7 +7458,7 @@ export function MessageAppPage() {
         error:
           error instanceof Error
             ? error.message
-            : "Attachment preview could not be opened.",
+            : t("feedback.attachmentPreviewOpenError"),
       });
     } finally {
       setAnnouncementAttachmentActionId(null);
@@ -6372,7 +7485,7 @@ export function MessageAppPage() {
       setAnnouncementDetailError(
         error instanceof Error
           ? error.message
-          : "Attachment could not be downloaded.",
+          : t("feedback.attachmentDownloadError"),
       );
     } finally {
       setAnnouncementAttachmentActionId(null);
@@ -6380,36 +7493,93 @@ export function MessageAppPage() {
   }
 
   const loadStarredMessages = useCallback(
-    async (silent = false): Promise<void> => {
+    async (options?: {
+      cursor?: string | null;
+      append?: boolean;
+      silent?: boolean;
+    }): Promise<void> => {
+      const cursor = options?.cursor ?? null;
+      const append = options?.append ?? false;
+      const silent = options?.silent ?? false;
+
       if (!accessToken) {
         setStarredItems([]);
+        setStarredHasMore(false);
+        setStarredNextCursor(null);
         return;
       }
 
-      if (!silent) {
+      if (append) {
+        setStarredLoadingMore(true);
+      } else if (!silent) {
         setStarredLoading(true);
+        setStarredError(null);
       }
 
       try {
-        const response = await listStarredMessages(accessToken);
-        setStarredItems(response.data);
+        const response = await listStarredMessages(accessToken, cursor, 50);
+        setStarredItems((current) => {
+          if (!append) {
+            return response.data;
+          }
+
+          const byMessageId = new Map(
+            current.map((item) => [item.message.id, item] as const),
+          );
+          for (const item of response.data) {
+            byMessageId.set(item.message.id, item);
+          }
+
+          return [...byMessageId.values()];
+        });
+        setStarredHasMore(response.pagination.hasMore);
+        setStarredNextCursor(response.pagination.nextCursor);
         setStarredError(null);
       } catch (error) {
-        if (!silent) {
-          setStarredError(
-            error instanceof Error
-              ? error.message
-              : "Starred messages could not be loaded.",
-          );
+        const message =
+          error instanceof Error
+            ? error.message
+            : append
+              ? t("feedback.olderStarredLoadError")
+              : t("feedback.starredLoadError");
+
+        if (append) {
+          setMessageNotice(message);
+        } else {
+          setStarredError(message);
         }
       } finally {
-        if (!silent) {
+        if (append) {
+          setStarredLoadingMore(false);
+        } else if (!silent) {
           setStarredLoading(false);
         }
       }
     },
     [accessToken],
   );
+
+  const loadMoreStarredMessages = useCallback(async (): Promise<void> => {
+    if (
+      !starredHasMore ||
+      !starredNextCursor ||
+      starredLoading ||
+      starredLoadingMore
+    ) {
+      return;
+    }
+
+    await loadStarredMessages({
+      cursor: starredNextCursor,
+      append: true,
+    });
+  }, [
+    loadStarredMessages,
+    starredHasMore,
+    starredLoading,
+    starredLoadingMore,
+    starredNextCursor,
+  ]);
 
   const loadMessageRequests = useCallback(
     async (silent = false): Promise<void> => {
@@ -6430,7 +7600,7 @@ export function MessageAppPage() {
           setRequestError(
             error instanceof Error
               ? error.message
-              : "Message requests could not be loaded.",
+              : t("feedback.requestsLoadError"),
           );
         }
       } finally {
@@ -6448,9 +7618,23 @@ export function MessageAppPage() {
         return;
       }
 
+      const requestId = messageLoadRequestRef.current + 1;
+      messageLoadRequestRef.current = requestId;
+      const cachedPage = messagePageCacheRef.current[conversationId];
+      const canUseCachedPage = !silent && Boolean(cachedPage);
+
       if (!silent) {
-        setMessageLoading(true);
-        setMessages([]);
+        if (cachedPage) {
+          // Re-opening a conversation should be instant. Show the latest in-memory
+          // page immediately, then revalidate it from the server in the background.
+          setMessages(cachedPage.messages);
+          setMessageCursor(cachedPage.cursor);
+          setHasOlderMessages(cachedPage.hasOlder);
+          setMessageLoading(false);
+        } else {
+          setMessageLoading(true);
+          setMessages([]);
+        }
       }
 
       try {
@@ -6460,6 +7644,10 @@ export function MessageAppPage() {
           undefined,
           50,
         );
+
+        if (messageLoadRequestRef.current !== requestId) {
+          return;
+        }
 
         const pendingSearchResult = pendingSearchResultRef.current;
         const pendingMessage =
@@ -6476,11 +7664,38 @@ export function MessageAppPage() {
             )
             : response.data;
 
-        // Keep an older search result visible even when the first page does not contain it.
-        setMessages(nextMessages);
-        setMessageCursor(response.pagination.nextCursor);
-        setHasOlderMessages(response.pagination.hasMore);
+        const shouldMergeSilentRefresh =
+          silent &&
+          selectedConversationIdRef.current === conversationId &&
+          Boolean(cachedPage);
+        const preserveLoadedHistoryBoundary =
+          shouldMergeSilentRefresh &&
+          Boolean(cachedPage) &&
+          (cachedPage?.messages.length ?? 0) > response.data.length;
+        const resolvedMessages = shouldMergeSilentRefresh && cachedPage
+          ? mergeLatestMessagingPage(cachedPage.messages, nextMessages)
+          : nextMessages;
+        const nextPage = {
+          messages: resolvedMessages,
+          cursor: preserveLoadedHistoryBoundary && cachedPage
+            ? cachedPage.cursor
+            : response.pagination.nextCursor,
+          hasOlder: preserveLoadedHistoryBoundary && cachedPage
+            ? cachedPage.hasOlder
+            : response.pagination.hasMore,
+        };
+
+        messagePageCacheRef.current[conversationId] = nextPage;
+        setMessages(resolvedMessages);
+        setMessageCursor(nextPage.cursor);
+        setHasOlderMessages(nextPage.hasOlder);
         setMessageError(null);
+
+        // Message content is ready now. Do not keep the mobile UI blocked while
+        // the separate read-receipt request completes.
+        if (!silent) {
+          setMessageLoading(false);
+        }
 
         const hasUnreadIncomingMessage = response.data.some(
           (message) =>
@@ -6488,45 +7703,81 @@ export function MessageAppPage() {
         );
 
         if (!silent || hasUnreadIncomingMessage) {
-          try {
-            await markConversationRead(accessToken, conversationId);
-
-            setConversations((current) =>
-              current.map((conversation) =>
-                conversation.id === conversationId
-                  ? {
-                    ...conversation,
-                    unreadCount: 0,
-                  }
-                  : conversation,
-              ),
-            );
-          } catch (error) {
-            if (!silent) {
-              setMessageError(
-                error instanceof Error
-                  ? `Messages loaded, but read status could not be updated: ${error.message}`
-                  : "Messages loaded, but read status could not be updated.",
+          void markConversationRead(accessToken, conversationId)
+            .then(() => {
+              setConversations((current) =>
+                current.map((conversation) =>
+                  conversation.id === conversationId
+                    ? {
+                      ...conversation,
+                      unreadCount: 0,
+                    }
+                    : conversation,
+                ),
               );
-            }
-          }
+            })
+            .catch((error) => {
+              if (
+                !silent &&
+                selectedConversationIdRef.current === conversationId
+              ) {
+                setMessageError(
+                  error instanceof Error
+                    ? t("feedback.messagesReadStatusErrorWithDetail", { detail: error.message })
+                    : t("feedback.messagesReadStatusError"),
+                );
+              }
+            });
         }
       } catch (error) {
-        if (!silent) {
+        if (messageLoadRequestRef.current !== requestId) {
+          return;
+        }
+
+        // If cached messages are already visible, a failed revalidation should
+        // not replace the conversation with a blocking error state.
+        if (!canUseCachedPage && !silent) {
           setMessageError(
             error instanceof Error
               ? error.message
-              : "Messages could not be loaded.",
+              : t("feedback.messagesLoadError"),
           );
         }
       } finally {
-        if (!silent) {
+        if (!silent && messageLoadRequestRef.current === requestId) {
           setMessageLoading(false);
         }
       }
     },
     [accessToken, account?.id],
   );
+
+  useEffect(() => {
+    if (!selectedConversationId || messageLoading) {
+      return;
+    }
+
+    if (
+      messages.length > 0 &&
+      !messages.every(
+        (message) => message.conversationId === selectedConversationId,
+      )
+    ) {
+      return;
+    }
+
+    messagePageCacheRef.current[selectedConversationId] = {
+      messages,
+      cursor: messageCursor,
+      hasOlder: hasOlderMessages,
+    };
+  }, [
+    hasOlderMessages,
+    messageCursor,
+    messageLoading,
+    messages,
+    selectedConversationId,
+  ]);
 
   const loadPinnedMessages = useCallback(
     async (conversationId: string): Promise<void> => {
@@ -6619,7 +7870,7 @@ export function MessageAppPage() {
       setMessageError(
         error instanceof Error
           ? error.message
-          : "Conversation controls could not be updated.",
+          : t("feedback.conversationControlsError"),
       );
     } finally {
       setConversationPreferenceLoading(null);
@@ -6808,6 +8059,85 @@ export function MessageAppPage() {
   }, [account?.id, browserNotificationsEnabled, preferenceStorageAccountId]);
 
   useEffect(() => {
+    if (!account?.id || preferenceStorageAccountId !== account.id) {
+      return;
+    }
+
+    if (
+      browserNotificationsEnabled &&
+      (!messagingPushSupported() || window.Notification.permission !== "granted")
+    ) {
+      setBrowserNotificationsEnabled(false);
+      setBackgroundPushReady(false);
+    }
+  }, [
+    account?.id,
+    browserNotificationsEnabled,
+    preferenceStorageAccountId,
+  ]);
+
+  useEffect(() => {
+    if (
+      !accessToken ||
+      !account?.id ||
+      preferenceStorageAccountId !== account.id ||
+      !browserNotificationsEnabled ||
+      !messagingPushSupported() ||
+      window.Notification.permission !== "granted"
+    ) {
+      setBackgroundPushReady(false);
+      return;
+    }
+
+    let active = true;
+
+    void syncMessagingPushSubscription(accessToken, {
+      showPreview: messagingSettings.notificationPreview,
+      isMuted: messagingSettings.muteAllNotifications,
+    })
+      .then((ready) => {
+        if (active) {
+          setBackgroundPushReady(ready);
+        }
+      })
+      .catch(() => {
+        if (active) {
+          setBackgroundPushReady(false);
+        }
+      });
+
+    return () => {
+      active = false;
+    };
+  }, [
+    accessToken,
+    account?.id,
+    browserNotificationsEnabled,
+    messagingSettings.muteAllNotifications,
+    messagingSettings.notificationPreview,
+    preferenceStorageAccountId,
+  ]);
+
+  useEffect(() => {
+    if (
+      !accessToken ||
+      !account?.id ||
+      preferenceStorageAccountId !== account.id ||
+      browserNotificationsEnabled ||
+      !messagingPushSupported()
+    ) {
+      return;
+    }
+
+    void disableMessagingPushSubscription(accessToken).catch(() => undefined);
+  }, [
+    accessToken,
+    account?.id,
+    browserNotificationsEnabled,
+    preferenceStorageAccountId,
+  ]);
+
+  useEffect(() => {
     if (!notificationActionNotice) {
       return;
     }
@@ -6818,6 +8148,20 @@ export function MessageAppPage() {
 
     return () => window.clearTimeout(timer);
   }, [notificationActionNotice]);
+
+  useEffect(() => {
+    if (!messageNotice) {
+      return;
+    }
+
+    // Informational message actions should behave like lightweight toasts rather
+    // than permanent banners that push the conversation thread downward.
+    const timer = window.setTimeout(() => {
+      setMessageNotice(null);
+    }, 4500);
+
+    return () => window.clearTimeout(timer);
+  }, [messageNotice]);
 
   useEffect(
     () => () => {
@@ -7065,7 +8409,7 @@ export function MessageAppPage() {
       setNotificationError(
         error instanceof Error
           ? error.message
-          : "Notifications could not be loaded.",
+          : t("feedback.notificationsLoadError"),
       );
     } finally {
       setNotificationsLoading(false);
@@ -7172,6 +8516,78 @@ export function MessageAppPage() {
     const socket = createMessagingSocket(accessToken);
     messagingSocketRef.current = socket;
 
+    let conversationRefreshTimer: number | null = null;
+    let selectedMessageRefreshTimer: number | null = null;
+    let markReadTimer: number | null = null;
+
+    const scheduleConversationRefresh = (): void => {
+      if (conversationRefreshTimer !== null) {
+        return;
+      }
+
+      conversationRefreshTimer = window.setTimeout(() => {
+        conversationRefreshTimer = null;
+        void loadConversations(
+          true,
+          selectedConversationIdRef.current ?? undefined,
+        );
+      }, 120);
+    };
+
+    const scheduleSelectedMessageRefresh = (
+      conversationId: string,
+    ): void => {
+      if (selectedConversationIdRef.current !== conversationId) {
+        return;
+      }
+
+      if (selectedMessageRefreshTimer !== null) {
+        window.clearTimeout(selectedMessageRefreshTimer);
+      }
+
+      selectedMessageRefreshTimer = window.setTimeout(() => {
+        selectedMessageRefreshTimer = null;
+
+        if (selectedConversationIdRef.current === conversationId) {
+          void loadMessages(conversationId, true);
+        }
+      }, 180);
+    };
+
+    const scheduleConversationRead = (conversationId: string): void => {
+      if (markReadTimer !== null) {
+        window.clearTimeout(markReadTimer);
+      }
+
+      markReadTimer = window.setTimeout(() => {
+        markReadTimer = null;
+
+        if (selectedConversationIdRef.current !== conversationId) {
+          return;
+        }
+
+        void markConversationRead(accessToken, conversationId)
+          .then(() => {
+            setConversations((current) =>
+              current.map((conversation) =>
+                conversation.id === conversationId
+                  ? {
+                    ...conversation,
+                    unreadCount: 0,
+                    isMarkedUnread: false,
+                    markedUnreadAt: null,
+                  }
+                  : conversation,
+              ),
+            );
+          })
+          .catch(() => {
+            // Realtime message delivery remains usable if this non-blocking
+            // read-status update temporarily fails; reconnect revalidates it.
+          });
+      }, 120);
+    };
+
     const setAccountTyping = (
       conversationId: string,
       accountId: string,
@@ -7223,6 +8639,9 @@ export function MessageAppPage() {
         true,
         selectedConversationIdRef.current ?? undefined,
       );
+      // Reconnects also refresh private list membership/counts that may have
+      // changed in another session while this tab was offline.
+      void loadChatFolders(true);
       refreshSelectedConversation();
       void loadMessageRequests(true);
     };
@@ -7294,6 +8713,7 @@ export function MessageAppPage() {
 
       if (
         browserNotificationsEnabled &&
+        !backgroundPushReady &&
         "Notification" in window &&
         window.Notification.permission === "granted"
       ) {
@@ -7302,7 +8722,7 @@ export function MessageAppPage() {
           {
             body: messagingSettings.notificationPreview
               ? payload.notification.body
-              : "Open NT Message to view this notification.",
+              : t("feedback.browserNotificationOpen"),
             tag: payload.notification.id,
           },
         );
@@ -7377,10 +8797,9 @@ export function MessageAppPage() {
         false,
       );
 
-      void loadConversations(
-        true,
-        selectedConversationIdRef.current ?? undefined,
-      );
+      // Bursts of realtime events should not trigger one full conversation-list
+      // request per message. Coalesce them into a single lightweight refresh.
+      scheduleConversationRefresh();
 
       if (payload.conversationId !== selectedConversationIdRef.current) {
         return;
@@ -7394,22 +8813,31 @@ export function MessageAppPage() {
       setMessages((current) => [...current, payload.message]);
 
       if (!messageListNearBottomRef.current) {
+        setShowJumpToLatest(true);
         setNewMessageCount((current) => current + 1);
       }
 
-      void loadMessages(payload.conversationId, true);
+      if (payload.message.senderAccountId !== account?.id) {
+        scheduleConversationRead(payload.conversationId);
+      }
     };
 
     const handleMessageUpdated = (
       payload: MessagingMessageUpdatedPayload,
     ): void => {
-      void loadConversations(
-        true,
-        selectedConversationIdRef.current ?? undefined,
-      );
+      scheduleConversationRefresh();
 
       if (payload.conversationId !== selectedConversationIdRef.current) {
         return;
+      }
+
+      if (
+        pendingBottomScrollConversationIdRef.current !== payload.conversationId
+      ) {
+        // Realtime echoes for react/pin/star/edit/delete can arrive before the
+        // matching HTTP response. Capture the visible message before applying
+        // that update so the socket event cannot pull an older reader to bottom.
+        captureMessageThreadMutationAnchor();
       }
 
       setMessages((current) =>
@@ -7463,13 +8891,16 @@ export function MessageAppPage() {
     const handleMessageHidden = (
       payload: MessagingMessageHiddenPayload,
     ): void => {
-      void loadConversations(
-        true,
-        selectedConversationIdRef.current ?? undefined,
-      );
+      scheduleConversationRefresh();
 
       if (payload.conversationId !== selectedConversationIdRef.current) {
         return;
+      }
+
+      if (
+        pendingBottomScrollConversationIdRef.current !== payload.conversationId
+      ) {
+        captureMessageThreadMutationAnchor();
       }
 
       setMessages((current) =>
@@ -7492,13 +8923,17 @@ export function MessageAppPage() {
     const handleReceiptUpdated = (
       payload: MessagingReceiptUpdatedPayload,
     ): void => {
-      void loadConversations(
-        true,
-        selectedConversationIdRef.current ?? undefined,
-      );
+      scheduleConversationRefresh();
 
-      if (payload.conversationId === selectedConversationIdRef.current) {
-        void loadMessages(payload.conversationId, true);
+      if (
+        payload.conversationId === selectedConversationIdRef.current &&
+        payload.messageIds.some((messageId) =>
+          messageIdsRef.current.has(messageId),
+        )
+      ) {
+        // Receipt bursts can be very noisy in groups. Refresh the visible
+        // message state once after the burst rather than once per receipt event.
+        scheduleSelectedMessageRefresh(payload.conversationId);
       }
     };
 
@@ -7523,12 +8958,36 @@ export function MessageAppPage() {
         void loadNotifications();
       }
 
+      if (payload.reason === "GROUP_DELETED") {
+        if (payload.conversationId === selectedConversationIdRef.current) {
+          setSelectedConversationId(null);
+          setDetailsPanelOpen(false);
+          setGroupManagementWorkspaceOpen(false);
+          resetGroupDialogState();
+        }
+      }
+
+      if (
+        payload.reason === "MEMBERS_CHANGED" &&
+        payload.conversationId === selectedConversationIdRef.current
+      ) {
+        setOfficialGroupMembersRefreshVersion((current) => current + 1);
+      }
+
       void loadConversations(
         true,
-        payload.reason === "DELETED_FOR_ACCOUNT"
+        payload.reason === "DELETED_FOR_ACCOUNT" ||
+          payload.reason === "GROUP_DELETED"
           ? undefined
           : (selectedConversationIdRef.current ?? undefined),
       );
+
+      /*
+       * Conversation visibility changes can make an existing list item appear
+       * or disappear without changing the list itself. Refresh account-private
+       * list metadata so sidebar counts never remain stale across tabs.
+       */
+      void loadChatFolders(true);
     };
 
     const handleMessageRequestUpdated = (
@@ -7556,8 +9015,24 @@ export function MessageAppPage() {
       setRealtimeStatus(socket.active ? "RECONNECTING" : "DISCONNECTED");
     };
 
+    const handleSocketError = (payload: MessagingSocketErrorPayload): void => {
+      if (payload.code !== "SESSION_INVALIDATED") {
+        return;
+      }
+
+      /*
+       * Realtime authorization must end with the HTTP session. Clear local
+       * credentials immediately instead of leaving a revoked account looking
+       * connected until the next REST request or token refresh.
+       */
+      void logout().finally(() => {
+        navigate("/login", { replace: true });
+      });
+    };
+
     socket.on("connect", handleConnect);
     socket.on("messaging:ready", handleReady);
+    socket.on("messaging:error", handleSocketError);
     socket.on("messaging:pong", handlePong);
     socket.on("messaging:presence-snapshot", handlePresenceSnapshot);
     socket.on("messaging:presence-updated", handlePresenceUpdated);
@@ -7581,8 +9056,20 @@ export function MessageAppPage() {
 
     return () => {
       stopLocalTyping();
+
+      if (conversationRefreshTimer !== null) {
+        window.clearTimeout(conversationRefreshTimer);
+      }
+      if (selectedMessageRefreshTimer !== null) {
+        window.clearTimeout(selectedMessageRefreshTimer);
+      }
+      if (markReadTimer !== null) {
+        window.clearTimeout(markReadTimer);
+      }
+
       socket.off("connect", handleConnect);
       socket.off("messaging:ready", handleReady);
+      socket.off("messaging:error", handleSocketError);
       socket.off("messaging:pong", handlePong);
       socket.off("messaging:presence-snapshot", handlePresenceSnapshot);
       socket.off("messaging:presence-updated", handlePresenceUpdated);
@@ -7611,13 +9098,17 @@ export function MessageAppPage() {
     accessToken,
     account?.id,
     applyPersonalConversationHistoryLocally,
+    loadChatFolders,
     loadConversations,
     loadMessageRequests,
     loadMessages,
     loadNotifications,
     loadPinnedMessages,
     loadSelectedGroupAnnouncements,
+    logout,
+    navigate,
     browserNotificationsEnabled,
+    backgroundPushReady,
     messagingSettings.muteAllNotifications,
     messagingSettings.notificationPreview,
     notificationSoundEnabled,
@@ -7640,8 +9131,102 @@ export function MessageAppPage() {
   }, [selectedConversationId]);
 
   useEffect(() => {
+    // Message information belongs to one concrete conversation/message. Never
+    // carry it into another chat when the selected conversation changes.
+    messageInformationRequestIdRef.current += 1;
+    setMessageInformation(null);
+    setMessageInformationError(null);
+    setMessageInformationLoadingId(null);
+    setMessageInformationVisibleReadCount(40);
+    setMessageInformationVisibleDeliveredCount(40);
+  }, [selectedConversationId]);
+
+  useEffect(() => {
     void loadConversations();
   }, [loadConversations]);
+
+  useEffect(() => {
+    void loadChatFolders();
+  }, [loadChatFolders]);
+
+  useEffect(() => {
+    if (!listManagementMode) {
+      return;
+    }
+
+    // The editor reuses the canonical conversation API. Fetch every page only
+    // while creating/editing a list instead of adding a second contact/group
+    // discovery path to the Message workspace.
+    void loadListCandidateConversations("workspace");
+  }, [listManagementMode, loadListCandidateConversations]);
+
+  useEffect(() => {
+    if (!listWorkspaceMode) {
+      setListDeleteConfirmOpen(false);
+      return;
+    }
+
+    // A custom list is a route-level workspace. Do not carry a previously
+    // selected chat or transient detail panel across list/create/edit routes.
+    setSelectedConversationId(null);
+    setDetailsPanelOpen(false);
+    setConversationActionMenuOpen(false);
+    setConversationRowMenuId(null);
+    setListDeleteConfirmOpen(false);
+    setListWorkspaceError(null);
+    setListCandidateSearch("");
+
+    if (listCreateMode) {
+      setListNameDraft("");
+      setListSelectedConversationIds([]);
+    }
+  }, [listCreateMode, listWorkspaceMode, selectedListId]);
+
+  useEffect(() => {
+    if (!listMode || !selectedChatFolder) {
+      return;
+    }
+
+    setListNameDraft(selectedChatFolder.name);
+    setListSelectedConversationIds(
+      selectedChatFolder.items.flatMap((item) =>
+        item.conversationId ? [item.conversationId] : [],
+      ),
+    );
+  }, [
+    listMode,
+    selectedChatFolder?.id,
+    selectedChatFolder?.name,
+    selectedChatFolder?.updatedAt,
+  ]);
+
+  useEffect(() => {
+    if (
+      !listMode ||
+      chatFoldersLoading ||
+      chatFoldersError ||
+      selectedChatFolder
+    ) {
+      return;
+    }
+
+    setListWorkspaceError(t("feedback.listNotFound"));
+  }, [
+    chatFoldersError,
+    chatFoldersLoading,
+    listMode,
+    selectedChatFolder,
+  ]);
+
+  useEffect(() => {
+    if (!archivedMode) {
+      return;
+    }
+
+    setConversationCategory("ALL");
+    setConversationListView("ARCHIVED");
+    setDetailsPanelOpen(false);
+  }, [archivedMode]);
 
   useEffect(() => {
     if (!announcementMode) {
@@ -7755,12 +9340,21 @@ export function MessageAppPage() {
     setEditingMessage(null);
 
     setNewMessageCount(0);
+    setShowJumpToLatest(false);
     setPinnedMessageBrowserOpen(false);
     setActivePinnedMessageIndex(0);
     messageListNearBottomRef.current = true;
     pendingOlderScrollRestoreRef.current = null;
 
-    if (!selectedConversationId || announcementMode) {
+    const conversationThreadUnavailable =
+      announcementMode ||
+      settingsMode ||
+      ownProfileMode ||
+      newConversationMode ||
+      createGroupMode ||
+      listManagementMode;
+
+    if (!selectedConversationId || conversationThreadUnavailable) {
       setMessageText("");
       setMessages([]);
       setPinnedMessages([]);
@@ -7771,8 +9365,22 @@ export function MessageAppPage() {
       return;
     }
 
-    // New conversations should open from the latest message after messages finish loading.
-    pendingBottomScrollConversationIdRef.current = selectedConversationId;
+    // A normal fresh/opened conversation owns its initial bottom position. Search
+    // and other explicit message-focus navigation are allowed to target an older
+    // message instead of being pulled back to the latest content. Once the user
+    // has moved to another conversation, an unconsumed old focus target is stale
+    // and must not suppress the next normal fresh-open bottom anchor.
+    if (
+      pendingSearchResultRef.current &&
+      pendingSearchResultRef.current.conversation.id !== selectedConversationId
+    ) {
+      pendingSearchResultRef.current = null;
+    }
+
+    pendingBottomScrollConversationIdRef.current =
+      pendingSearchResultRef.current?.conversation.id === selectedConversationId
+        ? null
+        : selectedConversationId;
     previousScrollConversationIdRef.current = null;
     previousMessageCountRef.current = 0;
 
@@ -7780,37 +9388,181 @@ export function MessageAppPage() {
     void loadPinnedMessages(selectedConversationId);
   }, [
     announcementMode,
+    createGroupMode,
+    listManagementMode,
     loadMessages,
     loadPinnedMessages,
-    selectedConversation?.groupKind,
-    selectedConversation?.type,
+    newConversationMode,
+    ownProfileMode,
     selectedConversationId,
+    settingsMode,
   ]);
 
-  function scrollMessageThreadToBottom(): void {
+  useLayoutEffect(() => {
+    if (sendingMessage) {
+      return;
+    }
+
+    const pendingConversationId =
+      pendingComposerRefocusConversationIdRef.current;
+
+    if (!pendingConversationId) {
+      return;
+    }
+
+    pendingComposerRefocusConversationIdRef.current = null;
+
+    if (pendingConversationId !== selectedConversationId) {
+      return;
+    }
+
+    const frameId = window.requestAnimationFrame(() => {
+      const composer = composerRef.current;
+
+      if (composer && !composer.disabled) {
+        composer.focus({ preventScroll: true });
+      }
+    });
+
+    return () => window.cancelAnimationFrame(frameId);
+  }, [sendingMessage, selectedConversationId]);
+
+  function scrollMessageThreadToBottom(
+    behavior: ScrollBehavior = "auto",
+  ): void {
     const element = messageListRef.current;
 
     if (!element) {
       return;
     }
 
-    const renderedMessages =
-      element.querySelectorAll<HTMLElement>("[data-message-id]");
-    const lastMessage = renderedMessages.item(renderedMessages.length - 1);
+    if (behavior === "smooth") {
+      element.scrollTo({
+        top: element.scrollHeight,
+        behavior,
+      });
+    } else {
+      element.scrollTop = element.scrollHeight;
+    }
 
-    element.scrollTop = element.scrollHeight;
-    lastMessage?.scrollIntoView({
-      block: "end",
-      behavior: "auto",
-    });
-    messageThreadBottomRef.current?.scrollIntoView({
-      block: "end",
-      behavior: "auto",
-    });
-
-    element.scrollTop = element.scrollHeight;
     messageListNearBottomRef.current = true;
+    setShowJumpToLatest(false);
     setNewMessageCount(0);
+  }
+
+  function releaseInitialMessageBottomAnchor(): void {
+    if (
+      selectedConversationIdRef.current &&
+      pendingBottomScrollConversationIdRef.current ===
+        selectedConversationIdRef.current
+    ) {
+      pendingBottomScrollConversationIdRef.current = null;
+    }
+
+    if (initialBottomReanchorFrameRef.current !== null) {
+      window.cancelAnimationFrame(initialBottomReanchorFrameRef.current);
+      initialBottomReanchorFrameRef.current = null;
+    }
+  }
+
+  function captureMessageThreadMutationAnchor(): void {
+    const element = messageListRef.current;
+    const conversationId = selectedConversationIdRef.current;
+
+    if (!element || !conversationId) {
+      return;
+    }
+
+    if (pendingBottomScrollConversationIdRef.current === conversationId) {
+      /*
+       * Fresh-open/refresh owns the bottom until the user really interacts with
+       * the thread. Read/status/socket updates can arrive immediately after a
+       * conversation opens; they must not replace that bottom lock with an old
+       * visible-message anchor before late media finishes sizing.
+       */
+      pendingThreadMutationAnchorRef.current = null;
+      return;
+    }
+
+    const containerRect = element.getBoundingClientRect();
+    const anchors = Array.from(
+      element.querySelectorAll<HTMLElement>("[data-message-id]"),
+    )
+      .filter((messageElement) => {
+        const rect = messageElement.getBoundingClientRect();
+        return (
+          rect.bottom > containerRect.top && rect.top < containerRect.bottom
+        );
+      })
+      .slice(0, 4)
+      .map((messageElement) => ({
+        messageId: messageElement.dataset.messageId ?? "",
+        offsetTop:
+          messageElement.getBoundingClientRect().top - containerRect.top,
+      }))
+      .filter((anchor) => anchor.messageId.length > 0);
+
+    pendingThreadMutationAnchorRef.current = {
+      conversationId,
+      scrollTop: element.scrollTop,
+      anchors,
+    };
+  }
+
+  function restorePendingMessageThreadMutationAnchor(): boolean {
+    const element = messageListRef.current;
+    const pendingAnchor = pendingThreadMutationAnchorRef.current;
+    const conversationId = selectedConversationIdRef.current;
+
+    if (
+      !element ||
+      !pendingAnchor ||
+      !conversationId ||
+      pendingAnchor.conversationId !== conversationId
+    ) {
+      return false;
+    }
+
+    const containerTop = element.getBoundingClientRect().top;
+    let restored = false;
+
+    for (const anchor of pendingAnchor.anchors) {
+      const messageElement = element.querySelector<HTMLElement>(
+        `[data-message-id="${anchor.messageId}"]`,
+      );
+
+      if (!messageElement) {
+        continue;
+      }
+
+      const nextOffsetTop =
+        messageElement.getBoundingClientRect().top - containerTop;
+      element.scrollTop = restoreAnchoredMessageScrollTop(
+        pendingAnchor.scrollTop,
+        anchor.offsetTop,
+        nextOffsetTop,
+      );
+      restored = true;
+      break;
+    }
+
+    if (!restored) {
+      element.scrollTop = Math.min(
+        pendingAnchor.scrollTop,
+        Math.max(0, element.scrollHeight - element.clientHeight),
+      );
+    }
+
+    pendingThreadMutationAnchorRef.current = null;
+    const nearBottom = isMessageThreadNearBottom(
+      element.scrollHeight,
+      element.scrollTop,
+      element.clientHeight,
+    );
+    messageListNearBottomRef.current = nearBottom;
+    setShowJumpToLatest(!nearBottom);
+
+    return true;
   }
 
   function handleMessageThreadScroll(): void {
@@ -7820,9 +9572,15 @@ export function MessageAppPage() {
       return;
     }
 
-    const distanceFromBottom =
-      element.scrollHeight - element.scrollTop - element.clientHeight;
-    const nearBottom = distanceFromBottom < 160;
+    const pendingInitialBottomAnchor =
+      Boolean(selectedConversationIdRef.current) &&
+      pendingBottomScrollConversationIdRef.current ===
+        selectedConversationIdRef.current;
+    const nearBottom = isMessageThreadNearBottom(
+      element.scrollHeight,
+      element.scrollTop,
+      element.clientHeight,
+    );
     const pendingOlderScrollRestore = pendingOlderScrollRestoreRef.current;
 
     if (pendingOlderScrollRestore) {
@@ -7830,7 +9588,52 @@ export function MessageAppPage() {
       pendingOlderScrollRestore.scrollTop = element.scrollTop;
     }
 
+    // A browser refresh can restore the scrollTop of a nested scroll container
+    // after React's layout work. While a fresh conversation is still waiting
+    // for its final post-paint anchor, ignore that browser-restored position so
+    // it cannot turn an old message/attachment into the new scroll baseline.
+    if (pendingInitialBottomAnchor) {
+      /*
+       * Browsers can restore a nested scroll container after React's initial
+       * layout and even after a couple of animation frames. Ignoring that
+       * scroll event leaves the thread at the restored old attachment. While a
+       * fresh-open bottom lock is active, actively correct any late restored
+       * position back to the real bottom. The first genuine user interaction
+       * releases this lock through releaseInitialMessageBottomAnchor().
+       */
+      if (!nearBottom && initialBottomReanchorFrameRef.current === null) {
+        initialBottomReanchorFrameRef.current = window.requestAnimationFrame(
+          () => {
+            initialBottomReanchorFrameRef.current = null;
+
+            const activeThread = messageListRef.current;
+            const activeConversationId = selectedConversationIdRef.current;
+
+            if (
+              !activeThread ||
+              !activeConversationId ||
+              pendingBottomScrollConversationIdRef.current !==
+                activeConversationId
+            ) {
+              return;
+            }
+
+            activeThread.scrollTop = activeThread.scrollHeight;
+            messageListNearBottomRef.current = true;
+            setShowJumpToLatest(false);
+            setNewMessageCount(0);
+          },
+        );
+      }
+
+      messageListNearBottomRef.current = true;
+      setShowJumpToLatest(false);
+      setNewMessageCount(0);
+      return;
+    }
+
     messageListNearBottomRef.current = nearBottom;
+    setShowJumpToLatest(!nearBottom);
 
     if (nearBottom) {
       setNewMessageCount(0);
@@ -7838,77 +9641,67 @@ export function MessageAppPage() {
   }
 
   function jumpToLatestMessages(): void {
-    const element = messageListRef.current;
+    const prefersReducedMotion =
+      messagingCustomization.reduceMotion ||
+      window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
 
-    setNewMessageCount(0);
-    messageListNearBottomRef.current = true;
+    if (selectedConversationIdRef.current) {
+      // Keep the true bottom anchored while any not-yet-loaded attachment in the
+      // latest message finishes sizing. The next real user interaction releases
+      // this lock immediately.
+      pendingBottomScrollConversationIdRef.current =
+        selectedConversationIdRef.current;
+    }
 
-    if (!element) {
+    scrollMessageThreadToBottom(prefersReducedMotion ? "auto" : "smooth");
+  }
+
+  function handleMessageMediaLayoutReady(): void {
+    const conversationId = selectedConversationIdRef.current;
+
+    if (
+      !conversationId ||
+      pendingBottomScrollConversationIdRef.current !== conversationId
+    ) {
       return;
     }
 
-    element.scrollTo({
-      top: element.scrollHeight,
-      behavior: "smooth",
-    });
-    messageThreadBottomRef.current?.scrollIntoView({
-      block: "end",
-      behavior: "smooth",
-    });
-  }
-
-  function scheduleBottomScrollRetries(
-    clearPendingInitialScroll: boolean,
-  ): () => void {
-    const timers: number[] = [];
-    let frameId: number | null = null;
-    let nestedFrameId: number | null = null;
-
-    const run = () => {
-      scrollMessageThreadToBottom();
-    };
-
-    run();
-    frameId = window.requestAnimationFrame(() => {
-      run();
-
-      nestedFrameId = window.requestAnimationFrame(run);
-    });
-
-    [60, 180, 360, 720, 1200].forEach((delay) => {
-      timers.push(window.setTimeout(run, delay));
-    });
-
-    if (clearPendingInitialScroll) {
-      timers.push(
-        window.setTimeout(() => {
-          pendingBottomScrollConversationIdRef.current = null;
-        }, 1250),
-      );
+    /*
+     * Protected attachment previews are loaded lazily. Image/video intrinsic
+     * dimensions are therefore unknown when the initial message page is first
+     * anchored. ResizeObserver remains a general safety net, but the media
+     * element itself is the authoritative signal that its final layout is now
+     * available. Re-anchor only while fresh-open/jump-to-latest follow mode is
+     * active; a real user scroll releases that mode, so reading older history
+     * is never pulled back to the newest message.
+     */
+    if (initialBottomReanchorFrameRef.current !== null) {
+      return;
     }
 
-    return () => {
-      if (frameId !== null) {
-        window.cancelAnimationFrame(frameId);
+    initialBottomReanchorFrameRef.current = window.requestAnimationFrame(() => {
+      initialBottomReanchorFrameRef.current = null;
+
+      if (
+        selectedConversationIdRef.current !== conversationId ||
+        pendingBottomScrollConversationIdRef.current !== conversationId
+      ) {
+        return;
       }
 
-      if (nestedFrameId !== null) {
-        window.cancelAnimationFrame(nestedFrameId);
-      }
-
-      timers.forEach((timer) => window.clearTimeout(timer));
-    };
+      scrollMessageThreadToBottom();
+    });
   }
 
   useLayoutEffect(() => {
     if (messageLoading || olderMessagesLoading) {
-      return undefined;
+      return;
     }
 
     const element = messageListRef.current;
 
     if (!element) {
-      return undefined;
+      return;
     }
 
     const messagesBelongToSelectedConversation =
@@ -7919,27 +9712,35 @@ export function MessageAppPage() {
       );
 
     if (!messagesBelongToSelectedConversation) {
-      return undefined;
+      return;
     }
 
     const pendingOlderScrollRestore = pendingOlderScrollRestoreRef.current;
 
     if (
+      !pendingOlderScrollRestore &&
+      pendingBottomScrollConversationIdRef.current !== selectedConversationId &&
+      restorePendingMessageThreadMutationAnchor()
+    ) {
+      previousScrollConversationIdRef.current = selectedConversationId;
+      previousMessageCountRef.current = messages.length;
+      return;
+    }
+
+    if (
       pendingOlderScrollRestore &&
       pendingOlderScrollRestore.conversationId === selectedConversationId
     ) {
-      const prependedHeight = Math.max(
-        0,
-        element.scrollHeight - pendingOlderScrollRestore.scrollHeight,
+      element.scrollTop = restorePrependedMessageScrollTop(
+        pendingOlderScrollRestore.scrollTop,
+        pendingOlderScrollRestore.scrollHeight,
+        element.scrollHeight,
       );
-
-      element.scrollTop =
-        pendingOlderScrollRestore.scrollTop + prependedHeight;
       pendingOlderScrollRestoreRef.current = null;
       messageListNearBottomRef.current = false;
       previousScrollConversationIdRef.current = selectedConversationId;
       previousMessageCountRef.current = messages.length;
-      return undefined;
+      return;
     }
 
     const conversationChanged =
@@ -7951,7 +9752,6 @@ export function MessageAppPage() {
       Boolean(selectedConversationId) &&
       pendingBottomScrollConversationIdRef.current === selectedConversationId &&
       messages.length > 0;
-
     const preserveScrollForFocusedMessage =
       pendingFocusedMessageScrollRef.current !== null;
     const shouldScrollToBottom =
@@ -7961,13 +9761,12 @@ export function MessageAppPage() {
         viewerWasNearBottom &&
         !preserveScrollForFocusedMessage);
 
-    let cancelBottomScrollRetries: (() => void) | null = null;
-
     if (shouldScrollToBottom) {
-      // Admin refresh can resize after render; repeat the anchor until the shell settles.
-      cancelBottomScrollRetries = scheduleBottomScrollRetries(
-        pendingInitialBottomScroll,
-      );
+      // Anchor before paint so a freshly opened conversation never flashes an
+      // arbitrary position. The initial anchor remains pending until the
+      // post-paint pass below, because browsers may restore nested scrollTop
+      // after this layout effect during a hard refresh.
+      scrollMessageThreadToBottom();
     }
 
     previousScrollConversationIdRef.current = selectedConversationId;
@@ -7976,11 +9775,118 @@ export function MessageAppPage() {
     if (preserveScrollForFocusedMessage) {
       pendingFocusedMessageScrollRef.current = null;
     }
+  }, [messageLoading, messages, olderMessagesLoading, selectedConversationId]);
+
+  useEffect(() => {
+    if (
+      messageLoading ||
+      olderMessagesLoading ||
+      !selectedConversationId ||
+      messages.length === 0 ||
+      pendingBottomScrollConversationIdRef.current !== selectedConversationId
+    ) {
+      return undefined;
+    }
+
+    // Run after two paint opportunities. This deliberately comes after the
+    // layout-time anchor so browser scroll restoration on refresh cannot win
+    // the race and leave the thread at an older text/attachment. Two animation
+    // frames are short and deterministic, unlike the old multi-second retries.
+    let finalFrameId: number | null = null;
+    const frameId = window.requestAnimationFrame(() => {
+      finalFrameId = window.requestAnimationFrame(() => {
+        if (
+          selectedConversationIdRef.current !== selectedConversationId ||
+          pendingBottomScrollConversationIdRef.current !==
+            selectedConversationId
+        ) {
+          return;
+        }
+
+        // Keep the fresh-open bottom lock active after this paint. It is
+        // released by the user's first wheel/touch/pointer/keyboard interaction,
+        // which lets late image/video/audio sizing stay anchored to the true end.
+        scrollMessageThreadToBottom();
+      });
+    });
 
     return () => {
-      cancelBottomScrollRetries?.();
+      window.cancelAnimationFrame(frameId);
+      if (finalFrameId !== null) {
+        window.cancelAnimationFrame(finalFrameId);
+      }
     };
-  }, [messageLoading, messages, olderMessagesLoading, selectedConversationId]);
+  }, [
+    messageLoading,
+    messages.length,
+    olderMessagesLoading,
+    selectedConversationId,
+  ]);
+
+  useLayoutEffect(() => {
+    if (
+      pendingBottomScrollConversationIdRef.current !== selectedConversationId
+    ) {
+      restorePendingMessageThreadMutationAnchor();
+    }
+  }, [editingMessage, replyingTo, selectedConversationId]);
+
+  useEffect(() => {
+    const element = messageListRef.current;
+    const content = messageThreadContentRef.current;
+
+    if (!element || !content || typeof ResizeObserver === "undefined") {
+      return undefined;
+    }
+
+    const keepBottomAnchored = (): void => {
+      const initialBottomAnchorPending =
+        pendingBottomScrollConversationIdRef.current === selectedConversationId;
+
+      if (
+        (!initialBottomAnchorPending && !messageListNearBottomRef.current) ||
+        pendingOlderScrollRestoreRef.current ||
+        pendingFocusedMessageScrollRef.current
+      ) {
+        return;
+      }
+
+      if (messageResizeFrameRef.current !== null) {
+        return;
+      }
+
+      messageResizeFrameRef.current = window.requestAnimationFrame(() => {
+        messageResizeFrameRef.current = null;
+
+        const initialBottomAnchorStillPending =
+          pendingBottomScrollConversationIdRef.current ===
+          selectedConversationId;
+
+        if (
+          selectedConversationIdRef.current !== selectedConversationId ||
+          (!initialBottomAnchorStillPending &&
+            !messageListNearBottomRef.current)
+        ) {
+          return;
+        }
+
+        element.scrollTop = element.scrollHeight;
+        messageListNearBottomRef.current = true;
+      });
+    };
+
+    const observer = new ResizeObserver(keepBottomAnchored);
+    observer.observe(element);
+    observer.observe(content);
+
+    return () => {
+      observer.disconnect();
+      if (messageResizeFrameRef.current !== null) {
+        window.cancelAnimationFrame(messageResizeFrameRef.current);
+        messageResizeFrameRef.current = null;
+      }
+    };
+  }, [selectedConversationId]);
 
   useEffect(() => {
     if (!highlightedMessageId) {
@@ -7999,14 +9905,27 @@ export function MessageAppPage() {
         `[data-message-id="${highlightedMessageId}"]`,
       );
 
-      // Search navigation focuses the exact result when it is loaded in the thread.
-      messageElement?.scrollIntoView({
-        block: "center",
-        behavior: "smooth",
-      });
+      // Search/starred/storage/notification navigation focuses the exact
+      // authorized result once. Consume that target after it is found so a
+      // later normal chat switch is not mistaken for another old-message jump.
+      if (messageElement) {
+        messageElement.scrollIntoView({
+          block: "center",
+          behavior: "smooth",
+        });
+
+        if (
+          pendingSearchResultRef.current?.message.id === highlightedMessageId
+        ) {
+          pendingSearchResultRef.current = null;
+        }
+      }
     }, 120);
 
     const clearTimer = window.setTimeout(() => {
+      if (pendingSearchResultRef.current?.message.id === highlightedMessageId) {
+        pendingSearchResultRef.current = null;
+      }
       setHighlightedMessageId(null);
     }, 3200);
 
@@ -8037,7 +9956,7 @@ export function MessageAppPage() {
             setContactError(
               error instanceof Error
                 ? error.message
-                : "Contacts could not be loaded.",
+                : t("feedback.contactsLoadError"),
             );
           }
         })
@@ -8081,7 +10000,7 @@ export function MessageAppPage() {
             setGroupError(
               error instanceof Error
                 ? error.message
-                : "Group contacts could not be loaded.",
+                : t("feedback.groupContactsLoadError"),
             );
           }
         })
@@ -8125,7 +10044,7 @@ export function MessageAppPage() {
             setPrivateGroupError(
               error instanceof Error
                 ? error.message
-                : "Private group contacts could not be loaded.",
+                : t("feedback.privateGroupContactsLoadError"),
             );
           }
         })
@@ -8172,7 +10091,7 @@ export function MessageAppPage() {
           setGroupError(
             error instanceof Error
               ? error.message
-              : "Official group scopes could not be loaded.",
+              : t("feedback.officialScopesLoadError"),
           );
         }
       })
@@ -8212,7 +10131,7 @@ export function MessageAppPage() {
           setGroupError(
             error instanceof Error
               ? error.message
-              : "Official group audit history could not be loaded.",
+              : t("feedback.officialAuditLoadError"),
           );
         }
       })
@@ -8263,7 +10182,7 @@ export function MessageAppPage() {
           setGroupInviteError(
             error instanceof Error
               ? error.message
-              : "Invitation link could not be loaded.",
+              : t("feedback.inviteLoadError"),
           );
         }
       })
@@ -8283,6 +10202,64 @@ export function MessageAppPage() {
     selectedConversation?.groupKind,
     selectedConversation?.id,
   ]);
+
+  useEffect(() => {
+    if (!accessToken || location.pathname !== "/messages") {
+      return;
+    }
+
+    const params = new URLSearchParams(location.search);
+    const conversationId = params.get("conversation")?.trim();
+    const messageId = params.get("message")?.trim() ?? null;
+
+    if (!conversationId) {
+      return;
+    }
+
+    const targetKey = `${conversationId}:${messageId ?? "latest"}`;
+    if (pushNavigationTargetRef.current === targetKey) {
+      return;
+    }
+
+    pushNavigationTargetRef.current = targetKey;
+    setPageError(null);
+
+    void (async () => {
+      try {
+        if (messageId) {
+          const target = await getConversationMessageById(
+            accessToken,
+            conversationId,
+            messageId,
+          );
+
+          pendingSearchResultRef.current = {
+            message: target.data,
+            conversation: target.conversation,
+            snippet: target.data.textContent ?? t("feedback.notificationMessageFallback"),
+            matchedAttachmentFileName: null,
+          };
+          setConversations((current) =>
+            current.some((conversation) => conversation.id === target.conversation.id)
+              ? current
+              : [target.conversation, ...current],
+          );
+          setHighlightedMessageId(target.data.id);
+        }
+
+        setSelectedConversationId(conversationId);
+        navigate("/messages", { replace: true });
+      } catch (error) {
+        pushNavigationTargetRef.current = null;
+        setPageError(
+          error instanceof Error
+            ? error.message
+            : t("feedback.notificationMessageOpenError"),
+        );
+        navigate("/messages", { replace: true });
+      }
+    })();
+  }, [accessToken, location.pathname, location.search, navigate]);
 
   useEffect(() => {
     if (!accessToken) {
@@ -8313,7 +10290,7 @@ export function MessageAppPage() {
         setPageError(
           error instanceof Error
             ? error.message
-            : "Group invitation link could not be accepted.",
+            : t("feedback.groupInviteAcceptError"),
         );
         navigate("/messages", { replace: true });
       })
@@ -8365,6 +10342,7 @@ export function MessageAppPage() {
     }
 
     closeMessageSearchPanel();
+    clearMessageInformationState();
     sharedContentRequestRef.current += 1;
     setSharedContentOpen(false);
     setConversationActionMenuOpen(false);
@@ -8382,6 +10360,7 @@ export function MessageAppPage() {
     }
 
     closeMessageSearchPanel();
+    clearMessageInformationState();
     setConversationActionMenuOpen(false);
     setActiveUtilityPanel(null);
     setProfileReturnToGroupInformation(false);
@@ -8587,7 +10566,7 @@ export function MessageAppPage() {
       setGroupError(
         error instanceof Error
           ? error.message
-          : "The group could not be created.",
+          : t("feedback.groupCreateError"),
       );
     } finally {
       setGroupSubmitting(false);
@@ -8630,7 +10609,7 @@ export function MessageAppPage() {
       setPrivateGroupError(
         error instanceof Error
           ? error.message
-          : "Private group could not be created.",
+          : t("feedback.privateGroupCreateError"),
       );
     } finally {
       setPrivateGroupSubmitting(false);
@@ -8672,7 +10651,7 @@ export function MessageAppPage() {
       setGroupError(
         error instanceof Error
           ? error.message
-          : "Official groups could not be reconciled.",
+          : t("feedback.officialReconcileError"),
       );
     } finally {
       setOfficialGroupReconciling(false);
@@ -8709,7 +10688,7 @@ export function MessageAppPage() {
       setGroupError(
         error instanceof Error
           ? error.message
-          : "The group details could not be updated.",
+          : t("feedback.groupDetailsUpdateError"),
       );
     } finally {
       setGroupSubmitting(false);
@@ -8742,7 +10721,7 @@ export function MessageAppPage() {
       setGroupInviteError(
         error instanceof Error
           ? error.message
-          : "Invitation link could not be generated.",
+          : t("feedback.inviteGenerateError"),
       );
     } finally {
       setGroupInviteLoading(false);
@@ -8756,10 +10735,10 @@ export function MessageAppPage() {
 
     try {
       await copyTextToClipboard(groupInviteUrl);
-      setGroupInviteNotice("Invitation link copied.");
+      setGroupInviteNotice(t("feedback.inviteCopied"));
       setGroupInviteError(null);
     } catch {
-      setGroupInviteError("Invitation link could not be copied automatically.");
+      setGroupInviteError(t("feedback.inviteCopyError"));
     }
   }
 
@@ -8773,7 +10752,7 @@ export function MessageAppPage() {
       return;
     }
 
-    if (!window.confirm("Revoke this group invitation link?")) {
+    if (!window.confirm(t("feedback.inviteRevokeConfirm"))) {
       return;
     }
 
@@ -8792,7 +10771,7 @@ export function MessageAppPage() {
       setGroupInviteError(
         error instanceof Error
           ? error.message
-          : "Invitation link could not be revoked.",
+          : t("feedback.inviteRevokeError"),
       );
     } finally {
       setGroupInviteLoading(false);
@@ -8816,12 +10795,12 @@ export function MessageAppPage() {
     }
 
     if (!file.type.startsWith("image/")) {
-      setGroupError("Choose a JPG, PNG or WEBP group photo.");
+      setGroupError(t("feedback.groupPhotoType"));
       return;
     }
 
     if (file.size > 5 * 1024 * 1024) {
-      setGroupError("Group photo must be 5 MB or smaller.");
+      setGroupError(t("feedback.groupPhotoSize"));
       return;
     }
 
@@ -8857,7 +10836,7 @@ export function MessageAppPage() {
       setGroupError(
         error instanceof Error
           ? error.message
-          : "The group photo could not be updated.",
+          : t("feedback.groupPhotoUpdateError"),
       );
     } finally {
       setGroupPhotoUploading(false);
@@ -8874,7 +10853,7 @@ export function MessageAppPage() {
       return;
     }
 
-    if (!window.confirm("Remove this group photo?")) {
+    if (!window.confirm(t("feedback.groupPhotoRemoveConfirm"))) {
       return;
     }
 
@@ -8909,7 +10888,7 @@ export function MessageAppPage() {
       setGroupError(
         error instanceof Error
           ? error.message
-          : "The group photo could not be removed.",
+          : t("feedback.groupPhotoRemoveError"),
       );
     } finally {
       setGroupPhotoUploading(false);
@@ -8946,7 +10925,7 @@ export function MessageAppPage() {
       setGroupError(
         error instanceof Error
           ? error.message
-          : "The selected members could not be added.",
+          : t("feedback.membersAddError"),
       );
     } finally {
       setGroupSubmitting(false);
@@ -8983,7 +10962,7 @@ export function MessageAppPage() {
       setGroupError(
         error instanceof Error
           ? error.message
-          : "The member role could not be changed.",
+          : t("feedback.memberRoleError"),
       );
     } finally {
       setGroupActionAccountId(null);
@@ -9000,7 +10979,7 @@ export function MessageAppPage() {
       return;
     }
 
-    if (!window.confirm("Remove this member from the group?")) {
+    if (!window.confirm(t("feedback.memberRemoveConfirm"))) {
       return;
     }
 
@@ -9020,7 +10999,7 @@ export function MessageAppPage() {
       setGroupError(
         error instanceof Error
           ? error.message
-          : "The member could not be removed.",
+          : t("feedback.memberRemoveError"),
       );
     } finally {
       setGroupActionAccountId(null);
@@ -9046,10 +11025,42 @@ export function MessageAppPage() {
       setDestructiveConfirmationError(null);
       setGroupDialogMode(null);
       setSelectedConversationId(null);
-      await loadConversations(true);
+      await Promise.all([loadConversations(true), loadChatFolders(true)]);
     } catch (error) {
       const errorMessage =
-        error instanceof Error ? error.message : "The group could not be left.";
+        error instanceof Error ? error.message : t("feedback.groupLeaveError");
+      setGroupError(errorMessage);
+      setDestructiveConfirmationError(errorMessage);
+    } finally {
+      setGroupSubmitting(false);
+    }
+  }
+
+  async function handleDeleteGroup(conversationId: string): Promise<void> {
+    if (!accessToken || groupSubmitting) {
+      return;
+    }
+
+    setGroupSubmitting(true);
+    setGroupError(null);
+
+    try {
+      const response = await deleteGroupConversation(
+        accessToken,
+        conversationId,
+      );
+
+      setMessageNotice(response.message);
+      setDestructiveConfirmation(null);
+      setDestructiveConfirmationError(null);
+      setDetailsPanelOpen(false);
+      setGroupManagementWorkspaceOpen(false);
+      resetGroupDialogState();
+      setSelectedConversationId(null);
+      await Promise.all([loadConversations(true), loadChatFolders(true)]);
+    } catch (error) {
+      const errorMessage =
+        error instanceof Error ? error.message : t("feedback.groupDeleteError");
       setGroupError(errorMessage);
       setDestructiveConfirmationError(errorMessage);
     } finally {
@@ -9064,6 +11075,128 @@ export function MessageAppPage() {
     setContacts([]);
     setContactError(null);
     navigate("/messages/new");
+  }
+
+  function openCreateList(): void {
+    setSelectedConversationId(null);
+    setListWorkspaceError(null);
+    setListDeleteConfirmOpen(false);
+    navigate("/messages/lists/new");
+  }
+
+  function openChatFolder(folderId: string): void {
+    setSelectedConversationId(null);
+    setConversationSearch("");
+    setListWorkspaceError(null);
+    setListDeleteConfirmOpen(false);
+    navigate(`/messages/lists/${folderId}`);
+  }
+
+  function openSelectedListManager(): void {
+    if (!selectedListId) {
+      return;
+    }
+
+    setSelectedConversationId(null);
+    setDetailsPanelOpen(false);
+    setListDeleteConfirmOpen(false);
+    setListWorkspaceError(null);
+    navigate(`/messages/lists/${selectedListId}/edit`);
+  }
+
+  function toggleListConversation(conversationId: string): void {
+    setListSelectedConversationIds((current) =>
+      current.includes(conversationId)
+        ? current.filter((id) => id !== conversationId)
+        : [...current, conversationId],
+    );
+    setListWorkspaceError(null);
+  }
+
+  async function handleSaveMessageList(
+    event: FormEvent<HTMLFormElement>,
+  ): Promise<void> {
+    event.preventDefault();
+
+    if (!accessToken || listSaving) {
+      return;
+    }
+
+    const name = listNameDraft.trim().replace(/\s+/g, " ");
+
+    if (!name) {
+      setListWorkspaceError(t("feedback.listNameRequired"));
+      return;
+    }
+
+    const duplicate = chatFolders.some(
+      (folder) =>
+        folder.id !== selectedListId &&
+        folder.name.trim().toLocaleLowerCase("en-US") ===
+          name.toLocaleLowerCase("en-US"),
+    );
+
+    if (duplicate) {
+      setListWorkspaceError(t("feedback.listNameDuplicate"));
+      return;
+    }
+
+    setListSaving(true);
+    setListWorkspaceError(null);
+
+    try {
+      const input = {
+        name,
+        conversationIds: listSelectedConversationIds,
+      };
+
+      if (listCreateMode) {
+        const response = await createChatFolder(accessToken, input);
+        await loadChatFolders(true);
+        navigate(`/messages/lists/${response.data.id}`);
+      } else if (selectedListId) {
+        await updateChatFolder(accessToken, selectedListId, input);
+
+        setListNameDraft(name);
+        await Promise.all([loadChatFolders(true), loadConversations(true)]);
+        navigate(`/messages/lists/${selectedListId}`);
+      }
+    } catch (error) {
+      setListWorkspaceError(
+        error instanceof Error
+          ? error.message
+          : t("feedback.listSaveError"),
+      );
+    } finally {
+      setListSaving(false);
+    }
+  }
+
+  async function handleDeleteMessageList(): Promise<void> {
+    if (!accessToken || !selectedListId || listDeleting) {
+      return;
+    }
+
+    setListDeleting(true);
+    setListWorkspaceError(null);
+
+    try {
+      await deleteChatFolder(accessToken, selectedListId);
+      setChatFolders((current) =>
+        current.filter((folder) => folder.id !== selectedListId),
+      );
+      setSelectedConversationId(null);
+      setListDeleteConfirmOpen(false);
+      navigate("/messages");
+    } catch (error) {
+      setListWorkspaceError(
+        error instanceof Error
+          ? error.message
+          : t("feedback.listDeleteError"),
+      );
+    } finally {
+      setListDeleting(false);
+    }
   }
 
   function openProfile(
@@ -9087,6 +11220,7 @@ export function MessageAppPage() {
     }
 
     closeMessageSearchPanel();
+    clearMessageInformationState();
     sharedContentRequestRef.current += 1;
     setSharedContentOpen(false);
     setProfileData((current) =>
@@ -9125,6 +11259,7 @@ export function MessageAppPage() {
       return;
     }
 
+    clearMessageInformationState();
     sharedContentRequestRef.current += 1;
     setSharedContentOpen(false);
     setSharedContentLoading(false);
@@ -9166,7 +11301,7 @@ export function MessageAppPage() {
       setProfileError(
         error instanceof Error
           ? error.message
-          : "Profile could not be updated.",
+          : t("feedback.profileUpdateError"),
       );
     } finally {
       setProfileSaving(false);
@@ -9219,7 +11354,7 @@ export function MessageAppPage() {
       setProfileError(
         error instanceof Error
           ? error.message
-          : "Profile photo could not be uploaded.",
+          : t("feedback.profilePhotoUploadError"),
       );
     } finally {
       setProfilePhotoUploading(false);
@@ -9268,7 +11403,7 @@ export function MessageAppPage() {
       setProfileError(
         error instanceof Error
           ? error.message
-          : "Profile photo could not be removed.",
+          : t("feedback.profilePhotoRemoveError"),
       );
     } finally {
       setProfilePhotoUploading(false);
@@ -9322,7 +11457,7 @@ export function MessageAppPage() {
       setProfileError(
         error instanceof Error
           ? error.message
-          : "The conversation could not be started.",
+          : t("feedback.conversationStartError"),
       );
     } finally {
       setProfileSaving(false);
@@ -9380,7 +11515,7 @@ export function MessageAppPage() {
       setContactError(
         error instanceof Error
           ? error.message
-          : "The conversation could not be started.",
+          : t("feedback.conversationStartError"),
       );
     } finally {
       setCreatingConversationId(null);
@@ -9512,12 +11647,12 @@ export function MessageAppPage() {
       const response = await markAllMessagingNotificationsRead(accessToken);
       setNotifications(response.data);
       setNotificationUnreadCount(response.unreadCount);
-      setNotificationActionNotice("All notifications marked as read.");
+      setNotificationActionNotice(t("feedback.notificationsMarkedRead"));
     } catch (error) {
       setNotificationError(
         error instanceof Error
           ? error.message
-          : "Notifications could not be marked as read.",
+          : t("feedback.notificationsMarkReadError"),
       );
     } finally {
       setNotificationBulkAction(null);
@@ -9544,7 +11679,7 @@ export function MessageAppPage() {
       );
       setNotifications(response.data);
       setNotificationUnreadCount(response.unreadCount);
-      setNotificationActionNotice("Notification removed.");
+      setNotificationActionNotice(t("feedback.notificationRemoved"));
 
       if (notificationToast?.id === notification.id) {
         setNotificationToast(null);
@@ -9553,7 +11688,7 @@ export function MessageAppPage() {
       setNotificationError(
         error instanceof Error
           ? error.message
-          : "The notification could not be removed.",
+          : t("feedback.notificationRemoveError"),
       );
     } finally {
       setNotificationDeletingId(null);
@@ -9579,12 +11714,12 @@ export function MessageAppPage() {
       const response = await deleteReadMessagingNotifications(accessToken);
       setNotifications(response.data);
       setNotificationUnreadCount(response.unreadCount);
-      setNotificationActionNotice("Seen notifications removed.");
+      setNotificationActionNotice(t("feedback.seenNotificationsRemoved"));
     } catch (error) {
       setNotificationError(
         error instanceof Error
           ? error.message
-          : "Seen notifications could not be removed.",
+          : t("feedback.seenNotificationsRemoveError"),
       );
     } finally {
       setNotificationBulkAction(null);
@@ -9654,7 +11789,7 @@ export function MessageAppPage() {
           ...current,
           ...confirmed,
         }));
-        setMessagingSettingsNotice("Privacy settings saved.");
+        setMessagingSettingsNotice(t("feedback.privacySaved"));
       })
       .catch((error) => {
         if (settingsMutationSequenceRef.current !== mutationSequence) {
@@ -9670,7 +11805,7 @@ export function MessageAppPage() {
         setMessagingSettingsError(
           error instanceof Error
             ? error.message
-            : "Privacy settings could not be saved.",
+            : t("feedback.privacySaveError"),
         );
       })
       .finally(() => {
@@ -9698,38 +11833,70 @@ export function MessageAppPage() {
     setNotificationSoundEnabled(true);
     setBrowserNotificationsEnabled(false);
     setMessagingSettingsError(null);
-    setMessagingSettingsNotice("Notification defaults restored on this device.");
+    setMessagingSettingsNotice(t("feedback.notificationDefaultsRestored"));
   }
 
   async function handleBrowserNotificationToggle(): Promise<void> {
     setMessagingSettingsError(null);
     setMessagingSettingsNotice(null);
 
-    if (!("Notification" in window)) {
+    if (!messagingPushSupported()) {
       setBrowserNotificationsEnabled(false);
+      setBackgroundPushReady(false);
       setMessagingSettingsError(
-        "Browser notifications are not supported on this device.",
+        t("feedback.browserNotificationsUnsupported"),
       );
       return;
     }
 
     if (!browserNotificationsEnabled) {
-      // Browser permission must be requested from a direct user action. NT
-      // Message can stop using permission, but cannot revoke browser policy.
+      // Browser permission must be requested from a direct user action.
       const permission = await window.Notification.requestPermission();
-      const enabled = permission === "granted";
-      setBrowserNotificationsEnabled(enabled);
-      setMessagingSettingsNotice(
-        enabled
-          ? "Browser notifications enabled for this device."
-          : "Browser notifications remain disabled. Review browser permission settings if access was blocked.",
-      );
+      if (permission !== "granted") {
+        setBrowserNotificationsEnabled(false);
+        setBackgroundPushReady(false);
+        setMessagingSettingsNotice(
+          t("feedback.browserNotificationsPermissionBlocked"),
+        );
+        return;
+      }
+
+      if (!accessToken) {
+        setMessagingSettingsError(t("feedback.sessionNotReady"));
+        return;
+      }
+
+      try {
+        const ready = await syncMessagingPushSubscription(accessToken, {
+          showPreview: messagingSettings.notificationPreview,
+          isMuted: messagingSettings.muteAllNotifications,
+        });
+        setBrowserNotificationsEnabled(ready);
+        setBackgroundPushReady(ready);
+        setMessagingSettingsNotice(
+          ready
+            ? t("feedback.browserNotificationsEnabled")
+            : t("feedback.browserNotificationsServerMissing"),
+        );
+      } catch (error) {
+        setBrowserNotificationsEnabled(false);
+        setBackgroundPushReady(false);
+        setMessagingSettingsError(
+          error instanceof Error
+            ? error.message
+            : t("feedback.browserNotificationsEnableError"),
+        );
+      }
       return;
     }
 
+    if (accessToken) {
+      await disableMessagingPushSubscription(accessToken).catch(() => undefined);
+    }
     setBrowserNotificationsEnabled(false);
+    setBackgroundPushReady(false);
     setMessagingSettingsNotice(
-      "NT Message browser notifications disabled on this device.",
+      t("feedback.browserNotificationsDisabled"),
     );
   }
 
@@ -9740,7 +11907,7 @@ export function MessageAppPage() {
 
     if (
       !window.confirm(
-        "Sign out every active NT Message session, including this device?",
+        t("messageSettings.security.signOutAllConfirm"),
       )
     ) {
       return;
@@ -9753,8 +11920,9 @@ export function MessageAppPage() {
     try {
       const response = await logoutAllAuth(accessToken);
       setSecurityNotice(
-        `${response.revokedSessions} active session${response.revokedSessions === 1 ? "" : "s"
-        } signed out.`,
+        t("messageSettings.security.signedOutSessions", {
+          count: response.revokedSessions,
+        }),
       );
       await logout();
       navigate("/login", { replace: true });
@@ -9762,7 +11930,7 @@ export function MessageAppPage() {
       setSecurityError(
         error instanceof Error
           ? error.message
-          : "All devices could not be signed out.",
+          : t("feedback.signOutAllError"),
       );
     } finally {
       setSecurityAction(null);
@@ -9787,6 +11955,7 @@ export function MessageAppPage() {
         : messageSearchTriggerRef.current;
 
     setConversationActionMenuOpen(false);
+    clearMessageInformationState();
     setDetailsPanelOpen(false);
     setSearchError(null);
     setSearchPanelOpen(true);
@@ -9794,6 +11963,7 @@ export function MessageAppPage() {
 
   function openSearchMessageResult(result: MessagingSearchMessageResult): void {
     pendingSearchResultRef.current = result;
+    pendingBottomScrollConversationIdRef.current = null;
 
     if (
       result.conversation.id === selectedConversationId &&
@@ -9858,7 +12028,7 @@ export function MessageAppPage() {
       setRequestError(
         error instanceof Error
           ? error.message
-          : "The message request could not be accepted.",
+          : t("feedback.requestAcceptError"),
       );
     } finally {
       setRequestActionId(null);
@@ -9887,7 +12057,7 @@ export function MessageAppPage() {
       setRequestError(
         error instanceof Error
           ? error.message
-          : "The message request could not be declined.",
+          : t("feedback.requestDeclineError"),
       );
     } finally {
       setRequestActionId(null);
@@ -9916,7 +12086,7 @@ export function MessageAppPage() {
       setRequestError(
         error instanceof Error
           ? error.message
-          : "The message request could not be blocked.",
+          : t("feedback.requestBlockError"),
       );
     } finally {
       setRequestActionId(null);
@@ -9970,7 +12140,7 @@ export function MessageAppPage() {
       const message =
         error instanceof Error
           ? error.message
-          : "Account could not be blocked.";
+          : t("feedback.accountBlockError");
       setBlockSettingsError(message);
       setProfileError(message);
       setDestructiveConfirmationError(message);
@@ -10020,7 +12190,7 @@ export function MessageAppPage() {
       const message =
         error instanceof Error
           ? error.message
-          : "Account could not be unblocked.";
+          : t("feedback.accountUnblockError");
       setBlockSettingsError(message);
       setProfileError(message);
     } finally {
@@ -10067,7 +12237,7 @@ export function MessageAppPage() {
       !navigator.mediaDevices?.getUserMedia ||
       typeof MediaRecorder === "undefined"
     ) {
-      setMessageError("Voice recording is not supported in this browser.");
+      setMessageError(t("feedback.voiceUnsupported"));
       return;
     }
 
@@ -10106,14 +12276,14 @@ export function MessageAppPage() {
         resetVoiceRecordingState();
 
         if (chunks.length === 0) {
-          setMessageError("No voice audio was recorded.");
+          setMessageError(t("feedback.voiceEmpty"));
           return;
         }
 
         const blob = new Blob(chunks, { type: recordedMimeType });
 
         if (blob.size > MAX_AUDIO_ATTACHMENT_BYTES) {
-          setMessageError("Voice notes must be 25 MB or smaller.");
+          setMessageError(t("feedback.voiceTooLarge"));
           return;
         }
 
@@ -10145,7 +12315,7 @@ export function MessageAppPage() {
       setMessageError(
         error instanceof Error
           ? error.message
-          : "Microphone permission was not granted.",
+          : t("feedback.microphonePermission"),
       );
     }
   }
@@ -10190,7 +12360,7 @@ export function MessageAppPage() {
   function getCurrentBrowserPosition(): Promise<GeolocationPosition> {
     if (!navigator.geolocation) {
       return Promise.reject(
-        new Error("Location sharing is not supported in this browser."),
+        new Error(t("feedback.locationUnsupported")),
       );
     }
 
@@ -10198,7 +12368,7 @@ export function MessageAppPage() {
       navigator.geolocation.getCurrentPosition(
         resolve,
         () =>
-          reject(new Error("Location permission was denied or unavailable.")),
+          reject(new Error(t("feedback.locationPermission"))),
         {
           enableHighAccuracy: true,
           maximumAge: 5000,
@@ -10247,7 +12417,7 @@ export function MessageAppPage() {
       () => {
         clearLiveLocationWatch();
         setActiveLiveLocation(null);
-        setMessageNotice("Live location sharing expired.");
+        setMessageNotice(t("feedback.liveLocationExpired"));
       },
       Math.max(0, expiresAtMs - Date.now()),
     );
@@ -10295,13 +12465,13 @@ export function MessageAppPage() {
           })
           .catch(() => {
             setMessageNotice(
-              "Live location update failed. Sharing will keep trying until it expires or you stop it.",
+              t("feedback.liveLocationUpdateFailed"),
             );
           });
       },
       () => {
         setMessageNotice(
-          "Live location permission was interrupted. Stop and start again if needed.",
+          t("feedback.liveLocationInterrupted"),
         );
       },
       {
@@ -10328,9 +12498,16 @@ export function MessageAppPage() {
 
     try {
       const position = await getCurrentBrowserPosition();
+      const attemptKey = `${selectedConversationId}:CURRENT`;
+      const sendAttempt = resolveMessagingSendAttempt(
+        locationSendAttemptRef.current,
+        attemptKey,
+      );
+      locationSendAttemptRef.current = sendAttempt;
       const response = await sendConversationLocationMessage(
         accessToken,
         selectedConversationId,
+        sendAttempt.clientMessageId,
         {
           ...browserPositionToLocationInput(position),
           live: false,
@@ -10339,11 +12516,14 @@ export function MessageAppPage() {
 
       applySentLocationMessage(response.data);
       await loadConversations(true);
+      if (locationSendAttemptRef.current?.key === attemptKey) {
+        locationSendAttemptRef.current = null;
+      }
     } catch (error) {
       setMessageError(
         error instanceof Error
           ? error.message
-          : "Current location could not be shared.",
+          : t("feedback.currentLocationError"),
       );
     } finally {
       setLocationActionLoading(null);
@@ -10366,9 +12546,16 @@ export function MessageAppPage() {
 
     try {
       const position = await getCurrentBrowserPosition();
+      const attemptKey = `${selectedConversationId}:LIVE:${locationDurationMinutes}`;
+      const sendAttempt = resolveMessagingSendAttempt(
+        locationSendAttemptRef.current,
+        attemptKey,
+      );
+      locationSendAttemptRef.current = sendAttempt;
       const response = await sendConversationLocationMessage(
         accessToken,
         selectedConversationId,
+        sendAttempt.clientMessageId,
         {
           ...browserPositionToLocationInput(position),
           live: true,
@@ -10393,11 +12580,14 @@ export function MessageAppPage() {
       }
 
       await loadConversations(true);
+      if (locationSendAttemptRef.current?.key === attemptKey) {
+        locationSendAttemptRef.current = null;
+      }
     } catch (error) {
       setMessageError(
         error instanceof Error
           ? error.message
-          : "Live location could not be started.",
+          : t("feedback.liveLocationStartError"),
       );
     } finally {
       setLocationActionLoading(null);
@@ -10429,15 +12619,16 @@ export function MessageAppPage() {
         messageId,
       );
 
+      captureMessageThreadMutationAnchor();
       setMessages((current) => applyMessageUpdate(current, response.data));
       clearLiveLocationWatch();
       setActiveLiveLocation(null);
-      setMessageNotice("Live location sharing stopped.");
+      setMessageNotice(t("feedback.liveLocationStopped"));
     } catch (error) {
       setMessageError(
         error instanceof Error
           ? error.message
-          : "Live location could not be stopped.",
+          : t("feedback.liveLocationStopError"),
       );
     } finally {
       setLocationActionLoading(null);
@@ -10548,7 +12739,7 @@ export function MessageAppPage() {
       selectedAttachments.length > 0
     ) {
       setMessageError(
-        "Remove the selected voice note before adding other attachments.",
+        t("feedback.voiceAttachmentConflict"),
       );
       window.requestAnimationFrame(() => composerRef.current?.focus());
       return;
@@ -10569,7 +12760,7 @@ export function MessageAppPage() {
       MAX_MESSAGE_ATTACHMENT_FILES
     ) {
       setMessageError(
-        `A message can contain at most ${MAX_MESSAGE_ATTACHMENT_FILES} attachments.`,
+        t("feedback.maxAttachments", { count: MAX_MESSAGE_ATTACHMENT_FILES }),
       );
       window.requestAnimationFrame(() => composerRef.current?.focus());
       return;
@@ -10585,7 +12776,7 @@ export function MessageAppPage() {
       currentTotalBytes + addedBytes >
       MAX_MESSAGE_ATTACHMENT_TOTAL_BYTES
     ) {
-      setMessageError("Attachments in one message must total 250 MB or smaller.");
+      setMessageError(t("feedback.attachmentTotalTooLarge"));
       window.requestAnimationFrame(() => composerRef.current?.focus());
       return;
     }
@@ -10624,7 +12815,7 @@ export function MessageAppPage() {
       setMessageError(
         error instanceof Error
           ? error.message
-          : "The attachment could not be downloaded.",
+          : t("feedback.attachmentDownloadMessageError"),
       );
     }
   }
@@ -10646,7 +12837,7 @@ export function MessageAppPage() {
     attachmentViewerRequestRef.current += 1;
 
     setAttachmentViewer((current) => {
-      if (current?.objectUrl) {
+      if (current?.objectUrl?.startsWith("blob:")) {
         URL.revokeObjectURL(current.objectUrl);
       }
 
@@ -10680,7 +12871,7 @@ export function MessageAppPage() {
 
     setMessageError(null);
     setAttachmentViewer((current) => {
-      if (current?.objectUrl) {
+      if (current?.objectUrl?.startsWith("blob:")) {
         URL.revokeObjectURL(current.objectUrl);
       }
 
@@ -10694,15 +12885,25 @@ export function MessageAppPage() {
     });
 
     try {
-      const objectUrl = await createConversationAttachmentObjectUrl(
-        accessToken,
-        message.conversationId,
-        message.id,
-        attachment.id,
-      );
+      const objectUrl =
+        isVideoAttachment(attachment) || isAudioAttachment(attachment)
+          ? await createConversationAttachmentStreamUrl(
+              accessToken,
+              message.conversationId,
+              message.id,
+              attachment.id,
+            )
+          : await createConversationAttachmentObjectUrl(
+              accessToken,
+              message.conversationId,
+              message.id,
+              attachment.id,
+            );
 
       if (attachmentViewerRequestRef.current !== requestId) {
-        URL.revokeObjectURL(objectUrl);
+        if (objectUrl.startsWith("blob:")) {
+          URL.revokeObjectURL(objectUrl);
+        }
         return;
       }
 
@@ -10726,7 +12927,7 @@ export function MessageAppPage() {
         error:
           error instanceof Error
             ? error.message
-            : "The attachment preview could not be loaded.",
+            : t("feedback.attachmentPreviewLoadError"),
       });
     }
   }
@@ -10750,6 +12951,7 @@ export function MessageAppPage() {
         reactionValue,
       );
 
+      captureMessageThreadMutationAnchor();
       setMessages((current) => applyMessageUpdate(current, response.data));
       setConversations((current) =>
         current.map((conversation) =>
@@ -10766,7 +12968,7 @@ export function MessageAppPage() {
       setMessageError(
         error instanceof Error
           ? error.message
-          : "The reaction could not be updated.",
+          : t("feedback.reactionUpdateError"),
       );
     } finally {
       setReactionActionId(null);
@@ -10795,6 +12997,7 @@ export function MessageAppPage() {
           message.id,
         );
 
+      captureMessageThreadMutationAnchor();
       setMessages((current) => applyMessageUpdate(current, response.data));
       setPinnedMessages((current) =>
         applyMessageUpdate(current, response.data),
@@ -10826,7 +13029,7 @@ export function MessageAppPage() {
       setMessageError(
         error instanceof Error
           ? error.message
-          : "The starred state could not be updated.",
+          : t("feedback.starUpdateError"),
       );
     } finally {
       setMessageActionId(null);
@@ -10855,6 +13058,7 @@ export function MessageAppPage() {
           message.id,
         );
 
+      captureMessageThreadMutationAnchor();
       setMessages((current) => applyMessageUpdate(current, response.data));
       setPinnedMessages((current) => {
         if (response.data.isPinned) {
@@ -10871,7 +13075,7 @@ export function MessageAppPage() {
       setMessageError(
         error instanceof Error
           ? error.message
-          : "The pinned state could not be updated.",
+          : t("feedback.pinUpdateError"),
       );
     } finally {
       setPinActionId(null);
@@ -10913,7 +13117,7 @@ export function MessageAppPage() {
       setMessageError(
         error instanceof Error
           ? error.message
-          : "The original reply message is no longer available.",
+          : t("feedback.replyMissingError"),
       );
     }
   }
@@ -10953,6 +13157,7 @@ export function MessageAppPage() {
 
     // A pinned message can be outside the current page. Merge the authorized
     // server result before scrolling so the pin browser never reveals hidden data.
+    pendingBottomScrollConversationIdRef.current = null;
     pendingFocusedMessageScrollRef.current = message.id;
     setMessages((current) =>
       current.some((item) => item.id === message.id)
@@ -10980,6 +13185,7 @@ export function MessageAppPage() {
     }
 
     // Older shared items may not be present in the current paginated message window.
+    pendingBottomScrollConversationIdRef.current = null;
     pendingFocusedMessageScrollRef.current = message.id;
     setMessages((current) => {
       if (current.some((item) => item.id === message.id)) {
@@ -11016,6 +13222,7 @@ export function MessageAppPage() {
 
     sharedContentRequestRef.current = requestId;
     closeMessageSearchPanel();
+    clearMessageInformationState();
     setConversationActionMenuOpen(false);
     setSharedContentReturnView(
       returnView ??
@@ -11075,7 +13282,7 @@ export function MessageAppPage() {
         setSharedContentError(
           error instanceof Error
             ? error.message
-            : "Shared content could not be loaded.",
+            : t("feedback.sharedContentLoadError"),
         );
       }
     } finally {
@@ -11150,7 +13357,7 @@ export function MessageAppPage() {
         setStorageUsageError(
           error instanceof Error
             ? error.message
-            : "Storage usage could not be loaded.",
+            : t("feedback.storageLoadError"),
         );
       }
     } finally {
@@ -11161,6 +13368,7 @@ export function MessageAppPage() {
   }
 
   function openStorageUsage(scope: StorageUsageScope): void {
+    setStorageDeleteConfirmation(null);
     setStorageUsageScope(scope);
     void loadStorageUsage(scope);
   }
@@ -11171,6 +13379,16 @@ export function MessageAppPage() {
     setStorageUsage(null);
     setStorageUsageError(null);
     setStorageUsageActionId(null);
+    setStorageDeleteConfirmation(null);
+  }
+
+  function handleStorageWorkspaceBack(): void {
+    if (storageUsageScope?.kind === "CONVERSATION") {
+      openStorageUsage({ kind: "USER" });
+      return;
+    }
+
+    closeStorageUsage();
   }
 
   async function openStorageOriginalMessage(
@@ -11221,12 +13439,13 @@ export function MessageAppPage() {
       );
       setHighlightedMessageId(response.data.id);
       setSelectedConversationId(file.conversationId);
+      navigate("/messages");
       closeStorageUsage();
     } catch (error) {
       setStorageUsageError(
         error instanceof Error
           ? error.message
-          : "The original message could not be opened.",
+          : t("feedback.originalMessageOpenError"),
       );
     } finally {
       setStorageUsageActionId(null);
@@ -11241,16 +13460,7 @@ export function MessageAppPage() {
       return;
     }
 
-    const confirmed = window.confirm(
-      mode === "EVERYONE"
-        ? "Delete the message containing this file for everyone? Separately forwarded copies will remain available where authorized."
-        : "Delete the message containing this file only for you? Other authorized participants will keep their copy.",
-    );
-
-    if (!confirmed) {
-      return;
-    }
-
+    setStorageDeleteConfirmation(null);
     setStorageUsageActionId(`${mode}:${file.attachmentId}`);
     setStorageUsageError(null);
 
@@ -11281,16 +13491,25 @@ export function MessageAppPage() {
       setStorageUsageError(
         error instanceof Error
           ? error.message
-          : "The selected storage item could not be deleted.",
+          : t("feedback.storageDeleteError"),
       );
     } finally {
       setStorageUsageActionId(null);
     }
   }
 
-  function closeMessageInformationDialog(): void {
+  function clearMessageInformationState(): void {
+    messageInformationRequestIdRef.current += 1;
     setMessageInformation(null);
     setMessageInformationError(null);
+    setMessageInformationLoadingId(null);
+    setMessageInformationVisibleReadCount(40);
+    setMessageInformationVisibleDeliveredCount(40);
+  }
+
+  function closeMessageInformationPanel(): void {
+    clearMessageInformationState();
+    setDetailsPanelOpen(false);
   }
 
   async function handleViewMessageInformation(
@@ -11300,9 +13519,20 @@ export function MessageAppPage() {
       return;
     }
 
+    const requestId = messageInformationRequestIdRef.current + 1;
+    messageInformationRequestIdRef.current = requestId;
+
+    closeMessageSearchPanel();
+    sharedContentRequestRef.current += 1;
+    setSharedContentOpen(false);
+    setConversationActionMenuOpen(false);
+    setActiveUtilityPanel(null);
     setMessageInformation(null);
     setMessageInformationError(null);
+    setMessageInformationVisibleReadCount(40);
+    setMessageInformationVisibleDeliveredCount(40);
     setMessageInformationLoadingId(message.id);
+    setDetailsPanelOpen(true);
 
     try {
       const response = await getConversationMessageInformation(
@@ -11311,15 +13541,25 @@ export function MessageAppPage() {
         message.id,
       );
 
+      if (messageInformationRequestIdRef.current !== requestId) {
+        return;
+      }
+
       setMessageInformation(response.data);
     } catch (error) {
+      if (messageInformationRequestIdRef.current !== requestId) {
+        return;
+      }
+
       setMessageInformationError(
         error instanceof Error
           ? error.message
-          : "Message information could not be loaded.",
+          : t("feedback.messageInfoLoadError"),
       );
     } finally {
-      setMessageInformationLoadingId(null);
+      if (messageInformationRequestIdRef.current === requestId) {
+        setMessageInformationLoadingId(null);
+      }
     }
   }
 
@@ -11402,6 +13642,9 @@ export function MessageAppPage() {
       case "LEAVE_GROUP":
         void handleLeaveGroup(destructiveConfirmation.conversationId);
         return;
+      case "DELETE_GROUP":
+        void handleDeleteGroup(destructiveConfirmation.conversationId);
+        return;
       case "BLOCK_PRIVATE_CONTACT":
         void handleBlockAccount(destructiveConfirmation.target);
     }
@@ -11445,13 +13688,15 @@ export function MessageAppPage() {
           action === "CLEAR" ? conversationId : undefined,
         ),
         loadNotifications(),
+        ...(action === "DELETE" ? [loadChatFolders(true)] : []),
       ]);
     } catch (error) {
       setConversationHistoryError(
         error instanceof Error
           ? error.message
-          : `${action === "DELETE" ? "Delete chat for me" : "Clear chat for me"
-          } could not be completed.`,
+          : action === "DELETE"
+            ? t("feedback.historyDeleteError")
+            : t("feedback.historyClearError"),
       );
     } finally {
       setConversationHistorySubmitting(false);
@@ -11467,8 +13712,8 @@ export function MessageAppPage() {
         isPinned: !conversation.isPinned,
       },
       conversation.isPinned
-        ? "Conversation unpinned."
-        : "Conversation pinned.",
+        ? t("conversationList.unpinnedNotice")
+        : t("conversationList.pinnedNotice"),
     );
   }
 
@@ -11481,8 +13726,8 @@ export function MessageAppPage() {
         isFavorite: !conversation.isFavorite,
       },
       conversation.isFavorite
-        ? "Conversation removed from favorites."
-        : "Conversation added to favorites.",
+        ? t("conversationList.removedFavoriteNotice")
+        : t("conversationList.addedFavoriteNotice"),
     );
   }
 
@@ -11495,8 +13740,8 @@ export function MessageAppPage() {
         isArchived: !conversation.isArchived,
       },
       conversation.isArchived
-        ? "Conversation restored."
-        : "Conversation archived.",
+        ? t("conversationList.restoredNotice")
+        : t("conversationList.archivedNotice"),
     );
     await loadConversations(
       true,
@@ -11513,7 +13758,9 @@ export function MessageAppPage() {
       {
         mute,
       },
-      mute === "OFF" ? "Conversation unmuted." : "Conversation muted.",
+      mute === "OFF"
+        ? t("conversationList.unmutedNotice")
+        : t("conversationList.mutedNotice"),
     );
   }
 
@@ -11531,7 +13778,7 @@ export function MessageAppPage() {
         {
           markUnread: false,
         },
-        "Conversation marked as read.",
+        t("conversationList.markedReadNotice"),
       );
       await loadConversations(true, conversation.id);
       return;
@@ -11542,7 +13789,7 @@ export function MessageAppPage() {
       {
         markUnread: true,
       },
-      "Conversation marked as unread.",
+      t("conversationList.markedUnreadNotice"),
     );
   }
 
@@ -11559,6 +13806,8 @@ export function MessageAppPage() {
       return;
     }
 
+    captureMessageThreadMutationAnchor();
+
     // Reply is a persistent composer action, so temporary reaction/action
     // popovers must close before the composer context changes.
     closeTransientMessagePopups();
@@ -11572,6 +13821,7 @@ export function MessageAppPage() {
       return;
     }
 
+    captureMessageThreadMutationAnchor();
     closeTransientMessagePopups();
     setReplyingTo(null);
     setEditingMessage(message);
@@ -11580,6 +13830,7 @@ export function MessageAppPage() {
   }
 
   function cancelMessageAction(): void {
+    captureMessageThreadMutationAnchor();
     setReplyingTo(null);
     setEditingMessage(null);
     setMessageText("");
@@ -11596,12 +13847,12 @@ export function MessageAppPage() {
 
     try {
       await copyTextToClipboard(message.textContent);
-      setMessageNotice("Message copied to clipboard.");
+      setMessageNotice(t("feedback.messageCopied"));
     } catch (error) {
       setMessageError(
         error instanceof Error
           ? error.message
-          : "The message could not be copied.",
+          : t("feedback.messageCopyError"),
       );
     }
   }
@@ -11616,7 +13867,18 @@ export function MessageAppPage() {
     setForwardingMessage(message);
     setForwardDestinationIds([]);
     setForwardSearch("");
+    setForwardDestinationError(null);
     setForwardClientId(crypto.randomUUID());
+
+    if (listMode) {
+      /*
+       * A custom list filters the main conversation collection. Forwarding is a
+       * normal conversation action, so destination discovery must still use the
+       * user's complete authorized conversation set rather than only the
+       * conversations currently visible in this list.
+       */
+      void loadListCandidateConversations("forward");
+    }
   }
 
   function closeForwardDialog(): void {
@@ -11627,6 +13889,7 @@ export function MessageAppPage() {
     setForwardingMessage(null);
     setForwardDestinationIds([]);
     setForwardSearch("");
+    setForwardDestinationError(null);
     setForwardClientId(null);
   }
 
@@ -11690,13 +13953,14 @@ export function MessageAppPage() {
       setForwardingMessage(null);
       setForwardDestinationIds([]);
       setForwardSearch("");
+      setForwardDestinationError(null);
       setForwardClientId(null);
       await loadConversations(true, selectedConversationId ?? undefined);
     } catch (error) {
       setMessageError(
         error instanceof Error
           ? error.message
-          : "The message could not be forwarded.",
+          : t("feedback.messageForwardError"),
       );
     } finally {
       setForwardSubmitting(false);
@@ -11720,6 +13984,7 @@ export function MessageAppPage() {
         message.id,
       );
 
+      captureMessageThreadMutationAnchor();
       setMessages((current) =>
         current.filter((currentMessage) => currentMessage.id !== message.id),
       );
@@ -11735,7 +14000,7 @@ export function MessageAppPage() {
       const errorMessage =
         error instanceof Error
           ? error.message
-          : "The message could not be deleted for you.";
+          : t("feedback.deleteForMeError");
       setMessageError(errorMessage);
       setDestructiveConfirmationError(errorMessage);
     } finally {
@@ -11749,12 +14014,18 @@ export function MessageAppPage() {
     if (
       !accessToken ||
       !selectedConversationId ||
-      message.senderAccountId !== account?.id ||
       message.isDeleted ||
       messageActionId
     ) {
       return;
     }
+
+    /*
+     * Delete-for-everyone authorization is enforced by the API. Group owners
+     * and admins may legitimately delete another participant's message, so the
+     * client must not apply the old sender-only guard here. The action-menu
+     * helper controls normal visibility; the backend remains authoritative.
+     */
 
     setMessageActionId(message.id);
     setMessageError(null);
@@ -11766,6 +14037,7 @@ export function MessageAppPage() {
         message.id,
       );
 
+      captureMessageThreadMutationAnchor();
       setMessages((current) => applyMessageUpdate(current, response.data));
 
       if (replyingTo?.id === message.id || editingMessage?.id === message.id) {
@@ -11779,7 +14051,7 @@ export function MessageAppPage() {
       const errorMessage =
         error instanceof Error
           ? error.message
-          : "The message could not be deleted for everyone.";
+          : t("feedback.deleteForEveryoneError");
       setMessageError(errorMessage);
       setDestructiveConfirmationError(errorMessage);
     } finally {
@@ -11803,8 +14075,16 @@ export function MessageAppPage() {
     const nextText = `${beforeMention}${insertedText}${afterMention}`;
     const nextCaretIndex = beforeMention.length + insertedText.length;
 
+    setSelectedComposerMentions((current) => {
+      const byAccountId = new Map(
+        current.map((mention) => [mention.accountId, mention]),
+      );
+      byAccountId.set(participant.accountId, participant);
+      return Array.from(byAccountId.values());
+    });
     setMessageText(nextText);
     setComposerCaretIndex(nextCaretIndex);
+    setMentionSuggestionsDismissed(true);
 
     window.requestAnimationFrame(() => {
       composerRef.current?.focus();
@@ -11837,7 +14117,9 @@ export function MessageAppPage() {
     }
 
     const isAttachmentSend = attachmentFiles.length > 0 && !editingMessage;
+    const sendingConversationId = selectedConversationId;
 
+    pendingComposerRefocusConversationIdRef.current = sendingConversationId;
     setSendingMessage(true);
     setSendAttemptFailed(false);
     setMessageError(null);
@@ -11847,7 +14129,7 @@ export function MessageAppPage() {
       if (editingMessage) {
         if (attachmentFiles.length > 0) {
           setMessageError(
-            "Remove the selected attachment before saving an edited text message.",
+            t("feedback.editAttachmentRemoveFirst"),
           );
           return;
         }
@@ -11859,12 +14141,38 @@ export function MessageAppPage() {
           text,
         );
 
+        captureMessageThreadMutationAnchor();
         setMessages((current) => applyMessageUpdate(current, response.data));
         setEditingMessage(null);
         setMessageText("");
         await loadConversations(true, selectedConversationId);
         return;
       }
+
+      const mentionedAccountIds = attachmentFiles.length === 0
+        ? getMentionedAccountIds(
+          text,
+          selectedConversation,
+          account?.id,
+          selectedComposerMentions,
+        )
+        : [];
+      const attemptKey = JSON.stringify({
+        conversationId: sendingConversationId,
+        kind: isAttachmentSend ? "ATTACHMENT" : "TEXT",
+        text,
+        replyToMessageId: replyingTo?.id ?? null,
+        mentionedAccountIds,
+        attachmentKind: isAttachmentSend ? selectedAttachmentKind : null,
+        attachmentIds: isAttachmentSend
+          ? selectedAttachments.map((attachment) => attachment.id)
+          : [],
+      });
+      const sendAttempt = resolveMessagingSendAttempt(
+        composerSendAttemptRef.current,
+        attemptKey,
+      );
+      composerSendAttemptRef.current = sendAttempt;
 
       if (isAttachmentSend) {
         // Show aggregate progress immediately; XHR events refine the percentage.
@@ -11884,6 +14192,7 @@ export function MessageAppPage() {
         ? await sendConversationAttachmentMessage(
           accessToken,
           selectedConversationId,
+          sendAttempt.clientMessageId,
           attachmentFiles,
           text,
           replyingTo?.id,
@@ -11895,15 +14204,17 @@ export function MessageAppPage() {
         : await sendConversationTextMessage(
           accessToken,
           selectedConversationId,
+          sendAttempt.clientMessageId,
           text,
           replyingTo?.id,
-          getMentionedAccountIds(text, selectedConversation, account?.id),
+          mentionedAccountIds,
           false,
         );
 
       delete draftCacheRef.current[selectedConversationId];
 
       setMessageText("");
+      setSelectedComposerMentions([]);
       setReplyingTo(null);
       clearSelectedAttachment();
       updateConversationPreference(accessToken, selectedConversationId, {
@@ -11937,11 +14248,14 @@ export function MessageAppPage() {
       );
 
       await loadConversations(true);
+      if (composerSendAttemptRef.current?.key === attemptKey) {
+        composerSendAttemptRef.current = null;
+      }
     } catch (error) {
       const errorMessage =
         error instanceof Error
           ? error.message
-          : "The message could not be sent.";
+          : t("feedback.messageSendError");
 
       if (isAttachmentSend) {
         setAttachmentUpload((current) => ({
@@ -11956,6 +14270,8 @@ export function MessageAppPage() {
       setSendAttemptFailed(true);
       setMessageError(errorMessage);
     } finally {
+      // The post-render effect restores focus only after React has actually
+      // re-enabled the textarea. This keeps continuous keyboard sending stable.
       setSendingMessage(false);
     }
   }
@@ -11969,8 +14285,11 @@ export function MessageAppPage() {
       return;
     }
 
-    if (mentionSuggestionsVisible) {
-      if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+    if (mentionPanelVisible) {
+      if (
+        (event.key === "ArrowDown" || event.key === "ArrowUp") &&
+        mentionSuggestions.length > 0
+      ) {
         event.preventDefault();
         setActiveMentionSuggestionIndex((current) => {
           const direction = event.key === "ArrowDown" ? 1 : -1;
@@ -11982,7 +14301,10 @@ export function MessageAppPage() {
         return;
       }
 
-      if (event.key === "Home" || event.key === "End") {
+      if (
+        (event.key === "Home" || event.key === "End") &&
+        mentionSuggestions.length > 0
+      ) {
         event.preventDefault();
         setActiveMentionSuggestionIndex(
           event.key === "Home" ? 0 : mentionSuggestions.length - 1,
@@ -11994,12 +14316,12 @@ export function MessageAppPage() {
         event.key === "Enter" ||
         (event.key === "Tab" && !event.shiftKey)
       ) {
+        event.preventDefault();
         const participant =
           mentionSuggestions[activeMentionSuggestionIndex] ??
           mentionSuggestions[0];
 
         if (participant) {
-          event.preventDefault();
           handleMentionSelect(participant);
         }
         return;
@@ -12069,7 +14391,7 @@ export function MessageAppPage() {
       setMessageError(
         error instanceof Error
           ? error.message
-          : "Older messages could not be loaded.",
+          : t("feedback.olderMessagesLoadError"),
       );
     } finally {
       setOlderMessagesLoading(false);
@@ -12078,12 +14400,12 @@ export function MessageAppPage() {
 
   const realtimeLabel =
     realtimeStatus === "CONNECTED"
-      ? "Real-time connected"
+      ? t("realtime.connected")
       : realtimeStatus === "RECONNECTING"
-        ? "Real-time reconnecting"
+        ? t("realtime.reconnecting")
         : realtimeStatus === "CONNECTING"
-          ? "Real-time connecting"
-          : "Real-time offline";
+          ? t("realtime.connecting")
+          : t("realtime.offline");
 
   const peer =
     selectedConversation?.type === "PRIVATE"
@@ -12095,32 +14417,45 @@ export function MessageAppPage() {
   const typingAccountIds = selectedConversationId
     ? (typingByConversation[selectedConversationId] ?? [])
     : [];
-  const typingParticipants =
-    selectedConversation?.participants.filter(
-      (participant) =>
-        participant.accountId !== account?.id &&
-        participant.showOnlineStatus !== false &&
-        typingAccountIds.includes(participant.accountId),
-    ) ?? [];
+  const otherTypingAccountIds = typingAccountIds.filter(
+    (accountId) => accountId !== account?.id,
+  );
+  const selectedConversationParticipantDirectory =
+    selectedConversation?.groupKind === "OFFICIAL"
+      ? officialGroupMembers
+      : (selectedConversation?.participants ?? []);
+  const typingParticipants = selectedConversationParticipantDirectory.filter(
+    (participant) =>
+      participant.accountId !== account?.id &&
+      participant.showOnlineStatus !== false &&
+      typingAccountIds.includes(participant.accountId),
+  );
   const peerActivityLabel =
     selectedConversation?.type === "GROUP"
       ? typingParticipants.length > 0
-        ? `${typingParticipants
-          .slice(0, 2)
-          .map((participant) => participant.displayName)
-          .join(
-            ", ",
-          )}${typingParticipants.length > 2 ? " and others" : ""} typing…`
-        : `${selectedConversation.memberCount} members`
+        ? t("thread.activity.groupTyping", {
+            names: typingParticipants
+              .slice(0, 2)
+              .map((participant) => participant.displayName)
+              .join(", "),
+            others:
+              otherTypingAccountIds.length > typingParticipants.length ||
+              typingParticipants.length > 2
+                ? t("thread.activity.andOthers")
+                : "",
+          })
+        : otherTypingAccountIds.length > 0
+          ? t("thread.activity.someoneTyping")
+          : t("thread.activity.members", { count: selectedConversation.memberCount })
       : peer?.showOnlineStatus === false
-        ? "Online status hidden"
+        ? t("thread.activity.hidden")
         : typingParticipants.length > 0
-          ? "Typing…"
+          ? t("thread.activity.typing")
           : peerPresence?.isOnline
-            ? "Online"
+            ? t("thread.activity.online")
             : peerPresence?.lastSeenAt
               ? formatLastSeen(peerPresence.lastSeenAt)
-              : "Offline";
+              : t("thread.activity.offline");
 
   const selectedGroupMemberIds = new Set(
     groupDialogMode === "MANAGE" && selectedConversation?.type === "GROUP"
@@ -12146,16 +14481,35 @@ export function MessageAppPage() {
     blockedAccounts.map((block) => block.blockedAccountId),
   );
 
+  const selectedConversationForParticipantChecks = useMemo(() => {
+    if (!selectedConversation || selectedConversation.groupKind !== "OFFICIAL") {
+      return selectedConversation;
+    }
+
+    return {
+      ...selectedConversation,
+      participants: officialGroupMembers,
+      participantsComplete: !officialGroupMembersHasMore,
+    };
+  }, [
+    officialGroupMembers,
+    officialGroupMembersHasMore,
+    selectedConversation,
+  ]);
+
   const groupInfoConversation =
     selectedConversation?.type === "GROUP" ? selectedConversation : null;
+  const groupInfoParticipants =
+    groupInfoConversation?.groupKind === "OFFICIAL"
+      ? officialGroupMembers
+      : (groupInfoConversation?.participants ?? []);
   const groupInfoOwner =
-    groupInfoConversation?.participants.find(
+    groupInfoParticipants.find(
       (participant) => participant.participantRole === "OWNER",
     ) ?? null;
-  const groupInfoAdmins =
-    groupInfoConversation?.participants.filter(
-      (participant) => participant.participantRole === "ADMIN",
-    ) ?? [];
+  const groupInfoAdmins = groupInfoParticipants.filter(
+    (participant) => participant.participantRole === "ADMIN",
+  );
   const selectedConversationSharedContent = useMemo(() => {
     if (!selectedConversation) {
       return emptySharedContent();
@@ -12174,6 +14528,7 @@ export function MessageAppPage() {
     setMessageActionMenuPosition(null);
     setMessageActionMenuAnchor(null);
     setActiveMobileMessageId(null);
+    setMobileMessageActionView("PRIMARY");
   }
 
   function closeReactionMenu(): void {
@@ -12191,6 +14546,13 @@ export function MessageAppPage() {
     return (
       typeof window !== "undefined" &&
       window.matchMedia("(hover: none), (pointer: coarse)").matches
+    );
+  }
+
+  function usesCompactMessageActionSheet(): boolean {
+    return (
+      typeof window !== "undefined" &&
+      window.matchMedia("(max-width: 900px)").matches
     );
   }
 
@@ -12312,6 +14674,23 @@ export function MessageAppPage() {
     event: MouseEvent<HTMLButtonElement>,
   ): void {
     event.stopPropagation();
+
+    // Narrow workspaces use the same bottom action sheet as touch long-press.
+    // This avoids trying to fit a desktop popover beside a 430 px conversation
+    // and keeps Chrome responsive-mode testing consistent with real phones.
+    if (usesCompactMessageActionSheet()) {
+      messageMenuOpenedByKeyboardRef.current = false;
+      setOpenMessageMenuId(null);
+      setMessageActionMenuPosition(null);
+      setMessageActionMenuAnchor(null);
+      closeReactionMenu();
+      setMobileMessageActionView("PRIMARY");
+      setActiveMobileMessageId((current) =>
+        current === messageId ? null : messageId,
+      );
+      return;
+    }
+
     messageMenuOpenedByKeyboardRef.current = event.detail === 0;
     closeReactionMenu();
 
@@ -12321,19 +14700,24 @@ export function MessageAppPage() {
     }
 
     const triggerRect = event.currentTarget.getBoundingClientRect();
+    const actionClusterRect = event.currentTarget
+      .closest<HTMLElement>(".message-bubble-actions")
+      ?.getBoundingClientRect();
+    const anchorRect = actionClusterRect ?? triggerRect;
     const threadRect = event.currentTarget
       .closest<HTMLElement>(".message-thread")
       ?.getBoundingClientRect();
 
     // The full action menu has different heights for own, incoming, attachment,
-    // and deleted messages. Store only the real trigger/thread geometry here;
-    // a layout effect measures the rendered menu before positioning it.
+    // and deleted messages. Anchor to the complete quick-action cluster rather
+    // than only the More button, then let the layout effect position the popup
+    // beside those controls without covering them.
     setMessageActionMenuPosition(null);
     setMessageActionMenuAnchor({
-      top: triggerRect.top,
-      right: triggerRect.right,
-      bottom: triggerRect.bottom,
-      left: triggerRect.left,
+      top: anchorRect.top,
+      right: anchorRect.right,
+      bottom: anchorRect.bottom,
+      left: anchorRect.left,
       ownMessage,
       boundaryTop: threadRect?.top ?? 0,
       boundaryRight: threadRect?.right ?? window.innerWidth,
@@ -12412,6 +14796,39 @@ export function MessageAppPage() {
     }
   }
 
+  function localizedAttachmentLabel(
+    message: Pick<
+      MessagingMessage,
+      "contentType" | "attachments" | "textContent" | "payload"
+    >,
+  ): string {
+    if (message.textContent) {
+      return message.textContent;
+    }
+
+    const firstAttachment = message.attachments?.[0];
+
+    if (!firstAttachment) {
+      return t("thread.message.fallback");
+    }
+
+    if (isImageAttachment(firstAttachment)) {
+      return t("attachment.photo");
+    }
+
+    if (isVideoAttachment(firstAttachment)) {
+      return t("attachment.types.video");
+    }
+
+    if (isAudioAttachment(firstAttachment)) {
+      return getMessagePayloadValue(message, "attachmentKind") === "VOICE_NOTE"
+        ? t("attachment.voiceNote")
+        : t("attachment.audio");
+    }
+
+    return t("attachment.fileNamed", { name: firstAttachment.originalFileName });
+  }
+
   function renderIdentityAvatar(
     accountId: string,
     displayName: string,
@@ -12446,7 +14863,7 @@ export function MessageAppPage() {
     className = "message-avatar",
   ) {
     const photoUrl = groupPhotoUrls[conversation.id];
-    const title = conversation.title ?? "Group";
+    const title = conversation.title ?? t("profileDetail.groupFallback");
 
     return (
       <span className={className} aria-hidden="true">
@@ -12547,7 +14964,7 @@ export function MessageAppPage() {
         className="message-reaction-picker-floating"
         data-message-reaction-menu
         role="toolbar"
-        aria-label="React to message"
+        aria-label={t("actionsMenu.reactToMessage")}
         onKeyDown={(event) =>
           handleLinearKeyboardNavigation(event, "HORIZONTAL")
         }
@@ -12564,7 +14981,7 @@ export function MessageAppPage() {
             }}
             disabled={reactionActionId !== null}
             aria-pressed={viewerReaction === emoji}
-            aria-label={`React with ${emoji}`}
+            aria-label={t("actionsMenu.reactWith", { emoji })}
           >
             {emoji}
           </button>
@@ -12583,18 +15000,288 @@ export function MessageAppPage() {
       (attachment) =>
         !isAudioAttachment(attachment) && canPreviewAttachment(attachment),
     );
-    const attachmentLabel =
-      attachments.length === 1 ? "attachment" : "attachments";
+    const attachmentLabel = attachments.length === 1
+      ? t("actionsMenu.attachment")
+      : t("actionsMenu.attachments");
     const mobileSheet = mode === "MOBILE_SHEET";
     const viewerReaction = getViewerReaction(message, account?.id);
     const mobileMessagePreview = message.isDeleted
-      ? "This message was deleted."
+      ? t("thread.message.deletedSentence")
       : message.textContent?.trim() ||
       (message.contentType === "LOCATION"
-        ? "Location"
+        ? t("composer.location")
         : attachments.length > 0
           ? `${attachments.length} ${attachmentLabel}`
-          : "Message");
+          : t("thread.message.fallback"));
+
+    if (mobileSheet) {
+      const canCopyMessage = Boolean(!message.isDeleted && message.textContent);
+      const canDeleteForEveryone = canDeleteMessageForEveryone(
+        message,
+        account?.id,
+        selectedConversationForParticipantChecks,
+      );
+      const hasMoreActions =
+        ownMessage ||
+        Boolean(previewableAttachment) ||
+        attachments.length > 0 ||
+        canForwardMessage(message) ||
+        !message.isDeleted ||
+        canDeleteForEveryone;
+
+      return (
+        <div
+          className={`message-action-menu message-mobile-actions-sheet ${
+            mobileMessageActionView === "MORE"
+              ? "is-more-view"
+              : "is-primary-view"
+          }`}
+          data-message-action-menu
+          role="menu"
+          aria-label={t("actionsMenu.messageActions")}
+          onKeyDown={(event) =>
+            handleLinearKeyboardNavigation(event, "BOTH")
+          }
+        >
+          <div className="message-mobile-actions-handle" aria-hidden="true" />
+
+          {mobileMessageActionView === "PRIMARY" ? (
+            <>
+              {!message.isDeleted && (
+                <div
+                  className="message-mobile-quick-reactions"
+                  role="toolbar"
+                  aria-label={t("actionsMenu.quickReactions")}
+                >
+                  {QUICK_REACTIONS.map((emoji) => (
+                    <button
+                      key={emoji}
+                      type="button"
+                      className={viewerReaction === emoji ? "is-selected" : ""}
+                      onClick={() => {
+                        closeTransientMessagePopups();
+                        void handleReaction(message, emoji);
+                      }}
+                      disabled={reactionActionId !== null}
+                      aria-pressed={viewerReaction === emoji}
+                      aria-label={t("actionsMenu.reactWith", { emoji })}
+                    >
+                      {emoji}
+                    </button>
+                  ))}
+                </div>
+              )}
+
+              <div
+                className="message-mobile-primary-actions"
+                role="group"
+                aria-label={t("actionsMenu.primaryActions")}
+              >
+                {!message.isDeleted && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      closeTransientMessagePopups();
+                      beginReply(message);
+                    }}
+                  >
+                    <MessageNavigationIcon name="reply" />
+                    <span>{t("actionsMenu.reply")}</span>
+                  </button>
+                )}
+
+                {canCopyMessage && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      closeTransientMessagePopups();
+                      void handleCopyMessage(message);
+                    }}
+                  >
+                    <AttachmentGlyph name="copy" />
+                    <span>{t("actionsMenu.copy")}</span>
+                  </button>
+                )}
+
+                <button
+                  type="button"
+                  className="danger"
+                  onClick={() => {
+                    closeTransientMessagePopups();
+                    openDestructiveConfirmation({
+                      kind: "DELETE_MESSAGE_FOR_ME",
+                      message,
+                    });
+                  }}
+                  disabled={messageActionId !== null}
+                >
+                  <AttachmentGlyph name="trash" />
+                  <span>{t("actionsMenu.delete")}</span>
+                </button>
+
+                {hasMoreActions && (
+                  <button
+                    type="button"
+                    onClick={() => setMobileMessageActionView("MORE")}
+                    aria-label={t("actionsMenu.moreActions")}
+                  >
+                    <MessageNavigationIcon name="more" />
+                    <span>{t("actionsMenu.more")}</span>
+                  </button>
+                )}
+              </div>
+            </>
+          ) : (
+            <>
+              <div className="message-mobile-actions-header">
+                <button
+                  type="button"
+                  className="message-mobile-actions-back"
+                  onClick={() => setMobileMessageActionView("PRIMARY")}
+                  aria-label={t("actionsMenu.backPrimary")}
+                >
+                  ←
+                </button>
+                <div>
+                  <strong>{t("actionsMenu.moreActions")}</strong>
+                  <span>{mobileMessagePreview}</span>
+                </div>
+                <button
+                  type="button"
+                  className="message-mobile-actions-close"
+                  onClick={closeTransientMessagePopups}
+                  aria-label={t("actionsMenu.close")}
+                >
+                  ×
+                </button>
+              </div>
+
+              {ownMessage && (
+                <button
+                  type="button"
+                  role="menuitem"
+                  onClick={() => {
+                    closeTransientMessagePopups();
+                    void handleViewMessageInformation(message);
+                  }}
+                  disabled={messageInformationLoadingId !== null}
+                >
+                  <AttachmentGlyph name="info" />
+                  <span>{t("actionsMenu.messageInfo")}</span>
+                </button>
+              )}
+
+              {previewableAttachment && (
+                <button
+                  type="button"
+                  role="menuitem"
+                  onClick={() => {
+                    closeTransientMessagePopups();
+                    void handlePreviewAttachment(message, previewableAttachment);
+                  }}
+                >
+                  <AttachmentGlyph
+                    name={attachmentVisualKind(previewableAttachment)}
+                  />
+                  <span>{t("actionsMenu.viewAttachment", { label: attachmentLabel })}</span>
+                </button>
+              )}
+
+              {attachments.length > 0 && (
+                <button
+                  type="button"
+                  role="menuitem"
+                  onClick={() => {
+                    closeTransientMessagePopups();
+                    void handleDownloadMessageAttachments(message);
+                  }}
+                >
+                  <AttachmentGlyph name="download" />
+                  <span>{t("actionsMenu.downloadAttachment", { label: attachmentLabel })}</span>
+                </button>
+              )}
+
+              {canForwardMessage(message) && (
+                <button
+                  type="button"
+                  role="menuitem"
+                  onClick={() => {
+                    closeTransientMessagePopups();
+                    beginForward(message);
+                  }}
+                >
+                  <AttachmentGlyph name="forward" />
+                  <span>{t("actionsMenu.forward")}</span>
+                </button>
+              )}
+
+              {!message.isDeleted && (
+                <button
+                  type="button"
+                  role="menuitem"
+                  onClick={() => {
+                    closeTransientMessagePopups();
+                    void handlePinMessage(message);
+                  }}
+                  disabled={pinActionId !== null}
+                >
+                  <AttachmentGlyph name="pin" />
+                  <span>{message.isPinned ? t("actionsMenu.unpin") : t("actionsMenu.pin")}</span>
+                </button>
+              )}
+
+              {!message.isDeleted && (
+                <button
+                  type="button"
+                  role="menuitem"
+                  onClick={() => {
+                    closeTransientMessagePopups();
+                    void handleStarMessage(message);
+                  }}
+                  disabled={messageActionId !== null}
+                >
+                  <AttachmentGlyph name="star" />
+                  <span>{message.isStarred ? t("actionsMenu.unstar") : t("actionsMenu.star")}</span>
+                </button>
+              )}
+
+              {ownMessage && canEditMessage(message, account?.id) && (
+                <button
+                  type="button"
+                  role="menuitem"
+                  onClick={() => {
+                    closeTransientMessagePopups();
+                    beginEdit(message);
+                  }}
+                >
+                  <AttachmentGlyph name="edit" />
+                  <span>{t("actionsMenu.edit")}</span>
+                </button>
+              )}
+
+              {canDeleteForEveryone && (
+                <button
+                  type="button"
+                  role="menuitem"
+                  className="danger message-action-menu-destructive-start"
+                  onClick={() => {
+                    closeTransientMessagePopups();
+                    openDestructiveConfirmation({
+                      kind: "DELETE_MESSAGE_FOR_EVERYONE",
+                      message,
+                    });
+                  }}
+                  disabled={messageActionId !== null}
+                >
+                  <AttachmentGlyph name="trash" />
+                  <span>{t("actionsMenu.deleteForEveryone")}</span>
+                </button>
+              )}
+            </>
+          )}
+        </div>
+      );
+    }
 
     return (
       <div
@@ -12605,7 +15292,7 @@ export function MessageAppPage() {
           }`}
         data-message-action-menu
         role="menu"
-        aria-label="Message actions"
+        aria-label={t("actionsMenu.messageActions")}
         onKeyDown={(event) =>
           handleLinearKeyboardNavigation(
             event,
@@ -12632,7 +15319,7 @@ export function MessageAppPage() {
             <div className="message-mobile-actions-header">
               <div>
                 <strong>
-                  {ownMessage ? "You" : message.sender.displayName}
+                  {ownMessage ? t("thread.message.you") : message.sender.displayName}
                 </strong>
                 <span>{mobileMessagePreview}</span>
               </div>
@@ -12640,7 +15327,7 @@ export function MessageAppPage() {
                 type="button"
                 className="message-mobile-actions-close"
                 onClick={closeTransientMessagePopups}
-                aria-label="Close message actions"
+                aria-label={t("actionsMenu.close")}
               >
                 ×
               </button>
@@ -12650,7 +15337,7 @@ export function MessageAppPage() {
               <div
                 className="message-mobile-quick-reactions"
                 role="toolbar"
-                aria-label="Quick reactions"
+                aria-label={t("actionsMenu.quickReactions")}
               >
                 {QUICK_REACTIONS.map((emoji) => (
                   <button
@@ -12663,7 +15350,7 @@ export function MessageAppPage() {
                     }}
                     disabled={reactionActionId !== null}
                     aria-pressed={viewerReaction === emoji}
-                    aria-label={`React with ${emoji}`}
+                    aria-label={t("actionsMenu.reactWith", { emoji })}
                   >
                     {emoji}
                   </button>
@@ -12681,7 +15368,7 @@ export function MessageAppPage() {
                 }}
               >
                 <MessageNavigationIcon name="reply" />
-                <span>Reply</span>
+                <span>{t("actionsMenu.reply")}</span>
               </button>
             )}
           </>
@@ -12697,7 +15384,7 @@ export function MessageAppPage() {
             disabled={messageInformationLoadingId !== null}
           >
             <AttachmentGlyph name="info" />
-            <span>Message info</span>
+            <span>{t("actionsMenu.messageInfo")}</span>
           </button>
         )}
 
@@ -12713,7 +15400,7 @@ export function MessageAppPage() {
             <AttachmentGlyph
               name={attachmentVisualKind(previewableAttachment)}
             />
-            <span>View {attachmentLabel}</span>
+            <span>{t("actionsMenu.viewAttachment", { label: attachmentLabel })}</span>
           </button>
         )}
 
@@ -12727,7 +15414,7 @@ export function MessageAppPage() {
             }}
           >
             <AttachmentGlyph name="download" />
-            <span>Download {attachmentLabel}</span>
+            <span>{t("actionsMenu.downloadAttachment", { label: attachmentLabel })}</span>
           </button>
         )}
 
@@ -12741,7 +15428,7 @@ export function MessageAppPage() {
             }}
           >
             <AttachmentGlyph name="copy" />
-            <span>Copy</span>
+            <span>{t("actionsMenu.copy")}</span>
           </button>
         )}
 
@@ -12755,7 +15442,7 @@ export function MessageAppPage() {
             }}
           >
             <AttachmentGlyph name="forward" />
-            <span>Forward</span>
+            <span>{t("actionsMenu.forward")}</span>
           </button>
         )}
 
@@ -12770,7 +15457,7 @@ export function MessageAppPage() {
             disabled={pinActionId !== null}
           >
             <AttachmentGlyph name="pin" />
-            <span>{message.isPinned ? "Unpin" : "Pin"}</span>
+            <span>{message.isPinned ? t("actionsMenu.unpin") : t("actionsMenu.pin")}</span>
           </button>
         )}
 
@@ -12785,7 +15472,7 @@ export function MessageAppPage() {
             disabled={messageActionId !== null}
           >
             <AttachmentGlyph name="star" />
-            <span>{message.isStarred ? "Unstar" : "Star"}</span>
+            <span>{message.isStarred ? t("actionsMenu.unstar") : t("actionsMenu.star")}</span>
           </button>
         )}
 
@@ -12799,7 +15486,7 @@ export function MessageAppPage() {
             }}
           >
             <AttachmentGlyph name="edit" />
-            <span>Edit</span>
+            <span>{t("actionsMenu.edit")}</span>
           </button>
         )}
 
@@ -12817,10 +15504,14 @@ export function MessageAppPage() {
           disabled={messageActionId !== null}
         >
           <AttachmentGlyph name="trash" />
-          <span>Delete message for me</span>
+          <span>{t("actionsMenu.deleteForMe")}</span>
         </button>
 
-        {ownMessage && !message.isDeleted && (
+        {canDeleteMessageForEveryone(
+          message,
+          account?.id,
+          selectedConversationForParticipantChecks,
+        ) && (
           <button
             type="button"
             role="menuitem"
@@ -12835,7 +15526,7 @@ export function MessageAppPage() {
             disabled={messageActionId !== null}
           >
             <AttachmentGlyph name="trash" />
-            <span>Delete message for everyone</span>
+            <span>{t("actionsMenu.deleteForEveryone")}</span>
           </button>
         )}
       </div>
@@ -12850,7 +15541,7 @@ export function MessageAppPage() {
     pendingSearchResultRef.current = {
       message: item.message,
       conversation: item.conversation,
-      snippet: starredMessagePreview(item),
+      snippet: starredMessagePreview(item, t),
       matchedAttachmentFileName:
         item.message.attachments?.[0]?.originalFileName ?? null,
     };
@@ -12903,7 +15594,7 @@ export function MessageAppPage() {
       setStarredError(
         error instanceof Error
           ? error.message
-          : "The message could not be removed from Starred.",
+          : t("feedback.removeStarredError"),
       );
     } finally {
       setStarredActionId(null);
@@ -13026,7 +15717,7 @@ export function MessageAppPage() {
     conversation: MessagingConversation,
   ): ReactNode {
     const conversationPeer = conversationPeerFor(conversation);
-    const title = conversation.title ?? "Private conversation";
+    const title = conversation.title ?? t("listWorkspace.privateConversation");
     const rowMenuOpen = conversationRowMenuId === conversation.id;
     const peerBlocked = Boolean(
       conversationPeer && blockedAccountIds.has(conversationPeer.accountId),
@@ -13063,7 +15754,7 @@ export function MessageAppPage() {
               presenceByAccountId[conversationPeer.accountId]?.isOnline && (
                 <span
                   className="message-presence-dot"
-                  aria-label={`${title} is online`}
+                  aria-label={t("thread.header.onlineAria", { name: title })}
                 />
               )}
           </span>
@@ -13079,42 +15770,42 @@ export function MessageAppPage() {
             </span>
 
             <span className="message-conversation-preview-line">
-              <small>{messagePreview(conversation, account?.id ?? "")}</small>
+              <small>{messagePreview(conversation, account?.id ?? "", t)}</small>
 
               <span className="message-conversation-row-status">
                 {conversation.groupKind === "OFFICIAL" && (
-                  <span className="message-conversation-kind">Official</span>
+                  <span className="message-conversation-kind">{t("profileDetail.official")}</span>
                 )}
                 {conversation.draftText && (
-                  <span className="message-conversation-draft">Draft</span>
+                  <span className="message-conversation-draft">{t("conversationList.draft")}</span>
                 )}
                 <span
                   className="message-conversation-indicators"
-                  aria-label="Conversation status"
+                  aria-label={t("conversationList.statusAria")}
                 >
                   {conversation.isFavorite && (
-                    <span aria-label="Favorite">
+                    <span aria-label={t("conversationList.favorite")}>
                       <MessageNavigationIcon name="starred" />
                     </span>
                   )}
                   {conversation.isPinned && (
-                    <span aria-label="Pinned">
+                    <span aria-label={t("conversationList.pinned")}>
                       <MessageNavigationIcon name="pin" />
                     </span>
                   )}
                   {conversation.isMuted && (
-                    <span aria-label="Muted">
-                      <MessageNavigationIcon name="bell" />
+                    <span aria-label={t("conversationList.muted")}>
+                      <MessageNavigationIcon name="bellOff" />
                     </span>
                   )}
                   {conversation.isArchived && (
-                    <span aria-label="Archived">
+                    <span aria-label={t("conversationList.archived")}>
                       <MessageNavigationIcon name="archive" />
                     </span>
                   )}
                 </span>
                 {conversation.unreadCount > 0 && (
-                  <b aria-label={`${conversation.unreadCount} unread messages`}>
+                  <b aria-label={t("conversationList.unreadMessages", { count: conversation.unreadCount })}>
                     {conversation.unreadCount > 99
                       ? "99+"
                       : conversation.unreadCount}
@@ -13163,10 +15854,10 @@ export function MessageAppPage() {
             });
             setConversationRowMenuId(conversation.id);
           }}
-          aria-label={`More actions for ${title}`}
+          aria-label={t("conversationList.moreActionsFor", { name: title })}
           aria-haspopup="menu"
           aria-expanded={rowMenuOpen}
-          title="Conversation actions"
+          title={t("conversationList.conversationActions")}
         >
           <MessageNavigationIcon name="more" />
         </button>
@@ -13177,7 +15868,7 @@ export function MessageAppPage() {
             className="message-conversation-row-menu"
             style={conversationRowMenuPosition ?? undefined}
             role="menu"
-            aria-label={`Actions for ${title}`}
+            aria-label={t("conversationList.actionsFor", { name: title })}
             onKeyDown={(event) =>
               handleLinearKeyboardNavigation(event, "VERTICAL")
             }
@@ -13190,14 +15881,14 @@ export function MessageAppPage() {
                   onClick={() => setConversationRowMenuView("ROOT")}
                 >
                   <span aria-hidden="true">←</span>
-                  <span>Mute notifications</span>
+                  <span>{t("thread.header.muteNotifications")}</span>
                 </button>
                 {(
                   [
-                    ["1_HOUR", "Mute for 1 hour"],
-                    ["8_HOURS", "Mute for 8 hours"],
-                    ["1_WEEK", "Mute for 1 week"],
-                    ["ALWAYS", "Mute always"],
+                    ["1_HOUR", t("thread.header.mute1Hour")],
+                    ["8_HOURS", t("thread.header.mute8Hours")],
+                    ["1_WEEK", t("thread.header.mute1Week")],
+                    ["ALWAYS", t("thread.header.muteAlways")],
                   ] as Array<[ConversationMuteSetting, string]>
                 ).map(([value, label]) => (
                   <button
@@ -13229,8 +15920,8 @@ export function MessageAppPage() {
                   <MessageNavigationIcon name="unread" />
                   <span>
                     {conversation.isMarkedUnread || conversation.unreadCount > 0
-                      ? "Mark as read"
-                      : "Mark as unread"}
+                      ? t("conversationList.markAsRead")
+                      : t("conversationList.markAsUnread")}
                   </span>
                 </button>
 
@@ -13246,8 +15937,8 @@ export function MessageAppPage() {
                   <MessageNavigationIcon name="starred" />
                   <span>
                     {conversation.isFavorite
-                      ? "Remove from favorites"
-                      : "Add to favorites"}
+                      ? t("conversationList.removeFavorites")
+                      : t("conversationList.addFavorites")}
                   </span>
                 </button>
 
@@ -13263,8 +15954,8 @@ export function MessageAppPage() {
                   <MessageNavigationIcon name="pin" />
                   <span>
                     {conversation.isPinned
-                      ? "Unpin conversation"
-                      : "Pin conversation"}
+                      ? t("conversationList.unpinConversation")
+                      : t("conversationList.pinConversation")}
                   </span>
                 </button>
 
@@ -13281,7 +15972,7 @@ export function MessageAppPage() {
                     }}
                   >
                     <MessageNavigationIcon name="bell" />
-                    <span>Unmute notifications</span>
+                    <span>{t("thread.header.unmuteNotifications")}</span>
                   </button>
                 ) : (
                   <button
@@ -13290,7 +15981,7 @@ export function MessageAppPage() {
                     onClick={() => setConversationRowMenuView("MUTE")}
                   >
                     <MessageNavigationIcon name="bell" />
-                    <span>Mute notifications ›</span>
+                    <span>{t("thread.header.muteNotificationsMore")}</span>
                   </button>
                 )}
 
@@ -13306,8 +15997,8 @@ export function MessageAppPage() {
                   <MessageNavigationIcon name="archive" />
                   <span>
                     {conversation.isArchived
-                      ? "Unarchive conversation"
-                      : "Archive conversation"}
+                      ? t("conversationList.unarchiveConversation")
+                      : t("conversationList.archiveConversation")}
                   </span>
                 </button>
 
@@ -13331,7 +16022,7 @@ export function MessageAppPage() {
                   >
                     <MessageNavigationIcon name="block" />
                     <span>
-                      {peerBlocked ? "Unblock contact" : "Block contact"}
+                      {peerBlocked ? t("conversationList.unblockContact") : t("conversationList.blockContact")}
                     </span>
                   </button>
                 )}
@@ -13347,7 +16038,7 @@ export function MessageAppPage() {
                   }
                 >
                   <MessageNavigationIcon name="close" />
-                  <span>Clear chat for me</span>
+                  <span>{t("thread.header.clearChat")}</span>
                 </button>
 
                 {conversation.type === "PRIVATE" && (
@@ -13363,7 +16054,7 @@ export function MessageAppPage() {
                     }
                   >
                     <MessageNavigationIcon name="trash" />
-                    <span>Delete chat for me</span>
+                    <span>{t("thread.header.deleteChat")}</span>
                   </button>
                 )}
               </>
@@ -13371,6 +16062,31 @@ export function MessageAppPage() {
           </div>
         )}
       </article>
+    );
+  }
+
+  function renderConversationLoadMoreControl(): ReactNode {
+    if (!conversationHasMore) {
+      return null;
+    }
+
+    return (
+      <button
+        type="button"
+        className="message-conversation-load-more"
+        onClick={() => void loadMoreConversations()}
+        disabled={conversationLoadingMore}
+        aria-busy={conversationLoadingMore}
+      >
+        {conversationLoadingMore ? (
+          <>
+            <span className="message-small-spinner" aria-hidden="true" />
+            {t("conversationList.loadingMore")}
+          </>
+        ) : (
+          t("conversationList.loadMore")
+        )}
+      </button>
     );
   }
 
@@ -13386,7 +16102,7 @@ export function MessageAppPage() {
       highlightedMessageId === item.message.id;
     const senderLabel =
       item.message.senderAccountId === account?.id
-        ? "You"
+        ? t("thread.message.you")
         : item.message.sender.displayName;
 
     return (
@@ -13399,7 +16115,9 @@ export function MessageAppPage() {
           className="message-conversation-row message-starred-workspace-row"
           onClick={() => openStarredMessage(item)}
           disabled={item.message.isDeleted}
-          aria-label={`Open starred message in ${item.conversation.title ?? "conversation"}`}
+          aria-label={t("starred.openInConversation", {
+            name: item.conversation.title ?? t("starred.conversationFallback"),
+          })}
         >
           <span className="message-avatar-presence">
             {conversationPeer
@@ -13409,7 +16127,7 @@ export function MessageAppPage() {
 
           <span className="message-conversation-copy">
             <span className="message-conversation-title-line">
-              <strong>{item.conversation.title ?? "Conversation"}</strong>
+              <strong>{item.conversation.title ?? t("starred.conversationFallback")}</strong>
               <time dateTime={item.starredAt}>
                 {formatConversationTime(item.starredAt)}
               </time>
@@ -13418,7 +16136,7 @@ export function MessageAppPage() {
               {senderLabel}
             </span>
             <span className="message-conversation-preview-line">
-              <small>{starredMessagePreview(item)}</small>
+              <small>{starredMessagePreview(item, t)}</small>
               <span className="message-starred-message-type" aria-hidden="true">
                 <MessageNavigationIcon name="starred" />
               </span>
@@ -13432,7 +16150,7 @@ export function MessageAppPage() {
           onClick={() => void handleUnstarFromCollection(item)}
           disabled={starredActionId !== null}
           aria-label={`Remove starred message from ${item.conversation.title ?? "conversation"}`}
-          title="Remove from Starred"
+          title={t("starred.removeFromStarred")}
         >
           {starredActionId === item.message.id ? "…" : "×"}
         </button>
@@ -13466,12 +16184,12 @@ export function MessageAppPage() {
             </time>
           </span>
           <span className="message-request-workspace-status">
-            {requestStatusLabel(request)}
+            {requestStatusLabel(request, t)}
           </span>
           <span className="message-conversation-preview-line">
-            <small>{requestReasonLabel(request.reason)}</small>
+            <small>{requestReasonLabel(request.reason, t)}</small>
             {request.status === "PENDING" && (
-              <b aria-label="Pending message request">Pending</b>
+              <b aria-label={t("requestWorkspace.pendingAria")}>{t("requestWorkspace.pending")}</b>
             )}
           </span>
         </span>
@@ -13500,15 +16218,15 @@ export function MessageAppPage() {
 
         <span className="message-conversation-copy">
           <span className="message-conversation-title-line">
-            <strong>{conversation.title ?? "Official group"}</strong>
-            <span className="message-announcement-group-open">Open</span>
+            <strong>{conversation.title ?? t("groupInfo.officialGroup")}</strong>
+            <span className="message-announcement-group-open">{t("announcementCard.open")}</span>
           </span>
           <span className="message-announcement-group-purpose">
-            Official announcements only
+            {t("announcementCard.officialOnly")}
           </span>
           <span className="message-conversation-meta">
-            <span className="message-conversation-kind">Official</span>
-            <small>{officialScopeLabel(conversation)}</small>
+            <span className="message-conversation-kind">{t("profileDetail.official")}</span>
+            <small>{officialScopeLabel(conversation, t)}</small>
           </span>
         </span>
       </button>
@@ -13543,17 +16261,17 @@ export function MessageAppPage() {
         <header>
           <div className="message-announcement-card-badges">
             <span className="message-announcement-priority">
-              {announcementEnumLabel(announcement.priority)}
+              {announcementEnumLabel(announcement.priority, t)}
             </span>
             {announcement.status !== "PUBLISHED" && (
               <span className="message-announcement-status">
-                {announcementEnumLabel(announcement.status)}
+                {announcementEnumLabel(announcement.status, t)}
               </span>
             )}
-            {announcement.isPinned && <span>Pinned</span>}
-            {unread && <strong>New</strong>}
+            {announcement.isPinned && <span>{t("announcementDetail.pinned")}</span>}
+            {unread && <strong>{t("announcementCard.new")}</strong>}
             {acknowledgementPending && (
-              <strong className="action-required">Action required</strong>
+              <strong className="action-required">{t("announcementCard.actionRequired")}</strong>
             )}
           </div>
           <time dateTime={publishedAt}>
@@ -13572,7 +16290,7 @@ export function MessageAppPage() {
               {initials(announcement.publisher.displayName)}
             </span>
             <div>
-              <small>Published by</small>
+              <small>{t("announcementDetail.publishedBy")}</small>
               <strong>{announcement.publisher.displayName}</strong>
             </div>
           </div>
@@ -13580,12 +16298,11 @@ export function MessageAppPage() {
           <div className="message-announcement-card-meta">
             {announcement.attachmentCount > 0 && (
               <span>
-                {announcement.attachmentCount} attachment
-                {announcement.attachmentCount === 1 ? "" : "s"}
+                {t("announcementCard.attachments", { count: announcement.attachmentCount })}
               </span>
             )}
             {announcement.viewerState?.isAcknowledged && (
-              <span>Acknowledged</span>
+              <span>{t("announcementCard.acknowledged")}</span>
             )}
           </div>
 
@@ -13594,7 +16311,7 @@ export function MessageAppPage() {
             className="message-announcement-view-button"
             onClick={() => void openAnnouncementDetail(announcement.id)}
           >
-            View announcement
+            {t("announcementCard.view")}
             <span aria-hidden="true">→</span>
           </button>
         </footer>
@@ -13611,8 +16328,8 @@ export function MessageAppPage() {
   }): ReactNode {
     const scopeLabel =
       conversation.groupKind === "OFFICIAL"
-        ? officialScopeLabel(conversation)
-        : `${conversation.memberCount} members · Personal group`;
+        ? officialScopeLabel(conversation, t)
+        : `${t("profileDetail.membersCount", { count: conversation.memberCount })} · ${t("groupInfo.personalGroup")}`;
 
     return (
       <button
@@ -13632,7 +16349,7 @@ export function MessageAppPage() {
 
         <span className="message-conversation-copy">
           <span className="message-conversation-title-line">
-            <strong>{conversation.title ?? "Group conversation"}</strong>
+            <strong>{conversation.title ?? t("conversationList.groupConversation")}</strong>
             <time>
               {formatConversationTime(
                 conversation.lastMessageAt ?? conversation.updatedAt,
@@ -13643,10 +16360,10 @@ export function MessageAppPage() {
           <span className="message-group-common-copy">
             {matchedDisplayName ? (
               <>
-                <strong>{matchedDisplayName}</strong> is also in this group
+                {t("conversationList.alsoInGroup", { name: matchedDisplayName })}
               </>
             ) : (
-              `${conversation.memberCount} members`
+              t("profileDetail.membersCount", { count: conversation.memberCount })
             )}
           </span>
           <span className="message-group-search-scope">{scopeLabel}</span>
@@ -13660,7 +16377,7 @@ export function MessageAppPage() {
       return (
         <div className="message-list-state compact" role="status">
           <span className="message-small-spinner" aria-hidden="true" />
-          <p>Loading profile...</p>
+          <p>{t("profileDetail.loading")}</p>
         </div>
       );
     }
@@ -13684,7 +16401,7 @@ export function MessageAppPage() {
             {profilePhotoUrl ? (
               <img
                 src={profilePhotoUrl}
-                alt={`${profileData.displayName} profile`}
+                alt={t("profileDetail.profileImageAlt", { name: profileData.displayName })}
               />
             ) : (
               initials(profileData.displayName)
@@ -13693,11 +16410,11 @@ export function MessageAppPage() {
 
           <div>
             <strong>{profileData.displayName}</strong>
-            <span>{roleLabel(profileData.role)}</span>
+            <span>{roleLabel(profileData.role, t)}</span>
             <small>
               {profileData.official?.department?.name ??
                 profileData.official?.division?.name ??
-                "Nepal Telecom"}
+                t("profileDetail.nepalTelecom")}
             </small>
           </div>
         </div>
@@ -13711,9 +16428,9 @@ export function MessageAppPage() {
         <section className="message-profile-section">
           <div className="message-profile-section-heading">
             <div>
-              <h3>About</h3>
+              <h3>{t("profileDetail.about")}</h3>
               {profileData.isOwnProfile && (
-                <p>A short status visible to people who can view your profile.</p>
+                <p>{t("profileWorkspace.aboutHint")}</p>
               )}
             </div>
             {profileData.isOwnProfile && (
@@ -13729,7 +16446,7 @@ export function MessageAppPage() {
                   setProfileBioDraft(event.target.value.slice(0, 160))
                 }
                 maxLength={160}
-                placeholder="Add a short about message"
+                placeholder={t("profileWorkspace.aboutPlaceholder")}
               />
               <div className="message-profile-actions">
                 <button
@@ -13737,12 +16454,12 @@ export function MessageAppPage() {
                   onClick={() => void handleSaveProfileBio()}
                   disabled={profileSaving}
                 >
-                  {profileSaving ? "Saving..." : "Save about"}
+                  {profileSaving ? t("profileWorkspace.saving") : t("profileWorkspace.saveAbout")}
                 </button>
               </div>
             </>
           ) : (
-            <p>{profileData.profileBio || "No about message added."}</p>
+            <p>{profileData.profileBio || t("profileWorkspace.noAbout")}</p>
           )}
         </section>
 
@@ -13750,18 +16467,18 @@ export function MessageAppPage() {
           <section className="message-profile-section">
             <div className="message-profile-section-heading">
               <div>
-                <h3>Profile photo</h3>
-                <p>JPG, PNG or WEBP. Your image remains protected by NT Message.</p>
+                <h3>{t("profileWorkspace.profilePhoto")}</h3>
+                <p>{t("profileWorkspace.photoHint")}</p>
               </div>
             </div>
             <div className="message-profile-photo-controls">
               <label className="message-profile-photo-upload">
                 <span>
                   {profilePhotoUploading
-                    ? "Uploading..."
+                    ? t("profileWorkspace.uploading")
                     : profileData.profilePhotoKey
-                      ? "Change photo"
-                      : "Upload photo"}
+                      ? t("profileWorkspace.changePhoto")
+                      : t("profileWorkspace.uploadPhoto")}
                 </span>
                 <input
                   type="file"
@@ -13778,7 +16495,7 @@ export function MessageAppPage() {
                   onClick={() => void handleRemoveProfilePhoto()}
                   disabled={profilePhotoUploading}
                 >
-                  Remove photo
+                  {t("profileWorkspace.removePhoto")}
                 </button>
               )}
             </div>
@@ -13788,18 +16505,18 @@ export function MessageAppPage() {
         <section className="message-profile-section">
           <div className="message-profile-section-heading">
             <div>
-              <h3>Official information</h3>
-              <p>Verified identity information managed by your organization.</p>
+              <h3>{t("profileWorkspace.officialInformation")}</h3>
+              <p>{t("profileWorkspace.officialInformationHint")}</p>
             </div>
-            <span className="message-profile-verified-badge">Verified</span>
+            <span className="message-profile-verified-badge">{t("profileDetail.verified")}</span>
           </div>
           <dl className="message-profile-details">
             <div>
-              <dt>Employee ID</dt>
-              <dd>{profileData.official?.employeeId ?? "System account"}</dd>
+              <dt>{t("profileDetail.employeeId")}</dt>
+              <dd>{profileData.official?.employeeId ?? t("profileDetail.systemAccount")}</dd>
             </div>
             <div>
-              <dt>Official email</dt>
+              <dt>{t("profileDetail.officialEmail")}</dt>
               <dd>
                 {profileData.official?.officialEmail ??
                   profileData.username ??
@@ -13807,45 +16524,43 @@ export function MessageAppPage() {
               </dd>
             </div>
             <div>
-              <dt>Contact number</dt>
+              <dt>{t("profileDetail.contactNumber")}</dt>
               <dd>{profileData.official?.contactNumber ?? "—"}</dd>
             </div>
             <div>
-              <dt>Role</dt>
-              <dd>{roleLabel(profileData.role)}</dd>
+              <dt>{t("profileWorkspace.role")}</dt>
+              <dd>{roleLabel(profileData.role, t)}</dd>
             </div>
             <div>
-              <dt>Designation</dt>
+              <dt>{t("profileDetail.designation")}</dt>
               <dd>{profileData.official?.designation ?? "—"}</dd>
             </div>
             <div>
-              <dt>Division</dt>
+              <dt>{t("profileDetail.division")}</dt>
               <dd>{profileData.official?.division?.name ?? "—"}</dd>
             </div>
             <div>
-              <dt>Department</dt>
+              <dt>{t("profileDetail.department")}</dt>
               <dd>{profileData.official?.department?.name ?? "—"}</dd>
             </div>
           </dl>
           <p className="message-profile-locked-note">
-            Official identity fields are read-only and follow the approved
-            account workflow.
+            {t("profileWorkspace.identityLocked")}
           </p>
         </section>
 
         {!profileData.isOwnProfile && (
           <section className="message-profile-section">
-            <h3>Shared groups</h3>
+            <h3>{t("profileDetail.sharedGroups")}</h3>
             {profileData.sharedGroups.length === 0 ? (
-              <p>No shared groups found.</p>
+              <p>{t("profileWorkspace.noSharedGroups")}</p>
             ) : (
               <ul className="message-profile-shared-groups">
                 {profileData.sharedGroups.map((group) => (
                   <li key={group.id}>
-                    <strong>{group.title ?? "Group"}</strong>
+                    <strong>{group.title ?? t("profileDetail.groupFallback")}</strong>
                     <span>
-                      {group.groupKind === "OFFICIAL" ? "Official" : "Personal"}{" "}
-                      · {group.memberCount} members
+                      {group.groupKind === "OFFICIAL" ? t("profileDetail.official") : t("profileDetail.personal")} · {t("profileDetail.membersCount", { count: group.memberCount })}
                     </span>
                   </li>
                 ))}
@@ -13867,12 +16582,12 @@ export function MessageAppPage() {
                 }
               >
                 {profileData.contactMode === "REQUEST_SENT"
-                  ? "Request sent"
+                  ? t("profileDetail.requestSent")
                   : profileData.contactMode === "BLOCKED"
-                    ? "Blocked"
+                    ? t("profileDetail.blocked")
                     : profileData.contactMode === "REQUEST_REQUIRED"
-                      ? "Send request"
-                      : "Message"}
+                      ? t("profileDetail.sendRequest")
+                      : t("profileDetail.message")}
               </button>
 
               {profileData.blockDirection === "BLOCKED_BY_ME" ||
@@ -13885,8 +16600,8 @@ export function MessageAppPage() {
                   disabled={blockActionAccountId !== null}
                 >
                   {blockActionAccountId === profileData.accountId
-                    ? "Working..."
-                    : "Unblock"}
+                    ? t("profileDetail.working")
+                    : t("profileDetail.unblock")}
                 </button>
               ) : (
                 <button
@@ -13901,12 +16616,291 @@ export function MessageAppPage() {
                   disabled={blockActionAccountId !== null}
                 >
                   {blockActionAccountId === profileData.accountId
-                    ? "Working..."
-                    : "Block private contact"}
+                    ? t("profileDetail.working")
+                    : t("profileDetail.blockPrivateContact")}
                 </button>
               )}
             </>
           )}
+        </div>
+      </div>
+    );
+  }
+
+  function renderMessageInformationPanel(): ReactNode {
+    const information = messageInformation;
+    const recipients = information?.recipients ?? [];
+    const readRecipients = recipients
+      .filter((recipient) => Boolean(recipient.readAt))
+      .sort(
+        (first, second) =>
+          new Date(second.readAt ?? 0).getTime() -
+          new Date(first.readAt ?? 0).getTime(),
+      );
+    const deliveredRecipients = recipients
+      .filter(
+        (recipient) => !recipient.readAt && Boolean(recipient.deliveredAt),
+      )
+      .sort(
+        (first, second) =>
+          new Date(second.deliveredAt ?? 0).getTime() -
+          new Date(first.deliveredAt ?? 0).getTime(),
+      );
+    const pendingCount = recipients.filter(
+      (recipient) => !recipient.deliveredAt,
+    ).length;
+    const visibleReadRecipients = readRecipients.slice(
+      0,
+      messageInformationVisibleReadCount,
+    );
+    const visibleDeliveredRecipients = deliveredRecipients.slice(
+      0,
+      messageInformationVisibleDeliveredCount,
+    );
+    const directRecipient = recipients[0] ?? null;
+    const directMessage =
+      selectedConversation?.type === "PRIVATE" ||
+      information?.summary.totalRecipients === 1;
+    const previewLabel = information
+      ? information.message.isDeleted
+        ? t("messageInfo.deleted")
+        : localizedAttachmentLabel(information.message)
+      : "";
+    const attachmentCount = information?.message.attachments.length ?? 0;
+
+    const renderRecipientRow = (
+      recipient: (typeof recipients)[number],
+      timestamp: string | null,
+    ) => (
+      <article key={recipient.accountId} className="message-info-modern-person">
+        {renderAccountAvatar(recipient.account, "message-avatar small")}
+        <div className="message-info-modern-person-copy">
+          <strong>{recipient.account.displayName}</strong>
+          <small>
+            {recipient.account.employee?.designation ??
+              roleLabel(recipient.account.role, t)}
+          </small>
+        </div>
+        {timestamp && (
+          <time dateTime={timestamp}>
+            {notificationTimestampLabel(timestamp)}
+          </time>
+        )}
+      </article>
+    );
+
+    return (
+      <div className="message-modern-detail-view message-modern-message-info-view">
+        <header className="message-modern-detail-header">
+          <span className="message-modern-detail-spacer" aria-hidden="true" />
+          <button
+            type="button"
+            className="message-modern-detail-back message-modern-detail-mobile-back"
+            onClick={closeMessageInformationPanel}
+            aria-label={t("messageInfo.back")}
+          >
+            <span aria-hidden="true">←</span>
+          </button>
+          <div>
+            <span>{t("messageInfo.eyebrow")}</span>
+            <strong>{t("messageInfo.title")}</strong>
+          </div>
+          <button
+            type="button"
+            className="message-modern-detail-close"
+            onClick={closeMessageInformationPanel}
+            aria-label={t("messageInfo.close")}
+          >
+            <MessageNavigationIcon name="close" />
+          </button>
+        </header>
+
+        <div className="message-modern-detail-scroll message-info-modern-scroll">
+          {messageInformationLoadingId ? (
+            <div className="message-list-state compact" role="status">
+              <span className="message-small-spinner" aria-hidden="true" />
+              <p>{t("messageInfo.loading")}</p>
+            </div>
+          ) : messageInformationError && !information ? (
+            <div className="message-inline-error compact" role="alert">
+              <p>{messageInformationError}</p>
+            </div>
+          ) : information ? (
+            <>
+              <section
+                className={`message-info-modern-preview${
+                  information.message.isDeleted ? " is-deleted" : ""
+                }`}
+                aria-label={t("messageInfo.previewAria")}
+              >
+                <div className="message-info-modern-bubble">
+                  {information.message.forwardedFrom && (
+                    <span className="message-info-modern-forwarded">
+                      {t("thread.message.forwarded")}
+                    </span>
+                  )}
+                  <p>{previewLabel}</p>
+                  {attachmentCount > 0 && information.message.textContent && (
+                    <small>
+                      {t("messageInfo.attachments", { count: attachmentCount })}
+                    </small>
+                  )}
+                  <footer>
+                    <time dateTime={information.sentAt}>
+                      {notificationTimestampLabel(information.sentAt)}
+                    </time>
+                    {information.editedAt && <span>{t("thread.message.edited")}</span>}
+                  </footer>
+                </div>
+              </section>
+
+              {directMessage ? (
+                <section
+                  className="message-info-modern-direct"
+                  aria-label={t("messageInfo.deliveryStatus")}
+                >
+                  <div className="message-info-modern-direct-row delivered">
+                    <span
+                      className="message-info-modern-status-icon"
+                      aria-hidden="true"
+                    >
+                      ✓✓
+                    </span>
+                    <div>
+                      <strong>{t("messageInfo.delivered")}</strong>
+                      <span>
+                        {directRecipient?.deliveredAt
+                          ? notificationTimestampLabel(
+                              directRecipient.deliveredAt,
+                            )
+                          : t("messageInfo.pending")}
+                      </span>
+                    </div>
+                  </div>
+                  <div className="message-info-modern-direct-row read">
+                    <span
+                      className="message-info-modern-status-icon"
+                      aria-hidden="true"
+                    >
+                      ✓✓
+                    </span>
+                    <div>
+                      <strong>{t("messageInfo.read")}</strong>
+                      <span>
+                        {directRecipient?.readAt
+                          ? notificationTimestampLabel(directRecipient.readAt)
+                          : directRecipient?.readHidden
+                            ? t("messageInfo.hiddenByPrivacy")
+                            : t("messageInfo.notRead")}
+                      </span>
+                    </div>
+                  </div>
+                </section>
+              ) : (
+                <div className="message-info-modern-status-sections">
+                  <section className="message-info-modern-section">
+                    <header>
+                      <span
+                        className="message-info-modern-status-icon read"
+                        aria-hidden="true"
+                      >
+                        ✓✓
+                      </span>
+                      <strong>{t("messageInfo.readBy")}</strong>
+                      <small>{readRecipients.length}</small>
+                    </header>
+
+                    {visibleReadRecipients.length > 0 ? (
+                      <div className="message-info-modern-people">
+                        {visibleReadRecipients.map((recipient) =>
+                          renderRecipientRow(recipient, recipient.readAt),
+                        )}
+                      </div>
+                    ) : (
+                      <p className="message-info-modern-empty">
+                        {t("messageInfo.noReadReceipts")}
+                      </p>
+                    )}
+
+                    {visibleReadRecipients.length < readRecipients.length && (
+                      <button
+                        type="button"
+                        className="message-info-modern-more"
+                        onClick={() =>
+                          setMessageInformationVisibleReadCount((current) =>
+                            current + 40,
+                          )
+                        }
+                      >
+                        {t("messageInfo.showMoreReadReceipts")}
+                        <span>
+                          {readRecipients.length - visibleReadRecipients.length}
+                        </span>
+                      </button>
+                    )}
+                  </section>
+
+                  {deliveredRecipients.length > 0 && (
+                    <section className="message-info-modern-section">
+                      <header>
+                        <span
+                          className="message-info-modern-status-icon delivered"
+                          aria-hidden="true"
+                        >
+                          ✓✓
+                        </span>
+                        <strong>{t("messageInfo.deliveredTo")}</strong>
+                        <small>{deliveredRecipients.length}</small>
+                      </header>
+
+                      <div className="message-info-modern-people">
+                        {visibleDeliveredRecipients.map((recipient) =>
+                          renderRecipientRow(
+                            recipient,
+                            recipient.deliveredAt,
+                          ),
+                        )}
+                      </div>
+
+                      {visibleDeliveredRecipients.length <
+                        deliveredRecipients.length && (
+                        <button
+                          type="button"
+                          className="message-info-modern-more"
+                          onClick={() =>
+                            setMessageInformationVisibleDeliveredCount(
+                              (current) => current + 40,
+                            )
+                          }
+                        >
+                          {t("messageInfo.showMoreDeliveryReceipts")}
+                          <span>
+                            {deliveredRecipients.length -
+                              visibleDeliveredRecipients.length}
+                          </span>
+                        </button>
+                      )}
+                    </section>
+                  )}
+
+                  {(pendingCount > 0 || information.summary.readHidden > 0) && (
+                    <div className="message-info-modern-notes">
+                      {pendingCount > 0 && (
+                        <p>
+                          {t("messageInfo.pendingDelivery", { count: pendingCount })}
+                        </p>
+                      )}
+                      {information.summary.readHidden > 0 && (
+                        <p>
+                          {t("messageInfo.someReadHidden")}
+                        </p>
+                      )}
+                    </div>
+                  )}
+                </div>
+              )}
+            </>
+          ) : null}
         </div>
       </div>
     );
@@ -13929,19 +16923,19 @@ export function MessageAppPage() {
             type="button"
             className="message-modern-detail-back"
             onClick={returnFromSharedContent}
-            aria-label="Back from shared content"
+            aria-label={t("sharedContent.back")}
           >
             <span aria-hidden="true">←</span>
           </button>
           <div>
-            <span>Conversation</span>
-            <strong>Media, documents and links</strong>
+            <span>{t("sharedContent.eyebrow")}</span>
+            <strong>{t("sharedContent.title")}</strong>
           </div>
           <button
             type="button"
             className="message-modern-detail-close"
             onClick={closeSharedContentPanel}
-            aria-label="Close shared content"
+            aria-label={t("sharedContent.close")}
           >
             <MessageNavigationIcon name="close" />
           </button>
@@ -13950,13 +16944,13 @@ export function MessageAppPage() {
         <nav
           className="message-shared-panel-tabs"
           role="tablist"
-          aria-label="Shared content categories"
+          aria-label={t("sharedContent.categoriesAria")}
         >
           {(
             [
-              ["MEDIA", "Media", content.media.length],
-              ["DOCUMENTS", "Documents", content.documents.length],
-              ["LINKS", "Links", content.links.length],
+              ["MEDIA", t("sharedContent.media"), content.media.length],
+              ["DOCUMENTS", t("sharedContent.documents"), content.documents.length],
+              ["LINKS", t("sharedContent.links"), content.links.length],
             ] as Array<[SharedContentTab, string, number]>
           ).map(([tab, label, count]) => (
             <button
@@ -13977,13 +16971,13 @@ export function MessageAppPage() {
           {sharedContentLoading && !hasAnyContent ? (
             <div className="message-shared-panel-state" role="status">
               <span className="message-small-spinner" aria-hidden="true" />
-              <strong>Loading shared content</strong>
-              <p>Checking authorized media, documents and links.</p>
+              <strong>{t("sharedContent.loading")}</strong>
+              <p>{t("sharedContent.loadingDescription")}</p>
             </div>
           ) : sharedContentError && !hasAnyContent ? (
             <div className="message-shared-panel-state" role="alert">
               <MessageNavigationIcon name="shared" />
-              <strong>Shared content unavailable</strong>
+              <strong>{t("sharedContent.unavailable")}</strong>
               <p>{sharedContentError}</p>
               <button
                 type="button"
@@ -13994,7 +16988,7 @@ export function MessageAppPage() {
                   )
                 }
               >
-                Retry
+                {t("actions.retry")}
               </button>
             </div>
           ) : (
@@ -14002,7 +16996,7 @@ export function MessageAppPage() {
               {sharedContentLoading && (
                 <div className="message-shared-refresh-state" role="status">
                   <span className="message-small-spinner" aria-hidden="true" />
-                  <span>Refreshing shared content…</span>
+                  <span>{t("sharedContent.refreshing")}</span>
                 </div>
               )}
 
@@ -14010,11 +17004,8 @@ export function MessageAppPage() {
                 content.media.length === 0 ? (
                   <div className="message-shared-panel-state">
                     <AttachmentGlyph name="image" />
-                    <strong>No media shared yet</strong>
-                    <p>
-                      Photos and videos shared in this conversation will appear
-                      here.
-                    </p>
+                    <strong>{t("sharedContent.noMedia")}</strong>
+                    <p>{t("sharedContent.noMediaDescription")}</p>
                   </div>
                 ) : (
                   <div className="message-shared-month-list">
@@ -14047,10 +17038,8 @@ export function MessageAppPage() {
                 content.documents.length === 0 ? (
                   <div className="message-shared-panel-state">
                     <AttachmentGlyph name="document" />
-                    <strong>No documents shared yet</strong>
-                    <p>
-                      Documents shared in this conversation will appear here.
-                    </p>
+                    <strong>{t("sharedContent.noDocuments")}</strong>
+                    <p>{t("sharedContent.noDocumentsDescription")}</p>
                   </div>
                 ) : (
                   <div className="message-shared-month-list">
@@ -14094,7 +17083,7 @@ export function MessageAppPage() {
                                     {item.attachment.originalFileName}
                                   </strong>
                                   <small>
-                                    {attachmentTypeLabel(item.attachment)} ·{" "}
+                                    {t(attachmentTypeTranslationKey(item.attachment))} ·{" "}
                                     {formatFileSize(
                                       item.attachment.fileSizeBytes,
                                     )}
@@ -14114,8 +17103,10 @@ export function MessageAppPage() {
                                     item.attachment,
                                   )
                                 }
-                                aria-label={`Download ${item.attachment.originalFileName}`}
-                                title="Download"
+                                aria-label={t("attachment.downloadNamed", {
+                                  name: item.attachment.originalFileName,
+                                })}
+                                title={t("sharedContent.download")}
                               >
                                 <AttachmentGlyph name="download" />
                               </button>
@@ -14134,8 +17125,8 @@ export function MessageAppPage() {
                   >
                     ↗
                   </span>
-                  <strong>No links shared yet</strong>
-                  <p>Links shared in this conversation will appear here.</p>
+                  <strong>{t("sharedContent.noLinks")}</strong>
+                  <p>{t("sharedContent.noLinksDescription")}</p>
                 </div>
               ) : (
                 <div className="message-shared-month-list">
@@ -14164,7 +17155,7 @@ export function MessageAppPage() {
                                 className="message-shared-link-preview"
                               >
                                 <span className="message-shared-link-domain">
-                                  {sharedLinkDomain(item.url)}
+                                  {sharedLinkDomain(item.url, t)}
                                 </span>
                                 {description && <p>{description}</p>}
                                 <span className="message-shared-link-url">
@@ -14178,7 +17169,7 @@ export function MessageAppPage() {
                                   focusSharedContentMessage(item.message)
                                 }
                               >
-                                View in chat
+                                {t("sharedContent.viewInChat")}
                               </button>
                             </article>
                           );
@@ -14222,22 +17213,32 @@ export function MessageAppPage() {
               type="button"
               className="message-modern-detail-back"
               onClick={closeProfile}
-              aria-label="Back to group information"
+              aria-label={t("groupManagement.back")}
             >
               <span aria-hidden="true">←</span>
             </button>
           ) : (
-            <span className="message-modern-detail-spacer" aria-hidden="true" />
+            <>
+              <span className="message-modern-detail-spacer" aria-hidden="true" />
+              <button
+                type="button"
+                className="message-modern-detail-back message-modern-detail-mobile-back"
+                onClick={closeConversationDetailsPanel}
+                aria-label={t("profileDetail.backToConversation")}
+              >
+                <span aria-hidden="true">←</span>
+              </button>
+            </>
           )}
           <div>
-            <span>{returnToGroupInformation ? "Group information" : "Conversation"}</span>
-            <strong>Profile</strong>
+            <span>{returnToGroupInformation ? t("profileDetail.groupInformation") : t("profileDetail.conversation")}</span>
+            <strong>{t("profileDetail.title")}</strong>
           </div>
           <button
             type="button"
             className="message-modern-detail-close"
             onClick={closeConversationDetailsPanel}
-            aria-label="Close profile"
+            aria-label={t("profileDetail.close")}
           >
             <MessageNavigationIcon name="close" />
           </button>
@@ -14247,7 +17248,7 @@ export function MessageAppPage() {
           {profileLoading && !profileData ? (
             <div className="message-list-state compact" role="status">
               <span className="message-small-spinner" aria-hidden="true" />
-              <p>Loading profile...</p>
+              <p>{t("profileDetail.loading")}</p>
             </div>
           ) : profileError && !profileData ? (
             <div className="message-inline-error compact" role="alert">
@@ -14260,7 +17261,7 @@ export function MessageAppPage() {
                   {profilePhotoUrl ? (
                     <img
                       src={profilePhotoUrl}
-                      alt={`${profileData.displayName} profile`}
+                      alt={t("profileDetail.profileImageAlt", { name: profileData.displayName })}
                     />
                   ) : (
                     initials(profileData.displayName)
@@ -14269,7 +17270,7 @@ export function MessageAppPage() {
                     profilePresence?.isOnline && (
                       <span
                         className="message-modern-profile-presence"
-                        aria-label="Online"
+                        aria-label={t("profileDetail.online")}
                       />
                     )}
                 </span>
@@ -14278,7 +17279,7 @@ export function MessageAppPage() {
                   <span>
                     {[
                       profileData.official?.designation ??
-                      roleLabel(profileData.role),
+                      roleLabel(profileData.role, t),
                       profileData.official?.department?.name ??
                       profileData.official?.division?.name,
                     ]
@@ -14288,8 +17289,8 @@ export function MessageAppPage() {
                   <small>
                     {profileData.showOnlineStatus !== false &&
                       profilePresence?.isOnline
-                      ? "Online"
-                      : "Nepal Telecom"}
+                      ? t("profileDetail.online")
+                      : t("profileDetail.nepalTelecom")}
                   </small>
                 </div>
               </section>
@@ -14302,7 +17303,7 @@ export function MessageAppPage() {
 
               {profileData.profileBio && (
                 <section className="message-simple-detail-section">
-                  <h3>About</h3>
+                  <h3>{t("profileDetail.about")}</h3>
                   <p>{profileData.profileBio}</p>
                 </section>
               )}
@@ -14316,7 +17317,7 @@ export function MessageAppPage() {
                   }
                 >
                   <MessageNavigationIcon name="shared" />
-                  <span>Media, documents and links</span>
+                  <span>{t("profileDetail.sharedContent")}</span>
                   <b>{sharedContentCount}</b>
                   <span aria-hidden="true">›</span>
                 </button>
@@ -14324,18 +17325,18 @@ export function MessageAppPage() {
 
               <section className="message-simple-detail-section">
                 <div className="message-modern-section-heading">
-                  <h3>Contact information</h3>
-                  <span>Verified</span>
+                  <h3>{t("profileDetail.contactInformation")}</h3>
+                  <span>{t("profileDetail.verified")}</span>
                 </div>
                 <dl className="message-modern-info-list">
                   <div>
-                    <dt>Employee ID</dt>
+                    <dt>{t("profileDetail.employeeId")}</dt>
                     <dd>
-                      {profileData.official?.employeeId ?? "System account"}
+                      {profileData.official?.employeeId ?? t("profileDetail.systemAccount")}
                     </dd>
                   </div>
                   <div>
-                    <dt>Official email</dt>
+                    <dt>{t("profileDetail.officialEmail")}</dt>
                     <dd>
                       {profileData.official?.officialEmail ??
                         profileData.username ??
@@ -14343,19 +17344,19 @@ export function MessageAppPage() {
                     </dd>
                   </div>
                   <div>
-                    <dt>Contact number</dt>
+                    <dt>{t("profileDetail.contactNumber")}</dt>
                     <dd>{profileData.official?.contactNumber ?? "—"}</dd>
                   </div>
                   <div>
-                    <dt>Designation</dt>
+                    <dt>{t("profileDetail.designation")}</dt>
                     <dd>{profileData.official?.designation ?? "—"}</dd>
                   </div>
                   <div>
-                    <dt>Division</dt>
+                    <dt>{t("profileDetail.division")}</dt>
                     <dd>{profileData.official?.division?.name ?? "—"}</dd>
                   </div>
                   <div>
-                    <dt>Department</dt>
+                    <dt>{t("profileDetail.department")}</dt>
                     <dd>{profileData.official?.department?.name ?? "—"}</dd>
                   </div>
                 </dl>
@@ -14365,18 +17366,18 @@ export function MessageAppPage() {
                 profileData.sharedGroups.length > 0 && (
                   <section className="message-simple-detail-section">
                     <div className="message-modern-section-heading">
-                      <h3>Shared groups</h3>
+                      <h3>{t("profileDetail.sharedGroups")}</h3>
                       <span>{profileData.sharedGroups.length}</span>
                     </div>
                     <div className="message-modern-shared-groups">
                       {visibleSharedGroups.map((group) => (
                         <div key={group.id}>
-                          <strong>{group.title ?? "Group"}</strong>
+                          <strong>{group.title ?? t("profileDetail.groupFallback")}</strong>
                           <span>
                             {group.groupKind === "OFFICIAL"
-                              ? "Official"
-                              : "Personal"}{" "}
-                            · {group.memberCount} members
+                              ? t("profileDetail.official")
+                              : t("profileDetail.personal")}{" "}
+                            · {t("profileDetail.membersCount", { count: group.memberCount })}
                           </span>
                         </div>
                       ))}
@@ -14390,8 +17391,8 @@ export function MessageAppPage() {
                         }
                       >
                         {profileSharedGroupsExpanded
-                          ? "Show fewer groups"
-                          : `View all ${profileData.sharedGroups.length} shared groups`}
+                          ? t("profileDetail.showFewerGroups")
+                          : t("profileDetail.viewAllSharedGroups", { count: profileData.sharedGroups.length })}
                       </button>
                     )}
                   </section>
@@ -14406,7 +17407,7 @@ export function MessageAppPage() {
                       navigate("/messages/profile");
                     }}
                   >
-                    Open my profile
+                    {t("profileDetail.openMyProfile")}
                   </button>
                 ) : (
                   <>
@@ -14420,12 +17421,12 @@ export function MessageAppPage() {
                       }
                     >
                       {profileData.contactMode === "REQUEST_SENT"
-                        ? "Request sent"
+                        ? t("profileDetail.requestSent")
                         : profileData.contactMode === "BLOCKED"
-                          ? "Blocked"
+                          ? t("profileDetail.blocked")
                           : profileData.contactMode === "REQUEST_REQUIRED"
-                            ? "Send request"
-                            : "Message"}
+                            ? t("profileDetail.sendRequest")
+                            : t("profileDetail.message")}
                     </button>
 
                     {profileData.blockDirection === "BLOCKED_BY_ME" ||
@@ -14440,8 +17441,8 @@ export function MessageAppPage() {
                         disabled={blockActionAccountId !== null}
                       >
                         {blockActionAccountId === profileData.accountId
-                          ? "Working..."
-                          : "Unblock"}
+                          ? t("profileDetail.working")
+                          : t("profileDetail.unblock")}
                       </button>
                     ) : (
                       <button
@@ -14456,8 +17457,8 @@ export function MessageAppPage() {
                         disabled={blockActionAccountId !== null}
                       >
                         {blockActionAccountId === profileData.accountId
-                          ? "Working..."
-                          : "Block"}
+                          ? t("profileDetail.working")
+                          : t("profileDetail.block")}
                       </button>
                     )}
                   </>
@@ -14476,12 +17477,18 @@ export function MessageAppPage() {
     }
 
     const query = groupMemberSearch.trim().toLocaleLowerCase();
+    const officialGroup = groupInfoConversation.groupKind === "OFFICIAL";
     const roleRank: Record<string, number> = {
       OWNER: 0,
       ADMIN: 1,
       MEMBER: 2,
     };
-    const sortedParticipants = [...groupInfoConversation.participants].sort(
+    const participantSource = officialGroup
+      ? query
+        ? officialGroupMemberSearchResults
+        : officialGroupMembers
+      : groupInfoConversation.participants;
+    const sortedParticipants = [...participantSource].sort(
       (first, second) =>
         (roleRank[first.participantRole] ?? 3) -
         (roleRank[second.participantRole] ?? 3) ||
@@ -14490,24 +17497,45 @@ export function MessageAppPage() {
         }) ||
         first.accountId.localeCompare(second.accountId),
     );
-    const matchingParticipants = query
-      ? sortedParticipants.filter((participant) =>
-        [
-          participant.displayName,
-          participant.username,
-          participant.employee?.empId,
-          participant.employee?.designation,
-          participant.employee?.department?.name,
-          participant.employee?.division?.name,
-        ]
-          .filter((value): value is string => Boolean(value))
-          .some((value) => value.toLocaleLowerCase().includes(query)),
-      )
-      : sortedParticipants;
+    const matchingParticipants =
+      officialGroup || !query
+        ? sortedParticipants
+        : sortedParticipants.filter((participant) =>
+            [
+              participant.displayName,
+              participant.username,
+              participant.employee?.empId,
+              participant.employee?.designation,
+              participant.employee?.department?.name,
+              participant.employee?.division?.name,
+            ]
+              .filter((value): value is string => Boolean(value))
+              .some((value) => value.toLocaleLowerCase().includes(query)),
+          );
     const visibleParticipants =
       query || groupMembersExpanded
         ? matchingParticipants
         : matchingParticipants.slice(0, 5);
+    const officialMemberListLoading = officialGroup
+      ? query
+        ? officialGroupMemberSearchLoading
+        : officialGroupMembersLoading
+      : false;
+    const officialMemberListLoadingMore = officialGroup
+      ? query
+        ? officialGroupMemberSearchLoadingMore
+        : officialGroupMembersLoadingMore
+      : false;
+    const officialMemberListHasMore = officialGroup
+      ? query
+        ? officialGroupMemberSearchHasMore
+        : officialGroupMembersHasMore
+      : false;
+    const officialMemberListError = officialGroup
+      ? query
+        ? officialGroupMemberSearchError
+        : officialGroupMembersError
+      : null;
     const sharedContentSummary =
       sharedContent ?? selectedConversationSharedContent;
     const sharedContentCount =
@@ -14519,15 +17547,23 @@ export function MessageAppPage() {
       <div className="message-modern-detail-view message-modern-group-view">
         <header className="message-modern-detail-header">
           <span className="message-modern-detail-spacer" aria-hidden="true" />
+          <button
+            type="button"
+            className="message-modern-detail-back message-modern-detail-mobile-back"
+            onClick={closeConversationDetailsPanel}
+            aria-label={t("profileDetail.backToConversation")}
+          >
+            <span aria-hidden="true">←</span>
+          </button>
           <div>
-            <span>Conversation</span>
-            <strong>Group information</strong>
+            <span>{t("groupInfo.conversation")}</span>
+            <strong>{t("groupInfo.title")}</strong>
           </div>
           <button
             type="button"
             className="message-modern-detail-close"
             onClick={closeConversationDetailsPanel}
-            aria-label="Close group information"
+            aria-label={t("groupInfo.close")}
           >
             <MessageNavigationIcon name="close" />
           </button>
@@ -14540,12 +17576,12 @@ export function MessageAppPage() {
               "message-group-photo-preview",
             )}
             <div>
-              <strong>{groupInfoConversation.title ?? "Group"}</strong>
+              <strong>{groupInfoConversation.title ?? t("profileDetail.groupFallback")}</strong>
               <span>
                 {groupInfoConversation.groupKind === "OFFICIAL"
-                  ? "Official group"
-                  : "Personal group"}{" "}
-                · {groupInfoConversation.memberCount} members
+                  ? t("groupInfo.officialGroup")
+                  : t("groupInfo.personalGroup")}{" "}
+                · {t("profileDetail.membersCount", { count: groupInfoConversation.memberCount })}
               </span>
               {groupInfoConversation.description && (
                 <p>{groupInfoConversation.description}</p>
@@ -14562,7 +17598,7 @@ export function MessageAppPage() {
               }
             >
               <MessageNavigationIcon name="shared" />
-              <span>Media, documents and links</span>
+              <span>{t("profileDetail.sharedContent")}</span>
               <b>{sharedContentCount}</b>
               <span aria-hidden="true">›</span>
             </button>
@@ -14570,7 +17606,7 @@ export function MessageAppPage() {
 
           <section className="message-simple-detail-section message-simple-members-section">
             <div className="message-modern-section-heading">
-              <h3>Members</h3>
+              <h3>{t("groupInfo.members")}</h3>
               <span>{groupInfoConversation.memberCount}</span>
             </div>
 
@@ -14580,14 +17616,33 @@ export function MessageAppPage() {
                 type="search"
                 value={groupMemberSearch}
                 onChange={(event) => setGroupMemberSearch(event.target.value)}
-                placeholder="Search members"
-                aria-label="Search group members"
+                placeholder={t("groupInfo.searchMembers")}
+                aria-label={t("groupInfo.searchMembers")}
               />
             </label>
 
-            {matchingParticipants.length === 0 ? (
+            {officialMemberListLoading && matchingParticipants.length === 0 ? (
+              <p className="message-simple-empty-state">{t("groupInfo.loadingMembers")}</p>
+            ) : officialMemberListError && matchingParticipants.length === 0 ? (
+              <div className="message-simple-empty-state">
+                <p>{officialMemberListError}</p>
+                <button
+                  type="button"
+                  className="message-simple-expand-button"
+                  onClick={() =>
+                    void loadOfficialGroupMemberPage({
+                      search: query,
+                      cursor: null,
+                      append: false,
+                    })
+                  }
+                >
+                  {t("groupInfo.retry")}
+                </button>
+              </div>
+            ) : matchingParticipants.length === 0 ? (
               <p className="message-simple-empty-state">
-                No members match “{groupMemberSearch.trim()}”.
+                {t("groupInfo.noMembersMatch", { query: groupMemberSearch.trim() })}
               </p>
             ) : (
               <div className="message-simple-member-list">
@@ -14605,15 +17660,15 @@ export function MessageAppPage() {
                       <span className="message-simple-member-copy">
                         <strong>
                           {participant.displayName}
-                          {isViewer ? " (You)" : ""}
+                          {isViewer ? ` ${t("groupInfo.youSuffix")}` : ""}
                         </strong>
                         <small>
                           {participant.employee?.designation ??
-                            roleLabel(participant.role)}
+                            roleLabel(participant.role, t)}
                         </small>
                       </span>
                       <b className="message-simple-member-role">
-                        {roleLabel(participant.participantRole)}
+                        {roleLabel(participant.participantRole, t)}
                       </b>
                     </button>
                   );
@@ -14621,17 +17676,54 @@ export function MessageAppPage() {
               </div>
             )}
 
-            {!query && matchingParticipants.length > 5 && (
+            {!officialGroup && !query && matchingParticipants.length > 5 && (
               <button
                 type="button"
                 className="message-simple-expand-button"
                 onClick={() => setGroupMembersExpanded((current) => !current)}
               >
                 {groupMembersExpanded
-                  ? "Show fewer members"
-                  : `View all ${matchingParticipants.length} members`}
+                  ? t("groupInfo.showFewerMembers")
+                  : t("groupInfo.viewAllMembers", { count: matchingParticipants.length })}
               </button>
             )}
+
+            {officialGroup &&
+              !query &&
+              !groupMembersExpanded &&
+              groupInfoConversation.memberCount > 5 && (
+                <button
+                  type="button"
+                  className="message-simple-expand-button"
+                  onClick={() => setGroupMembersExpanded(true)}
+                >
+                  {t("groupInfo.viewAllMembers", { count: groupInfoConversation.memberCount })}
+                </button>
+              )}
+
+            {officialGroup &&
+              (query || groupMembersExpanded) &&
+              officialMemberListHasMore && (
+                <button
+                  type="button"
+                  className="message-simple-expand-button"
+                  onClick={loadMoreOfficialGroupMembers}
+                  disabled={officialMemberListLoadingMore}
+                  aria-busy={officialMemberListLoadingMore}
+                >
+                  {officialMemberListLoadingMore
+                    ? t("groupInfo.loadingMoreMembers")
+                    : t("groupInfo.loadMoreMembers")}
+                </button>
+              )}
+
+            {officialGroup &&
+              officialMemberListError &&
+              matchingParticipants.length > 0 && (
+                <p className="message-simple-empty-state">
+                  {officialMemberListError}
+                </p>
+              )}
           </section>
 
           {groupInfoConversation.groupKind === "PERSONAL" ? (
@@ -14643,8 +17735,27 @@ export function MessageAppPage() {
                   onClick={openManageGroup}
                 >
                   <MessageNavigationIcon name="profile" />
-                  <span>Manage group</span>
+                  <span>{t("groupInfo.manageGroup")}</span>
                   <span aria-hidden="true">›</span>
+                </button>
+              )}
+              {groupInfoConversation.viewerParticipantRole === "OWNER" && (
+                <button
+                  type="button"
+                  className="message-simple-navigation-action danger"
+                  onClick={() =>
+                    openDestructiveConfirmation({
+                      kind: "DELETE_GROUP",
+                      conversationId: groupInfoConversation.id,
+                      conversationTitle:
+                        groupInfoConversation.title ?? t("groupInfo.thisGroup"),
+                      groupKind: "PERSONAL",
+                    })
+                  }
+                  disabled={groupSubmitting}
+                >
+                  <MessageNavigationIcon name="trash" />
+                  <span>{t("groupInfo.deleteGroup")}</span>
                 </button>
               )}
               <button
@@ -14655,20 +17766,43 @@ export function MessageAppPage() {
                     kind: "LEAVE_GROUP",
                     conversationId: groupInfoConversation.id,
                     conversationTitle:
-                      groupInfoConversation.title ?? "this group",
+                      groupInfoConversation.title ?? t("groupInfo.thisGroup"),
                   })
                 }
                 disabled={groupSubmitting}
               >
                 <MessageNavigationIcon name="close" />
-                <span>{groupSubmitting ? "Leaving..." : "Leave group"}</span>
+                <span>{groupSubmitting ? t("groupInfo.leaving") : t("groupInfo.leaveGroup")}</span>
               </button>
             </section>
           ) : (
-            <p className="message-simple-group-note">
-              Membership is synchronized from active organizational
-              assignments.
-            </p>
+            <>
+              <p className="message-simple-group-note">
+                {t("privateGroup.officialMembershipSync")}
+              </p>
+              {account?.role === "SUPER_ADMIN" &&
+                groupInfoConversation.viewerParticipantRole === "OWNER" && (
+                  <section className="message-simple-detail-section message-simple-group-actions">
+                    <button
+                      type="button"
+                      className="message-simple-navigation-action danger"
+                      onClick={() =>
+                        openDestructiveConfirmation({
+                          kind: "DELETE_GROUP",
+                          conversationId: groupInfoConversation.id,
+                          conversationTitle:
+                            groupInfoConversation.title ?? t("groupInfo.thisGroup"),
+                          groupKind: "OFFICIAL",
+                        })
+                      }
+                      disabled={groupSubmitting}
+                    >
+                      <MessageNavigationIcon name="trash" />
+                      <span>{t("groupInfo.deleteOfficialGroup")}</span>
+                    </button>
+                  </section>
+                )}
+            </>
           )}
         </div>
       </div>
@@ -14690,20 +17824,20 @@ export function MessageAppPage() {
             className="message-modern-detail-back"
             onClick={returnToConversationInformation}
             disabled={groupSubmitting || groupActionAccountId !== null}
-            aria-label="Back to group information"
+            aria-label={t("groupManagement.back")}
           >
             <span aria-hidden="true">←</span>
           </button>
           <div>
-            <span>Group management</span>
-            <strong>Manage group</strong>
+            <span>{t("groupManagement.eyebrow")}</span>
+            <strong>{t("groupManagement.title")}</strong>
           </div>
           <button
             type="button"
             className="message-modern-detail-close"
             onClick={closeGroupDialog}
             disabled={groupSubmitting || groupActionAccountId !== null}
-            aria-label="Close group management"
+            aria-label={t("groupManagement.close")}
           >
             <MessageNavigationIcon name="close" />
           </button>
@@ -14722,11 +17856,11 @@ export function MessageAppPage() {
               "message-group-photo-preview",
             )}
             <div>
-              <strong>{groupInfoConversation.title ?? "Group"}</strong>
+              <strong>{groupInfoConversation.title ?? t("profileDetail.groupFallback")}</strong>
               <span>
                 {groupInfoConversation.groupKind === "OFFICIAL"
-                  ? officialScopeLabel(groupInfoConversation)
-                  : `${groupInfoConversation.memberCount} members`}
+                  ? officialScopeLabel(groupInfoConversation, t)
+                  : `${t("profileDetail.membersCount", { count: groupInfoConversation.memberCount })}`}
               </span>
               {groupInfoConversation.description && (
                 <p>{groupInfoConversation.description}</p>
@@ -14734,31 +17868,31 @@ export function MessageAppPage() {
               <div className="message-modern-group-badges">
                 <span>
                   {groupInfoConversation.groupKind === "OFFICIAL"
-                    ? "Official group"
-                    : "Personal group"}
+                    ? t("groupManagement.officialGroup")
+                    : t("groupManagement.personalGroup")}
                 </span>
-                <span>{groupInfoConversation.memberCount} members</span>
+                <span>{t("profileDetail.membersCount", { count: groupInfoConversation.memberCount })}</span>
               </div>
             </div>
           </section>
 
           <nav
             className="message-modern-detail-tabs"
-            aria-label="Group information sections"
+            aria-label={t("groupManagement.sectionsAria")}
           >
             <button
               type="button"
               className={groupPanelTab === "OVERVIEW" ? "active" : ""}
               onClick={() => setGroupPanelTab("OVERVIEW")}
             >
-              Overview
+              {t("groupManagement.overviewTab")}
             </button>
             <button
               type="button"
               className={groupPanelTab === "MEMBERS" ? "active" : ""}
               onClick={() => setGroupPanelTab("MEMBERS")}
             >
-              Members
+              {t("groupManagement.membersTab")}
             </button>
             {canOpenSettings && (
               <button
@@ -14766,7 +17900,7 @@ export function MessageAppPage() {
                 className={groupPanelTab === "SETTINGS" ? "active" : ""}
                 onClick={() => setGroupPanelTab("SETTINGS")}
               >
-                Settings
+                {t("groupManagement.settingsTab")}
               </button>
             )}
           </nav>
@@ -14775,7 +17909,7 @@ export function MessageAppPage() {
             <div className="message-modern-group-tab">
               <section className="message-modern-detail-section">
                 <div className="message-modern-section-heading">
-                  <h3>Shared content</h3>
+                  <h3>{t("groupManagement.sharedContent")}</h3>
                   <span>
                     {selectedConversationSharedContent.media.length +
                       selectedConversationSharedContent.documents.length +
@@ -14790,7 +17924,7 @@ export function MessageAppPage() {
                     }
                   >
                     <MessageNavigationIcon name="shared" />
-                    <span>Media</span>
+                    <span>{t("groupManagement.media")}</span>
                     <b>{selectedConversationSharedContent.media.length}</b>
                   </button>
                   <button
@@ -14803,7 +17937,7 @@ export function MessageAppPage() {
                     }
                   >
                     <MessageNavigationIcon name="shared" />
-                    <span>Documents</span>
+                    <span>{t("groupManagement.documents")}</span>
                     <b>{selectedConversationSharedContent.documents.length}</b>
                   </button>
                   <button
@@ -14813,7 +17947,7 @@ export function MessageAppPage() {
                     }
                   >
                     <MessageNavigationIcon name="shared" />
-                    <span>Links</span>
+                    <span>{t("groupManagement.links")}</span>
                     <b>{selectedConversationSharedContent.links.length}</b>
                   </button>
                 </div>
@@ -14821,7 +17955,7 @@ export function MessageAppPage() {
 
               <section className="message-modern-detail-section">
                 <div className="message-modern-section-heading">
-                  <h3>Group leadership</h3>
+                  <h3>{t("groupManagement.leadership")}</h3>
                   <span>
                     {groupInfoAdmins.length + (groupInfoOwner ? 1 : 0)}
                   </span>
@@ -14840,7 +17974,7 @@ export function MessageAppPage() {
                       )}
                       <span>
                         <strong>{groupInfoOwner.displayName}</strong>
-                        <small>Owner</small>
+                        <small>{t("groupManagement.owner")}</small>
                       </span>
                     </button>
                   )}
@@ -14853,20 +17987,20 @@ export function MessageAppPage() {
                       {renderAccountAvatar(admin, "message-avatar small")}
                       <span>
                         <strong>{admin.displayName}</strong>
-                        <small>Admin</small>
+                        <small>{t("groupManagement.admin")}</small>
                       </span>
                     </button>
                   ))}
                   {!groupInfoOwner && groupInfoAdmins.length === 0 && (
-                    <p>No group leadership is assigned.</p>
+                    <p>{t("groupManagement.noLeadership")}</p>
                   )}
                 </div>
               </section>
 
               <p className="message-modern-security-note">
                 {groupInfoConversation.groupKind === "OFFICIAL"
-                  ? "Membership and roles follow active organizational assignments."
-                  : "Only current group members can access this conversation and its shared content."}
+                  ? t("groupManagement.membershipNote1")
+                  : t("groupManagement.membershipNote2")}
               </p>
             </div>
           )}
@@ -14875,18 +18009,18 @@ export function MessageAppPage() {
             <div className="message-modern-group-tab">
               <section className="message-modern-detail-section message-modern-members-section">
                 <div className="message-modern-section-heading">
-                  <h3>Members</h3>
+                  <h3>{t("groupInfo.members")}</h3>
                   <span>{groupInfoConversation.memberCount}</span>
                 </div>
 
                 {groupInfoConversation.groupKind === "OFFICIAL" && (
                   <p className="message-modern-security-note compact">
-                    Official membership and roles are read-only here.
+                    {t("groupManagement.officialMembershipReadOnly")}
                   </p>
                 )}
 
                 <div className="message-modern-member-list">
-                  {groupInfoConversation.participants.map((participant) => {
+                  {groupInfoParticipants.map((participant) => {
                     const isViewer = participant.accountId === account?.id;
                     const viewerRole =
                       groupInfoConversation.viewerParticipantRole;
@@ -14894,6 +18028,7 @@ export function MessageAppPage() {
                       groupInfoConversation.groupKind === "PERSONAL" &&
                       viewerRole === "OWNER" &&
                       participant.participantRole !== "OWNER" &&
+                      participant.role !== "SUPER_ADMIN" &&
                       !isViewer;
                     const canRemove =
                       groupInfoConversation.groupKind === "PERSONAL" &&
@@ -14922,14 +18057,14 @@ export function MessageAppPage() {
                           <span>
                             <strong>
                               {participant.displayName}
-                              {isViewer ? " (You)" : ""}
+                              {isViewer ? ` ${t("groupInfo.youSuffix")}` : ""}
                             </strong>
                             <small>
                               {participant.employee?.designation ??
-                                roleLabel(participant.role)}
+                                roleLabel(participant.role, t)}
                             </small>
                           </span>
-                          <b>{roleLabel(participant.participantRole)}</b>
+                          <b>{roleLabel(participant.participantRole, t)}</b>
                         </button>
 
                         {(canChangeRole || canRemove) && (
@@ -14948,10 +18083,10 @@ export function MessageAppPage() {
                                 disabled={groupActionAccountId !== null}
                               >
                                 {groupActionAccountId === participant.accountId
-                                  ? "Working..."
+                                  ? t("groupManagement.working")
                                   : participant.participantRole === "ADMIN"
-                                    ? "Remove admin"
-                                    : "Make admin"}
+                                    ? t("groupManagement.removeAdmin")
+                                    : t("groupManagement.makeAdmin")}
                               </button>
                             )}
                             {canRemove && (
@@ -14965,7 +18100,7 @@ export function MessageAppPage() {
                                 }
                                 disabled={groupActionAccountId !== null}
                               >
-                                Remove
+                                {t("groupManagement.remove")}
                               </button>
                             )}
                           </div>
@@ -14980,8 +18115,8 @@ export function MessageAppPage() {
                 groupInfoConversation.canManageGroup && (
                   <section className="message-modern-detail-section">
                     <div className="message-modern-section-heading">
-                      <h3>Add members</h3>
-                      <span>{groupSelectedAccountIds.length} selected</span>
+                      <h3>{t("groupManagement.addMembers")}</h3>
+                      <span>{t("summary.selected", { total: groupSelectedAccountIds.length })}</span>
                     </div>
                     <label className="message-modern-search-field">
                       <MessageNavigationIcon name="search" />
@@ -14989,18 +18124,18 @@ export function MessageAppPage() {
                         type="search"
                         value={groupSearch}
                         onChange={(event) => setGroupSearch(event.target.value)}
-                        placeholder="Search employees"
+                        placeholder={t("privateGroup.searchEmployees")}
                       />
                     </label>
                     <div className="message-modern-add-member-list">
                       {groupContactsLoading ? (
                         <div className="message-list-state compact">
                           <span className="message-small-spinner" />
-                          <p>Searching accounts...</p>
+                          <p>{t("groupManagement.searchingAccounts")}</p>
                         </div>
                       ) : groupContacts.length === 0 ? (
                         <div className="message-list-state compact">
-                          <p>No matching active accounts.</p>
+                          <p>{t("groupManagement.noMatchingAccounts")}</p>
                         </div>
                       ) : (
                         groupContacts.map((contact) => {
@@ -15039,13 +18174,13 @@ export function MessageAppPage() {
                                 <strong>{contact.displayName}</strong>
                                 <small>
                                   {alreadyMember
-                                    ? "Already a member"
+                                    ? t("groupManagement.alreadyMember")
                                     : eligible
                                       ? contact.employee?.designation ??
-                                      roleLabel(contact.role)
+                                      roleLabel(contact.role, t)
                                       : contact.contactMode === "BLOCKED"
-                                        ? "Blocked private contact"
-                                        : "First-contact approval required"}
+                                        ? t("groupManagement.blockedPrivateContact")
+                                        : t("privateGroup.firstContactApproval")}
                                 </small>
                               </span>
                             </label>
@@ -15061,7 +18196,7 @@ export function MessageAppPage() {
                         groupSelectedAccountIds.length === 0 || groupSubmitting
                       }
                     >
-                      {groupSubmitting ? "Adding..." : "Add selected members"}
+                      {groupSubmitting ? t("groupManagement.adding") : t("groupManagement.addSelectedMembers")}
                     </button>
                   </section>
                 )}
@@ -15072,8 +18207,8 @@ export function MessageAppPage() {
             <div className="message-modern-group-tab">
               <section className="message-modern-detail-section">
                 <div className="message-modern-section-heading">
-                  <h3>Group details</h3>
-                  <span>Editable</span>
+                  <h3>{t("groupManagement.groupDetails")}</h3>
+                  <span>{t("groupManagement.editable")}</span>
                 </div>
 
                 <div className="message-modern-group-photo-setting">
@@ -15082,8 +18217,8 @@ export function MessageAppPage() {
                     "message-group-photo-preview",
                   )}
                   <div>
-                    <strong>Group photo</strong>
-                    <small>JPG, PNG or WEBP · Maximum 5 MB</small>
+                    <strong>{t("groupManagement.groupPhoto")}</strong>
+                    <small>{t("groupManagement.groupPhotoHint")}</small>
                     <div>
                       <input
                         ref={groupPhotoInputRef}
@@ -15100,10 +18235,10 @@ export function MessageAppPage() {
                         disabled={groupPhotoUploading || groupSubmitting}
                       >
                         {groupPhotoUploading
-                          ? "Uploading..."
+                          ? t("groupManagement.uploading")
                           : groupInfoConversation.groupPhotoKey
-                            ? "Change photo"
-                            : "Upload photo"}
+                            ? t("groupManagement.changePhoto")
+                            : t("groupManagement.uploadPhoto")}
                       </button>
                       {groupInfoConversation.groupPhotoKey && (
                         <button
@@ -15112,7 +18247,7 @@ export function MessageAppPage() {
                           onClick={() => void handleRemoveGroupPhoto()}
                           disabled={groupPhotoUploading || groupSubmitting}
                         >
-                          Remove
+                          {t("groupManagement.remove")}
                         </button>
                       )}
                     </div>
@@ -15120,7 +18255,7 @@ export function MessageAppPage() {
                 </div>
 
                 <label className="message-modern-field">
-                  <span>Group name</span>
+                  <span>{t("groupCreateWorkspace.groupName")}</span>
                   <input
                     type="text"
                     value={groupTitle}
@@ -15129,7 +18264,7 @@ export function MessageAppPage() {
                   />
                 </label>
                 <label className="message-modern-field">
-                  <span>Description</span>
+                  <span>{t("groupManagement.description")}</span>
                   <textarea
                     value={groupDescription}
                     onChange={(event) =>
@@ -15137,7 +18272,7 @@ export function MessageAppPage() {
                     }
                     maxLength={500}
                     rows={3}
-                    placeholder="Optional group description"
+                    placeholder={t("groupManagement.descriptionPlaceholder")}
                   />
                 </label>
                 <button
@@ -15146,23 +18281,23 @@ export function MessageAppPage() {
                   onClick={() => void handleSaveGroupDetails()}
                   disabled={!groupTitle.trim() || groupSubmitting}
                 >
-                  {groupSubmitting ? "Saving..." : "Save group details"}
+                  {groupSubmitting ? t("groupManagement.saving") : t("groupManagement.saveDetails")}
                 </button>
               </section>
 
               {groupInfoConversation.groupKind === "PERSONAL" && (
                 <section className="message-modern-detail-section">
                   <div className="message-modern-section-heading">
-                    <h3>Invitation link</h3>
-                    <span>Personal group</span>
+                    <h3>{t("groupManagement.invitationLink")}</h3>
+                    <span>{t("groupManagement.personalGroup")}</span>
                   </div>
 
                   {groupInviteLoading ? (
-                    <p>Loading invitation link...</p>
+                    <p>{t("groupManagement.loadingInvite")}</p>
                   ) : groupInviteLink ? (
                     <>
                       <label className="message-modern-field">
-                        <span>Active link</span>
+                        <span>{t("groupManagement.activeLink")}</span>
                         <input value={groupInviteUrl} readOnly />
                       </label>
                       <div className="message-modern-inline-actions">
@@ -15170,31 +18305,31 @@ export function MessageAppPage() {
                           type="button"
                           onClick={() => void handleCopyGroupInviteLink()}
                         >
-                          Copy
+                          {t("groupManagement.copy")}
                         </button>
                         <button
                           type="button"
                           onClick={() => void handleCreateGroupInviteLink()}
                         >
-                          Reset
+                          {t("groupManagement.reset")}
                         </button>
                         <button
                           type="button"
                           className="danger"
                           onClick={() => void handleRevokeGroupInviteLink()}
                         >
-                          Revoke
+                          {t("groupManagement.revoke")}
                         </button>
                       </div>
                     </>
                   ) : (
                     <>
-                      <p>No active invitation link.</p>
+                      <p>{t("groupManagement.noActiveInvite")}</p>
                       <button
                         type="button"
                         onClick={() => void handleCreateGroupInviteLink()}
                       >
-                        Generate invite link
+                        {t("groupManagement.generateInvite")}
                       </button>
                     </>
                   )}
@@ -15215,7 +18350,7 @@ export function MessageAppPage() {
               {groupInfoConversation.groupKind === "OFFICIAL" && (
                 <section className="message-modern-detail-section">
                   <div className="message-modern-section-heading">
-                    <h3>Official group audit</h3>
+                    <h3>{t("groupManagement.auditTitle")}</h3>
                     {account?.role === "SUPER_ADMIN" && (
                       <button
                         type="button"
@@ -15223,25 +18358,25 @@ export function MessageAppPage() {
                         disabled={officialGroupReconciling}
                       >
                         {officialGroupReconciling
-                          ? "Reconciling..."
-                          : "Reconcile"}
+                          ? t("groupManagement.reconciling")
+                          : t("groupManagement.reconcile")}
                       </button>
                     )}
                   </div>
                   {officialGroupAuditLoading ? (
                     <div className="message-list-state compact">
                       <span className="message-small-spinner" />
-                      <p>Loading audit history...</p>
+                      <p>{t("groupManagement.loadingAudit")}</p>
                     </div>
                   ) : officialGroupAudit.length === 0 ? (
-                    <p>No official group audit entries are available.</p>
+                    <p>{t("groupManagement.noAudit")}</p>
                   ) : (
                     <div className="message-modern-audit-list">
                       {officialGroupAudit.map((entry) => (
                         <article key={entry.id}>
-                          <strong>{officialAuditLabel(entry)}</strong>
+                          <strong>{officialAuditLabel(entry, t)}</strong>
                           <small>
-                            {entry.actor?.displayName ?? "System"} ·{" "}
+                            {entry.actor?.displayName ?? t("groupManagement.system")} ·{" "}
                             {notificationTimestampLabel(entry.createdAt)}
                           </small>
                         </article>
@@ -15263,12 +18398,12 @@ export function MessageAppPage() {
                     kind: "LEAVE_GROUP",
                     conversationId: groupInfoConversation.id,
                     conversationTitle:
-                      groupInfoConversation.title ?? "this group",
+                      groupInfoConversation.title ?? t("groupInfo.thisGroup"),
                   })
                 }
                 disabled={groupSubmitting}
               >
-                {groupSubmitting ? "Leaving..." : "Leave group"}
+                {groupSubmitting ? t("groupInfo.leaving") : t("groupInfo.leaveGroup")}
               </button>
             </section>
           )}
@@ -15293,17 +18428,16 @@ export function MessageAppPage() {
             className="message-create-flow-back"
             onClick={closePrivateGroupDialog}
             disabled={privateGroupSubmitting}
-            aria-label="Back to private conversation"
-            title="Back to private conversation"
+            aria-label={t("privateGroup.back")}
+            title={t("privateGroup.back")}
           >
             ←
           </button>
           <div>
-            <span>Add member</span>
-            <h2>Create a group from this conversation</h2>
+            <span>{t("privateGroup.addMember")}</span>
+            <h2>{t("privateGroup.title")}</h2>
             <p>
-              A separate group will be created. This private conversation stays
-              unchanged.
+              {t("privateGroup.description")}
             </p>
           </div>
         </header>
@@ -15319,11 +18453,11 @@ export function MessageAppPage() {
             <section className="message-add-members-people-panel">
               <header className="message-create-group-panel-header">
                 <div>
-                  <span>People</span>
-                  <h3>Choose members</h3>
-                  <p>Only eligible active employees can be selected.</p>
+                  <span>{t("privateGroup.people")}</span>
+                  <h3>{t("privateGroup.chooseMembers")}</h3>
+                  <p>{t("privateGroup.eligibleEmployees")}</p>
                 </div>
-                <strong>{privateGroupSelectedAccountIds.length} selected</strong>
+                <strong>{t("summary.selected", { total: privateGroupSelectedAccountIds.length })}</strong>
               </header>
 
               <label className="message-create-group-search">
@@ -15332,7 +18466,7 @@ export function MessageAppPage() {
                   type="search"
                   value={privateGroupSearch}
                   onChange={(event) => setPrivateGroupSearch(event.target.value)}
-                  placeholder="Search employees"
+                  placeholder={t("privateGroup.searchEmployees")}
                   autoFocus
                 />
               </label>
@@ -15340,7 +18474,7 @@ export function MessageAppPage() {
               {privateGroupSelectedContacts.length > 0 && (
                 <div
                   className="message-create-group-selected-strip"
-                  aria-label="Selected members"
+                  aria-label={t("privateGroup.selectedMembersAria")}
                 >
                   {privateGroupSelectedContacts.map((contact) => (
                     <button
@@ -15367,11 +18501,11 @@ export function MessageAppPage() {
                 {privateGroupContactsLoading ? (
                   <div className="message-list-state compact" role="status">
                     <span className="message-small-spinner" aria-hidden="true" />
-                    <p>Searching accounts...</p>
+                    <p>{t("groupManagement.searchingAccounts")}</p>
                   </div>
                 ) : privateGroupContacts.length === 0 ? (
                   <div className="message-list-state compact" role="status">
-                    <p>No matching active accounts.</p>
+                    <p>{t("groupManagement.noMatchingAccounts")}</p>
                   </div>
                 ) : (
                   privateGroupContacts.map((contact) => {
@@ -15404,13 +18538,13 @@ export function MessageAppPage() {
                           <strong>{contact.displayName}</strong>
                           <small>
                             {alreadyOriginalMember
-                              ? "Already in this private conversation"
+                              ? t("privateGroup.alreadyInConversation")
                               : eligible
                                 ? (contact.employee?.designation ??
-                                  roleLabel(contact.role))
+                                  roleLabel(contact.role, t))
                                 : contact.contactMode === "BLOCKED"
-                                  ? "Blocked private contact"
-                                  : "First-contact approval required"}
+                                  ? t("groupManagement.blockedPrivateContact")
+                                  : t("groupManagement.firstContactApproval")}
                           </small>
                         </span>
 
@@ -15430,9 +18564,9 @@ export function MessageAppPage() {
             <aside className="message-add-members-setup-panel">
               <div className="message-create-group-panel-header compact">
                 <div>
-                  <span>Group setup</span>
-                  <h3>Previous chat context</h3>
-                  <p>Choose one history window for everyone selected.</p>
+                  <span>{t("privateGroup.groupSetup")}</span>
+                  <h3>{t("privateGroup.previousContext")}</h3>
+                  <p>{t("privateGroup.historyDescription")}</p>
                 </div>
               </div>
 
@@ -15455,15 +18589,15 @@ export function MessageAppPage() {
                       disabled={privateGroupSubmitting}
                     />
                     <span>
-                      <strong>{option.label}</strong>
-                      <small>{option.description}</small>
+                      <strong>{t(option.labelKey)}</strong>
+                      <small>{t(option.descriptionKey)}</small>
                     </span>
                   </label>
                 ))}
               </div>
 
               <div className="message-add-members-summary">
-                <span>Selected members</span>
+                <span>{t("privateGroup.selectedMembers")}</span>
                 <strong>{privateGroupSelectedAccountIds.length}</strong>
               </div>
 
@@ -15473,7 +18607,7 @@ export function MessageAppPage() {
                   onClick={closePrivateGroupDialog}
                   disabled={privateGroupSubmitting}
                 >
-                  Cancel
+                  {t("actions.cancel")}
                 </button>
                 <button
                   type="button"
@@ -15481,7 +18615,7 @@ export function MessageAppPage() {
                   onClick={() => void handleCreatePrivateGroup()}
                   disabled={!canCreatePrivateGroup}
                 >
-                  {privateGroupSubmitting ? "Creating..." : "Create group"}
+                  {privateGroupSubmitting ? t("privateGroup.creating") : t("privateGroup.createGroup")}
                 </button>
               </div>
             </aside>
@@ -15507,22 +18641,22 @@ export function MessageAppPage() {
             type="button"
             className="message-create-flow-back"
             onClick={closeGroupDialog}
-            aria-label="Back to groups"
-            title="Back to groups"
+            aria-label={t("groupCreateWorkspace.backToGroups")}
+            title={t("groupCreateWorkspace.backToGroups")}
           >
             ←
           </button>
           <div>
-            <span>New group</span>
+            <span>{t("groupCreateWorkspace.newGroup")}</span>
             <h2>
               {isOfficialGroup
-                ? "Create an official group"
-                : "Create a personal group"}
+                ? t("groupCreateWorkspace.officialTitle")
+                : t("groupCreateWorkspace.personalTitle")}
             </h2>
             <p>
               {isOfficialGroup
-                ? "Choose the organizational scope, then add a clear group identity."
-                : "Choose the people first, then finish the group details."}
+                ? t("groupCreateWorkspace.officialDescription")
+                : t("groupCreateWorkspace.personalDescription")}
             </p>
           </div>
         </header>
@@ -15541,20 +18675,20 @@ export function MessageAppPage() {
             <section className="message-create-group-people-panel">
               <header className="message-create-group-panel-header">
                 <div>
-                  <span>{isOfficialGroup ? "Membership" : "People"}</span>
+                  <span>{isOfficialGroup ? t("groupCreateWorkspace.membership") : t("groupCreateWorkspace.people")}</span>
                   <h3>
                     {isOfficialGroup
-                      ? "Choose organizational scope"
-                      : "Choose group members"}
+                      ? t("groupCreateWorkspace.chooseScope")
+                      : t("groupCreateWorkspace.chooseMembers")}
                   </h3>
                   <p>
                     {isOfficialGroup
-                      ? "Eligible members are synchronized automatically from the selected scope."
-                      : "Only eligible active employees can be selected."}
+                      ? t("groupCreateWorkspace.officialMembersHint")
+                      : t("privateGroup.eligibleEmployees")}
                   </p>
                 </div>
                 {!isOfficialGroup && (
-                  <strong>{groupSelectedAccountIds.length} selected</strong>
+                  <strong>{t("summary.selected", { total: groupSelectedAccountIds.length })}</strong>
                 )}
               </header>
 
@@ -15564,7 +18698,7 @@ export function MessageAppPage() {
                     <MessageNavigationIcon name="newGroup" />
                   </div>
                   <label className="message-group-scope-field">
-                    <span>Organizational scope</span>
+                    <span>{t("groupCreateWorkspace.organizationalScope")}</span>
                     <select
                       value={officialGroupScopeKey}
                       onChange={(event) => {
@@ -15583,8 +18717,8 @@ export function MessageAppPage() {
                     >
                       <option value="">
                         {officialGroupScopesLoading
-                          ? "Loading official scopes..."
-                          : "Select an official scope"}
+                          ? t("groupCreateWorkspace.loadingScopes")
+                          : t("groupCreateWorkspace.selectScope")}
                       </option>
                       {officialGroupScopes.map((scope) => (
                         <option key={scope.key} value={scope.key}>
@@ -15595,33 +18729,32 @@ export function MessageAppPage() {
                   </label>
 
                   <div className="message-create-group-scope-summary">
-                    <span>Membership source</span>
+                    <span>{t("groupCreateWorkspace.membershipSource")}</span>
                     <strong>
                       {selectedOfficialGroupScope?.label ??
-                        "No organizational scope selected"}
+                        t("groupCreateWorkspace.noScopeSelected")}
                     </strong>
                     <small>
-                      Membership remains controlled by current organizational
-                      assignments.
+                      {t("groupCreateWorkspace.membershipControlled")}
                     </small>
                   </div>
                 </div>
               ) : (
                 <>
                   <label className="message-create-group-search">
-                    <span className="sr-only">Search eligible employees</span>
+                    <span className="sr-only">{t("groupCreateWorkspace.searchEligibleEmployees")}</span>
                     <input
                       type="search"
                       value={groupSearch}
                       onChange={(event) => setGroupSearch(event.target.value)}
-                      placeholder="Search name, employee ID or designation"
+                      placeholder={t("groupCreateWorkspace.searchPlaceholder")}
                     />
                   </label>
 
                   {groupSelectedContacts.length > 0 && (
                     <div
                       className="message-create-group-selected-strip"
-                      aria-label="Selected group members"
+                      aria-label={t("groupCreateWorkspace.selectedMembersAria")}
                     >
                       {groupSelectedContacts.map((contact) => (
                         <button
@@ -15648,11 +18781,11 @@ export function MessageAppPage() {
                     {groupContactsLoading ? (
                       <div className="message-list-state compact" role="status">
                         <span className="message-small-spinner" aria-hidden="true" />
-                        <p>Searching accounts...</p>
+                        <p>{t("groupManagement.searchingAccounts")}</p>
                       </div>
                     ) : groupContacts.length === 0 ? (
                       <div className="message-list-state compact" role="status">
-                        <p>No matching active accounts.</p>
+                        <p>{t("groupManagement.noMatchingAccounts")}</p>
                       </div>
                     ) : (
                       groupContacts.map((contact) => {
@@ -15686,10 +18819,10 @@ export function MessageAppPage() {
                               <small>
                                 {eligible
                                   ? (contact.employee?.designation ??
-                                    roleLabel(contact.role))
+                                    roleLabel(contact.role, t))
                                   : contact.contactMode === "BLOCKED"
                                     ? "Blocked private contact"
-                                    : "First-contact approval required"}
+                                    : t("privateGroup.firstContactApproval")}
                               </small>
                             </span>
 
@@ -15711,15 +18844,15 @@ export function MessageAppPage() {
             <aside className="message-create-group-setup-panel">
               <div className="message-create-group-panel-header compact">
                 <div>
-                  <span>Group setup</span>
-                  <h3>Identity and type</h3>
-                  <p>Keep the name clear and the description brief.</p>
+                  <span>{t("privateGroup.groupSetup")}</span>
+                  <h3>{t("groupCreateWorkspace.identityAndType")}</h3>
+                  <p>{t("groupCreateWorkspace.identityHint")}</p>
                 </div>
               </div>
 
               {canCreateOfficialGroup && (
                 <fieldset className="message-create-group-type-field">
-                  <legend>Group type</legend>
+                  <legend>{t("groupCreateWorkspace.groupType")}</legend>
                   <div className="message-group-kind-options">
                     <button
                       type="button"
@@ -15730,8 +18863,8 @@ export function MessageAppPage() {
                       }}
                       disabled={groupSubmitting}
                     >
-                      <strong>Personal</strong>
-                      <small>Choose members</small>
+                      <strong>{t("groupCreateWorkspace.personal")}</strong>
+                      <small>{t("groupCreateWorkspace.chooseMembersShort")}</small>
                     </button>
 
                     <button
@@ -15760,8 +18893,8 @@ export function MessageAppPage() {
                       }}
                       disabled={groupSubmitting || officialGroupScopesLoading}
                     >
-                      <strong>Official</strong>
-                      <small>Use scope</small>
+                      <strong>{t("groupCreateWorkspace.official")}</strong>
+                      <small>{t("groupCreateWorkspace.useScope")}</small>
                     </button>
                   </div>
                 </fieldset>
@@ -15769,20 +18902,20 @@ export function MessageAppPage() {
 
               <div className="message-create-group-fields">
                 <label>
-                  <span>Group name</span>
+                  <span>{t("groupCreateWorkspace.groupName")}</span>
                   <input
                     type="text"
                     value={groupTitle}
                     onChange={(event) => setGroupTitle(event.target.value)}
                     maxLength={150}
-                    placeholder="Enter group name"
+                    placeholder={t("groupCreateWorkspace.groupNamePlaceholder")}
                     autoFocus={isOfficialGroup}
                   />
                 </label>
 
                 <label>
                   <span>
-                    Description <em>Optional</em>
+                    {t("groupCreateWorkspace.description")} <em>{t("groupCreateWorkspace.optional")}</em>
                   </span>
                   <textarea
                     value={groupDescription}
@@ -15791,21 +18924,21 @@ export function MessageAppPage() {
                     }
                     maxLength={500}
                     rows={4}
-                    placeholder="Add a short purpose or context"
+                    placeholder={t("groupCreateWorkspace.descriptionPlaceholder")}
                   />
                 </label>
               </div>
 
               <div className="message-create-group-status-card">
                 <div>
-                  <span>Type</span>
+                  <span>{t("groupCreateWorkspace.groupType")}</span>
                   <strong>{isOfficialGroup ? "Official" : "Personal"}</strong>
                 </div>
                 <div>
-                  <span>{isOfficialGroup ? "Scope" : "Members"}</span>
+                  <span>{isOfficialGroup ? t("groupCreateWorkspace.scope") : t("groupCreateWorkspace.members")}</span>
                   <strong>
                     {isOfficialGroup
-                      ? (selectedOfficialGroupScope?.label ?? "Not selected")
+                      ? (selectedOfficialGroupScope?.label ?? t("groupCreateWorkspace.notSelected"))
                       : groupSelectedAccountIds.length}
                   </strong>
                 </div>
@@ -15817,7 +18950,7 @@ export function MessageAppPage() {
                   onClick={closeGroupDialog}
                   disabled={groupSubmitting}
                 >
-                  Cancel
+                  {t("actions.cancel")}
                 </button>
                 <button
                   type="button"
@@ -15826,10 +18959,10 @@ export function MessageAppPage() {
                   disabled={!canSubmitGroup}
                 >
                   {groupSubmitting
-                    ? "Creating..."
+                    ? t("groupCreateWorkspace.creating")
                     : isOfficialGroup
-                      ? "Create official group"
-                      : "Create group"}
+                      ? t("groupCreateWorkspace.createOfficialGroup")
+                      : t("groupCreateWorkspace.createGroup")}
                 </button>
               </div>
             </aside>
@@ -15839,44 +18972,661 @@ export function MessageAppPage() {
     );
   }
 
+  function renderMessageListWorkspaceContent(): ReactNode {
+    if (
+      listMode &&
+      !selectedChatFolder &&
+      (chatFoldersLoading || (!chatFoldersError && !listWorkspaceError))
+    ) {
+      return (
+        <div className="message-list-workspace">
+          <div className="message-list-workspace-state" role="status">
+            <span className="message-small-spinner" aria-hidden="true" />
+            <strong>{t("listWorkspace.loadingList")}</strong>
+          </div>
+        </div>
+      );
+    }
+
+    if (listMode && !selectedChatFolder) {
+      return (
+        <div className="message-list-workspace">
+          <header className="message-list-workspace-header">
+            <button
+              type="button"
+              className="message-mobile-back"
+              onClick={() => navigate("/messages")}
+              aria-label={t("navigation.backToChats")}
+            >
+              ←
+            </button>
+            <div>
+              <span>{t("listWorkspace.myLists")}</span>
+              <h2>{t("listWorkspace.unavailable")}</h2>
+              <p>
+                {t("listWorkspace.unavailableDescription")}
+              </p>
+            </div>
+            <button
+              type="button"
+              className="message-workspace-close-action"
+              onClick={() => navigate("/messages")}
+            >
+              {t("navigation.backToChats")}
+            </button>
+          </header>
+          <div className="message-list-workspace-body">
+            <div className="message-list-workspace-state danger" role="alert">
+              <strong>
+                {chatFoldersError ??
+                  listWorkspaceError ??
+                  t("listWorkspace.notFound")}
+              </strong>
+              <button
+                type="button"
+                onClick={() => {
+                  setListWorkspaceError(null);
+                  void loadChatFolders();
+                }}
+              >
+                {t("actions.retry")}
+              </button>
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    const editingExistingList = listEditMode && Boolean(selectedChatFolder);
+    const selectedCount = listSelectedConversationIds.length;
+
+    return (
+      <div className="message-list-workspace">
+        <header className="message-list-workspace-header">
+          <button
+            type="button"
+            className="message-mobile-back"
+            onClick={() =>
+              listEditMode && selectedListId
+                ? navigate(`/messages/lists/${selectedListId}`)
+                : navigate("/messages")
+            }
+            aria-label={
+              listEditMode ? t("listWorkspace.backToListConversations") : t("navigation.backToChats")
+            }
+          >
+            ←
+          </button>
+          <div>
+            <span>{t("listWorkspace.messages")}</span>
+            <h2>{listCreateMode ? t("listWorkspace.createList") : t("listWorkspace.manageList")}</h2>
+          </div>
+          <button
+            type="button"
+            className="message-workspace-close-action"
+            onClick={() =>
+              listEditMode && selectedListId
+                ? navigate(`/messages/lists/${selectedListId}`)
+                : navigate("/messages")
+            }
+          >
+            {listEditMode ? t("listWorkspace.backToList") : t("navigation.backToChats")}
+          </button>
+        </header>
+
+        <form
+          className="message-list-workspace-body"
+          onSubmit={(event) => void handleSaveMessageList(event)}
+        >
+          <section className="message-list-editor-card">
+            <div className="message-list-editor-heading">
+              <div>
+                <h3>{t("listWorkspace.listName")}</h3>
+              </div>
+              <small>{listNameDraft.length}/100</small>
+            </div>
+
+            <label className="message-list-name-field">
+              <span>{t("listWorkspace.listName")}</span>
+              <input
+                type="text"
+                value={listNameDraft}
+                maxLength={100}
+                autoComplete="off"
+                placeholder={t("listWorkspace.namePlaceholder")}
+                onChange={(event) => {
+                  setListNameDraft(event.target.value);
+                  setListWorkspaceError(null);
+                              }}
+                disabled={listSaving || listDeleting}
+                autoFocus={listCreateMode}
+              />
+
+            </label>
+          </section>
+
+          <section className="message-list-editor-card message-list-members-card">
+            <div className="message-list-editor-heading">
+              <div>
+                <h3>{t("listWorkspace.peopleAndGroups")}</h3>
+              </div>
+              <strong>{t("summary.selected", { total: selectedCount })}</strong>
+            </div>
+
+            <label className="message-list-picker-search">
+              <span className="sr-only">{t("listWorkspace.searchAria")}</span>
+              <MessageNavigationIcon name="search" />
+              <input
+                type="search"
+                value={listCandidateSearch}
+                placeholder={t("listWorkspace.searchPlaceholder")}
+                onChange={(event) => setListCandidateSearch(event.target.value)}
+                disabled={listCandidatesLoading || listSaving || listDeleting}
+              />
+              {listCandidateSearch && (
+                <button
+                  type="button"
+                  onClick={() => setListCandidateSearch("")}
+                  aria-label={t("listWorkspace.clearSearch")}
+                >
+                  ×
+                </button>
+              )}
+            </label>
+
+            <div
+              className="message-list-picker"
+              aria-busy={listCandidatesLoading}
+            >
+              {listCandidatesLoading ? (
+                <div className="message-list-workspace-state" role="status">
+                  <span className="message-small-spinner" aria-hidden="true" />
+                  <strong>{t("listWorkspace.loadingConversations")}</strong>
+                </div>
+              ) : filteredListCandidateConversations.length === 0 ? (
+                <div className="message-list-workspace-state">
+                  <MessageNavigationIcon name="chats" />
+                  <strong>
+                    {listCandidateSearch.trim()
+                      ? t("listWorkspace.noMatchingConversations")
+                      : t("listWorkspace.noConversations")}
+                  </strong>
+                  <small>
+                    {t("listWorkspace.emptyHint")}
+                  </small>
+                </div>
+              ) : (
+                filteredListCandidateConversations.map((conversation) => {
+                  const peer = conversationPeerFor(conversation);
+                  const checked = listSelectedConversationIds.includes(
+                    conversation.id,
+                  );
+                  const category =
+                    conversation.type === "PRIVATE"
+                      ? t("listWorkspace.privateChat")
+                      : conversation.groupKind === "OFFICIAL"
+                        ? t("listWorkspace.officialGroup")
+                        : t("listWorkspace.personalGroup");
+                  const secondary =
+                    conversation.type === "PRIVATE"
+                      ? peer?.employee?.designation ??
+                        roleLabel(peer?.role ?? "EMPLOYEE", t)
+                      : t("profileDetail.membersCount", { count: conversation.memberCount });
+
+                  return (
+                    <label
+                      key={conversation.id}
+                      className={`message-list-picker-row${checked ? " selected" : ""}`}
+                    >
+                      <input
+                        type="checkbox"
+                        checked={checked}
+                        onChange={() => toggleListConversation(conversation.id)}
+                        disabled={listSaving || listDeleting}
+                      />
+                      <span className="message-avatar-presence">
+                        {peer
+                          ? renderAccountAvatar(peer)
+                          : renderGroupAvatar(conversation)}
+                      </span>
+                      <span className="message-list-picker-copy">
+                        <strong>
+                          {conversation.title ?? t("listWorkspace.privateConversation")}
+                        </strong>
+                        <small>
+                          {category} · {secondary}
+                        </small>
+                      </span>
+                      <span
+                        className="message-list-picker-check"
+                        aria-hidden="true"
+                      >
+                        {checked ? "✓" : ""}
+                      </span>
+                    </label>
+                  );
+                })
+              )}
+            </div>
+          </section>
+
+          {listWorkspaceError && (
+            <div className="message-list-workspace-feedback danger" role="alert">
+              {listWorkspaceError}
+            </div>
+          )}
+
+          <div className="message-list-workspace-actions">
+            {editingExistingList && listDeleteConfirmOpen ? (
+              <div
+                className="message-list-delete-confirm"
+                role="group"
+                aria-label={t("listWorkspace.confirmDeleteAria")}
+              >
+                <span>
+                  {t("listWorkspace.deleteConfirmation", { name: selectedChatFolder?.name ?? "" })}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setListDeleteConfirmOpen(false)}
+                  disabled={listDeleting}
+                >
+                  {t("actions.cancel")}
+                </button>
+                <button
+                  type="button"
+                  className="danger"
+                  onClick={() => void handleDeleteMessageList()}
+                  disabled={listDeleting}
+                >
+                  {listDeleting ? t("listWorkspace.deleting") : t("listWorkspace.deleteList")}
+                </button>
+              </div>
+            ) : (
+              <>
+                {editingExistingList && (
+                  <button
+                    type="button"
+                    className="message-list-delete-trigger"
+                    onClick={() => setListDeleteConfirmOpen(true)}
+                    disabled={listSaving || listDeleting}
+                  >
+                    {t("listWorkspace.deleteList")}
+                  </button>
+                )}
+                <div className="message-list-selection-summary">
+                  <strong>{t("summary.selected", { total: selectedCount })}</strong>
+                </div>
+                <button
+                  type="submit"
+                  className="primary"
+                  disabled={
+                    listSaving ||
+                    listDeleting ||
+                    listCandidatesLoading ||
+                    !listNameDraft.trim()
+                  }
+                >
+                  {listSaving
+                    ? t("listWorkspace.saving")
+                    : listCreateMode
+                      ? t("listWorkspace.createList")
+                      : t("listWorkspace.saveChanges")}
+                </button>
+              </>
+            )}
+          </div>
+        </form>
+      </div>
+    );
+  }
+
+  function renderMessageListOverviewContent(): ReactNode {
+    if (!selectedChatFolder) {
+      return null;
+    }
+
+    const conversationCount = selectedChatFolder.items.filter(
+      (item) => item.conversationId,
+    ).length;
+
+    return (
+      <div className="message-collection-welcome-state message-list-welcome-state">
+        <span className="message-collection-welcome-icon message-list-welcome-brand" aria-hidden="true">
+          <MessageNavigationIcon name="chats" />
+        </span>
+        <h2>{t("listOverview.selectConversation")}</h2>
+        <p>
+          {conversationCount === 0
+            ? t("listOverview.empty", { name: selectedChatFolder.name })
+            : t("listOverview.choose", { name: selectedChatFolder.name })}
+        </p>
+      </div>
+    );
+  }
+
   const resolvedMessagingTheme = resolveMessagingTheme(
     messagingCustomization.theme,
     systemPrefersDark,
   );
-  const workspaceDetailOpen = newConversationMode
-    ? false
-    : Boolean(
-      selectedConversation ||
-      (requestMode && selectedMessageRequest) ||
-      settingsMode ||
-      ownProfileMode ||
-      createGroupMode,
-    );
+  const workspaceDetailOpen = listCreateMode
+    ? true
+    : listMode
+      ? Boolean(selectedConversation || listEditMode)
+      : newConversationMode
+        ? false
+        : Boolean(
+            selectedConversation ||
+            (requestMode && selectedMessageRequest) ||
+            settingsMode ||
+            ownProfileMode ||
+            createGroupMode,
+          );
 
   const sidebarTitle = announcementMode
-    ? "Announcements"
+    ? t("sidebar.titles.announcements")
     : requestMode
-      ? "Message requests"
+      ? t("sidebar.titles.requests")
       : starredMode
-        ? "Starred messages"
-        : notificationMode
-          ? "Notifications"
-          : settingsMode
-            ? "Settings"
-            : ownProfileMode
-              ? "My profile"
-              : newConversationMode
-                ? "New conversation"
-                : createGroupMode
-                  ? "Create group"
-                  : conversationCategory === "GROUPS" ||
-                    conversationCategory === "OFFICIAL"
-                    ? "Groups"
-                    : conversationListView === "ARCHIVED"
-                      ? "Archived conversations"
-                      : conversationListView === "FAVORITES"
-                        ? "Favorite conversations"
-                        : "Conversations";
+        ? t("sidebar.titles.starred")
+        : archivedMode
+          ? t("sidebar.titles.archived")
+          : notificationMode
+            ? t("sidebar.titles.notifications")
+            : settingsMode
+              ? t("sidebar.titles.settings")
+              : ownProfileMode
+                ? t("sidebar.titles.profile")
+                : newConversationMode
+                  ? t("sidebar.titles.newConversation")
+                  : createGroupMode
+                    ? t("sidebar.titles.createGroup")
+                    : listCreateMode
+                      ? t("sidebar.titles.createList")
+                      : conversationCategory === "GROUPS" ||
+                      conversationCategory === "OFFICIAL"
+                        ? t("sidebar.titles.groups")
+                        : t("sidebar.titles.conversations");
+
+  function renderStorageUsageWorkspaceContent(): ReactNode {
+    if (!storageUsageScope) {
+      return null;
+    }
+
+    const conversationScoped = storageUsageScope.kind === "CONVERSATION";
+    const conversationTitle =
+      storageUsage?.scope === "CONVERSATION"
+        ? (storageUsage.conversation.title ??
+          conversations.find(
+            (conversation) => conversation.id === storageUsage.conversation.id,
+          )?.title ??
+          (storageUsage.conversation.type === "GROUP"
+            ? t("storageWorkspace.groupStorage")
+            : t("storageWorkspace.privateChatStorage")))
+        : null;
+
+    return (
+      <div className="message-storage-workspace">
+        <header className="message-storage-workspace-header">
+          <button
+            type="button"
+            className="message-mobile-back"
+            onClick={handleStorageWorkspaceBack}
+            aria-label={conversationScoped ? t("storageWorkspace.backToAll") : t("storageWorkspace.backToSettings")}
+          >
+            ←
+          </button>
+          <div>
+            <span>{t("storageWorkspace.eyebrow")}</span>
+            <h2>{conversationScoped ? conversationTitle : t("storageWorkspace.title")}</h2>
+            <p>
+              {conversationScoped
+                ? t("storageWorkspace.conversationDescription")
+                : t("storageWorkspace.accountDescription")}
+            </p>
+          </div>
+          <button
+            type="button"
+            className="message-workspace-close-action"
+            onClick={handleStorageWorkspaceBack}
+          >
+            {conversationScoped ? t("storageWorkspace.allStorage") : t("storageWorkspace.backToSettingsShort")}
+          </button>
+        </header>
+
+        <div className="message-storage-workspace-scroll">
+          {storageUsageLoading && !storageUsage ? (
+            <div className="message-storage-state" role="status">
+              <span className="message-small-spinner" aria-hidden="true" />
+              <strong>{t("storageWorkspace.loading")}</strong>
+            </div>
+          ) : storageUsageError && !storageUsage ? (
+            <div className="message-storage-state error" role="alert">
+              <MessageNavigationIcon name="storage" />
+              <strong>{t("storageWorkspace.loadError")}</strong>
+              <small>{storageUsageError}</small>
+              <button
+                type="button"
+                onClick={() => void loadStorageUsage(storageUsageScope)}
+              >
+                {t("actions.retry")}
+              </button>
+            </div>
+          ) : storageUsage ? (
+            <div className="message-storage-content">
+              {storageUsageLoading && (
+                <div className="message-storage-refreshing" role="status">
+                  <span className="message-small-spinner" aria-hidden="true" />
+                  {t("storageWorkspace.updating")}
+                </div>
+              )}
+
+              {storageUsageError && (
+                <div className="message-storage-inline-error" role="alert">
+                  <span>{storageUsageError}</span>
+                </div>
+              )}
+
+              <section className="message-storage-overview" aria-label={t("storageWorkspace.overviewAria")}>
+                <div className="message-storage-total">
+                  <span>{t("storageWorkspace.totalStorage")}</span>
+                  <strong>{formatFileSize(storageUsage.totals.logicalVisibleBytes)}</strong>
+                  <small>
+                    {t("storageWorkspace.filesCount", { count: storageUsage.totals.logicalItemCount })}
+                  </small>
+                </div>
+
+                <div className="message-storage-category-grid">
+                  {storageUsage.categories.map((category) => (
+                    <article key={category.key}>
+                      <span
+                        className={`message-storage-category-icon ${category.key.toLowerCase()}`}
+                        aria-hidden="true"
+                      >
+                        {category.label.slice(0, 1)}
+                      </span>
+                      <div>
+                        <strong>
+                          {t(`storageWorkspace.categories.${category.key.toLowerCase()}`)}
+                        </strong>
+                        <small>
+                          {t("storageWorkspace.itemsCount", { count: category.itemCount })}
+                        </small>
+                      </div>
+                      <b>{formatFileSize(category.logicalBytes)}</b>
+                    </article>
+                  ))}
+                </div>
+              </section>
+
+              {storageUsage.scope === "USER" && (
+                <section className="message-storage-section">
+                  <header>
+                    <h3>{t("storageWorkspace.chats")}</h3>
+                    <small>{t("storageWorkspace.chatsWithFiles", { count: storageUsage.storageByConversation.length })}</small>
+                  </header>
+                  {storageUsage.storageByConversation.length === 0 ? (
+                    <p className="message-storage-empty">{t("storageWorkspace.noChatFiles")}</p>
+                  ) : (
+                    <div className="message-storage-conversation-list">
+                      {storageUsage.storageByConversation.map((item) => (
+                        <button
+                          key={item.conversationId}
+                          type="button"
+                          onClick={() =>
+                            openStorageUsage({
+                              kind: "CONVERSATION",
+                              conversationId: item.conversationId,
+                            })
+                          }
+                        >
+                          <span className="message-storage-conversation-avatar">
+                            {(item.conversationTitle ?? t("storageWorkspace.conversationFallback"))
+                              .slice(0, 2)
+                              .toUpperCase()}
+                          </span>
+                          <span>
+                            <strong>
+                              {item.conversationTitle ??
+                                (item.conversationType === "GROUP"
+                                  ? t("storageWorkspace.groupChat")
+                                  : t("storageWorkspace.privateChat"))}
+                            </strong>
+                            <small>
+                              {t("storageWorkspace.filesCount", { count: item.itemCount })}
+                            </small>
+                          </span>
+                          <b>{formatFileSize(item.logicalBytes)}</b>
+                          <span className="message-storage-row-chevron" aria-hidden="true">›</span>
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </section>
+              )}
+
+              <section className="message-storage-section message-storage-largest-section">
+                <header>
+                  <h3>{t("storageWorkspace.largeFiles")}</h3>
+                  <small>{t("storageWorkspace.largestFirst")}</small>
+                </header>
+
+                {storageUsage.largestFiles.length === 0 ? (
+                  <p className="message-storage-empty">{t("storageWorkspace.noFiles")}</p>
+                ) : (
+                  <div className="message-storage-file-list">
+                    {storageUsage.largestFiles.map((file) => {
+                      const actionPending =
+                        storageUsageActionId?.endsWith(file.attachmentId) ?? false;
+                      const deleteConfirmation =
+                        storageDeleteConfirmation?.attachmentId === file.attachmentId
+                          ? storageDeleteConfirmation
+                          : null;
+
+                      return (
+                        <article key={file.attachmentId}>
+                          <span
+                            className={`message-storage-file-type ${file.contentType.toLowerCase()}`}
+                            aria-hidden="true"
+                          >
+                            {file.contentType === "FILE" ? "DOC" : file.contentType.slice(0, 3)}
+                          </span>
+                          <div className="message-storage-file-copy">
+                            <div>
+                              <strong title={file.originalFileName}>{file.originalFileName}</strong>
+                              <b>{formatFileSize(file.fileSizeBytes)}</b>
+                            </div>
+                            <small>
+                              {storageUsage.scope === "USER" &&
+                                `${file.conversationTitle ?? t("storageWorkspace.conversationFallback")} · `}
+                              {file.sender.displayName} · {formatConversationTime(file.sentAt)}
+                            </small>
+                          </div>
+                          <div className="message-storage-file-actions">
+                            <button
+                              type="button"
+                              onClick={() => void openStorageOriginalMessage(file)}
+                              disabled={actionPending}
+                            >
+                              {t("storageWorkspace.open")}
+                            </button>
+
+                            {deleteConfirmation ? (
+                              <div className="message-storage-inline-confirmation" role="status">
+                                <span>
+                                  {deleteConfirmation.mode === "EVERYONE"
+                                    ? t("storageWorkspace.deleteForEveryone")
+                                    : t("storageWorkspace.deleteForYou")}
+                                </span>
+                                <button
+                                  type="button"
+                                  onClick={() => setStorageDeleteConfirmation(null)}
+                                  disabled={actionPending}
+                                >
+                                  {t("storageWorkspace.cancel")}
+                                </button>
+                                <button
+                                  type="button"
+                                  className="danger"
+                                  onClick={() =>
+                                    void handleStorageFileDelete(file, deleteConfirmation.mode)
+                                  }
+                                  disabled={actionPending}
+                                >
+                                  {t("storageWorkspace.delete")}
+                                </button>
+                              </div>
+                            ) : (
+                              <>
+                                {file.canDeleteForMe && (
+                                  <button
+                                    type="button"
+                                    onClick={() =>
+                                      setStorageDeleteConfirmation({
+                                        attachmentId: file.attachmentId,
+                                        mode: "ME",
+                                      })
+                                    }
+                                    disabled={actionPending}
+                                  >
+                                    {t("storageWorkspace.deleteForMeAction")}
+                                  </button>
+                                )}
+                                {file.canDeleteForEveryone && (
+                                  <button
+                                    type="button"
+                                    className="danger"
+                                    onClick={() =>
+                                      setStorageDeleteConfirmation({
+                                        attachmentId: file.attachmentId,
+                                        mode: "EVERYONE",
+                                      })
+                                    }
+                                    disabled={actionPending}
+                                  >
+                                    {t("storageWorkspace.deleteForEveryoneAction")}
+                                  </button>
+                                )}
+                              </>
+                            )}
+                          </div>
+                        </article>
+                      );
+                    })}
+                  </div>
+                )}
+              </section>
+
+              <footer className="message-storage-privacy-note">
+                <MessageNavigationIcon name="official" />
+                <span>{t("storageWorkspace.accessNote")}</span>
+              </footer>
+            </div>
+          ) : null}
+        </div>
+      </div>
+    );
+  }
 
   return (
     <main
@@ -15892,10 +19642,10 @@ export function MessageAppPage() {
               type="button"
               className="message-app-brand"
               onClick={() => navigate("/messages")}
-              aria-label="Open NT Message"
+              aria-label={t("brand.open")}
             >
               <span className="message-app-logo">
-                <img src="/nt-logo.png" alt="Nepal Telecom" />
+                <img src="/nt-logo.png" alt={t("brand.organization")} />
               </span>
             </button>
 
@@ -15904,7 +19654,7 @@ export function MessageAppPage() {
               aria-hidden={!navigationExpanded}
             >
               <strong>NT Message</strong>
-              <small>NEPAL TELECOM</small>
+              <small>{t("brand.organization").toUpperCase()}</small>
             </span>
           </div>
 
@@ -15914,10 +19664,10 @@ export function MessageAppPage() {
             onClick={() => setNavigationExpanded((current) => !current)}
             aria-expanded={navigationExpanded}
             aria-label={
-              navigationExpanded ? "Collapse navigation" : "Expand navigation"
+              navigationExpanded ? t("navigation.collapse") : t("navigation.expand")
             }
             title={
-              navigationExpanded ? "Collapse navigation" : "Expand navigation"
+              navigationExpanded ? t("navigation.collapse") : t("navigation.expand")
             }
           >
             <span aria-hidden="true">{navigationExpanded ? "‹" : "›"}</span>
@@ -15926,19 +19676,21 @@ export function MessageAppPage() {
 
         <nav
           className="message-rail-navigation"
-          aria-label="Messaging sections"
+          aria-label={t("navigation.sectionsAria")}
         >
           <button
             type="button"
             className={
               !announcementMode &&
+                !starredMode &&
+                !archivedMode &&
                 !requestMode &&
                 !notificationMode &&
                 !settingsMode &&
                 !ownProfileMode &&
                 !createGroupMode &&
                 (newConversationMode ||
-                  starredMode ||
+                  listWorkspaceMode ||
                   (conversationCategory === "ALL" &&
                     (conversationListView === "ACTIVE" ||
                       conversationListView === "FAVORITES")))
@@ -15950,39 +19702,39 @@ export function MessageAppPage() {
               setConversationCategory("ALL");
               setConversationListView("ACTIVE");
             }}
-            aria-label="Chats"
-            title={navigationExpanded ? undefined : "Chats"}
+            aria-label={t("navigation.chats")}
+            title={navigationExpanded ? undefined : t("navigation.chats")}
           >
             <span className="message-rail-icon">
               <MessageNavigationIcon name="chats" />
             </span>
-            <span className="message-rail-label">Chats</span>
+            <span className="message-rail-label">{t("navigation.chats")}</span>
           </button>
 
           <button
             type="button"
             className={announcementMode ? "active" : ""}
             onClick={() => navigate("/messages/announcements")}
-            aria-label="Official announcements"
-            title={navigationExpanded ? undefined : "Official announcements"}
+            aria-label={t("navigation.officialAnnouncements")}
+            title={navigationExpanded ? undefined : t("navigation.officialAnnouncements")}
           >
             <span className="message-rail-icon">
               <MessageNavigationIcon name="announcement" />
             </span>
-            <span className="message-rail-label">Announcements</span>
+            <span className="message-rail-label">{t("navigation.announcements")}</span>
           </button>
 
           <button
             type="button"
             className={requestMode ? "active" : ""}
             onClick={() => openMessageRequests("RECEIVED")}
-            aria-label="Message requests"
-            title={navigationExpanded ? undefined : "Message requests"}
+            aria-label={t("navigation.messageRequests")}
+            title={navigationExpanded ? undefined : t("navigation.messageRequests")}
           >
             <span className="message-rail-icon">
               <MessageNavigationIcon name="requests" />
             </span>
-            <span className="message-rail-label">Message requests</span>
+            <span className="message-rail-label">{t("navigation.messageRequests")}</span>
             {messageRequests.counts.receivedPending > 0 && (
               <b>{messageRequests.counts.receivedPending}</b>
             )}
@@ -15993,10 +19745,12 @@ export function MessageAppPage() {
             className={
               !announcementMode &&
                 !starredMode &&
+                !archivedMode &&
                 !requestMode &&
                 !notificationMode &&
                 !settingsMode &&
                 !ownProfileMode &&
+                !listWorkspaceMode &&
                 (createGroupMode ||
                   ((conversationCategory === "GROUPS" ||
                     conversationCategory === "OFFICIAL") &&
@@ -16009,13 +19763,43 @@ export function MessageAppPage() {
               setConversationCategory("GROUPS");
               setConversationListView("ACTIVE");
             }}
-            aria-label="Groups"
-            title={navigationExpanded ? undefined : "Groups"}
+            aria-label={t("navigation.groups")}
+            title={navigationExpanded ? undefined : t("navigation.groups")}
           >
             <span className="message-rail-icon">
               <MessageNavigationIcon name="groups" />
             </span>
-            <span className="message-rail-label">Groups</span>
+            <span className="message-rail-label">{t("navigation.groups")}</span>
+          </button>
+
+          <button
+            type="button"
+            className={starredMode ? "active" : ""}
+            onClick={() => navigate("/messages/starred")}
+            aria-label={t("navigation.starredMessages")}
+            title={navigationExpanded ? undefined : t("navigation.starredMessages")}
+          >
+            <span className="message-rail-icon">
+              <MessageNavigationIcon name="starred" />
+            </span>
+            <span className="message-rail-label">{t("navigation.starredMessages")}</span>
+          </button>
+
+          <button
+            type="button"
+            className={archivedMode ? "active" : ""}
+            onClick={() => {
+              navigate("/messages/archived");
+              setConversationCategory("ALL");
+              setConversationListView("ARCHIVED");
+            }}
+            aria-label={t("navigation.archivedConversations")}
+            title={navigationExpanded ? undefined : t("navigation.archived")}
+          >
+            <span className="message-rail-icon">
+              <MessageNavigationIcon name="archive" />
+            </span>
+            <span className="message-rail-label">{t("navigation.archived")}</span>
           </button>
 
         </nav>
@@ -16025,7 +19809,7 @@ export function MessageAppPage() {
             type="button"
             className={`message-profile-topbar-button${ownProfileMode || profileAccountId === account?.id ? " active" : ""}`}
             onClick={() => openProfile(account?.id)}
-            title={navigationExpanded ? undefined : "My profile"}
+            title={navigationExpanded ? undefined : t("navigation.myProfile")}
           >
             {account ? (
               renderIdentityAvatar(
@@ -16039,8 +19823,8 @@ export function MessageAppPage() {
               </span>
             )}
             <span className="message-profile-rail-copy">
-              <strong>{account?.displayName ?? "NT Message User"}</strong>
-              <small>{account ? roleLabel(account.role) : "Employee"}</small>
+              <strong>{account?.displayName ?? t("profile.userFallback")}</strong>
+              <small>{account ? roleLabel(account.role, t) : t("profile.employee")}</small>
             </span>
           </button>
 
@@ -16049,12 +19833,12 @@ export function MessageAppPage() {
             className={`message-settings-button${settingsMode ? " active" : ""}`}
             onClick={() => openSettingsWorkspace()}
             aria-current={settingsMode ? "page" : undefined}
-            title={navigationExpanded ? undefined : "Settings"}
+            title={navigationExpanded ? undefined : t("navigation.settings")}
           >
             <span className="message-rail-icon">
               <MessageNavigationIcon name="settings" />
             </span>
-            <span className="message-rail-label">Settings</span>
+            <span className="message-rail-label">{t("navigation.settings")}</span>
           </button>
 
           <button
@@ -16062,13 +19846,13 @@ export function MessageAppPage() {
             className={`message-notification-button${notificationMode ? " active" : ""}`}
             onClick={openNotificationsWorkspace}
             aria-current={notificationMode ? "page" : undefined}
-            aria-label="Open notifications"
-            title={navigationExpanded ? undefined : "Notifications"}
+            aria-label={t("navigation.openNotifications")}
+            title={navigationExpanded ? undefined : t("navigation.notifications")}
           >
             <span className="message-rail-icon">
               <MessageNavigationIcon name="bell" />
             </span>
-            <span className="message-rail-label">Notifications</span>
+            <span className="message-rail-label">{t("navigation.notifications")}</span>
             {notificationUnreadCount > 0 && (
               <b>
                 {notificationUnreadCount > 99
@@ -16082,12 +19866,12 @@ export function MessageAppPage() {
             type="button"
             className="message-workspace-return"
             onClick={() => navigate(mainWorkspacePath)}
-            title={navigationExpanded ? undefined : "Back to main workspace"}
+            title={navigationExpanded ? undefined : t("navigation.backToMainWorkspace")}
           >
             <span className="message-rail-icon">
               <MessageNavigationIcon name="workspace" />
             </span>
-            <span className="message-rail-label">Back to workspace</span>
+            <span className="message-rail-label">{t("navigation.backToWorkspace")}</span>
           </button>
 
           <button
@@ -16095,13 +19879,13 @@ export function MessageAppPage() {
             className="message-app-logout"
             onClick={handleLogout}
             disabled={loggingOut}
-            title={navigationExpanded ? undefined : "Sign out"}
+            title={navigationExpanded ? undefined : t("navigation.signOut")}
           >
             <span className="message-rail-icon">
               <MessageNavigationIcon name="logout" />
             </span>
             <span className="message-rail-label">
-              {loggingOut ? "Signing out..." : "Sign out"}
+              {loggingOut ? t("navigation.signingOut") : t("navigation.signOut")}
             </span>
           </button>
         </div>
@@ -16112,7 +19896,7 @@ export function MessageAppPage() {
           type="button"
           className="message-rail-scrim"
           onClick={() => setNavigationExpanded(false)}
-          aria-label="Close messaging navigation"
+          aria-label={t("navigation.closeMessagingNavigation")}
         />
       )}
 
@@ -16136,7 +19920,7 @@ export function MessageAppPage() {
           <button
             type="button"
             onClick={() => setConversationHistoryToast(null)}
-            aria-label="Dismiss conversation action confirmation"
+            aria-label={t("actions.dismissConversationAction")}
           >
             ×
           </button>
@@ -16153,7 +19937,7 @@ export function MessageAppPage() {
           >
             {notificationToast.title}. {messagingSettings.notificationPreview
               ? notificationToast.body
-              : "Open NT Message to view this notification."}
+              : t("notification.openToView")}
           </span>
           <button
             type="button"
@@ -16164,7 +19948,7 @@ export function MessageAppPage() {
             <span>
               {messagingSettings.notificationPreview
                 ? notificationToast.body
-                : "Open NT Message to view this notification."}
+                : t("notification.openToView")}
             </span>
           </button>
         </>
@@ -16205,52 +19989,71 @@ export function MessageAppPage() {
             !privateGroupDialogOpen
             ? " details-open"
             : ""
-          }${createGroupMode ? " create-group-open" : ""}${ownProfileMode ? " profile-workspace-open" : ""}${settingsMode ? " settings-workspace-open" : ""}${notificationMode ? " notification-workspace-open" : ""}`}
+          }${createGroupMode ? " create-group-open" : ""}${listWorkspaceMode ? " list-workspace-open" : ""}${listManagementMode ? " list-management-open" : ""}${ownProfileMode ? " profile-workspace-open" : ""}${settingsMode ? " settings-workspace-open" : ""}${notificationMode ? " notification-workspace-open" : ""}`}
       >
         {/* Create Group owns the full workspace so form instructions and status
             are not duplicated in the conversation sidebar. */}
-        {!createGroupMode && !ownProfileMode && !settingsMode && !notificationMode && (
+        {!createGroupMode &&
+          !ownProfileMode &&
+          !settingsMode &&
+          !notificationMode &&
+          !listManagementMode && (
           <aside className="message-sidebar">
             <div className="message-sidebar-heading">
               <button
                 type="button"
                 className="message-mobile-menu-button"
                 onClick={() => setNavigationExpanded(true)}
-                aria-label="Open messaging navigation"
-                title="Open navigation"
+                aria-label={t("navigation.openMessagingNavigation")}
+                title={t("navigation.openNavigation")}
               >
                 <span aria-hidden="true">☰</span>
               </button>
 
               <div>
-                <span>Messages</span>
+                <span>{t("sidebar.eyebrow")}</span>
                 <h1>{sidebarTitle}</h1>
               </div>
 
               {notificationMode ||
                 ownProfileMode ||
                 newConversationMode ||
-                createGroupMode ? (
+                createGroupMode ||
+                listCreateMode ||
+                listEditMode ? (
                 <button
                   type="button"
                   className="message-sidebar-back-action"
                   onClick={() => navigate("/messages")}
-                  aria-label="Back to chats"
-                  title="Back to chats"
+                  aria-label={t("navigation.backToChats")}
+                  title={t("navigation.backToChats")}
                 >
                   ←
                 </button>
+              ) : listMode ? (
+                <div className="message-sidebar-actions">
+                  <button
+                    type="button"
+                    onClick={openSelectedListManager}
+                    aria-label={t("sidebar.manageNamedList", { name: selectedChatFolder?.name ?? t("sidebar.thisList") })}
+                    title={t("sidebar.manageList")}
+                  >
+                    <MessageNavigationIcon name="edit" />
+                  </button>
+                </div>
               ) : !announcementMode &&
                 !starredMode &&
+                !archivedMode &&
                 !requestMode &&
-                !settingsMode ? (
+                !settingsMode &&
+                !listWorkspaceMode ? (
                 <div className="message-sidebar-actions">
                   <button
                     type="button"
                     className="message-group-new-button"
                     onClick={openCreateGroup}
-                    aria-label="Create a new group"
-                    title="New group"
+                    aria-label={t("sidebar.newGroupAria")}
+                    title={t("sidebar.newGroup")}
                   >
                     <MessageNavigationIcon name="newGroup" />
                   </button>
@@ -16259,8 +20062,8 @@ export function MessageAppPage() {
                     type="button"
                     className="message-new-button"
                     onClick={openNewConversation}
-                    aria-label="Start a new private conversation"
-                    title="New conversation"
+                    aria-label={t("sidebar.newConversationAria")}
+                    title={t("sidebar.newConversation")}
                   >
                     <MessageNavigationIcon name="newChat" />
                   </button>
@@ -16268,20 +20071,27 @@ export function MessageAppPage() {
               ) : null}
             </div>
 
-            {!settingsMode && !ownProfileMode && !createGroupMode && (
+            {!settingsMode &&
+              !ownProfileMode &&
+              !createGroupMode &&
+              !listManagementMode && (
               <label className="message-conversation-search">
                 <span className="sr-only">
                   {newConversationMode
-                    ? "Search eligible accounts"
+                    ? t("search.eligibleAccountsAria")
                     : announcementMode
-                      ? "Search official groups"
+                      ? t("search.officialGroups")
                       : requestMode
-                        ? "Search message requests"
+                        ? t("search.messageRequests")
                         : starredMode
-                          ? "Search starred messages"
-                          : notificationMode
-                            ? "Search notifications"
-                            : "Search conversations"}
+                          ? t("search.starredMessages")
+                          : archivedMode
+                            ? t("search.archivedConversations")
+                            : notificationMode
+                              ? t("search.notifications")
+                              : listMode
+                                ? t("search.inList", { name: selectedChatFolder?.name ?? t("sidebar.thisList") })
+                                : t("search.chats")}
                 </span>
                 <span
                   className="message-conversation-search-icon"
@@ -16308,16 +20118,20 @@ export function MessageAppPage() {
                   }
                   placeholder={
                     newConversationMode
-                      ? "Search people"
+                      ? t("search.people")
                       : announcementMode
-                        ? "Search official groups"
+                        ? t("search.officialGroups")
                         : requestMode
-                          ? "Search message requests"
+                          ? t("search.messageRequests")
                           : starredMode
-                            ? "Search starred messages"
-                            : notificationMode
-                              ? "Search notifications"
-                              : "Search conversations"
+                            ? t("search.starredMessages")
+                            : archivedMode
+                              ? t("search.archivedConversations")
+                              : notificationMode
+                                ? t("search.notifications")
+                                : listMode
+                                  ? t("search.inList", { name: selectedChatFolder?.name ?? t("sidebar.thisList") })
+                                  : t("search.chats")
                   }
                   autoFocus={newConversationMode}
                 />
@@ -16330,8 +20144,8 @@ export function MessageAppPage() {
                         ? setContactSearch("")
                         : setConversationSearch("")
                     }
-                    aria-label="Clear search"
-                    title="Clear search"
+                    aria-label={t("search.clear")}
+                    title={t("search.clear")}
                   >
                     ×
                   </button>
@@ -16342,7 +20156,7 @@ export function MessageAppPage() {
             {settingsMode ? (
               <nav
                 className="message-settings-workspace-navigation"
-                aria-label="Messaging settings sections"
+                aria-label={t("messageSettings.sectionsAria")}
               >
                 {SETTINGS_TABS.map((tab) => (
                   <button
@@ -16353,7 +20167,7 @@ export function MessageAppPage() {
                     aria-current={settingsTab === tab.value ? "page" : undefined}
                     onClick={() => setSettingsTab(tab.value)}
                   >
-                    <span>{tab.label}</span>
+                    <span>{t(tab.labelKey)}</span>
                     <span aria-hidden="true">›</span>
                   </button>
                 ))}
@@ -16369,40 +20183,37 @@ export function MessageAppPage() {
                 </div>
                 <div>
                   <strong>
-                    {profileData?.displayName ?? account?.displayName ?? "My profile"}
+                    {profileData?.displayName ?? account?.displayName ?? t("profile.myProfile")}
                   </strong>
                   <span>
                     {profileData
-                      ? roleLabel(profileData.role)
+                      ? roleLabel(profileData.role, t)
                       : account
-                        ? roleLabel(account.role)
-                        : "NT Message account"}
+                        ? roleLabel(account.role, t)
+                        : t("profile.account")}
                   </span>
                 </div>
-                <p>
-                  Update your display photo and About message. Official identity
-                  information stays read-only.
-                </p>
+                <p>{t("profileSidebar.description")}</p>
               </div>
             ) : createGroupMode ? (
               <div className="message-create-flow-sidebar">
                 <span className="message-create-flow-sidebar-icon" aria-hidden="true">
                   <MessageNavigationIcon name="newGroup" />
                 </span>
-                <strong>Build a clear group space</strong>
+                <strong>{t("groupCreate.sidebarTitle")}</strong>
                 <p>
-                  Add a name, explain the purpose, then choose eligible members.
+                  {t("groupCreate.sidebarDescription")}
                 </p>
                 <dl>
                   <div>
-                    <dt>Type</dt>
-                    <dd>{groupKind === "OFFICIAL" ? "Official" : "Personal"}</dd>
+                    <dt>{t("groupCreateWorkspace.groupType")}</dt>
+                    <dd>{groupKind === "OFFICIAL" ? t("groupCreateWorkspace.official") : t("groupCreateWorkspace.personal")}</dd>
                   </div>
                   <div>
-                    <dt>Members</dt>
+                    <dt>{t("groupCreateWorkspace.members")}</dt>
                     <dd>
                       {groupKind === "OFFICIAL"
-                        ? "Automatic"
+                        ? t("groupCreate.automatic")
                         : groupSelectedAccountIds.length}
                     </dd>
                   </div>
@@ -16411,27 +20222,27 @@ export function MessageAppPage() {
             ) : newConversationMode ? null : notificationMode ? (
               <div
                 className="message-conversation-category-tabs"
-                aria-label="Notification filters"
+                aria-label={t("filters.notificationFiltersAria")}
               >
                 <button
                   type="button"
                   className={notificationListView === "ALL" ? "active" : ""}
                   onClick={() => setNotificationListView("ALL")}
                 >
-                  All
+                  {t("filters.all")}
                 </button>
                 <button
                   type="button"
                   className={notificationListView === "UNREAD" ? "active" : ""}
                   onClick={() => setNotificationListView("UNREAD")}
                 >
-                  Unread{notificationUnreadCount > 0 ? ` ${notificationUnreadCount}` : ""}
+                  {t("filters.unread")}{notificationUnreadCount > 0 ? ` ${notificationUnreadCount}` : ""}
                 </button>
               </div>
             ) : requestMode ? (
               <div
                 className="message-conversation-category-tabs"
-                aria-label="Message request filters"
+                aria-label={t("filters.requestFiltersAria")}
               >
                 <button
                   type="button"
@@ -16441,7 +20252,7 @@ export function MessageAppPage() {
                     setSelectedRequestId(null);
                   }}
                 >
-                  Received
+                  {t("filters.received")}
                   {messageRequests.counts.receivedPending > 0
                     ? ` ${messageRequests.counts.receivedPending}`
                     : ""}
@@ -16454,26 +20265,27 @@ export function MessageAppPage() {
                     setSelectedRequestId(null);
                   }}
                 >
-                  Sent
+                  {t("filters.sent")}
                   {messageRequests.counts.sentPending > 0
                     ? ` ${messageRequests.counts.sentPending}`
                     : ""}
                 </button>
               </div>
-            ) : !announcementMode ? (
+            ) : !announcementMode &&
+              !starredMode &&
+              !archivedMode &&
+              !listManagementMode ? (
               <div
-                className="message-conversation-category-tabs"
+                className="message-conversation-filter-strip"
                 aria-label={
-                  !starredMode &&
-                    (conversationCategory === "GROUPS" ||
-                      conversationCategory === "OFFICIAL")
-                    ? "Group filters"
-                    : "Conversation filters"
+                  conversationCategory === "GROUPS" ||
+                  conversationCategory === "OFFICIAL"
+                    ? t("filters.groupFiltersAria")
+                    : t("filters.conversationFiltersAria")
                 }
               >
-                {!starredMode &&
-                  (conversationCategory === "GROUPS" ||
-                    conversationCategory === "OFFICIAL") ? (
+                {conversationCategory === "GROUPS" ||
+                conversationCategory === "OFFICIAL" ? (
                   <>
                     <button
                       type="button"
@@ -16484,7 +20296,7 @@ export function MessageAppPage() {
                         setConversationListView("ACTIVE");
                       }}
                     >
-                      Personal
+                      {t("filters.personal")}
                     </button>
                     <button
                       type="button"
@@ -16495,7 +20307,7 @@ export function MessageAppPage() {
                         setConversationListView("ACTIVE");
                       }}
                     >
-                      Official
+                      {t("filters.official")}
                     </button>
                   </>
                 ) : (
@@ -16503,9 +20315,9 @@ export function MessageAppPage() {
                     <button
                       type="button"
                       className={
-                        !starredMode &&
-                          conversationCategory === "ALL" &&
-                          conversationListView === "ACTIVE"
+                        !listMode &&
+                        conversationCategory === "ALL" &&
+                        conversationListView === "ACTIVE"
                           ? "active"
                           : ""
                       }
@@ -16515,14 +20327,14 @@ export function MessageAppPage() {
                         setConversationListView("ACTIVE");
                       }}
                     >
-                      All
+                      {t("filters.all")}
                     </button>
                     <button
                       type="button"
                       className={
-                        !starredMode &&
-                          conversationCategory === "UNREAD" &&
-                          conversationListView === "ACTIVE"
+                        !listMode &&
+                        conversationCategory === "UNREAD" &&
+                        conversationListView === "ACTIVE"
                           ? "active"
                           : ""
                       }
@@ -16532,12 +20344,12 @@ export function MessageAppPage() {
                         setConversationListView("ACTIVE");
                       }}
                     >
-                      Unread{totalUnread > 0 ? ` ${totalUnread}` : ""}
+                      {t("filters.unread")}{totalUnread > 0 ? ` ${totalUnread}` : ""}
                     </button>
                     <button
                       type="button"
                       className={
-                        !starredMode && conversationListView === "FAVORITES"
+                        !listMode && conversationListView === "FAVORITES"
                           ? "active"
                           : ""
                       }
@@ -16547,29 +20359,55 @@ export function MessageAppPage() {
                         setConversationListView("FAVORITES");
                       }}
                     >
-                      Favorites
+                      {t("filters.favorites")}
                     </button>
+
+                    <span className="message-filter-divider" aria-hidden="true" />
+                    <span className="message-list-filter-label">{t("filters.myLists")}</span>
+
+                    {chatFoldersLoading ? (
+                      <span className="message-filter-loading" role="status">
+                        <span className="message-small-spinner" aria-hidden="true" />
+                        <span className="sr-only">{t("loading.lists")}</span>
+                      </span>
+                    ) : chatFoldersError ? (
+                      <button
+                        type="button"
+                        className="message-filter-retry"
+                        onClick={() => void loadChatFolders()}
+                        title={chatFoldersError}
+                      >
+                        {t("filters.retryLists")}
+                      </button>
+                    ) : (
+                      chatFolders.map((folder) => {
+                        const conversationCount = folder.items.filter(
+                          (item) => item.conversationId,
+                        ).length;
+
+                        return (
+                          <button
+                            key={folder.id}
+                            type="button"
+                            className={selectedListId === folder.id ? "active" : ""}
+                            onClick={() => openChatFolder(folder.id)}
+                            aria-current={selectedListId === folder.id ? "page" : undefined}
+                            title={t("filters.listCountTitle", { name: folder.name, total: conversationCount })}
+                          >
+                            {folder.name}
+                          </button>
+                        );
+                      })
+                    )}
+
                     <button
                       type="button"
-                      className={starredMode ? "active" : ""}
-                      onClick={() => navigate("/messages/starred")}
+                      className="message-filter-create-list"
+                      onClick={openCreateList}
+                      aria-label={t("filters.createListAria")}
+                      title={t("filters.createList")}
                     >
-                      Starred
-                    </button>
-                    <button
-                      type="button"
-                      className={
-                        !starredMode && conversationListView === "ARCHIVED"
-                          ? "active"
-                          : ""
-                      }
-                      onClick={() => {
-                        navigate("/messages");
-                        setConversationCategory("ALL");
-                        setConversationListView("ARCHIVED");
-                      }}
-                    >
-                      Archived
+                      <span aria-hidden="true">＋</span>
                     </button>
                   </>
                 )}
@@ -16579,42 +20417,93 @@ export function MessageAppPage() {
             <div className="message-sidebar-summary">
               {settingsMode ? (
                 <>
-                  <span>{SETTINGS_TABS.length} sections</span>
-                  <span>Account preferences</span>
+                  <span>{t("summary.sections", { total: SETTINGS_TABS.length })}</span>
+                  <span>{t("summary.accountPreferences")}</span>
                 </>
               ) : notificationMode ? (
                 <>
-                  <span>{filteredNotifications.length} notifications</span>
-                  <span>{notificationUnreadCount} unread</span>
+                  <span>{t("summary.notifications", { total: filteredNotifications.length })}</span>
+                  <span>{t("summary.unread", { total: notificationUnreadCount })}</span>
                 </>
               ) : announcementMode ? (
                 <>
-                  <span>
-                    {announcementGroupSearchResults.length} official groups
-                  </span>
-                  <span>Announcements</span>
+                  <span>{t("summary.officialGroups", { total: announcementGroupSearchResults.length })}</span>
+                  <span>{t("summary.announcements")}</span>
                 </>
               ) : starredMode ? (
                 <>
-                  <span>{filteredStarredItems.length} starred</span>
-                  <span>{conversationSearch.trim() ? "Search" : "Personal"}</span>
+                  <span>
+                    {starredHasMore
+                      ? t("summary.loaded", { total: filteredStarredItems.length })
+                      : t("summary.starred", { total: filteredStarredItems.length })}
+                  </span>
+                  <span>
+                    {conversationSearch.trim()
+                      ? t("summary.search")
+                      : starredHasMore
+                        ? t("summary.moreAvailable")
+                        : t("summary.personal")}
+                  </span>
+                </>
+              ) : archivedMode ? (
+                <>
+                  <span>
+                    {conversationHasMore
+                      ? t("summary.loaded", { total: filteredConversations.length })
+                      : t("summary.archived", { total: filteredConversations.length })}
+                  </span>
+                  <span>
+                    {conversationSearch.trim()
+                      ? t("summary.search")
+                      : conversationHasMore
+                        ? t("summary.moreAvailable")
+                        : t("summary.conversationsLabel")}
+                  </span>
                 </>
               ) : requestMode ? (
                 <>
-                  <span>{filteredRequestItems.length} requests</span>
+                  <span>{t("summary.requests", { total: filteredRequestItems.length })}</span>
                   <span>
-                    {requestListView === "RECEIVED" ? "Received" : "Sent"}
+                    {requestListView === "RECEIVED"
+                      ? t("filters.received")
+                      : t("filters.sent")}
+                  </span>
+                </>
+              ) : listCreateMode ? (
+                <>
+                  <span>{t("summary.selected", { total: listSelectedConversationIds.length })}</span>
+                  <span>{t("summary.createList")}</span>
+                </>
+              ) : listMode ? (
+                <>
+                  <span>
+                    {conversationHasMore
+                      ? t("summary.loaded", { total: filteredConversations.length })
+                      : t("summary.conversations", { total: filteredConversations.length })}
+                  </span>
+                  <span>
+                    {conversationHasMore
+                      ? t("summary.moreAvailable")
+                      : t("summary.unread", { total: totalUnread })}
                   </span>
                 </>
               ) : conversationSearch.trim() ? (
                 <>
-                  <span>{conversationSearchResultCount} results</span>
-                  <span>Search</span>
+                  <span>{t("summary.results", { total: conversationSearchResultCount })}</span>
+                  <span>{t("summary.search")}</span>
                 </>
               ) : (
                 <>
-                  <span>{filteredConversations.length} conversations</span>
-                  <span>{totalUnread} unread</span>
+                  <span>
+                    {conversationHasMore
+                      ? t("summary.loaded", { total: filteredConversations.length })
+                      : t("summary.conversations", { total: filteredConversations.length })}
+                  </span>
+                  <span>
+                    {conversationHasMore
+                      ? t("summary.moreAvailable")
+                      : t("summary.unread", { total: totalUnread })}
+                  </span>
                 </>
               )}
             </div>
@@ -16631,8 +20520,8 @@ export function MessageAppPage() {
                   }
                 >
                   {notificationBulkAction === "MARK_ALL_READ"
-                    ? "Marking..."
-                    : "Mark all read"}
+                    ? t("actions.marking")
+                    : t("actions.markAllRead")}
                 </button>
                 <button
                   type="button"
@@ -16644,14 +20533,14 @@ export function MessageAppPage() {
                   }
                 >
                   {notificationBulkAction === "DELETE_READ"
-                    ? "Removing..."
-                    : "Remove seen"}
+                    ? t("actions.removing")
+                    : t("actions.removeSeen")}
                 </button>
                 <button
                   type="button"
                   onClick={() => openSettingsWorkspace("NOTIFICATIONS")}
                 >
-                  Settings
+                  {t("actions.settings")}
                 </button>
               </div>
             )}
@@ -16667,7 +20556,7 @@ export function MessageAppPage() {
                 <button
                   type="button"
                   onClick={() => setRequestNotice(null)}
-                  aria-label="Dismiss request notice"
+                  aria-label={t("actions.dismissRequestNotice")}
                 >
                   ×
                 </button>
@@ -16685,7 +20574,7 @@ export function MessageAppPage() {
                 <div className="message-inline-error" role="alert">
                   <p>{pageError}</p>
                   <button type="button" onClick={() => void loadConversations()}>
-                    Retry
+                    {t("actions.retry")}
                   </button>
                 </div>
               )}
@@ -16736,59 +20625,59 @@ export function MessageAppPage() {
                   <span className="message-small-spinner" aria-hidden="true" />
                   <p>
                     {newConversationMode
-                      ? "Loading eligible accounts..."
+                      ? t("loading.eligibleAccounts")
                       : notificationMode
-                        ? "Loading notifications..."
+                        ? t("loading.notifications")
                         : announcementMode
-                          ? "Loading official groups..."
+                          ? t("loading.officialGroups")
                           : starredMode
-                            ? "Loading starred messages..."
+                            ? t("loading.starredMessages")
                             : requestMode
-                              ? "Loading message requests..."
-                              : "Loading conversations..."}
+                              ? t("loading.messageRequests")
+                              : t("loading.conversations")}
                   </p>
                 </div>
               ) : settingsMode ? (
                 <div className="message-settings-sidebar-note">
                   <span aria-hidden="true">⚙</span>
-                  <strong>{SETTINGS_TABS.find((tab) => tab.value === settingsTab)?.label}</strong>
-                  <p>Choose a section to manage your account and device preferences.</p>
+                  <strong>{t(
+                    SETTINGS_TABS.find((tab) => tab.value === settingsTab)?.labelKey ??
+                      "messageSettings.tabs.privacy",
+                  )}</strong>
+                  <p>{t("settingsSidebar.description")}</p>
                 </div>
               ) : ownProfileMode ? (
                 <div className="message-profile-sidebar-note">
-                  <strong>Profile and identity</strong>
-                  <p>
-                    Your About message and profile photo are editable. Official
-                    account information stays protected and read-only.
-                  </p>
+                  <strong>{t("profileSidebar.title")}</strong>
+                  <p>{t("profileSidebar.description")}</p>
                 </div>
               ) : createGroupMode ? (
                 <div className="message-create-flow-sidebar-note">
                   <strong>
                     {groupKind === "OFFICIAL"
-                      ? "Official membership"
-                      : "Personal membership"}
+                      ? t("groupCreate.officialMembership")
+                      : t("groupCreate.personalMembership")}
                   </strong>
                   <p>
                     {groupKind === "OFFICIAL"
-                      ? "Members are generated from the selected organizational scope."
+                      ? t("groupCreate.officialMembershipDescription")
                       : groupSelectedAccountIds.length === 0
-                        ? "Choose at least one eligible member to create the group."
-                        : `${groupSelectedAccountIds.length} member${groupSelectedAccountIds.length === 1 ? "" : "s"} selected.`}
+                        ? t("groupCreate.chooseMemberDescription")
+                        : t("groupCreate.selectedMembers", { total: groupSelectedAccountIds.length })}
                   </p>
                 </div>
               ) : newConversationMode ? (
                 contactError ? (
                   <div className="message-list-state compact danger" role="alert">
                     <div className="message-empty-icon" aria-hidden="true">!</div>
-                    <h2>People unavailable</h2>
+                    <h2>{t("newConversation.peopleUnavailable")}</h2>
                     <p>{contactError}</p>
                   </div>
                 ) : contacts.length === 0 ? (
                   <div className="message-list-state compact" role="status">
                     <div className="message-empty-icon" aria-hidden="true">+</div>
-                    <h2>No eligible accounts found</h2>
-                    <p>Try another name, employee ID, username or designation.</p>
+                    <h2>{t("newConversation.none")}</h2>
+                    <p>{t("newConversation.emptyHint")}</p>
                   </div>
                 ) : (
                   contacts.map((contact) => (
@@ -16798,13 +20687,13 @@ export function MessageAppPage() {
                         <span>
                           <strong>{contact.displayName}</strong>
                           <small>
-                            {contact.employee?.designation ?? roleLabel(contact.role)}
+                            {contact.employee?.designation ?? roleLabel(contact.role, t)}
                           </small>
                           <em>
                             {contact.employee?.department?.name ??
                               contact.employee?.division?.name ??
                               contact.username ??
-                              roleLabel(contact.role)}
+                              roleLabel(contact.role, t)}
                           </em>
                         </span>
                       </div>
@@ -16819,8 +20708,8 @@ export function MessageAppPage() {
                         }
                       >
                         {creatingConversationId === contact.accountId
-                          ? "Opening..."
-                          : contactActionLabel(contact)}
+                          ? t("actions.opening")
+                          : contactActionLabel(contact, t)}
                       </button>
                     </article>
                   ))
@@ -16829,7 +20718,7 @@ export function MessageAppPage() {
                 notificationError ? (
                   <div className="message-list-state compact danger" role="alert">
                     <div className="message-empty-icon" aria-hidden="true">!</div>
-                    <h2>Notifications unavailable</h2>
+                    <h2>{t("notification.unavailable")}</h2>
                     <p>{notificationError}</p>
                   </div>
                 ) : filteredNotifications.length === 0 ? (
@@ -16837,15 +20726,15 @@ export function MessageAppPage() {
                     <div className="message-empty-icon" aria-hidden="true">N</div>
                     <h2>
                       {conversationSearch.trim()
-                        ? "No matching notifications"
+                        ? t("notification.noMatching")
                         : notificationListView === "UNREAD"
-                          ? "No unread notifications"
-                          : "No notifications yet"}
+                          ? t("notification.noUnread")
+                          : t("notification.noneYet")}
                     </h2>
                     <p>
                       {conversationSearch.trim()
-                        ? "Try a title, message preview or notification type."
-                        : "New message, announcement, duty and work updates will appear here."}
+                        ? t("notification.searchHint")
+                        : t("notification.emptyHint")}
                     </p>
                   </div>
                 ) : (
@@ -16865,7 +20754,7 @@ export function MessageAppPage() {
                             <small>
                               {messagingSettings.notificationPreview
                                 ? notification.body
-                                : "Preview hidden by notification privacy."}
+                                : t("notification.previewHidden")}
                             </small>
                           </span>
                           <em>{notificationTimestampLabel(notification.createdAt)}</em>
@@ -16873,7 +20762,7 @@ export function MessageAppPage() {
                         <button
                           type="button"
                           className="message-notification-delete"
-                          aria-label={`Remove ${notification.title} notification`}
+                          aria-label={t("actions.removeNotificationAria", { title: notification.title })}
                           onClick={() => void handleDeleteNotification(notification)}
                           disabled={
                             notificationBulkAction !== null ||
@@ -16893,11 +20782,8 @@ export function MessageAppPage() {
                     <div className="message-empty-icon" aria-hidden="true">
                       A
                     </div>
-                    <h2>No official groups found</h2>
-                    <p>
-                      New authorized official groups will appear here
-                      automatically.
-                    </p>
+                    <h2>{t("announcements.noGroups")}</h2>
+                    <p>{t("announcements.noGroupsHint")}</p>
                   </div>
                 ) : (
                   announcementGroupSearchResults.map(renderAnnouncementGroupRow)
@@ -16908,32 +20794,62 @@ export function MessageAppPage() {
                     <div className="message-empty-icon" aria-hidden="true">
                       !
                     </div>
-                    <h2>Starred messages unavailable</h2>
+                    <h2>{t("starred.unavailable")}</h2>
                     <p>{starredError}</p>
                     <button type="button" onClick={() => void loadStarredMessages()}>
-                      Try again
+                      {t("actions.tryAgain")}
                     </button>
                   </div>
                 ) : filteredStarredItems.length === 0 ? (
-                  <div className="message-list-state compact" role="status">
-                    <div className="message-empty-icon" aria-hidden="true">
-                      ★
+                  <>
+                    <div className="message-list-state compact" role="status">
+                      <div className="message-empty-icon" aria-hidden="true">
+                        ★
+                      </div>
+                      <h2>
+                        {conversationSearch.trim()
+                          ? t("starred.noMatchingLoaded")
+                          : t("starred.noneYet")}
+                      </h2>
+                      <p>
+                        {conversationSearch.trim()
+                          ? starredHasMore
+                            ? t("starred.loadMoreOrSearch")
+                            : t("starred.searchHint")
+                          : t("starred.emptyHint")}
+                      </p>
                     </div>
-                    <h2>
-                      {conversationSearch.trim()
-                        ? "No matching starred messages"
-                        : "No starred messages yet"}
-                    </h2>
-                    <p>
-                      {conversationSearch.trim()
-                        ? "Try a conversation name, sender, message text or file name."
-                        : "Star important messages and they will remain easy to find here."}
-                    </p>
-                  </div>
+                    {starredHasMore ? (
+                      <button
+                        type="button"
+                        className="message-conversation-load-more"
+                        onClick={() => void loadMoreStarredMessages()}
+                        disabled={starredLoadingMore}
+                      >
+                        {starredLoadingMore
+                          ? t("starred.loadingOlder")
+                          : t("starred.loadMore")}
+                      </button>
+                    ) : null}
+                  </>
                 ) : (
-                  <div className="message-starred-workspace-list">
-                    {filteredStarredItems.map(renderStarredMessageRow)}
-                  </div>
+                  <>
+                    <div className="message-starred-workspace-list">
+                      {filteredStarredItems.map(renderStarredMessageRow)}
+                    </div>
+                    {starredHasMore ? (
+                      <button
+                        type="button"
+                        className="message-conversation-load-more"
+                        onClick={() => void loadMoreStarredMessages()}
+                        disabled={starredLoadingMore}
+                      >
+                        {starredLoadingMore
+                          ? t("starred.loadingOlder")
+                          : t("starred.loadMore")}
+                      </button>
+                    ) : null}
+                  </>
                 )
               ) : requestMode ? (
                 requestError ? (
@@ -16941,10 +20857,10 @@ export function MessageAppPage() {
                     <div className="message-empty-icon" aria-hidden="true">
                       !
                     </div>
-                    <h2>Message requests unavailable</h2>
+                    <h2>{t("requests.unavailable")}</h2>
                     <p>{requestError}</p>
                     <button type="button" onClick={() => void loadMessageRequests()}>
-                      Try again
+                      {t("actions.tryAgain")}
                     </button>
                   </div>
                 ) : filteredRequestItems.length === 0 ? (
@@ -16954,17 +20870,17 @@ export function MessageAppPage() {
                     </div>
                     <h2>
                       {conversationSearch.trim()
-                        ? "No matching requests"
+                        ? t("requests.noMatching")
                         : requestListView === "RECEIVED"
-                          ? "No received requests"
-                          : "No sent requests"}
+                          ? t("requests.noReceived")
+                          : t("requests.noSent")}
                     </h2>
                     <p>
                       {conversationSearch.trim()
-                        ? "Try a name, employee ID, designation or request reason."
+                        ? t("requests.searchHint")
                         : requestListView === "RECEIVED"
-                          ? "New first-contact requests will appear here."
-                          : "Requests you send will appear here until they are resolved."}
+                          ? t("requests.receivedHint")
+                          : t("requests.sentHint")}
                     </p>
                   </div>
                 ) : (
@@ -16976,14 +20892,14 @@ export function MessageAppPage() {
                     <div className="message-empty-icon" aria-hidden="true">
                       ⌕
                     </div>
-                    <h2>No matching people or groups</h2>
-                    <p>Try a name, employee ID, username or designation.</p>
+                    <h2>{t("conversationSearch.none")}</h2>
+                    <p>{t("conversationSearch.hint")}</p>
                   </div>
                 ) : (
                   <div className="message-conversation-search-results">
                     {conversationSearchResults.directChats.length > 0 && (
                       <section className="message-search-result-section">
-                        <h2>Chats</h2>
+                        <h2>{t("conversationSearch.chats")}</h2>
                         <div className="message-search-result-list">
                           {conversationSearchResults.directChats.map(
                             renderConversationRow,
@@ -16994,7 +20910,7 @@ export function MessageAppPage() {
 
                     {conversationSearchResults.groupsInCommon.length > 0 && (
                       <section className="message-search-result-section">
-                        <h2>Groups in common</h2>
+                        <h2>{t("conversationSearch.groupsInCommon")}</h2>
                         <div className="message-search-result-list">
                           {conversationSearchResults.groupsInCommon.map(
                             renderGroupSearchResult,
@@ -17007,16 +20923,40 @@ export function MessageAppPage() {
               ) : filteredConversations.length === 0 ? (
                 <div className="message-list-state" role="status">
                   <div className="message-empty-icon" aria-hidden="true">
-                    M
+                    {listMode ? "L" : "M"}
                   </div>
-                  <h2>No conversations found</h2>
-                  <p>Start a private conversation or create a group.</p>
-                  <button type="button" onClick={openNewConversation}>
-                    New conversation
-                  </button>
+                  <h2>
+                    {listMode
+                      ? t("conversationList.noneInList")
+                      : archivedMode
+                        ? t("conversationList.noneArchived")
+                        : t("conversationList.noneFound")}
+                  </h2>
+                  <p>
+                    {listMode
+                      ? t("conversationList.listHint")
+                      : archivedMode
+                        ? t("conversationList.archivedHint")
+                        : t("conversationList.emptyHint")}
+                  </p>
+                  {conversationHasMore
+                    ? renderConversationLoadMoreControl()
+                    : !archivedMode && (
+                        <button
+                          type="button"
+                          onClick={
+                            listMode ? openSelectedListManager : openNewConversation
+                          }
+                        >
+                          {listMode ? t("conversationList.manageList") : t("conversationList.newConversation")}
+                        </button>
+                      )}
                 </div>
               ) : (
-                filteredConversations.map(renderConversationRow)
+                <>
+                  {filteredConversations.map(renderConversationRow)}
+                  {renderConversationLoadMoreControl()}
+                </>
               )}
             </div>
           </aside>
@@ -17034,37 +20974,38 @@ export function MessageAppPage() {
               <div>
                 <strong>
                   {realtimeStatus === "RECONNECTING"
-                    ? "Reconnecting to real-time updates"
+                    ? t("realtime.reconnecting")
                     : realtimeStatus === "CONNECTING"
-                      ? "Connecting to real-time updates"
-                      : "Real-time updates are offline"}
+                      ? t("realtime.connecting")
+                      : t("realtime.offline")}
                 </strong>
                 <small>
                   {realtimeStatus === "DISCONNECTED"
-                    ? "Check your connection. New activity may be delayed until NT Message reconnects."
-                    : "NT Message will restore live updates automatically."}
+                    ? t("realtime.disconnectedHint")
+                    : t("realtime.restoringHint")}
                 </small>
               </div>
             </div>
           )}
 
-          {ownProfileMode ? (
+          {storageUsageScope ? (
+            renderStorageUsageWorkspaceContent()
+          ) : ownProfileMode ? (
             <div className="message-profile-workspace">
               <header className="message-profile-workspace-header">
                 <button
                   type="button"
                   className="message-mobile-back"
                   onClick={() => navigate("/messages")}
-                  aria-label="Back to conversations"
+                  aria-label={t("thread.header.backToConversations")}
                 >
                   ←
                 </button>
                 <div>
-                  <span>My profile</span>
-                  <h2>Profile and official identity</h2>
+                  <span>{t("profile.myProfile")}</span>
+                  <h2>{t("profileWorkspace.title")}</h2>
                   <p>
-                    Manage your display details without changing verified
-                    organizational information.
+                    {t("profileWorkspace.description")}
                   </p>
                 </div>
                 <button
@@ -17072,7 +21013,7 @@ export function MessageAppPage() {
                   className="message-workspace-close-action"
                   onClick={() => navigate("/messages")}
                 >
-                  Back to chats
+                  {t("navigation.backToChats")}
                 </button>
               </header>
               <div className="message-profile-workspace-scroll">
@@ -17081,6 +21022,11 @@ export function MessageAppPage() {
             </div>
           ) : createGroupMode ? (
             renderCreateGroupWorkspaceContent()
+          ) : (
+              listCreateMode ||
+              (listMode && (!selectedChatFolder || listEditMode))
+            ) && !selectedConversation ? (
+            renderMessageListWorkspaceContent()
           ) : groupManagementWorkspaceOpen &&
             selectedConversation?.type === "GROUP" ? (
             renderGroupManagementWorkspaceContent()
@@ -17093,15 +21039,12 @@ export function MessageAppPage() {
                 <span className="message-collection-welcome-icon" aria-hidden="true">
                   <MessageNavigationIcon name="newChat" />
                 </span>
-                <h2>Start a private conversation</h2>
+                <h2>{t("newConversationWorkspace.title")}</h2>
                 <p>
-                  Search the employee list, review the person’s profile when
-                  needed, then choose Message or Request according to the
-                  existing contact rules.
+                  {t("newConversationWorkspace.description")}
                 </p>
                 <small>
-                  Blocking, account eligibility and canonical conversation
-                  reuse remain enforced by NT Message.
+                  {t("newConversationWorkspace.rulesNote")}
                 </small>
               </div>
             </div>
@@ -17112,21 +21055,24 @@ export function MessageAppPage() {
                   type="button"
                   className="message-mobile-back"
                   onClick={() => navigate("/messages")}
-                  aria-label="Back to messages"
+                  aria-label={t("messageSettings.backToMessages")}
                 >
                   ←
                 </button>
                 <div>
-                  <span>Settings</span>
-                  <h2>Manage your messaging preferences</h2>
-                  <p>Account privacy, notifications, appearance, storage and security.</p>
+                  <span>{t("messageSettings.eyebrow")}</span>
+                  <h2 className="message-settings-desktop-title">
+                    {t("messageSettings.title")}
+                  </h2>
+                  <h2 className="message-settings-mobile-title">{t("messageSettings.mobileTitle")}</h2>
+                  <p>{t("messageSettings.description")}</p>
                 </div>
                 <button
                   type="button"
                   className="message-workspace-close-action"
                   onClick={() => navigate("/messages")}
                 >
-                  Back to chats
+                  {t("navigation.backToChats")}
                 </button>
               </header>
 
@@ -17134,18 +21080,28 @@ export function MessageAppPage() {
               <div
                 className="message-settings-workspace-mobile-tabs"
                 role="tablist"
-                aria-label="Messaging settings"
+                aria-label={t("messageSettings.sectionsAria")}
               >
                 {SETTINGS_TABS.map((tab) => (
                   <button
                     key={tab.value}
+                    id={`message-settings-mobile-tab-${tab.value.toLowerCase()}`}
                     type="button"
                     role="tab"
                     className={settingsTab === tab.value ? "active" : ""}
                     aria-selected={settingsTab === tab.value}
-                    onClick={() => setSettingsTab(tab.value)}
+                    aria-controls="message-settings-tabpanel"
+                    onClick={(event) => {
+                      setSettingsTab(tab.value);
+                      // Keep the selected chip in view on narrow screens without moving the page vertically.
+                      event.currentTarget.scrollIntoView({
+                        behavior: "smooth",
+                        block: "nearest",
+                        inline: "center",
+                      });
+                    }}
                   >
-                    {tab.label}
+                    {t(tab.labelKey)}
                   </button>
                 ))}
               </div>
@@ -17154,23 +21110,22 @@ export function MessageAppPage() {
                 id="message-settings-tabpanel"
                 className="message-settings-body"
                 role="tabpanel"
-                aria-labelledby={`message-settings-nav-${settingsTab.toLowerCase()}`}
+                aria-labelledby={`message-settings-mobile-tab-${settingsTab.toLowerCase()}`}
                 tabIndex={0}
               >
                 {settingsTab === "PRIVACY" && (
                   <section className="message-settings-section">
                     {messagingSettingsLoading && (
                       <p className="message-settings-note">
-                        Loading account privacy settings...
+                        {t("messageSettings.privacy.loading")}
                       </p>
                     )}
 
                     <label className="message-settings-toggle">
                       <span>
-                        <strong>Share my online status</strong>
+                        <strong>{t("messageSettings.privacy.onlineStatus")}</strong>
                         <small>
-                          Allow other users to see when you are online, typing
-                          and recently active.
+                          {t("messageSettings.privacy.onlineStatusDescription")}
                         </small>
                       </span>
                       <input
@@ -17189,10 +21144,9 @@ export function MessageAppPage() {
 
                     <label className="message-settings-toggle">
                       <span>
-                        <strong>Send my read receipts</strong>
+                        <strong>{t("messageSettings.privacy.readReceipts")}</strong>
                         <small>
-                          Allow message senders to see when you have read
-                          their messages.
+                          {t("messageSettings.privacy.readReceiptsDescription")}
                         </small>
                       </span>
                       <input
@@ -17211,12 +21165,9 @@ export function MessageAppPage() {
 
                     <label className="message-settings-toggle">
                       <span>
-                        <strong>Require message requests</strong>
+                        <strong>{t("messageSettings.privacy.messageRequests")}</strong>
                         <small>
-                          When enabled, users covered by the existing
-                          first-contact rules must request permission. When
-                          disabled, eligible users can start a private chat
-                          directly. Blocking and eligibility rules still apply.
+                          {t("messageSettings.privacy.messageRequestsDescription")}
                         </small>
                       </span>
                       <input
@@ -17235,7 +21186,7 @@ export function MessageAppPage() {
 
                     {messagingSettingsSaving && (
                       <p className="message-settings-note" role="status">
-                        Saving account settings...
+                        {t("messageSettings.privacy.saving")}
                       </p>
                     )}
 
@@ -17259,13 +21210,12 @@ export function MessageAppPage() {
                           messagingSettingsLoading || messagingSettingsSaving
                         }
                       >
-                        Restore privacy defaults
+                        {t("messageSettings.privacy.restoreDefaults")}
                       </button>
                     </div>
 
                     <p className="message-settings-note">
-                      Privacy and request preferences are saved to your NT
-                      Message account and follow you across devices.
+                      {t("messageSettings.privacy.accountScope")}
                     </p>
                   </section>
                 )}
@@ -17274,10 +21224,9 @@ export function MessageAppPage() {
                   <section className="message-settings-section">
                     <label className="message-settings-toggle">
                       <span>
-                        <strong>Notification sound</strong>
+                        <strong>{t("messageSettings.notifications.sound")}</strong>
                         <small>
-                          Play the NT Message alert sound on this device for
-                          new realtime notifications.
+                          {t("messageSettings.notifications.soundDescription")}
                         </small>
                       </span>
                       <input
@@ -17292,10 +21241,9 @@ export function MessageAppPage() {
 
                     <label className="message-settings-toggle">
                       <span>
-                        <strong>Browser notifications</strong>
+                        <strong>{t("messageSettings.notifications.browser")}</strong>
                         <small>
-                          Show system notifications on this device when the
-                          browser permission is allowed.
+                          {t("messageSettings.notifications.browserDescription")}
                         </small>
                       </span>
                       <input
@@ -17309,18 +21257,26 @@ export function MessageAppPage() {
                     </label>
 
                     <p className="message-settings-note">
-                      Browser permission:{" "}
-                      <strong>{browserNotificationPermissionLabel()}</strong>.
-                      NT Message can stop using permission but cannot revoke
-                      browser-level permission.
+                      {t("messageSettings.notifications.browserPermission")}{" "}
+                      <strong>{browserNotificationPermissionLabel(t)}</strong>.
+                      {browserNotificationsEnabled && (
+                        <>
+                          {" "}{t("messageSettings.notifications.backgroundDelivery")}{" "}
+                          <strong>
+                            {backgroundPushReady
+                              ? t("messageSettings.notifications.ready")
+                              : t("messageSettings.notifications.connecting")}
+                          </strong>.
+                        </>
+                      )}
+                      {t("messageSettings.notifications.browserPermissionNote")}
                     </p>
 
                     <label className="message-settings-toggle">
                       <span>
-                        <strong>Show notification preview</strong>
+                        <strong>{t("messageSettings.notifications.preview")}</strong>
                         <small>
-                          Include approved preview text in in-app and browser
-                          notification surfaces.
+                          {t("messageSettings.notifications.previewDescription")}
                         </small>
                       </span>
                       <input
@@ -17336,10 +21292,9 @@ export function MessageAppPage() {
 
                     <label className="message-settings-toggle">
                       <span>
-                        <strong>Mute ordinary popups</strong>
+                        <strong>{t("messageSettings.notifications.mutePopups")}</strong>
                         <small>
-                          Keep the notification center and unread count, but
-                          suppress ordinary toast, sound and browser popups.
+                          {t("messageSettings.notifications.mutePopupsDescription")}
                         </small>
                       </span>
                       <input
@@ -17370,14 +21325,12 @@ export function MessageAppPage() {
                         type="button"
                         onClick={resetNotificationSettings}
                       >
-                        Restore notification defaults
+                        {t("messageSettings.notifications.restoreDefaults")}
                       </button>
                     </div>
 
                     <p className="message-settings-note">
-                      Sound and browser-notification controls apply only to
-                      this browser. Notification previews and popup muting are
-                      retained for this signed-in workspace.
+                      {t("messageSettings.notifications.deviceScopeNote")}
                     </p>
                   </section>
                 )}
@@ -17385,7 +21338,7 @@ export function MessageAppPage() {
                 {settingsTab === "APPEARANCE" && (
                   <section className="message-settings-section">
                     <label className="message-customization-field">
-                      <span>Theme</span>
+                      <span>{t("messageSettings.appearance.theme")}</span>
                       <select
                         value={messagingCustomization.theme}
                         onChange={(event) =>
@@ -17396,14 +21349,14 @@ export function MessageAppPage() {
                       >
                         {THEME_OPTIONS.map((option) => (
                           <option key={option.value} value={option.value}>
-                            {option.label}
+                            {t(`messageSettings.appearance.themeOptions.${option.value.toLowerCase()}`)}
                           </option>
                         ))}
                       </select>
                     </label>
 
                     <label className="message-customization-field">
-                      <span>Chat wallpaper</span>
+                      <span>{t("messageSettings.appearance.wallpaper")}</span>
                       <select
                         value={messagingCustomization.wallpaper}
                         onChange={(event) =>
@@ -17414,14 +21367,14 @@ export function MessageAppPage() {
                       >
                         {WALLPAPER_OPTIONS.map((option) => (
                           <option key={option.value} value={option.value}>
-                            {option.label}
+                            {t(`messageSettings.appearance.wallpaperOptions.${option.value.toLowerCase()}`)}
                           </option>
                         ))}
                       </select>
                     </label>
 
                     <label className="message-customization-field">
-                      <span>Message density</span>
+                      <span>{t("messageSettings.appearance.density")}</span>
                       <select
                         value={messagingCustomization.density}
                         onChange={(event) =>
@@ -17432,7 +21385,7 @@ export function MessageAppPage() {
                       >
                         {DENSITY_OPTIONS.map((option) => (
                           <option key={option.value} value={option.value}>
-                            {option.label}
+                            {t(`messageSettings.appearance.densityOptions.${option.value.toLowerCase()}`)}
                           </option>
                         ))}
                       </select>
@@ -17440,10 +21393,9 @@ export function MessageAppPage() {
 
                     <label className="message-settings-toggle">
                       <span>
-                        <strong>Reduce motion</strong>
+                        <strong>{t("messageSettings.appearance.reduceMotion")}</strong>
                         <small>
-                          Minimize interface animation for this account on this browser.
-                          Your operating-system reduced-motion setting is always respected.
+                          {t("messageSettings.appearance.reduceMotionDescription")}
                         </small>
                       </span>
                       <input
@@ -17462,29 +21414,18 @@ export function MessageAppPage() {
                         type="button"
                         onClick={resetMessagingCustomization}
                       >
-                        Restore appearance defaults
+                        {t("messageSettings.appearance.restoreDefaults")}
                       </button>
                     </div>
 
                     <p className="message-settings-note">
-                      Appearance preferences are stored separately for this
-                      account on this browser. System follows the device theme,
-                      while NT Blue remains the product accent in every mode.
+                      {t("messageSettings.appearance.scopeNote")}
                     </p>
                   </section>
                 )}
 
                 {settingsTab === "STORAGE" && (
                   <section className="message-settings-section message-settings-storage-section">
-                    <div className="message-settings-security-card">
-                      <span>Storage and Data</span>
-                      <strong>Review your visible file usage</strong>
-                      <small>
-                        See images, videos, documents, audio, largest files
-                        and storage by authorized conversation.
-                      </small>
-                    </div>
-
                     <button
                       type="button"
                       className="message-settings-storage-open"
@@ -17492,18 +21433,13 @@ export function MessageAppPage() {
                     >
                       <MessageNavigationIcon name="storage" />
                       <span>
-                        <strong>Open storage manager</strong>
-                        <small>
-                          Totals reflect files currently visible to your
-                          authenticated account.
-                        </small>
+                        <strong>{t("messageSettings.storage.manage")}</strong>
+                        <small>{t("messageSettings.storage.description")}</small>
                       </span>
                     </button>
 
                     <p className="message-settings-note">
-                      Your storage manager never grants management accounts
-                      access to private filenames, participants or message
-                      content outside their own authorized conversations.
+                      {t("messageSettings.storage.accessNote")}
                     </p>
                   </section>
                 )}
@@ -17513,8 +21449,7 @@ export function MessageAppPage() {
                     <div className="message-settings-summary">
                       <strong>{blockedAccounts.length}</strong>
                       <span>
-                        blocked private contact
-                        {blockedAccounts.length === 1 ? "" : "s"}
+                        {t("messageSettings.blocked.count", { count: blockedAccounts.length })}
                       </span>
                     </div>
 
@@ -17532,11 +21467,11 @@ export function MessageAppPage() {
 
                     {blockedAccountsLoading ? (
                       <p className="message-settings-empty">
-                        Loading blocked accounts...
+                        {t("messageSettings.blocked.loading")}
                       </p>
                     ) : blockedAccounts.length === 0 ? (
                       <p className="message-settings-empty">
-                        No blocked private contacts.
+                        {t("messageSettings.blocked.none")}
                       </p>
                     ) : (
                       <div className="message-settings-blocked-list">
@@ -17549,8 +21484,7 @@ export function MessageAppPage() {
                             <div>
                               <strong>{block.account.displayName}</strong>
                               <small>
-                                Private messages and personal group invites
-                                blocked
+                                {t("messageSettings.blocked.description")}
                               </small>
                             </div>
                             <button
@@ -17563,8 +21497,8 @@ export function MessageAppPage() {
                               disabled={blockActionAccountId !== null}
                             >
                               {blockActionAccountId === block.blockedAccountId
-                                ? "Working..."
-                                : "Unblock"}
+                                ? t("messageSettings.blocked.working")
+                                : t("messageSettings.blocked.unblock")}
                             </button>
                           </article>
                         ))}
@@ -17573,17 +21507,12 @@ export function MessageAppPage() {
 
                     {blockedMessageRequests.length > 0 && (
                       <p className="message-settings-note">
-                        {blockedMessageRequests.length} old blocked request
-                        {blockedMessageRequests.length === 1 ? "" : "s"}{" "}
-                        remain in history.
+                        {t("messageSettings.blocked.oldRequests", { count: blockedMessageRequests.length })}
                       </p>
                     )}
 
                     <p className="message-settings-note">
-                      Blocking is hierarchy-safe: it affects private chat and
-                      new personal group invites only. Existing group
-                      messages, official groups, announcements and authority
-                      messages remain available.
+                      {t("messageSettings.blocked.scopeNote")}
                     </p>
                   </section>
                 )}
@@ -17591,15 +21520,15 @@ export function MessageAppPage() {
                 {settingsTab === "SECURITY" && (
                   <section className="message-settings-section">
                     <div className="message-settings-security-card">
-                      <span>Signed-in account</span>
+                      <span>{t("messageSettings.security.signedInAccount")}</span>
                       <strong>
-                        {account?.displayName ?? "NT Message User"}
+                        {account?.displayName ?? t("profile.userFallback")}
                       </strong>
                       <small>
                         {account?.positionLabel ??
                           (account
-                            ? roleLabel(account.role)
-                            : "Employee")}
+                            ? roleLabel(account.role, t)
+                            : t("profile.employee"))}
                         {" "}
                         · {realtimeLabel}
                       </small>
@@ -17624,7 +21553,7 @@ export function MessageAppPage() {
                           navigate("/settings/security");
                         }}
                       >
-                        Change password
+                        {t("messageSettings.security.changePassword")}
                       </button>
                       <button
                         type="button"
@@ -17632,8 +21561,8 @@ export function MessageAppPage() {
                         disabled={loggingOut || securityAction !== null}
                       >
                         {loggingOut
-                          ? "Signing out..."
-                          : "Sign out this device"}
+                          ? t("messageSettings.security.signingOut")
+                          : t("messageSettings.security.signOutDevice")}
                       </button>
                       <button
                         type="button"
@@ -17642,15 +21571,13 @@ export function MessageAppPage() {
                         disabled={loggingOut || securityAction !== null}
                       >
                         {securityAction === "SIGN_OUT_ALL"
-                          ? "Signing out all devices..."
-                          : "Sign out all devices"}
+                          ? t("messageSettings.security.signingOutAll")
+                          : t("messageSettings.security.signOutAll")}
                       </button>
                     </div>
 
                     <p className="message-settings-note">
-                      Password and session actions use the existing secure auth
-                      APIs. Active-device listing and one-device revocation
-                      remain a separate audited feature.
+                      {t("messageSettings.security.scopeNote")}
                     </p>
                   </section>
                 )}
@@ -17661,17 +21588,25 @@ export function MessageAppPage() {
           ) : notificationMode ? (
             <div className="message-notification-workspace">
               <header className="message-notification-workspace-header">
+                <button
+                  type="button"
+                  className="message-mobile-back"
+                  onClick={() => navigate("/messages")}
+                  aria-label={t("messageSettings.backToMessages")}
+                >
+                  ←
+                </button>
                 <div>
-                  <span>Notification center</span>
-                  <h2>Notifications</h2>
-                  <p>Review updates and open the related item when needed.</p>
+                  <span>{t("notificationWorkspace.eyebrow")}</span>
+                  <h2>{t("notificationWorkspace.title")}</h2>
+                  <p>{t("notificationWorkspace.description")}</p>
                 </div>
                 <button
                   type="button"
                   className="message-workspace-close-action"
                   onClick={() => navigate("/messages")}
                 >
-                  Back to chats
+                  {t("navigation.backToChats")}
                 </button>
               </header>
 
@@ -17680,29 +21615,29 @@ export function MessageAppPage() {
                 <div className="message-notification-workspace-list-header">
                   <div className="message-notification-workspace-metrics">
                   <article>
-                    <span>All notifications</span>
+                    <span>{t("notificationWorkspace.all")}</span>
                     <strong>{notifications.length}</strong>
                   </article>
                   <article>
-                    <span>Unread</span>
+                    <span>{t("notificationWorkspace.unread")}</span>
                     <strong>{notificationUnreadCount}</strong>
                   </article>
                 </div>
 
-                  <div className="message-notification-workspace-filters" aria-label="Notification filters">
+                  <div className="message-notification-workspace-filters" aria-label={t("filters.notificationFiltersAria")}>
                     <button
                       type="button"
                       className={notificationListView === "ALL" ? "active" : ""}
                       onClick={() => setNotificationListView("ALL")}
                     >
-                      All
+                      {t("thread.pinned.all")}
                     </button>
                     <button
                       type="button"
                       className={notificationListView === "UNREAD" ? "active" : ""}
                       onClick={() => setNotificationListView("UNREAD")}
                     >
-                      Unread {notificationUnreadCount > 0 ? notificationUnreadCount : ""}
+                      {t("notificationWorkspace.unread")} {notificationUnreadCount > 0 ? notificationUnreadCount : ""}
                     </button>
                   </div>
 
@@ -17712,23 +21647,71 @@ export function MessageAppPage() {
                       type="search"
                       value={conversationSearch}
                       onChange={(event) => setConversationSearch(event.target.value)}
-                      placeholder="Search notifications"
+                      placeholder={t("notificationWorkspace.search")}
                     />
                   </label>
+
+                  <div
+                    className="message-notification-mobile-actions"
+                    aria-label={t("notificationWorkspace.actionsAria")}
+                  >
+                    <button
+                      type="button"
+                      onClick={() => void handleMarkAllNotificationsRead()}
+                      disabled={
+                        notificationUnreadCount === 0 ||
+                        notificationBulkAction !== null ||
+                        notificationDeletingId !== null
+                      }
+                      aria-busy={notificationBulkAction === "MARK_ALL_READ"}
+                    >
+                      {notificationBulkAction === "MARK_ALL_READ"
+                        ? t("actions.marking")
+                        : t("actions.markAllRead")}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => void handleDeleteReadNotifications()}
+                      disabled={
+                        notificationBulkAction !== null ||
+                        notificationDeletingId !== null ||
+                        !notifications.some((notification) => notification.isRead)
+                      }
+                      aria-busy={notificationBulkAction === "DELETE_READ"}
+                    >
+                      {notificationBulkAction === "DELETE_READ"
+                        ? t("actions.removing")
+                        : t("actions.removeSeen")}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => openSettingsWorkspace("NOTIFICATIONS")}
+                    >
+                      {t("notificationWorkspace.settings")}
+                    </button>
+                  </div>
                 </div>
+
+                {notificationActionNotice && !notificationError && (
+                  <div className="message-notification-mobile-feedback">
+                    <p className="message-inline-notice" role="status" aria-live="polite">
+                      {notificationActionNotice}
+                    </p>
+                  </div>
+                )}
 
                 <div className="message-notification-workspace-list">
                   {notificationsLoading ? (
-                    <div className="message-notification-workspace-empty">Loading notifications…</div>
+                    <div className="message-notification-workspace-empty">{t("notificationWorkspace.loading")}</div>
                   ) : notificationError ? (
                     <div className="message-notification-workspace-empty danger">{notificationError}</div>
                   ) : filteredNotifications.length === 0 ? (
                     <div className="message-notification-workspace-empty">
                       {conversationSearch.trim()
-                        ? "No notifications match your search."
+                        ? t("notificationWorkspace.noMatching")
                         : notificationListView === "UNREAD"
-                          ? "You are all caught up."
-                          : "No notifications yet."}
+                          ? t("notificationWorkspace.allCaughtUp")
+                          : t("notificationWorkspace.noneYet")}
                     </div>
                   ) : (
                     filteredNotifications.map((notification) => (
@@ -17746,7 +21729,7 @@ export function MessageAppPage() {
                             <small>
                               {messagingSettings.notificationPreview
                                 ? notification.body
-                                : "Preview hidden by notification privacy."}
+                                : t("notification.previewHidden")}
                             </small>
                           </span>
                           <em>{notificationTimestampLabel(notification.createdAt)}</em>
@@ -17754,7 +21737,7 @@ export function MessageAppPage() {
                         <button
                           type="button"
                           className="message-notification-delete"
-                          aria-label={`Remove ${notification.title} notification`}
+                          aria-label={t("actions.removeNotificationAria", { title: notification.title })}
                           onClick={() => void handleDeleteNotification(notification)}
                           disabled={notificationBulkAction !== null || notificationDeletingId !== null}
                         >
@@ -17779,8 +21762,8 @@ export function MessageAppPage() {
                     aria-busy={notificationBulkAction === "MARK_ALL_READ"}
                   >
                     {notificationBulkAction === "MARK_ALL_READ"
-                      ? "Marking..."
-                      : "Mark all read"}
+                      ? t("actions.marking")
+                      : t("actions.markAllRead")}
                   </button>
                   <button
                     type="button"
@@ -17793,14 +21776,14 @@ export function MessageAppPage() {
                     aria-busy={notificationBulkAction === "DELETE_READ"}
                   >
                     {notificationBulkAction === "DELETE_READ"
-                      ? "Removing..."
-                      : "Remove seen"}
+                      ? t("actions.removing")
+                      : t("actions.removeSeen")}
                   </button>
                   <button
                     type="button"
                     onClick={() => openSettingsWorkspace("NOTIFICATIONS")}
                   >
-                    Notification settings
+                    {t("notificationWorkspace.notificationSettings")}
                   </button>
                 </div>
 
@@ -17817,8 +21800,8 @@ export function MessageAppPage() {
 
                 <div className="message-notification-workspace-guide">
                   <span aria-hidden="true">N</span>
-                  <h3>Keep up with what matters</h3>
-                  <p>Choose an update from the list to open its related conversation, announcement, duty, or work item.</p>
+                  <h3>{t("notificationWorkspace.keepUp")}</h3>
+                  <p>{t("notificationWorkspace.keepUpDescription")}</p>
                 </div>
               </section>
               </div>
@@ -17830,13 +21813,9 @@ export function MessageAppPage() {
                 <span className="message-announcement-welcome-icon">
                   <MessageNavigationIcon name="announcement" />
                 </span>
-                <span>Official announcements</span>
-                <h2>Select an official group</h2>
-                <p>
-                  The selected group defines the authorized announcement
-                  audience. Official-group chat messages are never displayed in
-                  this section.
-                </p>
+                <span>{t("announcementWorkspace.eyebrow")}</span>
+                <h2>{t("announcementWorkspace.selectGroup")}</h2>
+                <p>{t("announcementWorkspace.audienceNote")}</p>
               </div>
             ) : (
               <div className="message-announcement-group-workspace">
@@ -17848,9 +21827,9 @@ export function MessageAppPage() {
                     )}
                   </span>
                   <div className="message-announcement-group-heading">
-                    <span>Official announcements</span>
-                    <h2>{selectedConversation.title ?? "Official group"}</h2>
-                    <p>{officialScopeLabel(selectedConversation)}</p>
+                    <span>{t("announcementWorkspace.eyebrow")}</span>
+                    <h2>{selectedConversation.title ?? t("groupInfo.officialGroup")}</h2>
+                    <p>{officialScopeLabel(selectedConversation, t)}</p>
                   </div>
                   {canManageSelectedAnnouncementGroup && (
                     <button
@@ -17859,7 +21838,7 @@ export function MessageAppPage() {
                       onClick={openAnnouncementComposer}
                     >
                       <span aria-hidden="true">+</span>
-                      New announcement
+                      {t("announcementWorkspace.newAnnouncement")}
                     </button>
                   )}
                 </header>
@@ -17871,12 +21850,12 @@ export function MessageAppPage() {
                 >
                   {announcementComposerNotice && (
                     <div className="message-announcement-notice" role="status">
-                      <strong>Announcement updated</strong>
+                      <strong>{t("announcementWorkspace.updated")}</strong>
                       <span>{announcementComposerNotice}</span>
                       <button
                         type="button"
                         onClick={() => setAnnouncementComposerNotice(null)}
-                        aria-label="Dismiss announcement status"
+                        aria-label={t("announcementWorkspace.dismissStatus")}
                       >
                         ×
                       </button>
@@ -17893,9 +21872,9 @@ export function MessageAppPage() {
                       >
                         <MessageNavigationIcon name="announcement" />
                       </span>
-                      <h3>Loading official announcements</h3>
+                      <h3>{t("announcementWorkspace.loading")}</h3>
                       <p>
-                        Retrieving records authorized for this official group.
+                        {t("announcementWorkspace.loadingDescription")}
                       </p>
                     </div>
                   ) : announcementError ? (
@@ -17909,7 +21888,7 @@ export function MessageAppPage() {
                       >
                         <MessageNavigationIcon name="announcement" />
                       </span>
-                      <h3>Announcements could not be loaded</h3>
+                      <h3>{t("announcementWorkspace.loadError")}</h3>
                       <p>{announcementError}</p>
                       <button
                         type="button"
@@ -17919,7 +21898,7 @@ export function MessageAppPage() {
                           )
                         }
                       >
-                        Try again
+                        {t("announcementWorkspace.tryAgain")}
                       </button>
                     </div>
                   ) : announcementItems.length === 0 ? (
@@ -17933,18 +21912,14 @@ export function MessageAppPage() {
                       >
                         <MessageNavigationIcon name="announcement" />
                       </span>
-                      <h3>No announcements yet</h3>
-                      <p>
-                        Official announcements for this group will appear here.
-                        Group-chat messages and shared chat content remain
-                        completely separate.
-                      </p>
+                      <h3>{t("announcementWorkspace.noneYet")}</h3>
+                      <p>{t("announcementWorkspace.emptyDescription")}</p>
                       {canManageSelectedAnnouncementGroup && (
                         <button
                           type="button"
                           onClick={openAnnouncementComposer}
                         >
-                          Create first announcement
+                          {t("announcementWorkspace.createFirst")}
                         </button>
                       )}
                     </div>
@@ -17962,20 +21937,17 @@ export function MessageAppPage() {
                 <span className="message-collection-welcome-icon" aria-hidden="true">
                   <MessageNavigationIcon name="requests" />
                 </span>
-                <span>First-contact protection</span>
-                <h2>Select a message request</h2>
-                <p>
-                  Review received requests or check the status of requests you
-                  sent without leaving the messaging workspace.
-                </p>
+                <span>{t("requestWorkspace.eyebrow")}</span>
+                <h2>{t("requestWorkspace.selectRequest")}</h2>
+                <p>{t("requestWorkspace.description")}</p>
                 <div className="message-collection-welcome-metrics">
                   <span>
                     <strong>{messageRequests.counts.receivedPending}</strong>
-                    Received
+                    {t("requestWorkspace.received")}
                   </span>
                   <span>
                     <strong>{messageRequests.counts.sentPending}</strong>
-                    Sent
+                    {t("requestWorkspace.sent")}
                   </span>
                 </div>
               </div>
@@ -17984,17 +21956,9 @@ export function MessageAppPage() {
                 <header className="message-request-detail-header">
                   <button
                     type="button"
-                    className="message-mobile-menu-button message-mobile-menu-button--chat"
-                    onClick={() => setNavigationExpanded(true)}
-                    aria-label="Open messaging navigation"
-                  >
-                    <span aria-hidden="true">☰</span>
-                  </button>
-                  <button
-                    type="button"
                     className="message-mobile-back"
                     onClick={() => setSelectedRequestId(null)}
-                    aria-label="Back to message requests"
+                    aria-label={t("requestWorkspace.back")}
                   >
                     ←
                   </button>
@@ -18007,17 +21971,17 @@ export function MessageAppPage() {
                   <div>
                     <span>
                       {selectedMessageRequest.direction === "RECEIVED"
-                        ? "Received request"
-                        : "Sent request"}
+                        ? t("requestWorkspace.receivedRequest")
+                        : t("requestWorkspace.sentRequest")}
                     </span>
                     <h2>{selectedMessageRequest.peer.displayName}</h2>
                     <p>
                       {selectedMessageRequest.peer.employee?.designation ??
-                        roleLabel(selectedMessageRequest.peer.role)}
+                        roleLabel(selectedMessageRequest.peer.role, t)}
                     </p>
                   </div>
                   <strong className="message-request-detail-status">
-                    {requestStatusLabel(selectedMessageRequest)}
+                    {requestStatusLabel(selectedMessageRequest, t)}
                   </strong>
                 </header>
 
@@ -18029,18 +21993,14 @@ export function MessageAppPage() {
                   )}
 
                   <div className="message-request-detail-card">
-                    <span>Why this request exists</span>
-                    <h3>{requestReasonLabel(selectedMessageRequest.reason)}</h3>
-                    <p>
-                      NT Message requires approval before this first private
-                      conversation can begin. Existing blocking and account
-                      eligibility rules remain in effect.
-                    </p>
+                    <span>{t("requestWorkspace.why")}</span>
+                    <h3>{requestReasonLabel(selectedMessageRequest.reason, t)}</h3>
+                    <p>{t("requestWorkspace.approvalNote")}</p>
                   </div>
 
                   <dl className="message-request-detail-facts">
                     <div>
-                      <dt>Requested</dt>
+                      <dt>{t("requestWorkspace.requested")}</dt>
                       <dd>
                         {formatAnnouncementDate(
                           selectedMessageRequest.requestedAt,
@@ -18048,16 +22008,16 @@ export function MessageAppPage() {
                       </dd>
                     </div>
                     <div>
-                      <dt>Direction</dt>
+                      <dt>{t("requestWorkspace.direction")}</dt>
                       <dd>
                         {selectedMessageRequest.direction === "RECEIVED"
-                          ? "Received by you"
-                          : "Sent by you"}
+                          ? t("requestWorkspace.receivedByYou")
+                          : t("requestWorkspace.sentByYou")}
                       </dd>
                     </div>
                     <div>
-                      <dt>Status</dt>
-                      <dd>{requestStatusLabel(selectedMessageRequest)}</dd>
+                      <dt>{t("requestWorkspace.status")}</dt>
+                      <dd>{requestStatusLabel(selectedMessageRequest, t)}</dd>
                     </div>
                   </dl>
 
@@ -18073,8 +22033,8 @@ export function MessageAppPage() {
                           disabled={requestActionId !== null}
                         >
                           {requestActionId === selectedMessageRequest.id
-                            ? "Working..."
-                            : "Accept and open chat"}
+                            ? t("profileDetail.working")
+                            : t("requestWorkspace.acceptAndOpen")}
                         </button>
                         <button
                           type="button"
@@ -18083,7 +22043,7 @@ export function MessageAppPage() {
                           }
                           disabled={requestActionId !== null}
                         >
-                          Decline
+                          {t("requestWorkspace.decline")}
                         </button>
                         <button
                           type="button"
@@ -18093,28 +22053,32 @@ export function MessageAppPage() {
                           }
                           disabled={requestActionId !== null}
                         >
-                          Block
+                          {t("requestWorkspace.block")}
                         </button>
                       </div>
                     )}
                 </section>
               </div>
             )
+          ) : listMode && !selectedConversation ? (
+            renderMessageListOverviewContent()
+          ) : archivedMode && !selectedConversation ? (
+            <div className="message-collection-welcome-state">
+              <span className="message-collection-welcome-icon" aria-hidden="true">
+                <MessageNavigationIcon name="archive" />
+              </span>
+              <h2>{t("secondaryEmpty.archivedTitle")}</h2>
+              <p>{t("secondaryEmpty.archivedDescription")}</p>
+            </div>
           ) : starredMode && !selectedConversation ? (
             <div className="message-collection-welcome-state starred">
               <span className="message-collection-welcome-icon" aria-hidden="true">
                 <MessageNavigationIcon name="starred" />
               </span>
-              <span>Your saved messages</span>
-              <h2>Select a starred message</h2>
-              <p>
-                Open the original conversation and jump directly to the saved
-                message without leaving NT Message.
-              </p>
-              <small>
-                Starred messages are personal to your account and do not affect
-                other participants.
-              </small>
+              <span>{t("secondaryEmpty.starredEyebrow")}</span>
+              <h2>{t("secondaryEmpty.starredTitle")}</h2>
+              <p>{t("starred.openOriginalDescription")}</p>
+              <small>{t("starred.personalNote")}</small>
             </div>
           ) : !selectedConversation ? (
             <div className="message-welcome-state">
@@ -18122,24 +22086,20 @@ export function MessageAppPage() {
                 <img src="/nt-logo.png" alt="" />
               </div>
               <span>NT Message</span>
-              <h2>Secure internal communication</h2>
-              <p>
-                Select a conversation, start a private chat, or create a group
-                for your team.
-              </p>
+              <h2>{t("secondaryEmpty.secureTitle")}</h2>
+              <p>{t("newConversationWorkspace.welcomeDescription")}</p>
               <div className="message-welcome-actions">
                 <button type="button" onClick={openNewConversation}>
                   <MessageNavigationIcon name="newChat" />
-                  New conversation
+                  {t("newConversationWorkspace.newConversation")}
                 </button>
                 <button type="button" onClick={openCreateGroup}>
                   <MessageNavigationIcon name="newGroup" />
-                  New group
+                  {t("newConversationWorkspace.newGroup")}
                 </button>
               </div>
               <small>
-                Private message content remains visible only to authorized
-                participants.
+                {t("newConversationWorkspace.privacyNote")}
               </small>
             </div>
           ) : (
@@ -18149,7 +22109,7 @@ export function MessageAppPage() {
                   type="button"
                   className="message-mobile-menu-button message-mobile-menu-button--chat"
                   onClick={() => setNavigationExpanded(true)}
-                  aria-label="Open messaging navigation"
+                  aria-label={t("navigation.openMessagingNavigation")}
                 >
                   <span aria-hidden="true">☰</span>
                 </button>
@@ -18158,7 +22118,7 @@ export function MessageAppPage() {
                   type="button"
                   className="message-mobile-back"
                   onClick={() => setSelectedConversationId(null)}
-                  aria-label="Back to conversations"
+                  aria-label={t("thread.header.backToConversations")}
                 >
                   ←
                 </button>
@@ -18182,23 +22142,27 @@ export function MessageAppPage() {
                     peerPresence?.isOnline && (
                       <span
                         className="message-presence-dot"
-                        aria-label={`${selectedConversation.title ?? "Contact"} is online`}
+                        aria-label={t("thread.header.onlineAria", {
+                          name: selectedConversation.title ?? t("thread.header.contactFallback"),
+                        })}
                       />
                     )}
                 </span>
 
                 <div className="message-chat-identity">
                   <h2>
-                    {selectedConversation.title ?? "Private conversation"}
+                    {selectedConversation.title ?? t("thread.header.privateConversation")}
                   </h2>
                   <p>
                     {selectedConversation.type === "GROUP"
                       ? selectedConversation.groupKind === "OFFICIAL"
-                        ? officialScopeLabel(selectedConversation)
-                        : `${selectedConversation.memberCount} members · Personal group`
+                        ? officialScopeLabel(selectedConversation, t)
+                        : t("thread.header.personalGroupMembers", {
+                            count: selectedConversation.memberCount,
+                          })
                       : [
                         peer?.employee?.designation ??
-                        roleLabel(peer?.role ?? "EMPLOYEE"),
+                        roleLabel(peer?.role ?? "EMPLOYEE", t),
                         peer?.employee?.department?.name ??
                         peer?.employee?.division?.name,
                       ]
@@ -18221,7 +22185,7 @@ export function MessageAppPage() {
 
                 <div
                   className="message-chat-header-actions"
-                  aria-label="Conversation actions"
+                  aria-label={t("thread.header.conversationActions")}
                 >
                   <button
                     ref={messageSearchTriggerRef}
@@ -18229,7 +22193,7 @@ export function MessageAppPage() {
                     className={searchPanelOpen ? "active" : ""}
                     onClick={() => openMessageSearchPanel()}
                     aria-expanded={searchPanelOpen}
-                    aria-label="Search this conversation"
+                    aria-label={t("thread.header.searchConversation")}
                   >
                     <MessageNavigationIcon name="search" />
                   </button>
@@ -18250,7 +22214,7 @@ export function MessageAppPage() {
                       }
                     }}
                     aria-expanded={detailsPanelOpen}
-                    aria-label="Open conversation information"
+                    aria-label={t("thread.header.openInformation")}
                   >
                     <MessageNavigationIcon name="info" />
                   </button>
@@ -18265,7 +22229,7 @@ export function MessageAppPage() {
                       }
                       aria-haspopup="menu"
                       aria-expanded={conversationActionMenuOpen}
-                      aria-label="More conversation actions"
+                      aria-label={t("thread.header.moreActions")}
                     >
                       <MessageNavigationIcon name="more" />
                     </button>
@@ -18275,7 +22239,7 @@ export function MessageAppPage() {
                         ref={conversationActionMenuRef}
                         className="message-conversation-action-menu compact"
                         role="menu"
-                        aria-label="Conversation actions"
+                        aria-label={t("thread.header.conversationActions")}
                         onKeyDown={(event) =>
                           handleLinearKeyboardNavigation(event, "VERTICAL")
                         }
@@ -18290,14 +22254,14 @@ export function MessageAppPage() {
                               }
                             >
                               <span aria-hidden="true">←</span>
-                              <span>Mute notifications</span>
+                              <span>{t("thread.header.muteNotifications")}</span>
                             </button>
                             {(
                               [
-                                ["1_HOUR", "Mute for 1 hour"],
-                                ["8_HOURS", "Mute for 8 hours"],
-                                ["1_WEEK", "Mute for 1 week"],
-                                ["ALWAYS", "Mute always"],
+                                ["1_HOUR", t("thread.header.mute1Hour")],
+                                ["8_HOURS", t("thread.header.mute8Hours")],
+                                ["1_WEEK", t("thread.header.mute1Week")],
+                                ["ALWAYS", t("thread.header.muteAlways")],
                               ] as Array<[ConversationMuteSetting, string]>
                             ).map(([value, label]) => (
                               <button
@@ -18340,8 +22304,8 @@ export function MessageAppPage() {
                                   <MessageNavigationIcon name="addUser" />
                                   <span>
                                     {selectedConversation.type === "PRIVATE"
-                                      ? "Add member"
-                                      : "Manage group members"}
+                                      ? t("thread.header.addMember")
+                                      : t("thread.header.manageGroupMembers")}
                                   </span>
                                 </button>
                               )}
@@ -18363,8 +22327,8 @@ export function MessageAppPage() {
                               <MessageNavigationIcon name="starred" />
                               <span>
                                 {selectedConversation.isFavorite
-                                  ? "Remove from favorites"
-                                  : "Add to favorites"}
+                                  ? t("thread.header.removeFavorite")
+                                  : t("thread.header.addFavorite")}
                               </span>
                             </button>
 
@@ -18385,7 +22349,7 @@ export function MessageAppPage() {
                                 }}
                               >
                                 <MessageNavigationIcon name="bell" />
-                                <span>Unmute notifications</span>
+                                <span>{t("thread.header.unmuteNotifications")}</span>
                               </button>
                             ) : (
                               <button
@@ -18396,7 +22360,7 @@ export function MessageAppPage() {
                                 }
                               >
                                 <MessageNavigationIcon name="bell" />
-                                <span>Mute notifications ›</span>
+                                <span>{t("thread.header.muteNotificationsMore")}</span>
                               </button>
                             )}
 
@@ -18421,8 +22385,8 @@ export function MessageAppPage() {
                                 <MessageNavigationIcon name="block" />
                                 <span>
                                   {blockedAccountIds.has(peer.accountId)
-                                    ? "Unblock contact"
-                                    : "Block contact"}
+                                    ? t("conversationList.unblockContact")
+                                    : t("conversationList.blockContact")}
                                 </span>
                               </button>
                             )}
@@ -18433,7 +22397,7 @@ export function MessageAppPage() {
                               onClick={closeActiveConversation}
                             >
                               <MessageNavigationIcon name="close" />
-                              <span>Close conversation</span>
+                              <span>{t("thread.header.closeConversation")}</span>
                             </button>
 
                             <div
@@ -18453,7 +22417,7 @@ export function MessageAppPage() {
                               }
                             >
                               <MessageNavigationIcon name="close" />
-                              <span>Clear chat for me</span>
+                              <span>{t("thread.header.clearChat")}</span>
                             </button>
 
                             {selectedConversation.type === "PRIVATE" && (
@@ -18469,7 +22433,7 @@ export function MessageAppPage() {
                                 }
                               >
                                 <MessageNavigationIcon name="trash" />
-                                <span>Delete chat for me</span>
+                                <span>{t("thread.header.deleteChat")}</span>
                               </button>
                             )}
                           </>
@@ -18486,7 +22450,7 @@ export function MessageAppPage() {
                   <button
                     type="button"
                     onClick={() => setMessageError(null)}
-                    aria-label="Dismiss message error"
+                    aria-label={t("thread.dismissError")}
                   >
                     ×
                   </button>
@@ -18495,18 +22459,15 @@ export function MessageAppPage() {
 
               {messageNotice && (
                 <div
-                  className="message-chat-notice"
+                  className="message-action-toast"
                   role="status"
                   aria-live="polite"
+                  aria-atomic="true"
                 >
+                  <span className="message-action-toast-icon" aria-hidden="true">
+                    i
+                  </span>
                   <span>{messageNotice}</span>
-                  <button
-                    type="button"
-                    onClick={() => setMessageNotice(null)}
-                    aria-label="Dismiss message notice"
-                  >
-                    ×
-                  </button>
                 </div>
               )}
 
@@ -18516,14 +22477,14 @@ export function MessageAppPage() {
                   role="status"
                   aria-live="polite"
                 >
-                  <span>Joining group from invitation link...</span>
+                  <span>{t("privateGroup.joiningInvite")}</span>
                 </div>
               )}
 
               {activePinnedMessage && (
                 <section
                   className="message-pinned-strip"
-                  aria-label="Pinned message"
+                  aria-label={t("thread.pinned.aria")}
                 >
                   <button
                     type="button"
@@ -18539,11 +22500,13 @@ export function MessageAppPage() {
                     <span className="message-pinned-strip-copy">
                       <strong>
                         {activePinnedMessage.sender.displayName}: {" "}
-                        {attachmentLabel(activePinnedMessage)}
+                        {localizedAttachmentLabel(activePinnedMessage)}
                       </strong>
                       <small>
-                        {normalizedPinnedMessageIndex + 1} of {" "}
-                        {visiblePinnedMessages.length}
+                        {t("pinnedBrowser.position", {
+                          current: normalizedPinnedMessageIndex + 1,
+                          total: visiblePinnedMessages.length,
+                        })}
                       </small>
                     </span>
                   </button>
@@ -18553,7 +22516,7 @@ export function MessageAppPage() {
                       type="button"
                       onClick={() => movePinnedMessageSelection(-1)}
                       disabled={visiblePinnedMessages.length < 2}
-                      aria-label="Previous pinned message"
+                      aria-label={t("thread.pinned.previous")}
                     >
                       ‹
                     </button>
@@ -18561,7 +22524,7 @@ export function MessageAppPage() {
                       type="button"
                       onClick={() => movePinnedMessageSelection(1)}
                       disabled={visiblePinnedMessages.length < 2}
-                      aria-label="Next pinned message"
+                      aria-label={t("thread.pinned.next")}
                     >
                       ›
                     </button>
@@ -18570,7 +22533,7 @@ export function MessageAppPage() {
                       className="message-pinned-strip-browse"
                       onClick={() => setPinnedMessageBrowserOpen(true)}
                     >
-                      All
+                      {t("thread.pinned.all")}
                     </button>
                   </div>
                 </section>
@@ -18581,9 +22544,23 @@ export function MessageAppPage() {
                   className="message-thread"
                   ref={messageListRef}
                   onScroll={handleMessageThreadScroll}
+                  onWheelCapture={releaseInitialMessageBottomAnchor}
+                  onTouchStartCapture={releaseInitialMessageBottomAnchor}
+                  onPointerDownCapture={releaseInitialMessageBottomAnchor}
+                  onKeyDownCapture={releaseInitialMessageBottomAnchor}
                   aria-busy={messageLoading || olderMessagesLoading}
                 >
-                  <div className="message-thread-content">
+                  <div
+                    ref={messageThreadContentRef}
+                    className="message-thread-content"
+                  >
+                    {!messageLoading && displayMessages.length > 0 && (
+                      <div
+                        className="message-thread-spacer"
+                        aria-hidden="true"
+                      />
+                    )}
+
                     {hasOlderMessages && (
                       <button
                         type="button"
@@ -18592,8 +22569,8 @@ export function MessageAppPage() {
                         disabled={olderMessagesLoading}
                       >
                         {olderMessagesLoading
-                          ? "Loading…"
-                          : "Load older messages"}
+                          ? t("thread.loadingOlder")
+                          : t("thread.loadOlder")}
                       </button>
                     )}
 
@@ -18607,7 +22584,7 @@ export function MessageAppPage() {
                           className="message-small-spinner"
                           aria-hidden="true"
                         />
-                        <p>Loading messages...</p>
+                        <p>{t("thread.loadingMessages")}</p>
                       </div>
                     ) : messages.length === 0 ? (
                       <div
@@ -18622,13 +22599,13 @@ export function MessageAppPage() {
                         </div>
                         <h3>
                           {selectedConversation.historyClearedAt
-                            ? "This chat was cleared for you"
-                            : "Start the conversation"}
+                            ? t("thread.clearedTitle")
+                            : t("thread.startTitle")}
                         </h3>
                         <p>
                           {selectedConversation.historyClearedAt
-                            ? "New messages will appear here. Other participants were not affected."
-                            : `Send the first message to ${selectedConversation.title}.`}
+                            ? t("thread.clearedDescription")
+                            : t("thread.startDescription", { name: selectedConversation.title })}
                         </p>
                       </div>
                     ) : (
@@ -18636,7 +22613,7 @@ export function MessageAppPage() {
                         const ownMessage =
                           message.senderAccountId === account?.id;
                         const officialAnnouncement =
-                          getOfficialAnnouncementPayload(message);
+                          getOfficialAnnouncementPayload(message, t);
                         const previousMessage = displayMessages[index - 1];
                         const nextMessage = displayMessages[index + 1];
                         const showDaySeparator =
@@ -18667,11 +22644,74 @@ export function MessageAppPage() {
                           message.contentType === "LOCATION";
                         const attachmentOnlyMessage =
                           !message.isDeleted &&
-                          !message.textContent &&
-                          (hasAttachments || isLocationMessage) &&
                           !message.replyTo &&
                           !message.forwardedFrom &&
-                          !officialAnnouncement;
+                          !officialAnnouncement &&
+                          (isLocationMessage ||
+                            (!message.textContent && hasAttachments));
+                        const simpleTextMessage =
+                          !message.isDeleted &&
+                          !message.replyTo &&
+                          !message.forwardedFrom &&
+                          !officialAnnouncement &&
+                          !isLocationMessage &&
+                          !hasAttachments &&
+                          Boolean(message.textContent?.trim());
+                        const messageMeta = (
+                          <span
+                            className={`message-bubble-meta${
+                              attachmentOnlyMessage ? "" : " inside-bubble"
+                            }`}
+                          >
+                            {!message.isDeleted &&
+                              (message.isPinned || message.isStarred) && (
+                                <span
+                                  className="message-state-icons"
+                                  aria-label={[
+                                    message.isPinned ? t("thread.message.pinned") : null,
+                                    message.isStarred ? t("thread.message.starred") : null,
+                                  ]
+                                    .filter(Boolean)
+                                    .join(" and ")}
+                                >
+                                  {message.isPinned && (
+                                    <span
+                                      className="message-state-icon is-pinned"
+                                      title={t("thread.message.pinned")}
+                                    >
+                                      <MessageStatusGlyph name="pin" />
+                                    </span>
+                                  )}
+                                  {message.isStarred && (
+                                    <span
+                                      className="message-state-icon is-starred"
+                                      title={t("thread.message.starred")}
+                                    >
+                                      <MessageStatusGlyph name="star" />
+                                    </span>
+                                  )}
+                                </span>
+                              )}
+
+                            <time>{formatMessageTime(message.sentAt)}</time>
+
+                            {message.editedAt && !message.isDeleted && (
+                              <span>{t("thread.message.edited")}</span>
+                            )}
+
+                            {deliveryPresentation && (
+                              <span
+                                className={`message-delivery ${message.deliveryStatus.toLowerCase()}`}
+                                aria-label={deliveryPresentation.label}
+                                title={deliveryPresentation.label}
+                              >
+                                <span aria-hidden="true">
+                                  {deliveryPresentation.glyph}
+                                </span>
+                              </span>
+                            )}
+                          </span>
+                        );
 
                         return (
                           <Fragment key={message.id}>
@@ -18698,7 +22738,7 @@ export function MessageAppPage() {
                                   ? " mobile-action-selected"
                                   : ""
                                 }${hasAttachments ? " has-attachments" : ""}${isLocationMessage ? " has-location" : ""
-                                }${attachmentOnlyMessage ? " attachment-only" : ""}`}
+                                }${attachmentOnlyMessage ? " attachment-only" : ""}${simpleTextMessage ? " simple-text-message" : ""}${message.isDeleted ? " is-deleted" : ""}`}
                               onPointerEnter={(event) =>
                                 handleMessagePointerEnter(message.id, event)
                               }
@@ -18733,34 +22773,22 @@ export function MessageAppPage() {
 
                                 <div className="message-bubble-line">
                                   <div className="message-bubble">
-                                    {!message.isDeleted &&
-                                      (message.isStarred || message.isPinned) && (
-                                        <div
-                                          className="message-state-badges"
-                                          aria-label="Message state"
-                                        >
-                                          {message.isPinned && (
-                                            <span>📌 Pinned</span>
-                                          )}
-                                          {message.isStarred && (
-                                            <span>★ Starred</span>
-                                          )}
-                                        </div>
-                                      )}
-
                                     {officialAnnouncement && !message.isDeleted && (
                                       <div className="message-announcement-label">
                                         <strong>
                                           {officialAnnouncement.label}
                                         </strong>
-                                        <span>Official group broadcast</span>
+                                        <span>{t("thread.message.officialBroadcast")}</span>
                                       </div>
                                     )}
 
                                     {message.forwardedFrom &&
                                       !message.isDeleted && (
                                         <div className="message-forwarded-label">
-                                          <strong>Forwarded</strong>
+                                          <svg viewBox="0 0 24 24" aria-hidden="true">
+                                            <path d="m14 5 6 7-6 7v-4H9c-3.3 0-5.7 1.1-7 3 1-5.4 4-8 9-8h3V5Z" />
+                                          </svg>
+                                          <span>{t("thread.message.forwarded")}</span>
                                         </div>
                                       )}
 
@@ -18774,37 +22802,47 @@ export function MessageAppPage() {
                                         disabled={message.replyTo.isDeleted}
                                         aria-label={
                                           message.replyTo.isDeleted
-                                            ? "Original reply message is unavailable"
-                                            : "Open original reply message"
+                                            ? t("thread.message.originalReplyUnavailable")
+                                            : t("thread.message.openOriginalReply")
                                         }
                                       >
                                         <strong>
                                           {message.replyTo.senderAccountId ===
                                             account?.id
-                                            ? "You"
+                                            ? t("thread.message.you")
                                             : message.replyTo.sender.displayName}
                                         </strong>
                                         <span>
                                           {message.replyTo.isDeleted
-                                            ? "This message was deleted"
+                                            ? t("thread.message.deleted")
                                             : (message.replyTo.textContent ??
-                                              "Message")}
+                                              t("thread.message.fallback"))}
                                         </span>
                                       </button>
                                     )}
 
                                     {message.isDeleted ? (
-                                      <em>This message was deleted.</em>
+                                      <em>{t("thread.message.deletedSentence")}</em>
                                     ) : (
                                       <>
                                         {message.textContent &&
-                                          message.contentType !== "LOCATION" && (
+                                          message.contentType !== "LOCATION" &&
+                                          (simpleTextMessage ? (
+                                            <span className="message-simple-text">
+                                              <span className="message-simple-text-content">
+                                                {renderMessageTextWithMentions(
+                                                  message,
+                                                )}
+                                              </span>
+                                              {messageMeta}
+                                            </span>
+                                          ) : (
                                             <p>
                                               {renderMessageTextWithMentions(
                                                 message,
                                               )}
                                             </p>
-                                          )}
+                                          ))}
 
                                         {message.contentType === "LOCATION" && (
                                           <LocationMessageCard
@@ -18855,56 +22893,28 @@ export function MessageAppPage() {
                                                       selected,
                                                     )
                                                   }
+                                                  onMediaLayoutReady={
+                                                    handleMessageMediaLayoutReady
+                                                  }
                                                 />
                                               ),
                                             )}
                                           </div>
                                         )}
 
-                                        {(message.reactions?.length ?? 0) > 0 && (
-                                          <div className="message-reactions">
-                                            {groupMessageReactions(
-                                              message,
-                                              account?.id,
-                                            ).map((reactionGroup) => (
-                                              <button
-                                                key={reactionGroup.emoji}
-                                                type="button"
-                                                className={
-                                                  reactionGroup.reactedByViewer
-                                                    ? "message-reaction-chip message-reaction-chip-own"
-                                                    : "message-reaction-chip"
-                                                }
-                                                title={reactionGroup.label}
-                                                aria-label={`${reactionGroup.emoji} reaction from ${reactionGroup.count} participant${reactionGroup.count === 1
-                                                  ? ""
-                                                  : "s"
-                                                  }`}
-                                                onClick={() =>
-                                                  void handleReaction(
-                                                    message,
-                                                    reactionGroup.emoji,
-                                                  )
-                                                }
-                                                disabled={reactionActionId !== null}
-                                              >
-                                                <span>{reactionGroup.emoji}</span>
-                                                {reactionGroup.count > 1 && (
-                                                  <span>{reactionGroup.count}</span>
-                                                )}
-                                              </button>
-                                            ))}
-                                          </div>
-                                        )}
                                       </>
                                     )}
+
+                                    {!attachmentOnlyMessage &&
+                                      !simpleTextMessage &&
+                                      messageMeta}
                                   </div>
 
                                   <div
                                     className="message-bubble-actions"
                                     data-message-action-root={message.id}
                                     role="toolbar"
-                                    aria-label="Message quick actions"
+                                    aria-label={t("thread.message.quickActions")}
                                     onKeyDown={(event) =>
                                       handleLinearKeyboardNavigation(
                                         event,
@@ -18929,8 +22939,8 @@ export function MessageAppPage() {
                                           openReactionMenuId === message.id
                                         }
                                         aria-haspopup="true"
-                                        aria-label="React to message"
-                                        title="React"
+                                        aria-label={t("actionsMenu.reactToMessage")}
+                                        title={t("actionsMenu.react")}
                                       >
                                         <MessageNavigationIcon name="react" />
                                       </button>
@@ -18942,8 +22952,8 @@ export function MessageAppPage() {
                                         className="message-action-reply"
                                         onClick={() => beginReply(message)}
                                         disabled={messageActionId !== null}
-                                        aria-label="Reply to message"
-                                        title="Reply"
+                                        aria-label={t("actionsMenu.replyToMessage")}
+                                        title={t("actionsMenu.reply")}
                                       >
                                         <MessageNavigationIcon name="reply" />
                                       </button>
@@ -18964,35 +22974,53 @@ export function MessageAppPage() {
                                         openMessageMenuId === message.id
                                       }
                                       aria-haspopup="menu"
-                                      aria-label="Open more message actions"
-                                      title="More actions"
+                                      aria-label={t("actionsMenu.openMore")}
+                                      title={t("actionsMenu.moreActions")}
                                     >
                                       <MessageNavigationIcon name="more" />
                                     </button>
                                   </div>
                                 </div>
 
-                                {(!groupedWithNext || message.editedAt) && (
-                                  <div className="message-bubble-meta">
-                                    <time>
-                                      {formatMessageTime(message.sentAt)}
-                                    </time>
+                                {attachmentOnlyMessage && messageMeta}
 
-                                    {message.editedAt && !message.isDeleted && (
-                                      <span>Edited</span>
-                                    )}
-
-                                    {deliveryPresentation && (
-                                      <span
-                                        className={`message-delivery ${message.deliveryStatus.toLowerCase()}`}
-                                        aria-label={deliveryPresentation.label}
-                                        title={deliveryPresentation.label}
+                                {(message.reactions?.length ?? 0) > 0 && (
+                                  <div
+                                    className={`message-reactions${
+                                      ownMessage ? " own" : ""
+                                    }`}
+                                  >
+                                    {groupMessageReactions(
+                                      message,
+                                      account?.id,
+                                      t,
+                                    ).map((reactionGroup) => (
+                                      <button
+                                        key={reactionGroup.emoji}
+                                        type="button"
+                                        className={
+                                          reactionGroup.reactedByViewer
+                                            ? "message-reaction-chip message-reaction-chip-own"
+                                            : "message-reaction-chip"
+                                        }
+                                        title={reactionGroup.label}
+                                        aria-label={`${reactionGroup.emoji} reaction from ${reactionGroup.count} participant${
+                                          reactionGroup.count === 1 ? "" : "s"
+                                        }`}
+                                        onClick={() =>
+                                          void handleReaction(
+                                            message,
+                                            reactionGroup.emoji,
+                                          )
+                                        }
+                                        disabled={reactionActionId !== null}
                                       >
-                                        <span aria-hidden="true">
-                                          {deliveryPresentation.glyph}
-                                        </span>
-                                      </span>
-                                    )}
+                                        <span>{reactionGroup.emoji}</span>
+                                        {reactionGroup.count > 1 && (
+                                          <span>{reactionGroup.count}</span>
+                                        )}
+                                      </button>
+                                    ))}
                                   </div>
                                 )}
                               </div>
@@ -19022,23 +23050,36 @@ export function MessageAppPage() {
                       </div>
                     )}
                     <div
-                      ref={messageThreadBottomRef}
                       className="message-thread-bottom"
                       aria-hidden="true"
                     />
                   </div>
                 </div>
 
-                {newMessageCount > 0 && (
+                {(showJumpToLatest || newMessageCount > 0) && (
                   <button
                     type="button"
                     className="message-new-messages-button"
                     onClick={jumpToLatestMessages}
-                    aria-live="polite"
+                    aria-label={
+                      newMessageCount > 0
+                        ? t("thread.jumpWithNew", { count: newMessageCount })
+                        : t("thread.jumpToLatestMessage")
+                    }
+                    title={t("thread.jumpToLatest")}
                   >
-                    <span aria-hidden="true">↓</span>
-                    {newMessageCount} new {" "}
-                    {newMessageCount === 1 ? "message" : "messages"}
+                    <svg
+                      viewBox="0 0 24 24"
+                      aria-hidden="true"
+                      focusable="false"
+                    >
+                      <path d="m6.5 9 5.5 5.5L17.5 9" />
+                    </svg>
+                    {newMessageCount > 0 && (
+                      <span className="message-new-messages-count">
+                        {newMessageCount > 99 ? "99+" : newMessageCount}
+                      </span>
+                    )}
                   </button>
                 )}
               </div>
@@ -19052,22 +23093,25 @@ export function MessageAppPage() {
                     <span>
                       <strong>
                         {editingMessage
-                          ? "Editing message"
-                          : `Replying to ${replyingTo?.senderAccountId === account?.id
-                            ? "yourself"
-                            : (replyingTo?.sender.displayName ?? "message")
-                          }`}
+                          ? t("composer.editingMessage")
+                          : t("composer.replyingTo", {
+                              name:
+                                replyingTo?.senderAccountId === account?.id
+                                  ? t("composer.yourself")
+                                  : (replyingTo?.sender.displayName ??
+                                    t("thread.message.fallback").toLowerCase()),
+                            })}
                       </strong>
                       <small>
                         {(editingMessage ?? replyingTo)?.textContent ??
-                          "Message"}
+                          t("thread.message.fallback")}
                       </small>
                     </span>
 
                     <button
                       type="button"
                       onClick={cancelMessageAction}
-                      aria-label="Cancel message action"
+                      aria-label={t("composer.cancelAction")}
                     >
                       ×
                     </button>
@@ -19080,8 +23124,8 @@ export function MessageAppPage() {
                       <span>
                         <strong>
                           {selectedAttachmentKind === "VOICE_NOTE"
-                            ? "Voice note"
-                            : `${selectedAttachments.length} attachment${selectedAttachments.length === 1 ? "" : "s"}`}
+                            ? t("attachment.voiceNote")
+                            : t("composer.selectedAttachments", { count: selectedAttachments.length })}
                         </strong>
                         <small>
                           {formatFileSize(
@@ -19092,7 +23136,9 @@ export function MessageAppPage() {
                             ),
                           )}
                           {selectedAttachmentKind === "FILE"
-                            ? ` · ${MAX_MESSAGE_ATTACHMENT_FILES - selectedAttachments.length} remaining`
+                            ? ` · ${t("composer.attachmentsRemaining", {
+                                count: MAX_MESSAGE_ATTACHMENT_FILES - selectedAttachments.length,
+                              })}`
                             : ""}
                         </small>
                       </span>
@@ -19101,9 +23147,9 @@ export function MessageAppPage() {
                         type="button"
                         onClick={clearSelectedAttachment}
                         disabled={sendingMessage}
-                        aria-label="Remove all selected attachments"
+                        aria-label={t("composer.removeAllAttachments")}
                       >
-                        Clear
+                        {t("composer.clearAttachments")}
                       </button>
                     </header>
 
@@ -19137,7 +23183,7 @@ export function MessageAppPage() {
                                   controls
                                   preload="metadata"
                                 >
-                                  Your browser does not support audio playback.
+                                  {t("attachment.audioUnsupported")}
                                 </audio>
                               </div>
                             )}
@@ -19154,7 +23200,7 @@ export function MessageAppPage() {
                             <span>
                               <strong>
                                 {selectedAttachmentKind === "VOICE_NOTE"
-                                  ? "Voice note"
+                                  ? t("attachment.voiceNote")
                                   : file.name}
                               </strong>
                               <small>{formatFileSize(file.size)}</small>
@@ -19166,7 +23212,7 @@ export function MessageAppPage() {
                                 removeSelectedAttachment(attachment.id)
                               }
                               disabled={sendingMessage}
-                              aria-label={`Remove ${file.name}`}
+                              aria-label={t("composer.removeAttachment", { name: file.name })}
                             >
                               ×
                             </button>
@@ -19180,12 +23226,18 @@ export function MessageAppPage() {
                         <div className="message-attachment-upload-meta">
                           <small>
                             {attachmentUpload.status === "FAILED"
-                              ? "Upload failed"
+                              ? t("composer.uploadFailed")
                               : attachmentUpload.progressPercent > 0
                                 ? attachmentUpload.totalBytes
-                                  ? `Uploading ${attachmentUpload.progressPercent}% · ${formatFileSize(attachmentUpload.loadedBytes)} of ${formatFileSize(attachmentUpload.totalBytes)}`
-                                  : `Uploading ${attachmentUpload.progressPercent}%`
-                                : "Starting upload..."}
+                                  ? t("composer.uploadingDetailed", {
+                                      percent: attachmentUpload.progressPercent,
+                                      loaded: formatFileSize(attachmentUpload.loadedBytes),
+                                      total: formatFileSize(attachmentUpload.totalBytes),
+                                    })
+                                  : t("composer.uploading", {
+                                      percent: attachmentUpload.progressPercent,
+                                    })
+                                : t("composer.startingUpload")}
                           </small>
                           {attachmentUpload.status === "FAILED" && (
                             <button
@@ -19193,13 +23245,13 @@ export function MessageAppPage() {
                               onClick={() => void handleSendMessage()}
                               disabled={sendingMessage}
                             >
-                              Retry
+                              {t("actions.retry")}
                             </button>
                           )}
                         </div>
                         <div
                           className={`message-attachment-upload-track${attachmentUpload.status === "FAILED" ? " failed" : ""}`}
-                          aria-label="Attachment upload progress"
+                          aria-label={t("composer.uploadProgress")}
                           aria-valuemin={0}
                           aria-valuemax={100}
                           aria-valuenow={attachmentUpload.progressPercent}
@@ -19233,49 +23285,119 @@ export function MessageAppPage() {
                     editingMessage !== null ||
                     voiceRecordingState !== "IDLE"
                   }
-                  aria-label="Choose attachment"
+                  aria-label={t("composer.chooseAttachment")}
                 />
 
-                {mentionSuggestionsVisible && activeMentionQuery && (
-                  <div
-                    id="message-mention-suggestions"
-                    className="message-mention-suggestions"
-                    role="listbox"
-                    aria-label="Mention group member"
-                  >
-                    {mentionSuggestions.map((participant, index) => (
-                      <button
-                        id={`message-mention-option-${participant.accountId}`}
-                        key={participant.accountId}
-                        type="button"
-                        role="option"
-                        className={
-                          index === activeMentionSuggestionIndex
-                            ? "is-keyboard-active"
-                            : undefined
+                {mentionPanelVisible && activeMentionQuery && (
+                  <div className="message-mention-suggestions">
+                    <div className="message-mention-suggestions-header">
+                      <strong>{t("composer.mentionMember")}</strong>
+                      <small>
+                        {activeMentionQuery.query
+                          ? t("composer.matchingMembers")
+                          : t("composer.mentionHint")}
+                      </small>
+                    </div>
+
+                    <div
+                      id="message-mention-suggestions"
+                      className="message-mention-options"
+                      role="listbox"
+                      aria-label={t("composer.mentionGroupMember")}
+                      onScroll={(event) => {
+                        if (
+                          selectedConversation?.groupKind !== "OFFICIAL" ||
+                          !officialMentionHasMore ||
+                          officialMentionLoadingMore
+                        ) {
+                          return;
                         }
-                        aria-selected={index === activeMentionSuggestionIndex}
-                        tabIndex={-1}
-                        onMouseEnter={() =>
-                          setActiveMentionSuggestionIndex(index)
+
+                        const target = event.currentTarget;
+                        if (
+                          target.scrollHeight -
+                          target.scrollTop -
+                          target.clientHeight <
+                          56
+                        ) {
+                          void loadMoreOfficialMentionSuggestions();
                         }
-                        onMouseDown={(event) => event.preventDefault()}
-                        onClick={() => handleMentionSelect(participant)}
-                      >
-                        {renderAccountAvatar(
-                          participant,
-                          "message-avatar small",
+                      }}
+                    >
+                      {mentionSuggestions.map((participant, index) => (
+                        <button
+                          id={`message-mention-option-${participant.accountId}`}
+                          key={participant.accountId}
+                          type="button"
+                          role="option"
+                          className={
+                            index === activeMentionSuggestionIndex
+                              ? "is-keyboard-active"
+                              : undefined
+                          }
+                          aria-selected={index === activeMentionSuggestionIndex}
+                          tabIndex={-1}
+                          onMouseEnter={() =>
+                            setActiveMentionSuggestionIndex(index)
+                          }
+                          onMouseDown={(event) => event.preventDefault()}
+                          onClick={() => handleMentionSelect(participant)}
+                        >
+                          {renderAccountAvatar(
+                            participant,
+                            "message-avatar small",
+                          )}
+                          <span>
+                            <strong>{participant.displayName}</strong>
+                            <small>
+                              {participant.employee?.designation ??
+                                participant.username ??
+                                t("groupManagement.groupMember")}
+                            </small>
+                          </span>
+                        </button>
+                      ))}
+
+                      {selectedConversation?.groupKind === "OFFICIAL" &&
+                        officialMentionLoading && (
+                          <div className="message-mention-status" role="status">
+                            {t("groupInfo.loadingMembers")}
+                          </div>
                         )}
-                        <span>
-                          <strong>{participant.displayName}</strong>
-                          <small>
-                            {participant.employee?.designation ??
-                              participant.username ??
-                              "Group member"}
-                          </small>
-                        </span>
-                      </button>
-                    ))}
+
+                      {selectedConversation?.groupKind === "OFFICIAL" &&
+                        !officialMentionLoading &&
+                        mentionSuggestions.length === 0 && (
+                          <div className="message-mention-status">
+                            {officialMentionError ?? t("composer.noMatchingMembers")}
+                          </div>
+                        )}
+                    </div>
+
+                    {selectedConversation?.groupKind === "OFFICIAL" &&
+                      officialMentionHasMore && (
+                        <button
+                          type="button"
+                          className="message-mention-more"
+                          disabled={officialMentionLoadingMore}
+                          onMouseDown={(event) => event.preventDefault()}
+                          onClick={() =>
+                            void loadMoreOfficialMentionSuggestions()
+                          }
+                        >
+                          {officialMentionLoadingMore
+                            ? t("composer.loadingMore")
+                            : t("composer.loadMoreMembers")}
+                        </button>
+                      )}
+
+                    {selectedConversation?.groupKind === "OFFICIAL" &&
+                      officialMentionError &&
+                      mentionSuggestions.length > 0 && (
+                        <small className="message-mention-error">
+                          {officialMentionError}
+                        </small>
+                      )}
                   </div>
                 )}
 
@@ -19294,8 +23416,8 @@ export function MessageAppPage() {
                     <span className="message-recording-copy">
                       <strong>
                         {voiceRecordingState === "STOPPING"
-                          ? "Preparing voice note"
-                          : "Recording voice note"}
+                          ? t("composer.preparingVoiceNote")
+                          : t("composer.recordingVoiceNote")}
                       </strong>
                       <small>
                         {formatRecordingDuration(voiceRecordingSeconds)}
@@ -19314,7 +23436,7 @@ export function MessageAppPage() {
                       className="message-recording-cancel"
                       onClick={cancelVoiceRecording}
                     >
-                      Cancel
+                      {t("actions.cancel")}
                     </button>
                     <button
                       type="button"
@@ -19323,8 +23445,8 @@ export function MessageAppPage() {
                       disabled={voiceRecordingState !== "RECORDING"}
                     >
                       {voiceRecordingState === "STOPPING"
-                        ? "Preparing…"
-                        : "Stop and attach"}
+                        ? t("composer.preparing")
+                        : t("composer.stopAndAttach")}
                     </button>
                   </div>
                 ) : (
@@ -19346,7 +23468,7 @@ export function MessageAppPage() {
                           setAttachmentMenuOpen((value) => !value);
                         }}
                         aria-expanded={attachmentMenuOpen}
-                        aria-label="Open attachment options"
+                        aria-label={t("composer.openAttachmentOptions")}
                         disabled={sendingMessage || editingMessage !== null}
                       >
                         <span aria-hidden="true">+</span>
@@ -19356,7 +23478,7 @@ export function MessageAppPage() {
                         <div
                           className={`message-attachment-menu${attachmentMenuView === "LIVE_LOCATION" ? " live-step" : ""}`}
                           role="dialog"
-                          aria-label="Attachment options"
+                          aria-label={t("composer.attachmentOptions")}
                           onKeyDown={(event) =>
                             handleLinearKeyboardNavigation(event, "BOTH")
                           }
@@ -19367,7 +23489,7 @@ export function MessageAppPage() {
                                 type="button"
                                 className="message-popover-back"
                                 onClick={() => setAttachmentMenuView("ROOT")}
-                                aria-label="Back to attachment options"
+                                aria-label={t("composer.backAttachmentOptions")}
                               >
                                 ←
                               </button>
@@ -19379,8 +23501,8 @@ export function MessageAppPage() {
                             )}
                             <strong>
                               {attachmentMenuView === "LIVE_LOCATION"
-                                ? "Live location"
-                                : "Attach"}
+                                ? t("composer.liveLocation")
+                                : t("composer.attach")}
                             </strong>
                             <button
                               type="button"
@@ -19392,7 +23514,7 @@ export function MessageAppPage() {
                                   attachmentMenuButtonRef.current?.focus(),
                                 );
                               }}
-                              aria-label="Close attachment options"
+                              aria-label={t("composer.closeAttachmentOptions")}
                             >
                               ×
                             </button>
@@ -19411,7 +23533,7 @@ export function MessageAppPage() {
                                   <span className="media">
                                     <AttachmentGlyph name="image" />
                                   </span>
-                                  <strong>Photo & video</strong>
+                                  <strong>{t("composer.photoVideo")}</strong>
                                 </button>
                                 <button
                                   type="button"
@@ -19425,7 +23547,7 @@ export function MessageAppPage() {
                                   <span className="document">
                                     <AttachmentGlyph name="document" />
                                   </span>
-                                  <strong>Document</strong>
+                                  <strong>{t("composer.document")}</strong>
                                 </button>
                                 <button
                                   type="button"
@@ -19437,7 +23559,7 @@ export function MessageAppPage() {
                                   <span className="audio">
                                     <AttachmentGlyph name="audio" />
                                   </span>
-                                  <strong>Audio</strong>
+                                  <strong>{t("composer.audio")}</strong>
                                 </button>
                                 <button
                                   type="button"
@@ -19450,7 +23572,7 @@ export function MessageAppPage() {
                                   <span className="location">
                                     <AttachmentGlyph name="location" />
                                   </span>
-                                  <strong>Location</strong>
+                                  <strong>{t("composer.location")}</strong>
                                 </button>
                                 <button
                                   type="button"
@@ -19465,7 +23587,7 @@ export function MessageAppPage() {
                                   <span className="live-location">
                                     <AttachmentGlyph name="location" />
                                   </span>
-                                  <strong>Live location</strong>
+                                  <strong>{t("composer.liveLocation")}</strong>
                                 </button>
                               </div>
 
@@ -19481,8 +23603,8 @@ export function MessageAppPage() {
                                 >
                                   <span aria-hidden="true">■</span>
                                   {locationActionLoading === "STOP"
-                                    ? "Stopping live location…"
-                                    : "Stop live location"}
+                                    ? t("composer.stoppingLiveLocation")
+                                    : t("composer.stopLiveLocation")}
                                 </button>
                               )}
                             </>
@@ -19495,16 +23617,15 @@ export function MessageAppPage() {
                                 <AttachmentGlyph name="location" />
                               </span>
                               <div>
-                                <strong>Share your live position</strong>
+                                <strong>{t("composer.shareLivePosition")}</strong>
                                 <small>
-                                  Only participants in this conversation can
-                                  view updates.
+                                  {t("composer.liveLocationPrivacy")}
                                 </small>
                               </div>
                               <div
                                 className="message-live-duration-options"
                                 role="group"
-                                aria-label="Live location duration"
+                                aria-label={t("composer.liveLocationDuration")}
                               >
                                 {([15, 60, 480] as const).map((duration) => (
                                   <button
@@ -19523,10 +23644,10 @@ export function MessageAppPage() {
                                     }
                                   >
                                     {duration === 15
-                                      ? "15 min"
+                                      ? t("composer.duration15Min")
                                       : duration === 60
-                                        ? "1 hour"
-                                        : "8 hours"}
+                                        ? t("composer.duration1Hour")
+                                        : t("composer.duration8Hours")}
                                   </button>
                                 ))}
                               </div>
@@ -19544,8 +23665,8 @@ export function MessageAppPage() {
                                 }
                               >
                                 {locationActionLoading === "LIVE"
-                                  ? "Starting…"
-                                  : "Start sharing"}
+                                  ? t("composer.starting")
+                                  : t("composer.startSharing")}
                               </button>
                             </div>
                           )}
@@ -19567,7 +23688,7 @@ export function MessageAppPage() {
                           setComposerEmojiOpen((value) => !value);
                         }}
                         aria-expanded={composerEmojiOpen}
-                        aria-label="Open emoji picker"
+                        aria-label={t("composer.openEmojiPicker")}
                         disabled={sendingMessage}
                       >
                         <MessageNavigationIcon name="emoji" />
@@ -19577,7 +23698,7 @@ export function MessageAppPage() {
                         <div
                           className="message-composer-emoji-menu"
                           role="dialog"
-                          aria-label="Quick emojis"
+                          aria-label={t("composer.quickEmojis")}
                           onKeyDown={(event) =>
                             handleLinearKeyboardNavigation(event, "BOTH")
                           }
@@ -19587,7 +23708,7 @@ export function MessageAppPage() {
                               className="message-popover-header-spacer"
                               aria-hidden="true"
                             />
-                            <strong>Emoji</strong>
+                            <strong>{t("composer.emoji")}</strong>
                             <button
                               type="button"
                               className="message-popover-close"
@@ -19597,7 +23718,7 @@ export function MessageAppPage() {
                                   composerEmojiButtonRef.current?.focus(),
                                 );
                               }}
-                              aria-label="Close emoji picker"
+                              aria-label={t("composer.closeEmojiPicker")}
                             >
                               ×
                             </button>
@@ -19605,18 +23726,18 @@ export function MessageAppPage() {
                           <div className="message-composer-emoji-body">
                             {COMPOSER_EMOJI_SECTIONS.map((section) => (
                               <section
-                                key={section.label}
+                                key={section.labelKey}
                                 className="message-composer-emoji-section"
-                                aria-label={section.label}
+                                aria-label={t(section.labelKey)}
                               >
-                                <h4>{section.label}</h4>
+                                <h4>{t(section.labelKey)}</h4>
                                 <div className="message-composer-emoji-grid">
                                   {section.emojis.map((emoji) => (
                                     <button
-                                      key={`${section.label}-${emoji}`}
+                                      key={`${section.labelKey}-${emoji}`}
                                       type="button"
                                       onClick={() => insertComposerEmoji(emoji)}
-                                      aria-label={`Insert ${emoji}`}
+                                      aria-label={t("composer.insertEmoji", { emoji })}
                                     >
                                       {emoji}
                                     </button>
@@ -19657,22 +23778,22 @@ export function MessageAppPage() {
                       onKeyDown={handleComposerKeyDown}
                       placeholder={
                         editingMessage
-                          ? "Edit your message"
+                          ? t("composer.editPlaceholder")
                           : replyingTo
-                            ? "Write a reply"
-                            : "Type a message"
+                            ? t("composer.replyPlaceholder")
+                            : t("composer.messagePlaceholder")
                       }
                       maxLength={5000}
                       rows={1}
                       disabled={sendingMessage}
-                      aria-label="Message text"
+                      aria-label={t("composer.messageText")}
                       aria-autocomplete="list"
                       aria-controls={
-                        mentionSuggestionsVisible
+                        mentionPanelVisible
                           ? "message-mention-suggestions"
                           : undefined
                       }
-                      aria-expanded={mentionSuggestionsVisible}
+                      aria-expanded={mentionPanelVisible}
                       aria-activedescendant={activeMentionOptionId}
                       aria-keyshortcuts="Enter Shift+Enter Escape"
                     />
@@ -19683,7 +23804,7 @@ export function MessageAppPage() {
                         className="message-composer-control message-voice-record-button"
                         onClick={() => void beginVoiceRecording()}
                         disabled={sendingMessage}
-                        aria-label="Record voice note"
+                        aria-label={t("composer.recordVoiceNote")}
                       >
                         <MessageNavigationIcon name="microphone" />
                       </button>
@@ -19695,14 +23816,14 @@ export function MessageAppPage() {
                       disabled={!composerHasContent || sendingMessage}
                       aria-label={
                         sendingMessage
-                          ? "Sending message"
+                          ? t("composer.sendingMessage")
                           : sendAttemptFailed
-                            ? "Retry sending message"
+                            ? t("composer.retrySendingMessage")
                             : editingMessage
-                              ? "Save message"
-                              : "Send message"
+                              ? t("composer.saveMessage")
+                              : t("composer.sendMessage")
                       }
-                      title={sendAttemptFailed ? "Retry sending" : undefined}
+                      title={sendAttemptFailed ? t("composer.retrySending") : undefined}
                     >
                       {sendingMessage ? (
                         <span
@@ -19729,8 +23850,9 @@ export function MessageAppPage() {
                     role="status"
                     aria-live="polite"
                   >
-                    {remainingMessageCharacters} character
-                    {remainingMessageCharacters === 1 ? "" : "s"} remaining
+                    {t("composer.charactersRemaining", {
+                      count: remainingMessageCharacters,
+                    })}
                   </small>
                 )}
               </form>
@@ -19750,20 +23872,28 @@ export function MessageAppPage() {
             <aside
               className="message-conversation-details is-open"
               aria-label={
-                sharedContentOpen
-                  ? "Media, documents and links"
-                  : activeUtilityPanel?.kind === "PROFILE"
-                    ? "Profile"
-                    : "Group information"
+                messageInformation ||
+                messageInformationError ||
+                messageInformationLoadingId
+                  ? t("messageInfo.title")
+                  : sharedContentOpen
+                    ? t("sharedContent.title")
+                    : activeUtilityPanel?.kind === "PROFILE"
+                      ? t("profileDetail.title")
+                      : t("groupInfo.title")
               }
             >
-              {sharedContentOpen
-                ? renderSharedContentPanel()
-                : activeUtilityPanel?.kind === "PROFILE"
-                  ? renderConversationProfilePanel()
-                  : selectedConversation.type === "GROUP"
-                    ? renderGroupInformationPanel()
-                    : null}
+              {messageInformation ||
+              messageInformationError ||
+              messageInformationLoadingId
+                ? renderMessageInformationPanel()
+                : sharedContentOpen
+                  ? renderSharedContentPanel()
+                  : activeUtilityPanel?.kind === "PROFILE"
+                    ? renderConversationProfilePanel()
+                    : selectedConversation.type === "GROUP"
+                      ? renderGroupInformationPanel()
+                      : null}
             </aside>
           )}
 
@@ -19777,11 +23907,11 @@ export function MessageAppPage() {
           searchPanelOpen && (
             <aside
               className="message-conversation-search-panel is-open"
-              aria-label="Search messages"
+              aria-label={t("messageSearch.aria")}
             >
               <div className="message-search-panel-header">
                 <div>
-                  <strong>Search messages</strong>
+                  <strong>{t("messageSearch.title")}</strong>
                 </div>
                 <button
                   type="button"
@@ -19790,22 +23920,25 @@ export function MessageAppPage() {
                     event.currentTarget.blur();
                     closeMessageSearchPanel();
                   }}
-                  aria-label="Close message search"
+                  aria-label={t("messageSearch.close")}
                 >
-                  <MessageNavigationIcon name="close" />
+                  <span className="message-search-panel-mobile-back-icon" aria-hidden="true">←</span>
+                  <span className="message-search-panel-close-icon" aria-hidden="true">
+                    <MessageNavigationIcon name="close" />
+                  </span>
                 </button>
               </div>
 
               <div className="message-search-panel-controls" role="search">
                 <label className="message-search-input-shell">
-                  <span className="sr-only">Search this conversation</span>
+                  <span className="sr-only">{t("messageSearch.searchConversation")}</span>
                   <MessageNavigationIcon name="search" />
                   <input
                     ref={messageSearchInputRef}
                     type="search"
                     value={searchText}
                     onChange={(event) => setSearchText(event.target.value)}
-                    placeholder="Search this conversation"
+                    placeholder={t("messageSearch.placeholder")}
                     autoComplete="off"
                     spellCheck={false}
                   />
@@ -19816,7 +23949,7 @@ export function MessageAppPage() {
                         setSearchText("");
                         messageSearchInputRef.current?.focus();
                       }}
-                      aria-label="Clear message search"
+                      aria-label={t("messageSearch.clear")}
                     >
                       <MessageNavigationIcon name="close" />
                     </button>
@@ -19825,8 +23958,7 @@ export function MessageAppPage() {
 
                 {searchResults.length > 0 && !searchLoading && !searchError && (
                   <p className="message-search-result-count" role="status">
-                    {searchResults.length} result
-                    {searchResults.length === 1 ? "" : "s"}
+                    {t("search.result", { count: searchResults.length })}
                   </p>
                 )}
               </div>
@@ -19835,7 +23967,7 @@ export function MessageAppPage() {
                 {searchLoading ? (
                   <div className="message-search-panel-status">
                     <span className="message-small-spinner" aria-hidden="true" />
-                    <span>Searching...</span>
+                    <span>{t("messageSearch.searching")}</span>
                   </div>
                 ) : searchError ? (
                   <div className="message-inline-error compact">
@@ -19843,7 +23975,7 @@ export function MessageAppPage() {
                   </div>
                 ) : searchText.trim().length === 0 ? null : searchResults.length ===
                   0 ? (
-                  <p className="message-search-panel-empty">No messages found</p>
+                  <p className="message-search-panel-empty">{t("messageSearch.none")}</p>
                 ) : (
                   <div className="message-search-panel-list">
                     {searchResults.map((result) => (
@@ -19892,15 +24024,15 @@ export function MessageAppPage() {
           >
             <header>
               <div>
-                <span>Official announcement</span>
+                <span>{t("announcementDetail.eyebrow")}</span>
                 <h2 id="message-announcement-detail-title">
-                  {announcementDetail?.title ?? "Announcement details"}
+                  {announcementDetail?.title ?? t("announcementDetail.detailsTitle")}
                 </h2>
               </div>
               <button
                 type="button"
                 onClick={closeAnnouncementDetail}
-                aria-label="Close announcement details"
+                aria-label={t("announcementDetail.close")}
                 disabled={announcementDetailAction !== null}
               >
                 ×
@@ -19910,9 +24042,9 @@ export function MessageAppPage() {
             <div className="message-announcement-detail-body">
               {announcementDetailLoading ? (
                 <div className="message-announcement-detail-state">
-                  <strong>Loading announcement</strong>
+                  <strong>{t("announcementDetail.loading")}</strong>
                   <span>
-                    Retrieving the official record and its attachments.
+                    {t("announcementDetail.loadingDescription")}
                   </span>
                 </div>
               ) : announcementDetailError && !announcementDetail ? (
@@ -19920,7 +24052,7 @@ export function MessageAppPage() {
                   className="message-announcement-detail-state danger"
                   role="alert"
                 >
-                  <strong>Announcement could not be opened</strong>
+                  <strong>{t("announcementDetail.loadError")}</strong>
                   <span>{announcementDetailError}</span>
                 </div>
               ) : announcementDetail ? (
@@ -19929,16 +24061,16 @@ export function MessageAppPage() {
                     <div className="message-announcement-detail-summary">
                       <div className="message-announcement-card-badges">
                         <span className="message-announcement-priority">
-                          {announcementEnumLabel(announcementDetail.priority)}
+                          {announcementEnumLabel(announcementDetail.priority, t)}
                         </span>
                         {announcementDetail.status !== "PUBLISHED" && (
                           <span>
-                            {announcementEnumLabel(announcementDetail.status)}
+                            {announcementEnumLabel(announcementDetail.status, t)}
                           </span>
                         )}
-                        {announcementDetail.isPinned && <span>Pinned</span>}
+                        {announcementDetail.isPinned && <span>{t("announcementDetail.pinned")}</span>}
                         {announcementDetail.currentRevision > 1 && (
-                          <strong>Edited</strong>
+                          <strong>{t("announcementDetail.edited")}</strong>
                         )}
                       </div>
                       <time
@@ -19959,15 +24091,13 @@ export function MessageAppPage() {
                         {initials(announcementDetail.publisher.displayName)}
                       </span>
                       <div>
-                        <small>Published by</small>
+                        <small>{t("announcementDetail.publishedBy")}</small>
                         <strong>
                           {announcementDetail.publisher.displayName}
                         </strong>
                         <p>
                           {announcementDetail.publisher.designation ??
-                            announcementEnumLabel(
-                              announcementDetail.publisher.role,
-                            )}
+                            roleLabel(announcementDetail.publisher.role, t)}
                         </p>
                       </div>
                     </div>
@@ -19976,18 +24106,18 @@ export function MessageAppPage() {
                   <div className="message-announcement-detail-content">
                     <p>
                       {announcementDetail.body ||
-                        "This announcement was withdrawn."}
+                        t("announcementDetail.withdrawn")}
                     </p>
                   </div>
 
                   <section className="message-announcement-detail-attachments">
                     <header>
                       <div>
-                        <strong>Attachments</strong>
+                        <strong>{t("announcementDetail.attachments")}</strong>
                         <small>
                           {announcementDetail.attachments.length === 0
-                            ? "No files attached"
-                            : "Preview or download the files included with this announcement."}
+                            ? t("announcementDetail.noFiles")
+                            : t("announcementDetail.filesHint")}
                         </small>
                       </div>
                       <span>{announcementDetail.attachments.length}</span>
@@ -19995,7 +24125,7 @@ export function MessageAppPage() {
 
                     {announcementDetail.attachments.length === 0 ? (
                       <p className="message-announcement-detail-empty">
-                        This announcement does not include attachments.
+                        {t("announcementDetail.noAttachmentsDescription")}
                       </p>
                     ) : (
                       <ul className="message-announcement-attachment-grid">
@@ -20009,13 +24139,16 @@ export function MessageAppPage() {
                           const canPreview =
                             canPreviewAnnouncementAttachment(attachment);
                           const canDownload =
-                            announcementDetail.allowAttachmentDownload ||
-                            announcementDetail.canManage;
+                            !attachment.isExpired &&
+                            (announcementDetail.allowAttachmentDownload ||
+                              announcementDetail.canManage);
 
                           return (
                             <li
                               key={attachment.id}
-                              className={`message-announcement-attachment-card ${attachment.category.toLowerCase()}`}
+                              className={`message-announcement-attachment-card ${attachment.category.toLowerCase()}${
+                                attachment.isExpired ? " is-expired" : ""
+                              }`}
                             >
                               <span
                                 className={`message-announcement-file-kind ${attachment.category.toLowerCase()}`}
@@ -20028,9 +24161,14 @@ export function MessageAppPage() {
                               <div className="message-announcement-file-copy">
                                 <strong>{attachment.originalFileName}</strong>
                                 <small>
-                                  {announcementEnumLabel(attachment.category)} ·{" "}
+                                  {announcementEnumLabel(attachment.category, t)} ·{" "}
                                   {formatFileSize(attachment.fileSizeBytes)}
                                 </small>
+                                {attachment.isExpired && (
+                                  <small className="message-announcement-file-expired">
+                                    {t("announcementDetail.attachmentExpired")}
+                                  </small>
+                                )}
                               </div>
                               <div className="message-announcement-file-actions">
                                 {canPreview && (
@@ -20045,7 +24183,7 @@ export function MessageAppPage() {
                                       announcementAttachmentActionId !== null
                                     }
                                   >
-                                    {opening ? "Opening..." : "Preview"}
+                                    {opening ? t("announcementDetail.opening") : t("announcementDetail.preview")}
                                   </button>
                                 )}
                                 {canDownload && (
@@ -20061,8 +24199,8 @@ export function MessageAppPage() {
                                     }
                                   >
                                     {downloading
-                                      ? "Downloading..."
-                                      : "Download"}
+                                      ? t("announcementDetail.downloading")
+                                      : t("announcementDetail.download")}
                                   </button>
                                 )}
                               </div>
@@ -20078,7 +24216,7 @@ export function MessageAppPage() {
                       className="message-announcement-detail-state danger"
                       role="alert"
                     >
-                      <strong>Action could not be completed</strong>
+                      <strong>{t("announcementDetail.actionFailed")}</strong>
                       <span>{announcementDetailError}</span>
                     </div>
                   )}
@@ -20095,12 +24233,10 @@ export function MessageAppPage() {
                     >
                       <div>
                         <strong id="message-announcement-delete-title">
-                          Delete this announcement?
+                          {t("announcementDetail.deleteConfirmTitle")}
                         </strong>
                         <p id="message-announcement-delete-description">
-                          This announcement, its recipient state, revisions and
-                          uploaded files will be permanently deleted. This
-                          action cannot be undone.
+                          {t("announcementDetail.deleteConfirmDescription")}
                         </p>
                       </div>
                       <div>
@@ -20111,7 +24247,7 @@ export function MessageAppPage() {
                           }
                           disabled={announcementDetailAction === "DELETE"}
                         >
-                          Cancel
+                          {t("actions.cancel")}
                         </button>
                         <button
                           type="button"
@@ -20120,8 +24256,8 @@ export function MessageAppPage() {
                           disabled={announcementDetailAction === "DELETE"}
                         >
                           {announcementDetailAction === "DELETE"
-                            ? "Deleting..."
-                            : "Delete permanently"}
+                            ? t("announcementDetail.deleting")
+                            : t("announcementDetail.deletePermanently")}
                         </button>
                       </div>
                     </section>
@@ -20144,8 +24280,8 @@ export function MessageAppPage() {
                         disabled={announcementDetailAction !== null}
                       >
                         {announcementDetailAction === "ACKNOWLEDGE"
-                          ? "Acknowledging..."
-                          : "Acknowledge"}
+                          ? t("announcementDetail.acknowledging")
+                          : t("announcementDetail.acknowledge")}
                       </button>
                     )}
                 </div>
@@ -20159,7 +24295,7 @@ export function MessageAppPage() {
                         }
                         disabled={announcementDetailAction !== null}
                       >
-                        Edit announcement
+                        {t("announcementDetail.edit")}
                       </button>
                     )}
                   {announcementDetail.canDelete &&
@@ -20172,7 +24308,7 @@ export function MessageAppPage() {
                         }
                         disabled={announcementDetailAction !== null}
                       >
-                        Delete announcement
+                        {t("announcementDetail.delete")}
                       </button>
                     )}
                   <button
@@ -20180,7 +24316,7 @@ export function MessageAppPage() {
                     onClick={closeAnnouncementDetail}
                     disabled={announcementDetailAction !== null}
                   >
-                    Close
+                    {t("announcementDetail.closeAction")}
                   </button>
                 </div>
               </footer>
@@ -20200,18 +24336,18 @@ export function MessageAppPage() {
           >
             <header>
               <div>
-                <span>Announcement</span>
+                <span>{t("announcementComposer.eyebrow")}</span>
                 <h2 id="message-announcement-composer-title">
                   {announcementComposerMode === "EDIT"
-                    ? "Edit announcement"
-                    : "Create announcement"}
+                    ? t("announcementComposer.editTitle")
+                    : t("announcementComposer.createTitle")}
                 </h2>
-                <p>Publish a clear official update for the selected group.</p>
+                <p>{t("announcementComposer.description")}</p>
               </div>
               <button
                 type="button"
                 onClick={() => void handleAnnouncementComposerCancel()}
-                aria-label="Close announcement composer"
+                aria-label={t("announcementComposer.close")}
                 disabled={announcementComposerSubmitting !== null}
               >
                 ×
@@ -20224,7 +24360,7 @@ export function MessageAppPage() {
               <div className="message-announcement-composer-body">
                 <section
                   className="message-announcement-audience-lock"
-                  aria-label="Announcement audience"
+                  aria-label={t("announcementComposer.audienceAria")}
                 >
                   <span>
                     {renderGroupAvatar(
@@ -20233,13 +24369,13 @@ export function MessageAppPage() {
                     )}
                   </span>
                   <div>
-                    <small>Audience</small>
+                    <small>{t("announcementComposer.audience")}</small>
                     <strong>
-                      {announcementComposerGroup.title ?? "Official group"}
+                      {announcementComposerGroup.title ?? t("groupInfo.officialGroup")}
                     </strong>
-                    <p>{officialScopeLabel(announcementComposerGroup)}</p>
+                    <p>{officialScopeLabel(announcementComposerGroup, t)}</p>
                   </div>
-                  <em>Locked</em>
+                  <em>{t("announcementComposer.locked")}</em>
                 </section>
 
                 <div className="message-announcement-composer-layout">
@@ -20247,14 +24383,14 @@ export function MessageAppPage() {
                     <section className="message-announcement-composer-section">
                       <header>
                         <div>
-                          <strong>Announcement content</strong>
-                          <small>Keep the title clear and the message concise.</small>
+                          <strong>{t("announcementComposer.content")}</strong>
+                          <small>{t("announcementComposer.contentHint")}</small>
                         </div>
                       </header>
 
                       <div className="message-announcement-composer-grid content-grid">
                         <label className="full-width">
-                          <span>Title</span>
+                          <span>{t("announcementComposer.titleLabel")}</span>
                           <input
                             type="text"
                             value={announcementComposerValues.title}
@@ -20265,7 +24401,7 @@ export function MessageAppPage() {
                               }))
                             }
                             maxLength={160}
-                            placeholder="Enter a clear announcement title"
+                            placeholder={t("announcementComposer.titlePlaceholder")}
                             autoFocus
                             required
                           />
@@ -20275,7 +24411,7 @@ export function MessageAppPage() {
                         </label>
 
                         <label className="full-width">
-                          <span>Message</span>
+                          <span>{t("announcementComposer.messageLabel")}</span>
                           <textarea
                             value={announcementComposerValues.body}
                             onChange={(event) =>
@@ -20286,7 +24422,7 @@ export function MessageAppPage() {
                             }
                             maxLength={5000}
                             rows={8}
-                            placeholder="Write the announcement message"
+                            placeholder={t("announcementComposer.messagePlaceholder")}
                             required
                           />
                           <small>
@@ -20299,9 +24435,9 @@ export function MessageAppPage() {
                     <section className="message-announcement-composer-attachments message-announcement-composer-section">
                       <header>
                         <div>
-                          <strong>Attachments</strong>
+                          <strong>{t("announcementDetail.attachments")}</strong>
                           <small>
-                            Add images, videos or documents when they are useful.
+                            {t("announcementComposer.attachmentsHint")}
                           </small>
                         </div>
                         <span>
@@ -20326,7 +24462,7 @@ export function MessageAppPage() {
                             }
                           />
                           <span aria-hidden="true">IMG</span>
-                          <strong>Add images</strong>
+                          <strong>{t("announcementComposer.addImages")}</strong>
                           <small>JPG, PNG, WEBP · 20 MB</small>
                         </label>
                         <label>
@@ -20343,7 +24479,7 @@ export function MessageAppPage() {
                             }
                           />
                           <span aria-hidden="true">VID</span>
-                          <strong>Add videos</strong>
+                          <strong>{t("announcementComposer.addVideos")}</strong>
                           <small>MP4, WEBM · 200 MB</small>
                         </label>
                         <label>
@@ -20360,7 +24496,7 @@ export function MessageAppPage() {
                             }
                           />
                           <span aria-hidden="true">DOC</span>
-                          <strong>Add files</strong>
+                          <strong>{t("announcementComposer.addFiles")}</strong>
                           <small>PDF, Office, text, CSV, ZIP · 50 MB</small>
                         </label>
                       </div>
@@ -20368,7 +24504,7 @@ export function MessageAppPage() {
                       {announcementComposerExistingAttachments.length === 0 &&
                         announcementComposerPendingAttachments.length === 0 ? (
                         <p className="message-announcement-attachment-empty">
-                          No attachments selected.
+                          {t("announcementComposer.noAttachmentsSelected")}
                         </p>
                       ) : (
                         <ul className="message-announcement-composer-file-list">
@@ -20394,8 +24530,7 @@ export function MessageAppPage() {
                                   <div className="message-announcement-file-copy">
                                     <strong>{attachment.originalFileName}</strong>
                                     <small>
-                                      Existing{" "}
-                                      {announcementEnumLabel(attachment.category)} ·{" "}
+                                      {t("announcementComposer.existing")} {announcementEnumLabel(attachment.category, t)} ·{" "}
                                       {formatFileSize(
                                         attachment.fileSizeBytes,
                                       )}
@@ -20417,7 +24552,9 @@ export function MessageAppPage() {
                                       )
                                     }
                                   >
-                                    {removed ? "Undo" : "Remove"}
+                                    {removed
+                                      ? t("announcementComposer.undo")
+                                      : t("announcementComposer.remove")}
                                   </button>
                                 </li>
                               );
@@ -20444,13 +24581,15 @@ export function MessageAppPage() {
                                   <strong>{attachment.file.name}</strong>
                                   <small>
                                     {attachment.status === "UPLOADING"
-                                      ? `Uploading ${attachment.progressPercent}%`
+                                      ? t("announcementComposer.uploadingProgress", {
+                                          percent: attachment.progressPercent,
+                                        })
                                       : attachment.status === "UPLOADED"
-                                        ? "Uploaded"
+                                        ? t("announcementComposer.uploaded")
                                         : attachment.status === "REMOVING"
-                                          ? "Removing..."
+                                          ? t("announcementComposer.removing")
                                           : (attachment.error ??
-                                            `${announcementEnumLabel(attachment.category)} · ${formatFileSize(attachment.file.size)}`)}
+                                            `${announcementEnumLabel(attachment.category, t)} · ${formatFileSize(attachment.file.size)}`)}
                                   </small>
                                   {attachment.status === "UPLOADING" && (
                                     <span
@@ -20478,7 +24617,7 @@ export function MessageAppPage() {
                                     )
                                   }
                                 >
-                                  Remove
+                                  {t("announcementComposer.remove")}
                                 </button>
                               </li>
                             ),
@@ -20492,14 +24631,14 @@ export function MessageAppPage() {
                     <section className="message-announcement-composer-section">
                       <header>
                         <div>
-                          <strong>Publishing</strong>
-                          <small>Choose when and how prominently it appears.</small>
+                          <strong>{t("announcementComposer.publishing")}</strong>
+                          <small>{t("announcementComposer.publishingHint")}</small>
                         </div>
                       </header>
 
                       <div className="message-announcement-composer-grid publishing-grid">
                         <label>
-                          <span>Priority</span>
+                          <span>{t("announcementComposer.priority")}</span>
                           <select
                             value={announcementComposerValues.priority}
                             onChange={(event) =>
@@ -20510,15 +24649,15 @@ export function MessageAppPage() {
                               }))
                             }
                           >
-                            <option value="NORMAL">Normal</option>
-                            <option value="IMPORTANT">Important</option>
-                            <option value="URGENT">Urgent</option>
-                            <option value="EMERGENCY">Emergency</option>
+                            <option value="NORMAL">{t("announcement.enums.normal")}</option>
+                            <option value="IMPORTANT">{t("announcement.enums.important")}</option>
+                            <option value="URGENT">{t("announcement.enums.urgent")}</option>
+                            <option value="EMERGENCY">{t("announcement.enums.emergency")}</option>
                           </select>
                         </label>
 
                         <label>
-                          <span>Publish</span>
+                          <span>{t("announcementComposer.publish")}</span>
                           <select
                             value={announcementComposerValues.publishTiming}
                             disabled={
@@ -20532,8 +24671,8 @@ export function MessageAppPage() {
                               }))
                             }
                           >
-                            <option value="NOW">Now</option>
-                            <option value="SCHEDULE">Schedule</option>
+                            <option value="NOW">{t("announcementComposer.now")}</option>
+                            <option value="SCHEDULE">{t("announcementComposer.schedule")}</option>
                           </select>
                         </label>
 
@@ -20541,7 +24680,7 @@ export function MessageAppPage() {
                           announcementComposerValues.publishTiming ===
                           "SCHEDULE" && (
                             <label>
-                              <span>Scheduled date and time</span>
+                              <span>{t("announcementComposer.scheduledAt")}</span>
                               <input
                                 type="datetime-local"
                                 value={announcementComposerValues.scheduledAt}
@@ -20560,7 +24699,7 @@ export function MessageAppPage() {
                           )}
 
                         <label>
-                          <span>Expiry</span>
+                          <span>{t("announcementComposer.expiry")}</span>
                           <input
                             type="datetime-local"
                             value={announcementComposerValues.expiresAt}
@@ -20580,7 +24719,7 @@ export function MessageAppPage() {
                               }))
                             }
                           />
-                          <small>Optional</small>
+                          <small>{t("announcementComposer.optional")}</small>
                         </label>
                       </div>
                     </section>
@@ -20588,8 +24727,8 @@ export function MessageAppPage() {
                     <section className="message-announcement-composer-section">
                       <header>
                         <div>
-                          <strong>Delivery options</strong>
-                          <small>Use only the controls needed for this update.</small>
+                          <strong>{t("announcementComposer.deliveryOptions")}</strong>
+                          <small>{t("announcementComposer.deliveryHint")}</small>
                         </div>
                       </header>
 
@@ -20611,8 +24750,8 @@ export function MessageAppPage() {
                             }
                           />
                           <span>
-                            <strong>Require acknowledgement</strong>
-                            <small>Recipients must confirm they read it.</small>
+                            <strong>{t("announcementComposer.requireAcknowledgement")}</strong>
+                            <small>{t("announcementComposer.requireAcknowledgementHint")}</small>
                           </span>
                         </label>
 
@@ -20631,8 +24770,8 @@ export function MessageAppPage() {
                             }
                           />
                           <span>
-                            <strong>Pin announcement</strong>
-                            <small>Keep it prominent in the feed.</small>
+                            <strong>{t("announcementComposer.pin")}</strong>
+                            <small>{t("announcementComposer.pinHint")}</small>
                           </span>
                         </label>
 
@@ -20650,8 +24789,8 @@ export function MessageAppPage() {
                             }
                           />
                           <span>
-                            <strong>Allow downloads</strong>
-                            <small>Recipients can save attached files.</small>
+                            <strong>{t("announcementComposer.allowDownloads")}</strong>
+                            <small>{t("announcementComposer.allowDownloadsHint")}</small>
                           </span>
                         </label>
                       </div>
@@ -20666,8 +24805,8 @@ export function MessageAppPage() {
                   >
                     <strong>
                       {announcementComposerMode === "EDIT"
-                        ? "Announcement could not be updated"
-                        : "Announcement could not be sent"}
+                        ? t("announcementComposer.updateError")
+                        : t("announcementComposer.sendError")}
                     </strong>
                     <span>{announcementComposerError}</span>
                   </div>
@@ -20682,8 +24821,8 @@ export function MessageAppPage() {
                   disabled={announcementComposerSubmitting !== null}
                 >
                   {announcementComposerSubmitting === "CANCEL"
-                    ? "Cancelling..."
-                    : "Cancel"}
+                    ? t("announcementComposer.cancelling")
+                    : t("announcementComposer.cancel")}
                 </button>
                 <button
                   type="submit"
@@ -20692,12 +24831,12 @@ export function MessageAppPage() {
                 >
                   {announcementComposerSubmitting === "PUBLISH" ||
                     announcementComposerSubmitting === "SAVE"
-                    ? "Processing..."
+                    ? t("announcementComposer.processing")
                     : announcementComposerMode === "EDIT"
-                      ? "Save changes"
+                      ? t("announcementComposer.saveChanges")
                       : announcementComposerValues.publishTiming === "SCHEDULE"
-                        ? "Schedule announcement"
-                        : "Publish announcement"}
+                        ? t("announcementComposer.scheduleAnnouncement")
+                        : t("announcementComposer.publishAnnouncement")}
                 </button>
               </footer>
             </form>
@@ -20750,7 +24889,7 @@ export function MessageAppPage() {
             </div>
 
             <section className="message-conversation-history-scope">
-              <strong>Before you continue</strong>
+              <strong>{t("confirmation.common.beforeContinue")}</strong>
               <ul>
                 {destructiveConfirmationContent.consequences.map(
                   (consequence) => (
@@ -20762,7 +24901,7 @@ export function MessageAppPage() {
 
             {destructiveConfirmationError && (
               <div className="message-conversation-history-error" role="alert">
-                <strong>Action could not be completed</strong>
+                <strong>{t("confirmation.common.actionFailed")}</strong>
                 <span>{destructiveConfirmationError}</span>
               </div>
             )}
@@ -20775,7 +24914,7 @@ export function MessageAppPage() {
                 disabled={destructiveConfirmationSubmitting}
                 data-message-modal-initial-focus="true"
               >
-                Cancel
+                {t("confirmation.common.cancel")}
               </button>
               <button
                 type="button"
@@ -20784,7 +24923,7 @@ export function MessageAppPage() {
                 disabled={destructiveConfirmationSubmitting}
               >
                 {destructiveConfirmationSubmitting
-                  ? "Applying..."
+                  ? t("confirmation.common.applying")
                   : destructiveConfirmationContent.confirmLabel}
               </button>
             </footer>
@@ -20823,31 +24962,31 @@ export function MessageAppPage() {
             </div>
 
             <div className="message-conversation-history-copy">
-              <span>Personal conversation action</span>
+              <span>{t("historyConfirmation.eyebrow")}</span>
               <h2 id="message-conversation-history-title">
                 {conversationHistoryAction === "DELETE"
-                  ? "Delete this chat for me?"
-                  : "Clear this chat for me?"}
+                  ? t("historyConfirmation.deleteTitle")
+                  : t("historyConfirmation.clearTitle")}
               </h2>
               <p id="message-conversation-history-description">
                 {conversationHistoryAction === "DELETE"
-                  ? "This chat and its previous history will be removed from your account only. Other participants will not be affected. It may reappear when a new message is sent, but earlier history will remain hidden."
-                  : "Previous messages, pinned messages and shared content will be hidden from your account. Other participants will not be affected."}
+                  ? t("historyConfirmation.deleteDescription")
+                  : t("historyConfirmation.clearDescription")}
               </p>
             </div>
 
             <section className="message-conversation-history-scope">
-              <strong>What remains unchanged</strong>
+              <strong>{t("historyConfirmation.unchangedTitle")}</strong>
               <ul>
-                <li>No message is deleted for another participant.</li>
-                <li>Shared attachments remain stored for authorized users.</li>
-                <li>Group membership and privacy settings are unchanged.</li>
+                <li>{t("historyConfirmation.unchanged1")}</li>
+                <li>{t("historyConfirmation.unchanged2")}</li>
+                <li>{t("historyConfirmation.unchanged3")}</li>
               </ul>
             </section>
 
             {conversationHistoryError && (
               <div className="message-conversation-history-error" role="alert">
-                <strong>Action could not be completed</strong>
+                <strong>{t("confirmation.common.actionFailed")}</strong>
                 <span>{conversationHistoryError}</span>
               </div>
             )}
@@ -20860,7 +24999,7 @@ export function MessageAppPage() {
                 onClick={closeConversationHistoryConfirmation}
                 disabled={conversationHistorySubmitting}
               >
-                Cancel
+                {t("confirmation.common.cancel")}
               </button>
               <button
                 type="button"
@@ -20871,293 +25010,12 @@ export function MessageAppPage() {
                 disabled={conversationHistorySubmitting}
               >
                 {conversationHistorySubmitting
-                  ? "Applying..."
+                  ? t("confirmation.common.applying")
                   : conversationHistoryAction === "DELETE"
-                    ? "Delete chat for me"
-                    : "Clear chat for me"}
+                    ? t("thread.header.deleteChat")
+                    : t("thread.header.clearChat")}
               </button>
             </footer>
-          </section>
-        </div>
-      )}
-
-      {storageUsageScope && (
-        <div
-          className="message-dialog-backdrop message-storage-backdrop"
-          role="presentation"
-          onMouseDown={(event) => {
-            if (event.currentTarget === event.target) {
-              closeStorageUsage();
-            }
-          }}
-        >
-          <section
-            className="message-storage-dialog"
-            role="dialog"
-            aria-modal="true"
-            aria-labelledby="message-storage-title"
-            data-message-modal="storage-usage"
-            tabIndex={-1}
-          >
-            <header className="message-storage-header">
-              <div>
-                <span>
-                  {storageUsageScope.kind === "USER"
-                    ? "Storage and Data"
-                    : "Conversation Storage"}
-                </span>
-                <h2 id="message-storage-title">
-                  {storageUsage?.scope === "CONVERSATION"
-                    ? (storageUsage.conversation.title ??
-                      conversations.find(
-                        (conversation) =>
-                          conversation.id === storageUsage.conversation.id,
-                      )?.title ??
-                      (storageUsage.conversation.type === "GROUP"
-                        ? "Group storage usage"
-                        : "Private conversation storage"))
-                    : "Your visible storage usage"}
-                </h2>
-                <p>
-                  {storageUsageScope.kind === "USER"
-                    ? "Totals include only files currently visible to your account. Open a conversation below to review its details."
-                    : "Totals include only files currently visible to you in this conversation."}
-                </p>
-              </div>
-              <button
-                type="button"
-                onClick={closeStorageUsage}
-                aria-label="Close storage usage"
-              >
-                ×
-              </button>
-            </header>
-
-            {storageUsageLoading && !storageUsage ? (
-              <div className="message-storage-state" role="status">
-                <span className="message-small-spinner" />
-                <strong>Calculating authorized storage...</strong>
-                <small>
-                  Checking your authorized conversations and visible files.
-                </small>
-              </div>
-            ) : storageUsageError && !storageUsage ? (
-              <div className="message-storage-state error" role="alert">
-                <MessageNavigationIcon name="storage" />
-                <strong>Storage usage could not be loaded</strong>
-                <small>{storageUsageError}</small>
-                <button
-                  type="button"
-                  onClick={() => void loadStorageUsage(storageUsageScope)}
-                >
-                  Retry
-                </button>
-              </div>
-            ) : storageUsage ? (
-              <div className="message-storage-body">
-                {storageUsageLoading && (
-                  <div className="message-storage-refreshing" role="status">
-                    <span className="message-small-spinner" />
-                    Refreshing totals...
-                  </div>
-                )}
-
-                {storageUsageError && (
-                  <div className="message-storage-inline-error" role="alert">
-                    <strong>Storage action could not be completed</strong>
-                    <span>{storageUsageError}</span>
-                  </div>
-                )}
-
-                <section
-                  className="message-storage-total-grid"
-                  aria-label="Storage totals"
-                >
-                  <article className="primary">
-                    <span>Visible storage</span>
-                    <strong>
-                      {formatFileSize(storageUsage.totals.logicalVisibleBytes)}
-                    </strong>
-                    <small>
-                      {storageUsage.totals.logicalItemCount} visible file
-                      {storageUsage.totals.logicalItemCount === 1 ? "" : "s"}
-                    </small>
-                  </article>
-                </section>
-
-                <section className="message-storage-section">
-                  <header>
-                    <div>
-                      <span>Category breakdown</span>
-                      <h3>Files currently visible to you</h3>
-                    </div>
-                  </header>
-                  <div className="message-storage-category-grid">
-                    {storageUsage.categories.map((category) => (
-                      <article key={category.key}>
-                        <span
-                          className={`message-storage-category-icon ${category.key.toLowerCase()}`}
-                          aria-hidden="true"
-                        >
-                          {category.label.slice(0, 1)}
-                        </span>
-                        <div>
-                          <strong>{category.label}</strong>
-                          <small>
-                            {category.itemCount} item
-                            {category.itemCount === 1 ? "" : "s"}
-                          </small>
-                        </div>
-                        <b>{formatFileSize(category.logicalBytes)}</b>
-                      </article>
-                    ))}
-                  </div>
-                </section>
-
-                {storageUsage.scope === "USER" && (
-                  <section className="message-storage-section">
-                    <header>
-                      <div>
-                        <span>Storage by conversation</span>
-                        <h3>Authorized logical usage</h3>
-                      </div>
-                    </header>
-                    {storageUsage.storageByConversation.length === 0 ? (
-                      <p className="message-storage-empty">
-                        No visible conversation files are using storage.
-                      </p>
-                    ) : (
-                      <div className="message-storage-conversation-list">
-                        {storageUsage.storageByConversation.map((item) => (
-                          <button
-                            key={item.conversationId}
-                            type="button"
-                            onClick={() =>
-                              openStorageUsage({
-                                kind: "CONVERSATION",
-                                conversationId: item.conversationId,
-                              })
-                            }
-                          >
-                            <span className="message-storage-conversation-avatar">
-                              {(item.conversationTitle ?? "Conversation")
-                                .slice(0, 2)
-                                .toUpperCase()}
-                            </span>
-                            <span>
-                              <strong>
-                                {item.conversationTitle ??
-                                  (item.conversationType === "GROUP"
-                                    ? "Group conversation"
-                                    : "Private conversation")}
-                              </strong>
-                              <small>
-                                {item.itemCount} visible item
-                                {item.itemCount === 1 ? "" : "s"}
-                              </small>
-                            </span>
-                            <b>{formatFileSize(item.logicalBytes)}</b>
-                          </button>
-                        ))}
-                      </div>
-                    )}
-                  </section>
-                )}
-
-                <section className="message-storage-section message-storage-largest-section">
-                  <header>
-                    <div>
-                      <span>Large-file management</span>
-                      <h3>Largest visible files</h3>
-                    </div>
-                    <small>Largest first · up to 40 records</small>
-                  </header>
-
-                  {storageUsage.largestFiles.length === 0 ? (
-                    <p className="message-storage-empty">
-                      No visible images, videos, documents or audio files.
-                    </p>
-                  ) : (
-                    <div className="message-storage-file-list">
-                      {storageUsage.largestFiles.map((file) => {
-                        const actionPending =
-                          storageUsageActionId?.endsWith(file.attachmentId) ??
-                          false;
-
-                        return (
-                          <article key={file.attachmentId}>
-                            <span
-                              className={`message-storage-file-type ${file.contentType.toLowerCase()}`}
-                              aria-hidden="true"
-                            >
-                              {file.contentType === "FILE"
-                                ? "DOC"
-                                : file.contentType.slice(0, 3)}
-                            </span>
-                            <div className="message-storage-file-copy">
-                              <div>
-                                <strong title={file.originalFileName}>
-                                  {file.originalFileName}
-                                </strong>
-                                <b>{formatFileSize(file.fileSizeBytes)}</b>
-                              </div>
-                              <small>
-                                {storageUsage.scope === "USER" &&
-                                  `${file.conversationTitle ?? "Conversation"} · `}
-                                {file.sender.displayName} ·{" "}
-                                {formatConversationTime(file.sentAt)}
-                              </small>
-                            </div>
-                            <div className="message-storage-file-actions">
-                              <button
-                                type="button"
-                                onClick={() =>
-                                  void openStorageOriginalMessage(file)
-                                }
-                                disabled={actionPending}
-                              >
-                                Open message
-                              </button>
-                              {file.canDeleteForMe && (
-                                <button
-                                  type="button"
-                                  onClick={() =>
-                                    void handleStorageFileDelete(file, "ME")
-                                  }
-                                  disabled={actionPending}
-                                >
-                                  Delete message for me
-                                </button>
-                              )}
-                              {file.canDeleteForEveryone && (
-                                <button
-                                  type="button"
-                                  className="danger"
-                                  onClick={() =>
-                                    void handleStorageFileDelete(
-                                      file,
-                                      "EVERYONE",
-                                    )
-                                  }
-                                  disabled={actionPending}
-                                >
-                                  Delete message for everyone
-                                </button>
-                              )}
-                            </div>
-                          </article>
-                        );
-                      })}
-                    </div>
-                  )}
-                </section>
-
-                <footer className="message-storage-privacy-note">
-                  <MessageNavigationIcon name="official" />
-                  <span>{storageUsage.privacyNotice}</span>
-                </footer>
-              </div>
-            ) : null}
           </section>
         </div>
       )}
@@ -21174,7 +25032,7 @@ export function MessageAppPage() {
           >
             <header>
               <div>
-                <span>Pinned messages</span>
+                <span>{t("pinnedBrowser.title")}</span>
                 <h2 id="message-pinned-dialog-title">
                   {selectedConversation.title}
                 </h2>
@@ -21182,7 +25040,7 @@ export function MessageAppPage() {
               <button
                 type="button"
                 onClick={closePinnedMessageBrowser}
-                aria-label="Close pinned messages"
+                aria-label={t("pinnedBrowser.close")}
               >
                 ×
               </button>
@@ -21209,7 +25067,7 @@ export function MessageAppPage() {
                   </span>
                   <span className="message-pinned-dialog-copy">
                     <strong>{message.sender.displayName}</strong>
-                    <span>{attachmentLabel(message)}</span>
+                    <span>{localizedAttachmentLabel(message)}</span>
                     <small>{formatConversationTime(message.sentAt)}</small>
                   </span>
                 </button>
@@ -21221,7 +25079,7 @@ export function MessageAppPage() {
 
       {forwardingMessage && (
         <div
-          className="message-contact-backdrop"
+          className="message-contact-backdrop message-forward-backdrop"
           role="presentation"
           onMouseDown={(event) => {
             if (event.currentTarget === event.target) {
@@ -21237,48 +25095,68 @@ export function MessageAppPage() {
             data-message-modal="forward"
             tabIndex={-1}
           >
-            <header>
+            <header className="message-forward-header">
               <div>
-                <span>Message action</span>
-                <h2 id="forward-message-title">Forward message</h2>
+                <h2 id="forward-message-title">{t("forward.title")}</h2>
+                <p>{t("forward.chooseChats")}</p>
               </div>
 
               <button
                 type="button"
                 onClick={closeForwardDialog}
                 disabled={forwardSubmitting}
-                aria-label="Close forward message dialog"
+                aria-label={t("forward.close")}
               >
                 ×
               </button>
             </header>
 
             <div className="message-forward-source">
-              <strong>
-                {forwardingMessage.forwardedFrom
-                  ? "Forwarded message"
-                  : `From ${forwardingMessage.sender.displayName}`}
-              </strong>
-              <p>{attachmentLabel(forwardingMessage)}</p>
+              <span>{t("forward.forwardingLabel")}</span>
+              <strong>{localizedAttachmentLabel(forwardingMessage)}</strong>
             </div>
 
-            <label className="message-contact-search">
-              <span>Select up to 20 conversations</span>
+            <div className="message-forward-search">
+              <svg viewBox="0 0 24 24" aria-hidden="true">
+                <circle cx="11" cy="11" r="6.5" />
+                <path d="m16 16 4 4" />
+              </svg>
               <input
                 type="search"
                 value={forwardSearch}
                 onChange={(event) => setForwardSearch(event.target.value)}
-                placeholder="Search conversations"
+                placeholder={t("search.chats")}
+                aria-label={t("forward.searchAria")}
                 autoFocus
               />
-            </label>
+            </div>
 
             <div className="message-forward-list">
-              {filteredForwardConversations.length === 0 ? (
+              {listMode && listCandidatesLoading ? (
+                <div className="message-list-state compact" role="status">
+                  <span className="message-small-spinner" aria-hidden="true" />
+                  <h3>{t("forward.loadingConversations")}</h3>
+                  <p>{t("forward.loadingDescription")}</p>
+                </div>
+              ) : listMode && forwardDestinationError ? (
+                <div className="message-list-state compact" role="alert">
+                  <div className="message-empty-icon" aria-hidden="true">!</div>
+                  <h3>{t("forward.loadError")}</h3>
+                  <p>{forwardDestinationError}</p>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      void loadListCandidateConversations("forward")
+                    }
+                  >
+                    {t("actions.retry")}
+                  </button>
+                </div>
+              ) : filteredForwardConversations.length === 0 ? (
                 <div className="message-list-state compact">
                   <div className="message-empty-icon">?</div>
-                  <h3>No conversations found</h3>
-                  <p>Try another conversation name.</p>
+                  <h3>{t("forward.none")}</h3>
+                  <p>{t("forward.noneDescription")}</p>
                 </div>
               ) : (
                 filteredForwardConversations.map((conversation) => {
@@ -21311,10 +25189,14 @@ export function MessageAppPage() {
 
                       <span>
                         <strong>
-                          {conversation.title ?? "Private conversation"}
+                          {conversation.title ?? t("forward.privateConversation")}
                         </strong>
                         <small>
-                          {messagePreview(conversation, account?.id ?? "")}
+                          {conversation.type === "PRIVATE"
+                            ? t("forward.privateChat")
+                            : conversation.groupKind === "OFFICIAL"
+                              ? t("forward.officialGroup")
+                              : t("forward.group")}
                         </small>
                       </span>
                     </label>
@@ -21324,14 +25206,14 @@ export function MessageAppPage() {
             </div>
 
             <footer className="message-forward-footer">
-              <span>{forwardDestinationIds.length} selected</span>
+              <span>{t("forward.selected", { count: forwardDestinationIds.length })}</span>
               <div>
                 <button
                   type="button"
                   onClick={closeForwardDialog}
                   disabled={forwardSubmitting}
                 >
-                  Cancel
+                  {t("forward.cancel")}
                 </button>
                 <button
                   type="button"
@@ -21341,134 +25223,10 @@ export function MessageAppPage() {
                     forwardSubmitting || forwardDestinationIds.length === 0
                   }
                 >
-                  {forwardSubmitting ? "Forwarding..." : "Forward"}
+                  {forwardSubmitting ? t("forward.forwarding") : t("forward.title")}
                 </button>
               </div>
             </footer>
-          </section>
-        </div>
-      )}
-
-      {(messageInformation || messageInformationError) && (
-        <div
-          className="message-contact-backdrop"
-          role="presentation"
-          onMouseDown={(event) => {
-            if (event.currentTarget === event.target) {
-              closeMessageInformationDialog();
-            }
-          }}
-        >
-          <section
-            className="message-contact-dialog message-info-dialog"
-            role="dialog"
-            aria-modal="true"
-            aria-labelledby="message-info-title"
-            data-message-modal="message-information"
-            tabIndex={-1}
-          >
-            <header>
-              <div>
-                <span>Message action</span>
-                <h2 id="message-info-title">Message information</h2>
-              </div>
-
-              <button
-                type="button"
-                onClick={closeMessageInformationDialog}
-                aria-label="Close message information dialog"
-              >
-                ×
-              </button>
-            </header>
-
-            {messageInformationError && !messageInformation ? (
-              <div className="message-info-state">
-                <strong>Could not load message information</strong>
-                <p>{messageInformationError}</p>
-              </div>
-            ) : messageInformation ? (
-              <div className="message-info-body">
-                <section className="message-info-summary">
-                  <span>Original message</span>
-                  <strong>{attachmentLabel(messageInformation.message)}</strong>
-                  <small>
-                    Sent {notificationTimestampLabel(messageInformation.sentAt)}
-                  </small>
-                </section>
-
-                <section
-                  className="message-info-counts"
-                  aria-label="Delivery summary"
-                >
-                  <div>
-                    <strong>
-                      {messageInformation.summary.totalRecipients}
-                    </strong>
-                    <span>Recipients</span>
-                  </div>
-                  <div>
-                    <strong>{messageInformation.summary.delivered}</strong>
-                    <span>Delivered</span>
-                  </div>
-                  <div>
-                    <strong>{messageInformation.summary.read}</strong>
-                    <span>Read</span>
-                  </div>
-                </section>
-
-                <section className="message-info-recipients">
-                  <h3>Recipient details</h3>
-
-                  {messageInformation.recipients.length === 0 ? (
-                    <p>This message has no separate recipients.</p>
-                  ) : (
-                    messageInformation.recipients.map((recipient) => (
-                      <article
-                        key={recipient.accountId}
-                        className="message-info-recipient"
-                      >
-                        {renderAccountAvatar(
-                          recipient.account,
-                          "message-avatar small",
-                        )}
-
-                        <div>
-                          <strong>{recipient.account.displayName}</strong>
-                          <small>
-                            {recipient.account.employee?.designation ??
-                              roleLabel(recipient.account.role)}
-                          </small>
-                        </div>
-
-                        <dl>
-                          <div>
-                            <dt>Delivered</dt>
-                            <dd>
-                              {recipient.deliveredAt
-                                ? notificationTimestampLabel(
-                                  recipient.deliveredAt,
-                                )
-                                : "Pending"}
-                            </dd>
-                          </div>
-                          <div>
-                            <dt>Read</dt>
-                            <dd>
-                              {recipient.readAt
-                                ? notificationTimestampLabel(recipient.readAt)
-                                : recipient.readHidden
-                                  ? "Hidden by privacy"
-                                  : "Not read"}
-                            </dd>
-                          </div>
-                        </dl>
-                      </article>
-                    ))
-                  )}
-                </section>
-              </div>
-            ) : null}
           </section>
         </div>
       )}
@@ -21522,17 +25280,17 @@ export function MessageAppPage() {
                       attachmentViewer.attachment,
                     )
                   }
-                  aria-label={`Download ${attachmentViewer.attachment.originalFileName}`}
+                  aria-label={t("attachment.downloadNamed", { name: attachmentViewer.attachment.originalFileName })}
                 >
                   <AttachmentGlyph name="download" />
-                  <span>Download</span>
+                  <span>{t("attachment.download")}</span>
                 </button>
                 <button
                   type="button"
                   className="close"
                   data-message-media-viewer-close="true"
                   onClick={closeAttachmentViewer}
-                  aria-label="Close attachment preview"
+                  aria-label={t("attachment.closePreview")}
                 >
                   ×
                 </button>
@@ -21563,7 +25321,7 @@ export function MessageAppPage() {
                       attachmentViewerItems[attachmentViewerIndex - 1],
                     )
                   }
-                  aria-label="View previous attachment"
+                  aria-label={t("attachment.previous")}
                 >
                   ‹
                 </button>
@@ -21576,14 +25334,14 @@ export function MessageAppPage() {
                   aria-live="polite"
                 >
                   <span className="message-small-spinner" aria-hidden="true" />
-                  <p>Loading preview...</p>
+                  <p>{t("attachment.loadingPreview")}</p>
                 </div>
               )}
 
               {!attachmentViewer.loading && attachmentViewer.error && (
                 <div className="message-media-viewer-state error" role="alert">
                   <AttachmentGlyph name="retry" />
-                  <strong>Preview unavailable</strong>
+                  <strong>{t("attachment.previewUnavailable")}</strong>
                   <p>{attachmentViewer.error}</p>
                 </div>
               )}
@@ -21607,7 +25365,7 @@ export function MessageAppPage() {
                     controls
                     playsInline
                   >
-                    Your browser does not support video preview.
+                    {t("announcementAttachment.browserVideoUnsupported")}
                   </video>
                 )}
 
@@ -21658,7 +25416,7 @@ export function MessageAppPage() {
                         attachmentViewerItems[attachmentViewerIndex + 1],
                       )
                     }
-                    aria-label="View next attachment"
+                    aria-label={t("attachment.next")}
                   >
                     ›
                   </button>
@@ -21672,7 +25430,7 @@ export function MessageAppPage() {
                     {attachmentViewer.attachment.originalFileName}
                   </strong>
                   <span>
-                    {attachmentTypeLabel(attachmentViewer.attachment)} ·{" "}
+                    {t(attachmentTypeTranslationKey(attachmentViewer.attachment))} ·{" "}
                     {formatFileSize(attachmentViewer.attachment.fileSizeBytes)}
                   </span>
                 </div>
@@ -21735,8 +25493,9 @@ export function MessageAppPage() {
                     }
                   </strong>
                   <span id="announcement-attachment-viewer-title">
-                    Announcement attachment ·{" "}
-                    {announcementAttachmentViewer.attachment.originalFileName}
+                    {t("announcementAttachment.viewerTitle", {
+                      name: announcementAttachmentViewer.attachment.originalFileName,
+                    })}
                   </span>
                 </div>
               </div>
@@ -21755,7 +25514,7 @@ export function MessageAppPage() {
                       aria-label={`Download ${announcementAttachmentViewer.attachment.originalFileName}`}
                     >
                       <AttachmentGlyph name="download" />
-                      <span>Download</span>
+                      <span>{t("attachment.download")}</span>
                     </button>
                   )}
                 <button
@@ -21763,7 +25522,7 @@ export function MessageAppPage() {
                   className="close"
                   data-message-modal-initial-focus="true"
                   onClick={closeAnnouncementAttachmentViewer}
-                  aria-label="Close announcement attachment preview"
+                  aria-label={t("announcementAttachment.close")}
                 >
                   ×
                 </button>
@@ -21801,7 +25560,7 @@ export function MessageAppPage() {
                       ],
                     )
                   }
-                  aria-label="View previous announcement attachment"
+                  aria-label={t("announcementAttachment.previous")}
                 >
                   ‹
                 </button>
@@ -21814,7 +25573,7 @@ export function MessageAppPage() {
                   aria-live="polite"
                 >
                   <span className="message-small-spinner" aria-hidden="true" />
-                  <p>Loading preview...</p>
+                  <p>{t("announcementAttachment.loading")}</p>
                 </div>
               )}
 
@@ -21822,7 +25581,7 @@ export function MessageAppPage() {
                 announcementAttachmentViewer.error && (
                   <div className="message-media-viewer-state error" role="alert">
                     <AttachmentGlyph name="retry" />
-                    <strong>Preview unavailable</strong>
+                    <strong>{t("announcementAttachment.unavailable")}</strong>
                     <p>{announcementAttachmentViewer.error}</p>
                   </div>
                 )}
@@ -21852,7 +25611,7 @@ export function MessageAppPage() {
                     controls
                     playsInline
                   >
-                    Your browser does not support video preview.
+                    {t("announcementAttachment.browserVideoUnsupported")}
                   </video>
                 )}
 
@@ -21886,7 +25645,7 @@ export function MessageAppPage() {
                         ],
                       )
                     }
-                    aria-label="View next announcement attachment"
+                    aria-label={t("announcementAttachment.next")}
                   >
                     ›
                   </button>
@@ -21902,6 +25661,7 @@ export function MessageAppPage() {
                   <span>
                     {announcementEnumLabel(
                       announcementAttachmentViewer.attachment.category,
+                      t,
                     )}{" "}
                     ·{" "}
                     {formatFileSize(

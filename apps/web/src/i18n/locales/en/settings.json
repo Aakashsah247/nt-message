@@ -1,0 +1,34 @@
+{
+  "page": {
+    "eyebrow": "Account settings",
+    "title": "Account preferences",
+    "description": "Manage security and the interface preferences that follow your NT Message account."
+  },
+  "navigation": {
+    "label": "Settings sections"
+  },
+  "security": {
+    "title": "Security",
+    "description": "Password and active sessions",
+    "action": "Open security",
+    "panelDescription": "Change your password and securely revoke active NT Message sessions.",
+    "badge": "Protected"
+  },
+  "language": {
+    "title": "Language",
+    "description": "Choose the interface language used across NT Message.",
+    "accountWide": "Account-wide",
+    "scope": "This preference applies across the workspace and messaging interface on every device after sign-in.",
+    "english": "English",
+    "englishDescription": "Use the NT Message interface in English.",
+    "nepali": "नेपाली",
+    "nepaliDescription": "एनटी मेसेजको इन्टरफेस नेपालीमा प्रयोग गर्नुहोस्।",
+    "current": "Current language",
+    "saving": "Saving language...",
+    "saved": "Language preference saved.",
+    "saveError": "Language preference could not be saved. Please try again."
+  },
+  "identity": {
+    "account": "Account"
+  }
+}

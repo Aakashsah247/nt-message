@@ -1,3 +1,4 @@
+import { useTranslation } from "react-i18next";
 import { useSearchParams } from "react-router";
 
 import { AdminOrganizationPanel } from "../components/AdminOrganizationPanel";
@@ -9,6 +10,7 @@ import { SuperAdminProfilePanel } from "../components/SuperAdminProfilePanel";
 import { useAuth } from "../context/AuthContext";
 
 export function AdminDashboardPage() {
+  const { t } = useTranslation("admin");
   const [searchParams] = useSearchParams();
   const { accessToken } = useAuth();
   const view = getDefaultAdminView(searchParams.get("view"));
@@ -17,7 +19,7 @@ export function AdminDashboardPage() {
     return (
       <main className="management-page">
         <div className="admin-request-error" role="alert">
-          Your secure session is not available. Sign in again.
+          {t("session.unavailable")}
         </div>
       </main>
     );

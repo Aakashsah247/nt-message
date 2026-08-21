@@ -1,8 +1,10 @@
 import {
+  BadRequestException,
   Body,
   Controller,
   Delete,
   Get,
+  Headers,
   Param,
   ParseUUIDPipe,
   Patch,
@@ -28,6 +30,8 @@ import { AccessTokenGuard } from '../auth/guards/access-token.guard';
 import type { AuthenticatedUser } from '../auth/types/auth.types';
 
 import { ConversationStorageService } from './conversation-storage.service';
+import { MessageAttachmentStreamService } from './message-attachment-stream.service';
+import { MessagingPushService } from './messaging-push.service';
 import { ConversationsService } from './conversations.service';
 import { AddGroupMembersDto } from './dto/add-group-members.dto';
 import { CreateGroupConversationDto } from './dto/create-group-conversation.dto';
@@ -37,6 +41,8 @@ import { CreatePrivateGroupFromPrivateConversationDto } from './dto/create-priva
 import { ForwardTextMessageDto } from './dto/forward-text-message.dto';
 import { ListConversationsQueryDto } from './dto/list-conversations-query.dto';
 import { ListMessagesQueryDto } from './dto/list-messages-query.dto';
+import { ListStarredMessagesQueryDto } from './dto/list-starred-messages-query.dto';
+import { ListGroupMembersQueryDto } from './dto/list-group-members-query.dto';
 import { ListOfficialGroupAuditQueryDto } from './dto/list-official-group-audit-query.dto';
 import { SearchMessagingContactsQueryDto } from './dto/search-messaging-contacts-query.dto';
 import { SearchMessagesQueryDto } from './dto/search-messages-query.dto';
@@ -51,13 +57,16 @@ import { UpdateTextMessageDto } from './dto/update-text-message.dto';
 import { UpdateLiveLocationDto } from './dto/update-live-location.dto';
 import { UpdateMessagingProfileDto } from './dto/update-messaging-profile.dto';
 import { UpdateMessagingSettingsDto } from './dto/update-messaging-settings.dto';
+import { UpsertMessagingPushSubscriptionDto } from './dto/upsert-messaging-push-subscription.dto';
+import { DeleteMessagingPushSubscriptionDto } from './dto/delete-messaging-push-subscription.dto';
 import { CreateChatFolderDto } from './dto/create-chat-folder.dto';
 import { UpdateChatFolderDto } from './dto/update-chat-folder.dto';
 import { ReorderChatFoldersDto } from './dto/reorder-chat-folders.dto';
 import { ManageFolderItemDto } from './dto/manage-folder-item.dto';
 import { ReactMessageDto } from './dto/react-message.dto';
 import type { UploadedMessageAttachmentFile } from './types/uploaded-message-attachment-file';
-import { createBoundedMessageAttachmentMemoryStorage } from './message-attachment-memory-storage';
+import { AttachmentTempCleanupInterceptor } from '../attachments/attachment-temp-cleanup.interceptor';
+import { createBoundedAttachmentTempStorage } from '../attachments/attachment-upload-temp-storage';
 import {
   MAX_MESSAGE_ATTACHMENT_FILE_BYTES,
   MAX_MESSAGE_ATTACHMENT_FILES,
@@ -71,6 +80,8 @@ export class ConversationsController {
   constructor(
     private readonly conversationsService: ConversationsService,
     private readonly conversationStorageService: ConversationStorageService,
+    private readonly messageAttachmentStreamService: MessageAttachmentStreamService,
+    private readonly messagingPushService: MessagingPushService,
   ) {}
 
   @Get('settings')
@@ -79,6 +90,28 @@ export class ConversationsController {
     user: AuthenticatedUser,
   ) {
     return this.conversationsService.getMessagingSettings(user);
+  }
+
+  @Get('push/config')
+  getMessagingPushConfig() {
+    return this.messagingPushService.getPublicConfig();
+  }
+
+  @Put('push/subscription')
+  upsertMessagingPushSubscription(
+    @CurrentUser() user: AuthenticatedUser,
+    @Body() dto: UpsertMessagingPushSubscriptionDto,
+    @Headers('user-agent') userAgent?: string,
+  ) {
+    return this.messagingPushService.upsertSubscription(user, dto, userAgent);
+  }
+
+  @Delete('push/subscription')
+  deleteMessagingPushSubscription(
+    @CurrentUser() user: AuthenticatedUser,
+    @Body() dto: DeleteMessagingPushSubscriptionDto,
+  ) {
+    return this.messagingPushService.deleteSubscription(user, dto);
   }
 
   @Get('folders')
@@ -621,6 +654,25 @@ export class ConversationsController {
     );
   }
 
+  @Delete(':id/group')
+  deleteGroupConversation(
+    @CurrentUser()
+    user: AuthenticatedUser,
+
+    @Param(
+      'id',
+      new ParseUUIDPipe({
+        version: '4',
+      }),
+    )
+    conversationId: string,
+  ) {
+    return this.conversationsService.deleteGroupConversation(
+      user,
+      conversationId,
+    );
+  }
+
   @Patch(':id/group')
   updateGroupConversation(
     @CurrentUser()
@@ -769,6 +821,24 @@ export class ConversationsController {
     response.setHeader('Cache-Control', 'private, max-age=300');
 
     return new StreamableFile(createReadStream(photo.absolutePath));
+  }
+
+  @Get(':id/group/members')
+  listGroupMembers(
+    @CurrentUser()
+    user: AuthenticatedUser,
+
+    @Param('id', new ParseUUIDPipe({ version: '4' }))
+    conversationId: string,
+
+    @Query()
+    query: ListGroupMembersQueryDto,
+  ) {
+    return this.conversationsService.listGroupMembers(
+      user,
+      conversationId,
+      query,
+    );
   }
 
   @Post(':id/group/members')
@@ -961,8 +1031,11 @@ export class ConversationsController {
   listStarredMessages(
     @CurrentUser()
     user: AuthenticatedUser,
+
+    @Query()
+    query: ListStarredMessagesQueryDto,
   ) {
-    return this.conversationsService.listStarredMessages(user);
+    return this.conversationsService.listStarredMessages(user, query);
   }
 
   @Get(':id/pinned-messages')
@@ -1176,7 +1249,7 @@ export class ConversationsController {
         { name: 'file', maxCount: 1 },
       ],
       {
-        storage: createBoundedMessageAttachmentMemoryStorage(
+        storage: createBoundedAttachmentTempStorage(
           MAX_MESSAGE_ATTACHMENT_TOTAL_BYTES,
         ),
         limits: {
@@ -1185,6 +1258,7 @@ export class ConversationsController {
         },
       },
     ),
+    AttachmentTempCleanupInterceptor,
   )
   sendAttachmentMessage(
     @CurrentUser()
@@ -1220,6 +1294,63 @@ export class ConversationsController {
       dto,
       files,
     );
+  }
+
+  @Post(':conversationId/messages/:messageId/attachments/:attachmentId/stream-access')
+  async createMessageAttachmentStreamAccess(
+    @CurrentUser()
+    user: AuthenticatedUser,
+
+    @Param(
+      'conversationId',
+      new ParseUUIDPipe({
+        version: '4',
+      }),
+    )
+    conversationId: string,
+
+    @Param(
+      'messageId',
+      new ParseUUIDPipe({
+        version: '4',
+      }),
+    )
+    messageId: string,
+
+    @Param(
+      'attachmentId',
+      new ParseUUIDPipe({
+        version: '4',
+      }),
+    )
+    attachmentId: string,
+  ) {
+    // Validate the attachment with the normal membership, visibility, retention
+    // and malware-scan rules before issuing a short-lived media link.
+    const attachment = await this.conversationsService.getAttachmentDownload(
+      user,
+      conversationId,
+      messageId,
+      attachmentId,
+    );
+
+    if (
+      !attachment.mimeType.startsWith('video/') &&
+      !attachment.mimeType.startsWith('audio/')
+    ) {
+      throw new BadRequestException(
+        'Streaming access is available only for video and audio attachments.',
+      );
+    }
+
+    return {
+      data: this.messageAttachmentStreamService.createAccessToken(
+        user,
+        conversationId,
+        messageId,
+        attachmentId,
+      ),
+    };
   }
 
   @Get(':conversationId/messages/:messageId/attachments/:attachmentId/download')
@@ -1277,8 +1408,8 @@ export class ConversationsController {
     response.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
     response.setHeader('Cross-Origin-Embedder-Policy', 'unsafe-none');
     response.setHeader('Cache-Control', 'no-store');
+    response.setHeader('X-Content-Type-Options', 'nosniff');
     response.setHeader('Content-Length', String(attachment.fileSizeBytes));
-    response.setHeader('Accept-Ranges', 'bytes');
     response.setHeader(
       'Content-Disposition',
       `${disposition}; filename="${safeFileName}"; filename*=UTF-8''${encodedFileName}`,

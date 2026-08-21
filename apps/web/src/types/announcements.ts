@@ -78,6 +78,9 @@ export interface AnnouncementAttachment {
   fileSizeBytes: number;
   category: AnnouncementAttachmentCategory;
   scanStatus: string;
+  expiresAt: string | null;
+  expiredAt: string | null;
+  isExpired: boolean;
   createdAt: string;
 }
 

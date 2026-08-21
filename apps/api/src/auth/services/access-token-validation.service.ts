@@ -25,6 +25,15 @@ export class AccessTokenValidationService {
   }
 
   async verifyAccessToken(token: string): Promise<AuthenticatedUser> {
+    const verified = await this.verifyAccessTokenWithMetadata(token);
+
+    return verified.user;
+  }
+
+  async verifyAccessTokenWithMetadata(token: string): Promise<{
+    user: AuthenticatedUser;
+    accessTokenExpiresAt: Date;
+  }> {
     let payload: AccessTokenPayload;
 
     try {
@@ -36,7 +45,14 @@ export class AccessTokenValidationService {
       throw new UnauthorizedException('Invalid or expired access token.');
     }
 
-    return this.validatePayload(payload);
+    if (typeof payload.exp !== 'number' || !Number.isFinite(payload.exp)) {
+      throw new UnauthorizedException('Invalid access token.');
+    }
+
+    return {
+      user: await this.validatePayload(payload),
+      accessTokenExpiresAt: new Date(payload.exp * 1000),
+    };
   }
 
   async validatePayload(

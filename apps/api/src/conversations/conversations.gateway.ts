@@ -19,6 +19,7 @@ import {
   type MessagingTypingPayload,
 } from '../realtime/messaging-events.service';
 import { MessagingPresenceService } from '../realtime/messaging-presence.service';
+import { MessagingSocketSessionService } from '../realtime/messaging-socket-session.service';
 import { ConversationsService } from './conversations.service';
 
 type MessagingSocket = Socket<
@@ -60,6 +61,7 @@ export class ConversationsGateway
     private readonly conversationsService: ConversationsService,
     private readonly messagingEventsService: MessagingEventsService,
     private readonly messagingPresenceService: MessagingPresenceService,
+    private readonly messagingSocketSessionService: MessagingSocketSessionService,
   ) {}
 
   afterInit(server: MessagingNamespace): void {
@@ -75,10 +77,14 @@ export class ConversationsGateway
         }
 
         try {
-          client.data.user =
-            await this.accessTokenValidationService.verifyAccessToken(
+          const verified =
+            await this.accessTokenValidationService.verifyAccessTokenWithMetadata(
               accessToken,
             );
+
+          client.data.user = verified.user;
+          client.data.accessTokenExpiresAt =
+            verified.accessTokenExpiresAt.toISOString();
 
           next();
         } catch {
@@ -91,14 +97,40 @@ export class ConversationsGateway
   async handleConnection(client: MessagingSocket): Promise<void> {
     const user = client.data.user;
 
-    if (!user) {
+    const accessTokenExpiresAt = client.data.accessTokenExpiresAt
+      ? new Date(client.data.accessTokenExpiresAt)
+      : null;
+
+    if (
+      !user ||
+      !accessTokenExpiresAt ||
+      !Number.isFinite(accessTokenExpiresAt.getTime())
+    ) {
       client.emit('messaging:error', {
         message: 'Authentication session is unavailable.',
+        code: 'SESSION_INVALIDATED',
       });
 
       client.disconnect(true);
       return;
     }
+
+    this.messagingSocketSessionService.register({
+      socketId: client.id,
+      user,
+      accessTokenExpiresAt,
+      invalidate: () => {
+        if (!client.connected) {
+          return;
+        }
+
+        client.emit('messaging:error', {
+          message: 'Authentication session is invalid or expired.',
+          code: 'SESSION_INVALIDATED',
+        });
+        client.disconnect(true);
+      },
+    });
 
     await client.join(this.accountRoom(user.accountId));
 
@@ -138,6 +170,8 @@ export class ConversationsGateway
   }
 
   async handleDisconnect(client: MessagingSocket): Promise<void> {
+    this.messagingSocketSessionService.unregister(client.id);
+
     const user = client.data.user;
 
     if (!user) {

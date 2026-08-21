@@ -3,10 +3,12 @@ import {
   useMemo,
   useState,
 } from "react";
+import { useTranslation } from "react-i18next";
 
 import type {
   FormEvent,
 } from "react";
+import type { TFunction } from "i18next";
 
 import {
   createAdminAccount,
@@ -40,24 +42,21 @@ const initialForm: CreateAdminAccountInput = {
 
 function getErrorMessage(
   error: unknown,
+  t: TFunction,
 ): string {
   return error instanceof Error
     ? error.message
-    : "The account could not be created.";
+    : t("adminForm.errorFallback", { ns: "requests" });
 }
 
 function formatRole(
   role: AdminCreatableRole,
+  t: TFunction,
 ): string {
-  return role
-    .toLowerCase()
-    .split("_")
-    .map(
-      (part) =>
-        part.charAt(0).toUpperCase() +
-        part.slice(1),
-    )
-    .join(" ");
+  return t(`values.${role}`, {
+    ns: "requests",
+    defaultValue: role,
+  });
 }
 
 
@@ -68,6 +67,7 @@ export function AdminAccountForm({
   onClose,
   onCreated,
 }: AdminAccountFormProps) {
+  const { t } = useTranslation("requests");
   const [form, setForm] =
     useState<CreateAdminAccountInput>(
       initialForm,
@@ -130,6 +130,7 @@ export function AdminAccountForm({
             setError(
               getErrorMessage(
                 requestError,
+                t,
               ),
             );
           }
@@ -144,7 +145,7 @@ export function AdminAccountForm({
     return () => {
       active = false;
     };
-  }, [accessToken]);
+  }, [accessToken, t]);
 
   useEffect(() => {
     function closeWithEscape(
@@ -243,7 +244,7 @@ export function AdminAccountForm({
     if (
       form.empName.trim().length < 2
     ) {
-      return "Enter the employee full name.";
+      return t("adminForm.validationName");
     }
 
     if (
@@ -251,7 +252,7 @@ export function AdminAccountForm({
         form.empId.trim(),
       )
     ) {
-      return "Enter a valid employee ID.";
+      return t("adminForm.validationId");
     }
 
     if (
@@ -259,24 +260,24 @@ export function AdminAccountForm({
         form.phoneNumber.trim(),
       )
     ) {
-      return "Enter a valid phone number.";
+      return t("adminForm.validationPhone");
     }
 
     if (
       !form.officialEmail.includes("@")
     ) {
-      return "Enter a valid official email.";
+      return t("adminForm.validationEmail");
     }
 
     if (!form.divisionId) {
-      return "Select a division.";
+      return t("adminForm.validationDivision");
     }
 
     if (
       requiresDepartment &&
       !form.departmentId
     ) {
-      return "Select a department.";
+      return t("adminForm.validationDepartment");
     }
 
 
@@ -342,7 +343,7 @@ export function AdminAccountForm({
       requestError: unknown
     ) {
       setError(
-        getErrorMessage(requestError),
+        getErrorMessage(requestError, t),
       );
     } finally {
       setSubmitting(false);
@@ -370,24 +371,18 @@ export function AdminAccountForm({
       >
         <header className="acct-head">
           <div>
-            <span>
-              Super Admin
-            </span>
+            <span>{t("adminForm.eyebrow")}</span>
 
-            <h2 id="acct-title">
-              Create account identity
-            </h2>
+            <h2 id="acct-title">{t("adminForm.title")}</h2>
 
-            <p>
-              Create an approved employee identity for account activation.
-            </p>
+            <p>{t("adminForm.description")}</p>
           </div>
 
           <button
             type="button"
             onClick={onClose}
             disabled={submitting}
-            aria-label="Close account form"
+            aria-label={t("adminForm.close")}
           >
             ×
           </button>
@@ -406,9 +401,7 @@ export function AdminAccountForm({
           <div className="acct-load">
             <div className="spinner" />
 
-            <p>
-              Loading organization data...
-            </p>
+            <p>{t("adminForm.loadingOrganization")}</p>
           </div>
         ) : (
           <form
@@ -417,9 +410,7 @@ export function AdminAccountForm({
           >
             <div className="acct-grid">
               <label>
-                <span>
-                  Account role
-                </span>
+                <span>{t("adminForm.accessRole")}</span>
 
                 <select
                   value={
@@ -433,24 +424,16 @@ export function AdminAccountForm({
                   }
                   disabled={submitting}
                 >
-                  <option value="SENIOR_MANAGEMENT">
-                    Senior Management
-                  </option>
+                  <option value="SENIOR_MANAGEMENT">{t("values.SENIOR_MANAGEMENT")}</option>
 
-                  <option value="TEAM_MANAGER">
-                    Team Manager
-                  </option>
+                  <option value="TEAM_MANAGER">{t("values.TEAM_MANAGER")}</option>
 
-                  <option value="EMPLOYEE">
-                    Employee
-                  </option>
+                  <option value="EMPLOYEE">{t("values.EMPLOYEE")}</option>
                 </select>
               </label>
 
               <label>
-                <span>
-                  Employee full name
-                </span>
+                <span>{t("adminForm.fullName")}</span>
 
                 <input
                   type="text"
@@ -467,9 +450,7 @@ export function AdminAccountForm({
               </label>
 
               <label>
-                <span>
-                  Employee ID
-                </span>
+                <span>{t("adminForm.employeeId")}</span>
 
                 <input
                   type="text"
@@ -487,9 +468,7 @@ export function AdminAccountForm({
               </label>
 
               <label>
-                <span>
-                  Phone number
-                </span>
+                <span>{t("adminForm.phone")}</span>
 
                 <input
                   type="tel"
@@ -507,9 +486,7 @@ export function AdminAccountForm({
               </label>
 
               <label>
-                <span>
-                  Official email
-                </span>
+                <span>{t("adminForm.email")}</span>
 
                 <input
                   type="email"
@@ -528,9 +505,7 @@ export function AdminAccountForm({
               </label>
 
               <label>
-                <span>
-                  Designation
-                </span>
+                <span>{t("adminForm.designation")}</span>
 
                 <input
                   type="text"
@@ -548,9 +523,7 @@ export function AdminAccountForm({
               </label>
 
               <label>
-                <span>
-                  Division
-                </span>
+                <span>{t("adminForm.division")}</span>
 
                 <select
                   value={
@@ -564,9 +537,7 @@ export function AdminAccountForm({
                   disabled={submitting}
                   required
                 >
-                  <option value="">
-                    Select division
-                  </option>
+                  <option value="">{t("adminForm.selectDivision")}</option>
 
                   {divisions.map(
                     (division) => (
@@ -586,8 +557,8 @@ export function AdminAccountForm({
                   <span>
                     {form.requestedRole ===
                     "TEAM_MANAGER"
-                      ? "Managed Department"
-                      : "Working Department"}
+                      ? t("adminForm.managedDepartment")
+                      : t("adminForm.workingDepartment")}
                   </span>
 
                   <select
@@ -610,9 +581,7 @@ export function AdminAccountForm({
                     }
                     required
                   >
-                    <option value="">
-                      Select department
-                    </option>
+                    <option value="">{t("adminForm.selectDepartment")}</option>
 
                     {availableDepartments.map(
                       (department) => (
@@ -633,31 +602,30 @@ export function AdminAccountForm({
                   <small className="acct-help">
                     {form.requestedRole ===
                     "TEAM_MANAGER"
-                      ? "Select the department this Team Manager will manage."
-                      : "Select the department where this employee works."}
+                      ? t("adminForm.managedHelp")
+                      : t("adminForm.workingHelp")}
                   </small>
                 </label>
               )}
             </div>
 
             <section className="acct-review">
-              <span>
-                Creating
-              </span>
+              <span>{t("adminForm.reviewEyebrow")}</span>
 
               <strong>
                 {formatRole(
                   form.requestedRole,
+                  t,
                 )}
               </strong>
 
               <small>
                 {form.requestedRole ===
                 "SENIOR_MANAGEMENT"
-                  ? "One Senior Management position for the selected division will be created and reserved automatically."
+                  ? t("adminForm.seniorPositionHelp")
                   : isManagementRole
-                    ? "One Team Manager position for the selected department will be created and reserved automatically."
-                    : "Normal employee accounts do not require management authority."}
+                    ? t("adminForm.teamPositionHelp")
+                    : t("adminForm.employeeHelp")}
               </small>
             </section>
 
@@ -668,7 +636,7 @@ export function AdminAccountForm({
                 onClick={onClose}
                 disabled={submitting}
               >
-                Cancel
+                {t("common.cancel")}
               </button>
 
               <button
@@ -680,8 +648,8 @@ export function AdminAccountForm({
                 }
               >
                 {submitting
-                  ? "Creating..."
-                  : "Create account"}
+                  ? t("adminForm.creating")
+                  : t("adminForm.create")}
               </button>
             </footer>
           </form>

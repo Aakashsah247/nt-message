@@ -5,6 +5,8 @@ import {
   useRef,
   useState,
 } from "react";
+import type { TFunction } from "i18next";
+import { useTranslation } from "react-i18next";
 
 import {
   useAuth,
@@ -48,13 +50,14 @@ const initialFilters: PositionFilters = {
 
 function getErrorMessage(
   error: unknown,
+  t: TFunction<"positions">,
 ): string {
   return error instanceof Error
     ? error.message
-    : "The management position operation could not be completed.";
+    : t("errorFallback", { ns: "positions" });
 }
 
-function formatLabel(
+function fallbackFormatLabel(
   value: string,
 ): string {
   return value
@@ -68,21 +71,33 @@ function formatLabel(
     .join(" ");
 }
 
+function formatLabel(
+  value: string,
+  t: TFunction<"positions">,
+): string {
+  return t(`state.${value}`, {
+    ns: "positions",
+    defaultValue: fallbackFormatLabel(value),
+  });
+}
+
 function formatDate(
   value: string | null | undefined,
+  locale: string,
+  t: TFunction<"positions">,
 ): string {
   if (!value) {
-    return "Not available";
+    return t("common.notAvailable", { ns: "positions" });
   }
 
   const date = new Date(value);
 
   if (Number.isNaN(date.getTime())) {
-    return "Not available";
+    return t("common.notAvailable", { ns: "positions" });
   }
 
   return new Intl.DateTimeFormat(
-    "en-GB",
+    locale === "ne" ? "ne-NP-u-ca-gregory" : "en-GB",
     {
       dateStyle: "medium",
       timeStyle: "short",
@@ -107,21 +122,29 @@ function getPositionScope(
 
 function getPositionTitle(
   position: ManagementPositionListItem,
+  t: TFunction<"positions">,
 ): string {
   if (
     position.positionType ===
     "SENIOR_MANAGEMENT"
   ) {
-    return `${position.division.name} Senior Management`;
+    return t("title.senior", {
+      ns: "positions",
+      division: position.division.name,
+    });
   }
 
   return position.department
-    ? `${position.department.name} Team Manager`
-    : "Team Manager Position";
+    ? t("title.team", {
+        ns: "positions",
+        department: position.department.name,
+      })
+    : t("title.teamFallback", { ns: "positions" });
 }
 
 function getPositionState(
   position: ManagementPositionListItem,
+  t: TFunction<"positions">,
 ): {
   className: string;
   label: string;
@@ -130,26 +153,26 @@ function getPositionState(
     case "INACTIVE":
       return {
         className: "inactive",
-        label: "Inactive",
+        label: t("state.INACTIVE", { ns: "positions" }),
       };
 
     case "OCCUPIED":
       return {
         className: "occupied",
-        label: "Occupied",
+        label: t("state.OCCUPIED", { ns: "positions" }),
       };
 
     case "RESERVED":
       return {
         className: "reserved",
-        label: "Reserved",
+        label: t("state.RESERVED", { ns: "positions" }),
       };
 
     case "VACANT":
     default:
       return {
         className: "vacant",
-        label: "Vacant",
+        label: t("state.VACANT", { ns: "positions" }),
       };
   }
 }
@@ -171,6 +194,7 @@ function getInitials(
 function matchesSearch(
   position: ManagementPositionListItem,
   searchTerm: string,
+  t: TFunction<"positions">,
 ): boolean {
   const normalizedSearch =
     searchTerm.trim().toLowerCase();
@@ -180,8 +204,8 @@ function matchesSearch(
   }
 
   const searchableValues = [
-    getPositionTitle(position),
-    formatLabel(position.positionType),
+    getPositionTitle(position, t),
+    formatLabel(position.positionType, t),
     position.division.name,
     position.division.code,
     position.department?.name,
@@ -202,6 +226,7 @@ function matchesSearch(
 }
 
 export function ManagementPositionsPage() {
+  const { t, i18n } = useTranslation("positions");
   const {
     accessToken,
   } = useAuth();
@@ -325,9 +350,10 @@ export function ManagementPositionsPage() {
         matchesSearch(
           position,
           searchTerm,
+          t,
         ),
       ),
-    [positions, searchTerm],
+    [positions, searchTerm, t],
   );
 
   const activeFilterCount = useMemo(
@@ -386,6 +412,7 @@ export function ManagementPositionsPage() {
             setError(
               getErrorMessage(
                 requestError,
+                t,
               ),
             );
           }
@@ -395,7 +422,7 @@ export function ManagementPositionsPage() {
     return () => {
       active = false;
     };
-  }, [accessToken]);
+  }, [accessToken, t]);
 
   useEffect(() => {
     if (!accessToken) {
@@ -446,6 +473,7 @@ export function ManagementPositionsPage() {
           setError(
             getErrorMessage(
               requestError,
+              t,
             ),
           );
         },
@@ -463,6 +491,7 @@ export function ManagementPositionsPage() {
     accessToken,
     filters,
     refreshKey,
+    t,
   ]);
 
   useLayoutEffect(() => {
@@ -558,6 +587,7 @@ export function ManagementPositionsPage() {
       setError(
         getErrorMessage(
           requestError,
+          t,
         ),
       );
     } finally {
@@ -585,37 +615,25 @@ export function ManagementPositionsPage() {
       <section className="mgmt-content">
         <header className="mgmt-heading">
           <div className="mgmt-heading__copy">
-            <span>
-              Organization authority
-            </span>
+            <span>{t("page.eyebrow")}</span>
 
-            <h1>
-              Management Positions
-            </h1>
+            <h1>{t("page.title")}</h1>
 
-            <p>
-              Review Senior Management and Team Manager positions, current
-              assignments, reservations and organizational availability.
-            </p>
+            <p>{t("page.description")}</p>
           </div>
 
           <div
             className="mgmt-heading__scope"
-            aria-label="Management position scope"
+            aria-label={t("page.scopeAria")}
           >
             <span aria-hidden="true">
               ✓
             </span>
 
             <div>
-              <strong>
-                Controlled governance
-              </strong>
+              <strong>{t("page.governance")}</strong>
 
-              <small>
-                Position holders follow the approved account-request and
-                activation workflow.
-              </small>
+              <small>{t("page.governanceDescription")}</small>
             </div>
           </div>
         </header>
@@ -633,14 +651,14 @@ export function ManagementPositionsPage() {
               type="button"
               onClick={refreshPositions}
             >
-              Retry
+              {t("page.retry")}
             </button>
           </div>
         )}
 
         <section
           className="mgmt-summary"
-          aria-label="Position summary"
+          aria-label={t("summary.aria")}
         >
           <article className="total">
             <div className="mgmt-summary__icon" aria-hidden="true">
@@ -648,17 +666,13 @@ export function ManagementPositionsPage() {
             </div>
 
             <div>
-              <span>
-                Positions shown
-              </span>
+              <span>{t("summary.shown")}</span>
 
               <strong>
                 {summary.total}
               </strong>
 
-              <small>
-                Current filtered register
-              </small>
+              <small>{t("summary.shownDetail")}</small>
             </div>
           </article>
 
@@ -668,17 +682,13 @@ export function ManagementPositionsPage() {
             </div>
 
             <div>
-              <span>
-                Occupied
-              </span>
+              <span>{t("summary.occupied")}</span>
 
               <strong>
                 {summary.occupied}
               </strong>
 
-              <small>
-                Active position holders
-              </small>
+              <small>{t("summary.occupiedDetail")}</small>
             </div>
           </article>
 
@@ -688,17 +698,13 @@ export function ManagementPositionsPage() {
             </div>
 
             <div>
-              <span>
-                Vacant
-              </span>
+              <span>{t("summary.vacant")}</span>
 
               <strong>
                 {summary.vacant}
               </strong>
 
-              <small>
-                Available for approval flow
-              </small>
+              <small>{t("summary.vacantDetail")}</small>
             </div>
           </article>
 
@@ -708,17 +714,13 @@ export function ManagementPositionsPage() {
             </div>
 
             <div>
-              <span>
-                Reserved
-              </span>
+              <span>{t("summary.reserved")}</span>
 
               <strong>
                 {summary.reserved}
               </strong>
 
-              <small>
-                Pending account activation
-              </small>
+              <small>{t("summary.reservedDetail")}</small>
             </div>
           </article>
 
@@ -728,17 +730,13 @@ export function ManagementPositionsPage() {
             </div>
 
             <div>
-              <span>
-                Inactive
-              </span>
+              <span>{t("summary.inactive")}</span>
 
               <strong>
                 {summary.inactive}
               </strong>
 
-              <small>
-                Not available for assignment
-              </small>
+              <small>{t("summary.inactiveDetail")}</small>
             </div>
           </article>
         </section>
@@ -746,18 +744,11 @@ export function ManagementPositionsPage() {
         <section className="mgmt-filter-card">
           <header>
             <div>
-              <span>
-                Position register
-              </span>
+              <span>{t("filters.eyebrow")}</span>
 
-              <h2>
-                Search and filter positions
-              </h2>
+              <h2>{t("filters.title")}</h2>
 
-              <p>
-                Use the organizational filters to locate a position or current
-                holder without changing governance rules.
-              </p>
+              <p>{t("filters.description")}</p>
             </div>
 
             <button
@@ -766,16 +757,14 @@ export function ManagementPositionsPage() {
               disabled={loading}
             >
               {loading
-                ? "Refreshing..."
-                : "Refresh register"}
+                ? t("filters.refreshing")
+                : t("filters.refresh")}
             </button>
           </header>
 
           <div className="mgmt-search-row">
             <label className="mgmt-search-field">
-              <span>
-                Search positions
-              </span>
+              <span>{t("filters.search")}</span>
 
               <div>
                 <span aria-hidden="true">
@@ -790,31 +779,25 @@ export function ManagementPositionsPage() {
                       event.target.value,
                     )
                   }
-                  placeholder="Position, division, department, employee ID or name"
+                  placeholder={t("filters.placeholder")}
                 />
               </div>
             </label>
 
             <div className="mgmt-filter-status">
-              <span>
-                Results
-              </span>
+              <span>{t("filters.results")}</span>
 
               <strong>
                 {visiblePositions.length}
               </strong>
 
-              <small>
-                of {positions.length} positions
-              </small>
+              <small>{t("filters.ofPositions", { count: positions.length })}</small>
             </div>
           </div>
 
           <div className="mgmt-filters">
             <label>
-              <span>
-                Position type
-              </span>
+              <span>{t("filters.positionType")}</span>
 
               <select
                 value={
@@ -830,24 +813,16 @@ export function ManagementPositionsPage() {
                   )
                 }
               >
-                <option value="">
-                  All position types
-                </option>
+                <option value="">{t("filters.allTypes")}</option>
 
-                <option value="SENIOR_MANAGEMENT">
-                  Senior Management
-                </option>
+                <option value="SENIOR_MANAGEMENT">{t("filters.seniorManagement")}</option>
 
-                <option value="TEAM_MANAGER">
-                  Team Manager
-                </option>
+                <option value="TEAM_MANAGER">{t("filters.teamManager")}</option>
               </select>
             </label>
 
             <label>
-              <span>
-                Division
-              </span>
+              <span>{t("filters.division")}</span>
 
               <select
                 value={
@@ -860,9 +835,7 @@ export function ManagementPositionsPage() {
                   )
                 }
               >
-                <option value="">
-                  All divisions
-                </option>
+                <option value="">{t("filters.allDivisions")}</option>
 
                 {divisions.map(
                   (division) => (
@@ -879,9 +852,7 @@ export function ManagementPositionsPage() {
             </label>
 
             <label>
-              <span>
-                Department
-              </span>
+              <span>{t("filters.department")}</span>
 
               <select
                 value={
@@ -894,9 +865,7 @@ export function ManagementPositionsPage() {
                   )
                 }
               >
-                <option value="">
-                  All departments
-                </option>
+                <option value="">{t("filters.allDepartments")}</option>
 
                 {filterDepartments.map(
                   (department) => (
@@ -913,9 +882,7 @@ export function ManagementPositionsPage() {
             </label>
 
             <label>
-              <span>
-                Position state
-              </span>
+              <span>{t("filters.state")}</span>
 
               <select
                 value={
@@ -929,25 +896,15 @@ export function ManagementPositionsPage() {
                   )
                 }
               >
-                <option value="ALL">
-                  All position states
-                </option>
+                <option value="ALL">{t("filters.allStates")}</option>
 
-                <option value="OCCUPIED">
-                  Occupied
-                </option>
+                <option value="OCCUPIED">{t("state.OCCUPIED")}</option>
 
-                <option value="VACANT">
-                  Vacant
-                </option>
+                <option value="VACANT">{t("state.VACANT")}</option>
 
-                <option value="RESERVED">
-                  Reserved
-                </option>
+                <option value="RESERVED">{t("state.RESERVED")}</option>
 
-                <option value="INACTIVE">
-                  Inactive
-                </option>
+                <option value="INACTIVE">{t("state.INACTIVE")}</option>
               </select>
             </label>
 
@@ -957,7 +914,7 @@ export function ManagementPositionsPage() {
               onClick={clearFilters}
               disabled={activeFilterCount === 0}
             >
-              Clear filters
+              {t("filters.clear")}
               {activeFilterCount > 0 && (
                 <span>
                   {activeFilterCount}
@@ -969,7 +926,7 @@ export function ManagementPositionsPage() {
           {loading && (
             <div
               className="mgmt-position-skeleton"
-              aria-label="Loading management positions"
+              aria-label={t("table.loadingAria")}
             >
               {Array.from({ length: 4 }).map(
                 (_, index) => (
@@ -991,20 +948,16 @@ export function ManagementPositionsPage() {
                 ⌕
               </div>
 
-              <strong>
-                No positions found
-              </strong>
+              <strong>{t("empty.title")}</strong>
 
-              <p>
-                No management positions match the selected search and filters.
-              </p>
+              <p>{t("empty.description")}</p>
 
               {activeFilterCount > 0 && (
                 <button
                   type="button"
                   onClick={clearFilters}
                 >
-                  Clear all filters
+                  {t("empty.clear")}
                 </button>
               )}
             </div>
@@ -1016,33 +969,19 @@ export function ManagementPositionsPage() {
               <table className="mgmt-table">
                 <thead>
                   <tr>
-                    <th>
-                      Position
-                    </th>
+                    <th>{t("table.position")}</th>
 
-                    <th>
-                      Organization scope
-                    </th>
+                    <th>{t("table.organizationScope")}</th>
 
-                    <th>
-                      Holder or reservation
-                    </th>
+                    <th>{t("table.holderReservation")}</th>
 
-                    <th>
-                      State
-                    </th>
+                    <th>{t("table.state")}</th>
 
-                    <th>
-                      History
-                    </th>
+                    <th>{t("table.history")}</th>
 
-                    <th>
-                      Updated
-                    </th>
+                    <th>{t("table.updated")}</th>
 
-                    <th>
-                      Action
-                    </th>
+                    <th>{t("table.action")}</th>
                   </tr>
                 </thead>
 
@@ -1052,6 +991,7 @@ export function ManagementPositionsPage() {
                       const state =
                         getPositionState(
                           position,
+                          t,
                         );
 
                       const holder =
@@ -1070,7 +1010,7 @@ export function ManagementPositionsPage() {
                               : undefined
                           }
                         >
-                          <td data-label="Position">
+                          <td data-label={t("table.position")}>
                             <div className="mgmt-position-cell">
                               <div
                                 className={`mgmt-position-avatar ${state.className}`}
@@ -1079,6 +1019,7 @@ export function ManagementPositionsPage() {
                                 {getInitials(
                                   getPositionTitle(
                                     position,
+                                    t,
                                   ),
                                 )}
                               </div>
@@ -1087,19 +1028,21 @@ export function ManagementPositionsPage() {
                                 <strong>
                                   {getPositionTitle(
                                     position,
+                                    t,
                                   )}
                                 </strong>
 
                                 <small>
                                   {formatLabel(
                                     position.positionType,
+                                    t,
                                   )}
                                 </small>
                               </div>
                             </div>
                           </td>
 
-                          <td data-label="Organization scope">
+                          <td data-label={t("table.organizationScope")}>
                             <strong>
                               {getPositionScope(
                                 position,
@@ -1109,11 +1052,11 @@ export function ManagementPositionsPage() {
                             <small>
                               {position.department
                                 ? `${position.division.code} / ${position.department.code}`
-                                : `Division ${position.division.code}`}
+                                : `${t("filters.division")} ${position.division.code}`}
                             </small>
                           </td>
 
-                          <td data-label="Holder or reservation">
+                          <td data-label={t("table.holderReservation")}>
                             {holder ? (
                               <div className="mgmt-holder-cell">
                                 <span aria-hidden="true">
@@ -1144,17 +1087,16 @@ export function ManagementPositionsPage() {
                                 <small>
                                   {reservation.empId} · {formatLabel(
                                     reservation.status,
+                                    t,
                                   )}
                                 </small>
                               </div>
                             ) : (
-                              <span className="mgmt-no-holder">
-                                No current holder
-                              </span>
+                              <span className="mgmt-no-holder">{t("table.noHolder")}</span>
                             )}
                           </td>
 
-                          <td data-label="State">
+                          <td data-label={t("table.state")}>
                             <span
                               className={`mgmt-badge ${state.className}`}
                             >
@@ -1162,34 +1104,31 @@ export function ManagementPositionsPage() {
                             </span>
                           </td>
 
-                          <td data-label="History">
+                          <td data-label={t("table.history")}>
                             <strong>
                               {position._count.assignments}
                             </strong>
 
-                            <small>
-                              assignment record
-                              {position._count.assignments === 1
-                                ? ""
-                                : "s"}
-                            </small>
+                            <small>{t("table.assignmentRecord", { count: position._count.assignments })}</small>
                           </td>
 
-                          <td data-label="Updated">
+                          <td data-label={t("table.updated")}>
                             <strong>
                               {formatDate(
                                 position.updatedAt,
+                                i18n.language,
+                                t,
                               )}
                             </strong>
 
-                            <small>
-                              Created {formatDate(
+                            <small>{t("table.created", { date: formatDate(
                                 position.createdAt,
-                              )}
-                            </small>
+                                i18n.language,
+                                t,
+                              ) })}</small>
                           </td>
 
-                          <td data-label="Action">
+                          <td data-label={t("table.action")}>
                             <button
                               type="button"
                               className="mgmt-view"
@@ -1201,11 +1140,12 @@ export function ManagementPositionsPage() {
                               disabled={
                                 detailLoading
                               }
-                              aria-label={`View ${getPositionTitle(
+                              aria-label={t("table.viewAria", { position: getPositionTitle(
                                 position,
-                              )}`}
+                                t,
+                              ) })}
                             >
-                              View details
+                              {t("table.viewDetails")}
                             </button>
                           </td>
                         </tr>
@@ -1229,9 +1169,7 @@ export function ManagementPositionsPage() {
             <div className="mgmt-detail-loading">
               <div className="spinner" />
 
-              <p>
-                Loading position details...
-              </p>
+              <p>{t("detail.loading")}</p>
             </div>
           </aside>
         </div>
@@ -1258,13 +1196,12 @@ export function ManagementPositionsPage() {
           >
             <header className="mgmt-detail-topbar">
               <div>
-                <span>
-                  Position details
-                </span>
+                <span>{t("detail.eyebrow")}</span>
 
                 <strong id="management-position-detail-title">
                   {getPositionTitle(
                     selectedPosition,
+                    t,
                   )}
                 </strong>
               </div>
@@ -1274,7 +1211,7 @@ export function ManagementPositionsPage() {
                 onClick={() =>
                   setSelectedPosition(null)
                 }
-                aria-label="Close position details"
+                aria-label={t("common.closePositionDetails")}
               >
                 ×
               </button>
@@ -1289,12 +1226,14 @@ export function ManagementPositionsPage() {
                 <div
                   className={`mgmt-position-avatar ${getPositionState(
                     selectedPosition,
+                    t,
                   ).className}`}
                   aria-hidden="true"
                 >
                   {getInitials(
                     getPositionTitle(
                       selectedPosition,
+                      t,
                     ),
                   )}
                 </div>
@@ -1303,12 +1242,14 @@ export function ManagementPositionsPage() {
                   <span>
                     {formatLabel(
                       selectedPosition.positionType,
+                      t,
                     )}
                   </span>
 
                   <h2>
                     {getPositionTitle(
                       selectedPosition,
+                      t,
                     )}
                   </h2>
 
@@ -1322,10 +1263,12 @@ export function ManagementPositionsPage() {
                 <span
                   className={`mgmt-badge ${getPositionState(
                     selectedPosition,
+                    t,
                   ).className}`}
                 >
                   {getPositionState(
                     selectedPosition,
+                    t,
                   ).label}
                 </span>
               </section>
@@ -1337,22 +1280,16 @@ export function ManagementPositionsPage() {
                   </span>
 
                   <div>
-                    <small>
-                      Organization
-                    </small>
+                    <small>{t("detail.organization")}</small>
 
-                    <h3>
-                      Position scope
-                    </h3>
+                    <h3>{t("detail.positionScope")}</h3>
                   </div>
                 </header>
 
                 <div className="mgmt-detail-section__body">
                   <dl>
                     <div>
-                      <dt>
-                        Division
-                      </dt>
+                      <dt>{t("detail.division")}</dt>
 
                       <dd>
                         {selectedPosition.division.name}
@@ -1360,9 +1297,7 @@ export function ManagementPositionsPage() {
                     </div>
 
                     <div>
-                      <dt>
-                        Division code
-                      </dt>
+                      <dt>{t("detail.divisionCode")}</dt>
 
                       <dd>
                         {selectedPosition.division.code}
@@ -1370,24 +1305,20 @@ export function ManagementPositionsPage() {
                     </div>
 
                     <div>
-                      <dt>
-                        Department
-                      </dt>
+                      <dt>{t("detail.department")}</dt>
 
                       <dd>
                         {selectedPosition.department?.name ??
-                          "Division-wide position"}
+                          t("common.divisionWide")}
                       </dd>
                     </div>
 
                     <div>
-                      <dt>
-                        Department code
-                      </dt>
+                      <dt>{t("detail.departmentCode")}</dt>
 
                       <dd>
                         {selectedPosition.department?.code ??
-                          "Not applicable"}
+                          t("common.notApplicable")}
                       </dd>
                     </div>
                   </dl>
@@ -1401,19 +1332,16 @@ export function ManagementPositionsPage() {
                   </span>
 
                   <div>
-                    <small>
-                      Assignment
-                    </small>
+                    <small>{t("detail.assignment")}</small>
 
-                    <h3>
-                      Current holder
-                    </h3>
+                    <h3>{t("detail.currentHolder")}</h3>
                   </div>
                 </header>
 
                 <div
                   className={`mgmt-detail-section__body mgmt-detail-section__body--${getPositionState(
                     selectedPosition,
+                    t,
                   ).className}`}
                 >
                   {selectedPosition.currentAssignment ? (
@@ -1435,27 +1363,25 @@ export function ManagementPositionsPage() {
 
                         <small>
                           {selectedPosition.currentAssignment.employee.designation ??
-                            "Management position holder"}
+                            t("common.positionHolder")}
                         </small>
                       </div>
 
                       <dl>
                         <div>
-                          <dt>
-                            Started
-                          </dt>
+                          <dt>{t("detail.started")}</dt>
 
                           <dd>
                             {formatDate(
                               selectedPosition.currentAssignment.startedAt,
+                              i18n.language,
+                              t,
                             )}
                           </dd>
                         </div>
 
                         <div>
-                          <dt>
-                            Email
-                          </dt>
+                          <dt>{t("detail.email")}</dt>
 
                           <dd>
                             {selectedPosition.currentAssignment.employee.officialEmail}
@@ -1465,23 +1391,21 @@ export function ManagementPositionsPage() {
                     </div>
                   ) : selectedPosition.reservedByAccountRequest ? (
                     <div className="mgmt-reservation-detail">
-                      <strong>
-                        Reserved for {selectedPosition.reservedByAccountRequest.empName}
-                      </strong>
+                      <strong>{t("detail.reservedFor", { name: selectedPosition.reservedByAccountRequest.empName })}</strong>
 
-                      <p>
-                        Employee ID {selectedPosition.reservedByAccountRequest.empId}
-                        {" · "}
-                        {formatLabel(
+                      <p>{t("detail.employeeIdStatus", {
+                        id: selectedPosition.reservedByAccountRequest.empId,
+                        status: formatLabel(
                           selectedPosition.reservedByAccountRequest.status,
-                        )}
-                      </p>
+                          t,
+                        ),
+                      })}</p>
 
-                      <small>
-                        Submitted {formatDate(
+                      <small>{t("detail.submitted", { date: formatDate(
                           selectedPosition.reservedByAccountRequest.submittedAt,
-                        )}
-                      </small>
+                          i18n.language,
+                          t,
+                        ) })}</small>
                     </div>
                   ) : (
                     <div className="mgmt-detail-empty-state">
@@ -1490,14 +1414,9 @@ export function ManagementPositionsPage() {
                       </span>
 
                       <div>
-                        <strong>
-                          No current holder
-                        </strong>
+                        <strong>{t("detail.noHolder")}</strong>
 
-                        <p>
-                          This position is available only through the approved
-                          account-request and activation workflow.
-                        </p>
+                        <p>{t("detail.noHolderDescription")}</p>
                       </div>
                     </div>
                   )}
@@ -1506,38 +1425,24 @@ export function ManagementPositionsPage() {
 
               <section className="mgmt-action-card">
                 <header>
-                  <span>
-                    Controlled workflow
-                  </span>
+                  <span>{t("detail.controlledWorkflow")}</span>
 
-                  <h3>
-                    Holder changes
-                  </h3>
+                  <h3>{t("detail.holderChanges")}</h3>
                 </header>
 
-                <p className="mgmt-history-empty">
-                  Management holders are created through the approved
-                  account-request, reservation and activation workflow. Manual
-                  replacement is not exposed on this page.
-                </p>
+                <p className="mgmt-history-empty">{t("detail.holderChangesDescription")}</p>
               </section>
 
               <section className="mgmt-history-card">
                 <header>
-                  <span>
-                    Position history
-                  </span>
+                  <span>{t("detail.positionHistory")}</span>
 
-                  <h3>
-                    Assignment timeline
-                  </h3>
+                  <h3>{t("detail.assignmentTimeline")}</h3>
                 </header>
 
                 {selectedPosition.assignments.length ===
                 0 ? (
-                  <p className="mgmt-history-empty">
-                    No assignment history is available.
-                  </p>
+                  <p className="mgmt-history-empty">{t("detail.noHistory")}</p>
                 ) : (
                   <div className="mgmt-history-list">
                     {selectedPosition.assignments.map(
@@ -1559,6 +1464,8 @@ export function ManagementPositionsPage() {
                               <time>
                                 {formatDate(
                                   assignment.startedAt,
+                                  i18n.language,
+                                  t,
                                 )}
                               </time>
                             </header>
@@ -1571,10 +1478,14 @@ export function ManagementPositionsPage() {
 
                             <small>
                               {assignment.endedAt
-                                ? `Ended ${formatDate(
-                                    assignment.endedAt,
-                                  )}`
-                                : "Current assignment"}
+                                ? t("detail.ended", {
+                                    date: formatDate(
+                                      assignment.endedAt,
+                                      i18n.language,
+                                      t,
+                                    ),
+                                  })
+                                : t("common.currentAssignment")}
                             </small>
 
                             {assignment.assignmentReason && (
@@ -1585,7 +1496,7 @@ export function ManagementPositionsPage() {
 
                             {assignment.endReason && (
                               <blockquote>
-                                End reason: {assignment.endReason}
+                                {t("detail.endReason", { reason: assignment.endReason })}
                               </blockquote>
                             )}
                           </div>
@@ -1604,7 +1515,7 @@ export function ManagementPositionsPage() {
                   setSelectedPosition(null)
                 }
               >
-                Close details
+                {t("common.closeDetails")}
               </button>
             </footer>
           </aside>

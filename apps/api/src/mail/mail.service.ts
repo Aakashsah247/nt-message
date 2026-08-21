@@ -67,6 +67,31 @@ export class MailService {
     }
 
     const secure = configService.get<string>('SMTP_SECURE') === 'true';
+    const requireTls = configService.get<string>('SMTP_REQUIRE_TLS') === 'true';
+    const username = configService.get<string>('SMTP_USER')?.trim() || null;
+    const password = configService.get<string>('SMTP_PASSWORD') || null;
+
+    if ((username && !password) || (!username && password)) {
+      throw new Error(
+        'SMTP_USER and SMTP_PASSWORD must either both be configured or both be omitted.',
+      );
+    }
+
+    const connectionTimeout = this.readPositiveInteger(
+      configService.get<string>('SMTP_CONNECTION_TIMEOUT_MS'),
+      10_000,
+      'SMTP_CONNECTION_TIMEOUT_MS',
+    );
+    const greetingTimeout = this.readPositiveInteger(
+      configService.get<string>('SMTP_GREETING_TIMEOUT_MS'),
+      10_000,
+      'SMTP_GREETING_TIMEOUT_MS',
+    );
+    const socketTimeout = this.readPositiveInteger(
+      configService.get<string>('SMTP_SOCKET_TIMEOUT_MS'),
+      30_000,
+      'SMTP_SOCKET_TIMEOUT_MS',
+    );
 
     this.fromAddress = configService.getOrThrow<string>('SMTP_FROM');
 
@@ -74,7 +99,42 @@ export class MailService {
       host,
       port,
       secure,
+      requireTLS: requireTls,
+      ...(username && password
+        ? {
+            auth: {
+              user: username,
+              pass: password,
+            },
+          }
+        : {}),
+      // Real providers should negotiate TLS 1.2+; Mailpit remains compatible
+      // because SMTP_REQUIRE_TLS is false in the local development profile.
+      tls: {
+        minVersion: 'TLSv1.2',
+      },
+      connectionTimeout,
+      greetingTimeout,
+      socketTimeout,
     });
+  }
+
+  private readPositiveInteger(
+    value: string | undefined,
+    fallback: number,
+    name: string,
+  ): number {
+    if (!value) {
+      return fallback;
+    }
+
+    const parsed = Number(value);
+
+    if (!Number.isInteger(parsed) || parsed <= 0) {
+      throw new Error(`${name} must be a positive integer.`);
+    }
+
+    return parsed;
   }
 
   async sendActivationOtp(email: ActivationOtpEmail): Promise<void> {

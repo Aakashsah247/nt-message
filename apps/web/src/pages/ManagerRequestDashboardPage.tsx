@@ -1,5 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router";
+import type { TFunction } from "i18next";
+import { useTranslation } from "react-i18next";
 
 import { MessagingAnalyticsPanel } from "../components/MessagingAnalyticsPanel";
 import { useAuth } from "../context/AuthContext";
@@ -26,43 +28,40 @@ interface ManagerDashboardContent {
 
 function getDashboardContent(
   role: AccountRole | undefined,
+  t: TFunction<"requests">,
 ): ManagerDashboardContent {
   // Senior Management governs Team Manager requests across its assigned division.
   if (role === "SENIOR_MANAGEMENT") {
     return {
-      eyebrow: "Division leadership workspace",
-      title: "Division Leadership Dashboard",
-      description:
-        "Review your division scope, leadership request activity and organization analytics from one management workspace.",
-      requestedRoleLabel: "Team Manager",
+      eyebrow: t("dashboard.senior.eyebrow", { ns: "requests" }),
+      title: t("dashboard.senior.title", { ns: "requests" }),
+      description: t("dashboard.senior.description", { ns: "requests" }),
+      requestedRoleLabel: t("dashboard.senior.requestRole", { ns: "requests" }),
       accountRequestsPath: "/senior-management/account-requests",
-      scopeTitle: "Division governance",
-      scopeDescription:
-        "Your account can request Team Managers only for active departments inside the assigned division.",
+      scopeTitle: t("dashboard.senior.scope", { ns: "requests" }),
+      scopeDescription: t("dashboard.senior.scopeDescription", { ns: "requests" }),
     };
   }
 
   // Team Managers govern employee onboarding inside one assigned department.
   return {
-    eyebrow: "Department operations workspace",
-    title: "Department Operations Dashboard",
-    description:
-      "Monitor your department scope, employee onboarding activity and organization analytics from one management workspace.",
-    requestedRoleLabel: "Employee",
+    eyebrow: t("dashboard.manager.eyebrow", { ns: "requests" }),
+    title: t("dashboard.manager.title", { ns: "requests" }),
+    description: t("dashboard.manager.description", { ns: "requests" }),
+    requestedRoleLabel: t("dashboard.manager.requestRole", { ns: "requests" }),
     accountRequestsPath: "/team-manager/account-requests",
-    scopeTitle: "Department onboarding",
-    scopeDescription:
-      "Your account can request Employees only for the department assigned to your management position.",
+    scopeTitle: t("dashboard.manager.scope", { ns: "requests" }),
+    scopeDescription: t("dashboard.manager.scopeDescription", { ns: "requests" }),
   };
 }
 
-function getErrorMessage(error: unknown): string {
+function getErrorMessage(error: unknown, t: TFunction<"requests">): string {
   return error instanceof Error
     ? error.message
-    : "Your management dashboard could not be loaded.";
+    : t("dashboard.loadError", { ns: "requests" });
 }
 
-function formatRole(role: string): string {
+function fallbackFormatRole(role: string): string {
   return role
     .toLowerCase()
     .split("_")
@@ -70,17 +69,22 @@ function formatRole(role: string): string {
     .join(" ");
 }
 
-function formatStatus(status: string): string {
-  return formatRole(status);
+function formatRole(role: string, t: TFunction<"requests">): string {
+  return t(`values.${role}`, {
+    ns: "requests",
+    defaultValue: fallbackFormatRole(role),
+  });
 }
 
-function formatDate(value: string): string {
-  return new Intl.DateTimeFormat("en-GB", {
-    dateStyle: "medium",
-  }).format(new Date(value));
+function formatDate(value: string, locale: string): string {
+  return new Intl.DateTimeFormat(
+    locale === "ne" ? "ne-NP-u-ca-gregory" : "en-GB",
+    { dateStyle: "medium" },
+  ).format(new Date(value));
 }
 
 export function ManagerRequestDashboardPage() {
+  const { t, i18n } = useTranslation("requests");
   const { account, accessToken } = useAuth();
   const [requestContext, setRequestContext] =
     useState<ManagerRequestContextResponse | null>(null);
@@ -91,8 +95,8 @@ export function ManagerRequestDashboardPage() {
   const [retryKey, setRetryKey] = useState(0);
 
   const dashboardContent = useMemo(
-    () => getDashboardContent(account?.role),
-    [account?.role],
+    () => getDashboardContent(account?.role, t),
+    [account?.role, t],
   );
 
   useEffect(() => {
@@ -124,7 +128,7 @@ export function ManagerRequestDashboardPage() {
 
         setRequestContext(null);
         setRequestSummary(null);
-        setError(getErrorMessage(requestError));
+        setError(getErrorMessage(requestError, t));
       })
       .finally(() => {
         if (active) {
@@ -135,7 +139,7 @@ export function ManagerRequestDashboardPage() {
     return () => {
       active = false;
     };
-  }, [accessToken, retryKey]);
+  }, [accessToken, retryKey, t]);
 
   function retryLoading(): void {
     setLoading(true);
@@ -160,7 +164,7 @@ export function ManagerRequestDashboardPage() {
             <div className="manager-home__authority">
               <span aria-hidden="true">✓</span>
               <div>
-                <small>Authorized request</small>
+                <small>{t("dashboard.authorizedRequest")}</small>
                 <strong>{dashboardContent.requestedRoleLabel}</strong>
               </div>
             </div>
@@ -169,7 +173,7 @@ export function ManagerRequestDashboardPage() {
               className="manager-home__primary-action"
               to={dashboardContent.accountRequestsPath}
             >
-              Open Account Requests
+              {t("dashboard.openRequests")}
             </Link>
           </div>
         </header>
@@ -177,37 +181,37 @@ export function ManagerRequestDashboardPage() {
         {loading && (
           <section className="manager-workspace-state" aria-live="polite">
             <div className="spinner" />
-            <p>Loading your trusted organization scope...</p>
+            <p>{t("dashboard.loading")}</p>
           </section>
         )}
 
         {!loading && (!accessToken || error) && (
           <section className="manager-workspace-state manager-workspace-state--error" role="alert">
             <div>
-              <strong>Dashboard unavailable</strong>
+              <strong>{t("dashboard.unavailable")}</strong>
               <p>
                 {accessToken
                   ? error
-                  : "Your secure session is not available. Sign in again."}
+                  : t("dashboard.sessionUnavailable")}
               </p>
             </div>
             <button type="button" onClick={retryLoading}>
-              Try again
+              {t("common.tryAgain")}
             </button>
           </section>
         )}
 
         {!loading && !error && requestContext && (
           <>
-            <section className="manager-home__summary" aria-label="Management summary">
+            <section className="manager-home__summary" aria-label={t("dashboard.summaryAria")}>
               <article>
-                <span>Current role</span>
-                <strong>{formatRole(requestContext.role)}</strong>
+                <span>{t("common.currentRole")}</span>
+                <strong>{formatRole(requestContext.role, t)}</strong>
                 <p>{account?.positionLabel || dashboardContent.scopeTitle}</p>
               </article>
 
               <article>
-                <span>Assigned division</span>
+                <span>{t("common.assignedDivision")}</span>
                 <strong>{requestContext.scope.division.name}</strong>
                 <p>{requestContext.scope.division.code}</p>
               </article>
@@ -215,25 +219,25 @@ export function ManagerRequestDashboardPage() {
               <article>
                 <span>
                   {requestContext.role === "SENIOR_MANAGEMENT"
-                    ? "Available departments"
-                    : "Assigned department"}
+                    ? t("common.availableDepartments")
+                    : t("common.assignedDepartment")}
                 </span>
                 <strong>
                   {requestContext.role === "SENIOR_MANAGEMENT"
                     ? requestContext.departments.length
-                    : requestContext.scope.department?.name ?? "Not assigned"}
+                    : requestContext.scope.department?.name ?? t("common.notAssigned")}
                 </strong>
                 <p>
                   {requestContext.role === "SENIOR_MANAGEMENT"
-                    ? "Active departments inside your division"
-                    : requestContext.scope.department?.code ?? "Scope unavailable"}
+                    ? t("dashboard.activeDepartments")
+                    : requestContext.scope.department?.code ?? t("common.scopeUnavailable")}
                 </p>
               </article>
 
               <article>
-                <span>Account requests</span>
+                <span>{t("dashboard.requests")}</span>
                 <strong>{totalRequests}</strong>
-                <p>Requests submitted by your account</p>
+                <p>{t("dashboard.requestsDescription")}</p>
               </article>
             </section>
 
@@ -242,35 +246,35 @@ export function ManagerRequestDashboardPage() {
                 <header>
                   <div>
                     <span>{dashboardContent.scopeTitle}</span>
-                    <h2>Trusted organizational scope</h2>
+                    <h2>{t("dashboard.trustedScope")}</h2>
                   </div>
                   <span className="manager-home__role-badge">
-                    {formatRole(requestContext.requestedRole)} requests
+                    {t("dashboard.requestedRoleBadge", { role: formatRole(requestContext.requestedRole, t) })}
                   </span>
                 </header>
 
                 <div className="manager-home__scope-details">
                   <div>
-                    <span>Division</span>
+                    <span>{t("common.division")}</span>
                     <strong>{requestContext.scope.division.name}</strong>
                     <small>{requestContext.scope.division.code}</small>
                   </div>
 
                   <div>
-                    <span>Department</span>
+                    <span>{t("common.department")}</span>
                     <strong>
-                      {requestContext.scope.department?.name ?? "Division-wide scope"}
+                      {requestContext.scope.department?.name ?? t("dashboard.divisionWide")}
                     </strong>
                     <small>
                       {requestContext.scope.department?.code ??
-                        `${requestContext.departments.length} departments available`}
+                        t("dashboard.departmentsAvailable", { count: requestContext.departments.length })}
                     </small>
                   </div>
 
                   <div>
-                    <span>Approval authority</span>
-                    <strong>Super Admin</strong>
-                    <small>Every request requires centralized approval</small>
+                    <span>{t("common.approvalAuthority")}</span>
+                    <strong>{t("common.superAdmin")}</strong>
+                    <small>{t("dashboard.centralApproval")}</small>
                   </div>
                 </div>
 
@@ -282,17 +286,17 @@ export function ManagerRequestDashboardPage() {
               <article className="manager-home__recent-card">
                 <header>
                   <div>
-                    <span>Recent activity</span>
-                    <h2>Latest account requests</h2>
+                    <span>{t("dashboard.recentActivity")}</span>
+                    <h2>{t("dashboard.latestRequests")}</h2>
                   </div>
-                  <Link to={dashboardContent.accountRequestsPath}>View all</Link>
+                  <Link to={dashboardContent.accountRequestsPath}>{t("dashboard.viewAll")}</Link>
                 </header>
 
                 {recentRequests.length === 0 ? (
                   <div className="manager-home__recent-empty">
                     <span aria-hidden="true">≡</span>
-                    <strong>No requests submitted yet</strong>
-                    <p>Create the first approved onboarding request from Account Requests.</p>
+                    <strong>{t("dashboard.noRequests")}</strong>
+                    <p>{t("dashboard.noRequestsDescription")}</p>
                   </div>
                 ) : (
                   <div className="manager-home__recent-list">
@@ -304,7 +308,7 @@ export function ManagerRequestDashboardPage() {
                         <div>
                           <strong>{request.empName}</strong>
                           <small>
-                            {request.empId} · {request.department?.name ?? "No department"}
+                            {request.empId} · {request.department?.name ?? t("common.noDepartment")}
                           </small>
                         </div>
                         <div className="manager-home__recent-meta">
@@ -313,9 +317,9 @@ export function ManagerRequestDashboardPage() {
                               .toLowerCase()
                               .replaceAll("_", "-")}`}
                           >
-                            {formatStatus(request.status)}
+                            {formatRole(request.status, t)}
                           </span>
-                          <small>{formatDate(request.submittedAt)}</small>
+                          <small>{formatDate(request.submittedAt, i18n.language)}</small>
                         </div>
                       </div>
                     ))}
@@ -324,36 +328,36 @@ export function ManagerRequestDashboardPage() {
               </article>
             </section>
 
-            <section className="manager-home__quick-actions" aria-label="Quick actions">
+            <section className="manager-home__quick-actions" aria-label={t("dashboard.quickActionsAria")}>
               <Link to="/work-management">
                 <span aria-hidden="true">01</span>
                 <div>
-                  <strong>Open Work Management</strong>
-                  <p>Assign operational work, review tickets and manage completion reports.</p>
+                  <strong>{t("dashboard.work")}</strong>
+                  <p>{t("dashboard.workDescription")}</p>
                 </div>
               </Link>
 
               <Link to={dashboardContent.accountRequestsPath}>
                 <span aria-hidden="true">02</span>
                 <div>
-                  <strong>Create account request</strong>
-                  <p>Submit a new {dashboardContent.requestedRoleLabel} onboarding request.</p>
+                  <strong>{t("dashboard.createRequest")}</strong>
+                  <p>{t("dashboard.createRequestDescription", { role: dashboardContent.requestedRoleLabel })}</p>
                 </div>
               </Link>
 
               <Link to="/directory">
                 <span aria-hidden="true">03</span>
                 <div>
-                  <strong>Open organization directory</strong>
-                  <p>Review active employees and management contacts in your scope.</p>
+                  <strong>{t("dashboard.directory")}</strong>
+                  <p>{t("dashboard.directoryDescription")}</p>
                 </div>
               </Link>
 
               <Link to="/messages">
                 <span aria-hidden="true">04</span>
                 <div>
-                  <strong>Open secure messaging</strong>
-                  <p>Continue internal communication in the dedicated messaging workspace.</p>
+                  <strong>{t("dashboard.messages")}</strong>
+                  <p>{t("dashboard.messagesDescription")}</p>
                 </div>
               </Link>
             </section>
@@ -365,7 +369,7 @@ export function ManagerRequestDashboardPage() {
             <section className="manager-home__security-notice">
               <span aria-hidden="true">✓</span>
               <div>
-                <strong>Backend scope protection is active</strong>
+                <strong>{t("dashboard.backendProtection")}</strong>
                 <p>{dashboardContent.scopeDescription}</p>
               </div>
             </section>

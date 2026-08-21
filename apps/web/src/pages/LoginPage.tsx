@@ -1,5 +1,6 @@
 import { useState } from "react";
 import type { FormEvent } from "react";
+import { useTranslation } from "react-i18next";
 import { Link, useLocation, useNavigate } from "react-router";
 import { useAuth } from "../context/AuthContext";
 
@@ -9,6 +10,7 @@ export function LoginPage() {
   const navigate = useNavigate();
   const location = useLocation();
   const { login } = useAuth();
+  const { t } = useTranslation(["auth", "common"]);
 
   const locationState = location.state as { notice?: unknown } | null;
   const securityNotice =
@@ -47,7 +49,7 @@ export function LoginPage() {
       setError(
         requestError instanceof Error
           ? requestError.message
-          : "Login failed.",
+          : t("login.errors.failed", { ns: "auth" }),
       );
     } finally {
       setSubmitting(false);
@@ -60,99 +62,88 @@ export function LoginPage() {
         <div className="visual-orbit" />
 
         <header className="visual-brand">
-          {/* Left side logo without background */}
           <div className="left-logo-wrap">
             <img
               src="/nt-logo-transparent.png"
-              alt="Nepal Telecom"
+              alt={t("brand.organization", { ns: "common" })}
               className="left-logo"
             />
           </div>
 
           <div>
-            <h1>NEPAL TELECOM MESSAGE</h1>
-            <p>नेपाल टेलिकम · Secure employee communication</p>
+            <h1>{t("brand.name", { ns: "common" })}</h1>
+            <p>
+              {t("brand.organization", { ns: "common" })} · {t("brand.tagline", { ns: "common" })}
+            </p>
           </div>
         </header>
 
         <div className="visual-copy">
           <span className="secure-badge">
-            Secure internal communication
+            {t("login.visual.badge", { ns: "auth" })}
           </span>
 
           <h2>
-            Connect every team.
+            {t("login.visual.headlineLine1", { ns: "auth" })}
             <br />
-            Protect every conversation.
+            {t("login.visual.headlineLine2", { ns: "auth" })}
           </h2>
 
-          <p>
-            A secure internal messaging platform for Nepal Telecom
-            employees and operational teams.
-          </p>
+          <p>{t("login.visual.description", { ns: "auth" })}</p>
 
           <div className="feature-list">
             <article className="feature-item">
               <span className="feature-number gold">1</span>
               <div>
-                <h3>Verified employee access</h3>
-                <p>
-                  Official identity, OTP and secure account activation.
-                </p>
+                <h3>{t("login.visual.features.verifiedTitle", { ns: "auth" })}</h3>
+                <p>{t("login.visual.features.verifiedDescription", { ns: "auth" })}</p>
               </div>
             </article>
 
             <article className="feature-item">
               <span className="feature-number red">2</span>
               <div>
-                <h3>Fast collaboration</h3>
-                <p>
-                  Private chats, groups, files, voice and location.
-                </p>
+                <h3>{t("login.visual.features.collaborationTitle", { ns: "auth" })}</h3>
+                <p>{t("login.visual.features.collaborationDescription", { ns: "auth" })}</p>
               </div>
             </article>
 
             <article className="feature-item">
               <span className="feature-number green">3</span>
               <div>
-                <h3>Enterprise control</h3>
-                <p>
-                  Secure employee communication and official bots.
-                </p>
+                <h3>{t("login.visual.features.controlTitle", { ns: "auth" })}</h3>
+                <p>{t("login.visual.features.controlDescription", { ns: "auth" })}</p>
               </div>
             </article>
           </div>
         </div>
 
         <footer className="visual-footer">
-          Authorized Nepal Telecom employees only
+          {t("brand.authorizedEmployeesOnly", { ns: "common" })}
         </footer>
       </section>
 
       <section className="login-area">
         <div className="login-card-new">
-          {/* Right side logo with blue background */}
           <div className="card-brand">
             <div className="logo-tile">
               <img
                 src="/nt-logo.png"
-                alt="Nepal Telecom"
+                alt={t("brand.organization", { ns: "common" })}
               />
             </div>
 
             <div>
-              <strong>NEPAL TELECOM MESSAGE</strong>
-              <span>Nepal Telecom</span>
+              <strong>{t("brand.name", { ns: "common" })}</strong>
+              <span>{t("brand.organization", { ns: "common" })}</span>
             </div>
           </div>
 
           <div className="card-heading">
-            <p>Secure account access</p>
-            <h2>Welcome back</h2>
+            <p>{t("login.card.eyebrow", { ns: "auth" })}</p>
+            <h2>{t("login.card.title", { ns: "auth" })}</h2>
 
-            <span>
-              Sign in using your official email address.
-            </span>
+            <span>{t("login.card.description", { ns: "auth" })}</span>
           </div>
 
           <form
@@ -160,7 +151,7 @@ export function LoginPage() {
             onSubmit={handleSubmit}
           >
             <label>
-              Official email
+              {t("login.card.officialEmail", { ns: "auth" })}
 
               <input
                 type="text"
@@ -175,7 +166,7 @@ export function LoginPage() {
             </label>
 
             <label>
-              Password
+              {t("login.card.password", { ns: "auth" })}
 
               <div className="password-field">
                 <input
@@ -184,7 +175,7 @@ export function LoginPage() {
                   onChange={(event) =>
                     setPassword(event.target.value)
                   }
-                  placeholder="Enter your password"
+                  placeholder={t("login.card.passwordPlaceholder", { ns: "auth" })}
                   autoComplete="current-password"
                   required
                 />
@@ -196,17 +187,21 @@ export function LoginPage() {
                     setShowPassword((current) => !current)
                   }
                   aria-label={
-                    showPassword ? "Hide password" : "Show password"
+                    showPassword
+                      ? t("actions.hidePassword", { ns: "common" })
+                      : t("actions.showPassword", { ns: "common" })
                   }
                 >
-                  {showPassword ? "Hide" : "Show"}
+                  {showPassword
+                    ? t("actions.hide", { ns: "common" })
+                    : t("actions.show", { ns: "common" })}
                 </button>
               </div>
             </label>
-                                                                
+
             <div className="login-options">
               <Link className="forgot-link" to="/forgot-password">
-                Forgot password?
+                {t("login.card.forgotPassword", { ns: "auth" })}
               </Link>
             </div>
 
@@ -228,22 +223,24 @@ export function LoginPage() {
               disabled={submitting}
             >
               <span>
-                {submitting ? "Signing in..." : "Sign in"}
+                {submitting
+                  ? t("login.card.signingIn", { ns: "auth" })
+                  : t("login.card.signIn", { ns: "auth" })}
               </span>
             </button>
           </form>
 
           <p className="activation-link">
-            Account not activated?{" "}
-            <Link to="/activate">Activate employee account</Link>
+            {t("login.card.activationPrompt", { ns: "auth" })}{" "}
+            <Link to="/activate">
+              {t("login.card.activateAccount", { ns: "auth" })}
+            </Link>
           </p>
 
           <div className="security-strip">
-            <strong>
-              Protected by Nepal Telecom security policies
-            </strong>
+            <strong>{t("brand.securityPolicies", { ns: "common" })}</strong>
 
-            <span>नेपाल टेलिकम — राष्ट्रको सञ्चार</span>
+            <span>{t("brand.motto", { ns: "common" })}</span>
           </div>
         </div>
       </section>

@@ -18,21 +18,78 @@ describe('MailService security messages', () => {
     } as unknown as nodemailer.Transporter);
   });
 
-  function createService(): MailService {
+  function createService(overrides: Record<string, string> = {}): MailService {
     const values: Record<string, string> = {
       SMTP_HOST: 'localhost',
       SMTP_PORT: '1025',
       SMTP_FROM: 'NT Message <no-reply@ntc.net.np>',
       SMTP_SECURE: 'false',
+      SMTP_REQUIRE_TLS: 'false',
+      ...overrides,
     };
 
     const configService = {
-      getOrThrow: jest.fn((key: string) => values[key]),
+      getOrThrow: jest.fn((key: string) => {
+        const value = values[key];
+        if (value === undefined) {
+          throw new Error(`Missing configuration: ${key}`);
+        }
+        return value;
+      }),
       get: jest.fn((key: string) => values[key]),
     } as unknown as ConfigService;
 
     return new MailService(configService);
   }
+
+  it('keeps the local Mailpit transport unauthenticated', () => {
+    createService();
+
+    expect(nodemailer.createTransport).toHaveBeenCalledWith({
+      host: 'localhost',
+      port: 1025,
+      secure: false,
+      requireTLS: false,
+      tls: { minVersion: 'TLSv1.2' },
+      connectionTimeout: 10_000,
+      greetingTimeout: 10_000,
+      socketTimeout: 30_000,
+    });
+  });
+
+  it('configures authenticated STARTTLS for a real SMTP provider', () => {
+    createService({
+      SMTP_HOST: 'smtp.ntc.example',
+      SMTP_PORT: '587',
+      SMTP_REQUIRE_TLS: 'true',
+      SMTP_USER: 'nt-message@ntc.example',
+      SMTP_PASSWORD: 'provider-secret',
+      SMTP_CONNECTION_TIMEOUT_MS: '12000',
+      SMTP_GREETING_TIMEOUT_MS: '13000',
+      SMTP_SOCKET_TIMEOUT_MS: '45000',
+    });
+
+    expect(nodemailer.createTransport).toHaveBeenCalledWith({
+      host: 'smtp.ntc.example',
+      port: 587,
+      secure: false,
+      requireTLS: true,
+      auth: {
+        user: 'nt-message@ntc.example',
+        pass: 'provider-secret',
+      },
+      tls: { minVersion: 'TLSv1.2' },
+      connectionTimeout: 12_000,
+      greetingTimeout: 13_000,
+      socketTimeout: 45_000,
+    });
+  });
+
+  it('rejects incomplete SMTP credentials', () => {
+    expect(() => createService({ SMTP_USER: 'nt-message@ntc.example' })).toThrow(
+      'SMTP_USER and SMTP_PASSWORD must either both be configured or both be omitted.',
+    );
+  });
 
   it('uses the approved activation email template and privacy-safe fields', async () => {
     const service = createService();

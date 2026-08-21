@@ -22,6 +22,8 @@ import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import { AccessTokenGuard } from '../auth/guards/access-token.guard';
 import type { AuthenticatedUser } from '../auth/types/auth.types';
 import type { UploadedMessageAttachmentFile } from '../conversations/types/uploaded-message-attachment-file';
+import { AttachmentTempCleanupInterceptor } from '../attachments/attachment-temp-cleanup.interceptor';
+import { createBoundedAttachmentTempStorage } from '../attachments/attachment-upload-temp-storage';
 import { AnnouncementsService } from './announcements.service';
 import { AttachmentDispositionQueryDto } from './dto/attachment-disposition-query.dto';
 import { CreateAnnouncementDto } from './dto/create-announcement.dto';
@@ -140,8 +142,13 @@ export class AnnouncementsController {
   @Post(':announcementId/attachments')
   @UseInterceptors(
     FileInterceptor('file', {
+      storage: createBoundedAttachmentTempStorage(
+        200 * 1024 * 1024,
+        'Announcement attachment must be 200 MB or smaller.',
+      ),
       limits: { fileSize: 200 * 1024 * 1024 },
     }),
+    AttachmentTempCleanupInterceptor,
   )
   uploadAttachment(
     @CurrentUser() user: AuthenticatedUser,
@@ -196,6 +203,7 @@ export class AnnouncementsController {
     response.setHeader('Content-Type', attachment.mimeType);
     response.setHeader('Content-Length', attachment.fileSizeBytes);
     response.setHeader('Cache-Control', 'no-store');
+    response.setHeader('X-Content-Type-Options', 'nosniff');
     response.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
     response.setHeader('Cross-Origin-Embedder-Policy', 'unsafe-none');
     response.setHeader('Accept-Ranges', 'bytes');

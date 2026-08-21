@@ -100,9 +100,9 @@ export interface MessagingUserProfile extends MessagingAccount {
   blockDirection?: MessagingBlockDirection;
   profileBio: string | null;
   official: {
-    employeeId: string;
-    officialEmail: string;
-    contactNumber: string;
+    employeeId: string | null;
+    officialEmail: string | null;
+    contactNumber: string | null;
     designation: string | null;
     division: MessagingOrganizationUnit | null;
     department: MessagingOrganizationUnit | null;
@@ -188,6 +188,9 @@ export interface MessagingAttachment {
   fileSizeBytes: number;
   contentType: MessageContentType;
   scanStatus: string;
+  expiresAt: string;
+  expiredAt: string | null;
+  isExpired: boolean;
   createdAt: string;
   updatedAt: string;
 }
@@ -297,12 +300,8 @@ export interface MessagingConversation {
   viewerParticipantRole: ConversationParticipantRole | null;
   canManageGroup: boolean;
   memberCount: number;
-  participants: Array<
-    MessagingAccount & {
-      joinedAt: string;
-      participantRole: ConversationParticipantRole;
-    }
-  >;
+  participantsComplete: boolean;
+  participants: MessagingGroupMember[];
   lastMessage: MessagingMessage | null;
   createdAt: string;
   updatedAt: string;
@@ -371,8 +370,18 @@ export interface MessagingContactsResponse {
   };
 }
 
+export interface MessagingGroupMember extends MessagingAccount {
+  joinedAt: string;
+  participantRole: ConversationParticipantRole;
+}
+
 export interface ConversationListResponse {
   data: MessagingConversation[];
+  pagination: CursorPagination;
+}
+
+export interface GroupMemberListResponse {
+  data: MessagingGroupMember[];
   pagination: CursorPagination;
 }
 
@@ -522,6 +531,13 @@ export interface LeaveGroupResponse {
   newOwnerAccountId: string | null;
 }
 
+export interface DeleteGroupResponse {
+  message: string;
+  conversationId: string;
+  groupKind: GroupKind;
+  deletedAt: string;
+}
+
 export interface MessageRequestListResponse {
   received: MessagingMessageRequest[];
   sent: MessagingMessageRequest[];
@@ -614,6 +630,27 @@ export type MessagingNotificationType =
   | "ANNOUNCEMENT"
   | "WORK_ITEM"
   | "DUTY";
+
+
+export interface MessagingPushConfigResponse {
+  enabled: boolean;
+  publicKey: string | null;
+}
+
+export interface MessagingPushSubscriptionInput {
+  endpoint: string;
+  keys: {
+    p256dh: string;
+    auth: string;
+  };
+  showPreview: boolean;
+  isMuted: boolean;
+}
+
+export interface MessagingPushSubscriptionResponse {
+  enabled?: boolean;
+  subscribed: boolean;
+}
 
 export interface MessagingNotification {
   id: string;
@@ -831,6 +868,7 @@ export interface StarredMessageItem {
 
 export interface StarredMessagesResponse {
   data: StarredMessageItem[];
+  pagination: CursorPagination;
 }
 
 export interface PinnedMessagesResponse {
