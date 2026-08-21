@@ -1,27 +1,15 @@
 import { useState } from "react";
+import { useTranslation } from "react-i18next";
 import { useNavigate } from "react-router";
 
 import { EmployeeDirectory } from "../components/EmployeeDirectory";
 import { EmployeeDirectoryDetailPanel } from "../components/EmployeeDirectoryDetailPanel";
 import { useAuth } from "../context/AuthContext";
 
-function formatRole(role: string | undefined): string {
-  if (!role) {
-    return "Authorized user";
-  }
 
-  return role
-    .toLowerCase()
-    .split("_")
-    .map(
-      (part) =>
-        part.charAt(0).toUpperCase() +
-        part.slice(1),
-    )
-    .join(" ");
-}
 
 export function DirectoryPage() {
+  const { t } = useTranslation("directory");
   const navigate = useNavigate();
 
   const {
@@ -47,13 +35,9 @@ export function DirectoryPage() {
     return (
       <main className="management-page directory-page">
         <section className="directory-page-session-error">
-          <strong>
-            Secure session unavailable
-          </strong>
+          <strong>{t("page.sessionTitle")}</strong>
 
-          <p>
-            Sign in again to access the employee directory.
-          </p>
+          <p>{t("page.sessionDescription")}</p>
 
           <button
             type="button"
@@ -63,7 +47,7 @@ export function DirectoryPage() {
               })
             }
           >
-            Return to login
+            {t("page.returnToLogin")}
           </button>
         </section>
       </main>
@@ -76,19 +60,12 @@ export function DirectoryPage() {
         <header className="directory-page-heading">
           <div>
             <span>
-              {account?.positionLabel ??
-                formatRole(
-                  account?.role,
-                )}
+              {account?.positionLabel ?? t(`roles.${account?.role ?? "EMPLOYEE"}`, { defaultValue: t("page.authorizedUser") })}
             </span>
 
-            <h1>
-              Organization Directory
-            </h1>
+            <h1>{t("page.title")}</h1>
 
-            <p>
-              Find verified Nepal Telecom employees within your authorized organization scope.
-            </p>
+            <p>{t("page.description")}</p>
           </div>
 
           <div className="directory-security-note">
@@ -97,13 +74,9 @@ export function DirectoryPage() {
             </span>
 
             <div>
-              <strong>
-                Scoped access
-              </strong>
+              <strong>{t("page.scopedAccess")}</strong>
 
-              <small>
-                The backend controls which employees and contact details your role can view.
-              </small>
+              <small>{t("page.scopedAccessDescription")}</small>
             </div>
           </div>
         </header>

@@ -27,6 +27,10 @@ describe('DutyNotificationsService M20 Phase 5', () => {
     jest.clearAllMocks();
   });
 
+  afterEach(() => {
+    jest.restoreAllMocks();
+  });
+
   it('publishes account-scoped realtime duty updates', async () => {
     jest.mocked(prisma.messagingNotification.create).mockResolvedValue({
       id: 'notification',
@@ -64,6 +68,13 @@ describe('DutyNotificationsService M20 Phase 5', () => {
   });
 
   it('keeps realtime delivery available when notification persistence fails', async () => {
+    const warning = jest
+      .spyOn(
+        (service as unknown as { logger: { warn(message: string): void } }).logger,
+        'warn',
+      )
+      .mockImplementation(() => undefined);
+
     jest
       .mocked(prisma.messagingNotification.create)
       .mockRejectedValue(new Error('temporary database error'));
@@ -83,6 +94,9 @@ describe('DutyNotificationsService M20 Phase 5', () => {
     expect(events.emitDutyScheduleUpdated).toHaveBeenCalledWith(
       ['employee'],
       expect.objectContaining({ action: 'CHANGED' }),
+    );
+    expect(warning).toHaveBeenCalledWith(
+      expect.stringContaining('temporary database error'),
     );
   });
 });

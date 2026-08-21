@@ -4,6 +4,7 @@ import {
   useState,
 } from "react";
 import type { ReactNode } from "react";
+import { useTranslation } from "react-i18next";
 import {
   Link,
   useLocation,
@@ -36,6 +37,20 @@ function formatRole(role: string): string {
     .join(" ");
 }
 
+function getRoleTranslationKey(role: string): string {
+  switch (role) {
+    case "SUPER_ADMIN":
+      return "roles.superAdmin";
+    case "SENIOR_MANAGEMENT":
+      return "roles.seniorManagement";
+    case "TEAM_MANAGER":
+      return "roles.teamManager";
+    case "EMPLOYEE":
+    default:
+      return "roles.employee";
+  }
+}
+
 function getItemHref(item: ManagementNavigationItem): string {
   if (!item.view) {
     return item.path;
@@ -56,7 +71,8 @@ function isItemActive(
   const pathMatches =
     pathname === item.path ||
     (item.path === "/work-management" &&
-      pathname.startsWith("/work-management/"));
+      pathname.startsWith("/work-management/")) ||
+    (item.path === "/settings" && pathname.startsWith("/settings/"));
 
   if (!pathMatches) {
     return false;
@@ -78,6 +94,7 @@ export function ManagementLayout({
     account,
     logout,
   } = useAuth();
+  const { t } = useTranslation("workspace");
   const location = useLocation();
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
@@ -139,6 +156,10 @@ export function ManagementLayout({
     return null;
   }
 
+  const roleLabel = t(getRoleTranslationKey(account.role), {
+    defaultValue: formatRole(account.role),
+  });
+
   async function handleLogout(): Promise<void> {
     setLoggingOut(true);
 
@@ -162,7 +183,7 @@ export function ManagementLayout({
         className={mobileOpen
           ? "management-layout__backdrop management-layout__backdrop--visible"
           : "management-layout__backdrop"}
-        aria-label="Close navigation"
+        aria-label={t("navigation.close")}
         onClick={() => setMobileOpen(false)}
       />
 
@@ -170,7 +191,7 @@ export function ManagementLayout({
         className={mobileOpen
           ? "management-layout__sidebar management-layout__sidebar--open"
           : "management-layout__sidebar"}
-        aria-label={`${formatRole(account.role)} primary navigation`}
+        aria-label={t("navigation.primaryAria", { role: roleLabel })}
       >
         <div className="management-layout__brand-row">
           <Link
@@ -178,7 +199,7 @@ export function ManagementLayout({
             to={account.role === "EMPLOYEE"
               ? "/employee"
               : getRoleHomePath(account.role)}
-            aria-label="NT Message dashboard"
+            aria-label={t("brand.dashboardAria")}
           >
             <span className="management-layout__logo">
               <img src="/nt-logo.png" alt="" />
@@ -186,16 +207,16 @@ export function ManagementLayout({
 
             <span className="management-layout__brand-copy">
               <strong>NT Message</strong>
-              <small>Nepal Telecom</small>
+              <small>{t("brand.organization")}</small>
             </span>
           </Link>
 
           <button
             type="button"
             className="management-layout__collapse"
-            aria-label={collapsed ? "Expand navigation" : "Collapse navigation"}
+            aria-label={collapsed ? t("navigation.expand") : t("navigation.collapse")}
             aria-expanded={!collapsed}
-            title={collapsed ? "Expand navigation" : "Collapse navigation"}
+            title={collapsed ? t("navigation.expand") : t("navigation.collapse")}
             onClick={() => setCollapsed((current) => !current)}
           >
             <span aria-hidden="true">‹</span>
@@ -214,7 +235,7 @@ export function ManagementLayout({
                 id={`management-navigation-${section.id}`}
                 className="management-layout__section-label"
               >
-                {section.label}
+                {t(section.labelKey, { defaultValue: section.label })}
               </span>
 
               <div className="management-layout__navigation-list">
@@ -224,6 +245,9 @@ export function ManagementLayout({
                     location.pathname,
                     adminView,
                   );
+                  const itemLabel = t(item.labelKey, {
+                    defaultValue: item.label,
+                  });
 
                   return (
                     <Link
@@ -233,11 +257,11 @@ export function ManagementLayout({
                         : "management-layout__navigation-link"}
                       to={getItemHref(item)}
                       aria-current={active ? "page" : undefined}
-                      aria-label={item.label}
-                      title={collapsed ? item.label : undefined}
+                      aria-label={itemLabel}
+                      title={collapsed ? itemLabel : undefined}
                     >
                       <ManagementIcon name={item.icon} />
-                      <span>{item.label}</span>
+                      <span>{itemLabel}</span>
                     </Link>
                   );
                 })}
@@ -247,7 +271,7 @@ export function ManagementLayout({
 
           <section className="management-layout__navigation-section">
             <span className="management-layout__section-label">
-              Priority
+              {t("navigation.sections.priority")}
             </span>
 
             <EmergencyAlertButton variant="sidebar" />
@@ -262,7 +286,7 @@ export function ManagementLayout({
           />
 
           <span className="management-layout__account-copy">
-            <small>Signed as</small>
+            <small>{t("account.signedAs")}</small>
             <strong>{account.displayName}</strong>
             <span>{account.positionLabel || formatRole(account.role)}</span>
           </span>
@@ -272,10 +296,10 @@ export function ManagementLayout({
             className="management-layout__logout"
             onClick={() => void handleLogout()}
             disabled={loggingOut}
-            title={collapsed ? "Sign out" : undefined}
+            title={collapsed ? t("account.signOut") : undefined}
           >
             <span aria-hidden="true">↗</span>
-            <span>{loggingOut ? "Signing out..." : "Sign out"}</span>
+            <span>{loggingOut ? t("account.signingOut") : t("account.signOut")}</span>
           </button>
         </div>
       </aside>
@@ -285,7 +309,7 @@ export function ManagementLayout({
           <button
             type="button"
             className="management-layout__mobile-menu"
-            aria-label="Open navigation"
+            aria-label={t("navigation.open")}
             aria-expanded={mobileOpen}
             onClick={() => setMobileOpen(true)}
           >
@@ -295,13 +319,15 @@ export function ManagementLayout({
           </button>
 
           <div className="management-layout__page-heading">
-            <span>{formatRole(account.role)} workspace</span>
-            <strong>{activeItem?.label ?? "Dashboard"}</strong>
+            <span>{t("topbar.workspace", { role: roleLabel })}</span>
+            <strong>{activeItem
+              ? t(activeItem.labelKey, { defaultValue: activeItem.label })
+              : t("navigation.items.dashboard")}</strong>
           </div>
 
           <div className="management-layout__status">
             <span aria-hidden="true" />
-            Secure session
+            {t("topbar.secureSession")}
           </div>
         </header>
 

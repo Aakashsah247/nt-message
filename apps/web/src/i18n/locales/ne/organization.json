@@ -1,0 +1,172 @@
+{
+  "common": {
+    "notAvailable": "उपलब्ध छैन",
+    "active": "सक्रिय",
+    "inactive": "निष्क्रिय",
+    "close": "बन्द गर्नुहोस्",
+    "cancel": "रद्द गर्नुहोस्",
+    "division": "डिभिजन",
+    "department": "विभाग",
+    "divisionLabel": "डिभिजन",
+    "departmentLabel": "विभाग",
+    "code": "कोड",
+    "name": "नाम",
+    "status": "स्थिति",
+    "created": "सिर्जना मिति",
+    "lastUpdated": "पछिल्लो अद्यावधिक",
+    "employees": "कर्मचारी",
+    "requests": "अनुरोध",
+    "positions": "पदहरू",
+    "departments": "विभागहरू"
+  },
+  "workFunction": {
+    "label": "कार्य तोक्ने प्रकार",
+    "GENERAL": {
+      "label": "सामान्य",
+      "description": "विशेष कार्य-तोकाइ प्रकार छैन"
+    },
+    "FIELD_OPERATIONS": {
+      "label": "फिल्ड सञ्चालन",
+      "description": "फिल्ड तथा जडान कार्य सम्हाल्ने टोलीहरू"
+    },
+    "SALES": {
+      "label": "बिक्री",
+      "description": "ग्राहक तथा बिक्री समन्वय सदस्यहरू"
+    },
+    "SUPPORT": {
+      "label": "सहयोग",
+      "description": "सबै कार्य प्रकारका लागि वैकल्पिक सहयोगी कर्मचारी"
+    }
+  },
+  "errors": {
+    "operationFailed": "संगठनसम्बन्धी कार्य पूरा गर्न सकिएन।",
+    "invalidDivision": "मान्य डिभिजन कोड र नाम प्रविष्ट गर्नुहोस्।",
+    "selectDivision": "डिभिजन चयन गर्नुहोस्।",
+    "invalidDepartment": "मान्य विभाग कोड र नाम प्रविष्ट गर्नुहोस्।",
+    "invalidUnit": "मान्य कोड र नाम प्रविष्ट गर्नुहोस्।",
+    "deleteBlocked": "{{name}} मेटाउन सकिँदैन। यसमा {{blockers}} छन्। यसको सट्टा सम्पादन वा निष्क्रिय गर्नुहोस्।",
+    "confirmDelete": "स्थायी रूपमा मेटाउन पुष्टि गर्न DELETE ठ्याक्कै टाइप गर्नुहोस्।"
+  },
+  "blockers": {
+    "departments_one": "{{count}} विभाग",
+    "departments_other": "{{count}} विभागहरू",
+    "employees_one": "{{count}} कर्मचारी",
+    "employees_other": "{{count}} कर्मचारी",
+    "requests_one": "{{count}} खाता अनुरोध",
+    "requests_other": "{{count}} खाता अनुरोधहरू",
+    "positions_one": "{{count}} व्यवस्थापन पद",
+    "positions_other": "{{count}} व्यवस्थापन पदहरू"
+  },
+  "hero": {
+    "eyebrow": "संगठन नियन्त्रण",
+    "title": "संगठन व्यवस्थापन",
+    "description": "निर्भरता-सुरक्षित प्रशासनसहित नेपाल टेलिकमका डिभिजन र विभागहरू व्यवस्थापन गर्नुहोस्।",
+    "createAccount": "खाता सिर्जना गर्नुहोस्",
+    "createDivision": "डिभिजन सिर्जना गर्नुहोस्",
+    "createDepartment": "विभाग सिर्जना गर्नुहोस्",
+    "refreshing": "रिफ्रेस हुँदै...",
+    "refresh": "रिफ्रेस गर्नुहोस्"
+  },
+  "summary": {
+    "aria": "संगठन सारांश",
+    "divisions": "डिभिजनहरू",
+    "divisionsDetail": "शीर्ष-स्तरीय संगठन एकाइहरू",
+    "departments": "विभागहरू",
+    "departmentsDetail": "डिभिजनअन्तर्गतका सञ्चालन एकाइहरू",
+    "active": "सक्रिय एकाइहरू",
+    "activeDetail": "हाल सक्षम डिभिजन र विभागहरू",
+    "protected": "मेटाउन सुरक्षित एकाइहरू",
+    "protectedDetail": "सम्बन्धित संगठन रेकर्ड भएका एकाइहरू"
+  },
+  "filters": {
+    "aria": "संगठन फिल्टर",
+    "search": "संगठन खोज्नुहोस्",
+    "placeholder": "डिभिजन, विभाग वा कोड",
+    "status": "स्थिति",
+    "all": "सबै स्थिति",
+    "active": "सक्रिय",
+    "inactive": "निष्क्रिय",
+    "matching_one": "{{count}} मिल्दो एकाइ",
+    "matching_other": "{{count}} मिल्दा एकाइहरू",
+    "clear": "फिल्टर हटाउनुहोस्"
+  },
+  "hierarchy": {
+    "eyebrow": "संगठन पदानुक्रम",
+    "title": "डिभिजन तथा विभाग संरचना",
+    "loadingTitle": "संगठन संरचना लोड हुँदैछ",
+    "loadingDescription": "पछिल्लो संगठन एकाइहरू लोड हुँदासम्म प्रतीक्षा गर्नुहोस्।",
+    "emptyTitle": "मिल्दो संगठन एकाइ भेटिएन",
+    "emptyDescription": "डिभिजन र विभाग हेर्न खोज वा स्थिति फिल्टर परिवर्तन गर्नुहोस्।",
+    "hideDepartments": "विभागहरू लुकाउनुहोस् ↑",
+    "viewDepartments": "विभागहरू हेर्नुहोस् ({{value}}) ↓",
+    "noMatchingDepartments": "मिल्दो विभाग छैन",
+    "noDepartments": "विभाग छैन",
+    "protected": "{{value}} सम्बन्धित रेकर्डले सुरक्षित",
+    "eligible": "मेटाउन योग्य",
+    "linkedRecords_one": "{{count}} सम्बन्धित रेकर्ड",
+    "linkedRecords_other": "{{count}} सम्बन्धित रेकर्डहरू",
+    "noDependencies": "निर्भरता छैन",
+    "description": "विभाग हेर्न वा एकाइ व्यवस्थापन गर्न स्पष्ट नियन्त्रणहरू प्रयोग गर्नुहोस्। पङ्क्तिहरू क्लिकयोग्य छैनन् र विनाशकारी कार्यहरू व्यवस्थापन ड्रअरभित्र मात्र रहन्छन्।",
+    "divisionSummary": "{{code}} · {{departments}} विभाग · {{employees}} कर्मचारी",
+    "departmentSummary": "{{code}} · {{employees}} कर्मचारी",
+    "accountRequests": "{{value}} खाता अनुरोध",
+    "managementPositions": "{{value}} व्यवस्थापन पद",
+    "manageUnit": "एकाइ व्यवस्थापन",
+    "edit": "सम्पादन"
+  },
+  "create": {
+    "eyebrow": "संगठन एकाइ सिर्जना",
+    "dialogAria": "{{kind}} सिर्जना गर्नुहोस्",
+    "division": "डिभिजन सिर्जना गर्नुहोस्",
+    "department": "विभाग सिर्जना गर्नुहोस्",
+    "close": "सिर्जना संवाद बन्द गर्नुहोस्",
+    "divisionCode": "डिभिजन कोड",
+    "divisionCodePlaceholder": "उदाहरण: TECH",
+    "divisionName": "डिभिजन नाम",
+    "divisionNamePlaceholder": "प्राविधिक डिभिजन",
+    "departmentCode": "विभाग कोड",
+    "departmentCodePlaceholder": "उदाहरण: NETWORK",
+    "departmentName": "विभाग नाम",
+    "departmentNamePlaceholder": "नेटवर्क विभाग",
+    "selectDivision": "डिभिजन चयन गर्नुहोस्",
+    "creating": "सिर्जना हुँदै...",
+    "createDivision": "डिभिजन सिर्जना गर्नुहोस्",
+    "createDepartment": "विभाग सिर्जना गर्नुहोस्"
+  },
+  "detail": {
+    "aria": "{{kind}} विवरण",
+    "close": "विवरण बन्द गर्नुहोस्",
+    "deletionProtected": "मेटाउनबाट सुरक्षित",
+    "parentDivision": "मूल डिभिजन",
+    "dependencyProtection": "निर्भरता सुरक्षा",
+    "noLinkedRecords": "हाल कुनै सम्बन्धित रेकर्डले स्थायी मेटाइ रोक्दैन।",
+    "created": "सिर्जना मिति",
+    "updated": "पछिल्लो अद्यावधिक",
+    "deleteBlocked": "मेटाउन सकिँदैन: {{blockers}}",
+    "deleteUnused": "यो प्रयोग नभएको संगठन एकाइ मेटाउनुहोस्",
+    "deleteUnavailable": "मेटाउन उपलब्ध छैन",
+    "deletePermanently": "स्थायी रूपमा मेटाउनुहोस्",
+    "notice": "निष्क्रिय गर्दा कर्मचारी, अनुरोध, पद र इतिहास सुरक्षित रहन्छ। पूर्ण रूपमा प्रयोग नभएको एकाइ मात्र स्थायी रूपमा मेटाउन सकिन्छ।",
+    "editUnit": "एकाइ सम्पादन"
+  },
+  "edit": {
+    "aria": "{{kind}} सम्पादन",
+    "eyebrow": "संगठन मर्मत",
+    "title": "{{kind}} सम्पादन",
+    "close": "सम्पादन संवाद बन्द गर्नुहोस्",
+    "notice": "कर्मचारी, खाता अनुरोध, व्यवस्थापन पद वा इतिहास भएको एकाइका लागि निष्क्रिय गर्नु सुरक्षित विकल्प हो।",
+    "saving": "सेभ हुँदै...",
+    "save": "परिवर्तन सेभ गर्नुहोस्"
+  },
+  "delete": {
+    "aria": "{{kind}} मेटाउनुहोस्",
+    "eyebrow": "स्थायी मेटाइ",
+    "title": "{{kind}} मेटाउनुहोस्",
+    "close": "मेटाउने संवाद बन्द गर्नुहोस्",
+    "description": "तपाईं {{name}} स्थायी रूपमा मेटाउँदै हुनुहुन्छ। यो कार्य फिर्ता गर्न सकिँदैन।",
+    "serverProtection": "हालको संगठन स्न्यापसट लोड भएपछि अर्को रेकर्डले यो एकाइ प्रयोग गर्न थालेको भए सर्भरले मेटाइ अस्वीकार गर्नेछ।",
+    "confirmLabel": "पुष्टि गर्न DELETE टाइप गर्नुहोस्",
+    "deleting": "मेटाउँदै...",
+    "delete": "स्थायी रूपमा मेटाउनुहोस्"
+  }
+}

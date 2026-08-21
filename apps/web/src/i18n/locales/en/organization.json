@@ -1,0 +1,172 @@
+{
+  "common": {
+    "notAvailable": "Not available",
+    "active": "Active",
+    "inactive": "Inactive",
+    "close": "Close",
+    "cancel": "Cancel",
+    "division": "division",
+    "department": "department",
+    "divisionLabel": "Division",
+    "departmentLabel": "Department",
+    "code": "Code",
+    "name": "Name",
+    "status": "Status",
+    "created": "Created",
+    "lastUpdated": "Last updated",
+    "employees": "Employees",
+    "requests": "Requests",
+    "positions": "Positions",
+    "departments": "Departments"
+  },
+  "workFunction": {
+    "label": "Work assignment function",
+    "GENERAL": {
+      "label": "General",
+      "description": "No specialist work-assignment function"
+    },
+    "FIELD_OPERATIONS": {
+      "label": "Field operations",
+      "description": "Teams that own field and installation work"
+    },
+    "SALES": {
+      "label": "Sales",
+      "description": "Customer and sales coordination members"
+    },
+    "SUPPORT": {
+      "label": "Support",
+      "description": "Optional supporting staff for all work types"
+    }
+  },
+  "errors": {
+    "operationFailed": "The organization operation could not be completed.",
+    "invalidDivision": "Enter a valid division code and name.",
+    "selectDivision": "Select a division.",
+    "invalidDepartment": "Enter a valid department code and name.",
+    "invalidUnit": "Enter a valid code and name.",
+    "deleteBlocked": "Cannot delete {{name}}. It has {{blockers}}. Edit or deactivate it instead.",
+    "confirmDelete": "Type DELETE exactly to confirm permanent deletion."
+  },
+  "blockers": {
+    "departments_one": "{{count}} department",
+    "departments_other": "{{count}} departments",
+    "employees_one": "{{count}} employee",
+    "employees_other": "{{count}} employees",
+    "requests_one": "{{count}} account request",
+    "requests_other": "{{count}} account requests",
+    "positions_one": "{{count}} management position",
+    "positions_other": "{{count}} management positions"
+  },
+  "hero": {
+    "eyebrow": "Organization control",
+    "title": "Organization Management",
+    "description": "Maintain Nepal Telecom divisions and departments with protected, dependency-aware administration.",
+    "createAccount": "Create account",
+    "createDivision": "Create division",
+    "createDepartment": "Create department",
+    "refreshing": "Refreshing...",
+    "refresh": "Refresh"
+  },
+  "summary": {
+    "aria": "Organization summary",
+    "divisions": "Divisions",
+    "divisionsDetail": "Top-level organization units",
+    "departments": "Departments",
+    "departmentsDetail": "Operational units across divisions",
+    "active": "Active units",
+    "activeDetail": "Divisions and departments currently enabled",
+    "protected": "Deletion-protected units",
+    "protectedDetail": "Units that contain linked organization records"
+  },
+  "filters": {
+    "aria": "Organization filters",
+    "search": "Search organization",
+    "placeholder": "Division, department or code",
+    "status": "Status",
+    "all": "All statuses",
+    "active": "Active",
+    "inactive": "Inactive",
+    "matching_one": "{{count}} matching unit",
+    "matching_other": "{{count}} matching units",
+    "clear": "Clear filters"
+  },
+  "hierarchy": {
+    "eyebrow": "Organization hierarchy",
+    "title": "Division and department structure",
+    "loadingTitle": "Loading organization structure",
+    "loadingDescription": "Please wait while the latest organization units are loaded.",
+    "emptyTitle": "No matching organization units",
+    "emptyDescription": "Change the search or status filter to view divisions and departments.",
+    "hideDepartments": "Hide departments ↑",
+    "viewDepartments": "View departments ({{value}}) ↓",
+    "noMatchingDepartments": "No matching departments",
+    "noDepartments": "No departments",
+    "protected": "Protected by {{value}} linked records",
+    "eligible": "Eligible for deletion",
+    "linkedRecords_one": "{{count}} linked record",
+    "linkedRecords_other": "{{count}} linked records",
+    "noDependencies": "No dependencies",
+    "description": "Use the explicit controls to view departments or manage a unit. Rows are not clickable, and destructive actions stay inside the management drawer.",
+    "divisionSummary": "{{code}} · {{departments}} departments · {{employees}} employees",
+    "departmentSummary": "{{code}} · {{employees}} employees",
+    "accountRequests": "{{value}} account requests",
+    "managementPositions": "{{value}} management positions",
+    "manageUnit": "Manage unit",
+    "edit": "Edit"
+  },
+  "create": {
+    "eyebrow": "Create organization unit",
+    "dialogAria": "Create {{kind}}",
+    "division": "Create Division",
+    "department": "Create Department",
+    "close": "Close create dialog",
+    "divisionCode": "Division code",
+    "divisionCodePlaceholder": "Example: TECH",
+    "divisionName": "Division name",
+    "divisionNamePlaceholder": "Technical Division",
+    "departmentCode": "Department code",
+    "departmentCodePlaceholder": "Example: NETWORK",
+    "departmentName": "Department name",
+    "departmentNamePlaceholder": "Network Department",
+    "selectDivision": "Select division",
+    "creating": "Creating...",
+    "createDivision": "Create division",
+    "createDepartment": "Create department"
+  },
+  "detail": {
+    "aria": "{{kind}} details",
+    "close": "Close details",
+    "deletionProtected": "Deletion protected",
+    "parentDivision": "Parent division",
+    "dependencyProtection": "Dependency protection",
+    "noLinkedRecords": "No linked records currently prevent permanent deletion.",
+    "created": "Created",
+    "updated": "Last updated",
+    "deleteBlocked": "Cannot delete: {{blockers}}",
+    "deleteUnused": "Delete this unused organization unit",
+    "deleteUnavailable": "Delete unavailable",
+    "deletePermanently": "Delete permanently",
+    "notice": "Deactivation preserves employees, requests, positions and history. Permanent deletion is only available for a completely unused unit.",
+    "editUnit": "Edit unit"
+  },
+  "edit": {
+    "aria": "Edit {{kind}}",
+    "eyebrow": "Organization maintenance",
+    "title": "Edit {{kind}}",
+    "close": "Close edit dialog",
+    "notice": "Deactivation is the safe option for a unit that already contains employees, account requests, management positions or history.",
+    "saving": "Saving...",
+    "save": "Save changes"
+  },
+  "delete": {
+    "aria": "Delete {{kind}}",
+    "eyebrow": "Permanent deletion",
+    "title": "Delete {{kind}}",
+    "close": "Close delete dialog",
+    "description": "You are permanently deleting {{name}}. This action cannot be undone.",
+    "serverProtection": "The server will reject deletion if another record started using this unit after the current organization snapshot was loaded.",
+    "confirmLabel": "Type DELETE to confirm",
+    "deleting": "Deleting...",
+    "delete": "Delete permanently"
+  }
+}

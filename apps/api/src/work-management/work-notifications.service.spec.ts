@@ -234,6 +234,13 @@ describe('WorkNotificationsService', () => {
   });
 
   it('keeps realtime delivery available when a notification record fails', async () => {
+    const warning = jest
+      .spyOn(
+        (service as unknown as { logger: { warn(message: string): void } }).logger,
+        'warn',
+      )
+      .mockImplementation(() => undefined);
+
     jest
       .mocked(prisma.messagingNotification.create)
       .mockRejectedValue(new Error('temporary database error'));
@@ -258,6 +265,9 @@ describe('WorkNotificationsService', () => {
     expect(events.emitWorkItemUpdated).toHaveBeenCalledWith(
       ['employee', 'manager'],
       expect.objectContaining({ action: 'STARTED' }),
+    );
+    expect(warning).toHaveBeenCalledWith(
+      expect.stringContaining('temporary database error'),
     );
   });
 });

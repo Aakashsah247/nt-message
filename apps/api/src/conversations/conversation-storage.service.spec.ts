@@ -439,4 +439,150 @@ describe('ConversationStorageService M18 acceptance', () => {
     expect(result.privacyNotice).toContain('this authenticated account');
     expect(JSON.stringify(result)).not.toContain('storageKey');
   });
+<<<<<<< Updated upstream
+=======
+
+  it('expires a logical reference but preserves the physical file while a forwarded reference remains active', async () => {
+    const unlink = jest.spyOn(fs, 'unlink').mockResolvedValue(undefined);
+    const outerUpdateMany = jest.fn();
+    const findMany = jest
+      .fn()
+      .mockResolvedValueOnce([
+        { id: 'expired-ref', storageKey: 'shared/forwarded-file.pdf' },
+      ])
+      .mockResolvedValueOnce([
+        { storageKey: 'shared/forwarded-file.pdf' },
+      ]);
+    const transaction = {
+      $queryRawUnsafe: jest.fn().mockResolvedValue([{}]),
+      messageAttachment: {
+        updateMany: jest.fn().mockResolvedValue({ count: 1 }),
+        count: jest.fn().mockResolvedValue(1),
+      },
+    };
+    const cleanupPrisma = {
+      messageAttachment: { findMany, updateMany: outerUpdateMany },
+      $transaction: jest.fn(async (callback) => callback(transaction)),
+    } as unknown as PrismaService;
+    const cleanupService = new ConversationStorageService(cleanupPrisma);
+
+    try {
+      const result = await cleanupService.cleanupExpiredAttachmentRetention(
+        new Date('2026-08-15T00:00:00.000Z'),
+      );
+
+      expect(result).toEqual({
+        expiredReferenceCount: 1,
+        purgedObjectCount: 0,
+        failedObjectCount: 0,
+      });
+      expect(unlink).not.toHaveBeenCalled();
+      expect(outerUpdateMany).not.toHaveBeenCalled();
+    } finally {
+      unlink.mockRestore();
+    }
+  });
+
+  it('purges one shared physical file only after every message reference has expired', async () => {
+    const unlink = jest.spyOn(fs, 'unlink').mockResolvedValue(undefined);
+    const outerUpdateMany = jest.fn().mockResolvedValue({ count: 2 });
+    const findMany = jest
+      .fn()
+      .mockResolvedValueOnce([
+        { id: 'final-ref', storageKey: 'shared/final-file.pdf' },
+      ])
+      .mockResolvedValueOnce([{ storageKey: 'shared/final-file.pdf' }]);
+    const transaction = {
+      $queryRawUnsafe: jest.fn().mockResolvedValue([{}]),
+      messageAttachment: {
+        updateMany: jest.fn().mockResolvedValue({ count: 1 }),
+        count: jest.fn().mockResolvedValue(0),
+      },
+    };
+    const cleanupPrisma = {
+      messageAttachment: { findMany, updateMany: outerUpdateMany },
+      $transaction: jest.fn(async (callback) => callback(transaction)),
+    } as unknown as PrismaService;
+    const cleanupService = new ConversationStorageService(cleanupPrisma);
+
+    try {
+      const result = await cleanupService.cleanupExpiredAttachmentRetention(
+        new Date('2026-08-15T00:00:00.000Z'),
+      );
+
+      expect(result).toEqual({
+        expiredReferenceCount: 1,
+        purgedObjectCount: 1,
+        failedObjectCount: 0,
+      });
+      expect(unlink).toHaveBeenCalledTimes(1);
+      expect(outerUpdateMany).toHaveBeenCalledWith({
+        where: {
+          storageKey: 'shared/final-file.pdf',
+          purgedAt: null,
+        },
+        data: {
+          purgedAt: new Date('2026-08-15T00:00:00.000Z'),
+        },
+      });
+    } finally {
+      unlink.mockRestore();
+    }
+  });
+
+  it('keeps purge tracking pending when physical deletion fails so cleanup can retry', async () => {
+    const storageError = Object.assign(new Error('disk busy'), { code: 'EBUSY' });
+    const unlink = jest.spyOn(fs, 'unlink').mockRejectedValue(storageError);
+    const outerUpdateMany = jest.fn();
+    const findMany = jest
+      .fn()
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([{ storageKey: 'shared/retry-file.pdf' }]);
+    const transaction = {
+      $queryRawUnsafe: jest.fn().mockResolvedValue([{}]),
+      messageAttachment: {
+        updateMany: jest.fn(),
+        count: jest.fn().mockResolvedValue(0),
+      },
+    };
+    const cleanupPrisma = {
+      messageAttachment: { findMany, updateMany: outerUpdateMany },
+      $transaction: jest.fn(async (callback) => callback(transaction)),
+    } as unknown as PrismaService;
+    const cleanupService = new ConversationStorageService(cleanupPrisma);
+    const storageErrorLog = jest
+      .spyOn(
+        (
+          cleanupService as unknown as {
+            attachmentStorageService: {
+              logger: { error(message: string, trace?: string): void };
+            };
+          }
+        ).attachmentStorageService.logger,
+        'error',
+      )
+      .mockImplementation(() => undefined);
+
+    try {
+      const result = await cleanupService.cleanupExpiredAttachmentRetention(
+        new Date('2026-08-15T00:00:00.000Z'),
+      );
+
+      expect(result).toEqual({
+        expiredReferenceCount: 0,
+        purgedObjectCount: 0,
+        failedObjectCount: 1,
+      });
+      expect(outerUpdateMany).not.toHaveBeenCalled();
+      expect(storageErrorLog).toHaveBeenCalledWith(
+        expect.stringContaining('Attachment storage deletion failed'),
+        expect.any(String),
+      );
+    } finally {
+      storageErrorLog.mockRestore();
+      unlink.mockRestore();
+    }
+  });
+
+>>>>>>> Stashed changes
 });

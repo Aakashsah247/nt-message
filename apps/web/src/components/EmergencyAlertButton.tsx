@@ -3,6 +3,7 @@ import {
   useMemo,
   useState,
 } from "react";
+import { useTranslation } from "react-i18next";
 
 import { useAuth } from "../context/AuthContext";
 import {
@@ -14,10 +15,8 @@ import type {
   SendEmergencyAlertResponse,
 } from "../types/emergency-alert";
 
-function getErrorMessage(error: unknown): string {
-  return error instanceof Error
-    ? error.message
-    : "Emergency alert could not be completed.";
+function getErrorMessage(error: unknown, fallback: string): string {
+  return error instanceof Error ? error.message : fallback;
 }
 
 function formatRole(role: string): string {
@@ -57,12 +56,6 @@ function buildPreviewMessage(
   ].join("\n");
 }
 
-function getProfileSourceLabel(contact: EmergencyAlertContact): string {
-  return contact.profileSource === "SUPER_ADMIN_PROFILE"
-    ? "Super Admin profile"
-    : "Employee profile";
-}
-
 interface EmergencyAlertButtonProps {
   variant?: "default" | "sidebar";
 }
@@ -70,10 +63,32 @@ interface EmergencyAlertButtonProps {
 export function EmergencyAlertButton({
   variant = "default",
 }: EmergencyAlertButtonProps) {
+  const { t } = useTranslation(["common", "workspace"]);
   const {
     account,
     accessToken,
   } = useAuth();
+
+  function getRoleLabel(role: string): string {
+    switch (role) {
+      case "SUPER_ADMIN":
+        return t("roles.superAdmin", { ns: "workspace" });
+      case "SENIOR_MANAGEMENT":
+        return t("roles.seniorManagement", { ns: "workspace" });
+      case "TEAM_MANAGER":
+        return t("roles.teamManager", { ns: "workspace" });
+      case "EMPLOYEE":
+        return t("roles.employee", { ns: "workspace" });
+      default:
+        return formatRole(role);
+    }
+  }
+
+  function getProfileSourceLabel(contact: EmergencyAlertContact): string {
+    return contact.profileSource === "SUPER_ADMIN_PROFILE"
+      ? t("emergency.dialog.superAdminProfile", { ns: "common" })
+      : t("emergency.dialog.employeeProfile", { ns: "common" });
+  }
 
   const [open, setOpen] =
     useState(false);
@@ -136,7 +151,7 @@ export function EmergencyAlertButton({
       .catch((loadError: unknown) => {
         if (active) {
           setContacts([]);
-          setError(getErrorMessage(loadError));
+          setError(getErrorMessage(loadError, t("emergency.errorFallback", { ns: "common" })));
         }
       })
       .finally(() => {
@@ -183,7 +198,7 @@ export function EmergencyAlertButton({
 
       setResult(response);
     } catch (sendError: unknown) {
-      setError(getErrorMessage(sendError));
+      setError(getErrorMessage(sendError, t("emergency.errorFallback", { ns: "common" })));
     } finally {
       setSending(false);
     }
@@ -207,11 +222,9 @@ export function EmergencyAlertButton({
         </span>
 
         {variant === "sidebar" ? (
-          <span className="emergency-alert-label">
-            Emergency
-          </span>
+          <span className="emergency-alert-label">{t("emergency.button", { ns: "common" })}</span>
         ) : (
-          "Emergency"
+          t("emergency.button", { ns: "common" })
         )}
       </button>
 
@@ -230,17 +243,15 @@ export function EmergencyAlertButton({
           >
             <header>
               <div>
-                <span>Emergency SMS</span>
-                <h2 id="emergency-alert-title">
-                  Send fixed-format alert
-                </h2>
+                <span>{t("emergency.dialog.eyebrow", { ns: "common" })}</span>
+                <h2 id="emergency-alert-title">{t("emergency.dialog.title", { ns: "common" })}</h2>
               </div>
 
               <button
                 type="button"
                 onClick={closePanel}
                 disabled={sending}
-                aria-label="Close emergency alert panel"
+                aria-label={t("emergency.dialog.closeAria", { ns: "common" })}
               >
                 ×
               </button>
@@ -248,7 +259,7 @@ export function EmergencyAlertButton({
 
 
             <label className="emergency-alert-contact">
-              <span>Emergency contact</span>
+              <span>{t("emergency.dialog.contact", { ns: "common" })}</span>
               <select
                 value={selectedAccountId}
                 onChange={(event) => {
@@ -259,7 +270,9 @@ export function EmergencyAlertButton({
               >
                 {contacts.length === 0 && (
                   <option value="">
-                    {contactsLoading ? "Loading contacts..." : "No contacts available"}
+                    {contactsLoading
+                      ? t("emergency.dialog.loadingContacts", { ns: "common" })
+                      : t("emergency.dialog.noContacts", { ns: "common" })}
                   </option>
                 )}
 
@@ -268,8 +281,10 @@ export function EmergencyAlertButton({
                     key={contact.accountId}
                     value={contact.accountId}
                   >
-                    {contact.displayName} · {formatRole(contact.role)}
-                    {contact.phoneAvailable ? "" : " · No phone"}
+                    {contact.displayName} · {getRoleLabel(contact.role)}
+                    {contact.phoneAvailable
+                      ? ""
+                      : ` · ${t("emergency.dialog.noPhone", { ns: "common" })}`}
                   </option>
                 ))}
               </select>
@@ -279,7 +294,7 @@ export function EmergencyAlertButton({
               <div className="emergency-alert-contact-card">
                 <strong>{selectedContact.displayName}</strong>
                 <span>
-                  {formatRole(selectedContact.role)} · {getProfileSourceLabel(selectedContact)}
+                  {getRoleLabel(selectedContact.role)} · {getProfileSourceLabel(selectedContact)}
                   {selectedContact.department
                     ? ` · ${selectedContact.department}`
                     : selectedContact.division
@@ -294,7 +309,7 @@ export function EmergencyAlertButton({
 
             {previewMessage && (
               <section className="emergency-alert-preview">
-                <span>Stored long format</span>
+                <span>{t("emergency.dialog.previewLabel", { ns: "common" })}</span>
                 <pre>{previewMessage}</pre>
               </section>
             )}
@@ -310,10 +325,13 @@ export function EmergencyAlertButton({
 
             {result && (
               <div className="emergency-alert-result">
-                <strong>Alert stored and processed</strong>
+                <strong>{t("emergency.dialog.resultTitle", { ns: "common" })}</strong>
                 <span>
-                  Status: {result.recipient.status} · Provider:{" "}
-                  {result.recipient.providerName}
+                  {t("emergency.dialog.statusProvider", {
+                    ns: "common",
+                    status: result.recipient.status,
+                    provider: result.recipient.providerName,
+                  })}
                 </span>
                 <small>{result.architectureNote}</small>
               </div>
@@ -326,7 +344,7 @@ export function EmergencyAlertButton({
                 onClick={closePanel}
                 disabled={sending}
               >
-                Close
+                {t("actions.close", { ns: "common" })}
               </button>
 
               <button
@@ -340,7 +358,9 @@ export function EmergencyAlertButton({
                   !selectedAccountId
                 }
               >
-                {sending ? "Sending..." : "Send alert"}
+                {sending
+                  ? t("emergency.dialog.sending", { ns: "common" })
+                  : t("emergency.dialog.send", { ns: "common" })}
               </button>
             </footer>
           </section>
