@@ -71,13 +71,13 @@ describe('PasswordRecoveryService', () => {
 
   const eligibleAccount = {
     id: 'account-1',
-    username: 'employee@ntc.net.np',
+    username: 'employee@example.test',
     role: 'EMPLOYEE',
     passwordHash: 'stored-hash',
     isEnabled: true,
     employee: {
       empName: 'Employee User',
-      officialEmail: 'Employee@ntc.net.np',
+      officialEmail: 'Employee@example.test',
       status: 'ACTIVE',
       employmentStatus: 'ACTIVE',
       isActivated: true,
@@ -131,7 +131,7 @@ describe('PasswordRecoveryService', () => {
     );
 
     await expect(
-      service.requestPasswordReset('unknown@ntc.net.np'),
+      service.requestPasswordReset('unknown@example.test'),
     ).resolves.toEqual({
       message:
         'If an eligible account exists, a password recovery code has been sent.',
@@ -148,7 +148,7 @@ describe('PasswordRecoveryService', () => {
       configService,
     );
 
-    await service.requestPasswordReset('employee@ntc.net.np');
+    await service.requestPasswordReset('employee@example.test');
 
     const createCall =
       transaction.passwordResetChallenge.create.mock.calls[0]?.[0];
@@ -169,7 +169,7 @@ describe('PasswordRecoveryService', () => {
       configService,
     );
 
-    await service.requestPasswordReset('employee@ntc.net.np');
+    await service.requestPasswordReset('employee@example.test');
 
     expect(prisma.passwordResetChallenge.updateMany).toHaveBeenCalledWith({
       where: {
@@ -206,8 +206,8 @@ describe('PasswordRecoveryService', () => {
 
     const result = await service.completePasswordReset({
       resetToken: 'opaque-reset-token-value-that-is-long-enough',
-      newPassword: 'ReplacementPassword#43',
-      confirmPassword: 'ReplacementPassword#43',
+      newPassword: 'TestOnlyReplacement#43',
+      confirmPassword: 'TestOnlyReplacement#43',
     });
 
     expect(result).toEqual({

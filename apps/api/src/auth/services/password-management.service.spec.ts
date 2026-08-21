@@ -55,12 +55,12 @@ describe('PasswordManagementService', () => {
 
     jest.mocked(prisma.account.findUnique).mockResolvedValue({
       id: 'account-1',
-      username: 'employee@ntc.net.np',
+      username: 'employee@example.test',
       passwordHash: 'stored-hash',
       isEnabled: true,
       employee: {
         empName: 'Employee User',
-        officialEmail: 'Employee@ntc.net.np',
+        officialEmail: 'Employee@example.test',
       },
       superAdminProfile: null,
     } as never);
@@ -92,8 +92,8 @@ describe('PasswordManagementService', () => {
   function validRequest() {
     return {
       currentPassword: 'CurrentPassword#42',
-      newPassword: 'ReplacementPassword#43',
-      confirmPassword: 'ReplacementPassword#43',
+      newPassword: 'TestOnlyReplacement#43',
+      confirmPassword: 'TestOnlyReplacement#43',
     };
   }
 
@@ -117,7 +117,7 @@ describe('PasswordManagementService', () => {
     expect(argon2.verify).toHaveBeenNthCalledWith(
       2,
       'stored-hash',
-      'ReplacementPassword#43',
+      'TestOnlyReplacement#43',
     );
 
     expect(result).toEqual({
@@ -167,13 +167,13 @@ describe('PasswordManagementService', () => {
     );
 
     expect(auditPayload).not.toContain('CurrentPassword#42');
-    expect(auditPayload).not.toContain('ReplacementPassword#43');
+    expect(auditPayload).not.toContain('TestOnlyReplacement#43');
     expect(auditPayload).not.toContain('replacement-hash');
 
     expect(
       mailService.sendPasswordChangedNotification,
     ).toHaveBeenCalledWith({
-      to: 'Employee@ntc.net.np',
+      to: 'Employee@example.test',
       displayName: 'Employee User',
       changedAt: expect.any(Date),
     });
@@ -182,13 +182,13 @@ describe('PasswordManagementService', () => {
   it('uses the persisted Super Admin profile rather than bootstrap environment values', async () => {
     jest.mocked(prisma.account.findUnique).mockResolvedValueOnce({
       id: 'super-admin-account',
-      username: 'database-super-admin@ntc.net.np',
+      username: 'database-super-admin@example.test',
       passwordHash: 'stored-hash',
       isEnabled: true,
       employee: null,
       superAdminProfile: {
         fullName: 'Database Super Admin',
-        email: 'Database-Super-Admin@ntc.net.np',
+        email: 'Database-Super-Admin@example.test',
       },
     } as never);
 
@@ -206,7 +206,7 @@ describe('PasswordManagementService', () => {
     expect(
       mailService.sendPasswordChangedNotification,
     ).toHaveBeenCalledWith({
-      to: 'Database-Super-Admin@ntc.net.np',
+      to: 'Database-Super-Admin@example.test',
       displayName: 'Database Super Admin',
       changedAt: expect.any(Date),
     });

@@ -7,7 +7,7 @@ import { VerifyPasswordResetOtpDto } from './verify-password-reset-otp.dto';
 describe('password recovery DTOs', () => {
   it('accepts a valid official email request', () => {
     const dto = Object.assign(new RequestPasswordResetDto(), {
-      officialEmail: 'employee@ntc.net.np',
+      officialEmail: 'employee@example.test',
     });
 
     expect(validateSync(dto)).toHaveLength(0);
@@ -15,7 +15,7 @@ describe('password recovery DTOs', () => {
 
   it('rejects malformed recovery codes', () => {
     const dto = Object.assign(new VerifyPasswordResetOtpDto(), {
-      officialEmail: 'employee@ntc.net.np',
+      officialEmail: 'employee@example.test',
       otp: '12AB',
     });
 

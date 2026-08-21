@@ -22,7 +22,7 @@ describe('MailService security messages', () => {
     const values: Record<string, string> = {
       SMTP_HOST: 'localhost',
       SMTP_PORT: '1025',
-      SMTP_FROM: 'NT Message <no-reply@ntc.net.np>',
+      SMTP_FROM: 'NT Message <no-reply@example.test>',
       SMTP_SECURE: 'false',
       SMTP_REQUIRE_TLS: 'false',
       ...overrides,
@@ -62,8 +62,8 @@ describe('MailService security messages', () => {
       SMTP_HOST: 'smtp.ntc.example',
       SMTP_PORT: '587',
       SMTP_REQUIRE_TLS: 'true',
-      SMTP_USER: 'nt-message@ntc.example',
-      SMTP_PASSWORD: 'provider-secret',
+      SMTP_USER: 'nt-message@example.test',
+      SMTP_PASSWORD: 'TEST_ONLY_NOT_A_REAL_SECRET',
       SMTP_CONNECTION_TIMEOUT_MS: '12000',
       SMTP_GREETING_TIMEOUT_MS: '13000',
       SMTP_SOCKET_TIMEOUT_MS: '45000',
@@ -75,8 +75,8 @@ describe('MailService security messages', () => {
       secure: false,
       requireTLS: true,
       auth: {
-        user: 'nt-message@ntc.example',
-        pass: 'provider-secret',
+        user: 'nt-message@example.test',
+        pass: 'TEST_ONLY_NOT_A_REAL_SECRET',
       },
       tls: { minVersion: 'TLSv1.2' },
       connectionTimeout: 12_000,
@@ -86,7 +86,7 @@ describe('MailService security messages', () => {
   });
 
   it('rejects incomplete SMTP credentials', () => {
-    expect(() => createService({ SMTP_USER: 'nt-message@ntc.example' })).toThrow(
+    expect(() => createService({ SMTP_USER: 'nt-message@example.test' })).toThrow(
       'SMTP_USER and SMTP_PASSWORD must either both be configured or both be omitted.',
     );
   });
@@ -109,7 +109,7 @@ describe('MailService security messages', () => {
 
     expect(sendMail).toHaveBeenCalledTimes(1);
     expect(sendMail).toHaveBeenCalledWith({
-      from: 'NT Message <no-reply@ntc.net.np>',
+      from: 'NT Message <no-reply@example.test>',
       to: 'Test6@gmail.com',
       subject: 'Your NT Message account is ready for activation',
       text: [
@@ -151,7 +151,7 @@ describe('MailService security messages', () => {
     const changedAt = new Date('2026-07-17T06:30:00.000Z');
 
     await service.sendPasswordChangedNotification({
-      to: 'employee@ntc.net.np',
+      to: 'employee@example.test',
       displayName: 'Employee User',
       changedAt,
     });
@@ -177,7 +177,7 @@ it('sends a one-time password recovery code without password data', async () => 
   const service = createService();
 
   await service.sendPasswordResetOtp({
-    to: 'employee@ntc.net.np',
+    to: 'employee@example.test',
     displayName: 'Employee User',
     otp: '123456',
     expiresInMinutes: 10,
@@ -201,7 +201,7 @@ it('sends a privacy-safe password reset confirmation', async () => {
   const changedAt = new Date('2026-07-17T10:00:00.000Z');
 
   await service.sendPasswordResetNotification({
-    to: 'employee@ntc.net.np',
+    to: 'employee@example.test',
     displayName: 'Employee User',
     changedAt,
   });
