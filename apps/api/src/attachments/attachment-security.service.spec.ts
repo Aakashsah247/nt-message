@@ -21,6 +21,8 @@ describe('AttachmentSecurityService', () => {
   const originalNodeEnv = process.env.NODE_ENV;
   const originalHost = process.env.CLAMAV_HOST;
   const originalPort = process.env.CLAMAV_PORT;
+  const originalDeploymentProfile = process.env.DEPLOYMENT_PROFILE;
+  const originalAllowUnscanned = process.env.ALLOW_UNSCANNED_STAGING_ATTACHMENTS;
 
   afterEach(() => {
     for (const [key, value] of [
@@ -28,6 +30,8 @@ describe('AttachmentSecurityService', () => {
       ['NODE_ENV', originalNodeEnv],
       ['CLAMAV_HOST', originalHost],
       ['CLAMAV_PORT', originalPort],
+      ['DEPLOYMENT_PROFILE', originalDeploymentProfile],
+      ['ALLOW_UNSCANNED_STAGING_ATTACHMENTS', originalAllowUnscanned],
     ] as const) {
       if (value === undefined) delete process.env[key];
       else process.env[key] = value;
@@ -50,6 +54,31 @@ describe('AttachmentSecurityService', () => {
   it('refuses to start production without the approved malware scanner', async () => {
     process.env.ATTACHMENT_SCAN_MODE = 'disabled';
     process.env.NODE_ENV = 'production';
+    const service = new AttachmentSecurityService();
+
+    await expect(service.onModuleInit()).rejects.toThrow(
+      'ATTACHMENT_SCAN_MODE=clamav is required',
+    );
+  });
+
+  it('allows the explicit temporary external staging exception without weakening normal production', async () => {
+    process.env.ATTACHMENT_SCAN_MODE = 'disabled';
+    process.env.NODE_ENV = 'production';
+    process.env.DEPLOYMENT_PROFILE = 'temporary_external_staging';
+    process.env.ALLOW_UNSCANNED_STAGING_ATTACHMENTS = 'true';
+
+    const service = new AttachmentSecurityService();
+
+    await expect(service.onModuleInit()).resolves.toBeUndefined();
+    expect(service.isStrictScanMode()).toBe(false);
+  });
+
+  it('still refuses production when only one temporary staging guard is present', async () => {
+    process.env.ATTACHMENT_SCAN_MODE = 'disabled';
+    process.env.NODE_ENV = 'production';
+    process.env.DEPLOYMENT_PROFILE = 'temporary_external_staging';
+    delete process.env.ALLOW_UNSCANNED_STAGING_ATTACHMENTS;
+
     const service = new AttachmentSecurityService();
 
     await expect(service.onModuleInit()).rejects.toThrow(

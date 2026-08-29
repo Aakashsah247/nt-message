@@ -46,3 +46,15 @@ apps/api/storage/message-attachments/
 
 apps/api/storage/profile-photos/
 apps/api/storage/announcement-attachments/
+
+# Application runtime storage — never commit uploaded files
+apps/api/storage/
+
+# Database/runtime backups — never commit backup data
+backups/
+*.dump
+*.sql.gz
+
+# Deployment runtime data
+deploy-data/
+deploy-backups/
