@@ -20,15 +20,20 @@ import { AccountRole } from '../generated/prisma/client';
 import { CancelDutyAssignmentDto } from './dto/cancel-duty-assignment.dto';
 import { CreateDutyCoverageRequirementDto } from './dto/create-duty-coverage-requirement.dto';
 import { CreateBulkDutyScheduleDto } from './dto/create-bulk-duty-schedule.dto';
-import { CreateDutyExceptionDto } from './dto/create-duty-exception.dto';
+import { CreateDutyHolidayDto } from './dto/create-duty-holiday.dto';
+import { CreateDutyLeaveDto } from './dto/create-duty-leave.dto';
 import { CreateDutyScheduleDto } from './dto/create-duty-schedule.dto';
 import { CreateDutyShiftTemplateDto } from './dto/create-duty-shift-template.dto';
 import { DutyRosterQueryDto } from './dto/duty-roster-query.dto';
+import { DutyShiftTemplateQueryDto } from './dto/duty-shift-template-query.dto';
+import { ListDutyHolidaysQueryDto } from './dto/list-duty-holidays-query.dto';
 import { ListDutyAssignmentsQueryDto } from './dto/list-duty-assignments-query.dto';
 import { ListDutyCoverageRequirementsQueryDto } from './dto/list-duty-coverage-requirements-query.dto';
 import { UpdateDutyAssignmentDto } from './dto/update-duty-assignment.dto';
 import { UpdateDutyCoverageRequirementDto } from './dto/update-duty-coverage-requirement.dto';
+import { UpdateDutyHolidayDto } from './dto/update-duty-holiday.dto';
 import { UpdateDutyShiftTemplateDto } from './dto/update-duty-shift-template.dto';
+import { UpdateDutyWeeklyOffDto } from './dto/update-duty-weekly-off.dto';
 import { UpdateWorkAvailabilityDto } from './dto/update-work-availability.dto';
 import { DutyAvailabilityService } from './duty-availability.service';
 import { DutyCoverageRequirementsService } from './duty-coverage-requirements.service';
@@ -105,8 +110,11 @@ export class DutyManagementController {
 
   @Get('management/shift-templates')
   @Roles(...DUTY_MANAGER_ROLES)
-  listShiftTemplates(@CurrentUser() user: AuthenticatedUser): Promise<unknown> {
-    return this.dutyScheduleService.listShiftTemplates(user);
+  listShiftTemplates(
+    @CurrentUser() user: AuthenticatedUser,
+    @Query() query: DutyShiftTemplateQueryDto,
+  ): Promise<unknown> {
+    return this.dutyScheduleService.listShiftTemplates(user, query);
   }
 
   // Coverage targets are effective-dated planned staffing rules, never attendance records.
@@ -276,12 +284,64 @@ export class DutyManagementController {
     );
   }
 
-  @Post('management/exceptions')
+  @Post('management/leaves')
   @Roles(...DUTY_MANAGER_ROLES)
-  createException(
+  createLeave(
     @CurrentUser() user: AuthenticatedUser,
-    @Body() dto: CreateDutyExceptionDto,
+    @Body() dto: CreateDutyLeaveDto,
   ): Promise<unknown> {
-    return this.dutyScheduleService.createException(user, dto);
+    return this.dutyScheduleService.createLeave(user, dto);
+  }
+
+  @Get('calendar')
+  @Roles(...ALL_ACCOUNT_ROLES)
+  getDutyCalendar(
+    @CurrentUser() user: AuthenticatedUser,
+    @Query() query: ListDutyHolidaysQueryDto,
+  ): Promise<unknown> {
+    return this.dutyScheduleService.getDutyCalendar(user, query);
+  }
+
+  @Post('management/holidays')
+  @Roles(AccountRole.SUPER_ADMIN)
+  createHoliday(
+    @CurrentUser() user: AuthenticatedUser,
+    @Body() dto: CreateDutyHolidayDto,
+  ): Promise<unknown> {
+    return this.dutyScheduleService.createHoliday(user, dto);
+  }
+
+  @Patch('management/holidays/:holidayId')
+  @Roles(AccountRole.SUPER_ADMIN)
+  updateHoliday(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('holidayId', new ParseUUIDPipe({ version: '4' })) holidayId: string,
+    @Body() dto: UpdateDutyHolidayDto,
+  ): Promise<unknown> {
+    return this.dutyScheduleService.updateHoliday(user, holidayId, dto);
+  }
+
+  @Post('management/holidays/:holidayId/cancel')
+  @Roles(AccountRole.SUPER_ADMIN)
+  cancelHoliday(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('holidayId', new ParseUUIDPipe({ version: '4' })) holidayId: string,
+  ): Promise<unknown> {
+    return this.dutyScheduleService.cancelHoliday(user, holidayId);
+  }
+
+  @Get('management/weekly-off')
+  @Roles(...DUTY_MANAGER_ROLES)
+  getWeeklyOff(@CurrentUser() user: AuthenticatedUser): Promise<unknown> {
+    return this.dutyScheduleService.getWeeklyOff(user);
+  }
+
+  @Patch('management/weekly-off')
+  @Roles(AccountRole.SUPER_ADMIN)
+  updateWeeklyOff(
+    @CurrentUser() user: AuthenticatedUser,
+    @Body() dto: UpdateDutyWeeklyOffDto,
+  ): Promise<unknown> {
+    return this.dutyScheduleService.updateWeeklyOff(user, dto);
   }
 }

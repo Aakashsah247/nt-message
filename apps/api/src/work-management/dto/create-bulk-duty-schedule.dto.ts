@@ -82,16 +82,4 @@ export class CreateBulkDutyScheduleDto {
   @IsOptional()
   @IsBoolean()
   createValidAssignmentsOnly?: boolean;
-
-  // Conflict override is separate from "create valid only" so the API never guesses manager intent.
-  @IsOptional()
-  @IsBoolean()
-  overrideConflicts?: boolean;
-
-  @Transform(({ value }: { value: unknown }) => trimText(value))
-  @IsOptional()
-  @IsString()
-  @MinLength(10)
-  @MaxLength(500)
-  overrideReason?: string;
 }

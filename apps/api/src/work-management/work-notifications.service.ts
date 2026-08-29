@@ -81,13 +81,15 @@ export interface PublishWorkUpdateInput {
     ticketNumber: string;
     title: string;
     status: string;
-    priority: string;
     assignedTeamId?: string | null;
     salesMemberAccountId?: string | null;
   };
   action: WorkItemRealtimeAction;
   actorAccountId: string | null;
   recipientAccountIds: string[];
+  // Persistent notifications may be narrower than realtime recipients so shared team
+  // state stays live without creating a notification for every small status change.
+  notificationRecipientAccountIds?: string[];
   title: string;
   body: string;
   metadata?: Prisma.InputJsonObject;
@@ -132,7 +134,14 @@ export class WorkNotificationsService implements OnModuleInit, OnModuleDestroy {
     const realtimeRecipients = [
       ...new Set([...input.recipientAccountIds, ...relationshipRecipients]),
     ];
-    const notificationRecipients = realtimeRecipients.filter(
+    const realtimeRecipientSet = new Set(realtimeRecipients);
+    const notificationAudience =
+      input.notificationRecipientAccountIds === undefined
+        ? realtimeRecipients
+        : [...new Set(input.notificationRecipientAccountIds)].filter((accountId) =>
+            realtimeRecipientSet.has(accountId),
+          );
+    const notificationRecipients = notificationAudience.filter(
       (accountId) => accountId !== input.actorAccountId,
     );
     const occurredAt = new Date();
@@ -152,7 +161,6 @@ export class WorkNotificationsService implements OnModuleInit, OnModuleDestroy {
               ticketNumber: input.workItem.ticketNumber,
               action: input.action,
               status: input.workItem.status,
-              priority: input.workItem.priority,
               ...input.metadata,
             },
           },
@@ -185,7 +193,6 @@ export class WorkNotificationsService implements OnModuleInit, OnModuleDestroy {
       workItemId: input.workItem.id,
       ticketNumber: input.workItem.ticketNumber,
       status: input.workItem.status,
-      priority: input.workItem.priority,
       action: input.action,
       actorAccountId: input.actorAccountId,
       occurredAt: occurredAt.toISOString(),
@@ -232,7 +239,6 @@ export class WorkNotificationsService implements OnModuleInit, OnModuleDestroy {
           ticketNumber: true,
           title: true,
           status: true,
-          priority: true,
           dueAt: true,
           dueSoonNotifiedAt: true,
           overdueNotifiedAt: true,

@@ -205,6 +205,24 @@ export default function App() {
         }
       />
 
+
+      <Route
+        path="/work-management/:workItemId/edit"
+        element={
+          <ProtectedRoute
+            roles={[
+              "SUPER_ADMIN",
+              "SENIOR_MANAGEMENT",
+              "TEAM_MANAGER",
+            ]}
+          >
+            <ManagementLayout>
+              <ManagementWorkPage />
+            </ManagementLayout>
+          </ProtectedRoute>
+        }
+      />
+
       <Route
         path="/employee"
         element={

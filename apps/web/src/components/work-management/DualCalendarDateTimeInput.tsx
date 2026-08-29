@@ -21,6 +21,14 @@ interface DualCalendarDateTimeInputProps {
   required?: boolean;
   min?: string;
   max?: string;
+  /**
+   * Optional parent-controlled calendar system. When provided, the field follows
+   * the shared mode and hides its local AD/BS switch. This keeps a group of
+   * schedule fields synchronized without duplicating the stored timestamp.
+   */
+  mode?: WorkCalendarMode;
+  /** Hide the alternate calendar preview when a parent-level AD/BS switch already controls the group. */
+  showAlternate?: boolean;
   onChange: (nextIsoValue: string) => void;
 }
 
@@ -112,9 +120,13 @@ export function DualCalendarDateTimeInput({
   required = false,
   min,
   max,
+  mode: controlledMode,
+  showAlternate = true,
   onChange,
 }: DualCalendarDateTimeInputProps) {
-  const [mode, setMode] = useState<WorkCalendarMode>("AD");
+  const [internalMode, setInternalMode] = useState<WorkCalendarMode>("AD");
+  const mode = controlledMode ?? internalMode;
+  const isModeControlled = controlledMode !== undefined;
   const [open, setOpen] = useState(false);
   const [dateValue, setDateValue] = useState(() => toKathmanduDateLocal(value));
   const [dateDraft, setDateDraft] = useState(() =>
@@ -199,13 +211,12 @@ export function DualCalendarDateTimeInput({
       const anchorRect = anchor.getBoundingClientRect();
       const viewportPadding = 12;
       const preferredGap = 8;
-      const measuredHeight = calendarRef.current?.offsetHeight ?? 392;
+      const measuredHeight = calendarRef.current?.offsetHeight ?? 350;
       const availableWidth = Math.max(0, window.innerWidth - viewportPadding * 2);
-      const width = Math.min(
-        360,
-        availableWidth,
-        Math.max(292, anchorRect.width),
-      );
+      // Keep the calendar at a predictable compact width instead of stretching
+      // to the date field. This makes the popup easier to scan on wide forms
+      // while still respecting narrow mobile viewports.
+      const width = Math.min(304, availableWidth);
       const stickyFooter = document.querySelector<HTMLElement>(
         ".management-work-wizard__footer",
       );
@@ -337,14 +348,14 @@ export function DualCalendarDateTimeInput({
   }
 
   function switchMode(nextMode: WorkCalendarMode): void {
-    if (nextMode === mode) return;
+    if (nextMode === mode || isModeControlled) return;
 
     // Do not discard a typed date when switching calendar systems.
     if (dateDraft && dateDraft !== selectedModeDate && !commitDateDraft(dateDraft)) {
       return;
     }
 
-    setMode(nextMode);
+    setInternalMode(nextMode);
     const displayDate = getModeDate(
       nextMode,
       dateValue || toKathmanduDateLocal(new Date()),
@@ -438,8 +449,10 @@ export function DualCalendarDateTimeInput({
               value={dateDraft}
               placeholder="YYYY-MM-DD"
               aria-labelledby={`${id}-label`}
-              aria-describedby={`${id}-alternate${showError && error ? ` ${id}-error` : ""}`}
-              title={`Enter ${mode} date using YYYY-MM-DD`}
+              aria-describedby={[
+                showAlternate ? `${id}-alternate` : "",
+                showError && error ? `${id}-error` : "",
+              ].filter(Boolean).join(" ") || undefined}
               aria-invalid={Boolean(error)}
               aria-label={`${label} date`}
               onChange={(event) => {
@@ -499,27 +512,35 @@ export function DualCalendarDateTimeInput({
                   }}
                 >
                   <header className="management-work-date-picker__header">
-                    <div
-                      className="management-work-date-picker__mode"
-                      role="group"
-                      aria-label="Calendar system"
-                    >
-                      <button
-                        type="button"
-                        className={mode === "AD" ? "is-active" : ""}
-                        aria-pressed={mode === "AD"}
-                        onClick={() => switchMode("AD")}
-                      >
-                        AD
-                      </button>
-                      <button
-                        type="button"
-                        className={mode === "BS" ? "is-active" : ""}
-                        aria-pressed={mode === "BS"}
-                        onClick={() => switchMode("BS")}
-                      >
-                        BS
-                      </button>
+                    <div className="management-work-date-picker__heading">
+                      <strong>Select date</strong>
+                      {!isModeControlled && (
+                        <div
+                          className="management-work-date-picker__mode"
+                          role="group"
+                          aria-label="Calendar system"
+                        >
+                          <button
+                            type="button"
+                            className={mode === "AD" ? "is-active" : ""}
+                            aria-pressed={mode === "AD"}
+                            onClick={() => switchMode("AD")}
+                          >
+                            AD
+                          </button>
+                          <button
+                            type="button"
+                            className={mode === "BS" ? "is-active" : ""}
+                            aria-pressed={mode === "BS"}
+                            onClick={() => switchMode("BS")}
+                          >
+                            BS
+                          </button>
+                        </div>
+                      )}
+                      {isModeControlled && (
+                        <span className="management-work-date-picker__system-title">{mode}</span>
+                      )}
                     </div>
                     <button
                       type="button"
@@ -535,8 +556,8 @@ export function DualCalendarDateTimeInput({
                     <button type="button" aria-label="Previous month" onClick={() => changeMonth(-1)}>
                       ‹
                     </button>
-                    <strong>
-                      {monthName} {displayYear} {mode}
+                    <strong aria-live="polite">
+                      {monthName} {displayYear}
                     </strong>
                     <button type="button" aria-label="Next month" onClick={() => changeMonth(1)}>
                       ›
@@ -569,6 +590,7 @@ export function DualCalendarDateTimeInput({
                           }`.trim()}
                           disabled={isDayDisabled(day)}
                           aria-pressed={selected}
+                          aria-label={`${monthName} ${day}, ${displayYear} ${mode}`}
                           onClick={() => selectDay(day)}
                         >
                           {day}
@@ -610,9 +632,11 @@ export function DualCalendarDateTimeInput({
         </label>
       </div>
 
-      <small id={`${id}-alternate`} className="management-work-dual-date__alternate">
-        {alternateCalendarLabel}
-      </small>
+      {showAlternate && (
+        <small id={`${id}-alternate`} className="management-work-dual-date__alternate">
+          {alternateCalendarLabel}
+        </small>
+      )}
       {showError && error && (
         <small id={`${id}-error`} className="management-work-dual-date__error" role="alert">
           {error}

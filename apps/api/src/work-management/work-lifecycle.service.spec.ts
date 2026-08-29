@@ -10,7 +10,8 @@ import {
   WorkHelpReason,
   WorkHelpRequestStatus,
   WorkItemStatus,
-  WorkPriority,
+  WorkItemType,
+  WorkSalesCoordinationStatus,
 } from '../generated/prisma/enums';
 import type { DutyAvailabilityService } from './duty-availability.service';
 import { WorkLifecycleService } from './work-lifecycle.service';
@@ -48,11 +49,23 @@ function currentWork(
     id: 'work-1',
     ticketNumber: 'NT-PAT-NET-2026-000001',
     title: 'Repair damaged wire',
+    type: WorkItemType.TROUBLE_TICKET,
     status,
-    priority: WorkPriority.HIGH,
+    requestNumber: null,
+    cpcSerial: null,
+    serviceNumber: '015500001',
+    olt: 'OLT-01',
+    fdcName: 'FDC-01',
+    fapName: 'FAP-01',
     version: 2,
     divisionId: 'division-a',
     departmentId: 'department-a',
+    assignedTeamId: null,
+    salesMemberAccountId: null,
+    salesCoordinationStatus: null,
+    salesDocumentsSentAt: null,
+    salesCompletedAt: null,
+    salesCompletionNote: null,
     registeredAt: new Date(Date.now() - 2 * 60 * 60 * 1000),
     plannedStartAt: new Date(Date.now() - 60 * 60 * 1000),
     dueAt: new Date(Date.now() + 60 * 60 * 1000),
@@ -84,7 +97,6 @@ function detailWork(status: WorkItemStatus, assigneeAccountId = 'employee') {
     ticketNumber: 'NT-PAT-NET-2026-000001',
     title: 'Repair damaged wire',
     status,
-    priority: WorkPriority.HIGH,
     createdBy: { id: 'manager' },
     responsibleManager: { id: 'manager' },
     assignments: [{ assignee: { id: assigneeAccountId } }],
@@ -149,6 +161,7 @@ describe('WorkLifecycleService M20 Phase 2', () => {
     resolveHelpCandidate: jest.fn(),
     resolveSupportAccount: jest.fn(),
     resolvePrimaryReassignmentAccount: jest.fn(),
+    assertAdministrativeIndividualAssignee: jest.fn(),
   } as unknown as WorkScopeService;
   const transitions = {
     getStatusAfterHelpRequest: jest
@@ -246,6 +259,576 @@ describe('WorkLifecycleService M20 Phase 2', () => {
     );
   });
 
+  it('lets the started primary worker send Sales-required work to the assigned Sales Member', async () => {
+    const current = {
+      ...currentWork(),
+      salesMemberAccountId: 'sales-member',
+      salesCoordinationStatus: WorkSalesCoordinationStatus.WAITING_FOR_DOCUMENTS,
+    };
+    const final = {
+      ...detailWork(WorkItemStatus.IN_PROGRESS),
+      salesMember: { id: 'sales-member' },
+      salesCoordinationStatus: WorkSalesCoordinationStatus.READY_FOR_SALES,
+      assignments: [
+        {
+          assignmentRole: WorkAssignmentRole.PRIMARY,
+          assignee: { id: 'employee' },
+        },
+      ],
+    };
+    jest.mocked(scope.resolveActorContext).mockResolvedValue({
+      accountId: 'employee',
+      role: AccountRole.EMPLOYEE,
+      divisionId: 'division-a',
+      departmentId: 'department-a',
+    });
+    transaction.workItem.findFirst.mockResolvedValue(current);
+    transaction.workItem.updateMany.mockResolvedValue({ count: 1 });
+    transaction.workItem.findUniqueOrThrow.mockResolvedValue(final);
+
+    const result = await service.sendToSales(employeeUser, 'work-1', {
+      note: 'Customer form is ready.',
+    });
+
+    expect(transaction.workItem.updateMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          salesCoordinationStatus: WorkSalesCoordinationStatus.READY_FOR_SALES,
+          salesDocumentsSentAt: expect.any(Date),
+        }),
+      }),
+    );
+    expect(transaction.workActivity.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          action: WorkActivityAction.SALES_DOCUMENTS_SENT,
+          actorAccountId: 'employee',
+        }),
+      }),
+    );
+    expect(notifications.publishWorkUpdate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: 'SALES_DOCUMENTS_SENT',
+        notificationRecipientAccountIds: ['sales-member'],
+      }),
+    );
+    expect(result.message).toBe('Sent to Sales.');
+  });
+
+  it('lets only the assigned Sales Member finish Sales work', async () => {
+    const current = {
+      ...currentWork(),
+      salesMemberAccountId: 'sales-member',
+      salesCoordinationStatus: WorkSalesCoordinationStatus.READY_FOR_SALES,
+      salesDocumentsSentAt: new Date(),
+    };
+    const final = {
+      ...detailWork(WorkItemStatus.IN_PROGRESS),
+      salesMember: { id: 'sales-member' },
+      salesCoordinationStatus: WorkSalesCoordinationStatus.COMPLETED,
+      responsibleManager: { id: 'manager' },
+      assignments: [
+        {
+          assignmentRole: WorkAssignmentRole.PRIMARY,
+          assignee: { id: 'employee' },
+        },
+      ],
+    };
+    jest.mocked(scope.resolveActorContext).mockResolvedValue({
+      accountId: 'sales-member',
+      role: AccountRole.EMPLOYEE,
+      divisionId: 'division-a',
+      departmentId: 'sales-department',
+    });
+    transaction.workItem.findFirst.mockResolvedValue(current);
+    transaction.workItem.updateMany.mockResolvedValue({ count: 1 });
+    transaction.workItem.findUniqueOrThrow.mockResolvedValue(final);
+
+    const result = await service.completeSalesWork(
+      { ...employeeUser, accountId: 'sales-member' },
+      'work-1',
+      { note: 'Profile and billing completed.' },
+    );
+
+    expect(transaction.workItem.updateMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          salesCoordinationStatus: WorkSalesCoordinationStatus.COMPLETED,
+          salesCompletedAt: expect.any(Date),
+          salesCompletionNote: 'Profile and billing completed.',
+        }),
+      }),
+    );
+    expect(transaction.workActivity.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          action: WorkActivityAction.SALES_WORK_COMPLETED,
+          actorAccountId: 'sales-member',
+        }),
+      }),
+    );
+    expect(notifications.publishWorkUpdate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: 'SALES_WORK_COMPLETED',
+        notificationRecipientAccountIds: expect.arrayContaining([
+          'employee',
+          'manager',
+        ]),
+      }),
+    );
+    expect(result.message).toBe('Sales work completed.');
+  });
+
+  it('rejects Sales completion from a different employee', async () => {
+    const current = {
+      ...currentWork(),
+      salesMemberAccountId: 'sales-member',
+      salesCoordinationStatus: WorkSalesCoordinationStatus.READY_FOR_SALES,
+    };
+    jest.mocked(scope.resolveActorContext).mockResolvedValue({
+      accountId: 'other-employee',
+      role: AccountRole.EMPLOYEE,
+      divisionId: 'division-a',
+      departmentId: 'department-a',
+    });
+    transaction.workItem.findFirst.mockResolvedValue(current);
+
+    await expect(
+      service.completeSalesWork(
+        { ...employeeUser, accountId: 'other-employee' },
+        'work-1',
+        {},
+      ),
+    ).rejects.toBeInstanceOf(ForbiddenException);
+
+    expect(transaction.workItem.updateMany).not.toHaveBeenCalled();
+  });
+
+  it('blocks primary completion until required Sales work is finished', async () => {
+    const current = {
+      ...currentWork(),
+      salesMemberAccountId: 'sales-member',
+      salesCoordinationStatus: WorkSalesCoordinationStatus.READY_FOR_SALES,
+    };
+    jest.mocked(scope.resolveActorContext).mockResolvedValue({
+      accountId: 'employee',
+      role: AccountRole.EMPLOYEE,
+      divisionId: 'division-a',
+      departmentId: 'department-a',
+    });
+    transaction.workItem.findFirst.mockResolvedValue(current);
+
+    await expect(
+      service.submitCompletion(employeeUser, 'work-1', {
+        result: WorkCompletionResult.FULLY_RESOLVED,
+        summary: 'Primary work completed.',
+        moreWorkRequired: false,
+      }),
+    ).rejects.toThrow(
+      'Sales work is not finished yet. Wait for Sales before submitting this work.',
+    );
+
+    expect(transaction.workCompletionReport.create).not.toHaveBeenCalled();
+  });
+
+  it('requires Customer ID and RX Level for New Installation completion', async () => {
+    const current = {
+      ...currentWork(),
+      type: WorkItemType.NEW_CONNECTION,
+      requestNumber: 'TOK-1001',
+      cpcSerial: 'CPC-1001',
+      serviceNumber: null,
+      olt: 'OLT-03',
+      fdcName: 'FDC-12',
+      fapName: 'FAP-08',
+    };
+    jest.mocked(scope.resolveActorContext).mockResolvedValue({
+      accountId: 'employee',
+      role: AccountRole.EMPLOYEE,
+      divisionId: 'division-a',
+      departmentId: 'department-a',
+    });
+    transaction.workItem.findFirst.mockResolvedValue(current);
+
+    await expect(
+      service.submitCompletion(employeeUser, 'work-1', {
+        result: WorkCompletionResult.FULLY_RESOLVED,
+        summary: 'Installation tested successfully.',
+        moreWorkRequired: false,
+      }),
+    ).rejects.toThrow('Customer ID is required.');
+
+    await expect(
+      service.submitCompletion(employeeUser, 'work-1', {
+        result: WorkCompletionResult.FULLY_RESOLVED,
+        summary: 'Installation tested successfully.',
+        customerId: 'CUS-12345',
+        moreWorkRequired: false,
+      }),
+    ).rejects.toThrow('RX Level is required.');
+
+    expect(transaction.workCompletionReport.create).not.toHaveBeenCalled();
+  });
+
+  it('copies New Installation work facts without a Service Number and records Token as the closing reference', async () => {
+    const current = {
+      ...currentWork(),
+      type: WorkItemType.NEW_CONNECTION,
+      requestNumber: 'TOK-1001',
+      cpcSerial: 'CPC-1001',
+      serviceNumber: null,
+      olt: 'OLT-03',
+      fdcName: 'FDC-12',
+      fapName: 'FAP-08',
+    };
+    const final = detailWork(WorkItemStatus.COMPLETED_PENDING_REVIEW);
+    jest.mocked(scope.resolveActorContext).mockResolvedValue({
+      accountId: 'employee',
+      role: AccountRole.EMPLOYEE,
+      divisionId: 'division-a',
+      departmentId: 'department-a',
+    });
+    transaction.workItem.findFirst.mockResolvedValue(current);
+    transaction.workItem.updateMany.mockResolvedValue({ count: 1 });
+    transaction.workItem.findUniqueOrThrow.mockResolvedValue(final);
+    transaction.workCompletionReport.create.mockResolvedValue({
+      id: 'report-installation',
+      reviewStatus: WorkCompletionReviewStatus.PENDING_REVIEW,
+    });
+
+    await service.submitCompletion(employeeUser, 'work-1', {
+      result: WorkCompletionResult.FULLY_RESOLVED,
+      summary: 'Installation tested successfully.',
+      customerId: 'CUS-12345',
+      rxLevelDbm: -18.5,
+      moreWorkRequired: false,
+    });
+
+    expect(transaction.workCompletionReport.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          cpcSerial: 'CPC-1001',
+          serviceNumber: null,
+          customerId: 'CUS-12345',
+          rxLevelDbm: -18.5,
+          olt: 'OLT-03',
+          fdcName: 'FDC-12',
+          fapName: 'FAP-08',
+        }),
+      }),
+    );
+    expect(transaction.workActivity.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          details: expect.objectContaining({
+            completionReferenceType: 'TOKEN_NUMBER',
+            completionReference: 'TOK-1001',
+          }),
+        }),
+      }),
+    );
+  });
+
+  it.each([
+    WorkItemType.UPDATE_SERVICES,
+    WorkItemType.TROUBLE_TICKET,
+    WorkItemType.EMERGENCY_WORK,
+  ])('requires Customer ID for %s completion', async (type) => {
+    const current = {
+      ...currentWork(),
+      type,
+      requestNumber: type === WorkItemType.UPDATE_SERVICES ? 'TOK-2001' : null,
+    };
+    jest.mocked(scope.resolveActorContext).mockResolvedValue({
+      accountId: 'employee',
+      role: AccountRole.EMPLOYEE,
+      divisionId: 'division-a',
+      departmentId: 'department-a',
+    });
+    transaction.workItem.findFirst.mockResolvedValue(current);
+
+    await expect(
+      service.submitCompletion(employeeUser, 'work-1', {
+        result: WorkCompletionResult.FULLY_RESOLVED,
+        summary: 'Work completed successfully.',
+        rxLevelDbm: -20,
+        moreWorkRequired: false,
+      }),
+    ).rejects.toThrow('Customer ID is required.');
+  });
+
+  it.each([WorkItemType.ROUTINE_TASK, WorkItemType.INSPECTION])(
+    'removes Customer ID but still requires RX Level for %s completion',
+    async (type) => {
+      const current = { ...currentWork(), type };
+      jest.mocked(scope.resolveActorContext).mockResolvedValue({
+        accountId: 'employee',
+        role: AccountRole.EMPLOYEE,
+        divisionId: 'division-a',
+        departmentId: 'department-a',
+      });
+      transaction.workItem.findFirst.mockResolvedValue(current);
+
+      await expect(
+        service.submitCompletion(employeeUser, 'work-1', {
+          result: WorkCompletionResult.FULLY_RESOLVED,
+          summary: 'Work completed successfully.',
+          customerId: 'IGNORED-123',
+          moreWorkRequired: false,
+        }),
+      ).rejects.toThrow('RX Level is required.');
+    },
+  );
+
+  it.each([WorkItemType.ROUTINE_TASK, WorkItemType.INSPECTION])(
+    'does not store Customer ID for %s completion',
+    async (type) => {
+      const current = { ...currentWork(), type };
+      const final = detailWork(WorkItemStatus.COMPLETED_PENDING_REVIEW);
+      jest.mocked(scope.resolveActorContext).mockResolvedValue({
+        accountId: 'employee',
+        role: AccountRole.EMPLOYEE,
+        divisionId: 'division-a',
+        departmentId: 'department-a',
+      });
+      transaction.workItem.findFirst.mockResolvedValue(current);
+      transaction.workItem.updateMany.mockResolvedValue({ count: 1 });
+      transaction.workItem.findUniqueOrThrow.mockResolvedValue(final);
+      transaction.workCompletionReport.create.mockResolvedValue({
+        id: `report-${type.toLowerCase()}`,
+        reviewStatus: WorkCompletionReviewStatus.PENDING_REVIEW,
+      });
+
+      await service.submitCompletion(employeeUser, 'work-1', {
+        result: WorkCompletionResult.FULLY_RESOLVED,
+        summary: 'Work completed successfully.',
+        customerId: 'SHOULD-NOT-BE-STORED',
+        rxLevelDbm: -22,
+        moreWorkRequired: false,
+      });
+
+      expect(transaction.workCompletionReport.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            customerId: null,
+            rxLevelDbm: -22,
+          }),
+        }),
+      );
+    },
+  );
+
+  it('allows Network Maintenance completion without Customer ID while still requiring RX Level', async () => {
+    const current = {
+      ...currentWork(),
+      type: WorkItemType.MAINTENANCE,
+      requestNumber: null,
+      serviceNumber: null,
+    };
+    const final = detailWork(WorkItemStatus.COMPLETED_PENDING_REVIEW);
+    jest.mocked(scope.resolveActorContext).mockResolvedValue({
+      accountId: 'employee',
+      role: AccountRole.EMPLOYEE,
+      divisionId: 'division-a',
+      departmentId: 'department-a',
+    });
+    transaction.workItem.findFirst.mockResolvedValue(current);
+    transaction.workItem.updateMany.mockResolvedValue({ count: 1 });
+    transaction.workItem.findUniqueOrThrow.mockResolvedValue(final);
+    transaction.workCompletionReport.create.mockResolvedValue({
+      id: 'report-maintenance',
+      reviewStatus: WorkCompletionReviewStatus.PENDING_REVIEW,
+    });
+
+    await service.submitCompletion(employeeUser, 'work-1', {
+      result: WorkCompletionResult.FULLY_RESOLVED,
+      summary: 'Maintenance completed.',
+      rxLevelDbm: -21.25,
+      moreWorkRequired: false,
+    });
+
+    expect(transaction.workCompletionReport.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          customerId: null,
+          rxLevelDbm: -21.25,
+          serviceNumber: null,
+        }),
+      }),
+    );
+  });
+
+  it('stores optional Customer ID for Network Maintenance when the worker has it', async () => {
+    const current = {
+      ...currentWork(),
+      type: WorkItemType.MAINTENANCE,
+      requestNumber: null,
+      serviceNumber: null,
+    };
+    const final = detailWork(WorkItemStatus.COMPLETED_PENDING_REVIEW);
+    jest.mocked(scope.resolveActorContext).mockResolvedValue({
+      accountId: 'employee',
+      role: AccountRole.EMPLOYEE,
+      divisionId: 'division-a',
+      departmentId: 'department-a',
+    });
+    transaction.workItem.findFirst.mockResolvedValue(current);
+    transaction.workItem.updateMany.mockResolvedValue({ count: 1 });
+    transaction.workItem.findUniqueOrThrow.mockResolvedValue(final);
+    transaction.workCompletionReport.create.mockResolvedValue({
+      id: 'report-maintenance-with-customer',
+      reviewStatus: WorkCompletionReviewStatus.PENDING_REVIEW,
+    });
+
+    await service.submitCompletion(employeeUser, 'work-1', {
+      result: WorkCompletionResult.FULLY_RESOLVED,
+      summary: 'Maintenance completed.',
+      customerId: 'CUS-OPTIONAL',
+      rxLevelDbm: -21.25,
+      moreWorkRequired: false,
+    });
+
+    expect(transaction.workCompletionReport.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          customerId: 'CUS-OPTIONAL',
+          rxLevelDbm: -21.25,
+        }),
+      }),
+    );
+  });
+
+  it('prefers Token Number over Service Number when both references exist', async () => {
+    const current = {
+      ...currentWork(),
+      type: WorkItemType.UPDATE_SERVICES,
+      requestNumber: 'TOK-4001',
+      serviceNumber: '0155004001',
+    };
+    const final = detailWork(WorkItemStatus.COMPLETED_PENDING_REVIEW);
+    jest.mocked(scope.resolveActorContext).mockResolvedValue({
+      accountId: 'employee',
+      role: AccountRole.EMPLOYEE,
+      divisionId: 'division-a',
+      departmentId: 'department-a',
+    });
+    transaction.workItem.findFirst.mockResolvedValue(current);
+    transaction.workItem.updateMany.mockResolvedValue({ count: 1 });
+    transaction.workItem.findUniqueOrThrow.mockResolvedValue(final);
+    transaction.workCompletionReport.create.mockResolvedValue({
+      id: 'report-token-reference',
+      reviewStatus: WorkCompletionReviewStatus.PENDING_REVIEW,
+    });
+
+    await service.submitCompletion(employeeUser, 'work-1', {
+      result: WorkCompletionResult.FULLY_RESOLVED,
+      summary: 'Service update completed.',
+      customerId: 'CUS-4001',
+      rxLevelDbm: -17.75,
+      moreWorkRequired: false,
+    });
+
+    expect(transaction.workActivity.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          details: expect.objectContaining({
+            completionReferenceType: 'TOKEN_NUMBER',
+            completionReference: 'TOK-4001',
+          }),
+        }),
+      }),
+    );
+  });
+
+  it('uses Service Number as the closing reference when Token Number is absent', async () => {
+    const current = {
+      ...currentWork(),
+      type: WorkItemType.TROUBLE_TICKET,
+      requestNumber: null,
+      serviceNumber: '015500999',
+    };
+    const final = detailWork(WorkItemStatus.COMPLETED_PENDING_REVIEW);
+    jest.mocked(scope.resolveActorContext).mockResolvedValue({
+      accountId: 'employee',
+      role: AccountRole.EMPLOYEE,
+      divisionId: 'division-a',
+      departmentId: 'department-a',
+    });
+    transaction.workItem.findFirst.mockResolvedValue(current);
+    transaction.workItem.updateMany.mockResolvedValue({ count: 1 });
+    transaction.workItem.findUniqueOrThrow.mockResolvedValue(final);
+    transaction.workCompletionReport.create.mockResolvedValue({
+      id: 'report-service-reference',
+      reviewStatus: WorkCompletionReviewStatus.PENDING_REVIEW,
+    });
+
+    await service.submitCompletion(employeeUser, 'work-1', {
+      result: WorkCompletionResult.FULLY_RESOLVED,
+      summary: 'Trouble ticket resolved.',
+      customerId: 'CUS-3001',
+      rxLevelDbm: -19.5,
+      moreWorkRequired: false,
+    });
+
+    expect(transaction.workActivity.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          details: expect.objectContaining({
+            completionReferenceType: 'SERVICE_NUMBER',
+            completionReference: '015500999',
+          }),
+        }),
+      }),
+    );
+  });
+
+  it('keeps Administrative Work completion free of customer and network field requirements', async () => {
+    const current = {
+      ...currentWork(),
+      type: WorkItemType.ADMINISTRATIVE_TASK,
+      requestNumber: null,
+      cpcSerial: null,
+      serviceNumber: null,
+      olt: null,
+      fdcName: null,
+      fapName: null,
+    };
+    const final = detailWork(WorkItemStatus.COMPLETED_PENDING_REVIEW);
+    jest.mocked(scope.resolveActorContext).mockResolvedValue({
+      accountId: 'employee',
+      role: AccountRole.EMPLOYEE,
+      divisionId: 'division-a',
+      departmentId: 'department-a',
+    });
+    transaction.workItem.findFirst.mockResolvedValue(current);
+    transaction.workItem.updateMany.mockResolvedValue({ count: 1 });
+    transaction.workItem.findUniqueOrThrow.mockResolvedValue(final);
+    transaction.workCompletionReport.create.mockResolvedValue({
+      id: 'report-admin',
+      reviewStatus: WorkCompletionReviewStatus.PENDING_REVIEW,
+    });
+
+    await service.submitCompletion(employeeUser, 'work-1', {
+      result: WorkCompletionResult.FULLY_RESOLVED,
+      summary: 'Administrative work completed.',
+      moreWorkRequired: false,
+    });
+
+    expect(transaction.workCompletionReport.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          cpcSerial: null,
+          serviceNumber: null,
+          customerId: null,
+          rxLevelDbm: null,
+          olt: null,
+          fdcName: null,
+          fapName: null,
+        }),
+      }),
+    );
+  });
+
   it('prevents a supporting employee from submitting the primary completion report', async () => {
     jest.mocked(scope.resolveActorContext).mockResolvedValue({
       accountId: 'helper',
@@ -288,6 +871,8 @@ describe('WorkLifecycleService M20 Phase 2', () => {
     await service.submitCompletion(employeeUser, 'work-1', {
       result: WorkCompletionResult.FULLY_RESOLVED,
       summary: 'Damaged wire replaced and tested.',
+      customerId: 'CUS-1001',
+      rxLevelDbm: -18.5,
       moreWorkRequired: false,
     });
 
@@ -309,7 +894,7 @@ describe('WorkLifecycleService M20 Phase 2', () => {
     );
   });
 
-  it('blocks final submission while team work is still unfinished', async () => {
+  it('blocks final submission while delegated work is still unfinished', async () => {
     const current = {
       ...currentWork(WorkItemStatus.IN_PROGRESS, 'team-manager'),
       childWorkItems: [
@@ -340,13 +925,13 @@ describe('WorkLifecycleService M20 Phase 2', () => {
         },
       ),
     ).rejects.toThrow(
-      'Team work is still unfinished. Complete or cancel it before submitting this task.',
+      'Delegated work is still unfinished. Complete or cancel it before submitting this task.',
     );
 
     expect(transaction.workCompletionReport.create).not.toHaveBeenCalled();
   });
 
-  it('blocks cancellation while team work is unfinished', async () => {
+  it('blocks cancellation while delegated work is unfinished', async () => {
     const current = {
       ...currentWork(WorkItemStatus.IN_PROGRESS, 'employee'),
       childWorkItems: [
@@ -366,7 +951,7 @@ describe('WorkLifecycleService M20 Phase 2', () => {
         reason: 'Main task no longer needed.',
       }),
     ).rejects.toThrow(
-      'Cancel or complete the unfinished team work before cancelling this task.',
+      'Cancel or complete the unfinished delegated work before cancelling this task.',
     );
 
     expect(transaction.workItem.updateMany).not.toHaveBeenCalled();
@@ -408,6 +993,8 @@ describe('WorkLifecycleService M20 Phase 2', () => {
         {
           result: WorkCompletionResult.FULLY_RESOLVED,
           summary: 'Assigned management task completed and checked.',
+          customerId: `CUS-${accountId}`,
+          rxLevelDbm: -19,
           moreWorkRequired: false,
         },
       );
@@ -476,6 +1063,38 @@ describe('WorkLifecycleService M20 Phase 2', () => {
       }),
     );
     expect(result.workItem.status).toBe(WorkItemStatus.CLOSED);
+  });
+
+  it('blocks manager approval while required Sales work is unfinished', async () => {
+    const current = {
+      ...currentWork(WorkItemStatus.COMPLETED_PENDING_REVIEW),
+      salesMemberAccountId: 'sales-member',
+      salesCoordinationStatus: WorkSalesCoordinationStatus.READY_FOR_SALES,
+      completionReports: [
+        {
+          id: 'report-1',
+          reviewStatus: WorkCompletionReviewStatus.PENDING_REVIEW,
+        },
+      ],
+    };
+    jest.mocked(scope.resolveActorContext).mockResolvedValue({
+      accountId: 'manager',
+      role: AccountRole.TEAM_MANAGER,
+      divisionId: 'division-a',
+      departmentId: 'department-a',
+    });
+    transaction.workItem.findFirst.mockResolvedValue(current);
+
+    await expect(
+      service.close(managerUser, 'work-1', {
+        note: 'Completion details checked.',
+      }),
+    ).rejects.toThrow(
+      'Sales work is not finished yet. Wait for Sales before approving this work.',
+    );
+
+    expect(transaction.workCompletionReport.update).not.toHaveBeenCalled();
+    expect(transaction.workItem.updateMany).not.toHaveBeenCalled();
   });
 
   it('accepts a direct help request and adds the helper as supporting staff', async () => {
@@ -723,8 +1342,31 @@ describe('WorkLifecycleService M20 Phase 2', () => {
     );
   });
 
-  it('reassigns primary ownership while preserving the previous assignment', async () => {
+  it('rejects individual transfer for operational work because operational ownership is Team-based', async () => {
     const current = currentWork(WorkItemStatus.IN_PROGRESS);
+    jest.mocked(scope.resolveActorContext).mockResolvedValue({
+      accountId: 'manager',
+      role: AccountRole.TEAM_MANAGER,
+      divisionId: 'division-a',
+      departmentId: 'department-a',
+    });
+    jest.mocked(prisma.workItem.findFirst).mockResolvedValue(current as never);
+
+    await expect(
+      service.reassignPrimary(managerUser, 'work-1', {
+        primaryAssigneeAccountId: 'employee-2',
+        reason: 'Move to another employee.',
+      }),
+    ).rejects.toThrow(
+      'Operational work stays Team-owned and cannot be transferred to one individual.',
+    );
+
+    expect(scope.resolvePrimaryReassignmentAccount).not.toHaveBeenCalled();
+  });
+
+  it('reassigns individual Administrative ownership while preserving the previous assignment', async () => {
+    const current = currentWork(WorkItemStatus.IN_PROGRESS);
+    current.type = WorkItemType.ADMINISTRATIVE_TASK;
     const final = detailWork(WorkItemStatus.ASSIGNED);
     jest.mocked(scope.resolveActorContext).mockResolvedValue({
       accountId: 'manager',
@@ -745,6 +1387,10 @@ describe('WorkLifecycleService M20 Phase 2', () => {
       reason: 'Requires fiber-splicing experience.',
     });
 
+    expect(scope.assertAdministrativeIndividualAssignee).toHaveBeenCalledWith(
+      expect.objectContaining({ accountId: 'manager' }),
+      expect.objectContaining({ id: 'employee-2' }),
+    );
     expect(transaction.workAssignment.update).toHaveBeenCalledWith(
       expect.objectContaining({
         where: { id: 'primary-assignment' },
@@ -877,6 +1523,46 @@ describe('WorkLifecycleService M20 Phase 2', () => {
     );
   });
 
+  it('keeps registration internal when editing Administrative Work', async () => {
+    const current = currentWork();
+    current.type = WorkItemType.ADMINISTRATIVE_TASK;
+    const originalRegisteredAt = current.registeredAt;
+    const final = detailWork(WorkItemStatus.IN_PROGRESS);
+    jest.mocked(scope.resolveActorContext).mockResolvedValue({
+      accountId: 'manager',
+      role: AccountRole.TEAM_MANAGER,
+      divisionId: 'division-a',
+      departmentId: 'department-a',
+    });
+    transaction.workItem.findFirst.mockResolvedValue(current);
+    transaction.workItem.updateMany.mockResolvedValue({ count: 1 });
+    transaction.workItem.findUniqueOrThrow.mockResolvedValue(final);
+
+    await service.update(managerUser, 'work-1', {
+      registeredAt: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
+      plannedStartAt: new Date(Date.now() - 3 * 60 * 60 * 1000).toISOString(),
+    });
+
+    expect(transaction.workItem.updateMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          registeredAt: originalRegisteredAt,
+        }),
+      }),
+    );
+    expect(transaction.workActivity.createMany).toHaveBeenCalledWith({
+      data: expect.arrayContaining([
+        expect.objectContaining({
+          action: WorkActivityAction.DETAILS_UPDATED,
+          details: expect.not.objectContaining({
+            registeredAt: expect.anything(),
+            previousRegisteredAt: expect.anything(),
+          }),
+        }),
+      ]),
+    });
+  });
+
   it('rejects a registered timestamp later than the planned start', async () => {
     const current = currentWork();
     jest.mocked(scope.resolveActorContext).mockResolvedValue({
@@ -907,7 +1593,7 @@ describe('WorkLifecycleService M20 Phase 2', () => {
     transaction.workItem.findUniqueOrThrow.mockResolvedValue(final);
 
     const result = await service.update(managerUser, 'work-1', {
-      priority: WorkPriority.HIGH,
+      locationText: current.locationText,
     });
 
     expect(result.message).toBe('No work item changes were required.');
@@ -927,7 +1613,7 @@ describe('WorkLifecycleService M20 Phase 2', () => {
 
     await expect(
       service.update(managerUser, 'work-1', {
-        priority: WorkPriority.CRITICAL,
+        locationText: 'Pulchowk',
       }),
     ).rejects.toBeInstanceOf(ConflictException);
   });

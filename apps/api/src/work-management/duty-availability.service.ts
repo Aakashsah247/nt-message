@@ -17,7 +17,6 @@ import {
   WorkAvailabilityPreference,
   WorkAssignmentRole,
   WorkItemStatus,
-  WorkPriority,
 } from '../generated/prisma/client';
 import type { Prisma } from '../generated/prisma/client';
 import { MessagingPresenceService } from '../realtime/messaging-presence.service';
@@ -512,7 +511,7 @@ export class DutyAvailabilityService {
         select: {
           assigneeAccountId: true,
           workItem: {
-            select: { priority: true, status: true, dueAt: true },
+            select: { status: true, dueAt: true },
           },
         },
       }),
@@ -554,7 +553,6 @@ export class DutyAvailabilityService {
         : null;
       const workload = workloadByAccount.get(candidate.id) ?? {
         active: 0,
-        urgent: 0,
         overdue: 0,
       };
 
@@ -587,9 +585,8 @@ export class DutyAvailabilityService {
       const onlineDifference =
         onlineRank(first.isOnline) - onlineRank(second.isOnline);
       if (onlineDifference !== 0) return onlineDifference;
-      const urgentDifference =
-        first.workload.urgent - second.workload.urgent;
-      if (urgentDifference !== 0) return urgentDifference;
+      const overdueDifference = first.workload.overdue - second.workload.overdue;
+      if (overdueDifference !== 0) return overdueDifference;
       const activeDifference = first.workload.active - second.workload.active;
       if (activeDifference !== 0) return activeDifference;
       const firstName =
@@ -646,7 +643,6 @@ export class DutyAvailabilityService {
     rows: Array<{
       assigneeAccountId: string;
       workItem: {
-        priority: WorkPriority;
         status: WorkItemStatus;
         dueAt: Date;
       };
@@ -656,7 +652,7 @@ export class DutyAvailabilityService {
     const map = new Map(
       accountIds.map((accountId) => [
         accountId,
-        { active: 0, urgent: 0, overdue: 0 },
+        { active: 0, overdue: 0 },
       ]),
     );
 
@@ -664,12 +660,6 @@ export class DutyAvailabilityService {
       const workload = map.get(row.assigneeAccountId);
       if (!workload) continue;
       workload.active += 1;
-      if (
-        row.workItem.priority === WorkPriority.HIGH ||
-        row.workItem.priority === WorkPriority.CRITICAL
-      ) {
-        workload.urgent += 1;
-      }
       if (row.workItem.dueAt.getTime() < now.getTime()) {
         workload.overdue += 1;
       }

@@ -6,10 +6,12 @@ import {
   createMessagingSocket,
 } from "../services/messaging-socket.service";
 import {
+  getDutyCalendar,
   getMyDutySummary,
   updateMyWorkAvailability,
 } from "../services/work-management.service";
 import type {
+  DutyCalendarResponse,
   MyDutyAssignment,
   DutyEffectiveStatus,
   MyDutySummary,
@@ -55,16 +57,7 @@ function DutyIcon({ name }: { name: DutyIconName }): ReactNode {
 
 function accountName(assignment: MyDutyAssignment | null | undefined): string {
   const account = assignment?.supervisor;
-  return account?.employee?.empName ?? account?.username ?? "Assigned supervisor";
-}
-
-function assignedByName(assignment: MyDutyAssignment): string {
-  // Defensive access keeps one stale or partially cached response from breaking the whole duty page.
-  return assignment.createdBy?.employee?.empName ?? assignment.createdBy?.username ?? "Authorized management";
-}
-
-function isOverrideAssignment(assignment: MyDutyAssignment): boolean {
-  return assignment.authority === "SUPER_ADMIN_OVERRIDE";
+  return account?.employee?.empName ?? account?.superAdminProfile?.fullName ?? account?.username ?? "Assigned supervisor";
 }
 
 function formatDate(value: string): string {
@@ -92,9 +85,16 @@ function errorMessage(error: unknown): string {
     : "Duty information could not be loaded.";
 }
 
+function branchDateInput(date = new Date()): string {
+  const parts = new Intl.DateTimeFormat("en-CA", { timeZone: BRANCH_TIME_ZONE, year: "numeric", month: "2-digit", day: "2-digit" }).formatToParts(date);
+  const values = Object.fromEntries(parts.map((part) => [part.type, part.value]));
+  return `${values.year}-${values.month}-${values.day}`;
+}
+
 export function EmployeeDutyPage() {
   const { accessToken } = useAuth();
   const [summary, setSummary] = useState<MyDutySummary | null>(null);
+  const [calendar, setCalendar] = useState<DutyCalendarResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [updating, setUpdating] = useState(false);
   const [error, setError] = useState("");
@@ -108,9 +108,15 @@ export function EmployeeDutyPage() {
     setLoading(true);
     setError("");
 
-    getMyDutySummary(accessToken)
-      .then((response) => {
-        if (active) setSummary(response);
+    const from = branchDateInput();
+    void Promise.all([
+      getMyDutySummary(accessToken),
+      getDutyCalendar(accessToken, { from, to: new Date(Date.now() + 90 * 86_400_000).toISOString().slice(0, 10) }),
+    ])
+      .then(([dutyResponse, calendarResponse]) => {
+        if (!active) return;
+        setSummary(dutyResponse);
+        setCalendar(calendarResponse);
       })
       .catch((loadError) => {
         if (active) setError(errorMessage(loadError));
@@ -220,7 +226,7 @@ export function EmployeeDutyPage() {
                   <div className="employee-duty__summary-copy">
                     <span className="employee-duty__summary-label">Shift</span>
                     <strong>{visibleDuty.shift.name}</strong>
-                    <small>{isOverrideAssignment(visibleDuty) ? "Super Admin override" : "Scheduled duty"}</small>
+                    <small>Scheduled duty</small>
                   </div>
                 </article>
                 <article className="employee-duty__summary-card">
@@ -258,12 +264,6 @@ export function EmployeeDutyPage() {
               </div>
             )}
 
-            {visibleDuty && isOverrideAssignment(visibleDuty) && (
-              <div className="employee-duty__authority-note">
-                <strong>Audited branch override</strong>
-                <span>{visibleDuty.overrideReason || `Assigned by ${assignedByName(visibleDuty)}`}</span>
-              </div>
-            )}
           </section>
         )}
 
@@ -329,9 +329,7 @@ export function EmployeeDutyPage() {
                       <td>{assignment.reportingLocation}</td>
                       <td>{accountName(assignment)}</td>
                       <td>
-                        <span className={`employee-duty__schedule-status ${isOverrideAssignment(assignment) ? "is-override" : ""}`}>
-                          {isOverrideAssignment(assignment) ? "Override" : "Upcoming"}
-                        </span>
+                        <span className="employee-duty__schedule-status">Upcoming</span>
                       </td>
                     </tr>
                   ))}
@@ -347,6 +345,16 @@ export function EmployeeDutyPage() {
               </div>
             </div>
           )}
+        </section>
+
+        <section className="employee-duty__schedule employee-duty__holiday-calendar" aria-label="Holiday calendar">
+          <header><div><span>Holiday Calendar</span><h2>Upcoming non-working days</h2></div></header>
+          <div className="employee-duty__holiday-list">
+            {calendar?.weeklyOffDays.length ? <article><DutyIcon name="calendar" /><div><strong>Weekly off</strong><span>{calendar.weeklyOffDays.map((day) => ["Sunday","Monday","Tuesday","Wednesday","Thursday","Friday","Saturday"][day]).join(", ")}</span></div></article> : null}
+            {calendar?.holidays.slice(0, 5).map((holiday) => <article key={holiday.id}><DutyIcon name="calendar" /><div><strong>{holiday.name}</strong><span>{formatDate(`${holiday.startDate}T00:00:00Z`)}{holiday.endDate !== holiday.startDate ? ` – ${formatDate(`${holiday.endDate}T00:00:00Z`)}` : ""} · {holiday.type.toLowerCase().replaceAll("_", " ")}</span></div></article>)}
+            {!calendar?.weeklyOffDays.length && !calendar?.holidays.length && <p>No upcoming holiday is recorded.</p>}
+          </div>
+          <p className="employee-duty__holiday-note">Holiday and weekly-off dates do not prevent essential operational duty when management schedules coverage.</p>
         </section>
 
         <section className="employee-duty__boundary employee-duty__boundary--compact">

@@ -7,16 +7,13 @@ import {
   MaxLength,
 } from 'class-validator';
 
-import {
-  AccountRole,
-  WorkItemStatus,
-  WorkItemType,
-  WorkPriority,
-} from '../../generated/prisma/client';
+import { WorkItemType } from '../../generated/prisma/client';
 
-export enum WorkReportDutyStatus {
-  SCHEDULED = 'SCHEDULED',
-  CANCELLED = 'CANCELLED',
+export enum WorkReportWorkflowStageFilter {
+  OVERDUE = 'OVERDUE',
+  WAITING_FOR_SALES = 'WAITING_FOR_SALES',
+  WAITING_FOR_APPROVAL = 'WAITING_FOR_APPROVAL',
+  RETURNED_FOR_CORRECTION = 'RETURNED_FOR_CORRECTION',
 }
 
 export class WorkReportQueryDto {
@@ -28,13 +25,6 @@ export class WorkReportQueryDto {
   @Matches(/^\d{4}-\d{2}-\d{2}$/)
   to?: string;
 
-  @IsOptional()
-  @IsEnum(WorkItemStatus)
-  status?: WorkItemStatus;
-
-  @IsOptional()
-  @IsEnum(WorkPriority)
-  priority?: WorkPriority;
 
   @IsOptional()
   @IsEnum(WorkItemType)
@@ -50,26 +40,14 @@ export class WorkReportQueryDto {
 
   @IsOptional()
   @IsUUID('4')
-  employeeAccountId?: string;
+  teamId?: string;
 
   @IsOptional()
-  @IsUUID('4')
-  assignedByAccountId?: string;
-
-  @IsOptional()
-  @IsEnum(AccountRole)
-  assignedToRole?: AccountRole;
-
-  @IsOptional()
-  @IsUUID('4')
-  shiftTemplateId?: string;
-
-  @IsOptional()
-  @IsEnum(WorkReportDutyStatus)
-  dutyStatus?: WorkReportDutyStatus;
+  @IsEnum(WorkReportWorkflowStageFilter)
+  workflowStage?: WorkReportWorkflowStageFilter;
 
   @IsOptional()
   @IsString()
-  @MaxLength(300)
-  location?: string;
+  @MaxLength(160)
+  search?: string;
 }

@@ -12,6 +12,7 @@ import {
   AccountRole,
   DutyActivityAction,
   DutyAssignmentAuthority,
+  DutyHolidayType,
   EmployeeStatus,
   EmploymentStatus,
   ManagementPositionType,
@@ -21,16 +22,21 @@ import {
 import type { Prisma } from '../generated/prisma/client';
 import { CancelDutyAssignmentDto } from './dto/cancel-duty-assignment.dto';
 import { CreateBulkDutyScheduleDto } from './dto/create-bulk-duty-schedule.dto';
-import { CreateDutyExceptionDto } from './dto/create-duty-exception.dto';
+import { CreateDutyHolidayDto, DutyHolidayScope } from './dto/create-duty-holiday.dto';
+import { CreateDutyLeaveDto } from './dto/create-duty-leave.dto';
 import { CreateDutyScheduleDto } from './dto/create-duty-schedule.dto';
-import { CreateDutyShiftTemplateDto } from './dto/create-duty-shift-template.dto';
+import { CreateDutyShiftTemplateDto, DutyShiftScope } from './dto/create-duty-shift-template.dto';
 import { DutyRosterQueryDto } from './dto/duty-roster-query.dto';
+import { DutyShiftTargetScope, DutyShiftTemplateQueryDto } from './dto/duty-shift-template-query.dto';
+import { ListDutyHolidaysQueryDto } from './dto/list-duty-holidays-query.dto';
 import {
   DutyAssignmentListView,
   ListDutyAssignmentsQueryDto,
 } from './dto/list-duty-assignments-query.dto';
 import { UpdateDutyAssignmentDto } from './dto/update-duty-assignment.dto';
+import { UpdateDutyHolidayDto } from './dto/update-duty-holiday.dto';
 import { UpdateDutyShiftTemplateDto } from './dto/update-duty-shift-template.dto';
+import { UpdateDutyWeeklyOffDto } from './dto/update-duty-weekly-off.dto';
 import { DutyNotificationsService } from './duty-notifications.service';
 import { workAccountSummarySelect } from './work-items.service';
 import { WorkScopeService } from './work-scope.service';
@@ -42,6 +48,7 @@ const MAX_ASSIGNMENTS_PER_REQUEST = 100;
 // Limits bound database work while still supporting practical weekly and monthly planning.
 const MAX_BULK_ASSIGNMENTS_PER_REQUEST = 1000;
 const MAX_ROSTER_DAYS = 31;
+const MIN_DUTY_REST_MINUTES = 8 * 60;
 
 const shiftTemplateSelect = {
   id: true,
@@ -114,10 +121,29 @@ const dutyExceptionSelect = {
   employee: { select: workAccountSummarySelect },
 } satisfies Prisma.DutyExceptionSelect;
 
+const dutyHolidaySelect = {
+  id: true,
+  name: true,
+  type: true,
+  startDate: true,
+  endDate: true,
+  divisionId: true,
+  departmentId: true,
+  note: true,
+  cancelledAt: true,
+  createdAt: true,
+  updatedAt: true,
+  division: { select: { id: true, code: true, name: true } },
+  department: { select: { id: true, divisionId: true, code: true, name: true } },
+  createdBy: { select: workAccountSummarySelect },
+  updatedBy: { select: workAccountSummarySelect },
+} satisfies Prisma.DutyHolidaySelect;
+
 const dutyRosterAccountSelect = {
   id: true,
   role: true,
   username: true,
+  superAdminProfile: { select: { fullName: true } },
   employee: {
     select: {
       id: true,
@@ -154,7 +180,8 @@ type DutyRosterAccount = Prisma.AccountGetPayload<{
 }>;
 
 type DutyWindow = { date: string; startsAt: Date; endsAt: Date };
-type DutyConflictKind = 'DUTY_CONFLICT' | 'LEAVE' | 'HOLIDAY';
+type DutyConflictKind = 'DUTY_CONFLICT' | 'REST_PERIOD' | 'LEAVE';
+type DutyWarningKind = 'HOLIDAY' | 'WEEKLY_OFF';
 
 interface DutyWindowConflict {
   window: DutyWindow;
@@ -163,11 +190,11 @@ interface DutyWindowConflict {
   existingAssignmentId: string | null;
 }
 
-interface DutyOverrideGovernance {
-  authority: DutyAssignmentAuthority;
-  hierarchyOverride: boolean;
-  conflictOverride: boolean;
-  overrideReason: string | null;
+interface DutyWindowWarning {
+  window: DutyWindow;
+  type: DutyWarningKind;
+  message: string;
+  holidayId: string | null;
 }
 
 type BulkScheduleLike = Pick<
@@ -202,7 +229,12 @@ export class DutyScheduleService {
       );
     }
 
-    const scope = this.templateScope(actor);
+    const scope = await this.resolveTemplateScope(
+      actor,
+      dto.scope,
+      dto.divisionId,
+      dto.departmentId,
+    );
     const existing = await this.prisma.dutyShiftTemplate.findFirst({
       where: {
         name: { equals: dto.name.trim(), mode: 'insensitive' },
@@ -295,10 +327,16 @@ export class DutyScheduleService {
     };
   }
 
-  async listShiftTemplates(user: AuthenticatedUser) {
+  async listShiftTemplates(
+    user: AuthenticatedUser,
+    query: DutyShiftTemplateQueryDto = {},
+  ) {
     const actor = await this.workScopeService.resolveActorContext(user);
+    const targetWhere = await this.assignmentTemplateWhere(actor, query);
     const templates = await this.prisma.dutyShiftTemplate.findMany({
-      where: this.visibleTemplateWhere(actor),
+      where: targetWhere
+        ? { AND: [this.visibleTemplateWhere(actor), targetWhere] }
+        : this.visibleTemplateWhere(actor),
       orderBy: [{ isActive: 'desc' }, { name: 'asc' }],
       select: shiftTemplateSelect,
     });
@@ -418,16 +456,9 @@ export class DutyScheduleService {
       ...this.assignmentWindow(date, shift.startMinute, shift.endMinute),
     }));
     const conflicts = await this.inspectScheduleConflicts(employee.id, windows);
-    const governance = this.resolveOverrideGovernance({
-      actor,
-      assigneeRole: employee.role,
-      conflictCount: conflicts.length,
-      overrideConflicts: dto.overrideConflicts === true,
-      overrideReason: dto.overrideReason,
-    });
-    const conflictsByDate = new Map(
-      conflicts.map((conflict) => [conflict.window.date, conflict]),
-    );
+    if (conflicts.length > 0) {
+      throw new ConflictException(conflicts[0].message);
+    }
 
     const startDate = this.parseDateOnly(dto.startDate, 'Start date');
     const endDate = this.parseDateOnly(
@@ -459,10 +490,10 @@ export class DutyScheduleService {
             weekdays: dto.weekdays ?? [],
             reportingLocation,
             notes,
-            authority: governance.authority,
-            overrideReason: governance.overrideReason,
-            hierarchyOverride: governance.hierarchyOverride,
-            conflictOverride: governance.conflictOverride,
+            authority: DutyAssignmentAuthority.STANDARD_HIERARCHY,
+            overrideReason: null,
+            hierarchyOverride: false,
+            conflictOverride: false,
           },
           select: { id: true },
         });
@@ -473,11 +504,7 @@ export class DutyScheduleService {
         }>[] = [];
 
         for (const window of windows) {
-          const conflict = conflictsByDate.get(window.date) ?? null;
-          const assignmentOverride = governance.hierarchyOverride || Boolean(conflict);
-          const authority = assignmentOverride
-            ? DutyAssignmentAuthority.SUPER_ADMIN_OVERRIDE
-            : DutyAssignmentAuthority.STANDARD_HIERARCHY;
+          const authority = DutyAssignmentAuthority.STANDARD_HIERARCHY;
           const assignment = await transaction.dutyAssignment.create({
             data: {
               seriesId: series.id,
@@ -497,11 +524,9 @@ export class DutyScheduleService {
               reportingLocation,
               notes,
               authority,
-              overrideReason: assignmentOverride
-                ? governance.overrideReason
-                : null,
-              hierarchyOverride: governance.hierarchyOverride,
-              conflictOverride: Boolean(conflict),
+              overrideReason: null,
+              hierarchyOverride: false,
+              conflictOverride: false,
             },
             select: dutyAssignmentSelect,
           });
@@ -510,20 +535,12 @@ export class DutyScheduleService {
 
         await transaction.dutyActivity.createMany({
           data: assignments.map((assignment) => {
-            const conflict = conflictsByDate.get(
-              this.dateOnlyString(assignment.dutyDate),
-            );
-            const isOverride =
-              assignment.authority ===
-              DutyAssignmentAuthority.SUPER_ADMIN_OVERRIDE;
             return {
               dutyAssignmentId: assignment.id,
               seriesId: series.id,
               employeeAccountId: employee.id,
               actorAccountId: actor.accountId,
-              action: isOverride
-                ? DutyActivityAction.OVERRIDE_ASSIGNED
-                : DutyActivityAction.ASSIGNED,
+              action: DutyActivityAction.ASSIGNED,
               details: {
                 source: 'SINGLE_SCHEDULE',
                 startsAt: assignment.startsAt.toISOString(),
@@ -539,12 +556,8 @@ export class DutyScheduleService {
                   employee.username ??
                   employee.role,
                 authority: assignment.authority,
-                hierarchyOverride: governance.hierarchyOverride,
-                conflictOverride: assignment.conflictOverride,
-                conflictType: conflict?.type ?? null,
-                existingAssignmentId:
-                  conflict?.existingAssignmentId ?? null,
-                overrideReason: assignment.overrideReason,
+                hierarchyOverride: false,
+                conflictOverride: false,
                 assignerRole: actor.role,
                 assigneeRole: employee.role,
               },
@@ -562,21 +575,17 @@ export class DutyScheduleService {
       supervisorAccountId: supervisor.id,
     });
     for (const assignment of result.assignments) {
-      const isOverride =
-        assignment.authority === DutyAssignmentAuthority.SUPER_ADMIN_OVERRIDE;
       await this.dutyNotifications.publishDutyUpdate({
         assignmentId: assignment.id,
         employeeAccountId: employee.id,
         action: 'ASSIGNED',
         actorAccountId: actor.accountId,
         recipientAccountIds,
-        title: isOverride
-          ? 'Duty assigned by Super Admin'
-          : 'Duty assigned',
+        title: 'Duty assigned',
         body: this.dutyNotificationBody(
           assignment.dutyDate,
           shift.name,
-          assignment.overrideReason,
+          null,
         ),
         startsAt: assignment.startsAt,
         endsAt: assignment.endsAt,
@@ -593,12 +602,6 @@ export class DutyScheduleService {
     return {
       message: `${result.assignments.length} duty assignment${result.assignments.length === 1 ? '' : 's'} created successfully.`,
       seriesId: result.seriesId,
-      governance: {
-        authority: governance.authority,
-        hierarchyOverride: governance.hierarchyOverride,
-        conflictOverride: governance.conflictOverride,
-        overrideReason: governance.overrideReason,
-      },
       assignments: result.assignments.map((assignment) =>
         this.serializeAssignment(assignment),
       ),
@@ -610,18 +613,7 @@ export class DutyScheduleService {
     dto: CreateBulkDutyScheduleDto,
   ) {
     const actor = await this.resolveManager(user);
-    if (dto.createValidAssignmentsOnly && dto.overrideConflicts) {
-      throw new BadRequestException(
-        'Choose either create valid assignments only or override conflicts, not both.',
-      );
-    }
-    if (dto.overrideConflicts && actor.role !== AccountRole.SUPER_ADMIN) {
-      throw new ForbiddenException(
-        'Only Super Admin can preview a conflict override.',
-      );
-    }
     const prepared = await this.prepareBulkSchedule(actor, dto);
-
     return this.serializeBulkPreview(prepared);
   }
 
@@ -630,72 +622,30 @@ export class DutyScheduleService {
     dto: CreateBulkDutyScheduleDto,
   ) {
     const actor = await this.resolveManager(user);
-    if (dto.createValidAssignmentsOnly && dto.overrideConflicts) {
-      throw new BadRequestException(
-        'Choose either create valid assignments only or override conflicts, not both.',
-      );
-    }
-    if (dto.overrideConflicts && actor.role !== AccountRole.SUPER_ADMIN) {
-      throw new ForbiddenException(
-        'Only Super Admin can override reviewed duty conflicts.',
-      );
-    }
-
-    // Creation reruns the same authoritative preview checks instead of trusting browser state.
+    // Creation reruns the authoritative preview checks instead of trusting browser state.
     const prepared = await this.prepareBulkSchedule(actor, dto);
     const conflictCount = prepared.people.reduce(
       (total, person) => total + person.conflicts.length,
       0,
     );
+    const warningCount = prepared.people.reduce(
+      (total, person) => total + person.warnings.length,
+      0,
+    );
 
-    // Conflicted dates are never skipped or overridden without one explicit request mode.
-    if (
-      conflictCount > 0 &&
-      !dto.createValidAssignmentsOnly &&
-      !dto.overrideConflicts
-    ) {
+    if (conflictCount > 0 && !dto.createValidAssignmentsOnly) {
       throw new ConflictException(
-        'Duty conflicts were found. Review the preview, then choose valid-only creation or a Super Admin override with a reason.',
-      );
-    }
-    if (dto.overrideConflicts && conflictCount === 0) {
-      throw new BadRequestException(
-        'No duty conflicts are available to override.',
-      );
-    }
-
-    const governanceByAccount = new Map<string, DutyOverrideGovernance>();
-    for (const person of prepared.people) {
-      const conflictOverride =
-        dto.overrideConflicts === true && person.conflicts.length > 0;
-      const hierarchyOverride = this.isHierarchyOverride(
-        actor,
-        person.account.role,
-      );
-      // A mixed bulk request applies override governance only to people who actually need it.
-      governanceByAccount.set(
-        person.account.id,
-        this.resolveOverrideGovernance({
-          actor,
-          assigneeRole: person.account.role,
-          conflictCount: conflictOverride ? person.conflicts.length : 0,
-          overrideConflicts: conflictOverride,
-          overrideReason:
-            conflictOverride || hierarchyOverride ? dto.overrideReason : undefined,
-        }),
+        'Blocked duty dates were found. Review the conflicts or choose Assign ready duties only.',
       );
     }
 
     const assignmentCount = prepared.people.reduce(
-      (total, person) =>
-        total +
-        person.validWindows.length +
-        (dto.overrideConflicts ? person.conflicts.length : 0),
+      (total, person) => total + person.validWindows.length,
       0,
     );
     if (assignmentCount === 0) {
       throw new ConflictException(
-        'No valid duty assignments remain after conflict and leave checks.',
+        'No ready duty assignments remain after overlap, rest and leave checks.',
       );
     }
 
@@ -708,19 +658,8 @@ export class DutyScheduleService {
         }>[] = [];
 
         for (const person of prepared.people) {
-          const governance = governanceByAccount.get(person.account.id);
-          if (!governance) continue;
-          const windowsToCreate = [
-            ...person.validWindows.map((window) => ({ window, conflict: null })),
-            ...(dto.overrideConflicts
-              ? person.conflicts.map((conflict) => ({
-                  window: conflict.window,
-                  conflict,
-                }))
-              : []),
-          ].sort(
-            (left, right) =>
-              left.window.startsAt.getTime() - right.window.startsAt.getTime(),
+          const windowsToCreate = [...person.validWindows].sort(
+            (left, right) => left.startsAt.getTime() - right.startsAt.getTime(),
           );
           if (windowsToCreate.length === 0) continue;
 
@@ -747,20 +686,15 @@ export class DutyScheduleService {
               weekdays: dto.weekdays ?? [],
               reportingLocation,
               notes,
-              authority: governance.authority,
-              overrideReason: governance.overrideReason,
-              hierarchyOverride: governance.hierarchyOverride,
-              conflictOverride: governance.conflictOverride,
+              authority: DutyAssignmentAuthority.STANDARD_HIERARCHY,
+              overrideReason: null,
+              hierarchyOverride: false,
+              conflictOverride: false,
             },
             select: { id: true },
           });
 
-          for (const item of windowsToCreate) {
-            const assignmentOverride =
-              governance.hierarchyOverride || Boolean(item.conflict);
-            const authority = assignmentOverride
-              ? DutyAssignmentAuthority.SUPER_ADMIN_OVERRIDE
-              : DutyAssignmentAuthority.STANDARD_HIERARCHY;
+          for (const window of windowsToCreate) {
             const assignment = await transaction.dutyAssignment.create({
               data: {
                 seriesId: series.id,
@@ -774,17 +708,15 @@ export class DutyScheduleService {
                 createdByAccountId: actor.accountId,
                 divisionId: person.divisionId,
                 departmentId: person.departmentId,
-                dutyDate: this.parseDateOnly(item.window.date, 'Duty date'),
-                startsAt: item.window.startsAt,
-                endsAt: item.window.endsAt,
+                dutyDate: this.parseDateOnly(window.date, 'Duty date'),
+                startsAt: window.startsAt,
+                endsAt: window.endsAt,
                 reportingLocation,
                 notes,
-                authority,
-                overrideReason: assignmentOverride
-                  ? governance.overrideReason
-                  : null,
-                hierarchyOverride: governance.hierarchyOverride,
-                conflictOverride: Boolean(item.conflict),
+                authority: DutyAssignmentAuthority.STANDARD_HIERARCHY,
+                overrideReason: null,
+                hierarchyOverride: false,
+                conflictOverride: false,
               },
               select: dutyAssignmentSelect,
             });
@@ -795,9 +727,7 @@ export class DutyScheduleService {
                 seriesId: series.id,
                 employeeAccountId: person.account.id,
                 actorAccountId: actor.accountId,
-                action: assignmentOverride
-                  ? DutyActivityAction.OVERRIDE_ASSIGNED
-                  : DutyActivityAction.ASSIGNED,
+                action: DutyActivityAction.ASSIGNED,
                 details: {
                   source: 'BULK_ROSTER',
                   startsAt: assignment.startsAt.toISOString(),
@@ -810,15 +740,10 @@ export class DutyScheduleService {
                   supervisorAccountId: person.supervisor.id,
                   assigneeName:
                     person.account.employee?.empName ??
+                    person.account.superAdminProfile?.fullName ??
                     person.account.username ??
                     person.account.role,
-                  authority,
-                  hierarchyOverride: governance.hierarchyOverride,
-                  conflictOverride: Boolean(item.conflict),
-                  conflictType: item.conflict?.type ?? null,
-                  existingAssignmentId:
-                    item.conflict?.existingAssignmentId ?? null,
-                  overrideReason: assignment.overrideReason,
+                  authority: DutyAssignmentAuthority.STANDARD_HIERARCHY,
                   assignerRole: actor.role,
                   assigneeRole: person.account.role,
                 },
@@ -841,30 +766,24 @@ export class DutyScheduleService {
         },
         notificationCache,
       );
-      const isOverride =
-        assignment.authority === DutyAssignmentAuthority.SUPER_ADMIN_OVERRIDE;
       await this.dutyNotifications.publishDutyUpdate({
         assignmentId: assignment.id,
         employeeAccountId: assignment.employeeAccountId,
         action: 'ASSIGNED',
         actorAccountId: actor.accountId,
         recipientAccountIds,
-        title: isOverride
-          ? 'Duty assigned by Super Admin'
-          : 'Duty assigned',
+        title: 'Duty assigned',
         body: this.dutyNotificationBody(
           assignment.dutyDate,
           assignment.shiftName,
-          assignment.overrideReason,
+          null,
         ),
         startsAt: assignment.startsAt,
         endsAt: assignment.endsAt,
         metadata: {
           source: 'BULK_ROSTER',
-          authority: assignment.authority,
-          hierarchyOverride: assignment.hierarchyOverride,
-          conflictOverride: assignment.conflictOverride,
-          overrideReason: assignment.overrideReason,
+          authority: DutyAssignmentAuthority.STANDARD_HIERARCHY,
+          holidayOrWeeklyOffWarning: warningCount > 0,
         },
       });
     }
@@ -873,7 +792,7 @@ export class DutyScheduleService {
       message: `${created.length} duty assignments created successfully.`,
       createdCount: created.length,
       skippedConflictCount: dto.createValidAssignmentsOnly ? conflictCount : 0,
-      overriddenConflictCount: dto.overrideConflicts ? conflictCount : 0,
+      warningCount,
       assignments: created.map((assignment) =>
         this.serializeAssignment(assignment),
       ),
@@ -895,6 +814,9 @@ export class DutyScheduleService {
         `Roster views can cover between 1 and ${MAX_ROSTER_DAYS} calendar days.`,
       );
     }
+    if (query.divisionId) {
+      await this.assertDivisionInsideScope(actor, query.divisionId);
+    }
     if (query.departmentId) {
       await this.assertDepartmentInsideScope(actor, query.departmentId);
     }
@@ -904,7 +826,7 @@ export class DutyScheduleService {
     const people = await this.prisma.account.findMany({
       where: accountWhere,
       orderBy: { employee: { empName: 'asc' } },
-      take: 250,
+      take: query.limit ?? 250,
       select: dutyRosterAccountSelect,
     });
     const accountIds = people.map((person) => person.id);
@@ -913,13 +835,16 @@ export class DutyScheduleService {
       employeeAccountId: { in: accountIds },
       dutyDate: { gte: from, lte: to },
       cancelledAt: null,
+      ...(query.divisionId ? { divisionId: query.divisionId } : {}),
       ...(query.departmentId ? { departmentId: query.departmentId } : {}),
     };
     const exceptionWhere: Prisma.DutyExceptionWhereInput = {
       ...this.visibleExceptionWhere(actor),
       employeeAccountId: { in: accountIds },
       exceptionDate: { gte: from, lte: to },
+      ...(query.divisionId ? { divisionId: query.divisionId } : {}),
       ...(query.departmentId ? { departmentId: query.departmentId } : {}),
+      type: DutyExceptionType.LEAVE,
     };
     const [assignments, exceptions, departments] = await Promise.all([
       this.prisma.dutyAssignment.findMany({
@@ -1026,9 +951,7 @@ export class DutyScheduleService {
         leaveCount: dateExceptions.filter(
           (exception) => exception.type === DutyExceptionType.LEAVE,
         ).length,
-        holidayCount: dateExceptions.filter(
-          (exception) => exception.type === DutyExceptionType.HOLIDAY,
-        ).length,
+        holidayCount: 0,
         overrideAssignments: dateAssignments.filter(
           (assignment) =>
             assignment.authority ===
@@ -1062,11 +985,7 @@ export class DutyScheduleService {
             exception.departmentId === department.id &&
             exception.type === DutyExceptionType.LEAVE,
         ).length,
-        holidayCount: exceptions.filter(
-          (exception) =>
-            exception.departmentId === department.id &&
-            exception.type === DutyExceptionType.HOLIDAY,
-        ).length,
+        holidayCount: 0,
         overrideAssignments: departmentAssignments.filter(
           (assignment) =>
             assignment.authority ===
@@ -1095,9 +1014,7 @@ export class DutyScheduleService {
         leave: exceptions.filter(
           (exception) => exception.type === DutyExceptionType.LEAVE,
         ).length,
-        holiday: exceptions.filter(
-          (exception) => exception.type === DutyExceptionType.HOLIDAY,
-        ).length,
+        holiday: 0,
         overrideAssignments: assignments.filter(
           (assignment) =>
             assignment.authority ===
@@ -1244,25 +1161,26 @@ export class DutyScheduleService {
   async getManagementSummary(user: AuthenticatedUser) {
     const actor = await this.resolveManager(user);
     const now = new Date();
-    const today = this.parseDateOnly(this.localDateString(now), 'Today');
+    const todayText = this.localDateString(now);
+    const today = this.parseDateOnly(todayText, 'Today');
     const oversightEnd = this.parseDateOnly(
-      this.addDays(this.localDateString(now), 30),
+      this.addDays(todayText, 30),
       'Oversight end date',
     );
     const scope = this.visibleAssignmentWhere(actor);
     const exceptionScope = this.visibleExceptionWhere(actor);
     const managementWhere = this.managementDutyWhere(actor);
+    const holidayScope = await this.visibleHolidayWhere(actor);
+    const weekday = today.getUTCDay();
     const [
       scheduledToday,
       onDutyNow,
       cancelledToday,
       leaveToday,
-      holidayToday,
       assignedByMeUpcoming,
       managementDutiesUpcoming,
-      overridesUpcoming,
-      hierarchyOverridesUpcoming,
-      conflictOverridesUpcoming,
+      holidaysToday,
+      weeklyOffToday,
     ] = await Promise.all([
       this.prisma.dutyAssignment.count({
         where: { ...scope, dutyDate: today, cancelledAt: null },
@@ -1285,13 +1203,6 @@ export class DutyScheduleService {
           type: DutyExceptionType.LEAVE,
         },
       }),
-      this.prisma.dutyException.count({
-        where: {
-          ...exceptionScope,
-          exceptionDate: today,
-          type: DutyExceptionType.HOLIDAY,
-        },
-      }),
       this.prisma.dutyAssignment.count({
         where: {
           ...scope,
@@ -1310,29 +1221,20 @@ export class DutyScheduleService {
             },
           })
         : Promise.resolve(0),
-      this.prisma.dutyAssignment.count({
+      this.prisma.dutyHoliday.findMany({
         where: {
-          ...scope,
-          authority: DutyAssignmentAuthority.SUPER_ADMIN_OVERRIDE,
-          startsAt: { gte: now, lt: oversightEnd },
-          cancelledAt: null,
+          AND: [
+            holidayScope,
+            { startDate: { lte: today }, endDate: { gte: today } },
+            { cancelledAt: null },
+          ],
         },
+        orderBy: { name: 'asc' },
+        select: dutyHolidaySelect,
       }),
-      this.prisma.dutyAssignment.count({
-        where: {
-          ...scope,
-          hierarchyOverride: true,
-          startsAt: { gte: now, lt: oversightEnd },
-          cancelledAt: null,
-        },
-      }),
-      this.prisma.dutyAssignment.count({
-        where: {
-          ...scope,
-          conflictOverride: true,
-          startsAt: { gte: now, lt: oversightEnd },
-          cancelledAt: null,
-        },
+      this.prisma.dutyWeeklyOffSetting.findUnique({
+        where: { dayOfWeek: weekday },
+        select: { dayOfWeek: true },
       }),
     ]);
 
@@ -1344,13 +1246,14 @@ export class DutyScheduleService {
         scheduledToday,
         onDutyNow,
         leaveToday,
-        holidayToday,
         cancelledToday,
         assignedByMeUpcoming,
         managementDutiesUpcoming,
-        overridesUpcoming,
-        hierarchyOverridesUpcoming,
-        conflictOverridesUpcoming,
+      },
+      calendarToday: {
+        date: todayText,
+        weeklyOff: Boolean(weeklyOffToday),
+        holidays: holidaysToday.map((holiday) => this.serializeHoliday(holiday)),
       },
     };
   }
@@ -1441,7 +1344,7 @@ export class DutyScheduleService {
       [window],
       current.id,
     );
-    await this.assertNoDutyExceptions(current.employeeAccountId, [date]);
+    await this.assertNoDutyLeave(current.employeeAccountId, [date]);
 
     const reportingLocation =
       dto.reportingLocation?.trim() ?? current.reportingLocation;
@@ -1619,10 +1522,7 @@ export class DutyScheduleService {
     };
   }
 
-  async createException(
-    user: AuthenticatedUser,
-    dto: CreateDutyExceptionDto,
-  ) {
+  async createLeave(user: AuthenticatedUser, dto: CreateDutyLeaveDto) {
     const actor = await this.resolveManager(user);
     const [employee] = await this.workScopeService.resolveAssignableAccounts(
       actor,
@@ -1642,68 +1542,418 @@ export class DutyScheduleService {
       );
     }
 
-    const date = this.parseDateOnly(dto.date, 'Exception date');
-    const conflictingDuty = await this.prisma.dutyAssignment.findFirst({
-      where: {
-        employeeAccountId: employee.id,
-        dutyDate: date,
-        cancelledAt: null,
-      },
-      select: { id: true },
-    });
-
-    if (conflictingDuty) {
-      throw new ConflictException(
-        'Cancel the employee duty assignment before recording leave or holiday.',
+    const startDate = this.parseDateOnly(dto.startDate, 'Leave start date');
+    const endDate = this.parseDateOnly(dto.endDate, 'Leave end date');
+    if (endDate < startDate) {
+      throw new BadRequestException(
+        'Leave end date must be on or after the start date.',
+      );
+    }
+    const totalDays =
+      Math.floor((endDate.getTime() - startDate.getTime()) / 86_400_000) + 1;
+    if (totalDays > MAX_SCHEDULE_DAYS) {
+      throw new BadRequestException(
+        `A leave record can cover at most ${MAX_SCHEDULE_DAYS} calendar days at once.`,
       );
     }
 
-    const exception = await this.prisma.$transaction(
+    const dates = Array.from({ length: totalDays }, (_, index) =>
+      this.parseDateOnly(this.addDays(dto.startDate, index), 'Leave date'),
+    );
+    const [conflictingDuty, existingException] = await Promise.all([
+      this.prisma.dutyAssignment.findFirst({
+        where: {
+          employeeAccountId: employee.id,
+          dutyDate: { in: dates },
+          cancelledAt: null,
+        },
+        orderBy: { dutyDate: 'asc' },
+        select: { id: true, dutyDate: true, shiftName: true },
+      }),
+      this.prisma.dutyException.findFirst({
+        where: {
+          employeeAccountId: employee.id,
+          exceptionDate: { in: dates },
+        },
+        orderBy: { exceptionDate: 'asc' },
+        select: { id: true, exceptionDate: true, type: true },
+      }),
+    ]);
+
+    if (conflictingDuty) {
+      throw new ConflictException(
+        `Cancel or reschedule the existing duty on ${this.dateOnlyString(conflictingDuty.dutyDate)} before recording leave.`,
+      );
+    }
+    if (existingException) {
+      throw new ConflictException(
+        `${existingException.type === DutyExceptionType.LEAVE ? 'Leave' : 'A legacy holiday exception'} is already recorded on ${this.dateOnlyString(existingException.exceptionDate)}.`,
+      );
+    }
+
+    const note = this.optionalText(dto.note);
+    const created = await this.prisma.$transaction(
       async (transaction: Prisma.TransactionClient) => {
-        const created = await transaction.dutyException.create({
-          data: {
-            employeeAccountId: employee.id,
-            createdByAccountId: actor.accountId,
-            divisionId,
-            departmentId,
-            exceptionDate: date,
-            type: dto.type,
-            note: this.optionalText(dto.note),
-          },
-          select: dutyExceptionSelect,
-        });
-        await transaction.dutyActivity.create({
-          data: {
+        const rows = [] as Prisma.DutyExceptionGetPayload<{
+          select: typeof dutyExceptionSelect;
+        }>[];
+        for (const date of dates) {
+          const row = await transaction.dutyException.create({
+            data: {
+              employeeAccountId: employee.id,
+              createdByAccountId: actor.accountId,
+              divisionId,
+              departmentId,
+              exceptionDate: date,
+              type: DutyExceptionType.LEAVE,
+              note,
+            },
+            select: dutyExceptionSelect,
+          });
+          rows.push(row);
+        }
+        await transaction.dutyActivity.createMany({
+          data: rows.map((row) => ({
             employeeAccountId: employee.id,
             actorAccountId: actor.accountId,
             action: DutyActivityAction.EXCEPTION_RECORDED,
             details: {
-              exceptionId: created.id,
-              type: created.type,
-              date: this.dateOnlyString(created.exceptionDate),
-              note: created.note,
+              exceptionId: row.id,
+              type: DutyExceptionType.LEAVE,
+              date: this.dateOnlyString(row.exceptionDate),
+              note: row.note,
             },
-          },
+          })),
         });
-        return created;
+        return rows;
       },
     );
 
     await this.dutyNotifications.publishDutyUpdate({
       assignmentId: null,
       employeeAccountId: employee.id,
-      action: dto.type === DutyExceptionType.LEAVE ? 'LEAVE_RECORDED' : 'HOLIDAY_RECORDED',
+      action: 'LEAVE_RECORDED',
       actorAccountId: actor.accountId,
       recipientAccountIds: [employee.id, actor.accountId],
-      title: dto.type === DutyExceptionType.LEAVE ? 'Leave recorded' : 'Holiday recorded',
-      body: `${dto.date}${exception.note ? ` • ${exception.note}` : ''}`,
-      metadata: { exceptionId: exception.id, type: exception.type },
+      title: 'Leave recorded',
+      body: `${dto.startDate}${dto.endDate !== dto.startDate ? ` – ${dto.endDate}` : ''}${note ? ` • ${note}` : ''}`,
+      metadata: {
+        exceptionIds: created.map((row) => row.id),
+        type: DutyExceptionType.LEAVE,
+      },
     });
 
     return {
-      message: `${dto.type === DutyExceptionType.LEAVE ? 'Leave' : 'Holiday'} recorded successfully.`,
-      exception: this.serializeException(exception),
+      message: `${created.length} leave day${created.length === 1 ? '' : 's'} recorded successfully.`,
+      exceptions: created.map((row) => this.serializeException(row)),
     };
+  }
+
+  async getDutyCalendar(
+    user: AuthenticatedUser,
+    query: ListDutyHolidaysQueryDto,
+  ) {
+    const actor = await this.workScopeService.resolveActorContext(user);
+    const fromText = query.from ?? this.localDateString(new Date());
+    const toText = query.to ?? this.addDays(fromText, 365);
+    const from = this.parseDateOnly(fromText, 'From date');
+    const to = this.parseDateOnly(toText, 'To date');
+    if (to < from) {
+      throw new BadRequestException('To date must be on or after From date.');
+    }
+    if (query.divisionId) await this.assertDivisionInsideScope(actor, query.divisionId);
+    if (query.departmentId) await this.assertDepartmentInsideScope(actor, query.departmentId);
+
+    const holidayScopeWhere = await this.visibleHolidayWhere(
+      actor,
+      query.divisionId,
+      query.departmentId,
+    );
+    const holidays = await this.prisma.dutyHoliday.findMany({
+      where: {
+        AND: [
+          holidayScopeWhere,
+          { startDate: { lte: to }, endDate: { gte: from } },
+          ...(query.includeCancelled ? [] : [{ cancelledAt: null }]),
+        ],
+      },
+      orderBy: [{ startDate: 'asc' }, { name: 'asc' }],
+      take: 500,
+      select: dutyHolidaySelect,
+    });
+    const weeklyOff = await this.prisma.dutyWeeklyOffSetting.findMany({
+      orderBy: { dayOfWeek: 'asc' },
+      select: { dayOfWeek: true, updatedAt: true },
+    });
+
+    return {
+      timezone: 'Asia/Kathmandu' as const,
+      period: { from: fromText, to: toText },
+      weeklyOffDays: weeklyOff.map((row) => row.dayOfWeek),
+      holidays: holidays.map((holiday) => this.serializeHoliday(holiday)),
+      canManage: actor.role === AccountRole.SUPER_ADMIN,
+    };
+  }
+
+  async createHoliday(user: AuthenticatedUser, dto: CreateDutyHolidayDto) {
+    const actor = await this.resolveManager(user);
+    this.assertSuperAdminHolidayManager(actor);
+    const startDate = this.parseDateOnly(dto.startDate, 'Holiday start date');
+    const endDate = this.parseDateOnly(dto.endDate, 'Holiday end date');
+    if (endDate < startDate) {
+      throw new BadRequestException(
+        'Holiday end date must be on or after the start date.',
+      );
+    }
+    const scope = await this.resolveHolidayScope(
+      actor,
+      dto.scope,
+      dto.divisionId,
+      dto.departmentId,
+    );
+    const duplicate = await this.prisma.dutyHoliday.findFirst({
+      where: {
+        name: { equals: dto.name.trim(), mode: 'insensitive' },
+        divisionId: scope.divisionId,
+        departmentId: scope.departmentId,
+        cancelledAt: null,
+        startDate: { lte: endDate },
+        endDate: { gte: startDate },
+      },
+      select: { id: true },
+    });
+    if (duplicate) {
+      throw new ConflictException(
+        'A holiday with this name already overlaps the selected dates in this scope.',
+      );
+    }
+
+    const holiday = await this.prisma.dutyHoliday.create({
+      data: {
+        name: dto.name.trim(),
+        type: dto.type,
+        startDate,
+        endDate,
+        divisionId: scope.divisionId,
+        departmentId: scope.departmentId,
+        note: this.optionalText(dto.note),
+        createdByAccountId: actor.accountId,
+        updatedByAccountId: actor.accountId,
+      },
+      select: dutyHolidaySelect,
+    });
+    return {
+      message: 'Holiday added to the Duty calendar.',
+      holiday: this.serializeHoliday(holiday),
+    };
+  }
+
+  async updateHoliday(
+    user: AuthenticatedUser,
+    holidayId: string,
+    dto: UpdateDutyHolidayDto,
+  ) {
+    const actor = await this.resolveManager(user);
+    this.assertSuperAdminHolidayManager(actor);
+    const current = await this.prisma.dutyHoliday.findUnique({
+      where: { id: holidayId },
+      select: dutyHolidaySelect,
+    });
+    if (!current) throw new NotFoundException('Holiday was not found.');
+    if (current.cancelledAt) {
+      throw new ConflictException('A cancelled holiday cannot be edited.');
+    }
+
+    const scopeName =
+      current.departmentId !== null
+        ? DutyHolidayScope.DEPARTMENT
+        : current.divisionId !== null
+          ? DutyHolidayScope.DIVISION
+          : DutyHolidayScope.BRANCH;
+    const nextScope = dto.scope ?? scopeName;
+    const scope = await this.resolveHolidayScope(
+      actor,
+      nextScope,
+      dto.scope ? dto.divisionId : current.divisionId ?? undefined,
+      dto.scope ? dto.departmentId : current.departmentId ?? undefined,
+    );
+    const startDate = dto.startDate
+      ? this.parseDateOnly(dto.startDate, 'Holiday start date')
+      : current.startDate;
+    const endDate = dto.endDate
+      ? this.parseDateOnly(dto.endDate, 'Holiday end date')
+      : current.endDate;
+    if (endDate < startDate) {
+      throw new BadRequestException(
+        'Holiday end date must be on or after the start date.',
+      );
+    }
+
+    const holiday = await this.prisma.dutyHoliday.update({
+      where: { id: current.id },
+      data: {
+        name: dto.name?.trim(),
+        type: dto.type,
+        startDate,
+        endDate,
+        divisionId: scope.divisionId,
+        departmentId: scope.departmentId,
+        note: dto.note === undefined ? current.note : this.optionalText(dto.note),
+        updatedByAccountId: actor.accountId,
+      },
+      select: dutyHolidaySelect,
+    });
+    return {
+      message: 'Holiday updated successfully.',
+      holiday: this.serializeHoliday(holiday),
+    };
+  }
+
+  async cancelHoliday(user: AuthenticatedUser, holidayId: string) {
+    const actor = await this.resolveManager(user);
+    this.assertSuperAdminHolidayManager(actor);
+    const current = await this.prisma.dutyHoliday.findUnique({
+      where: { id: holidayId },
+      select: { id: true, cancelledAt: true },
+    });
+    if (!current) throw new NotFoundException('Holiday was not found.');
+    if (current.cancelledAt) {
+      throw new ConflictException('This holiday is already cancelled.');
+    }
+    const holiday = await this.prisma.dutyHoliday.update({
+      where: { id: current.id },
+      data: {
+        cancelledAt: new Date(),
+        cancelledByAccountId: actor.accountId,
+        updatedByAccountId: actor.accountId,
+      },
+      select: dutyHolidaySelect,
+    });
+    return {
+      message: 'Holiday cancelled successfully.',
+      holiday: this.serializeHoliday(holiday),
+    };
+  }
+
+  async getWeeklyOff(user: AuthenticatedUser) {
+    const actor = await this.resolveManager(user);
+    const rows = await this.prisma.dutyWeeklyOffSetting.findMany({
+      orderBy: { dayOfWeek: 'asc' },
+      select: { dayOfWeek: true, updatedAt: true },
+    });
+    return {
+      days: rows.map((row) => row.dayOfWeek),
+      canManage: actor.role === AccountRole.SUPER_ADMIN,
+      updatedAt:
+        rows.reduce<Date | null>(
+          (latest, row) => (!latest || row.updatedAt > latest ? row.updatedAt : latest),
+          null,
+        )?.toISOString() ?? null,
+    };
+  }
+
+  async updateWeeklyOff(
+    user: AuthenticatedUser,
+    dto: UpdateDutyWeeklyOffDto,
+  ) {
+    const actor = await this.resolveManager(user);
+    this.assertSuperAdminHolidayManager(actor);
+    const days = [...new Set(dto.days)].sort((left, right) => left - right);
+    await this.prisma.$transaction(async (transaction: Prisma.TransactionClient) => {
+      await transaction.dutyWeeklyOffSetting.deleteMany({});
+      if (days.length > 0) {
+        await transaction.dutyWeeklyOffSetting.createMany({
+          data: days.map((dayOfWeek) => ({
+            dayOfWeek,
+            updatedByAccountId: actor.accountId,
+          })),
+        });
+      }
+    });
+    return { message: 'Weekly off settings updated.', days };
+  }
+
+  private assertSuperAdminHolidayManager(actor: WorkActorContext): void {
+    if (actor.role !== AccountRole.SUPER_ADMIN) {
+      throw new ForbiddenException(
+        'Only Super Admin can change the Holiday Calendar or weekly off settings.',
+      );
+    }
+  }
+
+  private async resolveHolidayScope(
+    actor: WorkActorContext,
+    scope: DutyHolidayScope,
+    divisionId?: string,
+    departmentId?: string,
+  ): Promise<{ divisionId: string | null; departmentId: string | null }> {
+    this.assertSuperAdminHolidayManager(actor);
+    if (scope === DutyHolidayScope.BRANCH) {
+      return { divisionId: null, departmentId: null };
+    }
+    if (!divisionId) {
+      throw new BadRequestException('Select a division for this holiday.');
+    }
+    await this.assertDivisionInsideScope(actor, divisionId);
+    if (scope === DutyHolidayScope.DIVISION) {
+      return { divisionId, departmentId: null };
+    }
+    if (!departmentId) {
+      throw new BadRequestException('Select a department for this holiday.');
+    }
+    const department = await this.prisma.department.findFirst({
+      where: { id: departmentId, divisionId, isActive: true },
+      select: { id: true },
+    });
+    if (!department) {
+      throw new ForbiddenException(
+        'The selected holiday department is outside the selected division.',
+      );
+    }
+    return { divisionId, departmentId };
+  }
+
+  private async visibleHolidayWhere(
+    actor: WorkActorContext,
+    requestedDivisionId?: string,
+    requestedDepartmentId?: string,
+  ): Promise<Prisma.DutyHolidayWhereInput> {
+    let divisionId = requestedDivisionId ?? actor.divisionId ?? undefined;
+    const departmentId = requestedDepartmentId ?? actor.departmentId ?? undefined;
+
+    if (departmentId && !divisionId) {
+      const department = await this.prisma.department.findFirst({
+        where: { id: departmentId, isActive: true },
+        select: { divisionId: true },
+      });
+      divisionId = department?.divisionId;
+    }
+
+    if (actor.role === AccountRole.SUPER_ADMIN && !requestedDivisionId && !requestedDepartmentId) {
+      return {};
+    }
+
+    if (departmentId && divisionId) {
+      return {
+        OR: [
+          { divisionId: null, departmentId: null },
+          { divisionId, departmentId: null },
+          { departmentId },
+        ],
+      };
+    }
+    if (divisionId) {
+      return {
+        OR: [
+          { divisionId: null, departmentId: null },
+          { divisionId, departmentId: null },
+          ...(actor.role === AccountRole.SENIOR_MANAGEMENT
+            ? [{ department: { is: { divisionId } } }]
+            : []),
+        ],
+      };
+    }
+    return { divisionId: null, departmentId: null };
   }
 
   private async resolveManager(user: AuthenticatedUser) {
@@ -1712,18 +1962,112 @@ export class DutyScheduleService {
     return actor;
   }
 
-  private templateScope(actor: WorkActorContext) {
-    if (actor.role === AccountRole.SUPER_ADMIN) {
-      return { divisionId: null, departmentId: null };
+  private async resolveTemplateScope(
+    actor: WorkActorContext,
+    scope: DutyShiftScope,
+    divisionId?: string,
+    departmentId?: string,
+  ): Promise<{ divisionId: string | null; departmentId: string | null }> {
+    if (actor.role === AccountRole.TEAM_MANAGER) {
+      if (scope !== DutyShiftScope.DEPARTMENT) {
+        throw new ForbiddenException(
+          'Team Managers can create shifts only for their own department.',
+        );
+      }
+      return {
+        divisionId: actor.divisionId,
+        departmentId: actor.departmentId,
+      };
     }
 
     if (actor.role === AccountRole.SENIOR_MANAGEMENT) {
-      return { divisionId: actor.divisionId, departmentId: null };
+      if (scope === DutyShiftScope.BRANCH) {
+        throw new ForbiddenException(
+          'Senior Management can create Division or Department shifts only.',
+        );
+      }
+      const resolvedDivisionId = actor.divisionId;
+      if (!resolvedDivisionId) {
+        throw new ForbiddenException('Your management division could not be resolved.');
+      }
+      if (scope === DutyShiftScope.DIVISION) {
+        return { divisionId: resolvedDivisionId, departmentId: null };
+      }
+      if (!departmentId) {
+        throw new BadRequestException('Select a department for this shift.');
+      }
+      await this.assertDepartmentInsideScope(actor, departmentId);
+      return { divisionId: resolvedDivisionId, departmentId };
     }
 
+    if (scope === DutyShiftScope.BRANCH) {
+      return { divisionId: null, departmentId: null };
+    }
+    if (!divisionId) {
+      throw new BadRequestException('Select a division for this shift.');
+    }
+    await this.assertDivisionInsideScope(actor, divisionId);
+    if (scope === DutyShiftScope.DIVISION) {
+      return { divisionId, departmentId: null };
+    }
+    if (!departmentId) {
+      throw new BadRequestException('Select a department for this shift.');
+    }
+    const department = await this.prisma.department.findFirst({
+      where: { id: departmentId, divisionId, isActive: true },
+      select: { id: true },
+    });
+    if (!department) {
+      throw new ForbiddenException(
+        'The selected department is outside the selected division.',
+      );
+    }
+    return { divisionId, departmentId };
+  }
+
+  private async assignmentTemplateWhere(
+    actor: WorkActorContext,
+    query: DutyShiftTemplateQueryDto,
+  ): Promise<Prisma.DutyShiftTemplateWhereInput | null> {
+    if (!query.targetScope) return null;
+
+    if (query.targetScope === DutyShiftTargetScope.BRANCH) {
+      return { divisionId: null, departmentId: null };
+    }
+
+    if (!query.divisionId) {
+      throw new BadRequestException('A target division is required for shift filtering.');
+    }
+    await this.assertDivisionInsideScope(actor, query.divisionId);
+
+    if (query.targetScope === DutyShiftTargetScope.DIVISION) {
+      return {
+        OR: [
+          { divisionId: null, departmentId: null },
+          { divisionId: query.divisionId, departmentId: null },
+        ],
+      };
+    }
+
+    if (!query.departmentId) {
+      throw new BadRequestException('A target department is required for shift filtering.');
+    }
+    await this.assertDepartmentInsideScope(actor, query.departmentId);
+    const department = await this.prisma.department.findFirst({
+      where: { id: query.departmentId, divisionId: query.divisionId, isActive: true },
+      select: { id: true },
+    });
+    if (!department) {
+      throw new ForbiddenException(
+        'The target department does not belong to the selected division.',
+      );
+    }
     return {
-      divisionId: actor.divisionId,
-      departmentId: actor.departmentId,
+      OR: [
+        { divisionId: null, departmentId: null },
+        { divisionId: query.divisionId, departmentId: null },
+        { departmentId: query.departmentId },
+      ],
     };
   }
 
@@ -1896,7 +2240,6 @@ export class DutyScheduleService {
     actor: WorkActorContext,
     dto: CreateBulkDutyScheduleDto,
   ) {
-    // Account IDs are resolved through server-owned hierarchy checks before any schedule calculation.
     const accounts = await this.workScopeService.resolveAssignableAccounts(
       actor,
       dto.employeeAccountIds,
@@ -1907,7 +2250,6 @@ export class DutyScheduleService {
     }
     const dates = this.expandScheduleDates(dto);
     const totalRequested = dates.length * accounts.length;
-
     if (totalRequested > MAX_BULK_ASSIGNMENTS_PER_REQUEST) {
       throw new BadRequestException(
         `A bulk duty request can create at most ${MAX_BULK_ASSIGNMENTS_PER_REQUEST} assignments. Narrow the staff selection or date range.`,
@@ -1931,33 +2273,54 @@ export class DutyScheduleService {
       (maximum, window) => (window.endsAt > maximum ? window.endsAt : maximum),
       windows[0].endsAt,
     );
-    const [existingAssignments, exceptions] = await Promise.all([
-      this.prisma.dutyAssignment.findMany({
-        where: {
-          employeeAccountId: { in: employeeIds },
-          cancelledAt: null,
-          startsAt: { lt: latestEnd },
-          endsAt: { gt: earliestStart },
-        },
-        select: {
-          id: true,
-          employeeAccountId: true,
-          startsAt: true,
-          endsAt: true,
-        },
-      }),
-      this.prisma.dutyException.findMany({
-        where: {
-          employeeAccountId: { in: employeeIds },
-          exceptionDate: { in: dateValues },
-        },
-        select: {
-          employeeAccountId: true,
-          exceptionDate: true,
-          type: true,
-        },
-      }),
-    ]);
+    const restMs = MIN_DUTY_REST_MINUTES * 60_000;
+    const firstDate = this.parseDateOnly(dates[0], 'Duty date');
+    const lastDate = this.parseDateOnly(dates[dates.length - 1], 'Duty date');
+
+    const [existingAssignments, leaves, holidays, weeklyOffRows] =
+      await Promise.all([
+        this.prisma.dutyAssignment.findMany({
+          where: {
+            employeeAccountId: { in: employeeIds },
+            cancelledAt: null,
+            startsAt: { lt: new Date(latestEnd.getTime() + restMs) },
+            endsAt: { gt: new Date(earliestStart.getTime() - restMs) },
+          },
+          select: {
+            id: true,
+            employeeAccountId: true,
+            shiftName: true,
+            startsAt: true,
+            endsAt: true,
+          },
+        }),
+        this.prisma.dutyException.findMany({
+          where: {
+            employeeAccountId: { in: employeeIds },
+            exceptionDate: { in: dateValues },
+            type: DutyExceptionType.LEAVE,
+          },
+          select: {
+            employeeAccountId: true,
+            exceptionDate: true,
+            type: true,
+          },
+        }),
+        this.prisma.dutyHoliday.findMany({
+          where: {
+            cancelledAt: null,
+            startDate: { lte: lastDate },
+            endDate: { gte: firstDate },
+          },
+          select: dutyHolidaySelect,
+        }),
+        this.prisma.dutyWeeklyOffSetting.findMany({
+          select: { dayOfWeek: true },
+        }),
+      ]);
+    const weeklyOffDays = new Set(
+      weeklyOffRows.map((row) => row.dayOfWeek),
+    );
 
     const people = [] as Array<{
       account: WorkAccountRecord;
@@ -1966,6 +2329,7 @@ export class DutyScheduleService {
       supervisor: WorkAccountRecord;
       validWindows: DutyWindow[];
       conflicts: DutyWindowConflict[];
+      warnings: DutyWindowWarning[];
     }>;
 
     for (const account of accounts) {
@@ -1989,17 +2353,34 @@ export class DutyScheduleService {
         departmentId,
       );
       const conflicts: DutyWindowConflict[] = [];
+      const warnings: DutyWindowWarning[] = [];
       const validWindows: DutyWindow[] = [];
+      const personAssignments = existingAssignments.filter(
+        (assignment) => assignment.employeeAccountId === account.id,
+      );
 
-      // Every employee-date window is classified as valid or conflicted for a reviewable preview.
       for (const window of windows) {
-        const overlap = existingAssignments.find(
+        const overlap = personAssignments.find(
           (assignment) =>
-            assignment.employeeAccountId === account.id &&
             assignment.startsAt < window.endsAt &&
             assignment.endsAt > window.startsAt,
         );
-        const exception = exceptions.find(
+        const restConflict = overlap
+          ? null
+          : personAssignments.find((assignment) => {
+              if (assignment.endsAt <= window.startsAt) {
+                return (
+                  window.startsAt.getTime() - assignment.endsAt.getTime() < restMs
+                );
+              }
+              if (assignment.startsAt >= window.endsAt) {
+                return (
+                  assignment.startsAt.getTime() - window.endsAt.getTime() < restMs
+                );
+              }
+              return false;
+            });
+        const leave = leaves.find(
           (record) =>
             record.employeeAccountId === account.id &&
             this.dateOnlyString(record.exceptionDate) === window.date,
@@ -2009,23 +2390,54 @@ export class DutyScheduleService {
           conflicts.push({
             window,
             type: 'DUTY_CONFLICT',
-            message: 'Another duty is already set for this time.',
+            message: `${overlap.shiftName} is already assigned from ${overlap.startsAt.toISOString()} to ${overlap.endsAt.toISOString()}.`,
             existingAssignmentId: overlap.id,
           });
-        } else if (exception) {
+          continue;
+        }
+        if (restConflict) {
           conflicts.push({
             window,
-            type:
-              exception.type === DutyExceptionType.LEAVE ? 'LEAVE' : 'HOLIDAY',
-            message:
-              exception.type === DutyExceptionType.LEAVE
-                ? 'Leave is already recorded for this date.'
-                : 'A holiday is already recorded for this date.',
+            type: 'REST_PERIOD',
+            message: `This duty does not leave the required ${Math.round(MIN_DUTY_REST_MINUTES / 60)} hours of rest around ${restConflict.shiftName}.`,
+            existingAssignmentId: restConflict.id,
+          });
+          continue;
+        }
+        if (leave) {
+          conflicts.push({
+            window,
+            type: 'LEAVE',
+            message: 'Approved leave is recorded for this date.',
             existingAssignmentId: null,
           });
-        } else {
-          validWindows.push(window);
+          continue;
         }
+
+        const date = this.parseDateOnly(window.date, 'Duty date');
+        const applicableHolidays = holidays.filter(
+          (holiday) =>
+            holiday.startDate <= date &&
+            holiday.endDate >= date &&
+            this.holidayAppliesToScope(holiday, divisionId, departmentId),
+        );
+        for (const holiday of applicableHolidays) {
+          warnings.push({
+            window,
+            type: 'HOLIDAY',
+            message: `${holiday.name} is on the Holiday Calendar. Operational duty can still be assigned.`,
+            holidayId: holiday.id,
+          });
+        }
+        if (weeklyOffDays.has(date.getUTCDay())) {
+          warnings.push({
+            window,
+            type: 'WEEKLY_OFF',
+            message: `${this.weekdayName(date.getUTCDay())} is configured as a weekly off. Operational duty can still be assigned.`,
+            holidayId: null,
+          });
+        }
+        validWindows.push(window);
       }
 
       people.push({
@@ -2035,6 +2447,7 @@ export class DutyScheduleService {
         supervisor,
         validWindows,
         conflicts,
+        warnings,
       });
     }
 
@@ -2044,7 +2457,6 @@ export class DutyScheduleService {
       dates,
       people,
       totalRequested,
-      requestedConflictOverride: dto.overrideConflicts === true,
       reportingLocation: dto.reportingLocation.trim(),
     };
   }
@@ -2054,6 +2466,10 @@ export class DutyScheduleService {
   ) {
     const conflictCount = prepared.people.reduce(
       (total, person) => total + person.conflicts.length,
+      0,
+    );
+    const warningCount = prepared.people.reduce(
+      (total, person) => total + person.warnings.length,
       0,
     );
     const validCount = prepared.people.reduce(
@@ -2068,23 +2484,13 @@ export class DutyScheduleService {
       requestedAssignments: prepared.totalRequested,
       validAssignments: validCount,
       conflictAssignments: conflictCount,
-      override: {
-        canOverrideConflicts: prepared.actor.role === AccountRole.SUPER_ADMIN,
-        requestedConflictOverride: prepared.requestedConflictOverride,
-        hierarchyOverrideCount: prepared.people.filter((person) =>
-          this.isHierarchyOverride(prepared.actor, person.account.role),
-        ).length,
-        requiresReason:
-          prepared.people.some((person) =>
-            this.isHierarchyOverride(prepared.actor, person.account.role),
-          ) ||
-          (prepared.requestedConflictOverride && conflictCount > 0),
-      },
+      warningAssignments: warningCount,
       people: prepared.people.map((person) => ({
         account: {
           id: person.account.id,
           role: person.account.role,
           username: person.account.username,
+          superAdminProfile: person.account.superAdminProfile,
           employee: person.account.employee
             ? {
                 id: person.account.employee.id,
@@ -2100,6 +2506,7 @@ export class DutyScheduleService {
           id: person.supervisor.id,
           role: person.supervisor.role,
           username: person.supervisor.username,
+          superAdminProfile: person.supervisor.superAdminProfile,
           employee: person.supervisor.employee
             ? {
                 id: person.supervisor.employee.id,
@@ -2114,16 +2521,10 @@ export class DutyScheduleService {
         validDates: person.validWindows.map((window) => window.date),
         result:
           person.conflicts.length === 0
-            ? this.isHierarchyOverride(prepared.actor, person.account.role)
-              ? 'NEEDS_APPROVAL'
-              : 'READY'
+            ? 'READY'
             : person.validWindows.length > 0
               ? 'PARTLY_READY'
               : 'BLOCKED',
-        hierarchyOverride: this.isHierarchyOverride(
-          prepared.actor,
-          person.account.role,
-        ),
         conflicts: person.conflicts.map((conflict) => ({
           date: conflict.window.date,
           startsAt: conflict.window.startsAt.toISOString(),
@@ -2132,80 +2533,16 @@ export class DutyScheduleService {
           message: conflict.message,
           existingAssignmentId: conflict.existingAssignmentId,
         })),
+        warnings: person.warnings.map((warning) => ({
+          date: warning.window.date,
+          startsAt: warning.window.startsAt.toISOString(),
+          endsAt: warning.window.endsAt.toISOString(),
+          type: warning.type,
+          message: warning.message,
+          holidayId: warning.holidayId,
+        })),
       })),
     };
-  }
-
-  private resolveOverrideGovernance(input: {
-    actor: WorkActorContext;
-    assigneeRole: AccountRole;
-    conflictCount: number;
-    overrideConflicts: boolean;
-    overrideReason: string | undefined;
-  }): DutyOverrideGovernance {
-    const hierarchyOverride = this.isHierarchyOverride(
-      input.actor,
-      input.assigneeRole,
-    );
-    if (
-      input.overrideConflicts &&
-      input.actor.role !== AccountRole.SUPER_ADMIN
-    ) {
-      throw new ForbiddenException(
-        'Only Super Admin can override reviewed duty conflicts.',
-      );
-    }
-    if (input.conflictCount > 0 && !input.overrideConflicts) {
-      throw new ConflictException(
-        'Duty conflicts were found. Super Admin must explicitly request an override and provide a reason.',
-      );
-    }
-    if (input.overrideConflicts && input.conflictCount === 0) {
-      throw new BadRequestException(
-        'No duty conflicts are available to override.',
-      );
-    }
-
-    const conflictOverride =
-      input.overrideConflicts && input.conflictCount > 0;
-    const overrideRequired = hierarchyOverride || conflictOverride;
-    const overrideReason = this.optionalText(input.overrideReason);
-
-    // A branch-wide hierarchy or conflict override is invalid without a meaningful operational reason.
-    if (
-      overrideRequired &&
-      (!overrideReason || overrideReason.length < 10)
-    ) {
-      throw new BadRequestException(
-        'Provide an override reason of at least 10 characters.',
-      );
-    }
-    if (!overrideRequired && overrideReason) {
-      throw new BadRequestException(
-        'An override reason can be recorded only for an actual hierarchy or conflict override.',
-      );
-    }
-
-    return {
-      authority: overrideRequired
-        ? DutyAssignmentAuthority.SUPER_ADMIN_OVERRIDE
-        : DutyAssignmentAuthority.STANDARD_HIERARCHY,
-      hierarchyOverride,
-      conflictOverride,
-      overrideReason: overrideRequired ? overrideReason : null,
-    };
-  }
-
-  private isHierarchyOverride(
-    actor: WorkActorContext,
-    assigneeRole: AccountRole,
-  ): boolean {
-    // Super Admin directly scheduling below Senior Management bypasses the normal operating hierarchy.
-    return (
-      actor.role === AccountRole.SUPER_ADMIN &&
-      (assigneeRole === AccountRole.TEAM_MANAGER ||
-        assigneeRole === AccountRole.EMPLOYEE)
-    );
   }
 
   private async inspectScheduleConflicts(
@@ -2222,26 +2559,28 @@ export class DutyScheduleService {
         window.endsAt > maximum ? window.endsAt : maximum,
       windows[0].endsAt,
     );
-    const [existingAssignments, exceptions] = await Promise.all([
+    const restMs = MIN_DUTY_REST_MINUTES * 60_000;
+    const [existingAssignments, leaves] = await Promise.all([
       this.prisma.dutyAssignment.findMany({
         where: {
           employeeAccountId,
           cancelledAt: null,
-          startsAt: { lt: latestEnd },
-          endsAt: { gt: earliestStart },
+          startsAt: { lt: new Date(latestEnd.getTime() + restMs) },
+          endsAt: { gt: new Date(earliestStart.getTime() - restMs) },
         },
-        select: { id: true, startsAt: true, endsAt: true },
+        select: { id: true, shiftName: true, startsAt: true, endsAt: true },
       }),
       this.prisma.dutyException.findMany({
         where: {
           employeeAccountId,
+          type: DutyExceptionType.LEAVE,
           exceptionDate: {
             in: windows.map((window) =>
               this.parseDateOnly(window.date, 'Duty date'),
             ),
           },
         },
-        select: { exceptionDate: true, type: true },
+        select: { exceptionDate: true },
       }),
     ]);
 
@@ -2252,31 +2591,58 @@ export class DutyScheduleService {
           assignment.startsAt < window.endsAt &&
           assignment.endsAt > window.startsAt,
       );
-      const exception = exceptions.find(
-        (record) =>
-          this.dateOnlyString(record.exceptionDate) === window.date,
+      const restConflict = overlap
+        ? null
+        : existingAssignments.find((assignment) => {
+            if (assignment.endsAt <= window.startsAt) {
+              return window.startsAt.getTime() - assignment.endsAt.getTime() < restMs;
+            }
+            if (assignment.startsAt >= window.endsAt) {
+              return assignment.startsAt.getTime() - window.endsAt.getTime() < restMs;
+            }
+            return false;
+          });
+      const leave = leaves.find(
+        (record) => this.dateOnlyString(record.exceptionDate) === window.date,
       );
       if (overlap) {
         conflicts.push({
           window,
           type: 'DUTY_CONFLICT',
-          message: 'Another duty is already set for this time.',
+          message: `${overlap.shiftName} already overlaps this duty window.`,
           existingAssignmentId: overlap.id,
         });
-      } else if (exception) {
+      } else if (restConflict) {
         conflicts.push({
           window,
-          type:
-            exception.type === DutyExceptionType.LEAVE ? 'LEAVE' : 'HOLIDAY',
-          message:
-              exception.type === DutyExceptionType.LEAVE
-                ? 'Leave is already recorded for this date.'
-                : 'A holiday is already recorded for this date.',
+          type: 'REST_PERIOD',
+          message: `This duty does not leave the required ${Math.round(MIN_DUTY_REST_MINUTES / 60)} hours of rest around ${restConflict.shiftName}.`,
+          existingAssignmentId: restConflict.id,
+        });
+      } else if (leave) {
+        conflicts.push({
+          window,
+          type: 'LEAVE',
+          message: 'Approved leave is recorded for this date.',
           existingAssignmentId: null,
         });
       }
     }
     return conflicts;
+  }
+
+  private holidayAppliesToScope(
+    holiday: { divisionId: string | null; departmentId: string | null },
+    divisionId: string,
+    departmentId: string | null,
+  ): boolean {
+    if (holiday.departmentId) return holiday.departmentId === departmentId;
+    if (holiday.divisionId) return holiday.divisionId === divisionId;
+    return true;
+  }
+
+  private weekdayName(dayOfWeek: number): string {
+    return ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'][dayOfWeek] ?? 'This day';
   }
 
   private managementDutyWhere(
@@ -2400,7 +2766,7 @@ export class DutyScheduleService {
     query: DutyRosterQueryDto,
   ): Prisma.AccountWhereInput {
     // Team, division and branch rosters expose only roles each manager is authorized to schedule.
-    const allowedRoles =
+    const allowedRoles: AccountRole[] =
       actor.role === AccountRole.SUPER_ADMIN
         ? [
             AccountRole.SENIOR_MANAGEMENT,
@@ -2410,6 +2776,11 @@ export class DutyScheduleService {
         : actor.role === AccountRole.SENIOR_MANAGEMENT
           ? [AccountRole.TEAM_MANAGER, AccountRole.EMPLOYEE]
           : [AccountRole.EMPLOYEE];
+    if (query.role && !allowedRoles.includes(query.role)) {
+      throw new ForbiddenException(
+        'The selected staff level is outside your duty assignment scope.',
+      );
+    }
     const organizationFilters: Prisma.EmployeeWhereInput[] = [
       {
         OR: [
@@ -2441,6 +2812,9 @@ export class DutyScheduleService {
         departmentId: actor.departmentId ?? '__missing_department__',
       });
     }
+    if (query.divisionId) {
+      organizationFilters.push({ divisionId: query.divisionId });
+    }
     if (query.departmentId) {
       organizationFilters.push({ departmentId: query.departmentId });
     }
@@ -2458,7 +2832,7 @@ export class DutyScheduleService {
     return {
       id: query.employeeAccountId,
       isEnabled: true,
-      role: { in: allowedRoles },
+      role: query.role ?? { in: allowedRoles },
       employee: {
         is: {
           status: EmployeeStatus.ACTIVE,
@@ -2470,6 +2844,28 @@ export class DutyScheduleService {
         },
       },
     };
+  }
+
+  private async assertDivisionInsideScope(
+    actor: WorkActorContext,
+    divisionId: string,
+  ): Promise<void> {
+    if (actor.role !== AccountRole.SUPER_ADMIN && actor.divisionId !== divisionId) {
+      throw new ForbiddenException(
+        'The selected division is outside your management scope.',
+      );
+    }
+
+    const division = await this.prisma.division.findFirst({
+      where: { id: divisionId, isActive: true },
+      select: { id: true },
+    });
+
+    if (!division) {
+      throw new ForbiddenException(
+        'The selected division is outside your management scope.',
+      );
+    }
   }
 
   private async listRosterDepartments(actor: WorkActorContext) {
@@ -2585,44 +2981,64 @@ export class DutyScheduleService {
     windows: Array<{ startsAt: Date; endsAt: Date }>,
     excludedAssignmentId?: string,
   ): Promise<void> {
+    const restMs = MIN_DUTY_REST_MINUTES * 60_000;
     for (const window of windows) {
-      const conflict = await this.prisma.dutyAssignment.findFirst({
+      const nearby = await this.prisma.dutyAssignment.findMany({
         where: {
           employeeAccountId,
           id: excludedAssignmentId ? { not: excludedAssignmentId } : undefined,
           cancelledAt: null,
-          startsAt: { lt: window.endsAt },
-          endsAt: { gt: window.startsAt },
+          startsAt: { lt: new Date(window.endsAt.getTime() + restMs) },
+          endsAt: { gt: new Date(window.startsAt.getTime() - restMs) },
         },
-        select: { id: true, startsAt: true, endsAt: true },
+        select: { id: true, shiftName: true, startsAt: true, endsAt: true },
       });
-
-      if (conflict) {
+      const overlap = nearby.find(
+        (assignment) =>
+          assignment.startsAt < window.endsAt &&
+          assignment.endsAt > window.startsAt,
+      );
+      if (overlap) {
         throw new ConflictException(
-          `Duty schedule conflicts with an existing assignment from ${conflict.startsAt.toISOString()} to ${conflict.endsAt.toISOString()}.`,
+          `${overlap.shiftName} already overlaps the selected duty time.`,
+        );
+      }
+      const restConflict = nearby.find((assignment) => {
+        if (assignment.endsAt <= window.startsAt) {
+          return window.startsAt.getTime() - assignment.endsAt.getTime() < restMs;
+        }
+        if (assignment.startsAt >= window.endsAt) {
+          return assignment.startsAt.getTime() - window.endsAt.getTime() < restMs;
+        }
+        return false;
+      });
+      if (restConflict) {
+        throw new ConflictException(
+          `Keep at least ${Math.round(MIN_DUTY_REST_MINUTES / 60)} hours of rest between ${restConflict.shiftName} and the new duty.`,
         );
       }
     }
   }
 
-  private async assertNoDutyExceptions(
+  private async assertNoDutyLeave(
     employeeAccountId: string,
     dates: string[],
   ): Promise<void> {
-    const exceptions = await this.prisma.dutyException.findMany({
+    const leave = await this.prisma.dutyException.findFirst({
       where: {
         employeeAccountId,
+        type: DutyExceptionType.LEAVE,
         exceptionDate: {
           in: dates.map((date) => this.parseDateOnly(date, 'Duty date')),
         },
       },
-      select: { exceptionDate: true, type: true },
+      orderBy: { exceptionDate: 'asc' },
+      select: { exceptionDate: true },
     });
 
-    if (exceptions.length > 0) {
-      const first = exceptions[0];
+    if (leave) {
       throw new ConflictException(
-        `Duty cannot be assigned on ${this.dateOnlyString(first.exceptionDate)} because ${first.type.toLowerCase()} is recorded.`,
+        `Duty cannot be assigned on ${this.dateOnlyString(leave.exceptionDate)} because leave is recorded.`,
       );
     }
   }
@@ -2679,6 +3095,25 @@ export class DutyScheduleService {
     return this.dateOnlyString(new Date(date.getTime() + days * 86_400_000));
   }
 
+  private serializeHoliday(holiday: Prisma.DutyHolidayGetPayload<{
+    select: typeof dutyHolidaySelect;
+  }>) {
+    const scope = holiday.departmentId
+      ? DutyHolidayScope.DEPARTMENT
+      : holiday.divisionId
+        ? DutyHolidayScope.DIVISION
+        : DutyHolidayScope.BRANCH;
+    return {
+      ...holiday,
+      scope,
+      startDate: this.dateOnlyString(holiday.startDate),
+      endDate: this.dateOnlyString(holiday.endDate),
+      cancelledAt: holiday.cancelledAt?.toISOString() ?? null,
+      createdAt: holiday.createdAt.toISOString(),
+      updatedAt: holiday.updatedAt.toISOString(),
+    };
+  }
+
   private serializeTemplate(template: {
     id: string;
     name: string;
@@ -2693,6 +3128,11 @@ export class DutyScheduleService {
   }) {
     return {
       ...template,
+      scope: template.departmentId
+        ? DutyShiftScope.DEPARTMENT
+        : template.divisionId
+          ? DutyShiftScope.DIVISION
+          : DutyShiftScope.BRANCH,
       startTime: this.minuteLabel(template.startMinute),
       endTime: this.minuteLabel(template.endMinute),
     };

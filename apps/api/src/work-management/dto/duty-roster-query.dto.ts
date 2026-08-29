@@ -1,5 +1,6 @@
-import { Transform } from 'class-transformer';
-import { IsOptional, IsString, IsUUID, Matches, MaxLength } from 'class-validator';
+import { Transform, Type } from 'class-transformer';
+import { IsEnum, IsInt, IsOptional, IsString, IsUUID, Matches, Max, MaxLength, Min } from 'class-validator';
+import { AccountRole } from '../../generated/prisma/enums';
 
 function trimText(value: unknown): unknown {
   return typeof value === 'string' ? value.trim() : value;
@@ -17,15 +18,30 @@ export class DutyRosterQueryDto {
 
   @IsOptional()
   @IsUUID('4')
+  divisionId?: string;
+
+  @IsOptional()
+  @IsUUID('4')
   departmentId?: string;
 
   @IsOptional()
   @IsUUID('4')
   employeeAccountId?: string;
 
+  @IsOptional()
+  @IsEnum(AccountRole)
+  role?: AccountRole;
+
   @Transform(({ value }: { value: unknown }) => trimText(value))
   @IsOptional()
   @IsString()
   @MaxLength(100)
   search?: string;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  @Max(250)
+  limit?: number;
 }

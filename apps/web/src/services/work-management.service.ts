@@ -3,12 +3,6 @@ import { apiDownload, apiRequest } from "../lib/api";
 import type {
   BulkDutyPreviewResponse,
   BulkDutyScheduleInput,
-  DailyWorkPerformanceReport,
-  PerformanceReportGroup,
-  PerformanceReportResponse,
-  PerformanceReportSection,
-  PerformanceReportStaffMode,
-  PerformanceReportWorkType,
   DutyAssignmentListResponse,
   DutyCoverageRequirement,
   DutyCoverageRequirementAuditResponse,
@@ -16,18 +10,20 @@ import type {
   DutyCoverageRequirementListResponse,
   DutyCoverageRequirementUpdateInput,
   DutyAssignmentListView,
-  DutyExceptionType,
+  DutyCalendarResponse,
+  DutyHolidayScope,
+  DutyHolidayType,
   DutyHelpRecommendationResponse,
   DutyManagementHelpRecommendationResponse,
   DutyManagementSummary,
   DutyRosterResponse,
   DutyMutationResponse,
   DutyRecurrenceType,
+  DutyShiftScope,
   DutyShiftTemplateListResponse,
   MyDutySummary,
   PendingWorkHelpRequestsResponse,
   WorkActivityResponse,
-  WorkAccountSummary,
   WorkAvailabilityPreference,
   WorkAssignmentOptionsResponse,
   WorkCompletionMutationResponse,
@@ -41,16 +37,18 @@ import type {
   WorkItemStatus,
   WorkItemType,
   WorkManagementDashboardSummary,
+  WorkManagementOrganizationSummaryResponse,
   WorkMutationResponse,
-  WorkPriority,
   WorkQueueFocus,
   WorkServiceType,
   WorkQueueView,
   WorkReportDataset,
   WorkReportDrilldownDataset,
   WorkReportDrilldownResponse,
-  WorkReportDutyStatus,
   WorkReportSummary,
+  WorkReportWorkflowStageFilter,
+  WorkSalesMessageListResponse,
+  WorkSalesMessageMutationResponse,
 } from "../types/work-management";
 
 function authorizationHeaders(accessToken: string): HeadersInit {
@@ -67,8 +65,8 @@ export interface WorkItemListQuery {
   search?: string;
   status?: WorkItemStatus;
   type?: WorkItemType;
-  priority?: WorkPriority;
   category?: string;
+  divisionId?: string;
   departmentId?: string;
   assigneeAccountId?: string;
   assignedTeamId?: string;
@@ -88,40 +86,15 @@ export interface WorkAssignmentOptionsQuery {
   departmentId?: string;
 }
 
-export interface PerformanceReportQuery {
-  from?: string;
-  to?: string;
-  divisionId?: string;
-  departmentId?: string;
-  employeeAccountId?: string;
-  groupBy?: PerformanceReportGroup;
-  staffMode?: PerformanceReportStaffMode;
-  workType?: PerformanceReportWorkType;
-  search?: string;
-}
-
-export interface DailyWorkPerformanceQuery {
-  date?: string;
-  divisionId?: string;
-  departmentId?: string;
-  employeeAccountId?: string;
-  search?: string;
-}
-
 export interface WorkReportQuery {
   from?: string;
   to?: string;
-  status?: WorkItemStatus;
-  priority?: WorkPriority;
   type?: WorkItemType;
   divisionId?: string;
   departmentId?: string;
-  employeeAccountId?: string;
-  assignedByAccountId?: string;
-  assignedToRole?: WorkAccountSummary["role"];
-  shiftTemplateId?: string;
-  dutyStatus?: WorkReportDutyStatus;
-  location?: string;
+  teamId?: string;
+  workflowStage?: WorkReportWorkflowStageFilter;
+  search?: string;
 }
 
 export interface WorkReportDrilldownQuery extends WorkReportQuery {
@@ -143,8 +116,11 @@ export interface DutyRosterQuery {
   from?: string;
   to?: string;
   employeeAccountId?: string;
+  divisionId?: string;
   departmentId?: string;
   search?: string;
+  role?: "SENIOR_MANAGEMENT" | "TEAM_MANAGER" | "EMPLOYEE";
+  limit?: number;
 }
 
 export interface DutyAssignmentQuery {
@@ -166,6 +142,8 @@ export interface CreateWorkItemInput {
   customerContactType?: WorkContactType;
   customerContactNumber?: string;
   locationText?: string;
+  requestNumber?: string;
+  cpcSerial?: string;
   serviceNumber?: string;
   olt?: string;
   fdcName?: string;
@@ -181,7 +159,7 @@ export interface CreateWorkItemInput {
   supportingAssigneeAccountIds?: string[];
   responsibleManagerAccountId?: string;
   parentWorkItemId?: string;
-  teamInstructions?: string;
+  delegationInstructions?: string;
 }
 
 function buildQueryString(
@@ -193,8 +171,6 @@ function buildQueryString(
     | DutyCoverageRequirementQuery
     | WorkReportQuery
     | WorkReportDrilldownQuery
-    | PerformanceReportQuery
-    | (PerformanceReportQuery & { section: PerformanceReportSection })
     | (WorkReportQuery & { dataset: WorkReportDataset }),
 ): string {
   const params = new URLSearchParams();
@@ -230,6 +206,17 @@ export function getManagementWorkDashboardSummary(
 ): Promise<WorkManagementDashboardSummary> {
   return apiRequest<WorkManagementDashboardSummary>(
     "/work-items/management/dashboard-summary",
+    {
+      headers: authorizationHeaders(accessToken),
+    },
+  );
+}
+
+export function getManagementOrganizationSummary(
+  accessToken: string,
+): Promise<WorkManagementOrganizationSummaryResponse> {
+  return apiRequest<WorkManagementOrganizationSummaryResponse>(
+    "/work-items/management/organization-summary",
     {
       headers: authorizationHeaders(accessToken),
     },
@@ -389,6 +376,72 @@ export function startEmployeeWork(
   });
 }
 
+
+export function listEmployeeWorkSalesMessages(
+  accessToken: string,
+  workItemId: string,
+): Promise<WorkSalesMessageListResponse> {
+  return apiRequest<WorkSalesMessageListResponse>(
+    `/work-items/${workItemId}/sales/messages`,
+    { headers: authorizationHeaders(accessToken) },
+  );
+}
+
+export function sendEmployeeWorkSalesMessage(
+  accessToken: string,
+  workItemId: string,
+  payload: { text?: string; files?: File[] },
+): Promise<WorkSalesMessageMutationResponse> {
+  const formData = new FormData();
+  if (payload.text?.trim()) formData.set("text", payload.text.trim());
+  for (const file of payload.files ?? []) formData.append("files", file);
+
+  return apiRequest<WorkSalesMessageMutationResponse>(
+    `/work-items/${workItemId}/sales/messages`,
+    {
+      method: "POST",
+      headers: authorizationHeaders(accessToken),
+      body: formData,
+    },
+  );
+}
+
+export function sendEmployeeWorkToSales(
+  accessToken: string,
+  workItemId: string,
+  note?: string,
+): Promise<WorkMutationResponse> {
+  return apiRequest<WorkMutationResponse>(`/work-items/${workItemId}/sales/send`, {
+    method: "POST",
+    headers: authorizationHeaders(accessToken),
+    body: JSON.stringify({ note: note?.trim() || undefined }),
+  });
+}
+
+export function completeEmployeeSalesWork(
+  accessToken: string,
+  workItemId: string,
+  note?: string,
+): Promise<WorkMutationResponse> {
+  return apiRequest<WorkMutationResponse>(`/work-items/${workItemId}/sales/complete`, {
+    method: "POST",
+    headers: authorizationHeaders(accessToken),
+    body: JSON.stringify({ note: note?.trim() || undefined }),
+  });
+}
+
+export function downloadEmployeeWorkSalesAttachment(
+  accessToken: string,
+  workItemId: string,
+  messageId: string,
+  attachmentId: string,
+) {
+  return apiDownload(
+    `/work-items/${workItemId}/sales/messages/${messageId}/attachments/${attachmentId}`,
+    { headers: authorizationHeaders(accessToken) },
+  );
+}
+
 export function requestEmployeeWorkHelp(
   accessToken: string,
   workItemId: string,
@@ -433,6 +486,8 @@ export function submitEmployeeWorkCompletion(
   payload: {
     result: WorkCompletionResult;
     summary: string;
+    customerId?: string;
+    rxLevelDbm?: number;
     moreWorkRequired: boolean;
   },
 ): Promise<WorkCompletionMutationResponse> {
@@ -450,8 +505,7 @@ export function updateManagementWorkItem(
   accessToken: string,
   workItemId: string,
   payload: {
-    priority?: WorkPriority;
-    registeredAt?: string;
+      registeredAt?: string;
     plannedStartAt?: string;
     dueAt?: string;
     locationText?: string;
@@ -668,16 +722,24 @@ export function getDutyManagementSummary(
 
 export function listDutyShiftTemplates(
   accessToken: string,
+  query: { targetScope?: DutyShiftScope; divisionId?: string; departmentId?: string } = {},
 ): Promise<DutyShiftTemplateListResponse> {
   return apiRequest<DutyShiftTemplateListResponse>(
-    "/duty/management/shift-templates",
+    `/duty/management/shift-templates${buildQueryString(query)}`,
     { headers: authorizationHeaders(accessToken) },
   );
 }
 
 export function createDutyShiftTemplate(
   accessToken: string,
-  payload: { name: string; startTime: string; endTime: string },
+  payload: {
+    name: string;
+    startTime: string;
+    endTime: string;
+    scope: DutyShiftScope;
+    divisionId?: string;
+    departmentId?: string;
+  },
 ): Promise<DutyMutationResponse> {
   return apiRequest<DutyMutationResponse>("/duty/management/shift-templates", {
     method: "POST",
@@ -751,7 +813,7 @@ export function createBulkDutySchedule(
 ): Promise<DutyMutationResponse & {
   createdCount: number;
   skippedConflictCount: number;
-  overriddenConflictCount: number;
+  warningCount: number;
 }> {
   return apiRequest(
     "/duty/management/assignments/bulk",
@@ -785,8 +847,6 @@ export function createDutySchedule(
     weekdays?: number[];
     reportingLocation: string;
     notes?: string;
-    overrideConflicts?: boolean;
-    overrideReason?: string;
   },
 ): Promise<DutyMutationResponse> {
   return apiRequest<DutyMutationResponse>("/duty/management/assignments", {
@@ -831,19 +891,85 @@ export function cancelDutyAssignment(
   );
 }
 
-export function createDutyException(
+export function createDutyLeave(
   accessToken: string,
-  payload: {
-    employeeAccountId: string;
-    date: string;
-    type: DutyExceptionType;
-    note?: string;
-  },
+  payload: { employeeAccountId: string; startDate: string; endDate: string; note?: string },
 ): Promise<DutyMutationResponse> {
-  return apiRequest<DutyMutationResponse>("/duty/management/exceptions", {
+  return apiRequest<DutyMutationResponse>("/duty/management/leaves", {
     method: "POST",
     headers: authorizationHeaders(accessToken),
     body: JSON.stringify(payload),
+  });
+}
+
+export function getDutyCalendar(
+  accessToken: string,
+  query: { from?: string; to?: string; divisionId?: string; departmentId?: string; includeCancelled?: boolean } = {},
+): Promise<DutyCalendarResponse> {
+  return apiRequest<DutyCalendarResponse>(`/duty/calendar${buildQueryString(query)}`, {
+    headers: authorizationHeaders(accessToken),
+  });
+}
+
+export function createDutyHoliday(
+  accessToken: string,
+  payload: {
+    name: string;
+    type: DutyHolidayType;
+    startDate: string;
+    endDate: string;
+    scope: DutyHolidayScope;
+    divisionId?: string;
+    departmentId?: string;
+    note?: string;
+  },
+): Promise<DutyMutationResponse & { holiday?: unknown }> {
+  return apiRequest("/duty/management/holidays", {
+    method: "POST",
+    headers: authorizationHeaders(accessToken),
+    body: JSON.stringify(payload),
+  });
+}
+
+export function updateDutyHoliday(
+  accessToken: string,
+  holidayId: string,
+  payload: Partial<{
+    name: string;
+    type: DutyHolidayType;
+    startDate: string;
+    endDate: string;
+    scope: DutyHolidayScope;
+    divisionId: string;
+    departmentId: string;
+    note: string;
+  }>,
+): Promise<DutyMutationResponse & { holiday?: unknown }> {
+  return apiRequest(`/duty/management/holidays/${holidayId}`, {
+    method: "PATCH",
+    headers: authorizationHeaders(accessToken),
+    body: JSON.stringify(payload),
+  });
+}
+
+export function cancelDutyHoliday(
+  accessToken: string,
+  holidayId: string,
+): Promise<DutyMutationResponse> {
+  return apiRequest(`/duty/management/holidays/${holidayId}/cancel`, {
+    method: "POST",
+    headers: authorizationHeaders(accessToken),
+  });
+}
+
+export function updateDutyWeeklyOff(
+  accessToken: string,
+  days: number[],
+): Promise<DutyMutationResponse> {
+  return apiRequest("/duty/management/weekly-off", {
+    method: "PATCH",
+    headers: authorizationHeaders(accessToken),
+    body: JSON.stringify({ days }),
   });
 }
 
@@ -860,40 +986,6 @@ export function coordinateManagementHelpRequest(
       body: JSON.stringify(payload),
     },
   );
-}
-
-
-export function getDailyWorkPerformance(
-  accessToken: string,
-  query: DailyWorkPerformanceQuery = {},
-): Promise<DailyWorkPerformanceReport> {
-  return apiRequest<DailyWorkPerformanceReport>(
-    `/work-reports/daily-performance${buildQueryString(query)}`,
-    { headers: authorizationHeaders(accessToken) },
-  );
-}
-
-export async function downloadDailyWorkPerformanceCsv(
-  accessToken: string,
-  query: DailyWorkPerformanceQuery = {},
-): Promise<{ filename: string; truncated: boolean }> {
-  const download = await apiDownload(
-    `/work-reports/daily-performance/export${buildQueryString(query)}`,
-    { headers: authorizationHeaders(accessToken) },
-  );
-  const objectUrl = URL.createObjectURL(download.blob);
-  const anchor = document.createElement("a");
-  anchor.href = objectUrl;
-  anchor.download = download.filename;
-  document.body.append(anchor);
-  anchor.click();
-  anchor.remove();
-  URL.revokeObjectURL(objectUrl);
-
-  return {
-    filename: download.filename,
-    truncated: download.truncated,
-  };
 }
 
 export function getWorkReportSummary(
@@ -925,41 +1017,6 @@ export async function downloadWorkReportCsv(
 ): Promise<{ filename: string; truncated: boolean }> {
   const download = await apiDownload(
     `/work-reports/export${buildQueryString({ ...query, dataset })}`,
-    { headers: authorizationHeaders(accessToken) },
-  );
-  const objectUrl = URL.createObjectURL(download.blob);
-  const anchor = document.createElement("a");
-  anchor.href = objectUrl;
-  anchor.download = download.filename;
-  document.body.append(anchor);
-  anchor.click();
-  anchor.remove();
-  URL.revokeObjectURL(objectUrl);
-
-  return {
-    filename: download.filename,
-    truncated: download.truncated,
-  };
-}
-
-
-export function getPerformanceReport(
-  accessToken: string,
-  query: PerformanceReportQuery = {},
-): Promise<PerformanceReportResponse> {
-  return apiRequest<PerformanceReportResponse>(
-    `/work-reports/performance${buildQueryString(query)}`,
-    { headers: authorizationHeaders(accessToken) },
-  );
-}
-
-export async function downloadPerformanceReportCsv(
-  accessToken: string,
-  section: PerformanceReportSection,
-  query: PerformanceReportQuery = {},
-): Promise<{ filename: string; truncated: boolean }> {
-  const download = await apiDownload(
-    `/work-reports/performance/export${buildQueryString({ ...query, section })}`,
     { headers: authorizationHeaders(accessToken) },
   );
   const objectUrl = URL.createObjectURL(download.blob);

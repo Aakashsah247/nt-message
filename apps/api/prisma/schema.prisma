@@ -226,13 +226,6 @@ enum WorkContactType {
   TELEPHONE
 }
 
-enum WorkPriority {
-  LOW
-  NORMAL
-  HIGH
-  CRITICAL
-}
-
 enum WorkItemStatus {
   ASSIGNED
   ACKNOWLEDGED
@@ -250,11 +243,19 @@ enum WorkAssignmentRole {
   SUPPORTING
 }
 
+enum WorkSalesCoordinationStatus {
+  WAITING_FOR_DOCUMENTS
+  READY_FOR_SALES
+  COMPLETED
+}
+
 enum WorkActivityAction {
   CREATED
   ASSIGNED
   TEAM_ASSIGNED
   SALES_MEMBER_ASSIGNED
+  SALES_DOCUMENTS_SENT
+  SALES_WORK_COMPLETED
   ACKNOWLEDGED
   STARTED
   STATUS_CHANGED
@@ -270,7 +271,6 @@ enum WorkActivityAction {
   REOPENED
   CANCELLED
   DETAILS_UPDATED
-  PRIORITY_CHANGED
   DUE_DATE_CHANGED
   RETENTION_HOLD_APPLIED
   RETENTION_HOLD_RELEASED
@@ -316,6 +316,13 @@ enum DutyRecurrenceType {
 enum DutyExceptionType {
   LEAVE
   HOLIDAY
+}
+
+enum DutyHolidayType {
+  GOVERNMENT
+  FESTIVAL
+  ORGANIZATION
+  OTHER
 }
 
 enum WorkAvailabilityPreference {
@@ -379,6 +386,7 @@ model Division {
   dutyScheduleSeries         DutyScheduleSeries[]
   dutyAssignments            DutyAssignment[]
   dutyExceptions             DutyException[]
+  dutyHolidays               DutyHoliday[]
 
   @@index([isActive], map: "divisions_is_active_idx")
   @@map("divisions")
@@ -405,6 +413,7 @@ model Department {
   dutyScheduleSeries         DutyScheduleSeries[]
   dutyAssignments            DutyAssignment[]
   dutyExceptions             DutyException[]
+  dutyHolidays               DutyHoliday[]
   dutyCoverageRequirements   DutyCoverageRequirement[]
   workHelpRequests           WorkHelpRequest[]
   employeeTeams              DepartmentTeam[]
@@ -542,6 +551,7 @@ model Account {
   workHelpRequestsReceived        WorkHelpRequest[]                 @relation("WorkHelpRequestsRequestedHelper")
   workHelpRequestsResponded       WorkHelpRequest[]                 @relation("WorkHelpRequestsRespondedBy")
   workHelpRequestsCoordinated     WorkHelpRequest[]                 @relation("WorkHelpRequestsCoordinatedBy")
+  workSalesMessagesSent           WorkSalesMessage[]                @relation("WorkSalesMessagesSender")
   dutyShiftTemplatesCreated       DutyShiftTemplate[]               @relation("DutyShiftTemplatesCreatedBy")
   dutyScheduleSeriesCreated       DutyScheduleSeries[]              @relation("DutyScheduleSeriesCreatedBy")
   dutyScheduleSeriesEmployee      DutyScheduleSeries[]              @relation("DutyScheduleSeriesEmployee")
@@ -552,6 +562,10 @@ model Account {
   dutyAssignmentsCancelled        DutyAssignment[]                  @relation("DutyAssignmentsCancelledBy")
   dutyExceptionsEmployee          DutyException[]                   @relation("DutyExceptionsEmployee")
   dutyExceptionsCreated           DutyException[]                   @relation("DutyExceptionsCreatedBy")
+  dutyHolidaysCreated             DutyHoliday[]                     @relation("DutyHolidaysCreatedBy")
+  dutyHolidaysUpdated             DutyHoliday[]                     @relation("DutyHolidaysUpdatedBy")
+  dutyHolidaysCancelled           DutyHoliday[]                     @relation("DutyHolidaysCancelledBy")
+  dutyWeeklyOffSettingsUpdated    DutyWeeklyOffSetting[]            @relation("DutyWeeklyOffSettingsUpdatedBy")
   workAvailability                EmployeeWorkAvailability?         @relation("EmployeeWorkAvailabilityAccount")
   dutyActivitiesEmployee          DutyActivity[]                    @relation("DutyActivitiesEmployee")
   dutyActivitiesActor             DutyActivity[]                    @relation("DutyActivitiesActor")
@@ -1567,7 +1581,6 @@ model WorkItem {
   title        String         @db.VarChar(160)
   description  String         @db.Text
   category     String?        @db.VarChar(80)
-  priority     WorkPriority   @default(NORMAL)
   status       WorkItemStatus @default(ASSIGNED)
 
   customerName          String?           @map("customer_name") @db.VarChar(160)
@@ -1575,6 +1588,8 @@ model WorkItem {
   customerContactNumber String?           @map("customer_contact_number") @db.VarChar(30)
   serviceTypes          WorkServiceType[] @default([]) @map("service_types")
   otherServiceText      String?           @map("other_service_text") @db.VarChar(160)
+  requestNumber         String?           @map("request_number") @db.VarChar(100)
+  cpcSerial             String?           @map("cpc_serial") @db.VarChar(100)
   serviceNumber         String?           @map("service_number") @db.VarChar(100)
   olt                   String?           @db.VarChar(100)
   fdcName               String?           @map("fdc_name") @db.VarChar(100)
@@ -1585,6 +1600,10 @@ model WorkItem {
   parentWorkItemId    String? @map("parent_work_item_id") @db.Uuid
   assignedTeamId      String? @map("assigned_team_id") @db.Uuid
   salesMemberAccountId String? @map("sales_member_account_id") @db.Uuid
+  salesCoordinationStatus WorkSalesCoordinationStatus? @map("sales_coordination_status")
+  salesDocumentsSentAt DateTime? @map("sales_documents_sent_at") @db.Timestamptz(3)
+  salesCompletedAt DateTime? @map("sales_completed_at") @db.Timestamptz(3)
+  salesCompletionNote String? @map("sales_completion_note") @db.VarChar(1500)
 
   locationText   String?   @map("location_text") @db.VarChar(300)
   registeredAt   DateTime  @map("registered_at") @db.Timestamptz(3)
@@ -1630,14 +1649,18 @@ model WorkItem {
   activities        WorkActivity[]
   completionReports WorkCompletionReport[]
   helpRequests      WorkHelpRequest[]
+  salesMessages     WorkSalesMessage[]
 
   @@index([status, dueAt], map: "work_items_status_due_idx")
   @@index([divisionId, status, dueAt], map: "work_items_division_status_due_idx")
   @@index([departmentId, status, dueAt], map: "work_items_department_status_due_idx")
   @@index([assignedTeamId, status, dueAt], map: "work_items_team_status_due_idx")
   @@index([salesMemberAccountId, status, dueAt], map: "work_items_sales_member_status_due_idx")
+  @@index([salesMemberAccountId, salesCoordinationStatus, dueAt], map: "work_items_sales_coordination_due_idx")
   @@index([registeredAt], map: "work_items_registered_at_idx")
   @@index([createdByAccountId, createdAt], map: "work_items_creator_created_idx")
+  @@index([requestNumber], map: "work_items_request_number_idx")
+  @@index([cpcSerial], map: "work_items_cpc_serial_idx")
   @@index([serviceNumber], map: "work_items_service_number_idx")
   @@index([customerContactNumber], map: "work_items_customer_contact_idx")
   @@index([parentWorkItemId, status, dueAt], map: "work_items_parent_status_due_idx")
@@ -1702,6 +1725,13 @@ model WorkCompletionReport {
   submittedByAccountId String                     @map("submitted_by_account_id") @db.Uuid
   result               WorkCompletionResult
   summary              String                     @db.Text
+  cpcSerial            String?                    @map("cpc_serial") @db.VarChar(100)
+  serviceNumber        String?                    @map("service_number") @db.VarChar(100)
+  customerId           String?                    @map("customer_id") @db.VarChar(100)
+  rxLevelDbm           Float?                     @map("rx_level_dbm")
+  olt                  String?                    @db.VarChar(100)
+  fdcName              String?                    @map("fdc_name") @db.VarChar(100)
+  fapName              String?                    @map("fap_name") @db.VarChar(100)
   moreWorkRequired     Boolean                    @default(false) @map("more_work_required")
   reviewStatus         WorkCompletionReviewStatus @default(PENDING_REVIEW) @map("review_status")
   managerNote          String?                    @map("manager_note") @db.VarChar(1500)
@@ -1719,6 +1749,47 @@ model WorkCompletionReport {
   @@index([submittedByAccountId, createdAt], map: "work_completion_reports_submitter_created_idx")
   @@index([reviewStatus, createdAt], map: "work_completion_reports_review_status_created_idx")
   @@map("work_completion_reports")
+}
+
+
+model WorkSalesMessage {
+  id String @id @default(uuid()) @db.Uuid
+
+  workItemId     String @map("work_item_id") @db.Uuid
+  senderAccountId String @map("sender_account_id") @db.Uuid
+  text            String? @db.VarChar(1500)
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  workItem    WorkItem @relation(fields: [workItemId], references: [id], onDelete: Cascade)
+  sender      Account  @relation("WorkSalesMessagesSender", fields: [senderAccountId], references: [id], onDelete: Restrict)
+  attachments WorkSalesAttachment[]
+
+  @@index([workItemId, createdAt], map: "work_sales_messages_item_created_idx")
+  @@index([senderAccountId, createdAt], map: "work_sales_messages_sender_created_idx")
+  @@map("work_sales_messages")
+}
+
+model WorkSalesAttachment {
+  id String @id @default(uuid()) @db.Uuid
+
+  messageId String @map("message_id") @db.Uuid
+
+  storageKey       String @map("storage_key") @db.VarChar(500)
+  originalFileName String @map("original_file_name") @db.VarChar(255)
+  mimeType         String @map("mime_type") @db.VarChar(120)
+  fileSizeBytes    Int    @map("file_size_bytes")
+  scanStatus       String @default("PENDING") @map("scan_status") @db.VarChar(40)
+
+  // Work evidence follows the work record. Physical deletion is handled only
+  // when the parent work eventually enters an approved deletion flow.
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  message WorkSalesMessage @relation(fields: [messageId], references: [id], onDelete: Cascade)
+
+  @@index([messageId], map: "work_sales_attachments_message_idx")
+  @@index([storageKey], map: "work_sales_attachments_storage_key_idx")
+  @@map("work_sales_attachments")
 }
 
 model WorkHelpRequest {
@@ -1942,6 +2013,47 @@ model DutyException {
   @@unique([employeeAccountId, exceptionDate], map: "duty_exceptions_employee_date_key")
   @@index([departmentId, exceptionDate], map: "duty_exceptions_department_date_idx")
   @@map("duty_exceptions")
+}
+
+model DutyHoliday {
+  id String @id @default(uuid()) @db.Uuid
+
+  name                 String          @db.VarChar(150)
+  type                 DutyHolidayType
+  startDate            DateTime        @map("start_date") @db.Date
+  endDate              DateTime        @map("end_date") @db.Date
+  divisionId           String?         @map("division_id") @db.Uuid
+  departmentId         String?         @map("department_id") @db.Uuid
+  note                 String?         @db.VarChar(1000)
+  createdByAccountId   String          @map("created_by_account_id") @db.Uuid
+  updatedByAccountId   String          @map("updated_by_account_id") @db.Uuid
+  cancelledAt          DateTime?       @map("cancelled_at") @db.Timestamptz(3)
+  cancelledByAccountId String?         @map("cancelled_by_account_id") @db.Uuid
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  division    Division?  @relation(fields: [divisionId], references: [id], onDelete: Restrict)
+  department  Department? @relation(fields: [departmentId], references: [id], onDelete: Restrict)
+  createdBy   Account    @relation("DutyHolidaysCreatedBy", fields: [createdByAccountId], references: [id], onDelete: Restrict)
+  updatedBy   Account    @relation("DutyHolidaysUpdatedBy", fields: [updatedByAccountId], references: [id], onDelete: Restrict)
+  cancelledBy Account?   @relation("DutyHolidaysCancelledBy", fields: [cancelledByAccountId], references: [id], onDelete: Restrict)
+
+  @@index([startDate, endDate, cancelledAt], map: "duty_holidays_dates_cancelled_idx")
+  @@index([divisionId, startDate, endDate], map: "duty_holidays_division_dates_idx")
+  @@index([departmentId, startDate, endDate], map: "duty_holidays_department_dates_idx")
+  @@map("duty_holidays")
+}
+
+model DutyWeeklyOffSetting {
+  dayOfWeek          Int      @id @map("day_of_week")
+  updatedByAccountId String   @map("updated_by_account_id") @db.Uuid
+  createdAt          DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt          DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  updatedBy Account @relation("DutyWeeklyOffSettingsUpdatedBy", fields: [updatedByAccountId], references: [id], onDelete: Restrict)
+
+  @@map("duty_weekly_off_settings")
 }
 
 model EmployeeWorkAvailability {

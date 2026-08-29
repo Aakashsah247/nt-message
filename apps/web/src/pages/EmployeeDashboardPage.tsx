@@ -64,6 +64,18 @@ const ACTIVE_STATUSES: WorkItemStatus[] = [
   "BLOCKED",
 ];
 
+const WORK_STATUS_LABELS: Record<WorkItemStatus, string> = {
+  ASSIGNED: "New",
+  ACKNOWLEDGED: "New",
+  IN_PROGRESS: "In Progress",
+  HELP_REQUESTED: "Need Help",
+  COMPLETED_PENDING_REVIEW: "Waiting for Approval",
+  CLOSED: "Completed",
+  REOPENED: "Returned",
+  BLOCKED: "Blocked",
+  CANCELLED: "Cancelled",
+};
+
 function formatNumber(value: number): string {
   return new Intl.NumberFormat("en-US").format(value);
 }
@@ -346,7 +358,7 @@ export function EmployeeDashboardPage() {
               <DashboardIcon name="work" />
               <span>New work</span>
               <strong>{formatNumber(workSummary?.totals.newWork ?? 0)}</strong>
-              <small>Waiting for acknowledgement</small>
+              <small>Ready to start</small>
             </article>
             <article>
               <DashboardIcon name="warning" />
@@ -363,7 +375,7 @@ export function EmployeeDashboardPage() {
                   <strong>{item.title}</strong>
                   <small>{item.ticketNumber} · Due {formatDateTime(item.dueAt)}</small>
                 </div>
-                <span>{item.status.replaceAll("_", " ").toLowerCase()}</span>
+                <span>{WORK_STATUS_LABELS[item.status]}</span>
                 <DashboardIcon name="arrow" />
               </Link>
             ))}

@@ -16,11 +16,15 @@ import {
   WorkHelpRequestStatus,
   WorkItemStatus,
   WorkItemType,
-  WorkPriority,
   WorkServiceType,
+  WorkSalesCoordinationStatus,
 } from '../generated/prisma/enums';
 import { WorkQueueFocus, WorkQueueView } from './dto/list-work-items-query.dto';
-import { WorkItemsService } from './work-items.service';
+import {
+  WorkItemsService,
+  workItemDetailSelect,
+  workItemListSelect,
+} from './work-items.service';
 import type { WorkNotificationsService } from './work-notifications.service';
 import type { WorkScopeService } from './work-scope.service';
 import type { WorkStatusTransitionService } from './work-status-transition.service';
@@ -127,6 +131,7 @@ describe('WorkItemsService M20 Phase 2', () => {
       updateMany: jest.fn(),
     },
     workAssignment: {
+      create: jest.fn(),
       updateMany: jest.fn(),
     },
     workActivity: {
@@ -153,6 +158,7 @@ describe('WorkItemsService M20 Phase 2', () => {
     resolveActorContext: jest.fn(),
     assertCanCreateWork: jest.fn(),
     resolveAssignableAccounts: jest.fn(),
+    assertAdministrativeIndividualAssignee: jest.fn(),
     resolveAssignableTeam: jest.fn(),
     resolveSalesMember: jest.fn(),
     resolveSupportMembers: jest.fn(),
@@ -191,6 +197,19 @@ describe('WorkItemsService M20 Phase 2', () => {
       });
   });
 
+  it('loads the full primary-team roster only for work detail views', () => {
+    expect(workItemDetailSelect.assignedTeam.select).toEqual(
+      expect.objectContaining({
+        members: expect.objectContaining({
+          select: expect.objectContaining({
+            employee: expect.any(Object),
+          }),
+        }),
+      }),
+    );
+    expect(workItemListSelect.assignedTeam.select).not.toHaveProperty('members');
+  });
+
   it('creates a collision-safe ticket and immutable assignment activities', async () => {
     const primary = createEmployeeAccount('ram');
     const team = createWorkTeam(primary);
@@ -213,7 +232,6 @@ describe('WorkItemsService M20 Phase 2', () => {
       ticketNumber,
       title: 'Repair damaged wire',
       status: WorkItemStatus.ASSIGNED,
-      priority: WorkPriority.NORMAL,
       createdBy: { id: actor.accountId },
       responsibleManager: { id: actor.accountId },
       assignments: [
@@ -259,7 +277,6 @@ describe('WorkItemsService M20 Phase 2', () => {
           customerName: 'Hari Prasad',
           serviceNumber: 'NT-FTTH-10001',
           serviceTypes: [WorkServiceType.DATA],
-          priority: WorkPriority.NORMAL,
           title: 'Trouble ticket · NT-FTTH-10001 · Hari Prasad',
         }),
       }),
@@ -311,7 +328,6 @@ describe('WorkItemsService M20 Phase 2', () => {
       ticketNumber: 'NT-PAT-NET-2026-000049',
       title: 'Trouble ticket · FTTH-49 · Customer',
       status: WorkItemStatus.ASSIGNED,
-      priority: WorkPriority.NORMAL,
       createdBy: { id: actor.accountId },
       responsibleManager: { id: actor.accountId },
       assignments: [],
@@ -407,36 +423,86 @@ describe('WorkItemsService M20 Phase 2', () => {
     ).rejects.toThrow('Registered date and time cannot be in the future.');
   });
 
-  it('creates team work only from a task assigned to the current manager', async () => {
-    const primary = createEmployeeAccount('field-worker');
+  it('rejects delegated child work for operational Team-owned work', async () => {
     const actor = {
       accountId: 'team-manager',
       role: AccountRole.TEAM_MANAGER,
       divisionId: 'division-a',
       departmentId: 'department-a',
     };
+    const parent = {
+      id: 'parent-work',
+      type: WorkItemType.MAINTENANCE,
+      status: WorkItemStatus.IN_PROGRESS,
+      archiveEligibleAt: null,
+      assignments: [],
+    };
+
+    jest.mocked(scope.resolveActorContext).mockResolvedValue(actor);
+    jest.mocked(scope.buildVisibleWorkWhere).mockReturnValue({
+      departmentId: 'department-a',
+    });
+    jest.mocked(prisma.workItem.findFirst).mockResolvedValue(parent as never);
+
+    await expect(
+      service.create(
+        {
+          accountId: actor.accountId,
+          sessionId: 'session',
+          username: 'team-manager@ntc.test',
+          role: actor.role,
+        },
+        {
+          type: WorkItemType.ROUTINE_TASK,
+          ...createSchedule(),
+          primaryAssigneeAccountId: 'field-worker',
+          parentWorkItemId: parent.id,
+          delegationInstructions: 'Inspect the FAP and confirm the optical reading.',
+        },
+      ),
+    ).rejects.toThrow(
+      'Only individually assigned Administrative Work can be delegated. Operational work stays Team-owned.',
+    );
+
+    expect(scope.resolveAssignableAccounts).not.toHaveBeenCalled();
+    expect(transaction.workItem.create).not.toHaveBeenCalled();
+  });
+
+  it('delegates started Administrative Work from Senior Management to a Team Manager', async () => {
+    const primary = {
+      ...createEmployeeAccount('team-manager-recipient'),
+      role: AccountRole.TEAM_MANAGER,
+    };
+    const actor = {
+      accountId: 'senior-manager',
+      role: AccountRole.SENIOR_MANAGEMENT,
+      divisionId: 'division-a',
+      departmentId: null,
+    };
     const parentDueAt = new Date(Date.now() + 2 * 60 * 60 * 1000);
     const parent = {
       id: 'parent-work',
-      ticketNumber: 'NT-PAT-NET-2026-000040',
-      type: WorkItemType.MAINTENANCE,
-      title: 'Network maintenance · FTTH-100 · Customer',
-      description: 'Main network maintenance work.',
+      ticketNumber: 'NT-PAT-DIVA-2026-000040',
+      type: WorkItemType.ADMINISTRATIVE_TASK,
+      title: 'Prepare monthly performance report',
+      description: 'Prepare the division report for management review.',
       status: WorkItemStatus.IN_PROGRESS,
-      priority: WorkPriority.HIGH,
       archiveEligibleAt: null,
       divisionId: 'division-a',
-      departmentId: 'department-a',
-      customerName: 'Customer',
-      customerContactType: WorkContactType.MOBILE,
-      customerContactNumber: '9841000000',
+      departmentId: null,
+      assignedTeamId: null,
+      customerName: null,
+      customerContactType: null,
+      customerContactNumber: null,
       serviceTypes: [],
       otherServiceText: null,
-      serviceNumber: 'FTTH-100',
-      olt: 'OLT-1',
-      fdcName: 'FDC-1',
-      fapName: 'FAP-1',
-      locationText: 'Patan',
+      requestNumber: null,
+      cpcSerial: null,
+      serviceNumber: null,
+      olt: null,
+      fdcName: null,
+      fapName: null,
+      locationText: null,
       registeredAt: new Date(Date.now() - 60 * 60 * 1000),
       plannedStartAt: new Date(Date.now() - 30 * 60 * 1000),
       dueAt: parentDueAt,
@@ -451,7 +517,7 @@ describe('WorkItemsService M20 Phase 2', () => {
 
     jest.mocked(scope.resolveActorContext).mockResolvedValue(actor);
     jest.mocked(scope.buildVisibleWorkWhere).mockReturnValue({
-      departmentId: 'department-a',
+      divisionId: 'division-a',
     });
     jest
       .mocked(prisma.workItem.findFirst)
@@ -465,11 +531,10 @@ describe('WorkItemsService M20 Phase 2', () => {
     } as never);
     transaction.$queryRawUnsafe.mockResolvedValue([{ nextValue: 46n }]);
     transaction.workItem.create.mockResolvedValue({
-      id: 'team-work',
+      id: 'delegated-work',
       ticketNumber: 'NT-PAT-NET-2026-000046',
       title: parent.title,
       status: WorkItemStatus.ASSIGNED,
-      priority: WorkPriority.HIGH,
       createdBy: { id: actor.accountId },
       responsibleManager: { id: actor.accountId },
       assignments: [{ assignee: { id: primary.id } }],
@@ -480,19 +545,23 @@ describe('WorkItemsService M20 Phase 2', () => {
       {
         accountId: actor.accountId,
         sessionId: 'session',
-        username: 'team-manager@ntc.test',
+        username: 'senior-manager@ntc.test',
         role: actor.role,
       },
       {
-        // The client type is intentionally different; the server must inherit the main task.
+        // The server inherits Administrative Work from the parent regardless of client type.
         type: WorkItemType.ROUTINE_TASK,
         ...createSchedule(),
         primaryAssigneeAccountId: primary.id,
         parentWorkItemId: parent.id,
-        teamInstructions: 'Inspect the FAP and confirm the optical reading.',
+        delegationInstructions: 'Prepare the department figures and submit them for review.',
       },
     );
 
+    expect(scope.assertAdministrativeIndividualAssignee).toHaveBeenCalledWith(
+      actor,
+      primary,
+    );
     expect(scope.resolveResponsibleManager).toHaveBeenCalledWith(
       actor,
       actor.accountId,
@@ -503,12 +572,11 @@ describe('WorkItemsService M20 Phase 2', () => {
       expect.objectContaining({
         data: expect.objectContaining({
           parentWorkItemId: parent.id,
-          type: WorkItemType.MAINTENANCE,
-          priority: WorkPriority.HIGH,
+          type: WorkItemType.ADMINISTRATIVE_TASK,
           createdByAccountId: actor.accountId,
           responsibleManagerAccountId: actor.accountId,
           description: expect.stringContaining(
-            'Inspect the FAP and confirm the optical reading.',
+            'Delegation instructions:\nPrepare the department figures and submit them for review.',
           ),
         }),
       }),
@@ -518,8 +586,8 @@ describe('WorkItemsService M20 Phase 2', () => {
         workItemId: parent.id,
         action: WorkActivityAction.DELEGATED,
         details: expect.objectContaining({
-          teamWorkItemId: 'team-work',
-          teamMemberAccountId: primary.id,
+          delegatedWorkItemId: 'delegated-work',
+          delegatedAccountId: primary.id,
         }),
       }),
     });
@@ -545,7 +613,6 @@ describe('WorkItemsService M20 Phase 2', () => {
       ticketNumber: 'NT-PAT-NET-2026-000047',
       title: 'Network maintenance · Customer',
       status: WorkItemStatus.ASSIGNED,
-      priority: WorkPriority.NORMAL,
       createdBy: { id: actor.accountId },
       responsibleManager: { id: actor.accountId },
       assignments: [{ assignee: { id: primary.id } }],
@@ -577,7 +644,6 @@ describe('WorkItemsService M20 Phase 2', () => {
       expect.objectContaining({
         data: expect.objectContaining({
           serviceNumber: null,
-          priority: WorkPriority.NORMAL,
           title: 'Network maintenance · Customer',
           description: expect.not.stringContaining('Service number:'),
         }),
@@ -606,13 +672,13 @@ describe('WorkItemsService M20 Phase 2', () => {
       ticketNumber: 'NT-PAT-NET-2026-000045',
       title: 'Prepare the monthly service report',
       status: WorkItemStatus.ASSIGNED,
-      priority: WorkPriority.NORMAL,
       createdBy: { id: actor.accountId },
       responsibleManager: { id: actor.accountId },
       assignments: [{ assignee: { id: primary.id } }],
     });
     transaction.workActivity.createMany.mockResolvedValue({ count: 2 });
 
+    const schedule = createSchedule();
     await service.create(
       {
         accountId: actor.accountId,
@@ -625,7 +691,8 @@ describe('WorkItemsService M20 Phase 2', () => {
         title: 'Prepare the monthly service report',
         description:
           'Prepare and submit the monthly service report for review.',
-        ...createSchedule(),
+        plannedStartAt: schedule.plannedStartAt,
+        dueAt: schedule.dueAt,
         primaryAssigneeAccountId: primary.id,
       },
     );
@@ -645,7 +712,21 @@ describe('WorkItemsService M20 Phase 2', () => {
           fdcName: null,
           fapName: null,
           serviceTypes: [],
+          registeredAt: expect.any(Date),
+          plannedStartAt: new Date(schedule.plannedStartAt),
         }),
+      }),
+    );
+    expect(transaction.workActivity.createMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.arrayContaining([
+          expect.objectContaining({
+            action: WorkActivityAction.CREATED,
+            details: expect.not.objectContaining({
+              registeredAt: expect.anything(),
+            }),
+          }),
+        ]),
       }),
     );
   });
@@ -686,7 +767,8 @@ describe('WorkItemsService M20 Phase 2', () => {
           customerContactType: WorkContactType.MOBILE,
           customerContactNumber: '9812345678',
           locationText: 'Patan, Lalitpur',
-          serviceNumber: 'NEW-FTTH-20001',
+          requestNumber: 'TOKEN-20001',
+          cpcSerial: 'CPC-20001',
           olt: 'OLT-PAT-02',
           fdcName: 'FDC-PAT-01',
           fapName: 'FAP-PAT-03',
@@ -724,9 +806,8 @@ describe('WorkItemsService M20 Phase 2', () => {
     transaction.workItem.create.mockResolvedValue({
       id: 'work-2',
       ticketNumber: 'NT-PAT-NET-2026-000043',
-      title: 'New Installation · NEW-FTTH-20002 · Gita Rai',
+      title: 'New Installation · TOKEN-20002 · Gita Rai',
       status: WorkItemStatus.ASSIGNED,
-      priority: WorkPriority.NORMAL,
       createdBy: { id: actor.accountId },
       responsibleManager: { id: actor.accountId },
       assignments: [{ assignee: { id: primary.id } }],
@@ -746,7 +827,8 @@ describe('WorkItemsService M20 Phase 2', () => {
         customerContactType: WorkContactType.MOBILE,
         customerContactNumber: '9812345679',
         locationText: 'Patan, Lalitpur',
-        serviceNumber: 'NEW-FTTH-20002',
+        requestNumber: 'TOKEN-20002',
+        cpcSerial: 'CPC-20002',
         olt: 'OLT-PAT-02',
         fdcName: 'FDC-PAT-01',
         fapName: 'FAP-PAT-04',
@@ -763,10 +845,106 @@ describe('WorkItemsService M20 Phase 2', () => {
         data: expect.objectContaining({
           serviceTypes: [WorkServiceType.DATA, WorkServiceType.OTHER],
           otherServiceText: 'Enterprise VPN',
+          requestNumber: 'TOKEN-20002',
+          cpcSerial: 'CPC-20002',
+          serviceNumber: null,
           assignedTeamId: team.id,
           salesMemberAccountId: salesMember.id,
-          description: expect.stringContaining('Token number: NEW-FTTH-20002.'),
+          salesCoordinationStatus:
+            WorkSalesCoordinationStatus.WAITING_FOR_DOCUMENTS,
+          description: expect.stringContaining('Token number: TOKEN-20002.'),
           category: null,
+        }),
+      }),
+    );
+  });
+
+  it('requires Token number and CPC Serial but not Service number for New Installation work', async () => {
+    const primary = createEmployeeAccount('installation-refs');
+    const team = createWorkTeam(primary);
+    const salesMember = createEmployeeAccount('installation-sales');
+    salesMember.employee.departmentUnit.workFunction =
+      DepartmentWorkFunction.SALES;
+    const actor = {
+      accountId: 'manager',
+      role: AccountRole.TEAM_MANAGER,
+      divisionId: 'division-a',
+      departmentId: 'department-a',
+    };
+    jest.mocked(scope.resolveActorContext).mockResolvedValue(actor);
+    jest.mocked(scope.resolveAssignableTeam).mockResolvedValue(team as never);
+    jest.mocked(scope.resolveSalesMember).mockResolvedValue(salesMember as never);
+    jest.mocked(scope.resolveResponsibleManager).mockResolvedValue({
+      id: actor.accountId,
+    } as never);
+    transaction.$queryRawUnsafe.mockResolvedValue([{ nextValue: 44n }]);
+    transaction.workItem.create.mockResolvedValue({
+      id: 'work-installation-refs',
+      ticketNumber: 'NT-PAT-NET-2026-000044',
+      title: 'New Installation · TOKEN-1 · Reference Customer',
+      status: WorkItemStatus.ASSIGNED,
+      createdBy: { id: actor.accountId },
+      responsibleManager: { id: actor.accountId },
+      assignments: [{ assignee: { id: primary.id } }],
+    });
+    transaction.workActivity.createMany.mockResolvedValue({ count: 2 });
+
+    const base = {
+      type: WorkItemType.NEW_CONNECTION,
+      customerName: 'Reference Customer',
+      customerContactType: WorkContactType.MOBILE,
+      customerContactNumber: '9841000000',
+      locationText: 'Patan',
+      olt: 'OLT-1',
+      fdcName: 'FDC-1',
+      fapName: 'FAP-1',
+      serviceTypes: [WorkServiceType.DATA],
+      ...createSchedule(),
+      assignedTeamId: team.id,
+      salesMemberAccountId: salesMember.id,
+    };
+
+    await expect(
+      service.create(
+        {
+          accountId: actor.accountId,
+          sessionId: 'session',
+          username: 'manager@ntc.test',
+          role: actor.role,
+        },
+        { ...base, cpcSerial: 'CPC-1' },
+      ),
+    ).rejects.toThrow('Token number is required.');
+
+    await expect(
+      service.create(
+        {
+          accountId: actor.accountId,
+          sessionId: 'session',
+          username: 'manager@ntc.test',
+          role: actor.role,
+        },
+        { ...base, requestNumber: 'TOKEN-1' },
+      ),
+    ).rejects.toThrow('CPC Serial is required.');
+
+    await service.create(
+      {
+        accountId: actor.accountId,
+        sessionId: 'session',
+        username: 'manager@ntc.test',
+        role: actor.role,
+      },
+      { ...base, requestNumber: 'TOKEN-1', cpcSerial: 'CPC-1' },
+    );
+
+    expect(transaction.workItem.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          requestNumber: 'TOKEN-1',
+          cpcSerial: 'CPC-1',
+          serviceNumber: null,
+          title: 'New Installation · TOKEN-1 · Reference Customer',
         }),
       }),
     );
@@ -834,7 +1012,6 @@ describe('WorkItemsService M20 Phase 2', () => {
       ticketNumber: 'NT-PAT-NET-2026-000044',
       title: 'Trouble ticket · FTTH-30002 · Telephone Check',
       status: WorkItemStatus.ASSIGNED,
-      priority: WorkPriority.NORMAL,
       createdBy: { id: actor.accountId },
       responsibleManager: { id: actor.accountId },
       assignments: [{ assignee: { id: primary.id } }],
@@ -908,7 +1085,7 @@ describe('WorkItemsService M20 Phase 2', () => {
         },
       ),
     ).rejects.toThrow(
-      'Operational work must be assigned to a team, not directly to one staff member.',
+      'Operational work must be assigned to a Team, not directly to one Individual.',
     );
   });
 
@@ -944,6 +1121,8 @@ describe('WorkItemsService M20 Phase 2', () => {
           customerContactType: WorkContactType.MOBILE,
           customerContactNumber: '9841000000',
           locationText: 'Patan',
+          requestNumber: 'TOKEN-100',
+          cpcSerial: 'CPC-100',
           serviceNumber: 'SERVICE-100',
           olt: 'OLT-1',
           fdcName: 'FDC-1',
@@ -998,6 +1177,8 @@ describe('WorkItemsService M20 Phase 2', () => {
           customerContactType: WorkContactType.MOBILE,
           customerContactNumber: '9841000000',
           locationText: 'Patan',
+          requestNumber: 'TOKEN-101',
+          cpcSerial: 'CPC-101',
           serviceNumber: 'NEW-101',
           olt: 'OLT-1',
           fdcName: 'FDC-1',
@@ -1125,7 +1306,6 @@ describe('WorkItemsService M20 Phase 2', () => {
       .mockResolvedValueOnce(2)
       .mockResolvedValueOnce(3)
       .mockResolvedValueOnce(1)
-      .mockResolvedValueOnce(2)
       .mockResolvedValueOnce(3)
       .mockResolvedValueOnce(2)
       .mockResolvedValueOnce(1)
@@ -1137,7 +1317,6 @@ describe('WorkItemsService M20 Phase 2', () => {
         ticketNumber: 'NT-PAT-NET-2026-000001',
         title: 'Repair damaged wire',
         status: WorkItemStatus.IN_PROGRESS,
-        priority: WorkPriority.HIGH,
       },
     ] as never);
 
@@ -1162,7 +1341,7 @@ describe('WorkItemsService M20 Phase 2', () => {
     expect(scope.buildVisibleWorkWhere).toHaveBeenCalledWith(actor);
   });
 
-  it('allows only the active primary assignee to start global ticket work', async () => {
+  it('keeps individual work restricted to its active primary assignee', async () => {
     jest.mocked(scope.resolveActorContext).mockResolvedValue({
       accountId: 'helper',
       role: AccountRole.EMPLOYEE,
@@ -1173,7 +1352,18 @@ describe('WorkItemsService M20 Phase 2', () => {
       id: 'work-1',
       status: WorkItemStatus.ACKNOWLEDGED,
       version: 1,
-      assignments: [],
+      archiveEligibleAt: null,
+      assignedTeamId: null,
+      assignedTeam: null,
+      assignments: [
+        {
+          id: 'assignment-1',
+          assigneeAccountId: 'primary-worker',
+          assignedByAccountId: 'manager',
+          acknowledgedAt: new Date(),
+          startedAt: null,
+        },
+      ],
     });
 
     await expect(
@@ -1187,6 +1377,298 @@ describe('WorkItemsService M20 Phase 2', () => {
         'work-1',
       ),
     ).rejects.toBeInstanceOf(ForbiddenException);
+  });
+
+  it('lets an active team member take and start one shared team work item', async () => {
+    const teamAdmin = createEmployeeAccount('team-admin');
+    const teamMember = createEmployeeAccount('field-worker');
+    jest.mocked(scope.resolveActorContext).mockResolvedValue({
+      accountId: teamMember.id,
+      role: AccountRole.EMPLOYEE,
+      divisionId: 'division-a',
+      departmentId: 'department-a',
+    });
+    transaction.workItem.findUnique.mockResolvedValue({
+      id: 'work-1',
+      status: WorkItemStatus.ASSIGNED,
+      version: 4,
+      archiveEligibleAt: null,
+      assignedTeamId: 'team-a',
+      assignedTeam: {
+        members: [
+          { employee: { account: { id: teamAdmin.id } } },
+          { employee: { account: { id: teamMember.id } } },
+        ],
+      },
+      assignments: [
+        {
+          id: 'assignment-admin',
+          assigneeAccountId: teamAdmin.id,
+          assignedByAccountId: 'manager',
+          acknowledgedAt: null,
+          startedAt: null,
+        },
+      ],
+    });
+    transaction.workItem.updateMany.mockResolvedValue({ count: 1 });
+    transaction.workAssignment.updateMany.mockResolvedValue({ count: 1 });
+    transaction.workAssignment.create.mockResolvedValue({ id: 'assignment-worker' });
+    transaction.workItem.findUniqueOrThrow.mockResolvedValue({
+      id: 'work-1',
+      ticketNumber: 'NT-PAT-NET-2026-000001',
+      title: 'New installation',
+      status: WorkItemStatus.IN_PROGRESS,
+      assignedTeamId: 'team-a',
+      createdBy: { id: 'manager' },
+      responsibleManager: { id: 'manager' },
+      assignments: [{ assignee: { id: teamMember.id } }],
+    });
+
+    const result = await service.start(
+      {
+        accountId: teamMember.id,
+        sessionId: 'session',
+        username: `${teamMember.id}@ntc.test`,
+        role: AccountRole.EMPLOYEE,
+      },
+      'work-1',
+    );
+
+    expect(transaction.workAssignment.updateMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({ id: 'assignment-admin' }),
+        data: expect.objectContaining({ endedAt: expect.any(Date) }),
+      }),
+    );
+    expect(transaction.workAssignment.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        workItemId: 'work-1',
+        assigneeAccountId: teamMember.id,
+        assignmentRole: WorkAssignmentRole.PRIMARY,
+        assignedByAccountId: 'manager',
+        acknowledgedAt: expect.any(Date),
+        startedAt: expect.any(Date),
+      }),
+    });
+    expect(transaction.workActivity.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          actorAccountId: teamMember.id,
+          action: WorkActivityAction.ACKNOWLEDGED,
+        }),
+      }),
+    );
+    expect(result.workItem.status).toBe(WorkItemStatus.IN_PROGRESS);
+    expect(notifications.publishWorkUpdate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: 'STARTED',
+        actorAccountId: teamMember.id,
+        notificationRecipientAccountIds: ['manager'],
+      }),
+    );
+  });
+
+  it('lets the Team Admin start shared team work without creating another primary assignment', async () => {
+    const teamAdmin = createEmployeeAccount('team-admin');
+    jest.mocked(scope.resolveActorContext).mockResolvedValue({
+      accountId: teamAdmin.id,
+      role: AccountRole.EMPLOYEE,
+      divisionId: 'division-a',
+      departmentId: 'department-a',
+    });
+    transaction.workItem.findUnique.mockResolvedValue({
+      id: 'work-1',
+      status: WorkItemStatus.ASSIGNED,
+      version: 2,
+      archiveEligibleAt: null,
+      assignedTeamId: 'team-a',
+      assignedTeam: {
+        members: [{ employee: { account: { id: teamAdmin.id } } }],
+      },
+      assignments: [
+        {
+          id: 'assignment-admin',
+          assigneeAccountId: teamAdmin.id,
+          assignedByAccountId: 'manager',
+          acknowledgedAt: null,
+          startedAt: null,
+        },
+      ],
+    });
+    transaction.workItem.updateMany.mockResolvedValue({ count: 1 });
+    transaction.workAssignment.updateMany.mockResolvedValue({ count: 1 });
+    transaction.workItem.findUniqueOrThrow.mockResolvedValue({
+      id: 'work-1',
+      ticketNumber: 'NT-PAT-NET-2026-000002',
+      title: 'Repair service',
+      status: WorkItemStatus.IN_PROGRESS,
+      assignedTeamId: 'team-a',
+      createdBy: { id: 'manager' },
+      responsibleManager: { id: 'manager' },
+      assignments: [{ assignee: { id: teamAdmin.id } }],
+    });
+
+    await service.start(
+      {
+        accountId: teamAdmin.id,
+        sessionId: 'session',
+        username: `${teamAdmin.id}@ntc.test`,
+        role: AccountRole.EMPLOYEE,
+      },
+      'work-1',
+    );
+
+    expect(transaction.workAssignment.create).not.toHaveBeenCalled();
+    expect(transaction.workAssignment.updateMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          acknowledgedAt: expect.any(Date),
+          startedAt: expect.any(Date),
+        }),
+      }),
+    );
+  });
+
+  it('rejects an employee who is not a member of the assigned team', async () => {
+    jest.mocked(scope.resolveActorContext).mockResolvedValue({
+      accountId: 'outsider',
+      role: AccountRole.EMPLOYEE,
+      divisionId: 'division-a',
+      departmentId: 'department-a',
+    });
+    transaction.workItem.findUnique.mockResolvedValue({
+      id: 'work-1',
+      status: WorkItemStatus.ASSIGNED,
+      version: 1,
+      archiveEligibleAt: null,
+      assignedTeamId: 'team-a',
+      assignedTeam: {
+        members: [{ employee: { account: { id: 'team-admin' } } }],
+      },
+      assignments: [
+        {
+          id: 'assignment-admin',
+          assigneeAccountId: 'team-admin',
+          assignedByAccountId: 'manager',
+          acknowledgedAt: null,
+          startedAt: null,
+        },
+      ],
+    });
+
+    await expect(
+      service.start(
+        {
+          accountId: 'outsider',
+          sessionId: 'session',
+          username: 'outsider@ntc.test',
+          role: AccountRole.EMPLOYEE,
+        },
+        'work-1',
+      ),
+    ).rejects.toBeInstanceOf(ForbiddenException);
+  });
+
+  it('rejects a simultaneous team start when another member wins the work version first', async () => {
+    jest.mocked(scope.resolveActorContext).mockResolvedValue({
+      accountId: 'field-worker',
+      role: AccountRole.EMPLOYEE,
+      divisionId: 'division-a',
+      departmentId: 'department-a',
+    });
+    transaction.workItem.findUnique.mockResolvedValue({
+      id: 'work-1',
+      status: WorkItemStatus.ASSIGNED,
+      version: 7,
+      archiveEligibleAt: null,
+      assignedTeamId: 'team-a',
+      assignedTeam: {
+        members: [
+          { employee: { account: { id: 'team-admin' } } },
+          { employee: { account: { id: 'field-worker' } } },
+        ],
+      },
+      assignments: [
+        {
+          id: 'assignment-admin',
+          assigneeAccountId: 'team-admin',
+          assignedByAccountId: 'manager',
+          acknowledgedAt: null,
+          startedAt: null,
+        },
+      ],
+    });
+    transaction.workItem.updateMany.mockResolvedValue({ count: 0 });
+
+    await expect(
+      service.start(
+        {
+          accountId: 'field-worker',
+          sessionId: 'session',
+          username: 'field-worker@ntc.test',
+          role: AccountRole.EMPLOYEE,
+        },
+        'work-1',
+      ),
+    ).rejects.toBeInstanceOf(ConflictException);
+
+    expect(transaction.workAssignment.updateMany).not.toHaveBeenCalled();
+    expect(transaction.workAssignment.create).not.toHaveBeenCalled();
+  });
+
+  it('does not let a second team member take over work that is already in progress', async () => {
+    jest.mocked(scope.resolveActorContext).mockResolvedValue({
+      accountId: 'second-worker',
+      role: AccountRole.EMPLOYEE,
+      divisionId: 'division-a',
+      departmentId: 'department-a',
+    });
+    transaction.workItem.findUnique.mockResolvedValue({
+      id: 'work-1',
+      status: WorkItemStatus.IN_PROGRESS,
+      version: 5,
+      archiveEligibleAt: null,
+      assignedTeamId: 'team-a',
+      assignedTeam: {
+        members: [
+          { employee: { account: { id: 'first-worker' } } },
+          { employee: { account: { id: 'second-worker' } } },
+        ],
+      },
+      assignments: [
+        {
+          id: 'assignment-first',
+          assigneeAccountId: 'first-worker',
+          assignedByAccountId: 'manager',
+          acknowledgedAt: new Date(),
+          startedAt: new Date(),
+        },
+      ],
+    });
+    transaction.workItem.findUniqueOrThrow.mockResolvedValue({
+      id: 'work-1',
+      ticketNumber: 'NT-PAT-NET-2026-000003',
+      title: 'Existing field work',
+      status: WorkItemStatus.IN_PROGRESS,
+      assignedTeamId: 'team-a',
+      createdBy: { id: 'manager' },
+      responsibleManager: { id: 'manager' },
+      assignments: [{ assignee: { id: 'first-worker' } }],
+    });
+
+    const result = await service.start(
+      {
+        accountId: 'second-worker',
+        sessionId: 'session',
+        username: 'second-worker@ntc.test',
+        role: AccountRole.EMPLOYEE,
+      },
+      'work-1',
+    );
+
+    expect(result.message).toBe('Work was already in progress.');
+    expect(transaction.workAssignment.create).not.toHaveBeenCalled();
+    expect(transaction.workAssignment.updateMany).not.toHaveBeenCalled();
   });
 
   it.each([
@@ -1209,9 +1691,13 @@ describe('WorkItemsService M20 Phase 2', () => {
         status: WorkItemStatus.ACKNOWLEDGED,
         version: 1,
         archiveEligibleAt: null,
+        assignedTeamId: null,
+        assignedTeam: null,
         assignments: [
           {
             id: 'assignment-1',
+            assigneeAccountId: accountId,
+            assignedByAccountId: 'assigner',
             acknowledgedAt: new Date(),
             startedAt: null,
           },
@@ -1574,6 +2060,7 @@ describe('WorkItemsService M20 Phase 2', () => {
         page: 1,
         limit: 20,
         category: 'Cable',
+        divisionId: 'division-a',
         departmentId: 'department-a',
         assigneeAccountId: 'employee-1',
         dueFrom: '2026-07-20T00:00:00.000Z',
@@ -1587,6 +2074,7 @@ describe('WorkItemsService M20 Phase 2', () => {
       expect.objectContaining({
         where: {
           AND: expect.arrayContaining([
+            { divisionId: 'division-a' },
             { departmentId: 'department-a' },
             {
               category: {
@@ -1743,7 +2231,7 @@ describe('WorkItemsService M20 Phase 2', () => {
     );
   });
 
-  it('summarizes linked child progress without loading child rows into the queue', async () => {
+  it('summarizes delegated Administrative progress without loading delegated rows into the queue', async () => {
     const actor = {
       accountId: 'manager',
       role: AccountRole.TEAM_MANAGER,
@@ -1797,7 +2285,7 @@ describe('WorkItemsService M20 Phase 2', () => {
     });
   });
 
-  it('returns the full team assignment chain for professional tracking', async () => {
+  it('returns the full Administrative delegation chain for professional tracking', async () => {
     const actor = {
       accountId: 'super-admin',
       role: AccountRole.SUPER_ADMIN,
@@ -1821,7 +2309,6 @@ describe('WorkItemsService M20 Phase 2', () => {
           description:
             'Main task.\n\nTeam instructions:\nCheck cabinet readings.',
           status: WorkItemStatus.IN_PROGRESS,
-          priority: WorkPriority.HIGH,
           dueAt: new Date(Date.now() - 60_000),
           createdAt: new Date(),
           completedAt: null,
@@ -1843,9 +2330,8 @@ describe('WorkItemsService M20 Phase 2', () => {
           ticketNumber: 'TEAM-2',
           title: 'Team part two',
           description:
-            'Main task.\n\nTeam instructions:\nReplace the damaged drop wire.',
+            'Main task.\n\nDelegation instructions:\nReplace the damaged drop wire.',
           status: WorkItemStatus.CLOSED,
-          priority: WorkPriority.NORMAL,
           dueAt: new Date(Date.now() + 60_000),
           createdAt: new Date(),
           completedAt: new Date(),
@@ -1872,7 +2358,7 @@ describe('WorkItemsService M20 Phase 2', () => {
       'root-work',
     );
 
-    expect(result.workItem.teamWork).toEqual(
+    expect(result.workItem.delegatedWork).toEqual(
       expect.objectContaining({
         total: 2,
         completed: 1,
@@ -1938,4 +2424,82 @@ describe('WorkItemsService M20 Phase 2', () => {
       }),
     );
   });
+
+  it('cannot widen Senior Management work scope by supplying another division filter', async () => {
+    const actor = {
+      accountId: 'senior',
+      role: AccountRole.SENIOR_MANAGEMENT,
+      divisionId: 'division-a',
+      departmentId: null,
+    };
+    jest.mocked(scope.resolveActorContext).mockResolvedValue(actor);
+    jest.mocked(scope.buildVisibleWorkWhere).mockReturnValue({
+      divisionId: 'division-a',
+    });
+    jest.mocked(prisma.workItem.findMany).mockResolvedValue([] as never);
+    jest.mocked(prisma.workItem.count).mockResolvedValue(0);
+
+    await service.list(
+      {
+        accountId: actor.accountId,
+        sessionId: 'session',
+        username: 'senior@ntc.test',
+        role: actor.role,
+      },
+      {
+        page: 1,
+        limit: 20,
+        divisionId: 'division-b',
+      },
+    );
+
+    expect(prisma.workItem.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: {
+          AND: expect.arrayContaining([
+            { divisionId: 'division-a' },
+            { divisionId: 'division-b' },
+          ]),
+        },
+      }),
+    );
+  });
+
+  it('keeps direct work-detail lookup inside the server-owned visibility scope', async () => {
+    const actor = {
+      accountId: 'senior',
+      role: AccountRole.SENIOR_MANAGEMENT,
+      divisionId: 'division-a',
+      departmentId: null,
+    };
+    jest.mocked(scope.resolveActorContext).mockResolvedValue(actor);
+    jest.mocked(scope.buildVisibleWorkWhere).mockReturnValue({
+      divisionId: 'division-a',
+    });
+    jest.mocked(prisma.workItem.findFirst).mockResolvedValue(null as never);
+
+    await expect(
+      service.getById(
+        {
+          accountId: actor.accountId,
+          sessionId: 'session',
+          username: 'senior@ntc.test',
+          role: actor.role,
+        },
+        'outside-work',
+      ),
+    ).rejects.toThrow('Work item was not found.');
+
+    expect(prisma.workItem.findFirst).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: {
+          AND: [
+            { id: 'outside-work' },
+            { divisionId: 'division-a' },
+          ],
+        },
+      }),
+    );
+  });
+
 });

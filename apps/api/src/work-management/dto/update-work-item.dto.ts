@@ -1,6 +1,5 @@
 import { Transform } from 'class-transformer';
 import {
-  IsEnum,
   IsISO8601,
   IsOptional,
   IsString,
@@ -8,12 +7,8 @@ import {
   MinLength,
 } from 'class-validator';
 
-import { WorkPriority } from '../../generated/prisma/client';
 
 export class UpdateWorkItemDto {
-  @IsOptional()
-  @IsEnum(WorkPriority)
-  priority?: WorkPriority;
 
   @IsOptional()
   @IsISO8601({ strict: true })

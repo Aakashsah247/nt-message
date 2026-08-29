@@ -14,11 +14,12 @@ import path from 'node:path';
 import type { UploadedMessageAttachmentFile } from '../conversations/types/uploaded-message-attachment-file';
 import { resolveAttachmentUploadTempRoot } from './attachment-upload-temp-storage';
 
-export type AttachmentStorageNamespace = 'messages' | 'announcements';
+export type AttachmentStorageNamespace = 'messages' | 'announcements' | 'work';
 
 interface AttachmentStorageRoots {
   messages: string;
   announcements: string;
+  work: string;
 }
 
 @Injectable()
@@ -43,6 +44,7 @@ export class AttachmentStorageService implements OnModuleInit, OnModuleDestroy {
     await Promise.all([
       this.assertStorageHealthy('messages'),
       this.assertStorageHealthy('announcements'),
+      this.assertStorageHealthy('work'),
       this.assertTemporaryStorageHealthy(),
     ]);
 
@@ -73,6 +75,7 @@ export class AttachmentStorageService implements OnModuleInit, OnModuleDestroy {
       return {
         messages: path.join(root, 'messages'),
         announcements: path.join(root, 'announcements'),
+        work: path.join(root, 'work'),
       };
     }
 
@@ -91,6 +94,10 @@ export class AttachmentStorageService implements OnModuleInit, OnModuleDestroy {
         process.env.MESSAGE_ATTACHMENT_STORAGE_DIR
           ? path.join(process.env.MESSAGE_ATTACHMENT_STORAGE_DIR, 'announcements')
           : path.join(process.cwd(), 'storage', 'announcement-attachments'),
+      ),
+      work: path.resolve(
+        process.env.WORK_ATTACHMENT_STORAGE_DIR ??
+          path.join(process.cwd(), 'storage', 'work-attachments'),
       ),
     };
   }

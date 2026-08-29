@@ -14,7 +14,6 @@ import {
 import {
   WorkItemStatus,
   WorkItemType,
-  WorkPriority,
 } from '../../generated/prisma/client';
 
 export enum WorkQueueView {
@@ -52,9 +51,6 @@ export class ListWorkItemsQueryDto {
   @IsEnum(WorkItemType)
   type?: WorkItemType;
 
-  @IsOptional()
-  @IsEnum(WorkPriority)
-  priority?: WorkPriority;
 
   @Transform(({ value }) => (typeof value === 'string' ? value.trim() : value))
   @IsOptional()
@@ -67,6 +63,10 @@ export class ListWorkItemsQueryDto {
   @IsString()
   @MaxLength(80)
   category?: string;
+
+  @IsOptional()
+  @IsUUID('4')
+  divisionId?: string;
 
   @IsOptional()
   @IsUUID('4')

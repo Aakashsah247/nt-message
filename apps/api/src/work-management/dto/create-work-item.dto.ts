@@ -65,6 +65,21 @@ export class CreateWorkItemDto {
   @MaxLength(300)
   locationText?: string;
 
+
+  @Transform(({ value }: { value: unknown }) => trimOptionalText(value))
+  @IsOptional()
+  @IsString()
+  @MinLength(1)
+  @MaxLength(100)
+  requestNumber?: string;
+
+  @Transform(({ value }: { value: unknown }) => trimOptionalText(value))
+  @IsOptional()
+  @IsString()
+  @MinLength(1)
+  @MaxLength(100)
+  cpcSerial?: string;
+
   @Transform(({ value }: { value: unknown }) => trimOptionalText(value))
   @IsOptional()
   @IsString()
@@ -150,5 +165,5 @@ export class CreateWorkItemDto {
   @IsString()
   @MinLength(2)
   @MaxLength(2000)
-  teamInstructions?: string;
+  delegationInstructions?: string;
 }

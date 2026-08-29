@@ -273,6 +273,108 @@ describe('WorkScopeService', () => {
     ).resolves.toEqual([senior]);
   });
 
+  it('enforces the Administrative individual hierarchy from Super Admin downward', () => {
+    const senior = createAccount({
+      id: 'senior-target',
+      role: AccountRole.SENIOR_MANAGEMENT,
+      divisionId: 'division-a',
+      departmentId: null,
+    });
+    const teamManager = createAccount({
+      id: 'manager-target',
+      role: AccountRole.TEAM_MANAGER,
+      divisionId: 'division-a',
+      departmentId: 'department-a',
+    });
+    const employee = createAccount({
+      id: 'employee-target',
+      role: AccountRole.EMPLOYEE,
+      divisionId: 'division-a',
+      departmentId: 'department-a',
+    });
+    const actor = {
+      accountId: 'super-admin',
+      role: AccountRole.SUPER_ADMIN,
+      divisionId: null,
+      departmentId: null,
+    };
+
+    expect(() =>
+      service.assertAdministrativeIndividualAssignee(actor, senior as never),
+    ).not.toThrow();
+    expect(() =>
+      service.assertAdministrativeIndividualAssignee(actor, teamManager as never),
+    ).not.toThrow();
+    expect(() =>
+      service.assertAdministrativeIndividualAssignee(actor, employee as never),
+    ).toThrow(ForbiddenException);
+  });
+
+  it('allows Senior Management to delegate Administrative Work only to a Team Manager in its division', () => {
+    const teamManager = createAccount({
+      id: 'manager-target',
+      role: AccountRole.TEAM_MANAGER,
+      divisionId: 'division-a',
+      departmentId: 'department-a',
+    });
+    const employee = createAccount({
+      id: 'employee-target',
+      role: AccountRole.EMPLOYEE,
+      divisionId: 'division-a',
+      departmentId: 'department-a',
+    });
+    const otherDivisionManager = createAccount({
+      id: 'other-manager',
+      role: AccountRole.TEAM_MANAGER,
+      divisionId: 'division-b',
+      departmentId: 'department-b',
+    });
+    const actor = {
+      accountId: 'senior',
+      role: AccountRole.SENIOR_MANAGEMENT,
+      divisionId: 'division-a',
+      departmentId: null,
+    };
+
+    expect(() =>
+      service.assertAdministrativeIndividualAssignee(actor, teamManager as never),
+    ).not.toThrow();
+    expect(() =>
+      service.assertAdministrativeIndividualAssignee(actor, employee as never),
+    ).toThrow(ForbiddenException);
+    expect(() =>
+      service.assertAdministrativeIndividualAssignee(actor, otherDivisionManager as never),
+    ).toThrow(ForbiddenException);
+  });
+
+  it('allows a Team Manager to delegate Administrative Work only to an Employee in its department', () => {
+    const employee = createAccount({
+      id: 'employee-target',
+      role: AccountRole.EMPLOYEE,
+      divisionId: 'division-a',
+      departmentId: 'department-a',
+    });
+    const siblingEmployee = createAccount({
+      id: 'sibling-employee',
+      role: AccountRole.EMPLOYEE,
+      divisionId: 'division-a',
+      departmentId: 'department-b',
+    });
+    const actor = {
+      accountId: 'manager',
+      role: AccountRole.TEAM_MANAGER,
+      divisionId: 'division-a',
+      departmentId: 'department-a',
+    };
+
+    expect(() =>
+      service.assertAdministrativeIndividualAssignee(actor, employee as never),
+    ).not.toThrow();
+    expect(() =>
+      service.assertAdministrativeIndividualAssignee(actor, siblingEmployee as never),
+    ).toThrow(ForbiddenException);
+  });
+
   it('keeps division-level primary reassignment with Senior Management in the same division', async () => {
     const senior = createAccount({
       id: 'replacement-senior',
@@ -306,6 +408,35 @@ describe('WorkScopeService', () => {
         departmentId: 'department-a',
       }),
     ).toEqual({ divisionId: 'division-a' });
+  });
+
+  it('uses strict hierarchy scope for branch, division and department overviews', () => {
+    expect(
+      service.buildOrganizationHierarchyWorkWhere({
+        accountId: 'super-admin',
+        role: AccountRole.SUPER_ADMIN,
+        divisionId: null,
+        departmentId: null,
+      }),
+    ).toEqual({});
+
+    expect(
+      service.buildOrganizationHierarchyWorkWhere({
+        accountId: 'senior',
+        role: AccountRole.SENIOR_MANAGEMENT,
+        divisionId: 'division-a',
+        departmentId: null,
+      }),
+    ).toEqual({ divisionId: 'division-a' });
+
+    expect(
+      service.buildOrganizationHierarchyWorkWhere({
+        accountId: 'manager',
+        role: AccountRole.TEAM_MANAGER,
+        divisionId: 'division-a',
+        departmentId: 'department-a',
+      }),
+    ).toEqual({ departmentId: 'department-a' });
   });
 
   it('keeps Employee visibility assignment-scoped', () => {
@@ -572,4 +703,28 @@ describe('WorkScopeService', () => {
       ),
     ).rejects.toBeInstanceOf(ForbiddenException);
   });
+
+  it('keeps organization management closed to Employees while preserving Super Admin emergency review authority', () => {
+    expect(() =>
+      service.assertCanManageWork({
+        accountId: 'employee',
+        role: AccountRole.EMPLOYEE,
+        divisionId: 'division-a',
+        departmentId: 'department-a',
+      }),
+    ).toThrow(ForbiddenException);
+
+    expect(() =>
+      service.assertCanReviewWork(
+        {
+          accountId: 'super-admin',
+          role: AccountRole.SUPER_ADMIN,
+          divisionId: null,
+          departmentId: null,
+        },
+        'manager',
+      ),
+    ).not.toThrow();
+  });
+
 });

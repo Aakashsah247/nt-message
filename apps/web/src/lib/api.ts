@@ -15,7 +15,8 @@ export async function apiRequest<T>(
 
   if (
     options.body &&
-    !headers.has("Content-Type")
+    !headers.has("Content-Type") &&
+    !(typeof FormData !== "undefined" && options.body instanceof FormData)
   ) {
     headers.set(
       "Content-Type",

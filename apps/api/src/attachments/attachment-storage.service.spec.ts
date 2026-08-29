@@ -53,6 +53,18 @@ describe('AttachmentStorageService', () => {
     ).resolves.toBe(false);
   });
 
+  it('keeps Work Management evidence in its own private storage namespace', async () => {
+    const service = new AttachmentStorageService();
+    await service.onModuleInit();
+
+    await service.writeFile('work', 'work-id/sales/file-id', Buffer.from('evidence'));
+
+    expect(service.resolvePath('work', 'work-id/sales/file-id')).toBe(
+      path.join(root, 'work', 'work-id', 'sales', 'file-id'),
+    );
+    await expect(service.exists('work', 'work-id/sales/file-id')).resolves.toBe(true);
+  });
+
   it('rejects storage keys that try to escape the private root', () => {
     const service = new AttachmentStorageService();
     expect(() => service.resolvePath('messages', '../outside')).toThrow(

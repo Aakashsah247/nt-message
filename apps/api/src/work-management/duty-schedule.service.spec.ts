@@ -1,5 +1,4 @@
 import {
-  BadRequestException,
   ConflictException,
   ForbiddenException,
 } from '@nestjs/common';
@@ -7,10 +6,10 @@ import {
 import type { PrismaService } from '../database/prisma.service';
 import {
   AccountRole,
-  DutyActivityAction,
   DutyAssignmentAuthority,
   DutyRecurrenceType,
 } from '../generated/prisma/enums';
+import { DutyShiftScope } from './dto/create-duty-shift-template.dto';
 import { DutyAssignmentListView } from './dto/list-duty-assignments-query.dto';
 import { DutyScheduleService } from './duty-schedule.service';
 import type { DutyNotificationsService } from './duty-notifications.service';
@@ -73,6 +72,20 @@ describe('DutyScheduleService M20 Phase 5', () => {
       findFirst: jest.fn(),
       count: jest.fn(),
     },
+    dutyHoliday: {
+      findMany: jest.fn(),
+      findFirst: jest.fn(),
+      findUnique: jest.fn(),
+      create: jest.fn(),
+      update: jest.fn(),
+    },
+    dutyWeeklyOffSetting: {
+      findMany: jest.fn(),
+      findUnique: jest.fn(),
+      deleteMany: jest.fn(),
+      createMany: jest.fn(),
+    },
+    division: { findFirst: jest.fn() },
     department: { findFirst: jest.fn(), findMany: jest.fn() },
     account: { findMany: jest.fn() },
     managementAssignment: { findMany: jest.fn() },
@@ -93,6 +106,9 @@ describe('DutyScheduleService M20 Phase 5', () => {
     jest.mocked(scope.resolveActorContext).mockResolvedValue(actor());
     jest.mocked(prisma.dutyAssignment.findMany).mockResolvedValue([] as never);
     jest.mocked(prisma.dutyException.findMany).mockResolvedValue([] as never);
+    jest.mocked(prisma.dutyHoliday.findMany).mockResolvedValue([] as never);
+    jest.mocked(prisma.dutyWeeklyOffSetting.findMany).mockResolvedValue([] as never);
+    jest.mocked(prisma.dutyWeeklyOffSetting.findUnique).mockResolvedValue(null as never);
     jest.mocked(prisma.dutyAssignment.count).mockResolvedValue(0);
     jest.mocked(prisma.dutyScheduleSeries.count).mockResolvedValue(0);
     jest.mocked(prisma.dutyCoverageRequirement.count).mockResolvedValue(0);
@@ -127,6 +143,7 @@ describe('DutyScheduleService M20 Phase 5', () => {
       name: 'Night Shift',
       startTime: '22:00',
       endTime: '06:00',
+      scope: DutyShiftScope.DEPARTMENT,
     });
 
     expect(prisma.dutyShiftTemplate.create).toHaveBeenCalledWith(
@@ -437,7 +454,7 @@ describe('DutyScheduleService M20 Phase 5', () => {
     expect(result.people[0]?.account.role).toBe(AccountRole.SENIOR_MANAGEMENT);
   });
 
-  it('requires a reason when Super Admin assigns below the normal duty hierarchy', async () => {
+  it('treats Super Admin assignment to lower staff as normal authorized duty', async () => {
     const superUser = {
       ...managerUser,
       accountId: 'super-admin',
@@ -453,20 +470,30 @@ describe('DutyScheduleService M20 Phase 5', () => {
       {
         id: 'employee',
         role: AccountRole.EMPLOYEE,
+        username: 'employee',
+        superAdminProfile: null,
         employee: {
+          id: 'employee-record',
+          empId: 'NTC-1001',
+          empName: 'Employee One',
+          designation: 'Technician',
           divisionId: 'division-a',
           departmentId: 'department-a',
         },
       },
     ] as never);
     jest.mocked(scope.resolveResponsibleManager).mockResolvedValue({
-      id: 'team-manager',
+      id: 'super-admin',
+      role: AccountRole.SUPER_ADMIN,
+      username: 'admin@ntc.test',
+      superAdminProfile: { fullName: 'Super Admin Name' },
+      employee: null,
     } as never);
     jest.mocked(prisma.dutyShiftTemplate.findFirst).mockResolvedValue({
       id: 'shift-1',
-      name: 'Emergency Shift',
+      name: 'Branch Shift',
       startMinute: 9 * 60,
-      endMinute: 18 * 60,
+      endMinute: 17 * 60,
       spansNextDay: false,
       isActive: true,
       divisionId: null,
@@ -475,198 +502,136 @@ describe('DutyScheduleService M20 Phase 5', () => {
       updatedAt: new Date(),
     } as never);
 
-    await expect(
-      service.createSchedule(superUser, {
-        employeeAccountId: 'employee',
-        shiftTemplateId: 'shift-1',
-        supervisorAccountId: 'team-manager',
-        recurrenceType: DutyRecurrenceType.ONE_TIME,
-        startDate: '2026-07-20',
-        reportingLocation: 'Patan Branch',
-      }),
-    ).rejects.toBeInstanceOf(BadRequestException);
-    expect(prisma.$transaction).not.toHaveBeenCalled();
+    const result = await service.previewBulkSchedule(superUser, {
+      employeeAccountIds: ['employee'],
+      shiftTemplateId: 'shift-1',
+      recurrenceType: DutyRecurrenceType.ONE_TIME,
+      startDate: '2026-07-20',
+      reportingLocation: 'Patan Branch',
+    });
+
+    expect(result.validAssignments).toBe(1);
+    expect(result.conflictAssignments).toBe(0);
+    expect(result.people[0]?.result).toBe('READY');
+    expect(result.people[0]?.supervisor.superAdminProfile?.fullName).toBe(
+      'Super Admin Name',
+    );
   });
 
-  it('audits and notifies the management chain for a Super Admin conflict override', async () => {
-    const superUser = {
-      ...managerUser,
-      accountId: 'super-admin',
-      role: AccountRole.SUPER_ADMIN,
-    };
-    const employee = {
-      id: 'employee',
-      role: AccountRole.EMPLOYEE,
-      username: 'employee@ntc.test',
-      employee: {
-        id: 'employee-record',
-        empId: 'NTC-1001',
-        empName: 'Ram Employee',
-        designation: 'Technician',
-        divisionId: 'division-a',
-        departmentId: 'department-a',
-      },
-    };
-    jest.mocked(scope.resolveActorContext).mockResolvedValue({
-      accountId: 'super-admin',
-      role: AccountRole.SUPER_ADMIN,
-      divisionId: null,
-      departmentId: null,
-    });
+  it('shows a holiday as a warning without blocking operational duty', async () => {
     jest.mocked(scope.resolveAssignableAccounts).mockResolvedValue([
-      employee,
+      {
+        id: 'employee',
+        role: AccountRole.EMPLOYEE,
+        username: 'employee',
+        superAdminProfile: null,
+        employee: {
+          id: 'employee-record',
+          empId: 'NTC-1001',
+          empName: 'Employee One',
+          designation: 'Technician',
+          divisionId: 'division-a',
+          departmentId: 'department-a',
+        },
+      },
     ] as never);
     jest.mocked(scope.resolveResponsibleManager).mockResolvedValue({
-      id: 'team-manager',
+      id: 'manager',
+      role: AccountRole.TEAM_MANAGER,
+      username: 'manager',
+      superAdminProfile: null,
+      employee: null,
     } as never);
     jest.mocked(prisma.dutyShiftTemplate.findFirst).mockResolvedValue({
       id: 'shift-1',
-      name: 'Emergency Night Shift',
-      startMinute: 22 * 60,
-      endMinute: 6 * 60,
-      spansNextDay: true,
+      name: 'Office Shift',
+      startMinute: 9 * 60,
+      endMinute: 17 * 60,
+      spansNextDay: false,
       isActive: true,
-      divisionId: null,
-      departmentId: null,
+      divisionId: 'division-a',
+      departmentId: 'department-a',
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    } as never);
+    jest.mocked(prisma.dutyHoliday.findMany).mockResolvedValue([
+      {
+        id: 'holiday-1',
+        name: 'Festival Holiday',
+        startDate: new Date('2026-07-20T00:00:00.000Z'),
+        endDate: new Date('2026-07-20T00:00:00.000Z'),
+        divisionId: null,
+        departmentId: null,
+      },
+    ] as never);
+
+    const result = await service.previewBulkSchedule(managerUser, {
+      employeeAccountIds: ['employee'],
+      shiftTemplateId: 'shift-1',
+      recurrenceType: DutyRecurrenceType.ONE_TIME,
+      startDate: '2026-07-20',
+      reportingLocation: 'Patan Branch',
+    });
+
+    expect(result.validAssignments).toBe(1);
+    expect(result.conflictAssignments).toBe(0);
+    expect(result.warningAssignments).toBe(1);
+    expect(result.people[0]?.warnings[0]).toEqual(
+      expect.objectContaining({ type: 'HOLIDAY', holidayId: 'holiday-1' }),
+    );
+  });
+
+  it('blocks a second duty when the required rest period is not available', async () => {
+    jest.mocked(scope.resolveAssignableAccounts).mockResolvedValue([
+      {
+        id: 'employee',
+        role: AccountRole.EMPLOYEE,
+        username: 'employee',
+        superAdminProfile: null,
+        employee: {
+          id: 'employee-record',
+          empId: 'NTC-1001',
+          empName: 'Employee One',
+          designation: 'Technician',
+          divisionId: 'division-a',
+          departmentId: 'department-a',
+        },
+      },
+    ] as never);
+    jest.mocked(scope.resolveResponsibleManager).mockResolvedValue({ id: 'manager' } as never);
+    jest.mocked(prisma.dutyShiftTemplate.findFirst).mockResolvedValue({
+      id: 'shift-1',
+      name: 'Evening Shift',
+      startMinute: 18 * 60,
+      endMinute: 22 * 60,
+      spansNextDay: false,
+      isActive: true,
+      divisionId: 'division-a',
+      departmentId: 'department-a',
       createdAt: new Date(),
       updatedAt: new Date(),
     } as never);
     jest.mocked(prisma.dutyAssignment.findMany).mockResolvedValue([
       {
         id: 'existing-duty',
-        startsAt: new Date('2026-07-20T15:00:00.000Z'),
-        endsAt: new Date('2026-07-21T02:00:00.000Z'),
+        employeeAccountId: 'employee',
+        shiftName: 'Day Shift',
+        startsAt: new Date('2026-07-20T03:15:00.000Z'),
+        endsAt: new Date('2026-07-20T11:15:00.000Z'),
       },
     ] as never);
-    jest.mocked(prisma.managementAssignment.findMany).mockResolvedValue([
-      { employee: { account: { id: 'team-manager' } } },
-      { employee: { account: { id: 'senior-manager' } } },
-    ] as never);
-    jest.mocked(transaction.dutyScheduleSeries.create).mockResolvedValue({
-      id: 'series-1',
-    } as never);
-    jest
-      .mocked(transaction.dutyAssignment.create)
-      .mockImplementation(async ({ data }: { data: Record<string, unknown> }) => ({
-        ...data,
-        id: 'assignment-1',
-        createdAt: new Date('2026-07-19T00:00:00.000Z'),
-        updatedAt: new Date('2026-07-19T00:00:00.000Z'),
-        cancelledAt: null,
-        cancellationReason: null,
-        employee,
-        supervisor: {
-          id: 'team-manager',
-          role: AccountRole.TEAM_MANAGER,
-          username: 'manager@ntc.test',
-          employee: null,
-        },
-        createdBy: {
-          id: 'super-admin',
-          role: AccountRole.SUPER_ADMIN,
-          username: 'admin@ntc.test',
-          employee: null,
-        },
-        shift: {
-          id: 'shift-1',
-          name: 'Emergency Night Shift',
-          startMinute: 22 * 60,
-          endMinute: 6 * 60,
-          spansNextDay: true,
-          isActive: true,
-          divisionId: null,
-          departmentId: null,
-          createdAt: new Date(),
-          updatedAt: new Date(),
-        },
-        division: { id: 'division-a', code: 'DIV-A', name: 'Division A' },
-        department: {
-          id: 'department-a',
-          code: 'DEP-A',
-          name: 'Department A',
-        },
-      }) as never);
 
-    const result = await service.createSchedule(superUser, {
-      employeeAccountId: 'employee',
+    const result = await service.previewBulkSchedule(managerUser, {
+      employeeAccountIds: ['employee'],
       shiftTemplateId: 'shift-1',
-      supervisorAccountId: 'team-manager',
       recurrenceType: DutyRecurrenceType.ONE_TIME,
       startDate: '2026-07-20',
       reportingLocation: 'Patan Branch',
-      overrideConflicts: true,
-      overrideReason: 'Branch-wide service outage coverage',
     });
 
-    expect(transaction.dutyScheduleSeries.create).toHaveBeenCalledWith(
-      expect.objectContaining({
-        data: expect.objectContaining({
-          authority: DutyAssignmentAuthority.SUPER_ADMIN_OVERRIDE,
-          hierarchyOverride: true,
-          conflictOverride: true,
-          overrideReason: 'Branch-wide service outage coverage',
-          shiftName: 'Emergency Night Shift',
-          shiftStartMinute: 22 * 60,
-          shiftEndMinute: 6 * 60,
-          shiftSpansNextDay: true,
-        }),
-      }),
-    );
-    expect(transaction.dutyAssignment.create).toHaveBeenCalledWith(
-      expect.objectContaining({
-        data: expect.objectContaining({
-          shiftName: 'Emergency Night Shift',
-          shiftStartMinute: 22 * 60,
-          shiftEndMinute: 6 * 60,
-          shiftSpansNextDay: true,
-        }),
-      }),
-    );
-    expect(transaction.dutyActivity.createMany).toHaveBeenCalledWith(
-      expect.objectContaining({
-        data: [
-          expect.objectContaining({
-            action: DutyActivityAction.OVERRIDE_ASSIGNED,
-            details: expect.objectContaining({
-              existingAssignmentId: 'existing-duty',
-              conflictOverride: true,
-              overrideReason: 'Branch-wide service outage coverage',
-            }),
-          }),
-        ],
-      }),
-    );
-    expect(transaction.dutyAssignment.update).not.toHaveBeenCalled();
-    expect(notifications.publishDutyUpdate).toHaveBeenCalledWith(
-      expect.objectContaining({
-        recipientAccountIds: expect.arrayContaining([
-          'employee',
-          'team-manager',
-          'senior-manager',
-        ]),
-        title: 'Duty assigned by Super Admin',
-        metadata: expect.objectContaining({
-          authority: DutyAssignmentAuthority.SUPER_ADMIN_OVERRIDE,
-          hierarchyOverride: true,
-          conflictOverride: true,
-        }),
-      }),
-    );
-    expect(result.governance.conflictOverride).toBe(true);
-  });
-
-  it('prevents a Team Manager from requesting conflict override mode', async () => {
-    await expect(
-      service.previewBulkSchedule(managerUser, {
-        employeeAccountIds: ['employee'],
-        shiftTemplateId: 'shift-1',
-        recurrenceType: DutyRecurrenceType.ONE_TIME,
-        startDate: '2026-07-20',
-        reportingLocation: 'Patan Branch',
-        overrideConflicts: true,
-        overrideReason: 'Emergency staffing requirement',
-      }),
-    ).rejects.toBeInstanceOf(ForbiddenException);
+    expect(result.validAssignments).toBe(0);
+    expect(result.conflictAssignments).toBe(1);
+    expect(result.people[0]?.conflicts[0]?.type).toBe('REST_PERIOD');
   });
 
   it('filters Senior Management oversight to Team Manager duty', async () => {
@@ -727,4 +692,129 @@ describe('DutyScheduleService M20 Phase 5', () => {
     ).rejects.toBeInstanceOf(ForbiddenException);
     expect(prisma.$transaction).not.toHaveBeenCalled();
   });
+  it('rejects a duty roster division outside Senior Management scope', async () => {
+    jest.mocked(scope.resolveActorContext).mockResolvedValue(
+      actor(AccountRole.SENIOR_MANAGEMENT),
+    );
+
+    await expect(
+      service.getRoster(
+        { ...managerUser, role: AccountRole.SENIOR_MANAGEMENT },
+        {
+          from: '2026-08-23',
+          to: '2026-08-23',
+          divisionId: 'division-b',
+        },
+      ),
+    ).rejects.toBeInstanceOf(ForbiddenException);
+  });
+
+  it('applies an active Super Admin division filter to duty roster candidates', async () => {
+    jest.mocked(scope.resolveActorContext).mockResolvedValue(
+      actor(AccountRole.SUPER_ADMIN),
+    );
+    jest.mocked(prisma.division.findFirst).mockResolvedValue({ id: 'division-b' } as never);
+    jest.mocked(prisma.account.findMany).mockResolvedValue([] as never);
+    jest.mocked(prisma.department.findMany).mockResolvedValue([] as never);
+
+    await service.getRoster(
+      { ...managerUser, role: AccountRole.SUPER_ADMIN },
+      {
+        from: '2026-08-23',
+        to: '2026-08-23',
+        divisionId: 'division-b',
+      },
+    );
+
+    expect(prisma.account.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          employee: expect.objectContaining({
+            is: expect.objectContaining({
+              AND: expect.arrayContaining([{ divisionId: 'division-b' }]),
+            }),
+          }),
+        }),
+      }),
+    );
+  });
+
+  it('filters assignment shifts to branch, division and selected department scope', async () => {
+    jest.mocked(prisma.division.findFirst).mockResolvedValue({ id: 'division-a' } as never);
+    jest.mocked(prisma.department.findFirst).mockResolvedValue({ id: 'department-a' } as never);
+    jest.mocked(prisma.dutyShiftTemplate.findMany).mockResolvedValue([] as never);
+
+    await service.listShiftTemplates(managerUser, {
+      targetScope: 'DEPARTMENT' as never,
+      divisionId: 'division-a',
+      departmentId: 'department-a',
+    });
+
+    expect(prisma.dutyShiftTemplate.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          AND: expect.arrayContaining([
+            expect.any(Object),
+            expect.objectContaining({
+              OR: expect.arrayContaining([
+                { divisionId: null, departmentId: null },
+                { divisionId: 'division-a', departmentId: null },
+                { departmentId: 'department-a' },
+              ]),
+            }),
+          ]),
+        }),
+      }),
+    );
+  });
+
+  it('treats approved leave as a hard assignment conflict', async () => {
+    jest.mocked(scope.resolveAssignableAccounts).mockResolvedValue([
+      {
+        id: 'employee',
+        role: AccountRole.EMPLOYEE,
+        username: 'employee',
+        superAdminProfile: null,
+        employee: {
+          id: 'employee-record',
+          empId: 'NTC-1001',
+          empName: 'Employee One',
+          designation: 'Technician',
+          divisionId: 'division-a',
+          departmentId: 'department-a',
+        },
+      },
+    ] as never);
+    jest.mocked(scope.resolveResponsibleManager).mockResolvedValue({ id: 'manager' } as never);
+    jest.mocked(prisma.dutyShiftTemplate.findFirst).mockResolvedValue({
+      id: 'shift-1',
+      name: 'Office Shift',
+      startMinute: 9 * 60,
+      endMinute: 17 * 60,
+      spansNextDay: false,
+      isActive: true,
+      divisionId: 'division-a',
+      departmentId: 'department-a',
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    } as never);
+    jest.mocked(prisma.dutyException.findMany).mockResolvedValue([
+      {
+        employeeAccountId: 'employee',
+        exceptionDate: new Date('2026-07-20T00:00:00.000Z'),
+      },
+    ] as never);
+
+    const result = await service.previewBulkSchedule(managerUser, {
+      employeeAccountIds: ['employee'],
+      shiftTemplateId: 'shift-1',
+      recurrenceType: DutyRecurrenceType.ONE_TIME,
+      startDate: '2026-07-20',
+      reportingLocation: 'Patan Branch',
+    });
+
+    expect(result.validAssignments).toBe(0);
+    expect(result.people[0]?.conflicts[0]?.type).toBe('LEAVE');
+  });
+
 });

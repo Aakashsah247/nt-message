@@ -4,7 +4,7 @@ import {
   DepartmentWorkFunction,
   ManagementPositionType,
   WorkItemStatus,
-  WorkPriority,
+  WorkSalesCoordinationStatus,
 } from '../generated/prisma/enums';
 import { WorkManagementQueryService } from './work-management-query.service';
 import type { WorkScopeService } from './work-scope.service';
@@ -69,11 +69,15 @@ describe('WorkManagementQueryService M20 Phase 4', () => {
     workItem: {
       count: jest.fn(),
       findMany: jest.fn(),
+      groupBy: jest.fn(),
     },
     account: {
       findMany: jest.fn(),
       findUnique: jest.fn(),
       count: jest.fn(),
+    },
+    division: {
+      findMany: jest.fn(),
     },
     department: {
       findMany: jest.fn(),
@@ -90,6 +94,7 @@ describe('WorkManagementQueryService M20 Phase 4', () => {
     resolveActorContext: jest.fn(),
     assertCanManageWork: jest.fn(),
     buildVisibleWorkWhere: jest.fn(),
+    buildOrganizationHierarchyWorkWhere: jest.fn(),
   } as unknown as WorkScopeService;
   const service = new WorkManagementQueryService(prisma, scope);
 
@@ -128,7 +133,6 @@ describe('WorkManagementQueryService M20 Phase 4', () => {
           id: 'review-1',
           ticketNumber: 'NT-PAT-NET-2026-000101',
           status: WorkItemStatus.COMPLETED_PENDING_REVIEW,
-          priority: WorkPriority.NORMAL,
         },
       ] as never)
       .mockResolvedValueOnce([] as never);
@@ -155,6 +159,231 @@ describe('WorkManagementQueryService M20 Phase 4', () => {
       }),
     );
     expect(result.nextReview).toHaveLength(1);
+  });
+
+  it('returns a branch-wide organization summary for Super Admin using grouped work counts', async () => {
+    const actor = {
+      accountId: 'super-admin',
+      role: AccountRole.SUPER_ADMIN,
+      divisionId: null,
+      departmentId: null,
+    };
+    jest.mocked(scope.resolveActorContext).mockResolvedValue(actor);
+    jest.mocked(scope.buildOrganizationHierarchyWorkWhere).mockReturnValue({});
+    jest.mocked(prisma.division.findMany).mockResolvedValue([
+      { id: 'division-a', code: 'DIV-A', name: 'Division A' },
+      { id: 'division-b', code: 'DIV-B', name: 'Division B' },
+    ] as never);
+    jest.mocked(prisma.department.findMany).mockResolvedValue([
+      {
+        id: 'department-a',
+        divisionId: 'division-a',
+        code: 'NET',
+        name: 'Network',
+        workFunction: DepartmentWorkFunction.FIELD_OPERATIONS,
+      },
+      {
+        id: 'department-b',
+        divisionId: 'division-b',
+        code: 'SALES',
+        name: 'Sales',
+        workFunction: DepartmentWorkFunction.GENERAL,
+      },
+    ] as never);
+    jest.mocked(prisma.departmentTeam.findMany).mockResolvedValue([
+      {
+        id: 'team-a',
+        departmentId: 'department-a',
+        name: 'Team A',
+        _count: { members: 4 },
+      },
+      {
+        id: 'team-b',
+        departmentId: 'department-b',
+        name: 'Team B',
+        _count: { members: 3 },
+      },
+    ] as never);
+    jest
+      .mocked(prisma.workItem.groupBy)
+      .mockResolvedValueOnce([
+        {
+          divisionId: 'division-a',
+          departmentId: 'department-a',
+          assignedTeamId: 'team-a',
+          status: WorkItemStatus.ASSIGNED,
+          salesCoordinationStatus:
+            WorkSalesCoordinationStatus.WAITING_FOR_DOCUMENTS,
+          _count: { _all: 2 },
+        },
+        {
+          divisionId: 'division-a',
+          departmentId: 'department-a',
+          assignedTeamId: 'team-a',
+          status: WorkItemStatus.IN_PROGRESS,
+          salesCoordinationStatus: WorkSalesCoordinationStatus.COMPLETED,
+          _count: { _all: 3 },
+        },
+        {
+          divisionId: 'division-b',
+          departmentId: 'department-b',
+          assignedTeamId: 'team-b',
+          status: WorkItemStatus.COMPLETED_PENDING_REVIEW,
+          salesCoordinationStatus: null,
+          _count: { _all: 1 },
+        },
+      ] as never)
+      .mockResolvedValueOnce([
+        {
+          divisionId: 'division-a',
+          departmentId: 'department-a',
+          assignedTeamId: 'team-a',
+          _count: { _all: 1 },
+        },
+      ] as never)
+      .mockResolvedValueOnce([
+        {
+          divisionId: 'division-b',
+          departmentId: 'department-b',
+          assignedTeamId: 'team-b',
+          _count: { _all: 4 },
+        },
+      ] as never);
+
+    const result = await service.getOrganizationSummary({
+      accountId: actor.accountId,
+      sessionId: 'session',
+      username: 'superadmin@ntc.test',
+      role: actor.role,
+    });
+
+    expect(scope.buildOrganizationHierarchyWorkWhere).toHaveBeenCalledWith(actor);
+    expect(result.scope.type).toBe('ORGANIZATION');
+    expect(result.organization).toEqual({
+      divisionCount: 2,
+      departmentCount: 2,
+      teamCount: 2,
+    });
+    expect(result.totals).toEqual({
+      active: 6,
+      newWork: 2,
+      inProgress: 3,
+      waitingForSales: 2,
+      waitingForApproval: 1,
+      overdue: 1,
+      completedToday: 4,
+    });
+    expect(result.divisions[0].departments[0].teams[0]).toEqual(
+      expect.objectContaining({
+        id: 'team-a',
+        memberCount: 4,
+        totals: expect.objectContaining({ active: 5, waitingForSales: 2 }),
+      }),
+    );
+  });
+
+  it('restricts the organization hierarchy to the Senior Management division', async () => {
+    const actor = {
+      accountId: 'senior',
+      role: AccountRole.SENIOR_MANAGEMENT,
+      divisionId: 'division-a',
+      departmentId: null,
+    };
+    jest.mocked(scope.resolveActorContext).mockResolvedValue(actor);
+    jest
+      .mocked(scope.buildOrganizationHierarchyWorkWhere)
+      .mockReturnValue({ divisionId: 'division-a' });
+    jest.mocked(prisma.division.findMany).mockResolvedValue([
+      { id: 'division-a', code: 'DIV-A', name: 'Division A' },
+    ] as never);
+    jest.mocked(prisma.department.findMany).mockResolvedValue([] as never);
+    jest.mocked(prisma.departmentTeam.findMany).mockResolvedValue([] as never);
+    jest.mocked(prisma.workItem.groupBy).mockResolvedValue([] as never);
+
+    const result = await service.getOrganizationSummary({
+      accountId: actor.accountId,
+      sessionId: 'session',
+      username: 'senior@ntc.test',
+      role: actor.role,
+    });
+
+    expect(result.scope.type).toBe('DIVISION');
+    expect(prisma.division.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { isActive: true, id: 'division-a' } }),
+    );
+    expect(prisma.department.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { isActive: true, divisionId: 'division-a' },
+      }),
+    );
+  });
+
+  it('restricts the organization hierarchy to the Team Manager department', async () => {
+    const actor = {
+      accountId: 'manager',
+      role: AccountRole.TEAM_MANAGER,
+      divisionId: 'division-a',
+      departmentId: 'department-a',
+    };
+    jest.mocked(scope.resolveActorContext).mockResolvedValue(actor);
+    jest
+      .mocked(scope.buildOrganizationHierarchyWorkWhere)
+      .mockReturnValue({ departmentId: 'department-a' });
+    jest.mocked(prisma.division.findMany).mockResolvedValue([
+      { id: 'division-a', code: 'DIV-A', name: 'Division A' },
+    ] as never);
+    jest.mocked(prisma.department.findMany).mockResolvedValue([
+      {
+        id: 'department-a',
+        divisionId: 'division-a',
+        code: 'NET',
+        name: 'Network',
+        workFunction: DepartmentWorkFunction.FIELD_OPERATIONS,
+      },
+    ] as never);
+    jest.mocked(prisma.departmentTeam.findMany).mockResolvedValue([] as never);
+    jest.mocked(prisma.workItem.groupBy).mockResolvedValue([] as never);
+
+    const result = await service.getOrganizationSummary({
+      accountId: actor.accountId,
+      sessionId: 'session',
+      username: 'manager@ntc.test',
+      role: actor.role,
+    });
+
+    expect(result.scope.type).toBe('DEPARTMENT');
+    expect(prisma.department.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { isActive: true, id: 'department-a' },
+      }),
+    );
+    expect(prisma.departmentTeam.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({ departmentId: 'department-a' }),
+      }),
+    );
+  });
+
+  it('rejects organization summaries for Employee accounts', async () => {
+    const actor = {
+      accountId: 'employee',
+      role: AccountRole.EMPLOYEE,
+      divisionId: 'division-a',
+      departmentId: 'department-a',
+    };
+    jest.mocked(scope.resolveActorContext).mockResolvedValue(actor);
+    jest.mocked(scope.assertCanManageWork).mockImplementationOnce(() => {
+      throw new Error('Employees cannot manage another employee work assignment.');
+    });
+
+    await expect(
+      service.getOrganizationSummary({
+        accountId: actor.accountId,
+        sessionId: 'session',
+        username: 'employee@ntc.test',
+        role: actor.role,
+      }),
+    ).rejects.toThrow('Employees cannot manage');
   });
 
   it('returns assignable employees with workload warnings', async () => {
@@ -194,7 +423,6 @@ describe('WorkManagementQueryService M20 Phase 4', () => {
         assigneeAccountId: 'ram',
         workItem: {
           status: WorkItemStatus.IN_PROGRESS,
-          priority: WorkPriority.HIGH,
           dueAt: new Date(Date.now() - 60_000),
           completionReports: [],
         },
@@ -220,7 +448,6 @@ describe('WorkManagementQueryService M20 Phase 4', () => {
         account: expect.objectContaining({ id: 'ram' }),
         workload: expect.objectContaining({
           active: 1,
-          highPriority: 1,
           overdue: 1,
           level: 'OVERLOADED',
         }),
@@ -339,7 +566,6 @@ describe('WorkManagementQueryService M20 Phase 4', () => {
       .mockResolvedValueOnce([
         {
           assignedTeamId: 'team-a',
-          priority: WorkPriority.HIGH,
           dueAt: new Date(Date.now() + 60_000),
           status: WorkItemStatus.IN_PROGRESS,
         },
@@ -347,7 +573,6 @@ describe('WorkManagementQueryService M20 Phase 4', () => {
       .mockResolvedValueOnce([
         {
           salesMemberAccountId: 'sales-member',
-          priority: WorkPriority.NORMAL,
           dueAt: new Date(Date.now() - 60_000),
           status: WorkItemStatus.IN_PROGRESS,
         },
@@ -368,7 +593,7 @@ describe('WorkManagementQueryService M20 Phase 4', () => {
         id: 'team-a',
         memberCount: 3,
         memberAccountIds: ['field-worker', 'team-member-2'],
-        workload: expect.objectContaining({ active: 1, highPriority: 1 }),
+        workload: expect.objectContaining({ active: 1, overdue: 0 }),
       }),
     );
     expect(result.salesMembers[0]).toEqual(
@@ -420,6 +645,44 @@ describe('WorkManagementQueryService M20 Phase 4', () => {
         }),
       }),
     );
+  });
+
+
+  it('applies the Senior Management division scope to every organization work-count query', async () => {
+    const actor = {
+      accountId: 'senior',
+      role: AccountRole.SENIOR_MANAGEMENT,
+      divisionId: 'division-a',
+      departmentId: null,
+    };
+    jest.mocked(scope.resolveActorContext).mockResolvedValue(actor);
+    jest
+      .mocked(scope.buildOrganizationHierarchyWorkWhere)
+      .mockReturnValue({ divisionId: 'division-a' });
+    jest.mocked(prisma.division.findMany).mockResolvedValue([
+      { id: 'division-a', code: 'DIV-A', name: 'Division A' },
+    ] as never);
+    jest.mocked(prisma.department.findMany).mockResolvedValue([] as never);
+    jest.mocked(prisma.departmentTeam.findMany).mockResolvedValue([] as never);
+    jest.mocked(prisma.workItem.groupBy).mockResolvedValue([] as never);
+
+    await service.getOrganizationSummary({
+      accountId: actor.accountId,
+      sessionId: 'session',
+      username: 'senior@ntc.test',
+      role: actor.role,
+    });
+
+    expect(prisma.workItem.groupBy).toHaveBeenCalledTimes(3);
+    for (const [call] of jest.mocked(prisma.workItem.groupBy).mock.calls) {
+      expect(call).toEqual(
+        expect.objectContaining({
+          where: expect.objectContaining({
+            AND: expect.arrayContaining([{ divisionId: 'division-a' }]),
+          }),
+        }),
+      );
+    }
   });
 
 });

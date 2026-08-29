@@ -106,6 +106,9 @@ export type WorkItemRealtimeAction =
   | 'HELP_REQUESTED'
   | 'HELP_ACCEPTED'
   | 'HELP_DECLINED'
+  | 'SALES_DOCUMENTS_SENT'
+  | 'SALES_MESSAGE_ADDED'
+  | 'SALES_WORK_COMPLETED'
   | 'COMPLETION_SUBMITTED'
   | 'INFORMATION_REQUESTED'
   | 'CLOSED'
@@ -122,7 +125,6 @@ export interface WorkItemRealtimePayload {
   workItemId: string;
   ticketNumber: string;
   status: string;
-  priority: string;
   action: WorkItemRealtimeAction;
   actorAccountId: string | null;
   occurredAt: string;

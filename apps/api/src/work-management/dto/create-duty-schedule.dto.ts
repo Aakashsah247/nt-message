@@ -3,7 +3,6 @@ import {
   ArrayMaxSize,
   ArrayUnique,
   IsArray,
-  IsBoolean,
   IsEnum,
   IsInt,
   IsOptional,
@@ -65,16 +64,4 @@ export class CreateDutyScheduleDto {
   @IsString()
   @MaxLength(1000)
   notes?: string;
-
-  // Only Super Admin may request a reviewed conflict override; normal managers remain fail-closed.
-  @IsOptional()
-  @IsBoolean()
-  overrideConflicts?: boolean;
-
-  @Transform(({ value }: { value: unknown }) => trimText(value))
-  @IsOptional()
-  @IsString()
-  @MinLength(10)
-  @MaxLength(500)
-  overrideReason?: string;
 }

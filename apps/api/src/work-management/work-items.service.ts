@@ -17,8 +17,8 @@ import {
   WorkHelpRequestStatus,
   WorkItemStatus,
   WorkItemType,
-  WorkPriority,
   WorkServiceType,
+  WorkSalesCoordinationStatus,
 } from '../generated/prisma/client';
 import type { Prisma } from '../generated/prisma/client';
 import { CreateWorkItemDto } from './dto/create-work-item.dto';
@@ -40,6 +40,7 @@ export const workAccountSummarySelect = {
   id: true,
   role: true,
   username: true,
+  superAdminProfile: { select: { fullName: true } },
   employee: {
     select: {
       id: true,
@@ -76,6 +77,30 @@ export const workTeamSummarySelect = {
   },
 } satisfies Prisma.DepartmentTeamSelect;
 
+// Detail pages need the full current team roster so every authorized viewer
+// sees the same shared-team participants. List/queue payloads intentionally
+// keep using the lightweight summary above to avoid inflating large results.
+export const workTeamDetailSelect = {
+  ...workTeamSummarySelect,
+  members: {
+    orderBy: { createdAt: 'asc' },
+    select: {
+      id: true,
+      employee: {
+        select: {
+          id: true,
+          empId: true,
+          empName: true,
+          designation: true,
+          account: {
+            select: workAccountSummarySelect,
+          },
+        },
+      },
+    },
+  },
+} satisfies Prisma.DepartmentTeamSelect;
+
 export const workItemListSelect = {
   id: true,
   ticketNumber: true,
@@ -88,17 +113,22 @@ export const workItemListSelect = {
   customerContactNumber: true,
   serviceTypes: true,
   otherServiceText: true,
+  requestNumber: true,
+  cpcSerial: true,
   serviceNumber: true,
   olt: true,
   fdcName: true,
   fapName: true,
-  priority: true,
   status: true,
   divisionId: true,
   departmentId: true,
   parentWorkItemId: true,
   assignedTeamId: true,
   salesMemberAccountId: true,
+  salesCoordinationStatus: true,
+  salesDocumentsSentAt: true,
+  salesCompletedAt: true,
+  salesCompletionNote: true,
   locationText: true,
   registeredAt: true,
   plannedStartAt: true,
@@ -203,7 +233,7 @@ export interface WorkDelegationProgress {
   completionPercentage: number;
 }
 
-export interface WorkTeamMemberProgress {
+export interface WorkDelegatedMemberProgress {
   id: string;
   parentWorkItemId: string | null;
   depth: number;
@@ -211,7 +241,6 @@ export interface WorkTeamMemberProgress {
   title: string;
   instructions: string | null;
   status: WorkItemStatus;
-  priority: WorkPriority;
   dueAt: Date;
   createdAt: Date;
   completedAt: Date | null;
@@ -227,7 +256,7 @@ export interface WorkTeamMemberProgress {
   isOverdue: boolean;
 }
 
-export interface WorkTeamTracking {
+export interface WorkDelegatedTracking {
   total: number;
   completed: number;
   inProgress: number;
@@ -236,17 +265,16 @@ export interface WorkTeamTracking {
   cancelled: number;
   overdue: number;
   completionPercentage: number;
-  members: WorkTeamMemberProgress[];
+  members: WorkDelegatedMemberProgress[];
 }
 
-const workTeamTrackingSelect = {
+const workDelegatedTrackingSelect = {
   id: true,
   parentWorkItemId: true,
   ticketNumber: true,
   title: true,
   description: true,
   status: true,
-  priority: true,
   dueAt: true,
   createdAt: true,
   completedAt: true,
@@ -272,14 +300,16 @@ const workTeamTrackingSelect = {
 
 export const workItemDetailSelect = {
   ...workItemListSelect,
+  assignedTeam: {
+    select: workTeamDetailSelect,
+  },
   parentWorkItem: {
     select: {
       id: true,
       ticketNumber: true,
       title: true,
       status: true,
-      priority: true,
-      dueAt: true,
+          dueAt: true,
     },
   },
   childWorkItems: {
@@ -290,8 +320,7 @@ export const workItemDetailSelect = {
       ticketNumber: true,
       title: true,
       status: true,
-      priority: true,
-      dueAt: true,
+          dueAt: true,
     },
   },
   completionReports: {
@@ -303,6 +332,13 @@ export const workItemDetailSelect = {
       id: true,
       result: true,
       summary: true,
+      cpcSerial: true,
+      serviceNumber: true,
+      customerId: true,
+      rxLevelDbm: true,
+      olt: true,
+      fdcName: true,
+      fapName: true,
       moreWorkRequired: true,
       reviewStatus: true,
       managerNote: true,
@@ -366,12 +402,24 @@ export class WorkItemsService {
     if (parentWorkItem) {
       this.assertWorkIsOperational(parentWorkItem.archiveEligibleAt);
 
+      if (parentWorkItem.type !== WorkItemType.ADMINISTRATIVE_TASK) {
+        throw new BadRequestException(
+          'Only individually assigned Administrative Work can be delegated. Operational work stays Team-owned.',
+        );
+      }
+
+      if (parentWorkItem.assignedTeamId) {
+        throw new BadRequestException(
+          'Team-owned Administrative Work stays on one shared ticket and cannot create delegated child work.',
+        );
+      }
+
       if (
         parentWorkItem.status === WorkItemStatus.CLOSED ||
         parentWorkItem.status === WorkItemStatus.CANCELLED
       ) {
         throw new ConflictException(
-          'A closed or cancelled task cannot be assigned to a team member.',
+          'A closed or cancelled administrative task cannot be delegated.',
         );
       }
 
@@ -380,7 +428,7 @@ export class WorkItemsService {
         actor.role !== AccountRole.TEAM_MANAGER
       ) {
         throw new ForbiddenException(
-          'Only Senior Management or a Team Manager can assign received work to their team.',
+          'Only Senior Management or a Team Manager can delegate received Administrative Work.',
         );
       }
 
@@ -391,25 +439,24 @@ export class WorkItemsService {
 
       if (parentPrimary?.assignee.id !== actor.accountId) {
         throw new ForbiddenException(
-          'Assign to Team is available only for work currently assigned to you.',
+          'Delegate is available only for Administrative Work currently assigned to you.',
         );
       }
 
       if (!parentPrimary.startedAt) {
         throw new BadRequestException(
-          'Start the task before assigning work to your team.',
+          'Start the administrative task before delegating part of it.',
         );
       }
 
-      if (!dto.teamInstructions?.trim()) {
+      if (!dto.delegationInstructions?.trim()) {
         throw new BadRequestException(
-          'Instructions for the team member are required.',
+          'Delegation instructions are required.',
         );
       }
     }
 
     const effectiveType = parentWorkItem?.type ?? dto.type;
-    const effectivePriority = parentWorkItem?.priority ?? WorkPriority.NORMAL;
     const isAdministrativeWork =
       effectiveType === WorkItemType.ADMINISTRATIVE_TASK;
     const supportingIds = dto.supportingAssigneeAccountIds ?? [];
@@ -424,17 +471,17 @@ export class WorkItemsService {
     if (parentWorkItem) {
       if (dto.assignedTeamId || dto.salesMemberAccountId) {
         throw new BadRequestException(
-          'A delegated team-member task cannot change the main work team or Sales Member.',
+          'Delegated Administrative Work cannot change the parent Team or Sales assignment.',
         );
       }
       if (supportingIds.length > 0) {
         throw new BadRequestException(
-          'Assign one team member at a time so each person has a clear task and progress record.',
+          'Delegate to one individual at a time so the administrative chain stays accountable.',
         );
       }
       if (!dto.primaryAssigneeAccountId) {
         throw new BadRequestException(
-          'Choose the team member who will do this task.',
+          'Choose the individual receiving this delegated administrative work.',
         );
       }
 
@@ -444,31 +491,17 @@ export class WorkItemsService {
         ]);
       if (!selectedPrimary?.employee?.divisionId) {
         throw new BadRequestException(
-          'The selected team member does not have an active division assignment.',
+          'The selected individual does not have an active division assignment.',
         );
       }
+      this.workScopeService.assertAdministrativeIndividualAssignee(
+        actor,
+        selectedPrimary,
+      );
       primaryAssignee = selectedPrimary;
       assignmentAccounts = [
         { account: selectedPrimary, role: WorkAssignmentRole.PRIMARY },
       ];
-
-      if (primaryAssignee.id === actor.accountId) {
-        throw new BadRequestException(
-          'Choose a lower team member, not yourself.',
-        );
-      }
-
-      const allowedLowerRole =
-        actor.role === AccountRole.SENIOR_MANAGEMENT
-          ? primaryAssignee.role === AccountRole.TEAM_MANAGER ||
-            primaryAssignee.role === AccountRole.EMPLOYEE
-          : primaryAssignee.role === AccountRole.EMPLOYEE;
-
-      if (!allowedLowerRole) {
-        throw new ForbiddenException(
-          'Choose a team member below your management level.',
-        );
-      }
     } else {
       const administrativeWork = dto.type === WorkItemType.ADMINISTRATIVE_TASK;
       const hasTeam = Boolean(dto.assignedTeamId);
@@ -476,17 +509,17 @@ export class WorkItemsService {
 
       if (administrativeWork && hasTeam === hasIndividual) {
         throw new BadRequestException(
-          'Administrative work must be assigned to exactly one team or one staff member.',
+          'Administrative work must be assigned to exactly one Team or one Individual.',
         );
       }
       if (!administrativeWork && hasIndividual) {
         throw new BadRequestException(
-          'Operational work must be assigned to a team, not directly to one staff member.',
+          'Operational work must be assigned to a Team, not directly to one Individual.',
         );
       }
       if (!administrativeWork && !hasTeam) {
         throw new BadRequestException(
-          'Choose an active team for this operational work.',
+          'Choose an active Team for this operational work.',
         );
       }
 
@@ -504,9 +537,9 @@ export class WorkItemsService {
         }
 
         primaryAssignee = adminAccount;
-        // Team membership grants read/notification visibility. Only the Team Admin
-        // receives the PRIMARY assignment so individual workload and performance
-        // reports are not inflated before work is delegated to a specific member.
+        // Team membership grants shared visibility and notifications. The Team Admin
+        // is only the initial PRIMARY placeholder; the first active team member who
+        // starts the shared work becomes the current PRIMARY worker.
         assignmentAccounts = [
           { account: adminAccount, role: WorkAssignmentRole.PRIMARY },
         ];
@@ -517,9 +550,13 @@ export class WorkItemsService {
           ]);
         if (!selectedPrimary?.employee?.divisionId) {
           throw new BadRequestException(
-            'The selected staff member does not have an active division assignment.',
+            'The selected individual does not have an active division assignment.',
           );
         }
+        this.workScopeService.assertAdministrativeIndividualAssignee(
+          actor,
+          selectedPrimary,
+        );
         primaryAssignee = selectedPrimary;
         assignmentAccounts = [
           { account: selectedPrimary, role: WorkAssignmentRole.PRIMARY },
@@ -552,7 +589,7 @@ export class WorkItemsService {
 
     if (parentWorkItem && parentWorkItem.divisionId !== workDivisionId) {
       throw new BadRequestException(
-        'Team work must remain inside the main task division.',
+        'Delegated Administrative Work must remain inside the parent task division.',
       );
     }
 
@@ -562,15 +599,30 @@ export class WorkItemsService {
       parentWorkItem.departmentId !== workDepartmentId
     ) {
       throw new BadRequestException(
-        'A Team Manager can assign team work only inside the same department.',
+        'A Team Manager can delegate Administrative Work only inside the same department.',
       );
     }
 
-    // Team work is reviewed by the manager who assigned it; normal work keeps the selected reviewer.
+    const administrativeIndividualWork =
+      isAdministrativeWork && !assignedTeam;
+    if (
+      administrativeIndividualWork &&
+      dto.responsibleManagerAccountId &&
+      dto.responsibleManagerAccountId !== actor.accountId
+    ) {
+      throw new BadRequestException(
+        'Individual Administrative Work is reviewed by the management account that assigned or delegated it.',
+      );
+    }
+
+    // Administrative individual work preserves upward accountability: the assigning
+    // manager is always the reviewer. Team-owned work keeps the existing reviewer flow.
     const responsibleManager =
       await this.workScopeService.resolveResponsibleManager(
         actor,
-        parentWorkItem ? actor.accountId : dto.responsibleManagerAccountId,
+        parentWorkItem || administrativeIndividualWork
+          ? actor.accountId
+          : dto.responsibleManagerAccountId,
         workDivisionId,
         workDepartmentId,
       );
@@ -646,6 +698,8 @@ export class WorkItemsService {
     let customerContactType: WorkContactType | null = null;
     let customerContactNumber: string | null = null;
     let locationText: string | null = null;
+    let requestNumber: string | null = null;
+    let cpcSerial: string | null = null;
     let serviceNumber: string | null = null;
     let olt: string | null = null;
     let fdcName: string | null = null;
@@ -654,16 +708,18 @@ export class WorkItemsService {
     let otherServiceText: string | null = null;
 
     if (parentWorkItem) {
-      // A team task keeps the same operational facts while adding clear instructions for the lower team member.
+      // Delegated Administrative Work keeps the parent task context while adding clear instructions for the lower-level owner.
       title = parentWorkItem.title;
       description = `${parentWorkItem.description}
 
-Team instructions:
-${this.normalizeRequiredText(dto.teamInstructions, 'Team instructions')}`;
+Delegation instructions:
+${this.normalizeRequiredText(dto.delegationInstructions, 'Delegation instructions')}`;
       customerName = parentWorkItem.customerName;
       customerContactType = parentWorkItem.customerContactType;
       customerContactNumber = parentWorkItem.customerContactNumber;
       locationText = parentWorkItem.locationText;
+      requestNumber = parentWorkItem.requestNumber;
+      cpcSerial = parentWorkItem.cpcSerial;
       serviceNumber = parentWorkItem.serviceNumber;
       olt = parentWorkItem.olt;
       fdcName = parentWorkItem.fdcName;
@@ -706,17 +762,27 @@ ${this.normalizeRequiredText(dto.teamInstructions, 'Team instructions')}`;
         dto.customerContactNumber,
       );
       locationText = this.normalizeRequiredText(dto.locationText, 'Location');
-      // Network maintenance does not use a service or token number.
+
+      const usesRequestNumber =
+        effectiveType === WorkItemType.NEW_CONNECTION ||
+        effectiveType === WorkItemType.UPDATE_SERVICES;
+      requestNumber = usesRequestNumber
+        ? this.normalizeRequiredText(dto.requestNumber, 'Token number')
+        : null;
+
+      cpcSerial =
+        effectiveType === WorkItemType.NEW_CONNECTION
+          ? this.normalizeRequiredText(dto.cpcSerial, 'CPC Serial')
+          : null;
+
+      // New Installation is identified by Token Number + CPC Serial. Do not
+      // require or store a separate Service Number for newly created installation
+      // work. Existing historical records keep any value already stored.
       serviceNumber =
-        effectiveType === WorkItemType.MAINTENANCE
+        effectiveType === WorkItemType.MAINTENANCE ||
+        effectiveType === WorkItemType.NEW_CONNECTION
           ? null
-          : this.normalizeRequiredText(
-              dto.serviceNumber,
-              effectiveType === WorkItemType.NEW_CONNECTION ||
-                effectiveType === WorkItemType.UPDATE_SERVICES
-                ? 'Token number'
-                : 'Service number',
-            );
+          : this.normalizeRequiredText(dto.serviceNumber, 'Service number');
       olt = this.normalizeRequiredText(dto.olt, 'OLT');
       fdcName = this.normalizeRequiredText(dto.fdcName, 'FDC name');
       fapName = this.normalizeRequiredText(dto.fapName, 'FAP name');
@@ -753,7 +819,7 @@ ${this.normalizeRequiredText(dto.teamInstructions, 'Team instructions')}`;
       title = this.buildGeneratedWorkTitle(
         effectiveType,
         customerName,
-        serviceNumber,
+        requestNumber ?? serviceNumber,
       );
       description = this.buildGeneratedWorkDescription({
         type: effectiveType,
@@ -761,6 +827,8 @@ ${this.normalizeRequiredText(dto.teamInstructions, 'Team instructions')}`;
         customerContactType,
         customerContactNumber,
         locationText,
+        requestNumber,
+        cpcSerial,
         serviceNumber,
         olt,
         fdcName,
@@ -769,10 +837,24 @@ ${this.normalizeRequiredText(dto.teamInstructions, 'Team instructions')}`;
         otherServiceText,
       });
     }
+    if (!dto.plannedStartAt) {
+      throw new BadRequestException('Planned start time is required.');
+    }
+
+    const plannedStartAt = this.parseRequiredDate(
+      dto.plannedStartAt,
+      'Planned start time',
+    );
+    const dueAt = this.parseRequiredDate(dto.dueAt, 'Due time');
+    const now = Date.now();
     let registeredAt: Date;
 
     if (parentWorkItem) {
       registeredAt = parentWorkItem.registeredAt;
+    } else if (isAdministrativeWork) {
+      // Administrative Work has no business-facing registration timestamp.
+      // Keep a safe internal value only because the existing database column is non-null.
+      registeredAt = new Date(Math.min(now, plannedStartAt.getTime()));
     } else {
       if (!dto.registeredAt) {
         throw new BadRequestException(
@@ -786,24 +868,20 @@ ${this.normalizeRequiredText(dto.teamInstructions, 'Team instructions')}`;
       );
     }
 
-    if (!dto.plannedStartAt) {
-      throw new BadRequestException('Planned start time is required.');
-    }
-
-    const plannedStartAt = this.parseRequiredDate(
-      dto.plannedStartAt,
-      'Planned start time',
-    );
-    const dueAt = this.parseRequiredDate(dto.dueAt, 'Due time');
-    const now = Date.now();
-
-    if (!parentWorkItem && registeredAt.getTime() > now) {
+    if (
+      !isAdministrativeWork &&
+      !parentWorkItem &&
+      registeredAt.getTime() > now
+    ) {
       throw new BadRequestException(
         'Registered date and time cannot be in the future.',
       );
     }
 
-    if (plannedStartAt.getTime() < registeredAt.getTime()) {
+    if (
+      !isAdministrativeWork &&
+      plannedStartAt.getTime() < registeredAt.getTime()
+    ) {
       throw new BadRequestException(
         'Planned start time cannot be earlier than the registered date and time.',
       );
@@ -821,12 +899,12 @@ ${this.normalizeRequiredText(dto.teamInstructions, 'Team instructions')}`;
 
     if (parentWorkItem && dueAt.getTime() > parentWorkItem.dueAt.getTime()) {
       throw new BadRequestException(
-        'The team task due time cannot be later than the main task due time.',
+        'The delegated task due time cannot be later than the parent task due time.',
       );
     }
 
     if (parentWorkItem) {
-      const duplicateTeamTask = await this.prisma.workItem.findFirst({
+      const duplicateDelegatedTask = await this.prisma.workItem.findFirst({
         where: {
           parentWorkItemId: parentWorkItem.id,
           status: { in: [...ACTIVE_WORK_STATUSES] },
@@ -841,9 +919,9 @@ ${this.normalizeRequiredText(dto.teamInstructions, 'Team instructions')}`;
         select: { id: true },
       });
 
-      if (duplicateTeamTask) {
+      if (duplicateDelegatedTask) {
         throw new ConflictException(
-          'This team member already has an active team task for this work.',
+          'This individual already has active delegated work under this parent task.',
         );
       }
     }
@@ -871,17 +949,21 @@ ${this.normalizeRequiredText(dto.teamInstructions, 'Team instructions')}`;
             customerContactNumber,
             serviceTypes,
             otherServiceText,
+            requestNumber,
+            cpcSerial,
             serviceNumber,
             olt,
             fdcName,
             fapName,
-            priority: effectivePriority,
             status: WorkItemStatus.ASSIGNED,
             divisionId: workDivisionId,
             departmentId: workDepartmentId,
             parentWorkItemId: parentWorkItem?.id ?? null,
             assignedTeamId: assignedTeam?.id ?? null,
             salesMemberAccountId: salesMember?.id ?? null,
+            salesCoordinationStatus: salesMember
+              ? WorkSalesCoordinationStatus.WAITING_FOR_DOCUMENTS
+              : null,
             locationText,
             registeredAt,
             plannedStartAt,
@@ -910,7 +992,8 @@ ${this.normalizeRequiredText(dto.teamInstructions, 'Team instructions')}`;
               details: {
                 ticketNumber,
                 workType: effectiveType,
-                priority: effectivePriority,
+                    requestNumber,
+                cpcSerial,
                 serviceNumber,
                 serviceTypes,
                 parentWorkItemId: parentWorkItem?.id ?? null,
@@ -919,11 +1002,13 @@ ${this.normalizeRequiredText(dto.teamInstructions, 'Team instructions')}`;
                 supportingAssigneeAccountIds: supportMembers.map(
                   (member) => member.id,
                 ),
-                registeredAt: registeredAt.toISOString(),
+                ...(isAdministrativeWork
+                  ? {}
+                  : { registeredAt: registeredAt.toISOString() }),
                 plannedStartAt: plannedStartAt.toISOString(),
                 dueAt: dueAt.toISOString(),
-                teamInstructions: parentWorkItem
-                  ? dto.teamInstructions?.trim()
+                delegationInstructions: parentWorkItem
+                  ? dto.delegationInstructions?.trim()
                   : null,
               },
             },
@@ -984,7 +1069,7 @@ ${this.normalizeRequiredText(dto.teamInstructions, 'Team instructions')}`;
         });
 
         if (parentWorkItem) {
-          // Record the team assignment on the main task so higher management can audit the full chain.
+          // Record the delegation on the parent task so higher management can audit the full administrative chain.
           await transaction.workActivity.create({
             data: {
               workItemId: parentWorkItem.id,
@@ -993,11 +1078,11 @@ ${this.normalizeRequiredText(dto.teamInstructions, 'Team instructions')}`;
               fromStatus: parentWorkItem.status,
               toStatus: parentWorkItem.status,
               details: {
-                teamWorkItemId: workItem.id,
-                teamTicketNumber: workItem.ticketNumber,
-                teamMemberAccountId: primaryAssignee.id,
+                delegatedWorkItemId: workItem.id,
+                delegatedTicketNumber: workItem.ticketNumber,
+                delegatedAccountId: primaryAssignee.id,
                 dueAt: dueAt.toISOString(),
-                instructions: dto.teamInstructions?.trim(),
+                instructions: dto.delegationInstructions?.trim(),
               },
             },
           });
@@ -1014,7 +1099,7 @@ ${this.normalizeRequiredText(dto.teamInstructions, 'Team instructions')}`;
 
     return {
       message: parentWorkItem
-        ? 'Team work assigned successfully.'
+        ? 'Administrative work delegated successfully.'
         : 'Work assigned successfully.',
       workItem: created,
     };
@@ -1052,9 +1137,6 @@ ${this.normalizeRequiredText(dto.teamInstructions, 'Team instructions')}`;
       filters.push({ type: query.type });
     }
 
-    if (query.priority) {
-      filters.push({ priority: query.priority });
-    }
 
     if (query.category?.trim()) {
       filters.push({
@@ -1063,6 +1145,10 @@ ${this.normalizeRequiredText(dto.teamInstructions, 'Team instructions')}`;
           mode: 'insensitive',
         },
       });
+    }
+
+    if (query.divisionId) {
+      filters.push({ divisionId: query.divisionId });
     }
 
     if (query.departmentId) {
@@ -1204,7 +1290,7 @@ ${this.normalizeRequiredText(dto.teamInstructions, 'Team instructions')}`;
     const skip = (query.page - 1) * query.limit;
     const orderBy: Prisma.WorkItemOrderByWithRelationInput[] =
       view === WorkQueueView.ACTIVE
-        ? [{ dueAt: 'asc' }, { priority: 'desc' }, { createdAt: 'desc' }]
+        ? [{ dueAt: 'asc' }, { createdAt: 'desc' }]
         : [{ updatedAt: 'desc' }, { ticketNumber: 'desc' }];
 
     const lastThirtyDays = new Date(
@@ -1295,7 +1381,6 @@ ${this.normalizeRequiredText(dto.teamInstructions, 'Team instructions')}`;
           status: { in: [...ACTIVE_WORK_STATUSES] },
           OR: [
             this.buildEscalatedHelpWhere(actor),
-            { priority: WorkPriority.CRITICAL },
             { dueAt: { lt: new Date(now.getTime() - 24 * 60 * 60 * 1000) } },
           ],
         }),
@@ -1340,9 +1425,9 @@ ${this.normalizeRequiredText(dto.teamInstructions, 'Team instructions')}`;
         focus,
         status: query.status ?? null,
         type: query.type ?? null,
-        priority: query.priority ?? null,
         search: search || null,
         category: query.category?.trim() || null,
+        divisionId: query.divisionId ?? null,
         departmentId: query.departmentId ?? null,
         assigneeAccountId: query.assigneeAccountId ?? null,
         assignedTeamId: query.assignedTeamId ?? null,
@@ -1480,7 +1565,6 @@ ${this.normalizeRequiredText(dto.teamInstructions, 'Team instructions')}`;
       return {
         OR: [
           this.buildEscalatedHelpWhere(actor),
-          { priority: WorkPriority.CRITICAL },
           { dueAt: { lt: seriouslyOverdueBefore } },
         ],
       };
@@ -1514,7 +1598,6 @@ ${this.normalizeRequiredText(dto.teamInstructions, 'Team instructions')}`;
               status: WorkItemStatus.COMPLETED_PENDING_REVIEW,
             },
             this.buildEscalatedHelpWhere(actor),
-            { priority: WorkPriority.CRITICAL },
             { dueAt: { lt: seriouslyOverdueBefore } },
           ],
         },
@@ -1527,8 +1610,8 @@ ${this.normalizeRequiredText(dto.teamInstructions, 'Team instructions')}`;
       query.search?.trim() ||
       query.status ||
       query.type ||
-      query.priority ||
       query.category?.trim() ||
+      query.divisionId ||
       query.departmentId ||
       query.assigneeAccountId ||
       query.dueFrom ||
@@ -1565,20 +1648,28 @@ ${this.normalizeRequiredText(dto.teamInstructions, 'Team instructions')}`;
     };
   }
 
-  private extractTeamInstructions(description: string): string | null {
-    const marker = '\n\nTeam instructions:\n';
-    const markerIndex = description.lastIndexOf(marker);
-    if (markerIndex < 0) return null;
+  private extractDelegationInstructions(description: string): string | null {
+    const markers = [
+      '\n\nDelegation instructions:\n',
+      // Preserve readability for historical delegated records created before WM-V2 hierarchy cleanup.
+      '\n\nTeam instructions:\n',
+    ];
 
-    const instructions = description.slice(markerIndex + marker.length).trim();
-    return instructions || null;
+    for (const marker of markers) {
+      const markerIndex = description.lastIndexOf(marker);
+      if (markerIndex < 0) continue;
+      const instructions = description.slice(markerIndex + marker.length).trim();
+      if (instructions) return instructions;
+    }
+
+    return null;
   }
 
-  private async buildTeamWorkTracking(
+  private async buildDelegatedWorkTracking(
     actor: WorkActorContext,
     rootWorkItemId: string,
-  ): Promise<WorkTeamTracking> {
-    const members: WorkTeamMemberProgress[] = [];
+  ): Promise<WorkDelegatedTracking> {
+    const members: WorkDelegatedMemberProgress[] = [];
     const visibleScope = this.workScopeService.buildVisibleWorkWhere(actor);
     const now = Date.now();
     let parentIds = [rootWorkItemId];
@@ -1593,7 +1684,7 @@ ${this.normalizeRequiredText(dto.teamInstructions, 'Team instructions')}`;
         },
         orderBy: [{ createdAt: 'asc' }, { dueAt: 'asc' }],
         take: 200 - members.length,
-        select: workTeamTrackingSelect,
+        select: workDelegatedTrackingSelect,
       });
 
       if (rows.length === 0) break;
@@ -1606,9 +1697,8 @@ ${this.normalizeRequiredText(dto.teamInstructions, 'Team instructions')}`;
           depth,
           ticketNumber: row.ticketNumber,
           title: row.title,
-          instructions: this.extractTeamInstructions(row.description),
+          instructions: this.extractDelegationInstructions(row.description),
           status: row.status,
-          priority: row.priority,
           dueAt: row.dueAt,
           createdAt: row.createdAt,
           completedAt: row.completedAt,
@@ -1701,7 +1791,7 @@ ${this.normalizeRequiredText(dto.teamInstructions, 'Team instructions')}`;
     return items.map((item) => {
       const progress =
         progressByParent.get(item.id) ?? this.createEmptyDelegationProgress();
-      // Overall progress uses completed team tasks divided by all team tasks.
+      // Overall progress uses completed delegated tasks divided by all delegated tasks.
       progress.completionPercentage =
         progress.total === 0
           ? 0
@@ -1829,7 +1919,6 @@ ${this.normalizeRequiredText(dto.teamInstructions, 'Team instructions')}`;
       newWork,
       working,
       waitingForManager,
-      highPriority,
       dueToday,
       dueSoon,
       overdue,
@@ -1848,12 +1937,6 @@ ${this.normalizeRequiredText(dto.teamInstructions, 'Team instructions')}`;
       }),
       this.prisma.workItem.count({
         where: scoped({ status: WorkItemStatus.COMPLETED_PENDING_REVIEW }),
-      }),
-      this.prisma.workItem.count({
-        where: scoped({
-          status: { in: activeStatuses },
-          priority: { in: [WorkPriority.HIGH, WorkPriority.CRITICAL] },
-        }),
       }),
       this.prisma.workItem.count({
         where: scoped({
@@ -1893,7 +1976,6 @@ ${this.normalizeRequiredText(dto.teamInstructions, 'Team instructions')}`;
         where: scoped({ status: { in: activeStatuses } }),
         take: 5,
         orderBy: [
-          { priority: 'desc' },
           { dueAt: 'asc' },
           { createdAt: 'desc' },
         ],
@@ -1909,8 +1991,7 @@ ${this.normalizeRequiredText(dto.teamInstructions, 'Team instructions')}`;
         newWork,
         working,
         waitingForManager,
-        highPriority,
-        dueToday,
+          dueToday,
         dueSoon,
         overdue,
         informationRequested,
@@ -1925,12 +2006,12 @@ ${this.normalizeRequiredText(dto.teamInstructions, 'Team instructions')}`;
     const workItem = await this.findVisibleWorkItem(actor, workItemId);
     const [workItemWithDelegationProgress] =
       await this.attachDelegationProgress([workItem]);
-    const teamWork = await this.buildTeamWorkTracking(actor, workItem.id);
+    const delegatedWork = await this.buildDelegatedWorkTracking(actor, workItem.id);
 
     return {
       workItem: {
         ...workItemWithDelegationProgress,
-        teamWork,
+        delegatedWork,
       },
     };
   }
@@ -2116,15 +2197,34 @@ ${this.normalizeRequiredText(dto.teamInstructions, 'Team instructions')}`;
             status: true,
             version: true,
             archiveEligibleAt: true,
+            assignedTeamId: true,
+            assignedTeam: {
+              select: {
+                members: {
+                  select: {
+                    employee: {
+                      select: {
+                        account: {
+                          select: {
+                            id: true,
+                          },
+                        },
+                      },
+                    },
+                  },
+                },
+              },
+            },
             assignments: {
               where: {
-                assigneeAccountId: actor.accountId,
                 assignmentRole: WorkAssignmentRole.PRIMARY,
                 endedAt: null,
               },
               take: 1,
               select: {
                 id: true,
+                assigneeAccountId: true,
+                assignedByAccountId: true,
                 acknowledgedAt: true,
                 startedAt: true,
               },
@@ -2139,22 +2239,31 @@ ${this.normalizeRequiredText(dto.teamInstructions, 'Team instructions')}`;
         this.assertWorkIsOperational(current.archiveEligibleAt);
 
         const primaryAssignment = current.assignments[0];
-
         if (!primaryAssignment) {
+          throw new ConflictException(
+            'This work item does not have an active primary worker.',
+          );
+        }
+
+        const isTeamWork = Boolean(current.assignedTeamId);
+        const isActiveTeamMember =
+          current.assignedTeam?.members.some(
+            (membership) =>
+              membership.employee.account?.id === actor.accountId,
+          ) ?? false;
+
+        if (isTeamWork) {
+          if (!isActiveTeamMember) {
+            throw new ForbiddenException(
+              'Only a member of the assigned team can start this work.',
+            );
+          }
+        } else if (primaryAssignment.assigneeAccountId !== actor.accountId) {
+          // Individual administrative work keeps the existing single-owner rule.
           throw new ForbiddenException(
             'Only the active primary assignee can start this work item.',
           );
         }
-
-        if (!primaryAssignment.acknowledgedAt) {
-          throw new BadRequestException(
-            'Acknowledge this work item before starting it.',
-          );
-        }
-
-        const nextStatus = this.statusTransitions.getStatusAfterStart(
-          current.status,
-        );
 
         if (
           current.status === WorkItemStatus.IN_PROGRESS &&
@@ -2169,39 +2278,113 @@ ${this.normalizeRequiredText(dto.teamInstructions, 'Team instructions')}`;
           };
         }
 
+        const takingTeamWork =
+          isTeamWork &&
+          primaryAssignment.assigneeAccountId !== actor.accountId;
+        const automaticallyAcknowledged =
+          isTeamWork &&
+          (takingTeamWork || !primaryAssignment.acknowledgedAt);
+
+        if (!isTeamWork && !primaryAssignment.acknowledgedAt) {
+          throw new BadRequestException(
+            'Acknowledge this work item before starting it.',
+          );
+        }
+
+        // Team work has one shared ticket. The first active team member who starts
+        // it becomes the current PRIMARY worker; no copy is created for each member.
+        const nextStatus =
+          isTeamWork && current.status === WorkItemStatus.ASSIGNED
+            ? WorkItemStatus.IN_PROGRESS
+            : this.statusTransitions.getStatusAfterStart(current.status);
         const startedAt = new Date();
 
-        await transaction.workAssignment.updateMany({
+        // Claim the start using the work version. Two team members can click Start
+        // together, but only one transaction can win this compare-and-swap.
+        const updateResult = await transaction.workItem.updateMany({
           where: {
-            id: primaryAssignment.id,
-            endedAt: null,
-            startedAt: null,
+            id: current.id,
+            version: current.version,
+            status: current.status,
           },
           data: {
-            startedAt,
+            status: nextStatus,
+            version: {
+              increment: 1,
+            },
           },
         });
 
-        if (nextStatus !== current.status) {
-          const updateResult = await transaction.workItem.updateMany({
+        if (updateResult.count !== 1) {
+          throw new ConflictException(
+            'Another team member already changed this work. Refresh to see the latest status.',
+          );
+        }
+
+        if (takingTeamWork) {
+          const endedPrimary = await transaction.workAssignment.updateMany({
             where: {
-              id: current.id,
-              version: current.version,
-              status: current.status,
+              id: primaryAssignment.id,
+              endedAt: null,
             },
             data: {
-              status: nextStatus,
-              version: {
-                increment: 1,
-              },
+              endedAt: startedAt,
+              endReason: 'Work started by another member of the assigned team.',
             },
           });
 
-          if (updateResult.count !== 1) {
+          if (endedPrimary.count !== 1) {
             throw new ConflictException(
-              'This work item changed while you were starting it. Refresh and try again.',
+              'Another team member already took this work. Refresh to see who started it.',
             );
           }
+
+          await transaction.workAssignment.create({
+            data: {
+              workItemId: current.id,
+              assigneeAccountId: actor.accountId,
+              assignmentRole: WorkAssignmentRole.PRIMARY,
+              assignedByAccountId: primaryAssignment.assignedByAccountId,
+              acknowledgedAt: startedAt,
+              startedAt,
+            },
+          });
+        } else if (!primaryAssignment.startedAt) {
+          const updatedPrimary = await transaction.workAssignment.updateMany({
+            where: {
+              id: primaryAssignment.id,
+              endedAt: null,
+              startedAt: null,
+            },
+            data: {
+              ...(automaticallyAcknowledged
+                ? { acknowledgedAt: startedAt }
+                : {}),
+              startedAt,
+            },
+          });
+
+          if (updatedPrimary.count !== 1) {
+            throw new ConflictException(
+              'This work changed while you were starting it. Refresh and try again.',
+            );
+          }
+        }
+
+        if (automaticallyAcknowledged) {
+          await transaction.workActivity.create({
+            data: {
+              workItemId: current.id,
+              actorAccountId: actor.accountId,
+              action: WorkActivityAction.ACKNOWLEDGED,
+              fromStatus: current.status,
+              toStatus: nextStatus,
+              details: {
+                automatic: true,
+                source: 'TEAM_START',
+              },
+            },
+          });
         }
 
         await transaction.workActivity.create({
@@ -2211,6 +2394,17 @@ ${this.normalizeRequiredText(dto.teamInstructions, 'Team instructions')}`;
             action: WorkActivityAction.STARTED,
             fromStatus: current.status,
             toStatus: nextStatus,
+            ...(isTeamWork
+              ? {
+                  details: {
+                    source: 'TEAM_START',
+                    assignedTeamId: current.assignedTeamId,
+                    previousPrimaryAssigneeAccountId: takingTeamWork
+                      ? primaryAssignment.assigneeAccountId
+                      : null,
+                  },
+                }
+              : {}),
           },
         });
 
@@ -2266,11 +2460,24 @@ ${this.normalizeRequiredText(dto.teamInstructions, 'Team instructions')}`;
       actorAccountId,
     ];
 
+    const notificationRecipientAccountIds =
+      action === 'STARTED'
+        ? [
+            ...new Set([
+              workItem.createdBy.id,
+              workItem.responsibleManager.id,
+            ]),
+          ]
+        : undefined;
+
     await this.workNotifications.publishWorkUpdate({
       workItem,
       action,
       actorAccountId,
       recipientAccountIds: recipients,
+      ...(notificationRecipientAccountIds
+        ? { notificationRecipientAccountIds }
+        : {}),
       title: content.title,
       body: content.body,
     });
@@ -2331,10 +2538,12 @@ ${this.normalizeRequiredText(dto.teamInstructions, 'Team instructions')}`;
       throw new ConflictException('Unable to generate a work ticket number.');
     }
 
-    const rawDepartmentCode =
-      primaryAssignee.employee?.departmentUnit?.code ?? 'GEN';
+    const rawOrganizationCode =
+      primaryAssignee.employee?.departmentUnit?.code ??
+      primaryAssignee.employee?.division?.code ??
+      'GEN';
     const departmentCode =
-      rawDepartmentCode
+      rawOrganizationCode
         .toUpperCase()
         .replace(/[^A-Z0-9]/g, '')
         .slice(0, 8) || 'GEN';
@@ -2347,10 +2556,10 @@ ${this.normalizeRequiredText(dto.teamInstructions, 'Team instructions')}`;
   private buildGeneratedWorkTitle(
     type: WorkItemType,
     customerName: string,
-    serviceNumber: string | null,
+    referenceNumber: string | null,
   ): string {
-    const title = serviceNumber
-      ? `${this.getWorkTypeLabel(type)} · ${serviceNumber} · ${customerName}`
+    const title = referenceNumber
+      ? `${this.getWorkTypeLabel(type)} · ${referenceNumber} · ${customerName}`
       : `${this.getWorkTypeLabel(type)} · ${customerName}`;
     return title.length <= 160 ? title : `${title.slice(0, 157).trimEnd()}...`;
   }
@@ -2361,6 +2570,8 @@ ${this.normalizeRequiredText(dto.teamInstructions, 'Team instructions')}`;
     customerContactType: WorkContactType;
     customerContactNumber: string;
     locationText: string;
+    requestNumber: string | null;
+    cpcSerial: string | null;
     serviceNumber: string | null;
     olt: string;
     fdcName: string;
@@ -2374,13 +2585,16 @@ ${this.normalizeRequiredText(dto.teamInstructions, 'Team instructions')}`;
       `Location: ${input.locationText}.`,
     ];
 
+    if (input.requestNumber) {
+      details.push(`Token number: ${input.requestNumber}.`);
+    }
+
+    if (input.cpcSerial) {
+      details.push(`CPC Serial: ${input.cpcSerial}.`);
+    }
+
     if (input.serviceNumber) {
-      const serviceLabel =
-        input.type === WorkItemType.NEW_CONNECTION ||
-        input.type === WorkItemType.UPDATE_SERVICES
-          ? 'Token number'
-          : 'Service number';
-      details.push(`${serviceLabel}: ${input.serviceNumber}.`);
+      details.push(`Service number: ${input.serviceNumber}.`);
     }
 
     details.push(

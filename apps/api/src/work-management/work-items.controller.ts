@@ -8,18 +8,30 @@ import {
   Patch,
   Post,
   Query,
+  Res,
+  StreamableFile,
+  UploadedFiles,
   UseGuards,
+  UseInterceptors,
 } from '@nestjs/common';
+import { FileFieldsInterceptor } from '@nestjs/platform-express';
+import { createReadStream } from 'node:fs';
+import type { Response } from 'express';
 
+import { AttachmentTempCleanupInterceptor } from '../attachments/attachment-temp-cleanup.interceptor';
+import { createBoundedAttachmentTempStorage } from '../attachments/attachment-upload-temp-storage';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import { Roles } from '../auth/decorators/roles.decorator';
 import { AccessTokenGuard } from '../auth/guards/access-token.guard';
 import { RolesGuard } from '../auth/guards/roles.guard';
 import type { AuthenticatedUser } from '../auth/types/auth.types';
+import type { UploadedMessageAttachmentFile } from '../conversations/types/uploaded-message-attachment-file';
 import { AccountRole } from '../generated/prisma/client';
 import { CancelWorkItemDto } from './dto/cancel-work-item.dto';
+import { CompleteSalesWorkDto } from './dto/complete-sales-work.dto';
 import { CoordinateWorkHelpDto } from './dto/coordinate-work-help.dto';
 import { CreateWorkItemDto } from './dto/create-work-item.dto';
+import { CreateWorkSalesMessageDto } from './dto/create-work-sales-message.dto';
 import { ListWorkAssigneesQueryDto } from './dto/list-work-assignees-query.dto';
 import { ListWorkItemsQueryDto } from './dto/list-work-items-query.dto';
 import { ManageWorkRetentionDto } from './dto/manage-work-retention.dto';
@@ -28,12 +40,19 @@ import { ReassignWorkDto } from './dto/reassign-work.dto';
 import { RequestWorkHelpDto } from './dto/request-work-help.dto';
 import { RespondWorkHelpDto } from './dto/respond-work-help.dto';
 import { ReviewWorkCompletionDto } from './dto/review-work-completion.dto';
+import { SendWorkToSalesDto } from './dto/send-work-to-sales.dto';
 import { SubmitWorkCompletionDto } from './dto/submit-work-completion.dto';
 import { UpdateWorkItemDto } from './dto/update-work-item.dto';
 import { WorkItemsService } from './work-items.service';
 import { WorkLifecycleService } from './work-lifecycle.service';
 import { WorkManagementQueryService } from './work-management-query.service';
 import { WorkRetentionService } from './work-retention.service';
+import { WorkSalesCommunicationService } from './work-sales-communication.service';
+import {
+  MAX_WORK_SALES_ATTACHMENT_FILES,
+  MAX_WORK_SALES_ATTACHMENT_FILE_BYTES,
+  MAX_WORK_SALES_ATTACHMENT_TOTAL_BYTES,
+} from './work-sales-attachment.constants';
 
 const ALL_ACCOUNT_ROLES = [
   AccountRole.SUPER_ADMIN,
@@ -56,6 +75,7 @@ export class WorkItemsController {
     private readonly workLifecycleService: WorkLifecycleService,
     private readonly workManagementQueryService: WorkManagementQueryService,
     private readonly workRetentionService: WorkRetentionService,
+    private readonly workSalesCommunicationService: WorkSalesCommunicationService,
   ) {}
 
   @Post()
@@ -89,6 +109,13 @@ export class WorkItemsController {
   getManagementDashboardSummary(@CurrentUser() user: AuthenticatedUser) {
     // Management summaries remain restricted to the current organization scope.
     return this.workManagementQueryService.getDashboardSummary(user);
+  }
+
+  @Get('management/organization-summary')
+  @Roles(...WORK_ASSIGNER_ROLES)
+  getManagementOrganizationSummary(@CurrentUser() user: AuthenticatedUser) {
+    // Organization summaries use strict branch/division/department hierarchy scope.
+    return this.workManagementQueryService.getOrganizationSummary(user);
   }
 
   @Get('management/assignment-options')
@@ -241,6 +268,121 @@ export class WorkItemsController {
     @Body() dto: RequestWorkHelpDto,
   ) {
     return this.workLifecycleService.requestHelp(user, workItemId, dto);
+  }
+
+  @Get(':workItemId/sales/messages')
+  @Roles(...ALL_ACCOUNT_ROLES)
+  listSalesMessages(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('workItemId', new ParseUUIDPipe({ version: '4' }))
+    workItemId: string,
+  ) {
+    return this.workSalesCommunicationService.listMessages(user, workItemId);
+  }
+
+  @Post(':workItemId/sales/messages')
+  @Roles(...ALL_ACCOUNT_ROLES)
+  @UseInterceptors(
+    FileFieldsInterceptor(
+      [
+        { name: 'files', maxCount: MAX_WORK_SALES_ATTACHMENT_FILES },
+        { name: 'file', maxCount: 1 },
+      ],
+      {
+        storage: createBoundedAttachmentTempStorage(
+          MAX_WORK_SALES_ATTACHMENT_TOTAL_BYTES,
+          'Files in one send must total 50 MB or smaller.',
+        ),
+        limits: {
+          fileSize: MAX_WORK_SALES_ATTACHMENT_FILE_BYTES,
+          files: MAX_WORK_SALES_ATTACHMENT_FILES,
+        },
+      },
+    ),
+    AttachmentTempCleanupInterceptor,
+  )
+  createSalesMessage(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('workItemId', new ParseUUIDPipe({ version: '4' }))
+    workItemId: string,
+    @UploadedFiles()
+    uploadedFiles:
+      | {
+          files?: UploadedMessageAttachmentFile[];
+          file?: UploadedMessageAttachmentFile[];
+        }
+      | undefined,
+    @Body() dto: CreateWorkSalesMessageDto,
+  ) {
+    const files = [
+      ...(uploadedFiles?.files ?? []),
+      ...(uploadedFiles?.file ?? []),
+    ];
+    return this.workSalesCommunicationService.createMessage(
+      user,
+      workItemId,
+      dto,
+      files,
+    );
+  }
+
+  @Get(':workItemId/sales/messages/:messageId/attachments/:attachmentId')
+  @Roles(...ALL_ACCOUNT_ROLES)
+  async downloadSalesAttachment(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('workItemId', new ParseUUIDPipe({ version: '4' }))
+    workItemId: string,
+    @Param('messageId', new ParseUUIDPipe({ version: '4' }))
+    messageId: string,
+    @Param('attachmentId', new ParseUUIDPipe({ version: '4' }))
+    attachmentId: string,
+    @Res({ passthrough: true }) response: Response,
+  ): Promise<StreamableFile> {
+    const attachment = await this.workSalesCommunicationService.getAttachmentDownload(
+      user,
+      workItemId,
+      messageId,
+      attachmentId,
+    );
+    const safeFileName = attachment.originalFileName.replace(/[\r\n"]/g, '_');
+    const encodedFileName = encodeURIComponent(attachment.originalFileName);
+    const inline =
+      attachment.mimeType.startsWith('image/') ||
+      attachment.mimeType === 'application/pdf' ||
+      attachment.mimeType.startsWith('text/');
+
+    response.setHeader('Content-Type', attachment.mimeType);
+    response.setHeader('Cache-Control', 'no-store');
+    response.setHeader('X-Content-Type-Options', 'nosniff');
+    response.setHeader('Content-Length', String(attachment.fileSizeBytes));
+    response.setHeader(
+      'Content-Disposition',
+      `${inline ? 'inline' : 'attachment'}; filename="${safeFileName}"; filename*=UTF-8''${encodedFileName}`,
+    );
+
+    return new StreamableFile(createReadStream(attachment.absolutePath));
+  }
+
+  @Post(':workItemId/sales/send')
+  @Roles(...ALL_ACCOUNT_ROLES)
+  sendToSales(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('workItemId', new ParseUUIDPipe({ version: '4' }))
+    workItemId: string,
+    @Body() dto: SendWorkToSalesDto,
+  ) {
+    return this.workLifecycleService.sendToSales(user, workItemId, dto);
+  }
+
+  @Post(':workItemId/sales/complete')
+  @Roles(...ALL_ACCOUNT_ROLES)
+  completeSalesWork(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('workItemId', new ParseUUIDPipe({ version: '4' }))
+    workItemId: string,
+    @Body() dto: CompleteSalesWorkDto,
+  ) {
+    return this.workLifecycleService.completeSalesWork(user, workItemId, dto);
   }
 
   @Post(':workItemId/completion-reports')

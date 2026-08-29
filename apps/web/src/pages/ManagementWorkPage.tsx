@@ -11,6 +11,7 @@ import {
   closeManagementWorkItem,
   createManagementWorkItem,
   getManagementWorkDashboardSummary,
+  getManagementOrganizationSummary,
   getWorkItem,
   listManagementAssignmentOptions,
   listWorkActivity,
@@ -37,19 +38,21 @@ import {
   formatKathmanduDateTime,
   kathmanduDateTimeLocalToIso,
 } from "../utils/nepal-calendar";
+import type { WorkCalendarMode } from "../utils/nepal-calendar";
 import type {
   WorkActivity,
   WorkAssignmentCandidate,
   WorkAssignmentOptionsResponse,
   WorkCompletionResult,
   WorkContactType,
+  WorkDepartmentOption,
   WorkHelpReason,
   WorkItem,
   WorkItemListResponse,
   WorkItemStatus,
   WorkItemType,
   WorkManagementDashboardSummary,
-  WorkPriority,
+  WorkManagementOrganizationSummaryResponse,
   WorkQueueFocus,
   WorkServiceType,
   WorkQueueView,
@@ -57,7 +60,6 @@ import type {
 
 type ActionMode =
   | "CREATE"
-  | "EDIT"
   | "REASSIGN"
   | "SUPPORT"
   | "REVIEW"
@@ -88,7 +90,6 @@ const SERVICE_TYPES: Array<{ value: WorkServiceType; label: string }> = [
   { value: "OTHER", label: "Other" },
 ];
 
-const PRIORITIES: WorkPriority[] = ["LOW", "NORMAL", "HIGH", "CRITICAL"];
 const STATUSES: WorkItemStatus[] = [
   "ASSIGNED",
   "ACKNOWLEDGED",
@@ -104,7 +105,7 @@ const STATUSES: WorkItemStatus[] = [
 function formatLabel(value: string): string {
   if (value === "MAINTENANCE") return "Network maintenance";
   if (value === "NEW_CONNECTION") return "New Installation";
-  if (value === "DELEGATED") return "Assigned to Team";
+  if (value === "DELEGATED") return "Delegated";
 
   return value
     .toLowerCase()
@@ -115,6 +116,39 @@ function formatLabel(value: string): string {
 
 function formatDateTime(value: string | null): string {
   return formatKathmanduDateTime(value);
+}
+
+function formatCompletionResult(value: WorkCompletionResult): string {
+  if (value === "FULLY_RESOLVED") return "Work finished";
+  if (value === "TEMPORARY_SOLUTION") return "Temporary work done";
+  return "Could not finish";
+}
+
+function isOperationalCompletionType(type: WorkItemType): boolean {
+  return type !== "ADMINISTRATIVE_TASK";
+}
+
+function completionRequiresCustomerId(type: WorkItemType): boolean {
+  return [
+    "NEW_CONNECTION",
+    "UPDATE_SERVICES",
+    "TROUBLE_TICKET",
+    "EMERGENCY_WORK",
+  ].includes(type);
+}
+
+function completionAllowsCustomerId(type: WorkItemType): boolean {
+  return completionRequiresCustomerId(type) || type === "MAINTENANCE";
+}
+
+function completionReference(workItem: WorkItem): { label: string; value: string } | null {
+  if (workItem.requestNumber?.trim()) {
+    return { label: "Token Number", value: workItem.requestNumber };
+  }
+  if (workItem.type !== "NEW_CONNECTION" && workItem.serviceNumber?.trim()) {
+    return { label: "Service Number", value: workItem.serviceNumber };
+  }
+  return null;
 }
 
 function toIso(value: string): string | undefined {
@@ -136,6 +170,8 @@ function createDefaultWorkForm() {
     customerContactType: "MOBILE" as WorkContactType,
     customerContactNumber: "",
     locationText: "",
+    requestNumber: "",
+    cpcSerial: "",
     serviceNumber: "",
     olt: "",
     fdcName: "",
@@ -145,7 +181,9 @@ function createDefaultWorkForm() {
     registeredAt: "",
     plannedStartAt: plannedStart.toISOString(),
     dueAt: dueAt.toISOString(),
-    assignmentMode: "TEAM" as "TEAM" | "STAFF",
+    assignmentMode: "TEAM" as "TEAM" | "INDIVIDUAL",
+    administrativeRecipientRole: "" as "SENIOR_MANAGEMENT" | "TEAM_MANAGER" | "EMPLOYEE" | "",
+    assignedDivisionId: "",
     assignedDepartmentId: "",
     assignedTeamId: "",
     primaryAssigneeAccountId: "",
@@ -155,7 +193,7 @@ function createDefaultWorkForm() {
     supportingAssigneeAccountIds: [] as string[],
     responsibleManagerAccountId: "",
     parentWorkItemId: "",
-    teamInstructions: "",
+    delegationInstructions: "",
     createAnother: false,
   };
 }
@@ -271,23 +309,28 @@ function SearchableSelect({
       }),
     [normalizedQuery, options, value],
   );
+  // Small scoped lists are faster with a single native select. Keep the
+  // dedicated search field only where it provides real value.
+  const showSearch = options.length > 10;
 
   return (
-    <div className="management-work-searchable-select">
+    <div className={`management-work-searchable-select ${showSearch ? "has-search" : ""}`.trim()}>
       <span className="management-work-form__label-text" id={`${id}-label`}>
         {label}{required && (
           <> <span className="management-work-form__required" aria-hidden="true">*</span><span className="sr-only"> required</span></>
         )}
       </span>
-      <input
-        type="search"
-        className="management-work-searchable-select__search"
-        value={query}
-        onChange={(event) => setQuery(event.target.value)}
-        placeholder={`Search ${label.toLowerCase()}`}
-        aria-label={`Search ${label.toLowerCase()}`}
-        autoComplete="off"
-      />
+      {showSearch && (
+        <input
+          type="search"
+          className="management-work-searchable-select__search"
+          value={query}
+          onChange={(event) => setQuery(event.target.value)}
+          placeholder={`Search ${label.toLowerCase()}`}
+          aria-label={`Search ${label.toLowerCase()}`}
+          autoComplete="off"
+        />
+      )}
       <select
         id={id}
         required={required}
@@ -315,14 +358,41 @@ interface CreateValidationError {
   fieldId?: string;
 }
 
+function buildActionForm(workItem: WorkItem | null = null) {
+  return {
+    note: "",
+    accountId:
+      workItem?.assignments.find(
+        (assignment) => assignment.assignmentRole === "PRIMARY",
+      )?.assignee.id ?? "",
+    registeredAt: workItem?.registeredAt ?? "",
+    plannedStartAt: workItem?.plannedStartAt ?? "",
+    dueAt: workItem?.dueAt ?? "",
+    locationText: workItem?.locationText ?? "",
+    completionResult: "FULLY_RESOLVED" as WorkCompletionResult,
+    completionCustomerId: "",
+    completionRxLevel: "",
+    moreWorkRequired: false,
+    helpReason: "NEED_ANOTHER_EMPLOYEE" as WorkHelpReason,
+  };
+}
+
 export function ManagementWorkPage() {
   const { account, accessToken } = useAuth();
   const location = useLocation();
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const isDedicatedCreateRoute = location.pathname === "/work-management/create";
+  const editRouteMatch = location.pathname.match(/^\/work-management\/([^/]+)\/edit$/);
+  const dedicatedEditWorkId = editRouteMatch?.[1] ? decodeURIComponent(editRouteMatch[1]) : null;
+  const isDedicatedEditRoute = Boolean(dedicatedEditWorkId);
+  const isDedicatedFormRoute = isDedicatedCreateRoute || isDedicatedEditRoute;
   const [summary, setSummary] =
     useState<WorkManagementDashboardSummary | null>(null);
+  const [organizationSummary, setOrganizationSummary] =
+    useState<WorkManagementOrganizationSummaryResponse | null>(null);
+  const [organizationLoading, setOrganizationLoading] = useState(true);
+  const [organizationError, setOrganizationError] = useState("");
   const [queue, setQueue] = useState<WorkItemListResponse | null>(null);
   const [options, setOptions] =
     useState<WorkAssignmentOptionsResponse | null>(null);
@@ -336,7 +406,7 @@ export function ManagementWorkPage() {
   const [actionError, setActionError] = useState("");
   const [actionBusy, setActionBusy] = useState(false);
   const [openingReviewId, setOpeningReviewId] = useState<string | null>(null);
-  const [openingTeamAssignmentId, setOpeningTeamAssignmentId] = useState<string | null>(null);
+  const [openingDelegationId, setOpeningDelegationId] = useState<string | null>(null);
   const [actionMode, setActionMode] = useState<ActionMode>(null);
   const [refreshKey, setRefreshKey] = useState(0);
   const [dayKey, setDayKey] = useState(() => getLocalDayRange().dayKey);
@@ -354,7 +424,7 @@ export function ManagementWorkPage() {
     search: "",
     status: "" as WorkItemStatus | "",
     type: "" as WorkItemType | "",
-    priority: "" as WorkPriority | "",
+    divisionId: "",
     departmentId: "",
     assigneeAccountId: "",
     assignedTeamId: "",
@@ -366,7 +436,6 @@ export function ManagementWorkPage() {
   const requestedFocus = searchParams.get("focus");
   const requestedView = searchParams.get("view");
   const requestedStatus = searchParams.get("status");
-  const requestedPriority = searchParams.get("priority");
 
   useEffect(() => {
     if (!account?.role) return;
@@ -431,48 +500,33 @@ export function ManagementWorkPage() {
         requestedStatus && STATUSES.includes(requestedStatus as WorkItemStatus)
           ? (requestedStatus as WorkItemStatus)
           : current.status;
-      const priority =
-        requestedPriority && PRIORITIES.includes(requestedPriority as WorkPriority)
-          ? (requestedPriority as WorkPriority)
-          : current.priority;
-
       return focus === current.focus &&
         view === current.view &&
-        status === current.status &&
-        priority === current.priority
+        status === current.status
         ? current
-        : { ...current, focus, view, status, priority, page: 1 };
+        : { ...current, focus, view, status, page: 1 };
     });
   }, [
     account?.role,
     requestedFocus,
-    requestedPriority,
     requestedStatus,
     requestedView,
   ]);
 
   const [createForm, setCreateForm] = useState(createDefaultWorkForm);
   const [createStep, setCreateStep] = useState<CreateWizardStep>(1);
+  const [createCalendarMode, setCreateCalendarMode] = useState<WorkCalendarMode>("AD");
   const [createInitialSnapshot, setCreateInitialSnapshot] = useState("");
   const [supportMemberSearch, setSupportMemberSearch] = useState("");
+  const [createReviewSubmitReady, setCreateReviewSubmitReady] = useState(false);
   const createFormRef = useRef<HTMLFormElement | null>(null);
   const createIsDirty = Boolean(
     isDedicatedCreateRoute &&
       createInitialSnapshot &&
       JSON.stringify(createForm) !== createInitialSnapshot,
   );
-  const [actionForm, setActionForm] = useState({
-    note: "",
-    accountId: "",
-    priority: "NORMAL" as WorkPriority,
-    registeredAt: "",
-    plannedStartAt: "",
-    dueAt: "",
-    locationText: "",
-    completionResult: "FULLY_RESOLVED" as WorkCompletionResult,
-    moreWorkRequired: false,
-    helpReason: "NEED_ANOTHER_EMPLOYEE" as WorkHelpReason,
-  });
+  const [actionForm, setActionForm] = useState(() => buildActionForm());
+  const [editCalendarMode, setEditCalendarMode] = useState<WorkCalendarMode>("AD");
 
   useEffect(() => {
     if (!isDedicatedCreateRoute) return;
@@ -481,11 +535,79 @@ export function ManagementWorkPage() {
     setCreateForm(initialForm);
     setCreateInitialSnapshot(JSON.stringify(initialForm));
     setCreateStep(1);
+    setCreateCalendarMode("AD");
     setSupportMemberSearch("");
+    setCreateReviewSubmitReady(false);
     setActionError("");
     setNotice("");
     setActionMode("CREATE");
   }, [isDedicatedCreateRoute]);
+
+  useEffect(() => {
+    if (!isDedicatedEditRoute || !accessToken || !dedicatedEditWorkId) return;
+
+    let cancelled = false;
+    // Edit Work is route-driven. Clear any legacy dialog action state so
+    // browser/touchpad history cannot resurrect the removed Edit modal.
+    setActionMode(null);
+    setActionError("");
+    setNotice("");
+    setSelectedWork(null);
+    setDetailLoading(true);
+    setEditCalendarMode("AD");
+
+    void getWorkItem(accessToken, dedicatedEditWorkId)
+      .then((response) => {
+        if (cancelled) return;
+        setSelectedId(response.workItem.id);
+        setSelectedWork(response.workItem);
+        setActionForm(buildActionForm(response.workItem));
+      })
+      .catch((requestError) => {
+        if (!cancelled) setActionError(getErrorMessage(requestError));
+      })
+      .finally(() => {
+        if (!cancelled) setDetailLoading(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [accessToken, dedicatedEditWorkId, isDedicatedEditRoute]);
+
+  useEffect(() => {
+    if (!isDedicatedCreateRoute || createForm.parentWorkItemId || createStep !== 3) {
+      setCreateReviewSubmitReady(false);
+      return;
+    }
+
+    // Keep the final submit disabled for the short step transition. This prevents
+    // a rapid/double click on Continue from landing on the newly rendered Assign
+    // Work button and submitting before the user has actually reviewed the page.
+    const timer = window.setTimeout(() => setCreateReviewSubmitReady(true), 300);
+    return () => window.clearTimeout(timer);
+  }, [createForm.parentWorkItemId, createStep, isDedicatedCreateRoute]);
+
+  useEffect(() => {
+    if (
+      isDedicatedCreateRoute ||
+      actionMode !== "CREATE" ||
+      createForm.parentWorkItemId
+    ) {
+      return;
+    }
+
+    // The dedicated Create Work route is the only place where a root work item
+    // may be created. Browser/touchpad back navigation used to leave CREATE in
+    // memory and re-render the same form through the legacy dialog path. Clear
+    // that stale state as soon as the route is left. Administrative delegation
+    // intentionally keeps using its existing dialog because it has a parent task.
+    setActionMode(null);
+    setCreateInitialSnapshot("");
+    setCreateStep(1);
+    setSupportMemberSearch("");
+    setCreateReviewSubmitReady(false);
+  }, [actionMode, createForm.parentWorkItemId, isDedicatedCreateRoute]);
 
   useEffect(() => {
     if (!createIsDirty) return;
@@ -524,7 +646,7 @@ export function ManagementWorkPage() {
   }, [createIsDirty]);
 
   useEffect(() => {
-    if (isDedicatedCreateRoute) return;
+    if (isDedicatedFormRoute) return;
 
     const message = window.sessionStorage.getItem("nt-message:work-created-notice");
     const workItemId = window.sessionStorage.getItem("nt-message:work-created-id");
@@ -536,7 +658,7 @@ export function ManagementWorkPage() {
       setSelectedId(workItemId);
       window.sessionStorage.removeItem("nt-message:work-created-id");
     }
-  }, [isDedicatedCreateRoute]);
+  }, [isDedicatedFormRoute]);
 
   const loadOverview = useCallback(async () => {
     if (!accessToken) return;
@@ -555,7 +677,7 @@ export function ManagementWorkPage() {
           search: filters.search || undefined,
           status: filters.status || undefined,
           type: filters.type || undefined,
-          priority: filters.priority || undefined,
+          divisionId: filters.divisionId || undefined,
           departmentId: filters.departmentId || undefined,
           assigneeAccountId: filters.assigneeAccountId || undefined,
           assignedTeamId: filters.assignedTeamId || undefined,
@@ -585,6 +707,20 @@ export function ManagementWorkPage() {
       setLoading(false);
     }
   }, [accessToken, filters]);
+
+  const loadOrganizationSummary = useCallback(async () => {
+    if (!accessToken) return;
+
+    setOrganizationLoading(true);
+    setOrganizationError("");
+    try {
+      setOrganizationSummary(await getManagementOrganizationSummary(accessToken));
+    } catch (requestError) {
+      setOrganizationError(getErrorMessage(requestError));
+    } finally {
+      setOrganizationLoading(false);
+    }
+  }, [accessToken]);
 
   const loadOptions = useCallback(async () => {
     if (!accessToken) return;
@@ -639,10 +775,16 @@ export function ManagementWorkPage() {
   }, [account?.role]);
 
   useEffect(() => {
-    if (!isDedicatedCreateRoute) {
+    if (!isDedicatedFormRoute) {
       void loadOverview();
     }
-  }, [isDedicatedCreateRoute, loadOverview, refreshKey]);
+  }, [isDedicatedFormRoute, loadOverview, refreshKey]);
+
+  useEffect(() => {
+    if (!isDedicatedFormRoute) {
+      void loadOrganizationSummary();
+    }
+  }, [isDedicatedFormRoute, loadOrganizationSummary, refreshKey]);
 
   useEffect(() => {
     const timer = window.setInterval(() => {
@@ -654,7 +796,7 @@ export function ManagementWorkPage() {
   }, []);
 
   useEffect(() => {
-    if (isDedicatedCreateRoute || !accessToken || !account?.role) return;
+    if (isDedicatedFormRoute || !accessToken || !account?.role) return;
 
     let active = true;
     const range = getLocalDayRange();
@@ -703,17 +845,17 @@ export function ManagementWorkPage() {
     return () => {
       active = false;
     };
-  }, [accessToken, account?.role, dayKey, isDedicatedCreateRoute, refreshKey]);
+  }, [accessToken, account?.role, dayKey, isDedicatedFormRoute, refreshKey]);
 
   useEffect(() => {
-    void loadOptions();
-  }, [loadOptions, refreshKey]);
+    if (!isDedicatedEditRoute) void loadOptions();
+  }, [isDedicatedEditRoute, loadOptions, refreshKey]);
 
   useEffect(() => {
-    if (!isDedicatedCreateRoute) {
+    if (!isDedicatedFormRoute) {
       void loadDetail();
     }
-  }, [isDedicatedCreateRoute, loadDetail, refreshKey]);
+  }, [isDedicatedFormRoute, loadDetail, refreshKey]);
 
   useEffect(() => {
     if (!accessToken) return;
@@ -734,6 +876,48 @@ export function ManagementWorkPage() {
     [options?.departments],
   );
 
+  const isAdministrativeWork = createForm.type === "ADMINISTRATIVE_TASK";
+  const administrativeIndividualAssignment =
+    isAdministrativeWork && createForm.assignmentMode === "INDIVIDUAL";
+
+  const availableDivisions = useMemo(() => {
+    const divisions = new Map<string, WorkDepartmentOption["division"]>();
+    availableDepartments.forEach((department) => {
+      divisions.set(department.division.id, department.division);
+    });
+    (options?.data ?? []).forEach((candidate) => {
+      if (candidate.division) {
+        divisions.set(candidate.division.id, candidate.division);
+      }
+    });
+    return [...divisions.values()].sort((left, right) =>
+      left.name.localeCompare(right.name),
+    );
+  }, [availableDepartments, options?.data]);
+
+  const availableAssignedDepartments = useMemo(() => {
+    if (account?.role === "SUPER_ADMIN") {
+      if (!createForm.assignedDivisionId) return [];
+      return availableDepartments.filter(
+        (department) => department.divisionId === createForm.assignedDivisionId,
+      );
+    }
+
+    if (administrativeIndividualAssignment && account?.role === "TEAM_MANAGER") {
+      return availableDepartments.filter(
+        (department) => department.id === options?.scope.departmentId,
+      );
+    }
+
+    return availableDepartments;
+  }, [
+    account?.role,
+    administrativeIndividualAssignment,
+    availableDepartments,
+    createForm.assignedDivisionId,
+    options?.scope.departmentId,
+  ]);
+
   const selectedAssignedDepartment = useMemo(
     () =>
       availableDepartments.find(
@@ -746,31 +930,67 @@ export function ManagementWorkPage() {
     const candidates = options?.data ?? [];
 
     if (createForm.parentWorkItemId) {
-      // Delegated child work keeps the existing role hierarchy and parent-task scope.
+      const expectedRole =
+        account?.role === "SENIOR_MANAGEMENT"
+          ? "TEAM_MANAGER"
+          : account?.role === "TEAM_MANAGER"
+            ? "EMPLOYEE"
+            : null;
+      if (!expectedRole) return [];
+
       return candidates.filter((candidate) => {
         if (candidate.account.id === account?.id) return false;
-        if (account?.role === "SENIOR_MANAGEMENT") {
-          return ["TEAM_MANAGER", "EMPLOYEE"].includes(candidate.account.role);
+        if (candidate.account.role !== expectedRole) return false;
+        if (selectedWork && candidate.division?.id !== selectedWork.divisionId) {
+          return false;
         }
-        if (account?.role === "TEAM_MANAGER") {
-          return candidate.account.role === "EMPLOYEE";
+        if (
+          account?.role === "TEAM_MANAGER" &&
+          selectedWork?.departmentId &&
+          candidate.department?.id !== selectedWork.departmentId
+        ) {
+          return false;
         }
-        return false;
+        return true;
+      });
+    }
+
+    if (administrativeIndividualAssignment) {
+      const recipientRole = createForm.administrativeRecipientRole;
+      if (!recipientRole) return [];
+
+      return candidates.filter((candidate) => {
+        if (candidate.account.id === account?.id) return false;
+        if (candidate.account.role !== recipientRole) return false;
+
+        if (account?.role === "SUPER_ADMIN") {
+          if (!createForm.assignedDivisionId) return false;
+          if (candidate.division?.id !== createForm.assignedDivisionId) return false;
+        }
+
+        if (recipientRole === "SENIOR_MANAGEMENT") {
+          return true;
+        }
+
+        if (!createForm.assignedDepartmentId) return false;
+        return candidate.department?.id === createForm.assignedDepartmentId;
       });
     }
 
     if (!createForm.assignedDepartmentId) return [];
-
     return candidates.filter(
-      (candidate) =>
-        candidate.department?.id === createForm.assignedDepartmentId,
+      (candidate) => candidate.department?.id === createForm.assignedDepartmentId,
     );
   }, [
     account?.id,
     account?.role,
+    administrativeIndividualAssignment,
+    createForm.administrativeRecipientRole,
     createForm.assignedDepartmentId,
+    createForm.assignedDivisionId,
     createForm.parentWorkItemId,
     options?.data,
+    selectedWork,
   ]);
 
   // Workload warnings help managers make a decision without silently blocking emergencies.
@@ -811,6 +1031,22 @@ export function ManagementWorkPage() {
       (department) => department.divisionId === targetWorkDivisionId,
     );
   }, [availableDepartments, targetWorkDivisionId]);
+
+  const selectedSalesDepartment = useMemo(
+    () =>
+      collaboratorDepartments.find(
+        (department) => department.id === createForm.salesDepartmentId,
+      ) ?? null,
+    [collaboratorDepartments, createForm.salesDepartmentId],
+  );
+
+  const selectedSupportingDepartment = useMemo(
+    () =>
+      collaboratorDepartments.find(
+        (department) => department.id === createForm.supportingDepartmentId,
+      ) ?? null,
+    [collaboratorDepartments, createForm.supportingDepartmentId],
+  );
 
   const availableSalesMembers = useMemo(() => {
     if (!targetWorkDivisionId || !createForm.salesDepartmentId) return [];
@@ -905,15 +1141,14 @@ export function ManagementWorkPage() {
     [createForm.responsibleManagerAccountId, responsibleManagers],
   );
 
-  const isAdministrativeWork = createForm.type === "ADMINISTRATIVE_TASK";
-  const administrativeStaffAssignment =
-    isAdministrativeWork && createForm.assignmentMode === "STAFF";
   const createRequiresServices = [
     "TROUBLE_TICKET",
     "NEW_CONNECTION",
     "UPDATE_SERVICES",
   ].includes(createForm.type);
-  const createRequiresServiceNumber = createForm.type !== "MAINTENANCE";
+  const createRequiresRequestNumber = ["NEW_CONNECTION", "UPDATE_SERVICES"].includes(createForm.type);
+  const createRequiresCpcSerial = createForm.type === "NEW_CONNECTION";
+  const createRequiresServiceNumber = !["MAINTENANCE", "NEW_CONNECTION"].includes(createForm.type);
   const createAllowsSalesMember = [
     "NEW_CONNECTION",
     "UPDATE_SERVICES",
@@ -925,10 +1160,19 @@ export function ManagementWorkPage() {
         ? "Existing"
         : "";
 
+  const assignedDivisionOptions: SearchableSelectOption[] =
+    availableDivisions.map((division) => ({
+      value: division.id,
+      label: division.name,
+      searchText: division.code,
+    }));
   const assignedDepartmentOptions: SearchableSelectOption[] =
-    availableDepartments.map((department) => ({
+    availableAssignedDepartments.map((department) => ({
       value: department.id,
-      label: `${department.name} · ${department.division.name}`,
+      label:
+        account?.role === "SUPER_ADMIN"
+          ? department.name
+          : `${department.name} · ${department.division.name}`,
       searchText: `${department.code} ${department.division.code}`,
     }));
   const assignedTeamOptions: SearchableSelectOption[] = availableTeams.map(
@@ -938,11 +1182,22 @@ export function ManagementWorkPage() {
       searchText: `${team.admin.empId} ${team.workload.active} active`,
     }),
   );
-  const assignedStaffOptions: SearchableSelectOption[] =
+  const administrativeRecipientRoleOptions: SearchableSelectOption[] =
+    account?.role === "SUPER_ADMIN"
+      ? [
+          { value: "SENIOR_MANAGEMENT", label: "Senior Management" },
+          { value: "TEAM_MANAGER", label: "Team Manager" },
+        ]
+      : account?.role === "SENIOR_MANAGEMENT"
+        ? [{ value: "TEAM_MANAGER", label: "Team Manager" }]
+        : account?.role === "TEAM_MANAGER"
+          ? [{ value: "EMPLOYEE", label: "Employee" }]
+          : [];
+  const assignedIndividualOptions: SearchableSelectOption[] =
     availableAssignmentCandidates.map((candidate) => ({
       value: candidate.account.id,
-      label: `${getCandidateName(candidate)} · ${candidate.account.employee?.empId ?? "No employee ID"}`,
-      searchText: `${candidate.department?.name ?? ""} ${candidate.account.employee?.designation ?? ""}`,
+      label: `${getCandidateName(candidate)} · ${formatLabel(candidate.account.role)} · ${candidate.account.employee?.empId ?? "No employee ID"}`,
+      searchText: `${candidate.division?.name ?? ""} ${candidate.department?.name ?? ""} ${candidate.account.employee?.designation ?? ""}`,
     }));
   const collaboratorDepartmentOptions: SearchableSelectOption[] =
     collaboratorDepartments.map((department) => ({
@@ -970,21 +1225,24 @@ export function ManagementWorkPage() {
     setActionError("");
     setNotice("");
     setActionMode(mode);
-    setActionForm({
-      note: "",
-      accountId:
-        workItem?.assignments.find(
-          (assignment) => assignment.assignmentRole === "PRIMARY",
-        )?.assignee.id ?? "",
-      priority: workItem?.priority ?? "NORMAL",
-      registeredAt: workItem?.registeredAt ?? "",
-      plannedStartAt: workItem?.plannedStartAt ?? "",
-      dueAt: workItem?.dueAt ?? "",
-      locationText: workItem?.locationText ?? "",
-      completionResult: "FULLY_RESOLVED",
-      moreWorkRequired: false,
-      helpReason: "NEED_ANOTHER_EMPLOYEE",
-    });
+
+    const nextForm = buildActionForm(workItem);
+    if (mode === "COMPLETE" && workItem) {
+      const requestedReport = workItem.completionReports?.find(
+        (report) => report.reviewStatus === "INFORMATION_REQUESTED",
+      );
+      if (requestedReport) {
+        nextForm.note = requestedReport.summary;
+        nextForm.completionResult = requestedReport.result;
+        nextForm.completionCustomerId = requestedReport.customerId ?? "";
+        nextForm.completionRxLevel =
+          requestedReport.rxLevelDbm === null || requestedReport.rxLevelDbm === undefined
+            ? ""
+            : String(requestedReport.rxLevelDbm);
+        nextForm.moreWorkRequired = requestedReport.moreWorkRequired;
+      }
+    }
+    setActionForm(nextForm);
   }
 
   async function openQueueReview(item: WorkItem): Promise<void> {
@@ -1040,7 +1298,18 @@ export function ManagementWorkPage() {
     const fieldId = error.fieldId;
     if (fieldId) {
       window.setTimeout(() => {
-        document.getElementById(fieldId)?.focus();
+        const field = document.getElementById(fieldId);
+        const focusTarget =
+          field instanceof HTMLInputElement ||
+          field instanceof HTMLSelectElement ||
+          field instanceof HTMLTextAreaElement ||
+          field instanceof HTMLButtonElement
+            ? field
+            : field?.querySelector<HTMLElement>(
+                "input, select, textarea, button, [tabindex]:not([tabindex='-1'])",
+              );
+        field?.scrollIntoView({ behavior: "smooth", block: "center" });
+        focusTarget?.focus({ preventScroll: true });
       }, 0);
     }
   }
@@ -1097,10 +1366,24 @@ export function ManagementWorkPage() {
       if (createForm.locationText.trim().length < 2) {
         return { step, message: "Enter the work location.", fieldId: "create-work-location" };
       }
+      if (createRequiresRequestNumber && !createForm.requestNumber.trim()) {
+        return {
+          step,
+          message: "Enter the token number.",
+          fieldId: "create-work-request-number",
+        };
+      }
+      if (createRequiresCpcSerial && !createForm.cpcSerial.trim()) {
+        return {
+          step,
+          message: "Enter the CPC Serial.",
+          fieldId: "create-work-cpc-serial",
+        };
+      }
       if (createRequiresServiceNumber && !createForm.serviceNumber.trim()) {
         return {
           step,
-          message: `Enter the ${["NEW_CONNECTION", "UPDATE_SERVICES"].includes(createForm.type) ? "token" : "service"} number.`,
+          message: "Enter the service number.",
           fieldId: "create-work-service-number",
         };
       }
@@ -1126,28 +1409,74 @@ export function ManagementWorkPage() {
       return null;
     }
 
-    const registeredAt = toIso(createForm.registeredAt);
+    const registeredAt = isAdministrativeWork ? undefined : toIso(createForm.registeredAt);
     const plannedStartAt = toIso(createForm.plannedStartAt);
     const dueAt = toIso(createForm.dueAt);
-    if (!createForm.assignedDepartmentId || !selectedAssignedDepartment) {
+    if (
+      account?.role === "SUPER_ADMIN" &&
+      (!createForm.assignedDivisionId ||
+        !availableDivisions.some(
+          (division) => division.id === createForm.assignedDivisionId,
+        ))
+    ) {
+      return {
+        step,
+        message: "Choose the division responsible for this work.",
+        fieldId: "create-work-assigned-division",
+      };
+    }
+    if (administrativeIndividualAssignment) {
+      if (
+        !createForm.administrativeRecipientRole ||
+        !administrativeRecipientRoleOptions.some(
+          (option) => option.value === createForm.administrativeRecipientRole,
+        )
+      ) {
+        return {
+          step,
+          message: "Choose the management level receiving this administrative work.",
+          fieldId: "create-work-recipient-level",
+        };
+      }
+    }
+
+    const requiresDepartment =
+      !administrativeIndividualAssignment ||
+      createForm.administrativeRecipientRole !== "SENIOR_MANAGEMENT";
+
+    if (
+      requiresDepartment &&
+      (!createForm.assignedDepartmentId ||
+        !selectedAssignedDepartment ||
+        (account?.role === "SUPER_ADMIN" &&
+          selectedAssignedDepartment.divisionId !== createForm.assignedDivisionId))
+    ) {
       return {
         step,
         message: "Choose the department responsible for this work.",
         fieldId: "create-work-assigned-department",
       };
     }
-    if (administrativeStaffAssignment) {
+
+    if (administrativeIndividualAssignment) {
       if (!createForm.primaryAssigneeAccountId || !selectedCandidate) {
         return {
           step,
-          message: "Choose the staff member responsible for this administrative work.",
+          message: "Choose the individual responsible for this administrative work.",
+          fieldId: "create-work-primary-assignee",
+        };
+      }
+      if (selectedCandidate.account.role !== createForm.administrativeRecipientRole) {
+        return {
+          step,
+          message: "The selected individual does not match the chosen management level.",
           fieldId: "create-work-primary-assignee",
         };
       }
     } else if (!createForm.assignedTeamId || !selectedTeam) {
       return {
         step,
-        message: "Choose the team responsible for this work.",
+        message: "Choose the Team responsible for this work.",
         fieldId: "create-work-assigned-team",
       };
     }
@@ -1190,7 +1519,7 @@ export function ManagementWorkPage() {
         fieldId: "create-work-support-search",
       };
     }
-    if (!registeredAt) {
+    if (!isAdministrativeWork && !registeredAt) {
       return {
         step,
         message: "Select the customer registration date and time.",
@@ -1211,14 +1540,22 @@ export function ManagementWorkPage() {
         fieldId: "create-work-due-at",
       };
     }
-    if (new Date(registeredAt).getTime() > Date.now()) {
+    if (
+      !isAdministrativeWork &&
+      registeredAt &&
+      new Date(registeredAt).getTime() > Date.now()
+    ) {
       return {
         step,
         message: "Registered date and time cannot be in the future.",
         fieldId: "create-work-registered-at",
       };
     }
-    if (new Date(plannedStartAt).getTime() < new Date(registeredAt).getTime()) {
+    if (
+      !isAdministrativeWork &&
+      registeredAt &&
+      new Date(plannedStartAt).getTime() < new Date(registeredAt).getTime()
+    ) {
       return {
         step,
         message: "Planned start cannot be earlier than the registered date and time.",
@@ -1235,6 +1572,20 @@ export function ManagementWorkPage() {
     return null;
   }
 
+  function scrollCreateStepIntoView(step: CreateWizardStep): void {
+    // The workspace owns its own scrolling area, so window.scrollTo can leave
+    // the next wizard step off-screen. Scroll the rendered step and move
+    // keyboard/screen-reader focus to its heading after the transition.
+    window.setTimeout(() => {
+      const heading = document.getElementById(`create-work-step-${step}-title`);
+      const panel = heading?.closest(".management-work-wizard__panel") ?? heading;
+      panel?.scrollIntoView({ behavior: "smooth", block: "start" });
+      if (heading instanceof HTMLElement) {
+        heading.focus({ preventScroll: true });
+      }
+    }, 0);
+  }
+
   function continueCreateWizard(): void {
     if (!createFormRef.current?.reportValidity()) return;
 
@@ -1243,9 +1594,10 @@ export function ManagementWorkPage() {
       showCreateValidation(currentError);
       return;
     }
+    const nextStep: CreateWizardStep = createStep === 1 ? 2 : 3;
     setActionError("");
-    setCreateStep((current) => (current === 1 ? 2 : 3));
-    window.scrollTo({ top: 0, behavior: "smooth" });
+    setCreateStep(nextStep);
+    scrollCreateStepIntoView(nextStep);
   }
 
   function leaveCreateWizard(): void {
@@ -1261,6 +1613,18 @@ export function ManagementWorkPage() {
     if (!accessToken) return;
 
     const isDelegatedAssignment = Boolean(createForm.parentWorkItemId);
+
+    // Root Create Work is a three-step wizard. Native form submission (including
+    // pressing Enter in a field) must never bypass Work details or Assignment &
+    // schedule, and the API may only be called from the stable Review step.
+    if (!isDelegatedAssignment && isDedicatedCreateRoute) {
+      if (createStep < 3) {
+        continueCreateWizard();
+        return;
+      }
+      if (!createReviewSubmitReady) return;
+    }
+
     let registeredAt: string | undefined;
     let plannedStartAt: string | undefined;
     let dueAt: string | undefined;
@@ -1281,8 +1645,8 @@ export function ManagementWorkPage() {
         setActionError("Due date and time must be later than the planned start.");
         return;
       }
-      if (createForm.teamInstructions.trim().length < 2) {
-        setActionError("Enter clear instructions for the team member.");
+      if (createForm.delegationInstructions.trim().length < 2) {
+        setActionError("Enter clear delegation instructions.");
         return;
       }
       if (
@@ -1290,14 +1654,14 @@ export function ManagementWorkPage() {
           (candidate) => candidate.account.id === createForm.primaryAssigneeAccountId,
         )
       ) {
-        setActionError("Choose an available team member below your management level.");
+        setActionError("Choose an eligible individual at the next administrative level.");
         return;
       }
       if (
         selectedWork &&
         new Date(dueAt).getTime() > new Date(selectedWork.dueAt).getTime()
       ) {
-        setActionError("The team due time cannot be later than the main task due time.");
+        setActionError("The delegated due time cannot be later than the parent task due time.");
         return;
       }
     } else {
@@ -1308,7 +1672,9 @@ export function ManagementWorkPage() {
         return;
       }
 
-      registeredAt = toIso(createForm.registeredAt);
+      registeredAt = isAdministrativeWork
+        ? undefined
+        : toIso(createForm.registeredAt);
       plannedStartAt = toIso(createForm.plannedStartAt);
       dueAt = toIso(createForm.dueAt);
     }
@@ -1327,7 +1693,7 @@ export function ManagementWorkPage() {
         type: createForm.type,
         ...(isDelegatedAssignment
           ? {
-              teamInstructions: createForm.teamInstructions.trim(),
+              delegationInstructions: createForm.delegationInstructions.trim(),
             }
           : isAdministrativeWork
             ? {
@@ -1339,6 +1705,12 @@ export function ManagementWorkPage() {
                 customerContactType: createForm.customerContactType,
                 customerContactNumber: contactNumber,
                 locationText: createForm.locationText,
+                requestNumber: createRequiresRequestNumber
+                  ? createForm.requestNumber
+                  : undefined,
+                cpcSerial: createRequiresCpcSerial
+                  ? createForm.cpcSerial
+                  : undefined,
                 serviceNumber: createRequiresServiceNumber
                   ? createForm.serviceNumber
                   : undefined,
@@ -1354,11 +1726,11 @@ export function ManagementWorkPage() {
         plannedStartAt,
         dueAt,
         primaryAssigneeAccountId:
-          isDelegatedAssignment || administrativeStaffAssignment
+          isDelegatedAssignment || administrativeIndividualAssignment
             ? createForm.primaryAssigneeAccountId
             : undefined,
         assignedTeamId:
-          !isDelegatedAssignment && !administrativeStaffAssignment
+          !isDelegatedAssignment && !administrativeIndividualAssignment
             ? createForm.assignedTeamId
             : undefined,
         salesMemberAccountId:
@@ -1369,7 +1741,9 @@ export function ManagementWorkPage() {
           ? undefined
           : createForm.supportingAssigneeAccountIds,
         responsibleManagerAccountId:
-          createForm.responsibleManagerAccountId || undefined,
+          isDelegatedAssignment || administrativeIndividualAssignment
+            ? undefined
+            : createForm.responsibleManagerAccountId || undefined,
         parentWorkItemId: createForm.parentWorkItemId || undefined,
       });
 
@@ -1400,7 +1774,8 @@ export function ManagementWorkPage() {
         setCreateInitialSnapshot(JSON.stringify(nextForm));
         setCreateStep(1);
         setSupportMemberSearch("");
-        window.scrollTo({ top: 0, behavior: "smooth" });
+        setCreateReviewSubmitReady(false);
+        scrollCreateStepIntoView(1);
       } else if (!isDelegatedAssignment && isDedicatedCreateRoute) {
         window.sessionStorage.setItem(
           "nt-message:work-created-notice",
@@ -1426,22 +1801,33 @@ export function ManagementWorkPage() {
     }
   }
 
+  async function submitDedicatedEditWork(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!accessToken || !selectedWork || !isDedicatedEditRoute) return;
+
+    setActionBusy(true);
+    setActionError("");
+    try {
+      await updateManagementWorkItem(accessToken, selectedWork.id, {
+        registeredAt:
+          selectedWork.type === "ADMINISTRATIVE_TASK"
+            ? undefined
+            : toIso(actionForm.registeredAt),
+        plannedStartAt: toIso(actionForm.plannedStartAt),
+        dueAt: toIso(actionForm.dueAt),
+        locationText: actionForm.locationText,
+      });
+      navigate("/work-management", { replace: true });
+    } catch (requestError) {
+      setActionError(getErrorMessage(requestError));
+    } finally {
+      setActionBusy(false);
+    }
+  }
+
   async function submitCurrentAction(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!accessToken || !selectedWork || !actionMode) return;
-
-    if (actionMode === "EDIT") {
-      await runAction(() =>
-        updateManagementWorkItem(accessToken, selectedWork.id, {
-          priority: actionForm.priority,
-          registeredAt: toIso(actionForm.registeredAt),
-          plannedStartAt: toIso(actionForm.plannedStartAt),
-          dueAt: toIso(actionForm.dueAt),
-          locationText: actionForm.locationText,
-        }),
-      );
-      return;
-    }
 
     if (actionMode === "REASSIGN") {
       await runAction(() =>
@@ -1496,10 +1882,33 @@ export function ManagementWorkPage() {
     }
 
     if (actionMode === "COMPLETE") {
+      const usesOperationalPackage = isOperationalCompletionType(selectedWork.type);
+      const requiresCustomerId = completionRequiresCustomerId(selectedWork.type);
+      const allowsCustomerId = completionAllowsCustomerId(selectedWork.type);
+      const rxLevelText = actionForm.completionRxLevel.trim();
+      const rxLevelDbm = rxLevelText ? Number(rxLevelText) : undefined;
+
+      if (requiresCustomerId && !actionForm.completionCustomerId.trim()) {
+        setActionError("Customer ID is required for this work type.");
+        return;
+      }
+
+      if (
+        usesOperationalPackage &&
+        (rxLevelDbm === undefined || !Number.isFinite(rxLevelDbm) || rxLevelDbm < -100 || rxLevelDbm > 20)
+      ) {
+        setActionError("Enter a valid RX Level between -100 and 20 dBm.");
+        return;
+      }
+
       await runAction(() =>
         submitEmployeeWorkCompletion(accessToken, selectedWork.id, {
           result: actionForm.completionResult,
           summary: actionForm.note,
+          ...(allowsCustomerId && actionForm.completionCustomerId.trim()
+            ? { customerId: actionForm.completionCustomerId.trim() }
+            : {}),
+          ...(usesOperationalPackage ? { rxLevelDbm } : {}),
           moreWorkRequired: actionForm.moreWorkRequired,
         }),
       );
@@ -1530,8 +1939,14 @@ export function ManagementWorkPage() {
     await runAction(() => startEmployeeWork(accessToken, selectedWork.id));
   }
 
-  function openTeamAssignment(workItem: WorkItem | null = selectedWork): void {
-    if (!workItem) return;
+  function openDelegation(workItem: WorkItem | null = selectedWork): void {
+    if (
+      !workItem ||
+      workItem.type !== "ADMINISTRATIVE_TASK" ||
+      workItem.assignedTeam
+    ) {
+      return;
+    }
     setSelectedWork(workItem);
     setCreateForm({
       ...createDefaultWorkForm(),
@@ -1540,6 +1955,8 @@ export function ManagementWorkPage() {
       customerContactType: workItem.customerContactType ?? "MOBILE",
       customerContactNumber: workItem.customerContactNumber ?? "",
       locationText: workItem.locationText ?? "",
+      requestNumber: workItem.requestNumber ?? "",
+      cpcSerial: workItem.cpcSerial ?? "",
       serviceNumber: workItem.serviceNumber ?? "",
       olt: workItem.olt ?? "",
       fdcName: workItem.fdcName ?? "",
@@ -1547,18 +1964,18 @@ export function ManagementWorkPage() {
       serviceTypes: workItem.serviceTypes,
       otherServiceText: workItem.otherServiceText ?? "",
       parentWorkItemId: workItem.id,
-      teamInstructions: "",
+      delegationInstructions: "",
       plannedStartAt: new Date().toISOString(),
       dueAt: workItem.dueAt,
-      responsibleManagerAccountId: account?.id ?? "",
+      responsibleManagerAccountId: "",
     });
     openAction("CREATE");
   }
 
-  async function openQueueTeamAssignment(item: WorkItem): Promise<void> {
-    if (!accessToken || openingTeamAssignmentId) return;
+  async function openQueueDelegation(item: WorkItem): Promise<void> {
+    if (!accessToken || openingDelegationId) return;
 
-    setOpeningTeamAssignmentId(item.id);
+    setOpeningDelegationId(item.id);
     setError("");
     setActionError("");
 
@@ -1588,15 +2005,15 @@ export function ManagementWorkPage() {
         isArchivedWork(workItem)
       ) {
         throw new Error(
-          "Start this task before assigning part of it to your team.",
+          "Start this Administrative Work before delegating part of it.",
         );
       }
 
-      openTeamAssignment(workItem);
+      openDelegation(workItem);
     } catch (requestError) {
       setError(getErrorMessage(requestError));
     } finally {
-      setOpeningTeamAssignmentId(null);
+      setOpeningDelegationId(null);
     }
   }
 
@@ -1638,9 +2055,104 @@ export function ManagementWorkPage() {
     selectedWork?.assignments.filter(
       (assignment) => assignment.assignmentRole === "SUPPORTING",
     ) ?? [];
+  const managementPrimaryPeople = selectedWork?.assignedTeam
+    ? [...(selectedWork.assignedTeam.members ?? [])]
+        .sort((left, right) => {
+          const adminEmployeeId = selectedWork.assignedTeam!.teamAdmin.id;
+          const leftIsAdmin = left.employee.id === adminEmployeeId ? 0 : 1;
+          const rightIsAdmin = right.employee.id === adminEmployeeId ? 0 : 1;
+          if (leftIsAdmin !== rightIsAdmin) return leftIsAdmin - rightIsAdmin;
+          return left.employee.empName.localeCompare(right.employee.empName);
+        })
+        .map((member) => ({
+          key: `team:${member.employee.id}`,
+          accountId: member.employee.account?.id ?? null,
+          name: member.employee.empName,
+          designation: member.employee.designation,
+          isTeamAdmin: member.employee.id === selectedWork.assignedTeam!.teamAdmin.id,
+          startedWork: Boolean(
+            primaryAssignment?.startedAt &&
+              member.employee.account?.id === primaryAssignment.assignee.id,
+          ),
+        }))
+    : primaryAssignment
+      ? [{
+          key: `primary:${primaryAssignment.assignee.id}`,
+          accountId: primaryAssignment.assignee.id,
+          name: getAccountName(primaryAssignment.assignee),
+          designation: primaryAssignment.assignee.employee?.designation ?? null,
+          isTeamAdmin: false,
+          startedWork: Boolean(primaryAssignment.startedAt),
+        }]
+      : [];
+  const managementOtherPeople = (() => {
+    if (!selectedWork) return [];
+    const primaryAccountIds = new Set(
+      managementPrimaryPeople
+        .map((person) => person.accountId)
+        .filter((accountId): accountId is string => Boolean(accountId)),
+    );
+    const people = new Map<
+      string,
+      {
+        account: WorkItem["createdBy"];
+        roles: string[];
+        canRemoveSupport: boolean;
+      }
+    >();
+    const addPerson = (
+      personAccount: WorkItem["createdBy"],
+      role: string,
+      removableSupport = false,
+    ) => {
+      if (primaryAccountIds.has(personAccount.id)) return;
+      const current = people.get(personAccount.id);
+      if (current) {
+        if (!current.roles.includes(role)) current.roles.push(role);
+        current.canRemoveSupport ||= removableSupport;
+        return;
+      }
+      people.set(personAccount.id, {
+        account: personAccount,
+        roles: [role],
+        canRemoveSupport: removableSupport,
+      });
+    };
+
+    if (selectedWork.salesMember) addPerson(selectedWork.salesMember, "Sales member");
+    supportingAssignments.forEach((assignment) =>
+      addPerson(assignment.assignee, "Supporting staff", true),
+    );
+    return [...people.values()].sort((left, right) =>
+      getAccountName(left.account).localeCompare(getAccountName(right.account)),
+    );
+  })();
+  const managementPeopleCount = (() => {
+    const ids = new Set<string>();
+    managementPrimaryPeople.forEach((person) => ids.add(person.accountId ?? person.key));
+    managementOtherPeople.forEach((person) => ids.add(person.account.id));
+    return ids.size;
+  })();
   const assignedAccountIds =
     selectedWork?.assignments.map((assignment) => assignment.assignee.id) ?? [];
   const latestReport = selectedWork?.completionReports?.[0] ?? null;
+  const selectedCompletionUsesOperationalPackage = Boolean(
+    selectedWork && isOperationalCompletionType(selectedWork.type),
+  );
+  const selectedCompletionRequiresCustomerId = Boolean(
+    selectedWork && completionRequiresCustomerId(selectedWork.type),
+  );
+  const selectedCompletionAllowsCustomerId = Boolean(
+    selectedWork && completionAllowsCustomerId(selectedWork.type),
+  );
+  const selectedCompletionReference = selectedWork
+    ? completionReference(selectedWork)
+    : null;
+  const reviewSalesBlocked = Boolean(
+    actionMode === "REVIEW" &&
+      selectedWork?.salesMemberAccountId &&
+      selectedWork.salesCoordinationStatus !== "COMPLETED",
+  );
   const isPrimaryAssignee = Boolean(
     primaryAssignment && primaryAssignment.assignee.id === account?.id,
   );
@@ -1674,44 +2186,46 @@ export function ManagementWorkPage() {
       selectedWork &&
       ["IN_PROGRESS", "HELP_REQUESTED", "BLOCKED"].includes(selectedWork.status),
   );
-  const unfinishedTeamTasks = selectedWork?.teamWork
-    ? selectedWork.teamWork.total -
-      selectedWork.teamWork.completed -
-      selectedWork.teamWork.cancelled
+  const unfinishedDelegatedTasks = selectedWork?.delegatedWork
+    ? selectedWork.delegatedWork.total -
+      selectedWork.delegatedWork.completed -
+      selectedWork.delegatedWork.cancelled
     : 0;
   const canCompleteAssigned = Boolean(
     isPrimaryAssignee &&
       !selectedWorkIsArchived &&
       primaryAssignment?.startedAt &&
       selectedWork &&
-      unfinishedTeamTasks === 0 &&
+      unfinishedDelegatedTasks === 0 &&
       (["IN_PROGRESS", "HELP_REQUESTED", "BLOCKED"].includes(
         selectedWork.status,
       ) ||
         (selectedWork.status === "COMPLETED_PENDING_REVIEW" &&
           informationWasRequested)),
   );
-  const showAssignToTeam = Boolean(
+  const showDelegateWork = Boolean(
     filters.focus === "ASSIGNED_TO_ME" &&
       isPrimaryAssignee &&
       !selectedWorkIsArchived &&
       selectedWork &&
       account &&
+      selectedWork.type === "ADMINISTRATIVE_TASK" &&
+      !selectedWork.assignedTeam &&
       ["SENIOR_MANAGEMENT", "TEAM_MANAGER"].includes(account.role) &&
       !["COMPLETED_PENDING_REVIEW", "CLOSED", "CANCELLED"].includes(
         selectedWork.status,
       ),
   );
-  const canAssignToTeam = Boolean(
-    showAssignToTeam &&
+  const canDelegateWork = Boolean(
+    showDelegateWork &&
       primaryAssignment?.startedAt &&
       selectedWork &&
       ["IN_PROGRESS", "HELP_REQUESTED", "BLOCKED"].includes(
         selectedWork.status,
       ),
   );
-  const assignToTeamButtonText = canAssignToTeam
-    ? "Assign to Team"
+  const delegateButtonText = canDelegateWork
+    ? "Delegate"
     : !primaryAssignment?.acknowledgedAt
       ? "Accept Task First"
       : "Start Work First";
@@ -1750,14 +2264,16 @@ export function ManagementWorkPage() {
       !selectedWorkIsArchived &&
       !["CLOSED", "CANCELLED"].includes(selectedWork.status),
   );
-  const canReassignOrCancel = canManageAssignments && unfinishedTeamTasks === 0;
+  const canReassignOrCancel = canManageAssignments && unfinishedDelegatedTasks === 0;
   const canChangeIndividualAssignments =
-    canReassignOrCancel && !selectedWork?.assignedTeam;
+    canReassignOrCancel &&
+    !selectedWork?.assignedTeam &&
+    selectedWork?.type === "ADMINISTRATIVE_TASK";
   const hasActiveFilters = Boolean(
     filters.search ||
       filters.status ||
       filters.type ||
-      filters.priority ||
+      filters.divisionId ||
       filters.departmentId ||
       filters.assigneeAccountId ||
       filters.assignedTeamId ||
@@ -1767,6 +2283,71 @@ export function ManagementWorkPage() {
           filters.historyTo !== toDateInput(new Date()))),
   );
   // Role-specific tabs keep default work queues operational instead of organization-wide.
+  const organizationScopeTitle =
+    account?.role === "SUPER_ADMIN"
+      ? "Branch work"
+      : account?.role === "SENIOR_MANAGEMENT"
+        ? "Division work"
+        : "Department work";
+  const organizationScopeNote =
+    account?.role === "SUPER_ADMIN"
+      ? "Open a division, department or team to view its work."
+      : account?.role === "SENIOR_MANAGEMENT"
+        ? "Open a department or team inside your division."
+        : "Open a team inside your department.";
+  const organizationDepartments = organizationSummary?.divisions.flatMap(
+    (division) => division.departments,
+  ) ?? [];
+  const visibleDepartmentOptions = filters.divisionId
+    ? options?.departments.filter(
+        (department) => department.divisionId === filters.divisionId,
+      ) ?? []
+    : options?.departments ?? [];
+  const visibleTeamOptions = filters.departmentId
+    ? options?.teams.filter((team) => team.department.id === filters.departmentId) ?? []
+    : filters.divisionId
+      ? options?.teams.filter((team) =>
+          organizationDepartments.some(
+            (department) =>
+              department.divisionId === filters.divisionId &&
+              department.id === team.department.id,
+          ),
+        ) ?? []
+      : options?.teams ?? [];
+
+  function openOrganizationWork(
+    divisionId?: string,
+    departmentId?: string,
+    assignedTeamId?: string,
+  ): void {
+    setWorkspaceMode("CURRENT");
+    setFiltersExpanded(true);
+    setSelectedId(null);
+    setFilters((current) => ({
+      ...current,
+      view: "ACTIVE",
+      focus: account?.role === "TEAM_MANAGER" ? "TEAM_QUEUE" : "EXPLORER",
+      divisionId: divisionId ?? "",
+      departmentId: departmentId ?? "",
+      assignedTeamId: assignedTeamId ?? "",
+      assigneeAccountId: "",
+      salesMemberAccountId: "",
+      page: 1,
+    }));
+
+    // The Work Management workspace owns the scroll container. Wait for the
+    // filter/queue layout to commit, then take the user directly to the work
+    // list they asked to view instead of leaving them at the organization tree.
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        document.getElementById("management-work-queue")?.scrollIntoView({
+          behavior: "smooth",
+          block: "start",
+        });
+      });
+    });
+  }
+
   const focusTabs: Array<{
     focus: WorkQueueFocus;
     label: string;
@@ -1848,8 +2429,8 @@ export function ManagementWorkPage() {
   }
 
   return (
-    <main className={`management-page management-work-page${isDedicatedCreateRoute ? " management-work-page--create" : ""}`}>
-      {!isDedicatedCreateRoute && (
+    <main className={`management-page management-work-page${isDedicatedFormRoute ? " management-work-page--create" : ""}${isDedicatedEditRoute ? " management-work-page--edit" : ""}`}>
+      {!isDedicatedFormRoute && (
       <section className="management-work__canvas">
         <header className="management-work__hero management-work__hero--compact">
           <div>
@@ -1909,6 +2490,151 @@ export function ManagementWorkPage() {
               <small>{card.note}</small>
             </article>
           ))}
+        </section>
+
+        <section
+          className="management-work-organization"
+          aria-label={`${organizationScopeTitle} organization view`}
+          aria-busy={organizationLoading}
+        >
+          <header className="management-work-organization__header">
+            <div>
+              <span>Work by organization</span>
+              <h2>{organizationScopeTitle}</h2>
+              <p>{organizationScopeNote}</p>
+            </div>
+            {organizationSummary && (
+              <div className="management-work-organization__size" aria-label="Organization size">
+                <span>{organizationSummary.organization.divisionCount} divisions</span>
+                <span>{organizationSummary.organization.departmentCount} departments</span>
+                <span>{organizationSummary.organization.teamCount} teams</span>
+              </div>
+            )}
+          </header>
+
+          {organizationError && (
+            <div className="management-work-organization__error" role="status">
+              Organization view is unavailable right now. Refresh to try again.
+            </div>
+          )}
+
+          {organizationLoading && !organizationSummary ? (
+            <div className="management-work-organization__loading">Loading organization work…</div>
+          ) : organizationSummary ? (
+            <>
+              <div className="management-work-organization__metrics" aria-label="Work totals">
+                {[
+                  ["Active", organizationSummary.totals.active],
+                  ["New", organizationSummary.totals.newWork],
+                  ["In Progress", organizationSummary.totals.inProgress],
+                  ["Waiting Sales", organizationSummary.totals.waitingForSales],
+                  ["Waiting Approval", organizationSummary.totals.waitingForApproval],
+                  ["Overdue", organizationSummary.totals.overdue],
+                  ["Completed Today", organizationSummary.totals.completedToday],
+                ].map(([label, value]) => (
+                  <div key={label} className={`management-work-organization__metric${label === "Overdue" && Number(value) > 0 ? " is-alert" : ""}`}>
+                    <strong>{value}</strong>
+                    <span>{label}</span>
+                  </div>
+                ))}
+              </div>
+
+              <div className="management-work-organization__tree">
+                {organizationSummary.divisions.length === 0 ? (
+                  <p className="management-work-organization__empty">No active organization units are available.</p>
+                ) : (
+                  organizationSummary.divisions.map((division) => (
+                    <details
+                      key={division.id}
+                      className="management-work-org-node management-work-org-node--division"
+                      open={account?.role !== "SUPER_ADMIN" || organizationSummary.divisions.length === 1}
+                    >
+                      <summary>
+                        <div>
+                          <strong>{division.name}</strong>
+                          <span>{division.departments.length} departments · {division.totals.active} active</span>
+                        </div>
+                        <span className="management-work-org-node__status">
+                          {division.totals.overdue > 0 ? `${division.totals.overdue} overdue` : `${division.totals.inProgress} in progress`}
+                        </span>
+                      </summary>
+                      <div className="management-work-org-node__body">
+                        {account?.role === "SUPER_ADMIN" && (
+                          <button
+                            type="button"
+                            className="management-work-org-node__view"
+                            onClick={() => openOrganizationWork(division.id)}
+                          >
+                            View division work
+                          </button>
+                        )}
+
+                        {division.departments.map((department) => (
+                          <details
+                            key={department.id}
+                            className="management-work-org-node management-work-org-node--department"
+                            open={account?.role === "TEAM_MANAGER" || division.departments.length === 1}
+                          >
+                            <summary>
+                              <div>
+                                <strong>{department.name}</strong>
+                                <span>{department.teams.length} teams · {department.totals.active} active</span>
+                              </div>
+                              <span className="management-work-org-node__status">
+                                {department.totals.waitingForSales > 0
+                                  ? `${department.totals.waitingForSales} waiting Sales`
+                                  : department.totals.overdue > 0
+                                    ? `${department.totals.overdue} overdue`
+                                    : `${department.totals.inProgress} in progress`}
+                              </span>
+                            </summary>
+                            <div className="management-work-org-node__body">
+                              {account?.role !== "TEAM_MANAGER" && (
+                                <button
+                                  type="button"
+                                  className="management-work-org-node__view"
+                                  onClick={() => openOrganizationWork(division.id, department.id)}
+                                >
+                                  View department work
+                                </button>
+                              )}
+
+                              <div className="management-work-org-teams">
+                                {department.teams.length === 0 ? (
+                                  <span className="management-work-organization__empty">No active teams.</span>
+                                ) : (
+                                  department.teams.map((team) => (
+                                    <article key={team.id} className="management-work-org-team">
+                                      <div>
+                                        <strong>{team.name}</strong>
+                                        <span>{team.memberCount} members</span>
+                                      </div>
+                                      <div className="management-work-org-team__counts">
+                                        <span>{team.totals.active} active</span>
+                                        {team.totals.waitingForSales > 0 && <span>{team.totals.waitingForSales} waiting Sales</span>}
+                                        {team.totals.waitingForApproval > 0 && <span>{team.totals.waitingForApproval} waiting approval</span>}
+                                        {team.totals.overdue > 0 && <span className="is-alert">{team.totals.overdue} overdue</span>}
+                                      </div>
+                                      <button
+                                        type="button"
+                                        onClick={() => openOrganizationWork(division.id, department.id, team.id)}
+                                      >
+                                        View work
+                                      </button>
+                                    </article>
+                                  ))
+                                )}
+                              </div>
+                            </div>
+                          </details>
+                        ))}
+                      </div>
+                    </details>
+                  ))
+                )}
+              </div>
+            </>
+          ) : null}
         </section>
 
         <section className="management-work__navigation" aria-label="Work navigation">
@@ -2054,7 +2780,6 @@ export function ManagementWorkPage() {
                         setSelectedId(item.id);
                       }}
                     >
-                      <span className={`work-priority work-priority--${item.priority.toLowerCase()}`}>{formatLabel(item.priority)}</span>
                       <strong>{item.title}</strong>
                       <small>{item.ticketNumber} · {item.department?.name ?? item.division.name}</small>
                       <em>{formatLabel(item.status)}</em>
@@ -2076,7 +2801,6 @@ export function ManagementWorkPage() {
                         setSelectedId(item.id);
                       }}
                     >
-                      <span className={`work-priority work-priority--${item.priority.toLowerCase()}`}>{formatLabel(item.priority)}</span>
                       <strong>{item.title}</strong>
                       <small>{item.ticketNumber} · {item.department?.name ?? item.division.name}</small>
                       <em>Completed</em>
@@ -2116,9 +2840,6 @@ export function ManagementWorkPage() {
                     )}
                   </div>
                   <div>
-                    <span className={`work-priority work-priority--${selectedWork.priority.toLowerCase()}`}>
-                      {formatLabel(selectedWork.priority)}
-                    </span>
                     <strong>{formatLabel(selectedWork.status)}</strong>
                   </div>
                 </header>
@@ -2148,9 +2869,9 @@ export function ManagementWorkPage() {
                       {informationWasRequested && latestReport?.managerNote && (
                         <small>Manager note: {latestReport.managerNote}</small>
                       )}
-                      {unfinishedTeamTasks > 0 && (
+                      {unfinishedDelegatedTasks > 0 && (
                         <small className="management-work__team-blocker">
-                          {unfinishedTeamTasks} team task{unfinishedTeamTasks === 1 ? " is" : "s are"} still unfinished. Review or cancel them before finishing this task.
+                          {unfinishedDelegatedTasks} delegated task{unfinishedDelegatedTasks === 1 ? " is" : "s are"} still unfinished. Review or cancel them before finishing this task.
                         </small>
                       )}
                     </div>
@@ -2182,19 +2903,19 @@ export function ManagementWorkPage() {
                           Need Help
                         </button>
                       )}
-                      {showAssignToTeam && (
+                      {showDelegateWork && (
                         <button
                           type="button"
                           className="is-secondary"
-                          onClick={() => openTeamAssignment()}
-                          disabled={!canAssignToTeam || actionBusy}
+                          onClick={() => openDelegation()}
+                          disabled={!canDelegateWork || actionBusy}
                           title={
-                            canAssignToTeam
-                              ? "Assign part of this work to a lower team member."
-                              : "Accept and start this task before assigning it to your team."
+                            canDelegateWork
+                              ? "Delegate part of this Administrative Work to the next level."
+                              : "Accept and start this Administrative Work before delegating it."
                           }
                         >
-                          {assignToTeamButtonText}
+                          {delegateButtonText}
                         </button>
                       )}
                       {canCompleteAssigned && (
@@ -2215,12 +2936,15 @@ export function ManagementWorkPage() {
                 <div className="management-work__detail-actions">
                   {canManageAssignments && (
                     <>
-                      <button type="button" onClick={() => openAction("EDIT")}>
+                      <button
+                        type="button"
+                        onClick={() => navigate(`/work-management/${selectedWork.id}/edit`)}
+                      >
                         Update details
                       </button>
                       {canChangeIndividualAssignments && (
                         <button type="button" onClick={() => openAction("REASSIGN")}>
-                          Reassign
+                          Reassign owner
                         </button>
                       )}
                       {canManageAssignments && (
@@ -2326,15 +3050,14 @@ export function ManagementWorkPage() {
                       <strong>{selectedWork.customerContactNumber ?? "Not recorded"}</strong>
                     </article>
                     <article><span>Location</span><strong>{selectedWork.locationText ?? "Not recorded"}</strong></article>
-                    {selectedWork.type !== "MAINTENANCE" && (
-                      <article>
-                        <span>
-                          {["NEW_CONNECTION", "UPDATE_SERVICES"].includes(selectedWork.type)
-                            ? "Token number"
-                            : "Service number"}
-                        </span>
-                        <strong>{selectedWork.serviceNumber ?? "Not recorded"}</strong>
-                      </article>
+                    {["NEW_CONNECTION", "UPDATE_SERVICES"].includes(selectedWork.type) && (
+                      <article><span>Token number</span><strong>{selectedWork.requestNumber ?? "Not recorded"}</strong></article>
+                    )}
+                    {selectedWork.type === "NEW_CONNECTION" && (
+                      <article><span>CPC Serial</span><strong>{selectedWork.cpcSerial ?? "Not recorded"}</strong></article>
+                    )}
+                    {!["MAINTENANCE", "NEW_CONNECTION"].includes(selectedWork.type) && (
+                      <article><span>Service number</span><strong>{selectedWork.serviceNumber ?? "Not recorded"}</strong></article>
                     )}
                     <article><span>OLT</span><strong>{selectedWork.olt ?? "Not recorded"}</strong></article>
                     <article><span>FDC name</span><strong>{selectedWork.fdcName ?? "Not recorded"}</strong></article>
@@ -2358,11 +3081,13 @@ export function ManagementWorkPage() {
                 )}
 
                 <section className="management-work__facts management-work__facts--schedule">
-                  <article>
-                    <span>Registered Date and Time</span>
-                    <strong>AD: {formatKathmanduDateTime(selectedWork.registeredAt)}</strong>
-                    <small>BS: {formatBikramSambatDateTime(selectedWork.registeredAt)}</small>
-                  </article>
+                  {selectedWork.type !== "ADMINISTRATIVE_TASK" && (
+                    <article>
+                      <span>Registered Date and Time</span>
+                      <strong>AD: {formatKathmanduDateTime(selectedWork.registeredAt)}</strong>
+                      <small>BS: {formatBikramSambatDateTime(selectedWork.registeredAt)}</small>
+                    </article>
+                  )}
                   <article>
                     <span>System created</span>
                     <strong>{formatKathmanduDateTime(selectedWork.createdAt)}</strong>
@@ -2411,17 +3136,17 @@ export function ManagementWorkPage() {
                   </div>
                 </section>
 
-                {(selectedWork.parentWorkItem || (selectedWork.teamWork?.total ?? 0) > 0) && (
+                {(selectedWork.parentWorkItem || (selectedWork.delegatedWork?.total ?? 0) > 0) && (
                   <section className="management-work__team-tracking">
                     <header>
                       <div>
-                        <span>Team progress</span>
-                        <h3>Who Is Working on This Task</h3>
-                        <p>See every person who received part of this work and their current progress.</p>
+                        <span>Delegation progress</span>
+                        <h3>Administrative delegation chain</h3>
+                        <p>See how this Administrative Work moved down the management hierarchy while the upper owner remains accountable.</p>
                       </div>
-                      {(selectedWork.teamWork?.total ?? 0) > 0 && (
+                      {(selectedWork.delegatedWork?.total ?? 0) > 0 && (
                         <div className="management-work__team-score">
-                          <strong>{selectedWork.teamWork!.completionPercentage}%</strong>
+                          <strong>{selectedWork.delegatedWork!.completionPercentage}%</strong>
                           <span>Complete</span>
                         </div>
                       )}
@@ -2433,9 +3158,9 @@ export function ManagementWorkPage() {
                         className="management-work__team-parent"
                         onClick={() => setSelectedId(selectedWork.parentWorkItem!.id)}
                       >
-                        <span>Assigned from</span>
+                        <span>Delegated from</span>
                         <strong>{selectedWork.parentWorkItem.title}</strong>
-                        <small>Open the main task</small>
+                        <small>Open the parent task</small>
                       </button>
                     )}
 
@@ -2447,14 +3172,14 @@ export function ManagementWorkPage() {
                           <small>{primaryAssignment.assignee.employee?.designation ?? formatLabel(primaryAssignment.assignee.role)}</small>
                         </div>
                         <div>
-                          <span>Assigned by</span>
+                          <span>Delegated by</span>
                           <strong>{getAccountName(selectedWork.createdBy)}</strong>
                           <small>{formatDateTime(primaryAssignment.createdAt)}</small>
                         </div>
                         <div>
                           <span>Due</span>
                           <strong>{formatDateTime(selectedWork.dueAt)}</strong>
-                          <small>{selectedWork.teamWork?.total ?? 0} team task{(selectedWork.teamWork?.total ?? 0) === 1 ? "" : "s"}</small>
+                          <small>{selectedWork.delegatedWork?.total ?? 0} delegated task{(selectedWork.delegatedWork?.total ?? 0) === 1 ? "" : "s"}</small>
                         </div>
                         <em className={`management-work__team-status ${selectedWorkIsOverdue ? "is-overdue" : `is-${selectedWork.status.toLowerCase()}`}`}>
                           {selectedWorkIsOverdue ? "Overdue" : formatLabel(selectedWork.status)}
@@ -2462,26 +3187,26 @@ export function ManagementWorkPage() {
                       </article>
                     )}
 
-                    {(selectedWork.teamWork?.total ?? 0) > 0 && (
+                    {(selectedWork.delegatedWork?.total ?? 0) > 0 && (
                       <>
                         <div className="management-work__team-stats">
-                          <article><span>Team tasks</span><strong>{selectedWork.teamWork!.total}</strong></article>
-                          <article><span>Completed</span><strong>{selectedWork.teamWork!.completed}</strong></article>
-                          <article><span>In progress</span><strong>{selectedWork.teamWork!.inProgress}</strong></article>
-                          <article><span>Waiting for review</span><strong>{selectedWork.teamWork!.awaitingReview}</strong></article>
-                          <article><span>Overdue</span><strong>{selectedWork.teamWork!.overdue}</strong></article>
+                          <article><span>Delegated tasks</span><strong>{selectedWork.delegatedWork!.total}</strong></article>
+                          <article><span>Completed</span><strong>{selectedWork.delegatedWork!.completed}</strong></article>
+                          <article><span>In progress</span><strong>{selectedWork.delegatedWork!.inProgress}</strong></article>
+                          <article><span>Waiting for review</span><strong>{selectedWork.delegatedWork!.awaitingReview}</strong></article>
+                          <article><span>Overdue</span><strong>{selectedWork.delegatedWork!.overdue}</strong></article>
                         </div>
                         <div
                           className="management-work__team-progress"
                           role="progressbar"
                           aria-valuemin={0}
                           aria-valuemax={100}
-                          aria-valuenow={selectedWork.teamWork!.completionPercentage}
+                          aria-valuenow={selectedWork.delegatedWork!.completionPercentage}
                         >
-                          <span style={{ width: `${selectedWork.teamWork!.completionPercentage}%` }} />
+                          <span style={{ width: `${selectedWork.delegatedWork!.completionPercentage}%` }} />
                         </div>
                         <div className="management-work__team-list">
-                          {selectedWork.teamWork!.members.map((member) => (
+                          {selectedWork.delegatedWork!.members.map((member) => (
                             <button
                               key={member.id}
                               type="button"
@@ -2489,13 +3214,13 @@ export function ManagementWorkPage() {
                               onClick={() => setSelectedId(member.id)}
                             >
                               <div>
-                                <span>{member.depth === 1 ? "Assigned team member" : `Next team level ${member.depth}`}</span>
+                                <span>{member.depth === 1 ? "Delegated owner" : `Delegation level ${member.depth}`}</span>
                                 <strong>{member.primaryAssignee ? getAccountName(member.primaryAssignee) : "Assignee unavailable"}</strong>
                                 <small>{member.primaryAssignee?.employee?.designation ?? (member.primaryAssignee ? formatLabel(member.primaryAssignee.role) : "")}</small>
                                 {member.instructions && <small title={member.instructions}>Task: {member.instructions}</small>}
                               </div>
                               <div>
-                                <span>Assigned by</span>
+                                <span>Delegated by</span>
                                 <strong>{member.assignedBy ? getAccountName(member.assignedBy) : "Not recorded"}</strong>
                                 <small>{formatDateTime(member.createdAt)}</small>
                               </div>
@@ -2510,9 +3235,9 @@ export function ManagementWorkPage() {
                             </button>
                           ))}
                         </div>
-                        {(selectedWork.teamWork!.notStarted > 0 || selectedWork.teamWork!.cancelled > 0) && (
+                        {(selectedWork.delegatedWork!.notStarted > 0 || selectedWork.delegatedWork!.cancelled > 0) && (
                           <p className="management-work__team-note">
-                            {selectedWork.teamWork!.notStarted} not started · {selectedWork.teamWork!.cancelled} cancelled
+                            {selectedWork.delegatedWork!.notStarted} not started · {selectedWork.delegatedWork!.cancelled} cancelled
                           </p>
                         )}
                       </>
@@ -2520,35 +3245,78 @@ export function ManagementWorkPage() {
                   </section>
                 )}
 
-                <section className="management-work__assignments">
-                  <header><h3>Assigned Staff</h3></header>
-                  {primaryAssignment && (
-                    <article>
-                      <span>Primary</span>
+                <section className="management-work__assignments management-work__people">
+                  <header>
+                    <div>
+                      <span>People on this work</span>
+                      <h3>{managementPeopleCount} {managementPeopleCount === 1 ? "person" : "people"}</h3>
+                    </div>
+                  </header>
+
+                  <div className="management-work__people-group">
+                    <div className="management-work__people-group-heading">
                       <div>
-                        <strong>{getAccountName(primaryAssignment.assignee)}</strong>
-                        <small>{primaryAssignment.assignee.employee?.designation ?? formatLabel(primaryAssignment.assignee.role)}</small>
+                        <span>{selectedWork.assignedTeam ? "Primary team" : "Primary worker"}</span>
+                        <strong>{selectedWork.assignedTeam?.name ?? "Main responsibility"}</strong>
                       </div>
-                    </article>
+                      <small>{managementPrimaryPeople.length} {managementPrimaryPeople.length === 1 ? "person" : "members"}</small>
+                    </div>
+                    <div className="management-work__people-list">
+                      {managementPrimaryPeople.map((person) => (
+                        <article key={person.key}>
+                          <span className="management-work__person-avatar" aria-hidden="true">
+                            {person.name.charAt(0).toUpperCase()}
+                          </span>
+                          <div>
+                            <strong>{person.name}</strong>
+                            <small>{person.designation ?? "Employee"}</small>
+                          </div>
+                          <div className="management-work__person-badges">
+                            {person.isTeamAdmin && <em>Team Admin</em>}
+                            {person.startedWork && <em className="is-started">Started work</em>}
+                            {!person.isTeamAdmin && !person.startedWork && <em>Team member</em>}
+                          </div>
+                        </article>
+                      ))}
+                    </div>
+                  </div>
+
+                  {managementOtherPeople.length > 0 && (
+                    <div className="management-work__people-group">
+                      <div className="management-work__people-group-heading">
+                        <div>
+                          <span>Other people</span>
+                          <strong>Sales and support</strong>
+                        </div>
+                        <small>{managementOtherPeople.length} {managementOtherPeople.length === 1 ? "person" : "people"}</small>
+                      </div>
+                      <div className="management-work__people-list">
+                        {managementOtherPeople.map(({ account: personAccount, roles, canRemoveSupport }) => (
+                          <article key={personAccount.id}>
+                            <span className="management-work__person-avatar" aria-hidden="true">
+                              {getAccountName(personAccount).charAt(0).toUpperCase()}
+                            </span>
+                            <div>
+                              <strong>{getAccountName(personAccount)}</strong>
+                              <small>{personAccount.employee?.designation ?? formatLabel(personAccount.role)}</small>
+                            </div>
+                            <div className="management-work__person-badges">
+                              {roles.map((role) => <em key={role}>{role}</em>)}
+                            </div>
+                            {canRemoveSupport && canManageAssignments && (
+                              <button
+                                type="button"
+                                onClick={() => void removeSupport(personAccount.id)}
+                                disabled={actionBusy}
+                              >
+                                Remove
+                              </button>
+                            )}
+                          </article>
+                        ))}
+                      </div>
+                    </div>
                   )}
-                  {supportingAssignments.map((assignment) => (
-                    <article key={assignment.id}>
-                      <span>Supporting</span>
-                      <div>
-                        <strong>{getAccountName(assignment.assignee)}</strong>
-                        <small>{assignment.assignee.employee?.designation ?? formatLabel(assignment.assignee.role)}</small>
-                      </div>
-                      {canManageAssignments && (
-                        <button
-                          type="button"
-                          onClick={() => void removeSupport(assignment.assignee.id)}
-                          disabled={actionBusy}
-                        >
-                          Remove
-                        </button>
-                      )}
-                    </article>
-                  ))}
                 </section>
 
                 {latestReport && (
@@ -2643,10 +3411,6 @@ export function ManagementWorkPage() {
                       : ["CLOSED", "CANCELLED"].includes(status),
                   ).map((status) => <option key={status} value={status}>{formatLabel(status)}</option>)}
                 </select>
-                <select value={filters.priority} onChange={(event) => setFilters((current) => ({ ...current, priority: event.target.value as WorkPriority | "", page: 1 }))} aria-label="Filter by priority">
-                  <option value="">All priorities</option>
-                  {PRIORITIES.map((priority) => <option key={priority} value={priority}>{formatLabel(priority)}</option>)}
-                </select>
                 <button type="button" className={filtersExpanded ? "is-active" : ""} onClick={() => setFiltersExpanded((current) => !current)}>
                   More Filters
                 </button>
@@ -2655,7 +3419,7 @@ export function ManagementWorkPage() {
                   className="management-work__clear-filters"
                   disabled={!hasActiveFilters}
                   onClick={() => setFilters((current) => ({
-                    ...current, search: "", status: "", type: "", priority: "", departmentId: "", assigneeAccountId: "", assignedTeamId: "", salesMemberAccountId: "", historyFrom: getDefaultHistoryFrom(), historyTo: toDateInput(new Date()), page: 1,
+                    ...current, search: "", status: "", type: "", divisionId: "", departmentId: "", assigneeAccountId: "", assignedTeamId: "", salesMemberAccountId: "", historyFrom: getDefaultHistoryFrom(), historyTo: toDateInput(new Date()), page: 1,
                   }))}
                 >
                   Clear
@@ -2667,9 +3431,29 @@ export function ManagementWorkPage() {
                     <option value="">All work types</option>
                     {WORK_TYPES.map((type) => <option key={type.value} value={type.value}>{type.label}</option>)}
                   </select>
+                  {account?.role === "SUPER_ADMIN" && (
+                    <select
+                      value={filters.divisionId}
+                      onChange={(event) => setFilters((current) => ({
+                        ...current,
+                        divisionId: event.target.value,
+                        departmentId: "",
+                        assigneeAccountId: "",
+                        assignedTeamId: "",
+                        salesMemberAccountId: "",
+                        page: 1,
+                      }))}
+                      aria-label="Filter by division"
+                    >
+                      <option value="">All divisions</option>
+                      {organizationSummary?.divisions.map((division) => (
+                        <option key={division.id} value={division.id}>{division.name}</option>
+                      ))}
+                    </select>
+                  )}
                   <select value={filters.departmentId} onChange={(event) => setFilters((current) => ({ ...current, departmentId: event.target.value, assigneeAccountId: "", assignedTeamId: "", salesMemberAccountId: "", page: 1 }))} aria-label="Filter by department">
                     <option value="">All departments</option>
-                    {options?.departments.map((department) => <option key={department.id} value={department.id}>{department.name}</option>)}
+                    {visibleDepartmentOptions.map((department) => <option key={department.id} value={department.id}>{department.name}</option>)}
                   </select>
                   <select value={filters.assigneeAccountId} onChange={(event) => setFilters((current) => ({ ...current, assigneeAccountId: event.target.value, page: 1 }))} aria-label="Filter by assigned staff member">
                     <option value="">All assigned staff</option>
@@ -2677,7 +3461,7 @@ export function ManagementWorkPage() {
                   </select>
                   <select value={filters.assignedTeamId} onChange={(event) => setFilters((current) => ({ ...current, assignedTeamId: event.target.value, page: 1 }))} aria-label="Filter by assigned team">
                     <option value="">All assigned teams</option>
-                    {options?.teams.map((team) => <option key={team.id} value={team.id}>{team.name}</option>)}
+                    {visibleTeamOptions.map((team) => <option key={team.id} value={team.id}>{team.name}</option>)}
                   </select>
                   <select value={filters.salesMemberAccountId} onChange={(event) => setFilters((current) => ({ ...current, salesMemberAccountId: event.target.value, page: 1 }))} aria-label="Filter by Sales Member">
                     <option value="">All Sales Members</option>
@@ -2690,7 +3474,7 @@ export function ManagementWorkPage() {
               )}
             </section>
 
-            <section className="management-work__overview">
+            <section id="management-work-queue" className="management-work__overview">
               <header className="management-work__overview-header">
                 <div>
                   <span>{workspaceMode === "CURRENT" ? focusTabs.find((tab) => tab.focus === filters.focus)?.label ?? "Current Work" : workspaceMode === "HISTORY" ? "Work History" : filters.view === "DELETION_REVIEW" ? "Deletion Review" : "Archive"}</span>
@@ -2722,9 +3506,11 @@ export function ManagementWorkPage() {
                     const canOpenMyWorkFromCard =
                       filters.focus === "ASSIGNED_TO_ME" &&
                       Boolean(myPrimaryAssignment);
-                    const canAssignToTeamFromCard = Boolean(
+                    const canDelegateFromCard = Boolean(
                       canOpenMyWorkFromCard &&
                         account &&
+                        item.type === "ADMINISTRATIVE_TASK" &&
+                        !item.assignedTeam &&
                         ["SENIOR_MANAGEMENT", "TEAM_MANAGER"].includes(
                           account.role,
                         ) &&
@@ -2744,8 +3530,7 @@ export function ManagementWorkPage() {
                           aria-label={`Open ${item.ticketNumber}`}
                         >
                           <div className="management-work-ticket-card__top">
-                            <span className={`work-priority work-priority--${item.priority.toLowerCase()}`}>{formatLabel(item.priority)}</span>
-                            <span className="management-work-ticket-card__arrow" aria-hidden="true">›</span>
+                                  <span className="management-work-ticket-card__arrow" aria-hidden="true">›</span>
                           </div>
                           <strong>{item.title}</strong>
                           {(item.assignedTeam || item.salesMember) && (
@@ -2756,8 +3541,8 @@ export function ManagementWorkPage() {
                           )}
                           {(item.parentWorkItemId || (item.delegationProgress?.total ?? 0) > 0) && (
                             <div className="management-work__queue-linkage">
-                              {item.parentWorkItemId && <span>Assigned from another task</span>}
-                              {(item.delegationProgress?.total ?? 0) > 0 && <span>{item.delegationProgress!.total} team task{item.delegationProgress!.total === 1 ? "" : "s"} · {item.delegationProgress!.completionPercentage}% complete</span>}
+                              {item.parentWorkItemId && <span>Delegated from a parent task</span>}
+                              {(item.delegationProgress?.total ?? 0) > 0 && <span>{item.delegationProgress!.total} delegated task{item.delegationProgress!.total === 1 ? "" : "s"} · {item.delegationProgress!.completionPercentage}% complete</span>}
                             </div>
                           )}
                           <div className="management-work-ticket-card__meta">
@@ -2778,16 +3563,16 @@ export function ManagementWorkPage() {
                                 Work on Task
                               </button>
                             )}
-                            {canAssignToTeamFromCard && (
+                            {canDelegateFromCard && (
                               <button
                                 type="button"
                                 className="management-work-ticket-card__work"
-                                disabled={openingTeamAssignmentId !== null}
-                                onClick={() => void openQueueTeamAssignment(item)}
+                                disabled={openingDelegationId !== null}
+                                onClick={() => void openQueueDelegation(item)}
                               >
-                                {openingTeamAssignmentId === item.id
+                                {openingDelegationId === item.id
                                   ? "Opening..."
-                                  : "Assign to Team"}
+                                  : "Delegate"}
                               </button>
                             )}
                             {canReviewFromCard && (
@@ -2821,18 +3606,20 @@ export function ManagementWorkPage() {
       </section>
       )}
 
-      {actionMode && (
+      {(isDedicatedEditRoute || actionMode) &&
+        !(actionMode === "CREATE" && !createForm.parentWorkItemId && !isDedicatedCreateRoute) && (
         <div
           className={
-            isDedicatedCreateRoute && actionMode === "CREATE" && !createForm.parentWorkItemId
-              ? "management-work-create-shell"
+            isDedicatedEditRoute ||
+            (isDedicatedCreateRoute && actionMode === "CREATE" && !createForm.parentWorkItemId)
+              ? "management-work-create-shell management-work-edit-shell"
               : "management-work-dialog"
           }
           role="presentation"
         >
           <section
-            role={isDedicatedCreateRoute ? "region" : "dialog"}
-            aria-modal={isDedicatedCreateRoute ? undefined : true}
+            role={isDedicatedFormRoute ? "region" : "dialog"}
+            aria-modal={isDedicatedFormRoute ? undefined : true}
             aria-labelledby="management-work-dialog-title"
             data-create-step={
               isDedicatedCreateRoute && actionMode === "CREATE"
@@ -2855,42 +3642,49 @@ export function ManagementWorkPage() {
                 <div>
                   <span>Work management</span>
                   <h2 id="management-work-dialog-title">
-                    {actionMode === "CREATE"
-                      ? createForm.parentWorkItemId
-                        ? "Assign to Team"
-                        : "Create Work"
-                      : actionMode === "RETENTION_HOLD"
-                        ? "Place Retention Hold"
-                        : actionMode === "DELETION_REQUEST"
-                          ? "Request Deletion Review"
-                          : actionMode === "COMPLETE"
-                            ? "Submit Completion Report"
-                            : actionMode === "HELP"
-                              ? "Request Work Help"
-                              : actionMode === "REVIEW"
-                                ? "Review completion"
-                                : formatLabel(actionMode)}
+                    {isDedicatedEditRoute
+                      ? "Edit Work"
+                      : actionMode === "CREATE"
+                        ? createForm.parentWorkItemId
+                          ? "Delegate Work"
+                          : "Create Work"
+                        : actionMode === "RETENTION_HOLD"
+                          ? "Place Retention Hold"
+                          : actionMode === "DELETION_REQUEST"
+                            ? "Request Deletion Review"
+                            : actionMode === "COMPLETE"
+                              ? "Finish Work"
+                              : actionMode === "HELP"
+                                ? "Request Work Help"
+                                : actionMode === "REVIEW"
+                                  ? "Approve Work"
+                                  : actionMode
+                                    ? formatLabel(actionMode)
+                                    : "Work management"}
                   </h2>
-                  {actionMode === "CREATE" && !createForm.parentWorkItemId && (
-                    <p>Create, schedule and assign work in one guided flow.</p>
-                  )}
                 </div>
               </div>
               <button
                 type="button"
-                onClick={isDedicatedCreateRoute ? leaveCreateWizard : () => setActionMode(null)}
-                aria-label={isDedicatedCreateRoute ? "Return to Work Management" : "Close dialog"}
+                onClick={
+                  isDedicatedEditRoute
+                    ? () => navigate("/work-management")
+                    : isDedicatedCreateRoute
+                      ? leaveCreateWizard
+                      : () => setActionMode(null)
+                }
+                aria-label={isDedicatedFormRoute ? "Return to Work Management" : "Close dialog"}
               >
-                {isDedicatedCreateRoute ? "←" : "×"}
+                {isDedicatedFormRoute ? "←" : "×"}
               </button>
             </header>
 
             {isDedicatedCreateRoute && actionMode === "CREATE" && !createForm.parentWorkItemId && (
               <nav className="management-work-wizard__steps" aria-label="Create Work progress">
                 {[
-                  { step: 1 as const, label: "Work details", note: "Customer and service" },
-                  { step: 2 as const, label: "Assignment & schedule", note: "Responsibility and timing" },
-                  { step: 3 as const, label: "Review", note: "Check and assign" },
+                  { step: 1 as const, label: "Work details" },
+                  { step: 2 as const, label: "Assign & schedule" },
+                  { step: 3 as const, label: "Review" },
                 ].map((item) => (
                   <button
                     key={item.step}
@@ -2912,7 +3706,6 @@ export function ManagementWorkPage() {
                   >
                     <span>{createStep > item.step ? "✓" : item.step}</span>
                     <strong>{item.label}</strong>
-                    <small>{item.note}</small>
                   </button>
                 ))}
               </nav>
@@ -2927,8 +3720,9 @@ export function ManagementWorkPage() {
                     <span>{selectedWork.ticketNumber}</span>
                     <strong>{selectedWork.title}</strong>
                   </div>
-                  <em>{formatLabel(latestReport.result)}</em>
+                  <em>Waiting for approval</em>
                 </header>
+
                 <div className="management-work-review-summary__facts">
                   <article>
                     <span>Submitted by</span>
@@ -2939,14 +3733,88 @@ export function ManagementWorkPage() {
                     <strong>{formatDateTime(latestReport.createdAt)}</strong>
                   </article>
                   <article>
-                    <span>More work needed</span>
-                    <strong>{latestReport.moreWorkRequired ? "Yes" : "No"}</strong>
+                    <span>Work result</span>
+                    <strong>{formatCompletionResult(latestReport.result)}</strong>
                   </article>
                 </div>
+
+                {selectedCompletionUsesOperationalPackage && (
+                  <section className="management-work-review-summary__package" aria-label="Operational completion details">
+                    <div className="management-work-review-summary__section-title">
+                      <div>
+                        <span>Completion details</span>
+                        <strong>Field completion information</strong>
+                      </div>
+                      <small>Check these before approving.</small>
+                    </div>
+                    <div className="management-work-review-summary__details">
+                      {[
+                        ...(selectedCompletionReference
+                          ? [[selectedCompletionReference.label, selectedCompletionReference.value]]
+                          : []),
+                        ...(selectedWork.type === "NEW_CONNECTION"
+                          ? [["CPC Serial", latestReport.cpcSerial ?? selectedWork.cpcSerial]]
+                          : []),
+                        ...((selectedCompletionRequiresCustomerId || latestReport.customerId)
+                          ? [["Customer ID", latestReport.customerId]]
+                          : []),
+                        ["RX Level", latestReport.rxLevelDbm == null ? null : `${latestReport.rxLevelDbm} dBm`],
+                        ["OLT", latestReport.olt],
+                        ["FDC", latestReport.fdcName],
+                        ["FAP", latestReport.fapName],
+                      ].map(([label, value]) => (
+                        <article key={String(label)} className={!value ? "is-missing" : undefined}>
+                          <span>{label}</span>
+                          <strong>{value || "Not provided"}</strong>
+                        </article>
+                      ))}
+                    </div>
+                  </section>
+                )}
+
+                {selectedWork.salesMember && (
+                  <section
+                    className={`management-work-review-summary__sales ${
+                      selectedWork.salesCoordinationStatus === "COMPLETED" ? "is-complete" : "is-waiting"
+                    }`}
+                    aria-label="Sales status"
+                  >
+                    <div>
+                      <span>Sales</span>
+                      <strong>{getAccountName(selectedWork.salesMember)}</strong>
+                    </div>
+                    <div>
+                      <span>Status</span>
+                      <strong>
+                        {selectedWork.salesCoordinationStatus === "COMPLETED"
+                          ? "Sales Work Done"
+                          : "Waiting for Sales"}
+                      </strong>
+                    </div>
+                    {selectedWork.salesCompletedAt && (
+                      <div>
+                        <span>Finished</span>
+                        <strong>{formatDateTime(selectedWork.salesCompletedAt)}</strong>
+                      </div>
+                    )}
+                  </section>
+                )}
+
+                {reviewSalesBlocked && (
+                  <div className="management-work-review-summary__warning" role="status">
+                    Sales work is not finished yet. You can return this work for correction, but you cannot approve it yet.
+                  </div>
+                )}
+
                 <div className="management-work-review-summary__note">
-                  <span>Completion summary</span>
+                  <span>Worker note</span>
                   <p>{latestReport.summary}</p>
                 </div>
+                {latestReport.moreWorkRequired && (
+                  <div className="management-work-review-summary__warning" role="status">
+                    The worker marked that more work is needed. Check the note before approving.
+                  </div>
+                )}
               </section>
             )}
 
@@ -2957,12 +3825,12 @@ export function ManagementWorkPage() {
                     <div className="management-work-form__parent is-wide">
                       <span>Main task</span>
                       <strong>{selectedWork.title}</strong>
-                      <small>You remain responsible for this task. The team member completes the assigned part and reports back to you.</small>
+                      <small>You remain accountable for this Administrative Work. The delegated owner completes the assigned part and reports back through the management chain.</small>
                     </div>
                   )}
                   <div className="management-work-form__section-heading is-wide">
-                    <span>Team instructions</span>
-                    <p>Explain exactly what the selected team member must complete.</p>
+                    <span>Delegation instructions</span>
+                    <p>Explain exactly what the lower-level owner must complete before reporting back.</p>
                   </div>
                   <label className="is-wide">
                     <span className="management-work-form__label-text">
@@ -2973,8 +3841,8 @@ export function ManagementWorkPage() {
                       minLength={2}
                       maxLength={2000}
                       rows={5}
-                      value={createForm.teamInstructions}
-                      onChange={(event) => setCreateForm((current) => ({ ...current, teamInstructions: event.target.value }))}
+                      value={createForm.delegationInstructions}
+                      onChange={(event) => setCreateForm((current) => ({ ...current, delegationInstructions: event.target.value }))}
                       placeholder="Describe the part of the work, expected result and important checks."
                     />
                   </label>
@@ -3001,7 +3869,7 @@ export function ManagementWorkPage() {
                   </div>
                   <label className="is-wide">
                     <span className="management-work-form__label-text">
-                      Team member <span className="management-work-form__required" aria-hidden="true">*</span><span className="sr-only"> required</span>
+                      Delegate to <span className="management-work-form__required" aria-hidden="true">*</span><span className="sr-only"> required</span>
                     </span>
                     <select
                       required
@@ -3013,10 +3881,10 @@ export function ManagementWorkPage() {
                         }))
                       }
                     >
-                      <option value="">Select team member</option>
+                      <option value="">Select individual</option>
                       {availableAssignmentCandidates.map((candidate) => (
                         <option key={candidate.account.id} value={candidate.account.id}>
-                          {getCandidateName(candidate)} · {formatLabel(candidate.workload.level)} workload
+                          {getCandidateName(candidate)} · {formatLabel(candidate.account.role)} · {formatLabel(candidate.workload.level)} workload
                         </option>
                       ))}
                     </select>
@@ -3024,12 +3892,12 @@ export function ManagementWorkPage() {
                   {selectedCandidate && (
                     <div className={`management-workload management-workload--${selectedCandidate.workload.level.toLowerCase()} is-wide`}>
                       <strong>{formatLabel(selectedCandidate.workload.level)} workload</strong>
-                      <span>{selectedCandidate.workload.active} active · {selectedCandidate.workload.highPriority} high priority · {selectedCandidate.workload.overdue} overdue</span>
+                      <span>{selectedCandidate.workload.active} active · {selectedCandidate.workload.waitingForReview} waiting review · {selectedCandidate.workload.overdue} overdue</span>
                     </div>
                   )}
                   <footer className="is-wide">
                     <button type="button" onClick={() => setActionMode(null)}>Cancel</button>
-                    <button type="submit" disabled={actionBusy}>{actionBusy ? "Assigning..." : "Assign to Team"}</button>
+                    <button type="submit" disabled={actionBusy}>{actionBusy ? "Delegating..." : "Delegate Work"}</button>
                   </footer>
                 </form>
               ) : (
@@ -3040,79 +3908,113 @@ export function ManagementWorkPage() {
                   noValidate
                 >
                   {createStep === 1 && (
-                    <section className="management-work-wizard__panel" aria-labelledby="create-work-step-1-title">
+                    <section className="management-work-wizard__panel management-work-wizard__panel--details" aria-labelledby="create-work-step-1-title">
                       <header className="management-work-wizard__panel-header">
                         <div>
-                          <span>Step 1 of 3</span>
-                          <h3 id="create-work-step-1-title">Describe the work</h3>
-                          <p>Enter only the customer, service or administrative information required for this work type.</p>
+                          <h3 id="create-work-step-1-title" tabIndex={-1}>Work details</h3>
+                          <p>Enter only the information needed to create this work.</p>
                         </div>
-                        <span className="management-work-wizard__required-note">* Required</span>
                       </header>
 
-                      <div className="management-work-wizard__grid">
-                        <label className="is-wide">
-                          <span className="management-work-form__label-text">
-                            Work type <span className="management-work-form__required" aria-hidden="true">*</span><span className="sr-only"> required</span>
-                          </span>
-                          <select
-                            id="create-work-type"
-                            required
-                            value={createForm.type}
-                            onChange={(event) =>
-                              setCreateForm((current) => ({
-                                ...current,
-                                type: event.target.value as WorkItemType,
-                                serviceNumber:
-                                  event.target.value === "MAINTENANCE"
-                                    ? ""
-                                    : current.serviceNumber,
-                                serviceTypes: [
-                                  "TROUBLE_TICKET",
-                                  "NEW_CONNECTION",
-                                  "UPDATE_SERVICES",
-                                ].includes(event.target.value)
-                                  ? current.serviceTypes
-                                  : [],
-                                otherServiceText: [
-                                  "TROUBLE_TICKET",
-                                  "NEW_CONNECTION",
-                                  "UPDATE_SERVICES",
-                                ].includes(event.target.value)
-                                  ? current.otherServiceText
-                                  : "",
-                                salesDepartmentId: [
-                                  "NEW_CONNECTION",
-                                  "UPDATE_SERVICES",
-                                ].includes(event.target.value)
-                                  ? current.salesDepartmentId
-                                  : "",
-                                salesMemberAccountId: [
-                                  "NEW_CONNECTION",
-                                  "UPDATE_SERVICES",
-                                ].includes(event.target.value)
-                                  ? current.salesMemberAccountId
-                                  : "",
-                                assignmentMode:
-                                  event.target.value === "ADMINISTRATIVE_TASK"
-                                    ? current.assignmentMode
-                                    : "TEAM",
-                                assignedDepartmentId: "",
-                                primaryAssigneeAccountId: "",
-                                assignedTeamId: "",
-                                supportingDepartmentId: "",
-                                supportingAssigneeAccountIds: [],
-                              }))
-                            }
-                          >
-                            {WORK_TYPES.map((type) => (
-                              <option key={type.value} value={type.value}>{type.label}</option>
-                            ))}
-                          </select>
-                        </label>
+                      <div className="management-work-create-section management-work-create-section--type">
+                        <div className="management-work-create-section__heading">
+                          <div>
+                            <h4>Work type</h4>
+                            <p>Sets the fields and assignment rules.</p>
+                          </div>
+                        </div>
+                        <div className="management-work-wizard__grid management-work-wizard__grid--single">
+                          <label className="is-wide">
+                            <span className="management-work-form__label-text">
+                              Type <span className="management-work-form__required" aria-hidden="true">*</span><span className="sr-only"> required</span>
+                            </span>
+                            <select
+                              id="create-work-type"
+                              required
+                              value={createForm.type}
+                              onChange={(event) =>
+                                setCreateForm((current) => ({
+                                  ...current,
+                                  type: event.target.value as WorkItemType,
+                                  requestNumber: [
+                                    "NEW_CONNECTION",
+                                    "UPDATE_SERVICES",
+                                  ].includes(event.target.value)
+                                    ? current.requestNumber
+                                    : "",
+                                  cpcSerial:
+                                    event.target.value === "NEW_CONNECTION"
+                                      ? current.cpcSerial
+                                      : "",
+                                  serviceNumber:
+                                    ["MAINTENANCE", "NEW_CONNECTION"].includes(event.target.value)
+                                      ? ""
+                                      : current.serviceNumber,
+                                  serviceTypes: [
+                                    "TROUBLE_TICKET",
+                                    "NEW_CONNECTION",
+                                    "UPDATE_SERVICES",
+                                  ].includes(event.target.value)
+                                    ? current.serviceTypes
+                                    : [],
+                                  otherServiceText: [
+                                    "TROUBLE_TICKET",
+                                    "NEW_CONNECTION",
+                                    "UPDATE_SERVICES",
+                                  ].includes(event.target.value)
+                                    ? current.otherServiceText
+                                    : "",
+                                  salesDepartmentId: [
+                                    "NEW_CONNECTION",
+                                    "UPDATE_SERVICES",
+                                  ].includes(event.target.value)
+                                    ? current.salesDepartmentId
+                                    : "",
+                                  salesMemberAccountId: [
+                                    "NEW_CONNECTION",
+                                    "UPDATE_SERVICES",
+                                  ].includes(event.target.value)
+                                    ? current.salesMemberAccountId
+                                    : "",
+                                  registeredAt:
+                                    event.target.value === "ADMINISTRATIVE_TASK"
+                                      ? ""
+                                      : current.registeredAt,
+                                  assignmentMode:
+                                    event.target.value === "ADMINISTRATIVE_TASK"
+                                      ? current.assignmentMode
+                                      : "TEAM",
+                                  administrativeRecipientRole:
+                                    event.target.value === "ADMINISTRATIVE_TASK" &&
+                                    current.assignmentMode === "INDIVIDUAL"
+                                      ? current.administrativeRecipientRole
+                                      : "",
+                                  assignedDivisionId: "",
+                                  assignedDepartmentId: "",
+                                  primaryAssigneeAccountId: "",
+                                  assignedTeamId: "",
+                                  supportingDepartmentId: "",
+                                  supportingAssigneeAccountIds: [],
+                                }))
+                              }
+                            >
+                              {WORK_TYPES.map((type) => (
+                                <option key={type.value} value={type.value}>{type.label}</option>
+                              ))}
+                            </select>
+                          </label>
+                        </div>
+                      </div>
 
-                        {isAdministrativeWork ? (
-                          <>
+                      {isAdministrativeWork ? (
+                        <div className="management-work-create-section">
+                          <div className="management-work-create-section__heading">
+                            <div>
+                              <h4>Task details</h4>
+                              <p>Describe the administrative work clearly.</p>
+                            </div>
+                          </div>
+                          <div className="management-work-wizard__grid">
                             <label className="is-wide">
                               <span className="management-work-form__label-text">
                                 Task title <span className="management-work-form__required" aria-hidden="true">*</span><span className="sr-only"> required</span>
@@ -3136,320 +4038,343 @@ export function ManagementWorkPage() {
                                 required
                                 minLength={2}
                                 maxLength={4000}
-                                rows={6}
+                                rows={5}
                                 value={createForm.description}
                                 onChange={(event) => setCreateForm((current) => ({ ...current, description: event.target.value }))}
                                 placeholder="Explain the work, expected result and important instructions."
                               />
                             </label>
-                          </>
-                        ) : (
-                          <>
-                            <label>
-                              <span className="management-work-form__label-text">
-                                Customer name <span className="management-work-form__required" aria-hidden="true">*</span><span className="sr-only"> required</span>
-                              </span>
-                              <input
-                                id="create-work-customer-name"
-                                required
-                                minLength={2}
-                                maxLength={160}
-                                autoComplete="name"
-                                value={createForm.customerName}
-                                onChange={(event) => setCreateForm((current) => ({ ...current, customerName: event.target.value }))}
-                              />
-                            </label>
-                            <label>
-                              <span className="management-work-form__label-text">
-                                Contact type <span className="management-work-form__required" aria-hidden="true">*</span><span className="sr-only"> required</span>
-                              </span>
-                              <select
-                                id="create-work-contact-type"
-                                required
-                                value={createForm.customerContactType}
-                                onChange={(event) =>
-                                  setCreateForm((current) => ({
-                                    ...current,
-                                    customerContactType: event.target.value as WorkContactType,
-                                    customerContactNumber: "",
-                                  }))
-                                }
-                              >
-                                <option value="MOBILE">Mobile</option>
-                                <option value="TELEPHONE">Telephone</option>
-                              </select>
-                            </label>
-                            <label>
-                              <span className="management-work-form__label-text">
-                                Contact number <span className="management-work-form__required" aria-hidden="true">*</span><span className="sr-only"> required</span>
-                              </span>
-                              <input
-                                id="create-work-contact-number"
-                                required
-                                inputMode="tel"
-                                autoComplete="tel"
-                                value={createForm.customerContactNumber}
-                                onChange={(event) => {
-                                  const value =
-                                    createForm.customerContactType === "MOBILE"
-                                      ? event.target.value.replace(/\D/g, "").slice(0, 10)
-                                      : event.target.value.replace(/[^0-9 -]/g, "").slice(0, 20);
-                                  setCreateForm((current) => ({ ...current, customerContactNumber: value }));
-                                }}
-                              />
-                              <small className="management-work-form__field-help">
-                                {createForm.customerContactType === "MOBILE"
-                                  ? "10 digits"
-                                  : "6–12 digits; spaces and hyphens allowed"}
-                              </small>
-                            </label>
-                            <label>
-                              <span className="management-work-form__label-text">
-                                Location <span className="management-work-form__required" aria-hidden="true">*</span><span className="sr-only"> required</span>
-                              </span>
-                              <input
-                                id="create-work-location"
-                                required
-                                minLength={2}
-                                maxLength={300}
-                                value={createForm.locationText}
-                                onChange={(event) => setCreateForm((current) => ({ ...current, locationText: event.target.value }))}
-                              />
-                            </label>
-                            {createRequiresServiceNumber && (
+                          </div>
+                        </div>
+                      ) : (
+                        <>
+                          <div className="management-work-create-section">
+                            <div className="management-work-create-section__heading">
+                              <div>
+                                <h4>Customer</h4>
+                                <p>Customer and contact information.</p>
+                              </div>
+                            </div>
+                            <div className="management-work-wizard__grid">
                               <label>
                                 <span className="management-work-form__label-text">
-                                  {[
-                                    "NEW_CONNECTION",
-                                    "UPDATE_SERVICES",
-                                  ].includes(createForm.type)
-                                    ? "Token number"
-                                    : "Service number"} <span className="management-work-form__required" aria-hidden="true">*</span><span className="sr-only"> required</span>
+                                  Customer name <span className="management-work-form__required" aria-hidden="true">*</span><span className="sr-only"> required</span>
                                 </span>
                                 <input
-                                  id="create-work-service-number"
+                                  id="create-work-customer-name"
                                   required
-                                  maxLength={100}
-                                  value={createForm.serviceNumber}
-                                  onChange={(event) => setCreateForm((current) => ({ ...current, serviceNumber: event.target.value }))}
+                                  minLength={2}
+                                  maxLength={160}
+                                  autoComplete="name"
+                                  placeholder="Customer name"
+                                  value={createForm.customerName}
+                                  onChange={(event) => setCreateForm((current) => ({ ...current, customerName: event.target.value }))}
                                 />
                               </label>
-                            )}
-                            <label>
-                              <span className="management-work-form__label-text">
-                                {networkFieldQualifier ? `${networkFieldQualifier} OLT` : "OLT"} <span className="management-work-form__required" aria-hidden="true">*</span><span className="sr-only"> required</span>
-                              </span>
-                              <input
-                                id="create-work-olt"
-                                required
-                                maxLength={100}
-                                value={createForm.olt}
-                                onChange={(event) => setCreateForm((current) => ({ ...current, olt: event.target.value }))}
-                              />
-                            </label>
-                            <label>
-                              <span className="management-work-form__label-text">
-                                {networkFieldQualifier ? `${networkFieldQualifier} FDC name` : "FDC name"} <span className="management-work-form__required" aria-hidden="true">*</span><span className="sr-only"> required</span>
-                              </span>
-                              <input
-                                id="create-work-fdc"
-                                required
-                                maxLength={100}
-                                value={createForm.fdcName}
-                                onChange={(event) => setCreateForm((current) => ({ ...current, fdcName: event.target.value }))}
-                              />
-                            </label>
-                            <label>
-                              <span className="management-work-form__label-text">
-                                {networkFieldQualifier ? `${networkFieldQualifier} FAP name` : "FAP name"} <span className="management-work-form__required" aria-hidden="true">*</span><span className="sr-only"> required</span>
-                              </span>
-                              <input
-                                id="create-work-fap"
-                                required
-                                maxLength={100}
-                                value={createForm.fapName}
-                                onChange={(event) => setCreateForm((current) => ({ ...current, fapName: event.target.value }))}
-                              />
-                            </label>
-                            {createRequiresServices && (
-                              <fieldset id="create-work-services" className="management-work-form__service-selector is-wide">
-                                <legend>
-                                  Services <span className="management-work-form__required" aria-hidden="true">*</span><span className="sr-only"> required</span>
-                                </legend>
-                                <div>
-                                  {SERVICE_TYPES.map((serviceType) => (
-                                    <label key={serviceType.value}>
+                              <label>
+                                <span className="management-work-form__label-text">
+                                  Contact type <span className="management-work-form__required" aria-hidden="true">*</span><span className="sr-only"> required</span>
+                                </span>
+                                <select
+                                  id="create-work-contact-type"
+                                  required
+                                  value={createForm.customerContactType}
+                                  onChange={(event) =>
+                                    setCreateForm((current) => ({
+                                      ...current,
+                                      customerContactType: event.target.value as WorkContactType,
+                                      customerContactNumber: "",
+                                    }))
+                                  }
+                                >
+                                  <option value="MOBILE">Mobile</option>
+                                  <option value="TELEPHONE">Telephone</option>
+                                </select>
+                              </label>
+                              <label>
+                                <span className="management-work-form__label-text">
+                                  Contact number <span className="management-work-form__required" aria-hidden="true">*</span><span className="sr-only"> required</span>
+                                </span>
+                                <input
+                                  id="create-work-contact-number"
+                                  required
+                                  inputMode="tel"
+                                  autoComplete="tel"
+                                  placeholder={createForm.customerContactType === "MOBILE" ? "98XXXXXXXX" : "01-XXXXXXX"}
+                                  value={createForm.customerContactNumber}
+                                  onChange={(event) => {
+                                    const value =
+                                      createForm.customerContactType === "MOBILE"
+                                        ? event.target.value.replace(/\D/g, "").slice(0, 10)
+                                        : event.target.value.replace(/[^0-9 -]/g, "").slice(0, 20);
+                                    setCreateForm((current) => ({ ...current, customerContactNumber: value }));
+                                  }}
+                                />
+                                <small className="management-work-form__field-help">
+                                  {createForm.customerContactType === "MOBILE"
+                                    ? "10 digits"
+                                    : "6–12 digits; spaces and hyphens allowed"}
+                                </small>
+                              </label>
+                              <label>
+                                <span className="management-work-form__label-text">
+                                  Location <span className="management-work-form__required" aria-hidden="true">*</span><span className="sr-only"> required</span>
+                                </span>
+                                <input
+                                  id="create-work-location"
+                                  required
+                                  minLength={2}
+                                  maxLength={300}
+                                  placeholder="Area or address"
+                                  value={createForm.locationText}
+                                  onChange={(event) => setCreateForm((current) => ({ ...current, locationText: event.target.value }))}
+                                />
+                              </label>
+                            </div>
+                          </div>
+
+                          <div className="management-work-create-section">
+                            <div className="management-work-create-section__heading">
+                              <div>
+                                <h4>Service & network</h4>
+                                <p>Service reference and network connection details.</p>
+                              </div>
+                            </div>
+                            <div className="management-work-wizard__grid">
+                              {createRequiresRequestNumber && (
+                                <label>
+                                  <span className="management-work-form__label-text">
+                                    Token number <span className="management-work-form__required" aria-hidden="true">*</span><span className="sr-only"> required</span>
+                                  </span>
+                                  <input
+                                    id="create-work-request-number"
+                                    required
+                                    maxLength={100}
+                                    placeholder="Token or request number"
+                                    value={createForm.requestNumber}
+                                    onChange={(event) => setCreateForm((current) => ({ ...current, requestNumber: event.target.value }))}
+                                  />
+                                </label>
+                              )}
+                              {createRequiresCpcSerial && (
+                                <label>
+                                  <span className="management-work-form__label-text">
+                                    CPC Serial <span className="management-work-form__required" aria-hidden="true">*</span><span className="sr-only"> required</span>
+                                  </span>
+                                  <input
+                                    id="create-work-cpc-serial"
+                                    required
+                                    maxLength={100}
+                                    placeholder="CPC serial"
+                                    value={createForm.cpcSerial}
+                                    onChange={(event) => setCreateForm((current) => ({ ...current, cpcSerial: event.target.value }))}
+                                  />
+                                </label>
+                              )}
+                              {createRequiresServiceNumber && (
+                                <label>
+                                  <span className="management-work-form__label-text">
+                                    {createForm.type === "UPDATE_SERVICES" ? "Existing service number" : "Service number"} <span className="management-work-form__required" aria-hidden="true">*</span><span className="sr-only"> required</span>
+                                  </span>
+                                  <input
+                                    id="create-work-service-number"
+                                    required
+                                    maxLength={100}
+                                    placeholder={createForm.type === "UPDATE_SERVICES" ? "Existing service number" : "Service number"}
+                                    value={createForm.serviceNumber}
+                                    onChange={(event) => setCreateForm((current) => ({ ...current, serviceNumber: event.target.value }))}
+                                  />
+                                </label>
+                              )}
+                              <label>
+                                <span className="management-work-form__label-text">
+                                  {networkFieldQualifier ? `${networkFieldQualifier} OLT` : "OLT"} <span className="management-work-form__required" aria-hidden="true">*</span><span className="sr-only"> required</span>
+                                </span>
+                                <input
+                                  id="create-work-olt"
+                                  required
+                                  maxLength={100}
+                                  value={createForm.olt}
+                                  onChange={(event) => setCreateForm((current) => ({ ...current, olt: event.target.value }))}
+                                />
+                              </label>
+                              <label>
+                                <span className="management-work-form__label-text">
+                                  {networkFieldQualifier ? `${networkFieldQualifier} FDC name` : "FDC name"} <span className="management-work-form__required" aria-hidden="true">*</span><span className="sr-only"> required</span>
+                                </span>
+                                <input
+                                  id="create-work-fdc"
+                                  required
+                                  maxLength={100}
+                                  value={createForm.fdcName}
+                                  onChange={(event) => setCreateForm((current) => ({ ...current, fdcName: event.target.value }))}
+                                />
+                              </label>
+                              <label>
+                                <span className="management-work-form__label-text">
+                                  {networkFieldQualifier ? `${networkFieldQualifier} FAP name` : "FAP name"} <span className="management-work-form__required" aria-hidden="true">*</span><span className="sr-only"> required</span>
+                                </span>
+                                <input
+                                  id="create-work-fap"
+                                  required
+                                  maxLength={100}
+                                  value={createForm.fapName}
+                                  onChange={(event) => setCreateForm((current) => ({ ...current, fapName: event.target.value }))}
+                                />
+                              </label>
+                              {createRequiresServices && (
+                                <fieldset id="create-work-services" className="management-work-form__service-selector is-wide">
+                                  <legend>
+                                    Services <span className="management-work-form__required" aria-hidden="true">*</span><span className="sr-only"> required</span>
+                                  </legend>
+                                  <div>
+                                    {SERVICE_TYPES.map((serviceType) => (
+                                      <label key={serviceType.value}>
+                                        <input
+                                          type="checkbox"
+                                          checked={createForm.serviceTypes.includes(serviceType.value)}
+                                          onChange={(event) =>
+                                            setCreateForm((current) => ({
+                                              ...current,
+                                              serviceTypes: event.target.checked
+                                                ? [...current.serviceTypes, serviceType.value]
+                                                : current.serviceTypes.filter((value) => value !== serviceType.value),
+                                              otherServiceText:
+                                                serviceType.value === "OTHER" && !event.target.checked
+                                                  ? ""
+                                                  : current.otherServiceText,
+                                            }))
+                                          }
+                                        />
+                                        <span>{serviceType.label}</span>
+                                      </label>
+                                    ))}
+                                  </div>
+                                  {createForm.serviceTypes.includes("OTHER") && (
+                                    <label className="management-work-form__other-service">
+                                      <span className="management-work-form__label-text">
+                                        Specify other service <span className="management-work-form__required" aria-hidden="true">*</span><span className="sr-only"> required</span>
+                                      </span>
                                       <input
-                                        type="checkbox"
-                                        checked={createForm.serviceTypes.includes(serviceType.value)}
-                                        onChange={(event) =>
-                                          setCreateForm((current) => ({
-                                            ...current,
-                                            serviceTypes: event.target.checked
-                                              ? [...current.serviceTypes, serviceType.value]
-                                              : current.serviceTypes.filter((value) => value !== serviceType.value),
-                                            otherServiceText:
-                                              serviceType.value === "OTHER" && !event.target.checked
-                                                ? ""
-                                                : current.otherServiceText,
-                                          }))
-                                        }
+                                        id="create-work-other-service"
+                                        required
+                                        minLength={2}
+                                        maxLength={160}
+                                        value={createForm.otherServiceText}
+                                        onChange={(event) => setCreateForm((current) => ({ ...current, otherServiceText: event.target.value }))}
                                       />
-                                      <span>{serviceType.label}</span>
                                     </label>
-                                  ))}
-                                </div>
-                                {createForm.serviceTypes.includes("OTHER") && (
-                                  <label className="management-work-form__other-service">
-                                    <span className="management-work-form__label-text">
-                                      Specify other service <span className="management-work-form__required" aria-hidden="true">*</span><span className="sr-only"> required</span>
-                                    </span>
-                                    <input
-                                      id="create-work-other-service"
-                                      required
-                                      minLength={2}
-                                      maxLength={160}
-                                      value={createForm.otherServiceText}
-                                      onChange={(event) => setCreateForm((current) => ({ ...current, otherServiceText: event.target.value }))}
-                                    />
-                                  </label>
-                                )}
-                              </fieldset>
-                            )}
-                          </>
-                        )}
-                      </div>
+                                  )}
+                                </fieldset>
+                              )}
+                            </div>
+                          </div>
+                        </>
+                      )}
                     </section>
                   )}
 
                   {createStep === 2 && (
-                    <section className="management-work-wizard__panel" aria-labelledby="create-work-step-2-title">
+                    <section className="management-work-wizard__panel management-work-wizard__panel--assignment" aria-labelledby="create-work-step-2-title">
                       <header className="management-work-wizard__panel-header">
                         <div>
-                          <span>Step 2 of 3</span>
-                          <h3 id="create-work-step-2-title">Assign responsibility and schedule</h3>
-                          <p>Choose the main owner first, then add required coordination, optional support and the work timeline.</p>
+                          <h3 id="create-work-step-2-title" tabIndex={-1}>Assignment & schedule</h3>
+                          <p>Choose who owns the work, who coordinates, and when it is due.</p>
                         </div>
                       </header>
 
-                      <div className="management-work-wizard__group">
-                        <div className="management-work-wizard__group-heading">
-                          <span>01</span>
-                          <div>
-                            <h4>Main responsibility</h4>
-                            <p>The selected team or staff member owns technical execution.</p>
+                      <div className="management-work-wizard__assignment-layout">
+                        <div className="management-work-wizard__group management-work-wizard__group--responsibility">
+                          <div className="management-work-wizard__group-heading">
+                            <div>
+                              <h4>Main assignment</h4>
+                              <p>Primary responsibility for completing this work.</p>
+                            </div>
                           </div>
-                        </div>
-                        <div className="management-work-wizard__grid">
-                          {isAdministrativeWork && (
-                            <fieldset className="management-work-assignment-mode is-wide">
-                              <legend>Assignment type <span className="management-work-form__required" aria-hidden="true">*</span></legend>
-                              <div>
-                                <label>
-                                  <input
-                                    type="radio"
-                                    name="administrative-assignment-mode"
-                                    value="TEAM"
-                                    checked={createForm.assignmentMode === "TEAM"}
-                                    onChange={() =>
-                                      setCreateForm((current) => ({
-                                        ...current,
-                                        assignmentMode: "TEAM",
-                                        primaryAssigneeAccountId: "",
-                                        assignedTeamId: "",
-                                        salesDepartmentId: "",
-                                        salesMemberAccountId: "",
-                                        supportingDepartmentId: "",
-                                        supportingAssigneeAccountIds: [],
-                                      }))
-                                    }
-                                  />
-                                  <span>Team</span>
-                                </label>
-                                <label>
-                                  <input
-                                    type="radio"
-                                    name="administrative-assignment-mode"
-                                    value="STAFF"
-                                    checked={createForm.assignmentMode === "STAFF"}
-                                    onChange={() =>
-                                      setCreateForm((current) => ({
-                                        ...current,
-                                        assignmentMode: "STAFF",
-                                        primaryAssigneeAccountId: "",
-                                        assignedTeamId: "",
-                                        salesDepartmentId: "",
-                                        salesMemberAccountId: "",
-                                        supportingDepartmentId: "",
-                                        supportingAssigneeAccountIds: [],
-                                        responsibleManagerAccountId: "",
-                                      }))
-                                    }
-                                  />
-                                  <span>Staff member</span>
-                                </label>
-                              </div>
-                            </fieldset>
-                          )}
+                          <div className="management-work-wizard__grid">
+                            {isAdministrativeWork && (
+                              <fieldset className="management-work-assignment-mode is-wide">
+                                <legend>Assignment type <span className="management-work-form__required" aria-hidden="true">*</span></legend>
+                                <div>
+                                  <label>
+                                    <input
+                                      type="radio"
+                                      name="administrative-assignment-mode"
+                                      value="TEAM"
+                                      checked={createForm.assignmentMode === "TEAM"}
+                                      onChange={() =>
+                                        setCreateForm((current) => ({
+                                          ...current,
+                                          assignmentMode: "TEAM",
+                                          administrativeRecipientRole: "",
+                                          assignedDepartmentId: "",
+                                          primaryAssigneeAccountId: "",
+                                          assignedTeamId: "",
+                                          salesDepartmentId: "",
+                                          salesMemberAccountId: "",
+                                          supportingDepartmentId: "",
+                                          supportingAssigneeAccountIds: [],
+                                        }))
+                                      }
+                                    />
+                                    <span>Team</span>
+                                  </label>
+                                  <label>
+                                    <input
+                                      type="radio"
+                                      name="administrative-assignment-mode"
+                                      value="INDIVIDUAL"
+                                      checked={createForm.assignmentMode === "INDIVIDUAL"}
+                                      onChange={() =>
+                                        setCreateForm((current) => ({
+                                          ...current,
+                                          assignmentMode: "INDIVIDUAL",
+                                          administrativeRecipientRole:
+                                            account?.role === "SUPER_ADMIN"
+                                              ? "SENIOR_MANAGEMENT"
+                                              : account?.role === "SENIOR_MANAGEMENT"
+                                                ? "TEAM_MANAGER"
+                                                : "EMPLOYEE",
+                                          assignedDepartmentId:
+                                            account?.role === "TEAM_MANAGER"
+                                              ? options?.scope.departmentId ?? ""
+                                              : "",
+                                          primaryAssigneeAccountId: "",
+                                          assignedTeamId: "",
+                                          salesDepartmentId: "",
+                                          salesMemberAccountId: "",
+                                          supportingDepartmentId: "",
+                                          supportingAssigneeAccountIds: [],
+                                          responsibleManagerAccountId: "",
+                                        }))
+                                      }
+                                    />
+                                    <span>Individual</span>
+                                  </label>
+                                </div>
+                              </fieldset>
+                            )}
 
-                          <SearchableSelect
-                            id="create-work-assigned-department"
-                            label="Assigned Department"
-                            value={createForm.assignedDepartmentId}
-                            options={assignedDepartmentOptions}
-                            placeholder="Select responsible department"
-                            required
-                            onChange={(assignedDepartmentId) =>
-                              setCreateForm((current) => ({
-                                ...current,
-                                assignedDepartmentId,
-                                assignedTeamId: "",
-                                primaryAssigneeAccountId: "",
-                                salesDepartmentId: "",
-                                salesMemberAccountId: "",
-                                supportingDepartmentId: "",
-                                supportingAssigneeAccountIds: [],
-                                responsibleManagerAccountId: "",
-                              }))
-                            }
-                          />
-
-                          {createForm.assignedDepartmentId && (
-                            administrativeStaffAssignment ? (
+                            {account?.role === "SUPER_ADMIN" && (
                               <SearchableSelect
-                                key={`staff-${createForm.assignedDepartmentId}`}
-                                id="create-work-primary-assignee"
-                                label="Assigned Staff Member"
-                                value={createForm.primaryAssigneeAccountId}
-                                options={assignedStaffOptions}
-                                placeholder="Select staff member"
+                                id="create-work-assigned-division"
+                                label="Assigned division"
+                                value={createForm.assignedDivisionId}
+                                options={assignedDivisionOptions}
+                                placeholder="Select responsible division"
                                 required
-                                description={`${availableAssignmentCandidates.length} eligible in the selected department`}
-                                onChange={(primaryAssigneeAccountId) =>
-                                  setCreateForm((current) => ({
-                                    ...current,
-                                    primaryAssigneeAccountId,
-                                    salesDepartmentId: "",
-                                    salesMemberAccountId: "",
-                                    supportingDepartmentId: "",
-                                    supportingAssigneeAccountIds: [],
-                                  }))
+                                description={
+                                  createForm.assignedDivisionId
+                                    ? undefined
+                                    : `${availableDivisions.length} active division${availableDivisions.length === 1 ? "" : "s"} available`
                                 }
-                              />
-                            ) : (
-                              <SearchableSelect
-                                key={`team-${createForm.assignedDepartmentId}`}
-                                id="create-work-assigned-team"
-                                label="Assigned Team"
-                                value={createForm.assignedTeamId}
-                                options={assignedTeamOptions}
-                                placeholder="Select team"
-                                required
-                                description={`${availableTeams.length} active team${availableTeams.length === 1 ? "" : "s"} available`}
-                                onChange={(assignedTeamId) =>
+                                onChange={(assignedDivisionId) =>
                                   setCreateForm((current) => ({
                                     ...current,
-                                    assignedTeamId,
+                                    assignedDivisionId,
+                                    assignedDepartmentId: "",
+                                    assignedTeamId: "",
+                                    primaryAssigneeAccountId: "",
                                     salesDepartmentId: "",
                                     salesMemberAccountId: "",
                                     supportingDepartmentId: "",
@@ -3458,194 +4383,352 @@ export function ManagementWorkPage() {
                                   }))
                                 }
                               />
-                            )
-                          )}
+                            )}
 
-                          {selectedCandidate && (
-                            <div className={`management-workload management-workload--${selectedCandidate.workload.level.toLowerCase()} is-wide`}>
-                              <strong>{getCandidateName(selectedCandidate)} · {formatLabel(selectedCandidate.workload.level)} workload</strong>
-                              <span>{selectedCandidate.workload.active} active · {selectedCandidate.workload.highPriority} high priority · {selectedCandidate.workload.overdue} overdue</span>
-                            </div>
-                          )}
-                          {selectedTeam && (
-                            <div className={`management-workload management-workload--${selectedTeam.workload.level.toLowerCase()} is-wide`}>
-                              <strong>{selectedTeam.name} · {formatLabel(selectedTeam.workload.level)} workload</strong>
-                              <span>Admin: {selectedTeam.admin.name} · {selectedTeam.memberCount} members · {selectedTeam.workload.active} active · {selectedTeam.workload.overdue} overdue</span>
-                            </div>
-                          )}
-                        </div>
-                      </div>
+                            {administrativeIndividualAssignment && (
+                              <SearchableSelect
+                                id="create-work-recipient-level"
+                                label="Recipient level"
+                                value={createForm.administrativeRecipientRole}
+                                options={administrativeRecipientRoleOptions}
+                                placeholder="Select management level"
+                                required
+                                description={
+                                  account?.role === "SUPER_ADMIN"
+                                    ? "Super Admin may assign to Senior Management or directly to a Team Manager."
+                                    : account?.role === "SENIOR_MANAGEMENT"
+                                      ? "Administrative work moves down to a Team Manager."
+                                      : "Administrative work moves down to an Employee in your department."
+                                }
+                                onChange={(value) =>
+                                  setCreateForm((current) => ({
+                                    ...current,
+                                    administrativeRecipientRole: value as "SENIOR_MANAGEMENT" | "TEAM_MANAGER" | "EMPLOYEE",
+                                    assignedDepartmentId:
+                                      account?.role === "TEAM_MANAGER" && value === "EMPLOYEE"
+                                        ? options?.scope.departmentId ?? ""
+                                        : "",
+                                    primaryAssigneeAccountId: "",
+                                    supportingDepartmentId: "",
+                                    supportingAssigneeAccountIds: [],
+                                    responsibleManagerAccountId: "",
+                                  }))
+                                }
+                              />
+                            )}
 
-                      {targetWorkDivisionId && (
-                        <div className="management-work-wizard__group">
-                          <div className="management-work-wizard__group-heading">
-                            <span>02</span>
-                            <div>
-                              <h4>Additional participants</h4>
-                              <p>Sales coordination is required for New Installation and Update Services. Supporting Staff remains optional.</p>
-                            </div>
-                          </div>
-                          <div className="management-work-wizard__grid">
-                            {createAllowsSalesMember && (
-                              <>
+                            {(!administrativeIndividualAssignment ||
+                              createForm.administrativeRecipientRole !== "SENIOR_MANAGEMENT") && (
+                              <SearchableSelect
+                                id="create-work-assigned-department"
+                                label="Assigned department"
+                                value={createForm.assignedDepartmentId}
+                                options={assignedDepartmentOptions}
+                                placeholder={
+                                  account?.role === "SUPER_ADMIN" && !createForm.assignedDivisionId
+                                    ? "Select division first"
+                                    : "Select responsible department"
+                                }
+                                required
+                                description={
+                                  account?.role === "SUPER_ADMIN" && !createForm.assignedDivisionId
+                                    ? "Choose a division to load its departments."
+                                    : administrativeIndividualAssignment && account?.role === "TEAM_MANAGER"
+                                      ? "Administrative delegation stays inside your own department."
+                                      : undefined
+                                }
+                                onChange={(assignedDepartmentId) =>
+                                  setCreateForm((current) => ({
+                                    ...current,
+                                    assignedDepartmentId,
+                                    assignedTeamId: "",
+                                    primaryAssigneeAccountId: "",
+                                    salesDepartmentId: "",
+                                    salesMemberAccountId: "",
+                                    supportingDepartmentId: "",
+                                    supportingAssigneeAccountIds: [],
+                                    responsibleManagerAccountId: "",
+                                  }))
+                                }
+                              />
+                            )}
+
+                            {administrativeIndividualAssignment ? (
+                              ((createForm.administrativeRecipientRole === "SENIOR_MANAGEMENT" &&
+                                (account?.role !== "SUPER_ADMIN" || createForm.assignedDivisionId)) ||
+                                (createForm.administrativeRecipientRole !== "SENIOR_MANAGEMENT" &&
+                                  createForm.assignedDepartmentId)) && (
                                 <SearchableSelect
-                                  id="create-work-sales-department"
-                                  label="Sales Department"
-                                  value={createForm.salesDepartmentId}
-                                  options={collaboratorDepartmentOptions}
-                                  placeholder="Select department"
+                                  key={`individual-${createForm.administrativeRecipientRole}-${createForm.assignedDivisionId}-${createForm.assignedDepartmentId}`}
+                                  id="create-work-primary-assignee"
+                                  label="Assigned individual"
+                                  value={createForm.primaryAssigneeAccountId}
+                                  options={assignedIndividualOptions}
+                                  placeholder={`Select ${formatLabel(createForm.administrativeRecipientRole || "individual")}`}
                                   required
-                                  onChange={(salesDepartmentId) =>
+                                  description={
+                                    createForm.primaryAssigneeAccountId
+                                      ? "The assigning manager remains the responsible reviewer."
+                                      : `${availableAssignmentCandidates.length} eligible ${availableAssignmentCandidates.length === 1 ? "person" : "people"}`
+                                  }
+                                  onChange={(primaryAssigneeAccountId) =>
                                     setCreateForm((current) => ({
                                       ...current,
-                                      salesDepartmentId,
+                                      primaryAssigneeAccountId,
+                                      salesDepartmentId: "",
                                       salesMemberAccountId: "",
+                                      supportingDepartmentId: "",
+                                      supportingAssigneeAccountIds: [],
                                     }))
                                   }
                                 />
-                                {createForm.salesDepartmentId && (
-                                  <SearchableSelect
-                                    key={`sales-${createForm.salesDepartmentId}`}
-                                    id="create-work-sales-member"
-                                    label="Sales Member"
-                                    value={createForm.salesMemberAccountId}
-                                    options={salesMemberOptions}
-                                    placeholder="Select Sales Member"
-                                    required
-                                    description="Customer coordination only; technical completion remains with the main owner."
-                                    onChange={(salesMemberAccountId) =>
-                                      setCreateForm((current) => ({
-                                        ...current,
-                                        salesMemberAccountId,
-                                        supportingAssigneeAccountIds:
-                                          current.supportingAssigneeAccountIds.filter(
-                                            (accountId) => accountId !== salesMemberAccountId,
-                                          ),
-                                      }))
-                                    }
-                                  />
-                                )}
-                                {selectedSalesMember && (
-                                  <div className={`management-workload management-workload--${selectedSalesMember.workload.level.toLowerCase()} is-wide`}>
-                                    <strong>Sales: {getCandidateName(selectedSalesMember)}</strong>
-                                    <span>{selectedSalesMember.workload.active} active · {selectedSalesMember.workload.overdue} overdue</span>
-                                  </div>
-                                )}
-                              </>
-                            )}
-
-                            <details className="management-work-form__support-panel is-wide">
-                              <summary>
-                                <span>
-                                  <strong>Supporting Staff</strong>
-                                  <small>Optional assistance from one department</small>
-                                </span>
-                                <em>
-                                  {createForm.supportingAssigneeAccountIds.length > 0
-                                    ? `${createForm.supportingAssigneeAccountIds.length} selected`
-                                    : "Add support"}
-                                </em>
-                              </summary>
-                              <div className="management-work-form__support-panel-body">
+                              )
+                            ) : (
+                              createForm.assignedDepartmentId && (
                                 <SearchableSelect
-                                  id="create-work-supporting-department"
-                                  label="Supporting Department"
-                                  value={createForm.supportingDepartmentId}
-                                  options={collaboratorDepartmentOptions}
-                                  placeholder="Select department"
-                                  onChange={(supportingDepartmentId) => {
-                                    setSupportMemberSearch("");
+                                  key={`team-${createForm.assignedDepartmentId}`}
+                                  id="create-work-assigned-team"
+                                  label="Assigned team"
+                                  value={createForm.assignedTeamId}
+                                  options={assignedTeamOptions}
+                                  placeholder="Select team"
+                                  required
+                                  description={createForm.assignedTeamId ? undefined : `${availableTeams.length} active team${availableTeams.length === 1 ? "" : "s"} available`}
+                                  onChange={(assignedTeamId) =>
                                     setCreateForm((current) => ({
                                       ...current,
-                                      supportingDepartmentId,
+                                      assignedTeamId,
+                                      salesDepartmentId: "",
+                                      salesMemberAccountId: "",
+                                      supportingDepartmentId: "",
                                       supportingAssigneeAccountIds: [],
-                                    }));
-                                  }}
+                                      responsibleManagerAccountId: "",
+                                    }))
+                                  }
                                 />
-                                {createForm.supportingDepartmentId && (
-                                  <div className="management-work-support-options">
-                                    <input
-                                      id="create-work-support-search"
-                                      type="search"
-                                      value={supportMemberSearch}
-                                      onChange={(event) => setSupportMemberSearch(event.target.value)}
-                                      placeholder="Search supporting members"
-                                      aria-label="Search supporting members"
-                                      autoComplete="off"
-                                    />
-                                    {visibleSupportMembers.length === 0 ? (
-                                      <p className="management-work-support-options__empty">
-                                        No eligible employee matches this department and search.
-                                      </p>
-                                    ) : (
-                                      visibleSupportMembers.map((candidate) => {
-                                        const checked = createForm.supportingAssigneeAccountIds.includes(candidate.account.id);
-                                        return (
-                                          <label key={candidate.account.id}>
-                                            <input
-                                              type="checkbox"
-                                              checked={checked}
-                                              onChange={(event) =>
-                                                setCreateForm((current) => ({
-                                                  ...current,
-                                                  supportingAssigneeAccountIds: event.target.checked
-                                                    ? [...current.supportingAssigneeAccountIds, candidate.account.id]
-                                                    : current.supportingAssigneeAccountIds.filter(
-                                                        (accountId) => accountId !== candidate.account.id,
-                                                      ),
-                                                }))
-                                              }
-                                            />
-                                            <span>
-                                              <strong>{getCandidateName(candidate)}</strong>
-                                              <small>{candidate.account.employee?.empId ?? "No employee ID"} · {candidate.account.employee?.designation ?? "Employee"}</small>
-                                            </span>
-                                          </label>
-                                        );
-                                      })
-                                    )}
-                                  </div>
-                                )}
+                              )
+                            )}
+
+                            {selectedCandidate && (selectedCandidate.workload.level !== "AVAILABLE" || selectedCandidate.workload.active > 0 || selectedCandidate.workload.overdue > 0) && (
+                              <div className={`management-workload management-workload--${selectedCandidate.workload.level.toLowerCase()} is-wide`}>
+                                <strong>{getCandidateName(selectedCandidate)} · {formatLabel(selectedCandidate.workload.level)} workload</strong>
+                                <span>{selectedCandidate.workload.active} active · {selectedCandidate.workload.waitingForReview} waiting review · {selectedCandidate.workload.overdue} overdue</span>
                               </div>
-                            </details>
+                            )}
+                            {selectedTeam && (selectedTeam.workload.level !== "AVAILABLE" || selectedTeam.workload.active > 0 || selectedTeam.workload.overdue > 0) && (
+                              <div className={`management-workload management-workload--${selectedTeam.workload.level.toLowerCase()} is-wide`}>
+                                <strong>{selectedTeam.name} · {formatLabel(selectedTeam.workload.level)} workload</strong>
+                                <span>Admin: {selectedTeam.admin.name} · {selectedTeam.memberCount} members · {selectedTeam.workload.active} active · {selectedTeam.workload.overdue} overdue</span>
+                              </div>
+                            )}
                           </div>
                         </div>
+
+                        {targetWorkDivisionId && createAllowsSalesMember && (
+                          <div className="management-work-wizard__group management-work-wizard__group--participants">
+                            <div className="management-work-wizard__group-heading">
+                              <div>
+                                <h4>Sales coordination</h4>
+                                <p>Required for this work type.</p>
+                              </div>
+                            </div>
+                            <div className="management-work-wizard__grid">
+                              <SearchableSelect
+                                id="create-work-sales-department"
+                                label="Sales department"
+                                value={createForm.salesDepartmentId}
+                                options={collaboratorDepartmentOptions}
+                                placeholder="Select department"
+                                required
+                                onChange={(salesDepartmentId) =>
+                                  setCreateForm((current) => ({
+                                    ...current,
+                                    salesDepartmentId,
+                                    salesMemberAccountId: "",
+                                  }))
+                                }
+                              />
+                              {createForm.salesDepartmentId && (
+                                <SearchableSelect
+                                  key={`sales-${createForm.salesDepartmentId}`}
+                                  id="create-work-sales-member"
+                                  label="Sales member"
+                                  value={createForm.salesMemberAccountId}
+                                  options={salesMemberOptions}
+                                  placeholder="Select sales member"
+                                  required
+                                  onChange={(salesMemberAccountId) =>
+                                    setCreateForm((current) => ({
+                                      ...current,
+                                      salesMemberAccountId,
+                                      supportingAssigneeAccountIds:
+                                        current.supportingAssigneeAccountIds.filter(
+                                          (accountId) => accountId !== salesMemberAccountId,
+                                        ),
+                                    }))
+                                  }
+                                />
+                              )}
+                              {selectedSalesMember && (selectedSalesMember.workload.level !== "AVAILABLE" || selectedSalesMember.workload.active > 0 || selectedSalesMember.workload.overdue > 0) && (
+                                <div className={`management-workload management-workload--${selectedSalesMember.workload.level.toLowerCase()} is-wide`}>
+                                  <strong>Sales: {getCandidateName(selectedSalesMember)}</strong>
+                                  <span>{selectedSalesMember.workload.active} active · {selectedSalesMember.workload.overdue} overdue</span>
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                        )}
+                      </div>
+
+                      {targetWorkDivisionId && (
+                        <details className="management-work-form__support-panel management-work-form__support-panel--standalone">
+                          <summary>
+                            <span>
+                              <strong>Supporting staff</strong>
+                              <small>Optional help from one department</small>
+                            </span>
+                            <em>
+                              {createForm.supportingAssigneeAccountIds.length > 0
+                                ? `${createForm.supportingAssigneeAccountIds.length} selected`
+                                : "Add support"}
+                            </em>
+                          </summary>
+                          <div className="management-work-form__support-panel-body">
+                            <SearchableSelect
+                              id="create-work-supporting-department"
+                              label="Supporting department"
+                              value={createForm.supportingDepartmentId}
+                              options={collaboratorDepartmentOptions}
+                              placeholder="Select department"
+                              onChange={(supportingDepartmentId) => {
+                                setSupportMemberSearch("");
+                                setCreateForm((current) => ({
+                                  ...current,
+                                  supportingDepartmentId,
+                                  supportingAssigneeAccountIds: [],
+                                }));
+                              }}
+                            />
+                            {createForm.supportingDepartmentId && (
+                              <div className="management-work-support-options">
+                                {availableSupportMembers.length > 10 && (
+                                  <input
+                                    id="create-work-support-search"
+                                    type="search"
+                                    value={supportMemberSearch}
+                                    onChange={(event) => setSupportMemberSearch(event.target.value)}
+                                    placeholder="Search supporting members"
+                                    aria-label="Search supporting members"
+                                    autoComplete="off"
+                                  />
+                                )}
+                                {visibleSupportMembers.length === 0 ? (
+                                  <p className="management-work-support-options__empty">
+                                    No eligible employee matches this department and search.
+                                  </p>
+                                ) : (
+                                  visibleSupportMembers.map((candidate) => {
+                                    const checked = createForm.supportingAssigneeAccountIds.includes(candidate.account.id);
+                                    return (
+                                      <label key={candidate.account.id}>
+                                        <input
+                                          type="checkbox"
+                                          checked={checked}
+                                          onChange={(event) =>
+                                            setCreateForm((current) => ({
+                                              ...current,
+                                              supportingAssigneeAccountIds: event.target.checked
+                                                ? [...current.supportingAssigneeAccountIds, candidate.account.id]
+                                                : current.supportingAssigneeAccountIds.filter(
+                                                    (accountId) => accountId !== candidate.account.id,
+                                                  ),
+                                            }))
+                                          }
+                                        />
+                                        <span>
+                                          <strong>{getCandidateName(candidate)}</strong>
+                                          <small>{candidate.account.employee?.empId ?? "No employee ID"} · {candidate.account.employee?.designation ?? "Employee"}</small>
+                                        </span>
+                                      </label>
+                                    );
+                                  })
+                                )}
+                              </div>
+                            )}
+                          </div>
+                        </details>
                       )}
 
-                      <div className="management-work-wizard__group">
-                        <div className="management-work-wizard__group-heading">
-                          <span>03</span>
+                      <div className="management-work-wizard__group management-work-wizard__group--schedule">
+                        <div className="management-work-wizard__group-heading management-work-wizard__group-heading--schedule">
                           <div>
                             <h4>Schedule</h4>
-                            <p>Record when the request arrived, when work begins and the completion deadline.</p>
+                            <p>
+                              {isAdministrativeWork
+                                ? "Planned start and due time."
+                                : "Registered, planned start and due time."}
+                            </p>
+                          </div>
+                          <div
+                            className="management-work-calendar-switch"
+                            role="group"
+                            aria-label="Schedule calendar system"
+                          >
+                            <span>Calendar</span>
+                            <div>
+                              <button
+                                type="button"
+                                className={createCalendarMode === "AD" ? "is-active" : ""}
+                                aria-pressed={createCalendarMode === "AD"}
+                                onClick={() => setCreateCalendarMode("AD")}
+                              >
+                                AD
+                              </button>
+                              <button
+                                type="button"
+                                className={createCalendarMode === "BS" ? "is-active" : ""}
+                                aria-pressed={createCalendarMode === "BS"}
+                                onClick={() => setCreateCalendarMode("BS")}
+                              >
+                                BS
+                              </button>
+                            </div>
                           </div>
                         </div>
                         <div className="management-work-form__schedule-grid">
-                          <DualCalendarDateTimeInput
-                            id="create-work-registered-at"
-                            label="Registered Date and Time"
-                            value={createForm.registeredAt}
-                            required
-                            max={new Date().toISOString()}
-                            onChange={(registeredAt) =>
-                              setCreateForm((current) => ({ ...current, registeredAt }))
-                            }
-                          />
+                          {!isAdministrativeWork && (
+                            <DualCalendarDateTimeInput
+                              id="create-work-registered-at"
+                              label="Registered"
+                              value={createForm.registeredAt}
+                              required
+                              mode={createCalendarMode}
+                              showAlternate={false}
+                              max={new Date().toISOString()}
+                              onChange={(registeredAt) =>
+                                setCreateForm((current) => ({ ...current, registeredAt }))
+                              }
+                            />
+                          )}
                           <DualCalendarDateTimeInput
                             id="create-work-planned-start"
                             label="Planned start"
                             value={createForm.plannedStartAt}
                             required
-                            min={createForm.registeredAt}
+                            mode={createCalendarMode}
+                            showAlternate={false}
+                            min={isAdministrativeWork ? undefined : createForm.registeredAt}
                             onChange={(plannedStartAt) =>
                               setCreateForm((current) => ({ ...current, plannedStartAt }))
                             }
                           />
                           <DualCalendarDateTimeInput
                             id="create-work-due-at"
-                            label="Due date and time"
+                            label="Due"
                             value={createForm.dueAt}
                             required
+                            mode={createCalendarMode}
+                            showAlternate={false}
                             min={createForm.plannedStartAt}
                             onChange={(dueAt) =>
                               setCreateForm((current) => ({ ...current, dueAt }))
@@ -3656,29 +4739,31 @@ export function ManagementWorkPage() {
 
                       <details className="management-work-form__more-options">
                         <summary>
-                          <span>More options</span>
-                          <small>Reviewer and repeat creation</small>
+                          <span>Additional options</span>
+                          <small>{administrativeIndividualAssignment ? "Repeat creation" : "Reviewer and repeat creation"}</small>
                         </summary>
                         <div className="management-work-form__more-options-body">
-                          <label>
-                            Responsible reviewer
-                            <select
-                              value={createForm.responsibleManagerAccountId}
-                              onChange={(event) =>
-                                setCreateForm((current) => ({
-                                  ...current,
-                                  responsibleManagerAccountId: event.target.value,
-                                }))
-                              }
-                            >
-                              <option value="">Use my management account</option>
-                              {responsibleManagers.map((manager) => (
-                                <option key={manager.account.id} value={manager.account.id}>
-                                  {getAccountName(manager.account)} · {formatLabel(manager.account.role)}
-                                </option>
-                              ))}
-                            </select>
-                          </label>
+                          {!administrativeIndividualAssignment && (
+                            <label>
+                              Responsible reviewer
+                              <select
+                                value={createForm.responsibleManagerAccountId}
+                                onChange={(event) =>
+                                  setCreateForm((current) => ({
+                                    ...current,
+                                    responsibleManagerAccountId: event.target.value,
+                                  }))
+                                }
+                              >
+                                <option value="">Use my management account</option>
+                                {responsibleManagers.map((manager) => (
+                                  <option key={manager.account.id} value={manager.account.id}>
+                                    {getAccountName(manager.account)} · {formatLabel(manager.account.role)}
+                                  </option>
+                                ))}
+                              </select>
+                            </label>
+                          )}
                           <label className="management-work-form__check">
                             <input
                               type="checkbox"
@@ -3701,87 +4786,188 @@ export function ManagementWorkPage() {
                     <section className="management-work-wizard__panel management-work-wizard__review" aria-labelledby="create-work-step-3-title">
                       <header className="management-work-wizard__panel-header">
                         <div>
-                          <span>Step 3 of 3</span>
-                          <h3 id="create-work-step-3-title">Review before assigning</h3>
-                          <p>Confirm the work information, responsibility and timeline. Use Edit to return to a section.</p>
+                          <h3 id="create-work-step-3-title" tabIndex={-1}>Review &amp; assign</h3>
+                          <p>Check the final details, then assign the work.</p>
                         </div>
                       </header>
 
-                      <div className="management-work-review-card">
-                        <header>
+                      <div className="management-work-review-overview" aria-label="Assignment summary">
+                        <span className="management-work-review-overview__status" aria-hidden="true">✓</span>
+                        <div className="management-work-review-overview__copy">
+                          <span>Ready for assignment</span>
+                          <strong>{WORK_TYPES.find((type) => type.value === createForm.type)?.label ?? formatLabel(createForm.type)}</strong>
+                          <p>{isAdministrativeWork ? createForm.title : `${createForm.customerName} · ${createForm.locationText}`}</p>
+                        </div>
+                        <div className="management-work-review-overview__meta">
                           <div>
-                            <span>Work details</span>
-                            <strong>{WORK_TYPES.find((type) => type.value === createForm.type)?.label ?? formatLabel(createForm.type)}</strong>
+                            <span>{selectedTeam ? "Assigned team" : "Assigned individual"}</span>
+                            <strong>{selectedTeam?.name ?? (selectedCandidate ? getCandidateName(selectedCandidate) : "—")}</strong>
                           </div>
-                          <button type="button" onClick={() => setCreateStep(1)}>Edit</button>
-                        </header>
-                        <dl>
-                          {isAdministrativeWork ? (
-                            <>
-                              <div><dt>Title</dt><dd>{createForm.title}</dd></div>
-                              <div className="is-wide"><dt>Description</dt><dd>{createForm.description}</dd></div>
-                            </>
-                          ) : (
-                            <>
-                              <div><dt>Customer</dt><dd>{createForm.customerName}</dd></div>
-                              <div><dt>Contact</dt><dd>{createForm.customerContactNumber}</dd></div>
-                              <div><dt>Location</dt><dd>{createForm.locationText}</dd></div>
-                              {createRequiresServiceNumber && <div><dt>{["NEW_CONNECTION", "UPDATE_SERVICES"].includes(createForm.type) ? "Token" : "Service number"}</dt><dd>{createForm.serviceNumber}</dd></div>}
-                              <div><dt>OLT</dt><dd>{createForm.olt}</dd></div>
-                              <div><dt>FDC / FAP</dt><dd>{createForm.fdcName} / {createForm.fapName}</dd></div>
-                              {createRequiresServices && (
-                                <div className="is-wide">
-                                  <dt>Services</dt>
-                                  <dd>{createForm.serviceTypes.map((value) => SERVICE_TYPES.find((service) => service.value === value)?.label ?? formatLabel(value)).join(", ")}{createForm.otherServiceText ? ` · ${createForm.otherServiceText}` : ""}</dd>
-                                </div>
-                              )}
-                            </>
-                          )}
-                        </dl>
-                      </div>
-
-                      <div className="management-work-review-card">
-                        <header>
                           <div>
-                            <span>Responsibility</span>
-                            <strong>{selectedTeam?.name ?? (selectedCandidate ? getCandidateName(selectedCandidate) : "Not selected")}</strong>
+                            <span>Due</span>
+                            <strong>{formatDateTime(createForm.dueAt)}</strong>
                           </div>
-                          <button type="button" onClick={() => setCreateStep(2)}>Edit</button>
-                        </header>
-                        <dl>
-                          <div><dt>Department</dt><dd>{selectedAssignedDepartment?.name ?? "—"}</dd></div>
-                          <div><dt>Main owner</dt><dd>{selectedTeam ? `${selectedTeam.name} · Admin ${selectedTeam.admin.name}` : selectedCandidate ? getCandidateName(selectedCandidate) : "—"}</dd></div>
-                          {createAllowsSalesMember && (
-                            <div><dt>Sales Member</dt><dd>{selectedSalesMember ? getCandidateName(selectedSalesMember) : "—"}</dd></div>
-                          )}
-                          <div><dt>Supporting Staff</dt><dd>{selectedSupportingMembers.length > 0 ? selectedSupportingMembers.map(getCandidateName).join(", ") : "None"}</dd></div>
-                          <div><dt>Reviewer</dt><dd>{selectedResponsibleManager ? getAccountName(selectedResponsibleManager.account) : "My management account"}</dd></div>
-                        </dl>
-                      </div>
-
-                      <div className="management-work-review-card">
-                        <header>
-                          <div>
-                            <span>Schedule</span>
-                            <strong>{formatDateTime(createForm.plannedStartAt)} → {formatDateTime(createForm.dueAt)}</strong>
-                          </div>
-                          <button type="button" onClick={() => setCreateStep(2)}>Edit</button>
-                        </header>
-                        <dl>
-                          <div><dt>Registered</dt><dd>{formatDateTime(createForm.registeredAt)}<small>{formatBikramSambatDateTime(createForm.registeredAt)}</small></dd></div>
-                          <div><dt>Planned Start</dt><dd>{formatDateTime(createForm.plannedStartAt)}<small>{formatBikramSambatDateTime(createForm.plannedStartAt)}</small></dd></div>
-                          <div><dt>Due</dt><dd>{formatDateTime(createForm.dueAt)}<small>{formatBikramSambatDateTime(createForm.dueAt)}</small></dd></div>
-                          <div><dt>After assigning</dt><dd>{createForm.createAnother ? "Prepare another ticket" : "Return to Work Management"}</dd></div>
-                        </dl>
-                      </div>
-
-                      <div className="management-work-wizard__confirmation">
-                        <span aria-hidden="true">✓</span>
-                        <div>
-                          <strong>Ready to assign</strong>
-                          <p>The backend will revalidate permissions, current department membership and assignment eligibility before saving.</p>
                         </div>
                       </div>
+
+                      <div className="management-work-review-grid">
+                        <article className="management-work-review-card management-work-review-card--details">
+                          <header>
+                            <div>
+                              <span>Work details</span>
+                              <strong>{WORK_TYPES.find((type) => type.value === createForm.type)?.label ?? formatLabel(createForm.type)}</strong>
+                            </div>
+                            <button
+                              type="button"
+                              aria-label="Edit work details"
+                              onClick={() => {
+                                setCreateStep(1);
+                                scrollCreateStepIntoView(1);
+                              }}
+                            >
+                              Edit
+                            </button>
+                          </header>
+                          <dl>
+                            {isAdministrativeWork ? (
+                              <>
+                                <div><dt>Title</dt><dd>{createForm.title}</dd></div>
+                                <div className="is-wide"><dt>Description</dt><dd>{createForm.description}</dd></div>
+                              </>
+                            ) : (
+                              <>
+                                <div><dt>Customer</dt><dd>{createForm.customerName}</dd></div>
+                                <div><dt>Contact</dt><dd>{formatLabel(createForm.customerContactType)} · {createForm.customerContactNumber}</dd></div>
+                                <div><dt>Location</dt><dd>{createForm.locationText}</dd></div>
+                                {createRequiresRequestNumber && (
+                                  <div><dt>Token</dt><dd>{createForm.requestNumber}</dd></div>
+                                )}
+                                {createRequiresCpcSerial && (
+                                  <div><dt>CPC Serial</dt><dd>{createForm.cpcSerial}</dd></div>
+                                )}
+                                {createRequiresServiceNumber && (
+                                  <div><dt>{createForm.type === "UPDATE_SERVICES" ? "Existing service number" : "Service number"}</dt><dd>{createForm.serviceNumber}</dd></div>
+                                )}
+                                <div><dt>OLT</dt><dd>{createForm.olt}</dd></div>
+                                <div><dt>FDC / FAP</dt><dd>{createForm.fdcName} / {createForm.fapName}</dd></div>
+                                {createRequiresServices && (
+                                  <div className="is-wide management-work-review-card__services">
+                                    <dt>Services</dt>
+                                    <dd>
+                                      {createForm.serviceTypes.map((value) => (
+                                        <span key={value}>
+                                          {value === "OTHER" && createForm.otherServiceText
+                                            ? `Other · ${createForm.otherServiceText}`
+                                            : SERVICE_TYPES.find((service) => service.value === value)?.label ?? formatLabel(value)}
+                                        </span>
+                                      ))}
+                                    </dd>
+                                  </div>
+                                )}
+                              </>
+                            )}
+                          </dl>
+                        </article>
+
+                        <article className="management-work-review-card management-work-review-card--responsibility">
+                          <header>
+                            <div>
+                              <span>Assignment</span>
+                              <strong>{selectedTeam?.name ?? (selectedCandidate ? getCandidateName(selectedCandidate) : "Not selected")}</strong>
+                            </div>
+                            <button
+                              type="button"
+                              aria-label="Edit assignment"
+                              onClick={() => {
+                                setCreateStep(2);
+                                scrollCreateStepIntoView(2);
+                              }}
+                            >
+                              Edit
+                            </button>
+                          </header>
+                          <dl>
+                            <div><dt>Division</dt><dd>{selectedAssignedDepartment?.division.name ?? selectedCandidate?.division?.name ?? "—"}</dd></div>
+                            <div><dt>Department</dt><dd>{administrativeIndividualAssignment && createForm.administrativeRecipientRole === "SENIOR_MANAGEMENT" ? "Division-level" : selectedAssignedDepartment?.name ?? selectedCandidate?.department?.name ?? "—"}</dd></div>
+                            <div>
+                              <dt>Reviewer</dt>
+                              <dd>
+                                {selectedResponsibleManager
+                                  ? `${getAccountName(selectedResponsibleManager.account)} · ${formatLabel(selectedResponsibleManager.account.role)}`
+                                  : `${account?.displayName ?? account?.username ?? "Current account"} · ${account ? formatLabel(account.role) : "Manager"}`}
+                              </dd>
+                            </div>
+                            <div className="is-wide">
+                              <dt>Main owner</dt>
+                              <dd>{selectedTeam ? `${selectedTeam.name} · Admin ${selectedTeam.admin.name}` : selectedCandidate ? `${getCandidateName(selectedCandidate)} · ${formatLabel(selectedCandidate.account.role)}` : "—"}</dd>
+                            </div>
+                            {createAllowsSalesMember && (
+                              <div className="is-wide">
+                                <dt>Sales coordination</dt>
+                                <dd>{selectedSalesDepartment?.name ?? "—"} · {selectedSalesMember ? getCandidateName(selectedSalesMember) : "—"}</dd>
+                              </div>
+                            )}
+                            {selectedSupportingMembers.length > 0 && (
+                              <div className="is-wide">
+                                <dt>Supporting staff</dt>
+                                <dd>{selectedSupportingDepartment?.name ? `${selectedSupportingDepartment.name} · ` : ""}{selectedSupportingMembers.map(getCandidateName).join(", ")}</dd>
+                              </div>
+                            )}
+                          </dl>
+                        </article>
+
+                        <article className="management-work-review-card management-work-review-card--schedule">
+                          <header>
+                            <div>
+                              <span>Schedule</span>
+                              <strong>
+                                {isAdministrativeWork
+                                  ? "Planned schedule and completion deadline"
+                                  : "Registration to completion deadline"}
+                              </strong>
+                            </div>
+                            <button
+                              type="button"
+                              aria-label="Edit schedule"
+                              onClick={() => {
+                                setCreateStep(2);
+                                scrollCreateStepIntoView(2);
+                              }}
+                            >
+                              Edit
+                            </button>
+                          </header>
+                          <ol className="management-work-review-timeline">
+                            {!isAdministrativeWork && (
+                              <li>
+                                <span className="management-work-review-timeline__marker" aria-hidden="true">1</span>
+                                <div>
+                                  <span>Registered</span>
+                                  <strong>{formatDateTime(createForm.registeredAt)}</strong>
+                                  <small>{formatBikramSambatDateTime(createForm.registeredAt)}</small>
+                                </div>
+                              </li>
+                            )}
+                            <li>
+                              <span className="management-work-review-timeline__marker" aria-hidden="true">{isAdministrativeWork ? 1 : 2}</span>
+                              <div>
+                                <span>Planned start</span>
+                                <strong>{formatDateTime(createForm.plannedStartAt)}</strong>
+                                <small>{formatBikramSambatDateTime(createForm.plannedStartAt)}</small>
+                              </div>
+                            </li>
+                            <li className="is-due">
+                              <span className="management-work-review-timeline__marker" aria-hidden="true">{isAdministrativeWork ? 2 : 3}</span>
+                              <div>
+                                <span>Due</span>
+                                <strong>{formatDateTime(createForm.dueAt)}</strong>
+                                <small>{formatBikramSambatDateTime(createForm.dueAt)}</small>
+                              </div>
+                            </li>
+                          </ol>
+                        </article>
+                      </div>
+
                     </section>
                   )}
 
@@ -3793,9 +4979,10 @@ export function ManagementWorkPage() {
                           type="button"
                           className="is-secondary"
                           onClick={() => {
+                            const previousStep: CreateWizardStep = createStep === 3 ? 2 : 1;
                             setActionError("");
-                            setCreateStep((current) => (current === 3 ? 2 : 1));
-                            window.scrollTo({ top: 0, behavior: "smooth" });
+                            setCreateStep(previousStep);
+                            scrollCreateStepIntoView(previousStep);
                           }}
                         >
                           Back
@@ -3806,7 +4993,12 @@ export function ManagementWorkPage() {
                           Continue
                         </button>
                       ) : (
-                        <button type="submit" className="is-primary" disabled={actionBusy}>
+                        <button
+                          type="submit"
+                          className="is-primary"
+                          disabled={actionBusy || !createReviewSubmitReady}
+                          aria-busy={actionBusy}
+                        >
                           {actionBusy ? "Assigning..." : "Assign Work"}
                         </button>
                       )}
@@ -3814,43 +5006,140 @@ export function ManagementWorkPage() {
                   </footer>
                 </form>
               )
+            ) : isDedicatedEditRoute ? (
+              selectedWork ? (
+                <form onSubmit={submitDedicatedEditWork} className="management-work-edit-form">
+                  <header className="management-work-edit-form__intro">
+                    <div>
+                      <span>{selectedWork.ticketNumber}</span>
+                      <h3>{formatLabel(selectedWork.type)}</h3>
+                      <p>Update the work details that can still be changed.</p>
+                    </div>
+                    <strong>{formatLabel(selectedWork.status)}</strong>
+                  </header>
+
+                  <section className="management-work-edit-section management-work-edit-section--reference">
+                    <header>
+                      <div>
+                        <h3>Work information</h3>
+                        <p>Check the job before making changes.</p>
+                      </div>
+                    </header>
+                    <dl className="management-work-edit-summary">
+                      <div><dt>Work type</dt><dd>{formatLabel(selectedWork.type)}</dd></div>
+                      {selectedWork.customerName && <div><dt>Customer</dt><dd>{selectedWork.customerName}</dd></div>}
+                      {selectedWork.customerContactNumber && <div><dt>Contact</dt><dd>{selectedWork.customerContactNumber}</dd></div>}
+                      {selectedWork.requestNumber && <div><dt>Token number</dt><dd>{selectedWork.requestNumber}</dd></div>}
+                      {selectedWork.cpcSerial && <div><dt>CPC Serial</dt><dd>{selectedWork.cpcSerial}</dd></div>}
+                      {selectedWork.type !== "NEW_CONNECTION" && selectedWork.serviceNumber && (
+                        <div><dt>Service number</dt><dd>{selectedWork.serviceNumber}</dd></div>
+                      )}
+                      {selectedWork.olt && <div><dt>OLT</dt><dd>{selectedWork.olt}</dd></div>}
+                      {selectedWork.fdcName && <div><dt>FDC</dt><dd>{selectedWork.fdcName}</dd></div>}
+                      {selectedWork.fapName && <div><dt>FAP</dt><dd>{selectedWork.fapName}</dd></div>}
+                      {selectedWork.serviceTypes.length > 0 && (
+                        <div className="is-wide"><dt>Services</dt><dd>{selectedWork.serviceTypes.map(formatLabel).join(", ")}</dd></div>
+                      )}
+                    </dl>
+                  </section>
+
+                  <section className="management-work-edit-section">
+                    <header>
+                      <div>
+                        <h3>Details</h3>
+                        <p>Keep the schedule and location up to date.</p>
+                      </div>
+                    </header>
+                    <div className="management-work-edit-fields">
+                      <label>
+                        Location
+                        <input
+                          value={actionForm.locationText}
+                          onChange={(event) => setActionForm((current) => ({ ...current, locationText: event.target.value }))}
+                        />
+                      </label>
+                    </div>
+                  </section>
+
+                  <section className="management-work-wizard__group management-work-wizard__group--schedule management-work-edit-section--schedule">
+                    <div className="management-work-wizard__group-heading management-work-wizard__group-heading--schedule">
+                      <div>
+                        <h4>Schedule</h4>
+                        <p>
+                          {selectedWork.type === "ADMINISTRATIVE_TASK"
+                            ? "Update planned start and due time."
+                            : "Update registration, planned start and due time."}
+                        </p>
+                      </div>
+                      <div className="management-work-calendar-switch" role="group" aria-label="Edit Work calendar system">
+                        <span>Calendar</span>
+                        <div>
+                          <button type="button" className={editCalendarMode === "AD" ? "is-active" : ""} aria-pressed={editCalendarMode === "AD"} onClick={() => setEditCalendarMode("AD")}>AD</button>
+                          <button type="button" className={editCalendarMode === "BS" ? "is-active" : ""} aria-pressed={editCalendarMode === "BS"} onClick={() => setEditCalendarMode("BS")}>BS</button>
+                        </div>
+                      </div>
+                    </div>
+                    <div className="management-work-form__schedule-grid">
+                      {selectedWork.type !== "ADMINISTRATIVE_TASK" && (
+                        <DualCalendarDateTimeInput
+                          id="edit-work-registered-at"
+                          label="Registered"
+                          value={actionForm.registeredAt}
+                          required
+                          mode={editCalendarMode}
+                          showAlternate={false}
+                          max={new Date().toISOString()}
+                          onChange={(registeredAt) => setActionForm((current) => ({ ...current, registeredAt }))}
+                        />
+                      )}
+                      <DualCalendarDateTimeInput
+                        id="edit-work-planned-start"
+                        label="Planned start"
+                        value={actionForm.plannedStartAt}
+                        required
+                        mode={editCalendarMode}
+                        showAlternate={false}
+                        min={
+                          selectedWork.type === "ADMINISTRATIVE_TASK"
+                            ? undefined
+                            : actionForm.registeredAt
+                        }
+                        onChange={(plannedStartAt) => setActionForm((current) => ({ ...current, plannedStartAt }))}
+                      />
+                      <DualCalendarDateTimeInput
+                        id="edit-work-due-at"
+                        label="Due"
+                        value={actionForm.dueAt}
+                        required
+                        mode={editCalendarMode}
+                        showAlternate={false}
+                        min={actionForm.plannedStartAt}
+                        onChange={(dueAt) => setActionForm((current) => ({ ...current, dueAt }))}
+                      />
+                    </div>
+                  </section>
+
+                  <footer className="management-work-wizard__footer">
+                    <button type="button" className="is-secondary" onClick={() => navigate("/work-management")}>Cancel</button>
+                    <div>
+                      <button type="submit" className="is-primary" disabled={actionBusy}>
+                        {actionBusy ? "Saving..." : "Save changes"}
+                      </button>
+                    </div>
+                  </footer>
+                </form>
+              ) : (
+                <div className="work-management-state">
+                  {detailLoading ? "Loading work details..." : "This work could not be loaded."}
+                </div>
+              )
             ) : (
               <form onSubmit={submitCurrentAction} className="management-work-form">
-                {actionMode === "EDIT" && selectedWork && (
-                  <>
-                    <label>Priority<select value={actionForm.priority} onChange={(event) => setActionForm((current) => ({ ...current, priority: event.target.value as WorkPriority }))}>{PRIORITIES.map((priority) => <option key={priority} value={priority}>{formatLabel(priority)}</option>)}</select></label>
-                    <DualCalendarDateTimeInput
-                      id="edit-work-registered-at"
-                      label="Registered Date and Time"
-                      value={actionForm.registeredAt}
-                      required
-                      max={new Date().toISOString()}
-                      onChange={(registeredAt) => setActionForm((current) => ({ ...current, registeredAt }))}
-                    />
-                    <DualCalendarDateTimeInput
-                      id="edit-work-planned-start"
-                      label="Planned start"
-                      value={actionForm.plannedStartAt}
-                      required
-                      min={actionForm.registeredAt}
-                      onChange={(plannedStartAt) => setActionForm((current) => ({ ...current, plannedStartAt }))}
-                    />
-                    <DualCalendarDateTimeInput
-                      id="edit-work-due-at"
-                      label="Due date and time"
-                      value={actionForm.dueAt}
-                      required
-                      min={actionForm.plannedStartAt}
-                      onChange={(dueAt) => setActionForm((current) => ({ ...current, dueAt }))}
-                    />
-                    <label className="is-wide">Location<input value={actionForm.locationText} onChange={(event) => setActionForm((current) => ({ ...current, locationText: event.target.value }))} /></label>
-                  </>
-                )}
                 {(actionMode === "REASSIGN" || actionMode === "SUPPORT") && (
                   <label className="is-wide">
-                    Staff member
+                    {actionMode === "REASSIGN" ? "New owner" : "Staff member"}
                     <select required value={actionForm.accountId} onChange={(event) => setActionForm((current) => ({ ...current, accountId: event.target.value }))}>
-                      <option value="">Select staff member</option>
+                      <option value="">{actionMode === "REASSIGN" ? "Select new owner" : "Select staff member"}</option>
                       {(actionMode === "SUPPORT"
                         ? (options?.supportMembers ?? []).filter(
                             (candidate) =>
@@ -3859,13 +5148,32 @@ export function ManagementWorkPage() {
                               !assignedAccountIds.includes(candidate.account.id) &&
                               candidate.account.id !== selectedWork.salesMemberAccountId,
                           )
-                        : (options?.data ?? []).filter(
-                            (candidate) =>
-                              candidate.account.id !== primaryAssignment?.assignee.id,
-                          )
+                        : (options?.data ?? []).filter((candidate) => {
+                            if (!selectedWork || !account) return false;
+                            if (candidate.account.id === primaryAssignment?.assignee.id) return false;
+                            if (candidate.division?.id !== selectedWork.divisionId) return false;
+
+                            // Reassignment is a corrective owner change, not delegation.
+                            // Keep the replacement at the same work scope and hierarchy level.
+                            if (selectedWork.departmentId === null) {
+                              return (
+                                account.role === "SUPER_ADMIN" &&
+                                candidate.account.role === "SENIOR_MANAGEMENT" &&
+                                candidate.department === null
+                              );
+                            }
+                            if (candidate.department?.id !== selectedWork.departmentId) return false;
+                            if (account.role === "SUPER_ADMIN" || account.role === "SENIOR_MANAGEMENT") {
+                              return candidate.account.role === "TEAM_MANAGER";
+                            }
+                            if (account.role === "TEAM_MANAGER") {
+                              return candidate.account.role === "EMPLOYEE";
+                            }
+                            return false;
+                          })
                       ).map((candidate) => (
                           <option key={candidate.account.id} value={candidate.account.id}>
-                            {getCandidateName(candidate)} · {formatLabel(candidate.workload.level)} workload
+                            {getCandidateName(candidate)} · {formatLabel(candidate.account.role)} · {formatLabel(candidate.workload.level)} workload
                           </option>
                         ))}
                     </select>
@@ -3920,6 +5228,70 @@ export function ManagementWorkPage() {
                 )}
                 {actionMode === "COMPLETE" && (
                   <>
+                    {selectedWork && selectedCompletionUsesOperationalPackage && (
+                      <section className="management-work-completion-entry is-wide" aria-label="Finish work details">
+                        <header>
+                          <div>
+                            <span>Already added</span>
+                            <strong>Work details</strong>
+                          </div>
+                          <small>You do not need to type these again.</small>
+                        </header>
+                        <div className="management-work-completion-entry__saved">
+                          {[
+                            { label: "Customer", value: selectedWork.customerName },
+                            { label: "Location", value: selectedWork.locationText },
+                            ...(selectedCompletionReference ? [selectedCompletionReference] : []),
+                            ...(selectedWork.type === "NEW_CONNECTION"
+                              ? [{ label: "CPC Serial", value: selectedWork.cpcSerial }]
+                              : []),
+                            { label: "OLT", value: selectedWork.olt },
+                            { label: "FDC", value: selectedWork.fdcName },
+                            { label: "FAP", value: selectedWork.fapName },
+                          ].map(({ label, value }) => (
+                            <article key={label}>
+                              <span>{label}</span>
+                              <strong>{value || "Not recorded"}</strong>
+                            </article>
+                          ))}
+                        </div>
+                        <div className={`management-work-completion-entry__fields${selectedCompletionAllowsCustomerId ? "" : " is-single"}`}>
+                          {selectedCompletionAllowsCustomerId && (
+                            <label>
+                              Customer ID {selectedCompletionRequiresCustomerId ? "*" : "(optional)"}
+                              <input
+                                value={actionForm.completionCustomerId}
+                                required={selectedCompletionRequiresCustomerId}
+                                maxLength={100}
+                                onChange={(event) =>
+                                  setActionForm((current) => ({
+                                    ...current,
+                                    completionCustomerId: event.target.value,
+                                  }))
+                                }
+                              />
+                            </label>
+                          )}
+                          <label>
+                            RX Level (dBm) *
+                            <input
+                              type="number"
+                              required
+                              min="-100"
+                              max="20"
+                              step="0.01"
+                              value={actionForm.completionRxLevel}
+                              onChange={(event) =>
+                                setActionForm((current) => ({
+                                  ...current,
+                                  completionRxLevel: event.target.value,
+                                }))
+                              }
+                            />
+                          </label>
+                        </div>
+                      </section>
+                    )}
                     <label>
                       Result
                       <select
@@ -3931,9 +5303,9 @@ export function ManagementWorkPage() {
                           }))
                         }
                       >
-                        <option value="FULLY_RESOLVED">Fully resolved</option>
-                        <option value="TEMPORARY_SOLUTION">Temporary solution</option>
-                        <option value="UNABLE_TO_RESOLVE">Unable to resolve</option>
+                        <option value="FULLY_RESOLVED">Work finished</option>
+                        <option value="TEMPORARY_SOLUTION">Temporary work done</option>
+                        <option value="UNABLE_TO_RESOLVE">Could not finish</option>
                       </select>
                     </label>
                     <label className="management-work-form__check">
@@ -3947,32 +5319,42 @@ export function ManagementWorkPage() {
                           }))
                         }
                       />
-                      <span>More work is required</span>
+                      <span>More work is still needed after this update.</span>
                     </label>
                   </>
                 )}
-                {actionMode !== "EDIT" && (
-                  <label className="is-wide">
-                    {actionMode === "REVIEW"
-                      ? "Verification note"
-                      : actionMode === "COMPLETE"
-                        ? "Completion summary"
-                        : actionMode === "HELP"
-                          ? "Help request note"
-                      : actionMode === "CANCEL"
-                        ? "Cancellation reason"
-                        : actionMode === "RETENTION_HOLD"
-                          ? "Hold reason"
-                          : actionMode === "DELETION_REQUEST"
-                            ? "Deletion-review reason"
-                            : "Reason or note"}
-                    <textarea required={actionMode !== "HELP"} minLength={actionMode === "HELP" ? 0 : actionMode === "RETENTION_HOLD" || actionMode === "DELETION_REQUEST" ? 5 : 3} maxLength={actionMode === "RETENTION_HOLD" || actionMode === "DELETION_REQUEST" ? 500 : 1500} value={actionForm.note} onChange={(event) => setActionForm((current) => ({ ...current, note: event.target.value }))} />
-                  </label>
-                )}
+                <label className="is-wide">
+                  {actionMode === "REVIEW"
+                    ? "Manager note"
+                    : actionMode === "COMPLETE"
+                      ? "What did you do? *"
+                      : actionMode === "HELP"
+                        ? "Help request note"
+                    : actionMode === "CANCEL"
+                      ? "Cancellation reason"
+                      : actionMode === "RETENTION_HOLD"
+                        ? "Hold reason"
+                        : actionMode === "DELETION_REQUEST"
+                          ? "Deletion-review reason"
+                          : "Reason or note"}
+                  <textarea required={actionMode !== "HELP"} minLength={actionMode === "HELP" ? 0 : actionMode === "RETENTION_HOLD" || actionMode === "DELETION_REQUEST" ? 5 : 3} maxLength={actionMode === "RETENTION_HOLD" || actionMode === "DELETION_REQUEST" ? 500 : 1500} value={actionForm.note} onChange={(event) => setActionForm((current) => ({ ...current, note: event.target.value }))} />
+                </label>
                 <footer className="is-wide">
                   <button type="button" onClick={() => setActionMode(null)}>Cancel</button>
-                  {actionMode === "REVIEW" && <button type="button" onClick={() => void requestInformation()} disabled={actionBusy || actionForm.note.trim().length < 3}>Ask for information</button>}
-                  <button className={actionMode === "CANCEL" || actionMode === "DELETION_REQUEST" ? "is-danger" : ""} type="submit" disabled={actionBusy}>{actionBusy ? "Saving..." : actionMode === "REVIEW" ? "Verify and Close" : actionMode === "COMPLETE" ? "Submit Completion" : actionMode === "HELP" ? "Send Help Request" : actionMode === "RETENTION_HOLD" ? "Apply Hold" : actionMode === "DELETION_REQUEST" ? "Submit Request" : "Save"}</button>
+                  {actionMode === "REVIEW" && <button type="button" onClick={() => void requestInformation()} disabled={actionBusy || actionForm.note.trim().length < 3}>Return for correction</button>}
+                  <button
+                    className={actionMode === "CANCEL" || actionMode === "DELETION_REQUEST" ? "is-danger" : ""}
+                    type="submit"
+                    disabled={
+                      actionBusy ||
+                      reviewSalesBlocked ||
+                      (actionMode === "COMPLETE" &&
+                        ((selectedCompletionRequiresCustomerId && !actionForm.completionCustomerId.trim()) ||
+                          (selectedCompletionUsesOperationalPackage && !actionForm.completionRxLevel.trim())))
+                    }
+                  >
+                    {actionBusy ? "Saving..." : actionMode === "REVIEW" ? "Approve" : actionMode === "COMPLETE" ? "Submit to Manager" : actionMode === "HELP" ? "Send Help Request" : actionMode === "RETENTION_HOLD" ? "Apply Hold" : actionMode === "DELETION_REQUEST" ? "Submit Request" : "Save"}
+                  </button>
                 </footer>
               </form>
             )}

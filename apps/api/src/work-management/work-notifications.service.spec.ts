@@ -3,7 +3,6 @@ import {
   AccountRole,
   MessagingNotificationType,
   WorkItemStatus,
-  WorkPriority,
 } from '../generated/prisma/enums';
 import type { MessagingEventsService } from '../realtime/messaging-events.service';
 import { WorkNotificationsService } from './work-notifications.service';
@@ -77,7 +76,6 @@ describe('WorkNotificationsService', () => {
         ticketNumber: 'NT-PAT-NET-2026-000001',
         title: 'Repair wire',
         status: WorkItemStatus.ASSIGNED,
-        priority: WorkPriority.HIGH,
       },
       action: 'CREATED',
       actorAccountId: 'manager',
@@ -105,7 +103,7 @@ describe('WorkNotificationsService', () => {
     );
   });
 
-  it('adds current team members and the Sales Member without duplicating recipients', async () => {
+  it('notifies the whole Primary Team, Sales Member and Supporting Staff once when work is created', async () => {
     jest.mocked(prisma.departmentTeamMember.findMany).mockResolvedValue([
       { employee: { account: { id: 'team-member' } } },
       { employee: { account: { id: 'team-admin' } } },
@@ -138,21 +136,104 @@ describe('WorkNotificationsService', () => {
         ticketNumber: 'NT-PAT-NET-2026-000001',
         title: 'Repair wire',
         status: WorkItemStatus.ASSIGNED,
-        priority: WorkPriority.HIGH,
         assignedTeamId: 'team-a',
         salesMemberAccountId: 'sales-member',
       },
       action: 'CREATED',
       actorAccountId: 'manager',
-      recipientAccountIds: ['manager', 'team-admin'],
+      recipientAccountIds: [
+        'manager',
+        'team-admin',
+        'sales-member',
+        'support-member',
+        'support-member',
+      ],
       title: 'New work assigned',
       body: 'NT-PAT-NET-2026-000001: Repair wire',
     });
 
-    expect(prisma.messagingNotification.create).toHaveBeenCalledTimes(3);
+    expect(prisma.messagingNotification.create).toHaveBeenCalledTimes(4);
+    expect(prisma.messagingNotification.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({ recipientAccountId: 'support-member' }),
+      }),
+    );
     expect(events.emitWorkItemUpdated).toHaveBeenCalledWith(
-      ['manager', 'team-admin', 'sales-member', 'team-member'],
+      [
+        'manager',
+        'team-admin',
+        'sales-member',
+        'support-member',
+        'team-member',
+      ],
       expect.objectContaining({ workItemId: 'work-1' }),
+    );
+  });
+
+  it('keeps shared team Start realtime for everyone without creating noisy participant notifications', async () => {
+    jest.mocked(prisma.departmentTeamMember.findMany).mockResolvedValue([
+      { employee: { account: { id: 'starter' } } },
+      { employee: { account: { id: 'team-member' } } },
+    ] as never);
+    jest.mocked(prisma.messagingNotification.create).mockImplementation(
+      async ({ data }: { data: { recipientAccountId: string } }) =>
+        ({
+          id: `notification-${data.recipientAccountId}`,
+          recipientAccountId: data.recipientAccountId,
+          actorAccountId: 'starter',
+          conversationId: null,
+          messageId: null,
+          announcementId: null,
+          type: MessagingNotificationType.WORK_ITEM,
+          title: 'Work started',
+          body: 'NT-PAT-NET-2026-000001: Repair wire',
+          isRead: false,
+          readAt: null,
+          metadata: {},
+          createdAt: new Date(),
+          updatedAt: new Date(),
+          actor: null,
+        }) as never,
+    );
+    jest.mocked(prisma.messagingNotification.count).mockResolvedValue(1);
+
+    await service.publishWorkUpdate({
+      workItem: {
+        id: 'work-1',
+        ticketNumber: 'NT-PAT-NET-2026-000001',
+        title: 'Repair wire',
+        status: WorkItemStatus.IN_PROGRESS,
+        assignedTeamId: 'team-a',
+        salesMemberAccountId: 'sales-member',
+      },
+      action: 'STARTED',
+      actorAccountId: 'starter',
+      recipientAccountIds: [
+        'starter',
+        'manager',
+        'support-member',
+        'sales-member',
+      ],
+      notificationRecipientAccountIds: ['manager'],
+      title: 'Work started',
+      body: 'NT-PAT-NET-2026-000001: Repair wire',
+    });
+
+    expect(prisma.messagingNotification.create).toHaveBeenCalledTimes(1);
+    expect(prisma.messagingNotification.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({ recipientAccountId: 'manager' }),
+      }),
+    );
+    expect(events.emitWorkItemUpdated).toHaveBeenCalledWith(
+      [
+        'starter',
+        'manager',
+        'support-member',
+        'sales-member',
+        'team-member',
+      ],
+      expect.objectContaining({ action: 'STARTED', workItemId: 'work-1' }),
     );
   });
 
@@ -164,7 +245,6 @@ describe('WorkNotificationsService', () => {
         ticketNumber: 'NT-PAT-NET-2026-000001',
         title: 'Repair wire',
         status: WorkItemStatus.IN_PROGRESS,
-        priority: WorkPriority.HIGH,
         dueAt,
         dueSoonNotifiedAt: null,
         overdueNotifiedAt: null,
@@ -204,7 +284,6 @@ describe('WorkNotificationsService', () => {
         ticketNumber: 'NT-PAT-NET-2026-000002',
         title: 'Inspect distribution box',
         status: WorkItemStatus.IN_PROGRESS,
-        priority: WorkPriority.NORMAL,
         dueAt,
         dueSoonNotifiedAt: new Date(Date.now() - 60 * 60 * 1000),
         overdueNotifiedAt: null,
@@ -245,7 +324,6 @@ describe('WorkNotificationsService', () => {
           ticketNumber: 'NT-PAT-NET-2026-000001',
           title: 'Repair wire',
           status: WorkItemStatus.IN_PROGRESS,
-          priority: WorkPriority.HIGH,
         },
         action: 'STARTED',
         actorAccountId: 'employee',

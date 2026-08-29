@@ -21,6 +21,7 @@ const workAccountSelect = {
   role: true,
   isEnabled: true,
   username: true,
+  superAdminProfile: { select: { fullName: true } },
   employee: {
     select: {
       id: true,
@@ -252,6 +253,49 @@ export class WorkScopeService {
 
       return account;
     });
+  }
+
+  assertAdministrativeIndividualAssignee(
+    actor: WorkActorContext,
+    target: WorkAccountRecord,
+  ): void {
+    // Administrative individual work follows the management hierarchy.
+    // Operational work remains Team-owned and uses a separate assignment model.
+    const allowedRolesByActor: Record<AccountRole, AccountRole[]> = {
+      [AccountRole.SUPER_ADMIN]: [
+        AccountRole.SENIOR_MANAGEMENT,
+        AccountRole.TEAM_MANAGER,
+      ],
+      [AccountRole.SENIOR_MANAGEMENT]: [AccountRole.TEAM_MANAGER],
+      [AccountRole.TEAM_MANAGER]: [AccountRole.EMPLOYEE],
+      [AccountRole.EMPLOYEE]: [],
+    };
+
+    if (!allowedRolesByActor[actor.role].includes(target.role)) {
+      throw new ForbiddenException(
+        'Choose an individual at an allowed lower level of the administrative hierarchy.',
+      );
+    }
+
+    if (actor.role === AccountRole.SENIOR_MANAGEMENT) {
+      if (target.employee?.divisionId !== actor.divisionId) {
+        throw new ForbiddenException(
+          'Senior Management can assign administrative work only to a Team Manager in the same division.',
+        );
+      }
+      return;
+    }
+
+    if (actor.role === AccountRole.TEAM_MANAGER) {
+      if (
+        target.employee?.divisionId !== actor.divisionId ||
+        target.employee?.departmentId !== actor.departmentId
+      ) {
+        throw new ForbiddenException(
+          'A Team Manager can assign administrative work only to an Employee in the same department.',
+        );
+      }
+    }
   }
 
   async resolveAssignableTeam(
@@ -526,6 +570,31 @@ export class WorkScopeService {
         },
       ],
     };
+  }
+
+  buildOrganizationHierarchyWorkWhere(
+    actor: WorkActorContext,
+  ): Prisma.WorkItemWhereInput {
+    // Branch scope is deployment-wide for Super Admin. Lower management receives
+    // a strict hierarchy slice so branch/division/department overview counts cannot
+    // be widened by creator/reviewer relationships from another unit.
+    if (actor.role === AccountRole.SUPER_ADMIN) {
+      return {};
+    }
+
+    if (actor.role === AccountRole.SENIOR_MANAGEMENT) {
+      return {
+        divisionId: actor.divisionId ?? '__missing_division__',
+      };
+    }
+
+    if (actor.role === AccountRole.TEAM_MANAGER) {
+      return {
+        departmentId: actor.departmentId ?? '__missing_department__',
+      };
+    }
+
+    return { id: '__management_scope_unavailable__' };
   }
 
   assertCanManageWork(actor: WorkActorContext): void {

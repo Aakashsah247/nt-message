@@ -15,6 +15,8 @@ import {
   WorkCompletionReviewStatus,
   WorkHelpRequestStatus,
   WorkItemStatus,
+  WorkItemType,
+  WorkSalesCoordinationStatus,
 } from '../generated/prisma/client';
 import type { Prisma } from '../generated/prisma/client';
 import { CancelWorkItemDto } from './dto/cancel-work-item.dto';
@@ -24,6 +26,8 @@ import { ReassignWorkDto } from './dto/reassign-work.dto';
 import { RequestWorkHelpDto } from './dto/request-work-help.dto';
 import { RespondWorkHelpDto } from './dto/respond-work-help.dto';
 import { ReviewWorkCompletionDto } from './dto/review-work-completion.dto';
+import { SendWorkToSalesDto } from './dto/send-work-to-sales.dto';
+import { CompleteSalesWorkDto } from './dto/complete-sales-work.dto';
 import { SubmitWorkCompletionDto } from './dto/submit-work-completion.dto';
 import { UpdateWorkItemDto } from './dto/update-work-item.dto';
 import {
@@ -39,13 +43,23 @@ const lifecycleCurrentSelect = {
   id: true,
   ticketNumber: true,
   title: true,
+  type: true,
   status: true,
-  priority: true,
+  requestNumber: true,
+  cpcSerial: true,
+  serviceNumber: true,
+  olt: true,
+  fdcName: true,
+  fapName: true,
   version: true,
   divisionId: true,
   departmentId: true,
   assignedTeamId: true,
   salesMemberAccountId: true,
+  salesCoordinationStatus: true,
+  salesDocumentsSentAt: true,
+  salesCompletedAt: true,
+  salesCompletionNote: true,
   registeredAt: true,
   plannedStartAt: true,
   dueAt: true,
@@ -77,6 +91,8 @@ const lifecycleCurrentSelect = {
     select: {
       id: true,
       reviewStatus: true,
+      customerId: true,
+      rxLevelDbm: true,
     },
   },
   childWorkItems: {
@@ -101,10 +117,24 @@ type WorkItemDetail = Prisma.WorkItemGetPayload<{
 
 type WorkDatabaseClient = Pick<Prisma.TransactionClient, 'workItem'>;
 
+const customerIdRequiredCompletionTypes = new Set<WorkItemType>([
+  WorkItemType.NEW_CONNECTION,
+  WorkItemType.UPDATE_SERVICES,
+  WorkItemType.TROUBLE_TICKET,
+  WorkItemType.EMERGENCY_WORK,
+]);
+
 const completionReportSelect = {
   id: true,
   result: true,
   summary: true,
+  cpcSerial: true,
+  serviceNumber: true,
+  customerId: true,
+  rxLevelDbm: true,
+  olt: true,
+  fdcName: true,
+  fapName: true,
   moreWorkRequired: true,
   reviewStatus: true,
   managerNote: true,
@@ -152,8 +182,7 @@ const helpRequestSelect = {
       ticketNumber: true,
       title: true,
       status: true,
-      priority: true,
-      dueAt: true,
+          dueAt: true,
       responsibleManagerAccountId: true,
     },
   },
@@ -178,7 +207,6 @@ export class WorkLifecycleService {
     this.workScopeService.assertCanManageWork(actor);
 
     if (
-      dto.priority === undefined &&
       dto.registeredAt === undefined &&
       dto.plannedStartAt === undefined &&
       dto.dueAt === undefined &&
@@ -199,8 +227,10 @@ export class WorkLifecycleService {
         this.assertCanManageCurrentWork(actor, current);
         this.statusTransitions.assertCanUpdateDetails(current.status);
 
+        const isAdministrativeWork =
+          current.type === WorkItemType.ADMINISTRATIVE_TASK;
         const registeredAt =
-          dto.registeredAt === undefined
+          isAdministrativeWork || dto.registeredAt === undefined
             ? current.registeredAt
             : this.parseDate(dto.registeredAt, 'Registered date and time');
         const plannedStartAt =
@@ -212,7 +242,10 @@ export class WorkLifecycleService {
             ? current.dueAt
             : this.parseDate(dto.dueAt, 'Due time');
 
-        if (registeredAt.getTime() > Date.now()) {
+        if (
+          !isAdministrativeWork &&
+          registeredAt.getTime() > Date.now()
+        ) {
           throw new BadRequestException(
             'Registered date and time cannot be in the future.',
           );
@@ -226,7 +259,10 @@ export class WorkLifecycleService {
           throw new BadRequestException('Planned start time is required.');
         }
 
-        if (plannedStartAt.getTime() < registeredAt.getTime()) {
+        if (
+          !isAdministrativeWork &&
+          plannedStartAt.getTime() < registeredAt.getTime()
+        ) {
           throw new BadRequestException(
             'Planned start time cannot be earlier than the registered date and time.',
           );
@@ -238,10 +274,10 @@ export class WorkLifecycleService {
           );
         }
 
-        const latestTeamDueAt = current.childWorkItems[0]?.dueAt;
-        if (latestTeamDueAt && dueAt.getTime() < latestTeamDueAt.getTime()) {
+        const latestDelegatedDueAt = current.childWorkItems[0]?.dueAt;
+        if (latestDelegatedDueAt && dueAt.getTime() < latestDelegatedDueAt.getTime()) {
           throw new ConflictException(
-            'The main task due time cannot be earlier than unfinished team work.',
+            'The parent task due time cannot be earlier than unfinished delegated work.',
           );
         }
 
@@ -249,8 +285,6 @@ export class WorkLifecycleService {
           dto.locationText === undefined
             ? current.locationText
             : this.normalizeOptionalText(dto.locationText);
-        const priorityChanged =
-          dto.priority !== undefined && dto.priority !== current.priority;
         const dueDateChanged = dueAt.getTime() !== current.dueAt.getTime();
         const registrationChanged =
           registeredAt.getTime() !== current.registeredAt.getTime();
@@ -259,11 +293,7 @@ export class WorkLifecycleService {
           plannedStartAt.getTime() !== current.plannedStartAt?.getTime() ||
           normalizedLocation !== current.locationText;
 
-        if (
-          !priorityChanged &&
-          !dueDateChanged &&
-          !detailsChanged
-        ) {
+        if (!dueDateChanged && !detailsChanged) {
           return {
             changed: false,
             workItem: await this.findDetail(transaction, current.id),
@@ -278,7 +308,6 @@ export class WorkLifecycleService {
             status: current.status,
           },
           data: {
-            priority: dto.priority ?? current.priority,
             registeredAt,
             plannedStartAt,
             dueAt,
@@ -293,20 +322,6 @@ export class WorkLifecycleService {
         this.assertSingleUpdate(result.count);
 
         const activityRows: Prisma.WorkActivityCreateManyInput[] = [];
-
-        if (priorityChanged) {
-          activityRows.push({
-            workItemId: current.id,
-            actorAccountId: actor.accountId,
-            action: WorkActivityAction.PRIORITY_CHANGED,
-            fromStatus: current.status,
-            toStatus: current.status,
-            details: {
-              previousPriority: current.priority,
-              priority: dto.priority ?? current.priority,
-            },
-          });
-        }
 
         if (dueDateChanged) {
           activityRows.push({
@@ -330,10 +345,14 @@ export class WorkLifecycleService {
             fromStatus: current.status,
             toStatus: current.status,
             details: {
-              previousRegisteredAt: registrationChanged
-                ? current.registeredAt.toISOString()
-                : undefined,
-              registeredAt: registeredAt.toISOString(),
+              ...(isAdministrativeWork
+                ? {}
+                : {
+                    previousRegisteredAt: registrationChanged
+                      ? current.registeredAt.toISOString()
+                      : undefined,
+                    registeredAt: registeredAt.toISOString(),
+                  }),
               plannedStartAt: plannedStartAt.toISOString(),
               locationText: normalizedLocation,
             },
@@ -968,6 +987,199 @@ export class WorkLifecycleService {
     };
   }
 
+  async sendToSales(
+    user: AuthenticatedUser,
+    workItemId: string,
+    dto: SendWorkToSalesDto,
+  ) {
+    const actor = await this.workScopeService.resolveActorContext(user);
+    const result = await this.prisma.$transaction(
+      async (transaction: Prisma.TransactionClient) => {
+        const current = await this.findVisibleCurrent(
+          transaction,
+          actor,
+          workItemId,
+        );
+        const primary = this.getRequiredPrimaryAssignment(
+          current,
+          actor.accountId,
+        );
+
+        if (!primary.startedAt) {
+          throw new BadRequestException(
+            'Start this work before sending it to Sales.',
+          );
+        }
+        if (!current.salesMemberAccountId) {
+          throw new BadRequestException(
+            'This work does not have a Sales Member.',
+          );
+        }
+        if (
+          current.salesCoordinationStatus !==
+          WorkSalesCoordinationStatus.WAITING_FOR_DOCUMENTS
+        ) {
+          throw new ConflictException(
+            current.salesCoordinationStatus ===
+              WorkSalesCoordinationStatus.COMPLETED
+              ? 'Sales work is already completed.'
+              : 'This work was already sent to Sales.',
+          );
+        }
+        if (
+          current.status !== WorkItemStatus.IN_PROGRESS &&
+          current.status !== WorkItemStatus.HELP_REQUESTED &&
+          current.status !== WorkItemStatus.REOPENED
+        ) {
+          throw new ConflictException(
+            'This work cannot be sent to Sales in its current state.',
+          );
+        }
+
+        const sentAt = new Date();
+        const note = this.normalizeOptionalText(dto.note);
+        const update = await transaction.workItem.updateMany({
+          where: {
+            id: current.id,
+            version: current.version,
+            status: current.status,
+            salesCoordinationStatus:
+              WorkSalesCoordinationStatus.WAITING_FOR_DOCUMENTS,
+          },
+          data: {
+            salesCoordinationStatus:
+              WorkSalesCoordinationStatus.READY_FOR_SALES,
+            salesDocumentsSentAt: sentAt,
+            salesCompletedAt: null,
+            salesCompletionNote: null,
+            version: { increment: 1 },
+          },
+        });
+        this.assertSingleUpdate(update.count);
+
+        await transaction.workActivity.create({
+          data: {
+            workItemId: current.id,
+            actorAccountId: actor.accountId,
+            action: WorkActivityAction.SALES_DOCUMENTS_SENT,
+            fromStatus: current.status,
+            toStatus: current.status,
+            details: {
+              salesMemberAccountId: current.salesMemberAccountId,
+              note,
+              sentAt: sentAt.toISOString(),
+            },
+          },
+        });
+
+        return this.findDetail(transaction, current.id);
+      },
+    );
+
+    await this.notify(result, actor.accountId, 'SALES_DOCUMENTS_SENT', {
+      title: 'Work ready for Sales',
+      body: `${result.ticketNumber}: ${result.title}`,
+      notificationRecipients: result.salesMember ? [result.salesMember.id] : [],
+      metadata: { salesCoordinationStatus: 'READY_FOR_SALES' },
+    });
+
+    return { message: 'Sent to Sales.', workItem: result };
+  }
+
+  async completeSalesWork(
+    user: AuthenticatedUser,
+    workItemId: string,
+    dto: CompleteSalesWorkDto,
+  ) {
+    const actor = await this.workScopeService.resolveActorContext(user);
+    const result = await this.prisma.$transaction(
+      async (transaction: Prisma.TransactionClient) => {
+        const current = await this.findVisibleCurrent(
+          transaction,
+          actor,
+          workItemId,
+        );
+
+        if (current.salesMemberAccountId !== actor.accountId) {
+          throw new ForbiddenException(
+            'Only the assigned Sales Member can finish the Sales work.',
+          );
+        }
+        if (
+          current.salesCoordinationStatus !==
+          WorkSalesCoordinationStatus.READY_FOR_SALES
+        ) {
+          throw new ConflictException(
+            current.salesCoordinationStatus ===
+              WorkSalesCoordinationStatus.COMPLETED
+              ? 'Sales work is already completed.'
+              : 'Wait until the primary team sends the work to Sales.',
+          );
+        }
+        if (
+          current.status === WorkItemStatus.CLOSED ||
+          current.status === WorkItemStatus.CANCELLED
+        ) {
+          throw new ConflictException(
+            'Sales work cannot be changed after the work is closed.',
+          );
+        }
+
+        const completedAt = new Date();
+        const note = this.normalizeOptionalText(dto.note);
+        const update = await transaction.workItem.updateMany({
+          where: {
+            id: current.id,
+            version: current.version,
+            status: current.status,
+            salesCoordinationStatus:
+              WorkSalesCoordinationStatus.READY_FOR_SALES,
+          },
+          data: {
+            salesCoordinationStatus: WorkSalesCoordinationStatus.COMPLETED,
+            salesCompletedAt: completedAt,
+            salesCompletionNote: note,
+            version: { increment: 1 },
+          },
+        });
+        this.assertSingleUpdate(update.count);
+
+        await transaction.workActivity.create({
+          data: {
+            workItemId: current.id,
+            actorAccountId: actor.accountId,
+            action: WorkActivityAction.SALES_WORK_COMPLETED,
+            fromStatus: current.status,
+            toStatus: current.status,
+            details: {
+              note,
+              completedAt: completedAt.toISOString(),
+            },
+          },
+        });
+
+        return this.findDetail(transaction, current.id);
+      },
+    );
+
+    const primaryRecipients = result.assignments
+      .filter(
+        (assignment) => assignment.assignmentRole === WorkAssignmentRole.PRIMARY,
+      )
+      .map((assignment) => assignment.assignee.id);
+    await this.notify(result, actor.accountId, 'SALES_WORK_COMPLETED', {
+      title: 'Sales work completed',
+      body: `${result.ticketNumber}: You can continue the work.`,
+      notificationRecipients: [
+        ...primaryRecipients,
+        result.responsibleManager.id,
+      ],
+      metadata: { salesCoordinationStatus: 'COMPLETED' },
+    });
+
+    return { message: 'Sales work completed.', workItem: result };
+  }
+
   async submitCompletion(
     user: AuthenticatedUser,
     workItemId: string,
@@ -994,7 +1206,16 @@ export class WorkLifecycleService {
 
         if (current.childWorkItems.length > 0) {
           throw new ConflictException(
-            'Team work is still unfinished. Complete or cancel it before submitting this task.',
+            'Delegated work is still unfinished. Complete or cancel it before submitting this task.',
+          );
+        }
+
+        if (
+          current.salesMemberAccountId &&
+          current.salesCoordinationStatus !== WorkSalesCoordinationStatus.COMPLETED
+        ) {
+          throw new ConflictException(
+            'Sales work is not finished yet. Wait for Sales before submitting this work.',
           );
         }
 
@@ -1010,12 +1231,74 @@ export class WorkLifecycleService {
 
         // Completion is submitted by the active primary assignee; supporting staff remain collaborators.
         const summary = this.normalizeRequiredText(dto.summary, 'Summary');
+
+        // WM-V2 unified completion: every operational work type submits the
+        // field RX reading and receives a snapshot of the saved network facts.
+        // Customer ID is required only where the business process uses it, is
+        // optional for Network Maintenance, and is intentionally absent from
+        // Routine Work, Inspection and Administrative Work.
+        const usesOperationalCompletionPackage =
+          current.type !== WorkItemType.ADMINISTRATIVE_TASK;
+        const requiresCustomerId =
+          customerIdRequiredCompletionTypes.has(current.type);
+        const allowsOptionalCustomerId =
+          current.type === WorkItemType.MAINTENANCE;
+        let customerId: string | null = null;
+        let rxLevelDbm: number | null = null;
+
+        const previousCustomerId = isInformationResponse
+          ? latestReport?.customerId ?? undefined
+          : undefined;
+        const suppliedCustomerId = dto.customerId ?? previousCustomerId;
+
+        if (requiresCustomerId) {
+          customerId = this.normalizeRequiredText(
+            suppliedCustomerId,
+            'Customer ID',
+          );
+        } else if (allowsOptionalCustomerId) {
+          customerId = this.normalizeOptionalText(suppliedCustomerId);
+        }
+
+        if (usesOperationalCompletionPackage) {
+          const suppliedRxLevel =
+            dto.rxLevelDbm ??
+            (isInformationResponse ? latestReport?.rxLevelDbm : null);
+          if (suppliedRxLevel === null || suppliedRxLevel === undefined) {
+            throw new BadRequestException('RX Level is required.');
+          }
+          rxLevelDbm = suppliedRxLevel;
+        }
+
+        // Closing/reference display prefers Token Number and falls back to
+        // Service Number. Some work types (for example Network Maintenance)
+        // legitimately have neither, so absence does not block completion.
+        const completionReference = current.requestNumber
+          ? { type: 'TOKEN_NUMBER', value: current.requestNumber }
+          : current.type !== WorkItemType.NEW_CONNECTION && current.serviceNumber
+            ? { type: 'SERVICE_NUMBER', value: current.serviceNumber }
+            : null;
+
         const report = await transaction.workCompletionReport.create({
           data: {
             workItemId: current.id,
             submittedByAccountId: actor.accountId,
             result: dto.result,
             summary,
+            cpcSerial:
+              current.type === WorkItemType.NEW_CONNECTION
+                ? current.cpcSerial
+                : null,
+            serviceNumber:
+              usesOperationalCompletionPackage &&
+              current.type !== WorkItemType.NEW_CONNECTION
+                ? current.serviceNumber
+                : null,
+            customerId,
+            rxLevelDbm,
+            olt: usesOperationalCompletionPackage ? current.olt : null,
+            fdcName: usesOperationalCompletionPackage ? current.fdcName : null,
+            fapName: usesOperationalCompletionPackage ? current.fapName : null,
             moreWorkRequired: dto.moreWorkRequired,
           },
           select: completionReportSelect,
@@ -1062,6 +1345,9 @@ export class WorkLifecycleService {
               result: dto.result,
               moreWorkRequired: dto.moreWorkRequired,
               informationResponse: isInformationResponse,
+              structuredCompletionIncluded: usesOperationalCompletionPackage,
+              completionReferenceType: completionReference?.type ?? null,
+              completionReference: completionReference?.value ?? null,
             },
           },
         });
@@ -1211,7 +1497,7 @@ export class WorkLifecycleService {
         this.assertCanManageCurrentWork(actor, current);
         if (current.childWorkItems.length > 0) {
           throw new ConflictException(
-            'Cancel or complete the unfinished team work before cancelling this task.',
+            'Cancel or complete the unfinished delegated work before cancelling this task.',
           );
         }
         this.statusTransitions.assertCanCancel(current.status);
@@ -1290,14 +1576,19 @@ export class WorkLifecycleService {
       workItemId,
     );
     this.assertCanManageCurrentWork(actor, visible);
+    if (visible.type !== WorkItemType.ADMINISTRATIVE_TASK) {
+      throw new ConflictException(
+        'Operational work stays Team-owned and cannot be transferred to one individual.',
+      );
+    }
     if (visible.assignedTeamId) {
       throw new ConflictException(
-        'Team-assigned work must be reassigned through the team workflow, not to one employee.',
+        'Team-owned Administrative Work stays on the shared Team ticket and cannot be transferred to one individual.',
       );
     }
     if (visible.childWorkItems.length > 0) {
       throw new ConflictException(
-        'Complete or cancel the unfinished team work before reassigning this task.',
+        'Complete or cancel the unfinished delegated work before reassigning this task.',
       );
     }
     const nextPrimary =
@@ -1307,6 +1598,10 @@ export class WorkLifecycleService {
         visible.divisionId,
         visible.departmentId,
       );
+    this.workScopeService.assertAdministrativeIndividualAssignee(
+      actor,
+      nextPrimary,
+    );
     const reason = this.normalizeRequiredText(
       dto.reason,
       'Reassignment reason',
@@ -1321,7 +1616,7 @@ export class WorkLifecycleService {
         this.assertCanManageCurrentWork(actor, current);
         if (current.childWorkItems.length > 0) {
           throw new ConflictException(
-            'Complete or cancel the unfinished team work before reassigning this task.',
+            'Complete or cancel the unfinished delegated work before reassigning this task.',
           );
         }
         this.statusTransitions.assertCanChangeAssignment(current.status);
@@ -1673,6 +1968,20 @@ export class WorkLifecycleService {
         const note = this.normalizeRequiredText(dto.note, 'Review note');
         const reviewedAt = new Date();
         const closing = action === 'CLOSED';
+
+        // Sales is a blocking dependency for applicable work. Re-check it at
+        // approval time so a stale or manually altered ticket cannot bypass the
+        // same rule enforced when the employee submits completion.
+        if (
+          closing &&
+          current.salesMemberAccountId &&
+          current.salesCoordinationStatus !== WorkSalesCoordinationStatus.COMPLETED
+        ) {
+          throw new ConflictException(
+            'Sales work is not finished yet. Wait for Sales before approving this work.',
+          );
+        }
+
         // Review decisions remain attached to the exact submitted report for auditability.
         await transaction.workCompletionReport.update({
           where: { id: latestReport.id },
@@ -1734,8 +2043,8 @@ export class WorkLifecycleService {
       {
         title:
           action === 'CLOSED'
-            ? 'Work verified and closed'
-            : 'More completion information required',
+            ? 'Work approved'
+            : 'Work returned for correction',
         body: `${workItem.ticketNumber}: ${workItem.title}`,
       },
     );
@@ -1743,8 +2052,8 @@ export class WorkLifecycleService {
     return {
       message:
         action === 'CLOSED'
-          ? 'Work item verified and closed successfully.'
-          : 'The employee has been asked for more information.',
+          ? 'Work approved successfully.'
+          : 'Work returned to the employee for correction.',
       workItem,
     };
   }
@@ -1870,6 +2179,7 @@ export class WorkLifecycleService {
       title: string;
       body: string;
       extraRecipients?: string[];
+      notificationRecipients?: string[];
       metadata?: Prisma.InputJsonObject;
     },
   ): Promise<void> {
@@ -1888,6 +2198,7 @@ export class WorkLifecycleService {
       action,
       actorAccountId,
       recipientAccountIds: recipients,
+      notificationRecipientAccountIds: input.notificationRecipients,
       title: input.title,
       body: input.body,
       metadata: input.metadata,
@@ -1918,8 +2229,11 @@ export class WorkLifecycleService {
     return date;
   }
 
-  private normalizeRequiredText(value: string, fieldName: string): string {
-    const normalized = value.trim().replace(/\s+/g, ' ');
+  private normalizeRequiredText(
+    value: string | null | undefined,
+    fieldName: string,
+  ): string {
+    const normalized = value?.trim().replace(/\s+/g, ' ') ?? '';
 
     if (!normalized) {
       throw new BadRequestException(`${fieldName} is required.`);

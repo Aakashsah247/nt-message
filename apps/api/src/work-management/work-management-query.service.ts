@@ -9,7 +9,7 @@ import {
   ManagementPositionType,
   WorkCompletionReviewStatus,
   WorkItemStatus,
-  WorkPriority,
+  WorkSalesCoordinationStatus,
 } from '../generated/prisma/client';
 import type { Prisma } from '../generated/prisma/client';
 import { ListWorkAssigneesQueryDto } from './dto/list-work-assignees-query.dto';
@@ -141,10 +141,19 @@ export type WorkloadLevel = 'AVAILABLE' | 'MODERATE' | 'BUSY' | 'OVERLOADED';
 
 export interface WorkloadSummary {
   active: number;
-  highPriority: number;
   overdue: number;
   waitingForReview: number;
   level: WorkloadLevel;
+}
+
+export interface OrganizationWorkMetrics {
+  active: number;
+  newWork: number;
+  inProgress: number;
+  waitingForSales: number;
+  waitingForApproval: number;
+  overdue: number;
+  completedToday: number;
 }
 
 @Injectable()
@@ -172,9 +181,9 @@ export class WorkManagementQueryService {
       waitingForReview,
       overdue,
       closedToday,
-      critical,
+      needsAttention,
       nextReview,
-      urgentWork,
+      attentionWork,
     ] = await Promise.all([
       this.prisma.workItem.count({
         where: scoped({ status: { in: [...ACTIVE_WORK_STATUSES] } }),
@@ -217,7 +226,10 @@ export class WorkManagementQueryService {
       this.prisma.workItem.count({
         where: scoped({
           status: { in: [...ACTIVE_WORK_STATUSES] },
-          priority: WorkPriority.CRITICAL,
+          OR: [
+            { status: WorkItemStatus.HELP_REQUESTED },
+            { dueAt: { lt: now } },
+          ],
         }),
       }),
       this.prisma.workItem.findMany({
@@ -230,12 +242,12 @@ export class WorkManagementQueryService {
         where: scoped({
           status: { in: [...ACTIVE_WORK_STATUSES] },
           OR: [
-            { priority: { in: [WorkPriority.HIGH, WorkPriority.CRITICAL] } },
+            { status: WorkItemStatus.HELP_REQUESTED },
             { dueAt: { lt: now } },
           ],
         }),
         take: 5,
-        orderBy: [{ priority: 'desc' }, { dueAt: 'asc' }],
+        orderBy: [{ dueAt: 'asc' }, { createdAt: 'asc' }],
         select: workItemListSelect,
       }),
     ]);
@@ -252,10 +264,234 @@ export class WorkManagementQueryService {
         waitingForReview,
         overdue,
         closedToday,
-        critical,
+        needsAttention,
       },
       nextReview,
-      urgentWork,
+      attentionWork,
+    };
+  }
+
+  async getOrganizationSummary(user: AuthenticatedUser) {
+    const actor = await this.resolveManager(user);
+    const organizationWorkWhere =
+      this.workScopeService.buildOrganizationHierarchyWorkWhere(actor);
+    const now = new Date();
+    const today = this.getKathmanduCalendarDay(now);
+
+    const divisionWhere: Prisma.DivisionWhereInput = { isActive: true };
+    const departmentWhere: Prisma.DepartmentWhereInput = { isActive: true };
+    const teamWhere: Prisma.DepartmentTeamWhereInput = {
+      isActive: true,
+      archivedAt: null,
+      department: {
+        is: {
+          isActive: true,
+          division: { is: { isActive: true } },
+        },
+      },
+    };
+
+    if (actor.role === AccountRole.SENIOR_MANAGEMENT) {
+      divisionWhere.id = actor.divisionId ?? '__missing_division__';
+      departmentWhere.divisionId = actor.divisionId ?? '__missing_division__';
+      teamWhere.department = {
+        is: {
+          isActive: true,
+          divisionId: actor.divisionId ?? '__missing_division__',
+          division: { is: { isActive: true } },
+        },
+      };
+    } else if (actor.role === AccountRole.TEAM_MANAGER) {
+      divisionWhere.id = actor.divisionId ?? '__missing_division__';
+      departmentWhere.id = actor.departmentId ?? '__missing_department__';
+      teamWhere.departmentId = actor.departmentId ?? '__missing_department__';
+    }
+
+    // These grouped queries stay bounded by organization/status combinations rather than
+    // loading every work item. That keeps branch summaries practical as history grows.
+    const [divisions, departments, teams, activeRows, overdueRows, completedRows] =
+      await Promise.all([
+        this.prisma.division.findMany({
+          where: divisionWhere,
+          orderBy: { name: 'asc' },
+          select: { id: true, code: true, name: true },
+        }),
+        this.prisma.department.findMany({
+          where: departmentWhere,
+          orderBy: [{ division: { name: 'asc' } }, { name: 'asc' }],
+          select: {
+            id: true,
+            divisionId: true,
+            code: true,
+            name: true,
+            workFunction: true,
+          },
+        }),
+        this.prisma.departmentTeam.findMany({
+          where: teamWhere,
+          orderBy: [{ department: { name: 'asc' } }, { name: 'asc' }],
+          select: {
+            id: true,
+            departmentId: true,
+            name: true,
+            _count: { select: { members: true } },
+          },
+        }),
+        this.prisma.workItem.groupBy({
+          by: [
+            'divisionId',
+            'departmentId',
+            'assignedTeamId',
+            'status',
+            'salesCoordinationStatus',
+          ],
+          where: {
+            AND: [
+              organizationWorkWhere,
+              { status: { in: [...ACTIVE_WORK_STATUSES] } },
+            ],
+          },
+          _count: { _all: true },
+        }),
+        this.prisma.workItem.groupBy({
+          by: ['divisionId', 'departmentId', 'assignedTeamId'],
+          where: {
+            AND: [
+              organizationWorkWhere,
+              {
+                status: { in: [...ACTIVE_WORK_STATUSES] },
+                dueAt: { lt: now },
+              },
+            ],
+          },
+          _count: { _all: true },
+        }),
+        this.prisma.workItem.groupBy({
+          by: ['divisionId', 'departmentId', 'assignedTeamId'],
+          where: {
+            AND: [
+              organizationWorkWhere,
+              {
+                status: WorkItemStatus.CLOSED,
+                closedAt: { gte: today.start, lt: today.end },
+              },
+            ],
+          },
+          _count: { _all: true },
+        }),
+      ]);
+
+    const branchTotals = this.emptyOrganizationMetrics();
+    const divisionTotals = new Map<string, OrganizationWorkMetrics>();
+    const departmentTotals = new Map<string, OrganizationWorkMetrics>();
+    const teamTotals = new Map<string, OrganizationWorkMetrics>();
+
+    const applyCount = (
+      divisionId: string,
+      departmentId: string | null,
+      teamId: string | null,
+      apply: (metrics: OrganizationWorkMetrics) => void,
+    ) => {
+      apply(branchTotals);
+      apply(this.getOrganizationMetrics(divisionTotals, divisionId));
+      if (departmentId) {
+        apply(this.getOrganizationMetrics(departmentTotals, departmentId));
+      }
+      if (teamId) {
+        apply(this.getOrganizationMetrics(teamTotals, teamId));
+      }
+    };
+
+    for (const row of activeRows) {
+      const count = row._count._all;
+      applyCount(row.divisionId, row.departmentId, row.assignedTeamId, (metrics) => {
+        metrics.active += count;
+        if (
+          row.status === WorkItemStatus.ASSIGNED ||
+          row.status === WorkItemStatus.ACKNOWLEDGED
+        ) {
+          metrics.newWork += count;
+        }
+        if (
+          row.status === WorkItemStatus.IN_PROGRESS ||
+          row.status === WorkItemStatus.HELP_REQUESTED ||
+          row.status === WorkItemStatus.REOPENED ||
+          row.status === WorkItemStatus.BLOCKED
+        ) {
+          metrics.inProgress += count;
+        }
+        if (row.status === WorkItemStatus.COMPLETED_PENDING_REVIEW) {
+          metrics.waitingForApproval += count;
+        }
+        if (
+          row.salesCoordinationStatus ===
+            WorkSalesCoordinationStatus.WAITING_FOR_DOCUMENTS ||
+          row.salesCoordinationStatus === WorkSalesCoordinationStatus.READY_FOR_SALES
+        ) {
+          metrics.waitingForSales += count;
+        }
+      });
+    }
+
+    for (const row of overdueRows) {
+      const count = row._count._all;
+      applyCount(row.divisionId, row.departmentId, row.assignedTeamId, (metrics) => {
+        metrics.overdue += count;
+      });
+    }
+
+    for (const row of completedRows) {
+      const count = row._count._all;
+      applyCount(row.divisionId, row.departmentId, row.assignedTeamId, (metrics) => {
+        metrics.completedToday += count;
+      });
+    }
+
+    const teamsByDepartment = new Map<string, typeof teams>();
+    for (const team of teams) {
+      const current = teamsByDepartment.get(team.departmentId) ?? [];
+      current.push(team);
+      teamsByDepartment.set(team.departmentId, current);
+    }
+
+    const departmentsByDivision = new Map<string, typeof departments>();
+    for (const department of departments) {
+      const current = departmentsByDivision.get(department.divisionId) ?? [];
+      current.push(department);
+      departmentsByDivision.set(department.divisionId, current);
+    }
+
+    return {
+      timezone: 'Asia/Kathmandu' as const,
+      generatedAt: now.toISOString(),
+      scope: this.getScopeSummary(actor),
+      organization: {
+        divisionCount: divisions.length,
+        departmentCount: departments.length,
+        teamCount: teams.length,
+      },
+      totals: branchTotals,
+      divisions: divisions.map((division) => ({
+        ...division,
+        totals:
+          divisionTotals.get(division.id) ?? this.emptyOrganizationMetrics(),
+        departments: (departmentsByDivision.get(division.id) ?? []).map(
+          (department) => ({
+            ...department,
+            totals:
+              departmentTotals.get(department.id) ??
+              this.emptyOrganizationMetrics(),
+            teams: (teamsByDepartment.get(department.id) ?? []).map((team) => ({
+              id: team.id,
+              departmentId: team.departmentId,
+              name: team.name,
+              memberCount: team._count.members,
+              totals:
+                teamTotals.get(team.id) ?? this.emptyOrganizationMetrics(),
+            })),
+          }),
+        ),
+      })),
     };
   }
 
@@ -636,7 +872,6 @@ export class WorkManagementQueryService {
       },
       select: {
         salesMemberAccountId: true,
-        priority: true,
         dueAt: true,
         status: true,
       },
@@ -646,18 +881,11 @@ export class WorkManagementQueryService {
       if (!workItem.salesMemberAccountId) continue;
       const current = summaries.get(workItem.salesMemberAccountId) ?? {
         active: 0,
-        highPriority: 0,
         overdue: 0,
         waitingForReview: 0,
         level: 'AVAILABLE' as const,
       };
       current.active += 1;
-      if (
-        workItem.priority === WorkPriority.HIGH ||
-        workItem.priority === WorkPriority.CRITICAL
-      ) {
-        current.highPriority += 1;
-      }
       if (workItem.dueAt.getTime() < now.getTime()) {
         current.overdue += 1;
       }
@@ -689,7 +917,6 @@ export class WorkManagementQueryService {
       },
       select: {
         assignedTeamId: true,
-        priority: true,
         dueAt: true,
         status: true,
       },
@@ -699,18 +926,11 @@ export class WorkManagementQueryService {
       if (!workItem.assignedTeamId) continue;
       const current = summaries.get(workItem.assignedTeamId) ?? {
         active: 0,
-        highPriority: 0,
         overdue: 0,
         waitingForReview: 0,
         level: 'AVAILABLE' as const,
       };
       current.active += 1;
-      if (
-        workItem.priority === WorkPriority.HIGH ||
-        workItem.priority === WorkPriority.CRITICAL
-      ) {
-        current.highPriority += 1;
-      }
       if (workItem.dueAt.getTime() < now.getTime()) {
         current.overdue += 1;
       }
@@ -849,8 +1069,7 @@ export class WorkManagementQueryService {
         workItem: {
           select: {
             status: true,
-            priority: true,
-            dueAt: true,
+                dueAt: true,
             completionReports: {
               where: {
                 reviewStatus: {
@@ -871,19 +1090,11 @@ export class WorkManagementQueryService {
     for (const assignment of assignments) {
       const current = summaries.get(assignment.assigneeAccountId) ?? {
         active: 0,
-        highPriority: 0,
         overdue: 0,
         waitingForReview: 0,
         level: 'AVAILABLE' as const,
       };
       current.active += 1;
-
-      if (
-        assignment.workItem.priority === WorkPriority.HIGH ||
-        assignment.workItem.priority === WorkPriority.CRITICAL
-      ) {
-        current.highPriority += 1;
-      }
 
       if (assignment.workItem.dueAt.getTime() < now.getTime()) {
         current.overdue += 1;
@@ -907,19 +1118,15 @@ export class WorkManagementQueryService {
   private getWorkloadLevel(
     workload: Omit<WorkloadSummary, 'level'>,
   ): WorkloadLevel {
-    if (
-      workload.overdue > 0 ||
-      workload.highPriority >= 2 ||
-      workload.active >= 6
-    ) {
+    if (workload.overdue > 0 || workload.active >= 6) {
       return 'OVERLOADED';
     }
 
-    if (workload.highPriority >= 1 || workload.active >= 4) {
+    if (workload.waitingForReview >= 2 || workload.active >= 4) {
       return 'BUSY';
     }
 
-    if (workload.active >= 2) {
+    if (workload.waitingForReview >= 1 || workload.active >= 2) {
       return 'MODERATE';
     }
 
@@ -929,7 +1136,6 @@ export class WorkManagementQueryService {
   private emptyWorkload(): WorkloadSummary {
     return {
       active: 0,
-      highPriority: 0,
       overdue: 0,
       waitingForReview: 0,
       level: 'AVAILABLE',
@@ -952,6 +1158,30 @@ export class WorkManagementQueryService {
           }
         : null,
     };
+  }
+
+  private emptyOrganizationMetrics(): OrganizationWorkMetrics {
+    return {
+      active: 0,
+      newWork: 0,
+      inProgress: 0,
+      waitingForSales: 0,
+      waitingForApproval: 0,
+      overdue: 0,
+      completedToday: 0,
+    };
+  }
+
+  private getOrganizationMetrics(
+    summaries: Map<string, OrganizationWorkMetrics>,
+    id: string,
+  ): OrganizationWorkMetrics {
+    const existing = summaries.get(id);
+    if (existing) return existing;
+
+    const created = this.emptyOrganizationMetrics();
+    summaries.set(id, created);
+    return created;
   }
 
   private getScopeSummary(actor: WorkActorContext) {

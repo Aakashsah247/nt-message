@@ -271,7 +271,7 @@ export function ManagementLayout({
 
           <section className="management-layout__navigation-section">
             <span className="management-layout__section-label">
-              {t("navigation.sections.priority")}
+              {t("navigation.sections.emergency")}
             </span>
 
             <EmergencyAlertButton variant="sidebar" />

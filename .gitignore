@@ -10,6 +10,9 @@ coverage/
 .env
 .env.*
 !.env.example
+.env.staging
+.env.staging.*
+!.env.staging.example
 
 # Logs
 *.log
