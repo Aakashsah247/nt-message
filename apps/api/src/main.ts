@@ -71,9 +71,9 @@ async function bootstrap(): Promise<void> {
 
   app.setGlobalPrefix('api/v1');
 
-  await app.listen(port, '127.0.0.1');
+  await app.listen(port, host);
 
-  console.log(`NT Message API is running at http://localhost:${port}/api/v1`);
+  console.log(`NT Message API is running on ${host}:${port} with prefix /api/v1`);
 }
 
 void bootstrap();
