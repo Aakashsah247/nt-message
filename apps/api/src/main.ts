@@ -11,7 +11,14 @@ async function bootstrap(): Promise<void> {
 
   const configService = app.get(ConfigService);
 
-  const port = Number(configService.get<string>('API_PORT') ?? '4000');
+  const port = Number(
+    configService.get<string>('API_PORT') ??
+      configService.get<string>('PORT') ??
+      '4000',
+  );
+
+  const host =
+    configService.get<string>('API_HOST')?.trim() || '127.0.0.1';
 
   const webOrigin =
     configService.get<string>('WEB_ORIGIN') ?? 'http://localhost:5173';
