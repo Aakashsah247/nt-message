@@ -156,6 +156,13 @@ export class OrganizationHierarchyService {
   async getTree(user: AuthenticatedUser, officeId: string) {
     await this.authority.assertCanViewOffice(user, officeId);
 
+    const visibleOrgUnitIds =
+      await this.authorization.visibleOrgUnitIds(
+        user,
+        CAPABILITIES.ORGANIZATION_VIEW,
+        officeId,
+      );
+
     const office = await this.prisma.office.findUnique({
       where: { id: officeId },
       select: {
@@ -171,7 +178,12 @@ export class OrganizationHierarchyService {
     }
 
     const units = await this.prisma.orgUnit.findMany({
-      where: { officeId },
+      where: {
+        officeId,
+        id: {
+          in: visibleOrgUnitIds,
+        },
+      },
       orderBy: [{ sortOrder: 'asc' }, { name: 'asc' }],
       select: {
         id: true,

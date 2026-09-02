@@ -351,4 +351,122 @@ describe('OrganizationHierarchyService', () => {
     expect(authority.assertOfficeHead).not.toHaveBeenCalled();
     expect(prisma.$transaction).not.toHaveBeenCalled();
   });
+
+  it('returns only centrally visible OrgUnits when reading the hierarchy tree', async () => {
+    const prisma = {
+      office: {
+        findUnique: jest.fn().mockResolvedValue({
+          id: 'office-1',
+          code: 'PATAN',
+          name: 'Patan Telecom Office',
+          isActive: true,
+        }),
+      },
+      orgUnit: {
+        findMany: jest.fn().mockResolvedValue([
+          {
+            id: 'department-1',
+            officeId: 'office-1',
+            parentOrgUnitId: null,
+            code: 'TECH',
+            name: 'Technical',
+            isActive: true,
+            sortOrder: 0,
+            createdAt: new Date(),
+            updatedAt: new Date(),
+            orgUnitType: {
+              id: 'type-1',
+              code: 'DEPARTMENT',
+              name: 'Department',
+              isTeam: false,
+              isActive: true,
+            },
+            _count: {
+              memberships: 1,
+              childOrgUnits: 1,
+              leadershipAssignments: 1,
+            },
+          },
+          {
+            id: 'team-1',
+            officeId: 'office-1',
+            parentOrgUnitId: 'department-1',
+            code: 'TEAM-1',
+            name: 'Team One',
+            isActive: true,
+            sortOrder: 0,
+            createdAt: new Date(),
+            updatedAt: new Date(),
+            orgUnitType: {
+              id: 'type-2',
+              code: 'TEAM',
+              name: 'Team',
+              isTeam: true,
+              isActive: true,
+            },
+            _count: {
+              memberships: 1,
+              childOrgUnits: 0,
+              leadershipAssignments: 1,
+            },
+          },
+        ]),
+      },
+    } as unknown as PrismaService;
+
+    const authority = {
+      assertCanViewOffice: jest
+        .fn()
+        .mockResolvedValue(undefined),
+    } as unknown as OrganizationAuthorityService;
+
+    const authorization = {
+      visibleOrgUnitIds: jest
+        .fn()
+        .mockResolvedValue([
+          'department-1',
+          'team-1',
+        ]),
+    } as unknown as OrganizationAuthorizationService;
+
+    const service = new OrganizationHierarchyService(
+      prisma,
+      authority,
+      authorization,
+    );
+
+    const result = await service.getTree(
+      user,
+      'office-1',
+    );
+
+    expect(authorization.visibleOrgUnitIds).toHaveBeenCalledWith(
+      user,
+      CAPABILITIES.ORGANIZATION_VIEW,
+      'office-1',
+    );
+
+    expect(prisma.orgUnit.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: {
+          officeId: 'office-1',
+          id: {
+            in: ['department-1', 'team-1'],
+          },
+        },
+      }),
+    );
+
+    expect(result.tree).toHaveLength(1);
+    expect(result.tree[0]).toEqual(
+      expect.objectContaining({
+        id: 'department-1',
+        children: [
+          expect.objectContaining({
+            id: 'team-1',
+          }),
+        ],
+      }),
+    );
+  });
 });

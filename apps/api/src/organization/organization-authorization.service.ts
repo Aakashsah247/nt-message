@@ -128,19 +128,12 @@ export class OrganizationAuthorizationService {
         },
         select: {
           id: true,
+          orgUnitId: true,
         },
       });
 
     if (!primaryMembership) {
       return false;
-    }
-
-    /*
-     * Normal office members may view the organization directory/tree.
-     * Mutation capabilities are still controlled by leadership/delegation.
-     */
-    if (capability === CAPABILITIES.ORGANIZATION_VIEW) {
-      return true;
     }
 
     const leadership =
@@ -247,6 +240,24 @@ export class OrganizationAuthorizationService {
       ) {
         return true;
       }
+    }
+
+    /*
+     * A normal employee's organization visibility is their effective
+     * breadcrumb only. Broader subtree/Office visibility comes from
+     * leadership or an explicit delegation above.
+     */
+    if (
+      capability === CAPABILITIES.ORGANIZATION_VIEW &&
+      primaryMembership.orgUnitId !== null &&
+      orgUnitId !== null &&
+      (await this.orgUnitScopeCovers(
+        orgUnitId,
+        primaryMembership.orgUnitId,
+        true,
+      ))
+    ) {
+      return true;
     }
 
     return false;
@@ -434,12 +445,48 @@ export class OrganizationAuthorizationService {
 
     const account = await this.resolveAccount(user.accountId);
 
-    if (!account?.employee) {
+    if (
+      !account?.isEnabled ||
+      !account.employee ||
+      account.employee.status !== EmployeeStatus.ACTIVE ||
+      account.employee.employmentStatus !==
+        EmploymentStatus.ACTIVE ||
+      account.employee.archivedAt !== null
+    ) {
       return [];
     }
 
     const now = new Date();
     const ids = new Set<string>();
+
+    const primaryMembership =
+      await this.prisma.orgMembership.findFirst({
+        where: {
+          employeeId: account.employee.id,
+          officeId,
+          membershipType: OrgMembershipType.PRIMARY,
+          startsAt: {
+            lte: now,
+          },
+          OR: [
+            {
+              endsAt: null,
+            },
+            {
+              endsAt: {
+                gt: now,
+              },
+            },
+          ],
+        },
+        select: {
+          orgUnitId: true,
+        },
+      });
+
+    if (!primaryMembership) {
+      return [];
+    }
 
     const leadership =
       await this.prisma.orgLeadershipAssignment.findMany({
@@ -559,6 +606,34 @@ export class OrganizationAuthorizationService {
       }
     }
 
+    if (
+      capability === CAPABILITIES.ORGANIZATION_VIEW &&
+      primaryMembership.orgUnitId
+    ) {
+      ids.add(primaryMembership.orgUnitId);
+    }
+
+    if (
+      capability === CAPABILITIES.ORGANIZATION_VIEW &&
+      ids.size > 0
+    ) {
+      const breadcrumb =
+        await this.prisma.orgUnitClosure.findMany({
+          where: {
+            descendantOrgUnitId: {
+              in: [...ids],
+            },
+          },
+          select: {
+            ancestorOrgUnitId: true,
+          },
+        });
+
+      breadcrumb.forEach((item) =>
+        ids.add(item.ancestorOrgUnitId),
+      );
+    }
+
     return [...ids];
   }
 
@@ -615,6 +690,35 @@ export class OrganizationAuthorizationService {
         EmploymentStatus.ACTIVE ||
       account.employee.archivedAt !== null
     ) {
+      return null;
+    }
+
+    const primaryMembership =
+      await this.prisma.orgMembership.findFirst({
+        where: {
+          employeeId: account.employee.id,
+          officeId,
+          membershipType: OrgMembershipType.PRIMARY,
+          startsAt: {
+            lte: at,
+          },
+          OR: [
+            {
+              endsAt: null,
+            },
+            {
+              endsAt: {
+                gt: at,
+              },
+            },
+          ],
+        },
+        select: {
+          id: true,
+        },
+      });
+
+    if (!primaryMembership) {
       return null;
     }
 

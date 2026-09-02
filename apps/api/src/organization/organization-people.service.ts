@@ -244,12 +244,40 @@ export class OrganizationPeopleService {
   ) {
     await this.authority.assertCanViewOffice(user, officeId);
 
+    const officeWide = await this.authorization.can(
+      user,
+      CAPABILITIES.MEMBERSHIP_VIEW,
+      officeId,
+      null,
+    );
+
+    const visibleOrgUnitIds = officeWide
+      ? []
+      : await this.authorization.visibleOrgUnitIds(
+          user,
+          CAPABILITIES.MEMBERSHIP_VIEW,
+          officeId,
+        );
+
+    if (!officeWide && visibleOrgUnitIds.length === 0) {
+      throw new ForbiddenException(
+        'You do not have permission to view employee placements in this organizational area.',
+      );
+    }
+
     const employee = await this.getEligibleEmployee(employeeId);
 
     const memberships = await this.prisma.orgMembership.findMany({
       where: {
         employeeId,
         officeId,
+        ...(officeWide
+          ? {}
+          : {
+              orgUnitId: {
+                in: visibleOrgUnitIds,
+              },
+            }),
       },
       orderBy: [
         {
@@ -300,6 +328,12 @@ export class OrganizationPeopleService {
         },
       },
     });
+
+    if (!officeWide && memberships.length === 0) {
+      throw new ForbiddenException(
+        'You do not have permission to view this employee placement.',
+      );
+    }
 
     return {
       employee,
@@ -672,10 +706,38 @@ export class OrganizationPeopleService {
   ) {
     await this.authority.assertCanViewOffice(user, officeId);
 
+    const officeWide = await this.authorization.can(
+      user,
+      CAPABILITIES.LEADERSHIP_VIEW,
+      officeId,
+      null,
+    );
+
+    const visibleOrgUnitIds = officeWide
+      ? []
+      : await this.authorization.visibleOrgUnitIds(
+          user,
+          CAPABILITIES.LEADERSHIP_VIEW,
+          officeId,
+        );
+
+    if (!officeWide && visibleOrgUnitIds.length === 0) {
+      throw new ForbiddenException(
+        'You do not have permission to view leadership in this organizational area.',
+      );
+    }
+
     const data =
       await this.prisma.orgLeadershipAssignment.findMany({
         where: {
           officeId,
+          ...(officeWide
+            ? {}
+            : {
+                orgUnitId: {
+                  in: visibleOrgUnitIds,
+                },
+              }),
         },
         orderBy: [
           {

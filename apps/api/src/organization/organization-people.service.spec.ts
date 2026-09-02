@@ -200,6 +200,104 @@ describe('OrganizationPeopleService', () => {
     ).rejects.toBeInstanceOf(ForbiddenException);
   });
 
+  it('denies employee membership history when no membership-view scope is visible', async () => {
+    const prisma = {
+      employee: {
+        findUnique: jest.fn(),
+      },
+    } as unknown as PrismaService;
+
+    const authority = {
+      assertCanViewOffice: jest
+        .fn()
+        .mockResolvedValue(undefined),
+    } as unknown as OrganizationAuthorityService;
+
+    const authorization = {
+      can: jest.fn().mockResolvedValue(false),
+      visibleOrgUnitIds: jest
+        .fn()
+        .mockResolvedValue([]),
+    } as unknown as OrganizationAuthorizationService;
+
+    const service =
+      new OrganizationPeopleService(
+        prisma,
+        authority,
+        authorization,
+      );
+
+    await expect(
+      service.listEmployeeMemberships(
+        officeHeadUser,
+        'office-1',
+        'employee-1',
+      ),
+    ).rejects.toBeInstanceOf(ForbiddenException);
+
+    expect(authorization.can).toHaveBeenCalledWith(
+      officeHeadUser,
+      CAPABILITIES.MEMBERSHIP_VIEW,
+      'office-1',
+      null,
+    );
+    expect(prisma.employee.findUnique).not.toHaveBeenCalled();
+  });
+
+  it('filters leadership history to centrally visible OrgUnits', async () => {
+    const prisma = {
+      orgLeadershipAssignment: {
+        findMany: jest.fn().mockResolvedValue([]),
+      },
+    } as unknown as PrismaService;
+
+    const authority = {
+      assertCanViewOffice: jest
+        .fn()
+        .mockResolvedValue(undefined),
+    } as unknown as OrganizationAuthorityService;
+
+    const authorization = {
+      can: jest.fn().mockResolvedValue(false),
+      visibleOrgUnitIds: jest
+        .fn()
+        .mockResolvedValue(['unit-1', 'child-1']),
+    } as unknown as OrganizationAuthorizationService;
+
+    const service =
+      new OrganizationPeopleService(
+        prisma,
+        authority,
+        authorization,
+      );
+
+    await service.listLeadership(
+      officeHeadUser,
+      'office-1',
+    );
+
+    expect(
+      authorization.visibleOrgUnitIds,
+    ).toHaveBeenCalledWith(
+      officeHeadUser,
+      CAPABILITIES.LEADERSHIP_VIEW,
+      'office-1',
+    );
+
+    expect(
+      prisma.orgLeadershipAssignment.findMany,
+    ).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: {
+          officeId: 'office-1',
+          orgUnitId: {
+            in: ['unit-1', 'child-1'],
+          },
+        },
+      }),
+    );
+  });
+
   it('rejects Team Lead assignment on a non-Team unit', async () => {
     const prisma = {
       office: {
@@ -259,6 +357,107 @@ describe('OrganizationPeopleService', () => {
         },
       ),
     ).rejects.toBeInstanceOf(BadRequestException);
+  });
+
+  it('requires an expiry for Acting leadership', async () => {
+    const prisma = {
+      office: {
+        findUnique: jest
+          .fn()
+          .mockResolvedValue(activeOffice()),
+      },
+      employee: {
+        findUnique: jest
+          .fn()
+          .mockResolvedValue(activeEmployee),
+      },
+    } as unknown as PrismaService;
+
+    const authority = {} as OrganizationAuthorityService;
+
+    const authorization = {
+      assertCan: jest.fn().mockResolvedValue(undefined),
+    } as unknown as OrganizationAuthorizationService;
+
+    const service =
+      new OrganizationPeopleService(
+        prisma,
+        authority,
+        authorization,
+      );
+
+    await expect(
+      service.assignLeadership(
+        officeHeadUser,
+        'office-1',
+        {
+          employeeId: 'employee-1',
+          orgUnitId: 'unit-1',
+          leadershipType:
+            OrgLeadershipType.ORG_UNIT_HEAD,
+          isActing: true,
+          reason: 'Temporary Acting Head assignment',
+        },
+      ),
+    ).rejects.toBeInstanceOf(BadRequestException);
+
+    expect(authorization.assertCan).toHaveBeenCalledWith(
+      officeHeadUser,
+      CAPABILITIES.LEADERSHIP_ASSIGN_ACTING,
+      'office-1',
+      'unit-1',
+    );
+  });
+
+  it('keeps Deputy and Acting leadership as separate assignments', async () => {
+    const prisma = {
+      office: {
+        findUnique: jest
+          .fn()
+          .mockResolvedValue(activeOffice()),
+      },
+      employee: {
+        findUnique: jest
+          .fn()
+          .mockResolvedValue(activeEmployee),
+      },
+    } as unknown as PrismaService;
+
+    const authority = {} as OrganizationAuthorityService;
+
+    const authorization = {
+      assertCan: jest.fn().mockResolvedValue(undefined),
+    } as unknown as OrganizationAuthorizationService;
+
+    const service =
+      new OrganizationPeopleService(
+        prisma,
+        authority,
+        authorization,
+      );
+
+    await expect(
+      service.assignLeadership(
+        officeHeadUser,
+        'office-1',
+        {
+          employeeId: 'employee-1',
+          orgUnitId: 'unit-1',
+          leadershipType: OrgLeadershipType.DEPUTY,
+          isActing: true,
+          effectiveUntil:
+            '2026-09-04T00:00:00.000Z',
+          reason: 'Invalid combined Deputy and Acting assignment',
+        },
+      ),
+    ).rejects.toBeInstanceOf(BadRequestException);
+
+    expect(authorization.assertCan).toHaveBeenCalledWith(
+      officeHeadUser,
+      CAPABILITIES.LEADERSHIP_ASSIGN_ACTING,
+      'office-1',
+      'unit-1',
+    );
   });
 
   it('preserves the old primary placement when transferring internally', async () => {

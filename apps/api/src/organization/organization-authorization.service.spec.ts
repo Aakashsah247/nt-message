@@ -436,4 +436,352 @@ describe('OrganizationAuthorizationService', () => {
     ).resolves.toBe(false);
   });
 
+  it('denies protected Office access when the user has no active primary membership in that Office', async () => {
+    const prisma = createPrisma();
+
+    prisma.orgMembership.findFirst.mockResolvedValue(null);
+    prisma.orgLeadershipAssignment.findMany.mockResolvedValue([
+      {
+        leadershipType: OrgLeadershipType.OFFICE_HEAD,
+        orgUnitId: null,
+      },
+    ]);
+    prisma.delegatedPermission.findMany.mockResolvedValue([
+      {
+        orgUnitId: null,
+        includeDescendants: true,
+      },
+    ]);
+
+    const service =
+      new OrganizationAuthorizationService(
+        prisma as unknown as PrismaService,
+      );
+
+    await expect(
+      service.can(
+        employeeUser,
+        CAPABILITIES.MEMBERSHIP_VIEW,
+        'other-office',
+        'unit-1',
+      ),
+    ).resolves.toBe(false);
+
+    expect(
+      prisma.orgLeadershipAssignment.findMany,
+    ).not.toHaveBeenCalled();
+    expect(
+      prisma.delegatedPermission.findMany,
+    ).not.toHaveBeenCalled();
+  });
+
+  it('limits a normal employee organization view to the effective breadcrumb', async () => {
+    const prisma = createPrisma();
+
+    prisma.orgMembership.findFirst.mockResolvedValue({
+      id: 'membership-1',
+      orgUnitId: 'team-1',
+    });
+
+    prisma.orgUnitClosure.findUnique.mockImplementation(
+      async (args) => {
+        const relation =
+          args.where
+            .ancestorOrgUnitId_descendantOrgUnitId;
+
+        if (
+          relation.descendantOrgUnitId === 'team-1' &&
+          relation.ancestorOrgUnitId === 'department-1'
+        ) {
+          return { depth: 1 };
+        }
+
+        return null;
+      },
+    );
+
+    const service =
+      new OrganizationAuthorizationService(
+        prisma as unknown as PrismaService,
+      );
+
+    await expect(
+      service.can(
+        employeeUser,
+        CAPABILITIES.ORGANIZATION_VIEW,
+        'office-1',
+        'team-1',
+      ),
+    ).resolves.toBe(true);
+
+    await expect(
+      service.can(
+        employeeUser,
+        CAPABILITIES.ORGANIZATION_VIEW,
+        'office-1',
+        'department-1',
+      ),
+    ).resolves.toBe(true);
+
+    await expect(
+      service.can(
+        employeeUser,
+        CAPABILITIES.ORGANIZATION_VIEW,
+        'office-1',
+        'sibling-team',
+      ),
+    ).resolves.toBe(false);
+
+    await expect(
+      service.can(
+        employeeUser,
+        CAPABILITIES.ORGANIZATION_VIEW,
+        'office-1',
+        null,
+      ),
+    ).resolves.toBe(false);
+  });
+
+  it('keeps Org Unit Head authority inside its own subtree', async () => {
+    const prisma = createPrisma();
+
+    prisma.orgLeadershipAssignment.findMany.mockResolvedValue([
+      {
+        leadershipType: OrgLeadershipType.ORG_UNIT_HEAD,
+        orgUnitId: 'unit-1',
+      },
+    ]);
+
+    prisma.orgUnitClosure.findUnique.mockImplementation(
+      async (args) => {
+        const relation =
+          args.where
+            .ancestorOrgUnitId_descendantOrgUnitId;
+
+        if (
+          relation.ancestorOrgUnitId === 'unit-1' &&
+          relation.descendantOrgUnitId === 'child-1'
+        ) {
+          return { depth: 1 };
+        }
+
+        return null;
+      },
+    );
+
+    const service =
+      new OrganizationAuthorizationService(
+        prisma as unknown as PrismaService,
+      );
+
+    await expect(
+      service.can(
+        employeeUser,
+        CAPABILITIES.MEMBERSHIP_VIEW,
+        'office-1',
+        'child-1',
+      ),
+    ).resolves.toBe(true);
+
+    await expect(
+      service.can(
+        employeeUser,
+        CAPABILITIES.MEMBERSHIP_VIEW,
+        'office-1',
+        'parent-1',
+      ),
+    ).resolves.toBe(false);
+
+    await expect(
+      service.can(
+        employeeUser,
+        CAPABILITIES.MEMBERSHIP_VIEW,
+        'office-1',
+        'sibling-1',
+      ),
+    ).resolves.toBe(false);
+
+    await expect(
+      service.can(
+        employeeUser,
+        CAPABILITIES.MEMBERSHIP_VIEW,
+        'office-1',
+        'outside-subtree',
+      ),
+    ).resolves.toBe(false);
+  });
+
+  it('removes Acting Office Head authority exactly at effectiveUntil', async () => {
+    const prisma = createPrisma();
+    const effectiveUntil = new Date(
+      '2026-09-05T00:00:00.000Z',
+    );
+
+    prisma.orgLeadershipAssignment.findMany.mockImplementation(
+      async (args) => {
+        const at = args.where.effectiveFrom.lte;
+
+        return at.getTime() < effectiveUntil.getTime()
+          ? [
+              {
+                leadershipType:
+                  OrgLeadershipType.OFFICE_HEAD,
+                orgUnitId: null,
+              },
+            ]
+          : [];
+      },
+    );
+
+    const service =
+      new OrganizationAuthorizationService(
+        prisma as unknown as PrismaService,
+      );
+
+    await expect(
+      service.can(
+        employeeUser,
+        CAPABILITIES.LEADERSHIP_ASSIGN,
+        'office-1',
+        'unit-1',
+        new Date('2026-09-04T23:59:59.999Z'),
+      ),
+    ).resolves.toBe(true);
+
+    await expect(
+      service.can(
+        employeeUser,
+        CAPABILITIES.LEADERSHIP_ASSIGN,
+        'office-1',
+        'unit-1',
+        effectiveUntil,
+      ),
+    ).resolves.toBe(false);
+
+    expect(
+      prisma.orgLeadershipAssignment.findMany,
+    ).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          effectiveFrom: {
+            lte: effectiveUntil,
+          },
+          OR: [
+            {
+              effectiveUntil: null,
+            },
+            {
+              effectiveUntil: {
+                gt: effectiveUntil,
+              },
+            },
+          ],
+        }),
+      }),
+    );
+  });
+
+  it('gives a Deputy only the explicitly delegated capability', async () => {
+    const prisma = createPrisma();
+
+    prisma.orgLeadershipAssignment.findMany.mockResolvedValue([
+      {
+        leadershipType: OrgLeadershipType.DEPUTY,
+        orgUnitId: 'unit-1',
+      },
+    ]);
+
+    prisma.delegatedPermission.findMany.mockImplementation(
+      async (args) =>
+        args.where.capability ===
+        CAPABILITIES.MEMBERSHIP_TRANSFER_INTERNAL
+          ? [
+              {
+                orgUnitId: 'unit-1',
+                includeDescendants: false,
+              },
+            ]
+          : [],
+    );
+
+    const service =
+      new OrganizationAuthorizationService(
+        prisma as unknown as PrismaService,
+      );
+
+    await expect(
+      service.can(
+        employeeUser,
+        CAPABILITIES.MEMBERSHIP_TRANSFER_INTERNAL,
+        'office-1',
+        'unit-1',
+      ),
+    ).resolves.toBe(true);
+
+    await expect(
+      service.can(
+        employeeUser,
+        CAPABILITIES.LEADERSHIP_ASSIGN,
+        'office-1',
+        'unit-1',
+      ),
+    ).resolves.toBe(false);
+  });
+
+  it('does not recognize an Office Head after primary Office membership ends', async () => {
+    const prisma = createPrisma();
+
+    prisma.orgMembership.findFirst.mockResolvedValue(null);
+    prisma.orgLeadershipAssignment.findFirst.mockResolvedValue({
+      id: 'stale-office-head',
+      effectiveUntil: null,
+    });
+
+    const service =
+      new OrganizationAuthorizationService(
+        prisma as unknown as PrismaService,
+      );
+
+    await expect(
+      service.isOfficeHead(
+        employeeUser,
+        'office-1',
+        new Date('2026-09-03T00:00:00.000Z'),
+      ),
+    ).resolves.toBe(false);
+
+    expect(
+      prisma.orgLeadershipAssignment.findFirst,
+    ).not.toHaveBeenCalled();
+  });
+
+  it('does not expose scoped OrgUnits for an inactive employee account', async () => {
+    const prisma = createPrisma();
+
+    prisma.account.findUnique.mockResolvedValue({
+      ...activeEmployeeAccount(),
+      isEnabled: false,
+    });
+
+    const service =
+      new OrganizationAuthorizationService(
+        prisma as unknown as PrismaService,
+      );
+
+    await expect(
+      service.visibleOrgUnitIds(
+        employeeUser,
+        CAPABILITIES.LEADERSHIP_VIEW,
+        'office-1',
+      ),
+    ).resolves.toEqual([]);
+
+    expect(
+      prisma.orgLeadershipAssignment.findMany,
+    ).not.toHaveBeenCalled();
+    expect(
+      prisma.delegatedPermission.findMany,
+    ).not.toHaveBeenCalled();
+  });
+
 });
