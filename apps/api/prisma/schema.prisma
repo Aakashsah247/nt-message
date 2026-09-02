@@ -367,6 +367,220 @@ enum DutyCoverageRequirementAction {
   RETIRED
 }
 
+enum OrgAssignmentSource {
+  MANUAL
+  ACCOUNT_PROVISIONING
+  TRANSFER
+  TEMPORARY_ASSIGNMENT
+  LEGACY_MIGRATION
+  SYSTEM
+}
+
+enum OrgMembershipType {
+  PRIMARY
+  SECONDARY
+  TEMPORARY
+}
+
+enum OrgLeadershipType {
+  OFFICE_HEAD
+  ORG_UNIT_HEAD
+  TEAM_LEAD
+  DEPUTY
+}
+
+model Office {
+  id        String   @id @default(uuid()) @db.Uuid
+  code      String   @unique @db.VarChar(50)
+  name      String   @db.VarChar(150)
+  nameKey   String   @unique @map("name_key") @db.VarChar(150)
+  isActive  Boolean  @default(true) @map("is_active")
+  sortOrder Int      @default(0) @map("sort_order")
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  orgUnitTypes          OrgUnitType[]
+  orgUnits              OrgUnit[]
+  memberships           OrgMembership[]
+  leadershipAssignments OrgLeadershipAssignment[]
+  delegatedPermissions DelegatedPermission[]
+
+  @@index([isActive, sortOrder], map: "offices_active_sort_idx")
+  @@map("offices")
+}
+
+model OrgUnitType {
+  id        String   @id @default(uuid()) @db.Uuid
+  officeId  String   @map("office_id") @db.Uuid
+  code      String   @db.VarChar(50)
+  name      String   @db.VarChar(100)
+  nameKey   String   @map("name_key") @db.VarChar(100)
+  isTeam    Boolean  @default(false) @map("is_team")
+  isActive  Boolean  @default(true) @map("is_active")
+  sortOrder Int      @default(0) @map("sort_order")
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  office   Office    @relation(fields: [officeId], references: [id], onDelete: Restrict)
+  orgUnits OrgUnit[]
+
+  @@unique([officeId, code], map: "org_unit_types_office_code_key")
+  @@unique([officeId, nameKey], map: "org_unit_types_office_name_key")
+  @@index([officeId, isActive, sortOrder], map: "org_unit_types_office_active_sort_idx")
+  @@map("org_unit_types")
+}
+
+model OrgUnit {
+  id              String   @id @default(uuid()) @db.Uuid
+  officeId        String   @map("office_id") @db.Uuid
+  orgUnitTypeId   String   @map("org_unit_type_id") @db.Uuid
+  parentOrgUnitId String?  @map("parent_org_unit_id") @db.Uuid
+  code            String   @db.VarChar(50)
+  name            String   @db.VarChar(150)
+  nameKey         String   @map("name_key") @db.VarChar(150)
+  isActive        Boolean  @default(true) @map("is_active")
+  sortOrder       Int      @default(0) @map("sort_order")
+  createdAt       DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt       DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  office      Office      @relation(fields: [officeId], references: [id], onDelete: Restrict)
+  orgUnitType OrgUnitType @relation(fields: [orgUnitTypeId], references: [id], onDelete: Restrict)
+
+  parentOrgUnit OrgUnit?  @relation("OrgUnitHierarchy", fields: [parentOrgUnitId], references: [id], onDelete: Restrict)
+  childOrgUnits OrgUnit[] @relation("OrgUnitHierarchy")
+
+  ancestorLinks         OrgUnitClosure[]            @relation("OrgUnitClosureDescendant")
+  descendantLinks       OrgUnitClosure[]            @relation("OrgUnitClosureAncestor")
+  memberships           OrgMembership[]
+  leadershipAssignments OrgLeadershipAssignment[]
+  delegatedPermissions DelegatedPermission[]
+
+  @@unique([officeId, code], map: "org_units_office_code_key")
+  @@index([officeId, parentOrgUnitId, isActive, sortOrder], map: "org_units_parent_active_sort_idx")
+  @@index([orgUnitTypeId, isActive], map: "org_units_type_active_idx")
+  @@index([nameKey], map: "org_units_name_key_idx")
+  @@map("org_units")
+}
+
+model OrgUnitClosure {
+  ancestorOrgUnitId   String @map("ancestor_org_unit_id") @db.Uuid
+  descendantOrgUnitId String @map("descendant_org_unit_id") @db.Uuid
+  depth               Int
+
+  ancestorOrgUnit   OrgUnit @relation("OrgUnitClosureAncestor", fields: [ancestorOrgUnitId], references: [id], onDelete: Cascade)
+  descendantOrgUnit OrgUnit @relation("OrgUnitClosureDescendant", fields: [descendantOrgUnitId], references: [id], onDelete: Cascade)
+
+  @@id([ancestorOrgUnitId, descendantOrgUnitId])
+  @@index([descendantOrgUnitId, ancestorOrgUnitId], map: "org_unit_closure_descendant_ancestor_idx")
+  @@index([ancestorOrgUnitId, depth], map: "org_unit_closure_ancestor_depth_idx")
+  @@map("org_unit_closure")
+}
+
+model OrgMembership {
+  id                  String            @id @default(uuid()) @db.Uuid
+  employeeId          String            @map("employee_id") @db.Uuid
+  officeId            String            @map("office_id") @db.Uuid
+  orgUnitId           String?           @map("org_unit_id") @db.Uuid
+  membershipType      OrgMembershipType  @map("membership_type")
+  assignmentSource    OrgAssignmentSource @default(MANUAL) @map("assignment_source")
+  startsAt            DateTime           @default(now()) @map("starts_at") @db.Timestamptz(3)
+  endsAt              DateTime?          @map("ends_at") @db.Timestamptz(3)
+  assignedByAccountId String?            @map("assigned_by_account_id") @db.Uuid
+  endedByAccountId    String?           @map("ended_by_account_id") @db.Uuid
+  assignmentReason    String?           @map("assignment_reason") @db.VarChar(500)
+  endReason           String?           @map("end_reason") @db.VarChar(500)
+  createdAt           DateTime          @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt           DateTime          @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  employee   Employee @relation(fields: [employeeId], references: [id], onDelete: Restrict)
+  office     Office   @relation(fields: [officeId], references: [id], onDelete: Restrict)
+  orgUnit    OrgUnit? @relation(fields: [orgUnitId], references: [id], onDelete: Restrict)
+
+  assignedBy Account? @relation("OrgMembershipsAssignedBy", fields: [assignedByAccountId], references: [id], onDelete: Restrict)
+  endedBy    Account? @relation("OrgMembershipsEndedBy", fields: [endedByAccountId], references: [id], onDelete: Restrict)
+
+  @@index([employeeId, membershipType, endsAt], map: "org_memberships_employee_type_ends_idx")
+  @@index([officeId, orgUnitId, endsAt], map: "org_memberships_office_unit_ends_idx")
+  @@index([assignedByAccountId], map: "org_memberships_assigned_by_idx")
+  @@index([endedByAccountId], map: "org_memberships_ended_by_idx")
+  @@index([startsAt], map: "org_memberships_starts_at_idx")
+  @@map("org_memberships")
+}
+
+model OrgLeadershipAssignment {
+  id                  String            @id @default(uuid()) @db.Uuid
+  employeeId          String            @map("employee_id") @db.Uuid
+  officeId            String            @map("office_id") @db.Uuid
+  orgUnitId           String?           @map("org_unit_id") @db.Uuid
+  leadershipType      OrgLeadershipType  @map("leadership_type")
+  assignmentSource    OrgAssignmentSource @default(MANUAL) @map("assignment_source")
+  isActing            Boolean            @default(false) @map("is_acting")
+  effectiveFrom       DateTime           @default(now()) @map("effective_from") @db.Timestamptz(3)
+  effectiveUntil      DateTime?          @map("effective_until") @db.Timestamptz(3)
+  assignedByAccountId String?            @map("assigned_by_account_id") @db.Uuid
+  endedByAccountId    String?           @map("ended_by_account_id") @db.Uuid
+  assignmentReason    String?           @map("assignment_reason") @db.VarChar(500)
+  endReason           String?           @map("end_reason") @db.VarChar(500)
+  createdAt           DateTime          @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt           DateTime          @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  employee Employee @relation(fields: [employeeId], references: [id], onDelete: Restrict)
+  office   Office   @relation(fields: [officeId], references: [id], onDelete: Restrict)
+  orgUnit  OrgUnit? @relation(fields: [orgUnitId], references: [id], onDelete: Restrict)
+
+  assignedBy Account? @relation("OrgLeadershipAssignmentsAssignedBy", fields: [assignedByAccountId], references: [id], onDelete: Restrict)
+  endedBy    Account? @relation("OrgLeadershipAssignmentsEndedBy", fields: [endedByAccountId], references: [id], onDelete: Restrict)
+
+  @@index([employeeId, effectiveUntil], map: "org_leadership_employee_effective_idx")
+  @@index([officeId, orgUnitId, leadershipType, effectiveUntil], map: "org_leadership_scope_type_effective_idx")
+  @@index([officeId, leadershipType, isActing, effectiveUntil], map: "org_leadership_office_type_acting_idx")
+  @@index([assignedByAccountId], map: "org_leadership_assigned_by_idx")
+  @@index([endedByAccountId], map: "org_leadership_ended_by_idx")
+  @@index([effectiveFrom, effectiveUntil], map: "org_leadership_effective_period_idx")
+  @@map("org_leadership_assignments")
+}
+
+
+model DelegatedPermission {
+  id String @id @default(uuid()) @db.Uuid
+
+  granteeAccountId String @map("grantee_account_id") @db.Uuid
+  officeId         String @map("office_id") @db.Uuid
+  orgUnitId        String? @map("org_unit_id") @db.Uuid
+
+  capability         String  @db.VarChar(100)
+  includeDescendants Boolean @default(false) @map("include_descendants")
+  canRedelegate      Boolean @default(false) @map("can_redelegate")
+
+  effectiveFrom  DateTime  @default(now()) @map("effective_from") @db.Timestamptz(3)
+  effectiveUntil DateTime? @map("effective_until") @db.Timestamptz(3)
+
+  grantedByAccountId String  @map("granted_by_account_id") @db.Uuid
+  revokedByAccountId String? @map("revoked_by_account_id") @db.Uuid
+  revokedAt          DateTime? @map("revoked_at") @db.Timestamptz(3)
+
+  grantReason  String  @map("grant_reason") @db.VarChar(500)
+  revokeReason String? @map("revoke_reason") @db.VarChar(500)
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  grantee   Account @relation("DelegatedPermissionsGrantedTo", fields: [granteeAccountId], references: [id], onDelete: Restrict)
+  office    Office  @relation(fields: [officeId], references: [id], onDelete: Restrict)
+  orgUnit   OrgUnit? @relation(fields: [orgUnitId], references: [id], onDelete: Restrict)
+
+  grantedBy Account  @relation("DelegatedPermissionsGrantedBy", fields: [grantedByAccountId], references: [id], onDelete: Restrict)
+  revokedBy Account? @relation("DelegatedPermissionsRevokedBy", fields: [revokedByAccountId], references: [id], onDelete: Restrict)
+
+  @@index([granteeAccountId, capability, revokedAt, effectiveUntil], map: "delegated_permissions_grantee_capability_active_idx")
+  @@index([officeId, orgUnitId, capability], map: "delegated_permissions_scope_capability_idx")
+  @@index([grantedByAccountId], map: "delegated_permissions_granted_by_idx")
+  @@index([revokedByAccountId], map: "delegated_permissions_revoked_by_idx")
+  @@index([effectiveFrom, effectiveUntil], map: "delegated_permissions_effective_period_idx")
+  @@index([revokedAt], map: "delegated_permissions_revoked_at_idx")
+  @@map("delegated_permissions")
+}
+
 model Division {
   id        String   @id @default(uuid()) @db.Uuid
   code      String   @unique @db.VarChar(50)
@@ -457,6 +671,9 @@ model Employee {
   division       Division?   @relation(fields: [divisionId], references: [id], onDelete: Restrict)
   departmentUnit Department? @relation(fields: [departmentId], references: [id], onDelete: Restrict)
 
+  orgMemberships          OrgMembership[]
+  orgLeadershipAssignments OrgLeadershipAssignment[]
+
   account               Account?
   otpVerifications      OtpVerification[]
   accountRequests       AccountRequest[]
@@ -496,7 +713,11 @@ model Account {
   createdAt              DateTime    @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt           DateTime    @updatedAt @map("updated_at") @db.Timestamptz(3)
 
-  employee                        Employee?                         @relation(fields: [employeeId], references: [id], onDelete: Restrict)
+  employee                         Employee?                  @relation(fields: [employeeId], references: [id], onDelete: Restrict)
+  orgMembershipsAssigned           OrgMembership[]            @relation("OrgMembershipsAssignedBy")
+  orgMembershipsEnded              OrgMembership[]            @relation("OrgMembershipsEndedBy")
+  orgLeadershipAssignmentsAssigned OrgLeadershipAssignment[]  @relation("OrgLeadershipAssignmentsAssignedBy")
+  orgLeadershipAssignmentsEnded    OrgLeadershipAssignment[]  @relation("OrgLeadershipAssignmentsEndedBy")
   sessions                        AuthSession[]
   messagingPushSubscriptions       MessagingPushSubscription[]
   submittedAccountRequests        AccountRequest[]                  @relation("AccountRequestsRequestedBy")
@@ -579,6 +800,9 @@ model Account {
   departmentTeamActivities        DepartmentTeamActivity[]          @relation("DepartmentTeamActivitiesActor")
   chatFolders                     ChatFolder[]
   chatFolderTargetItems           ChatFolderItem[]                  @relation("ChatFolderItemTargetAccount")
+  delegatedPermissionsReceived DelegatedPermission[] @relation("DelegatedPermissionsGrantedTo")
+  delegatedPermissionsGranted DelegatedPermission[] @relation("DelegatedPermissionsGrantedBy")
+  delegatedPermissionsRevoked DelegatedPermission[] @relation("DelegatedPermissionsRevokedBy")
 
   @@index([role], map: "accounts_role_idx")
   @@index([isEnabled], map: "accounts_is_enabled_idx")
