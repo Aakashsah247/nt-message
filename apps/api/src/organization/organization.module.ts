@@ -2,6 +2,8 @@ import { Module } from '@nestjs/common';
 
 import { AuthModule } from '../auth/auth.module';
 
+import { LegacyOrganizationCompatibilityService } from './legacy-organization-compatibility.service';
+
 import { OrganizationAuthorityService } from './organization-authority.service';
 import { OrganizationDelegationService } from './organization-delegation.service';
 import { OrganizationDelegationController } from './organization-delegation.controller';
@@ -27,6 +29,7 @@ import { PublicOrganizationController } from './public-organization.controller';
 
   providers: [
     OrganizationService,
+    LegacyOrganizationCompatibilityService,
     OrganizationAuthorityService,
     OrganizationAuthorizationService,
     OrganizationDelegationService,
@@ -36,6 +39,7 @@ import { PublicOrganizationController } from './public-organization.controller';
 
   exports: [
     OrganizationService,
+    LegacyOrganizationCompatibilityService,
     OrganizationAuthorityService,
     OrganizationAuthorizationService,
     OrganizationDelegationService,

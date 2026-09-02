@@ -404,6 +404,7 @@ model Office {
   memberships           OrgMembership[]
   leadershipAssignments OrgLeadershipAssignment[]
   delegatedPermissions DelegatedPermission[]
+  legacyOrgUnitMappings LegacyOrgUnitMapping[]
 
   @@index([isActive, sortOrder], map: "offices_active_sort_idx")
   @@map("offices")
@@ -454,6 +455,7 @@ model OrgUnit {
   memberships           OrgMembership[]
   leadershipAssignments OrgLeadershipAssignment[]
   delegatedPermissions DelegatedPermission[]
+  legacyOrgUnitMappings LegacyOrgUnitMapping[]
 
   @@unique([officeId, code], map: "org_units_office_code_key")
   @@index([officeId, parentOrgUnitId, isActive, sortOrder], map: "org_units_parent_active_sort_idx")
@@ -579,6 +581,24 @@ model DelegatedPermission {
   @@index([effectiveFrom, effectiveUntil], map: "delegated_permissions_effective_period_idx")
   @@index([revokedAt], map: "delegated_permissions_revoked_at_idx")
   @@map("delegated_permissions")
+}
+
+
+model LegacyOrgUnitMapping {
+  id               String @id @default(uuid()) @db.Uuid
+  officeId         String @map("office_id") @db.Uuid
+  legacyEntityType String @map("legacy_entity_type") @db.VarChar(30)
+  legacyEntityId   String @map("legacy_entity_id") @db.Uuid
+  orgUnitId        String @unique(map: "legacy_org_unit_mappings_org_unit_id_key") @map("org_unit_id") @db.Uuid
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  office  Office  @relation(fields: [officeId], references: [id], onDelete: Restrict)
+  orgUnit OrgUnit @relation(fields: [orgUnitId], references: [id], onDelete: Restrict)
+
+  @@unique([legacyEntityType, legacyEntityId], map: "legacy_org_unit_mappings_entity_key")
+  @@index([officeId, legacyEntityType], map: "legacy_org_unit_mappings_office_type_idx")
+  @@map("legacy_org_unit_mappings")
 }
 
 model Division {
