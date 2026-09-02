@@ -153,6 +153,30 @@ export class OrganizationDelegationService {
     }
 
     const orgUnitId = dto.orgUnitId ?? null;
+    const includeDescendants =
+      orgUnitId !== null && (dto.includeDescendants ?? false);
+    const now = new Date();
+    const effectiveFrom = this.parseDate(
+      dto.effectiveFrom,
+      'Effective start time',
+      now,
+    );
+    const effectiveUntil = dto.effectiveUntil
+      ? this.parseDate(
+          dto.effectiveUntil,
+          'Effective end time',
+          effectiveFrom,
+        )
+      : null;
+
+    if (
+      effectiveUntil &&
+      effectiveUntil.getTime() <= effectiveFrom.getTime()
+    ) {
+      throw new BadRequestException(
+        'Effective end time must be later than the start time.',
+      );
+    }
 
     if (orgUnitId) {
       const orgUnit = await this.prisma.orgUnit.findFirst({
@@ -179,6 +203,9 @@ export class OrganizationDelegationService {
         dto.capability,
         officeId,
         orgUnitId,
+        includeDescendants,
+        effectiveFrom,
+        effectiveUntil,
       ))
     ) {
       throw new ForbiddenException(
@@ -207,31 +234,6 @@ export class OrganizationDelegationService {
     if (grantee.role === AccountRole.SUPER_ADMIN) {
       throw new ForbiddenException(
         'The system administrator cannot receive office delegation.',
-      );
-    }
-
-    const now = new Date();
-
-    const effectiveFrom = this.parseDate(
-      dto.effectiveFrom,
-      'Effective start time',
-      now,
-    );
-
-    const effectiveUntil = dto.effectiveUntil
-      ? this.parseDate(
-          dto.effectiveUntil,
-          'Effective end time',
-          effectiveFrom,
-        )
-      : null;
-
-    if (
-      effectiveUntil &&
-      effectiveUntil.getTime() <= effectiveFrom.getTime()
-    ) {
-      throw new BadRequestException(
-        'Effective end time must be later than the start time.',
       );
     }
 
@@ -310,9 +312,7 @@ export class OrganizationDelegationService {
           officeId,
           orgUnitId,
           capability: dto.capability,
-          includeDescendants:
-            orgUnitId !== null &&
-            (dto.includeDescendants ?? false),
+          includeDescendants,
           canRedelegate: dto.canRedelegate ?? false,
           effectiveFrom,
           effectiveUntil,

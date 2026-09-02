@@ -277,42 +277,13 @@ export class OrganizationAuthorizationService {
     officeId: string,
     at = new Date(),
   ): Promise<boolean> {
-    const account = await this.resolveAccount(user.accountId);
-
-    if (
-      !account?.isEnabled ||
-      account.role === AccountRole.SUPER_ADMIN ||
-      !account.employee
-    ) {
-      return false;
-    }
-
-    const assignment =
-      await this.prisma.orgLeadershipAssignment.findFirst({
-        where: {
-          employeeId: account.employee.id,
-          officeId,
-          leadershipType: OrgLeadershipType.OFFICE_HEAD,
-          effectiveFrom: {
-            lte: at,
-          },
-          OR: [
-            {
-              effectiveUntil: null,
-            },
-            {
-              effectiveUntil: {
-                gt: at,
-              },
-            },
-          ],
-        },
-        select: {
-          id: true,
-        },
-      });
-
-    return Boolean(assignment);
+    return Boolean(
+      await this.resolveActiveOfficeHeadAssignment(
+        user,
+        officeId,
+        at,
+      ),
+    );
   }
 
   async canRedelegate(
@@ -320,10 +291,52 @@ export class OrganizationAuthorizationService {
     capability: Capability,
     officeId: string,
     orgUnitId: string | null,
-    at = new Date(),
+    requestedIncludeDescendants = false,
+    requestedEffectiveFrom = new Date(),
+    requestedEffectiveUntil: Date | null = null,
   ): Promise<boolean> {
-    if (await this.isOfficeHead(user, officeId, at)) {
-      return OFFICE_HEAD_CAPABILITIES.has(capability);
+    if (
+      requestedEffectiveUntil &&
+      requestedEffectiveUntil.getTime() <=
+        requestedEffectiveFrom.getTime()
+    ) {
+      return false;
+    }
+
+    if (
+      !(await this.can(
+        user,
+        capability,
+        officeId,
+        orgUnitId,
+        requestedEffectiveFrom,
+      ))
+    ) {
+      return false;
+    }
+
+    const officeHead =
+      await this.resolveActiveOfficeHeadAssignment(
+        user,
+        officeId,
+        requestedEffectiveFrom,
+      );
+
+    if (officeHead) {
+      if (!OFFICE_HEAD_CAPABILITIES.has(capability)) {
+        return false;
+      }
+
+      if (
+        officeHead.effectiveUntil &&
+        (!requestedEffectiveUntil ||
+          requestedEffectiveUntil.getTime() >
+            officeHead.effectiveUntil.getTime())
+      ) {
+        return false;
+      }
+
+      return true;
     }
 
     if (user.role === AccountRole.SUPER_ADMIN) {
@@ -339,7 +352,7 @@ export class OrganizationAuthorizationService {
           canRedelegate: true,
           revokedAt: null,
           effectiveFrom: {
-            lte: at,
+            lte: requestedEffectiveFrom,
           },
           OR: [
             {
@@ -347,7 +360,7 @@ export class OrganizationAuthorizationService {
             },
             {
               effectiveUntil: {
-                gt: at,
+                gt: requestedEffectiveFrom,
               },
             },
           ],
@@ -355,19 +368,40 @@ export class OrganizationAuthorizationService {
         select: {
           orgUnitId: true,
           includeDescendants: true,
+          effectiveUntil: true,
         },
       });
 
     for (const grant of grants) {
-      if (
+      const scopeCovered =
         await this.orgUnitScopeCovers(
           grant.orgUnitId,
           orgUnitId,
           grant.includeDescendants,
-        )
-      ) {
-        return true;
+        );
+
+      if (!scopeCovered) {
+        continue;
       }
+
+      if (
+        requestedIncludeDescendants &&
+        grant.orgUnitId !== null &&
+        !grant.includeDescendants
+      ) {
+        continue;
+      }
+
+      if (
+        grant.effectiveUntil &&
+        (!requestedEffectiveUntil ||
+          requestedEffectiveUntil.getTime() >
+            grant.effectiveUntil.getTime())
+      ) {
+        continue;
+      }
+
+      return true;
     }
 
     return false;
@@ -563,6 +597,51 @@ export class OrganizationAuthorizationService {
       });
 
     return Boolean(relation);
+  }
+
+  private async resolveActiveOfficeHeadAssignment(
+    user: AuthenticatedUser,
+    officeId: string,
+    at: Date,
+  ) {
+    const account = await this.resolveAccount(user.accountId);
+
+    if (
+      !account?.isEnabled ||
+      account.role === AccountRole.SUPER_ADMIN ||
+      !account.employee ||
+      account.employee.status !== EmployeeStatus.ACTIVE ||
+      account.employee.employmentStatus !==
+        EmploymentStatus.ACTIVE ||
+      account.employee.archivedAt !== null
+    ) {
+      return null;
+    }
+
+    return this.prisma.orgLeadershipAssignment.findFirst({
+      where: {
+        employeeId: account.employee.id,
+        officeId,
+        leadershipType: OrgLeadershipType.OFFICE_HEAD,
+        effectiveFrom: {
+          lte: at,
+        },
+        OR: [
+          {
+            effectiveUntil: null,
+          },
+          {
+            effectiveUntil: {
+              gt: at,
+            },
+          },
+        ],
+      },
+      select: {
+        id: true,
+        effectiveUntil: true,
+      },
+    });
   }
 
   private resolveAccount(accountId: string) {

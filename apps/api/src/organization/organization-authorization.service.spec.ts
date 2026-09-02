@@ -309,4 +309,131 @@ describe('OrganizationAuthorizationService', () => {
       ),
     ).resolves.toBe(true);
   });
+
+  it('does not let an exact-scope grant expand into descendant scope', async () => {
+    const prisma = createPrisma();
+
+    prisma.delegatedPermission.findMany.mockResolvedValue([
+      {
+        orgUnitId: 'unit-1',
+        includeDescendants: false,
+        effectiveUntil: null,
+      },
+    ]);
+
+    const service =
+      new OrganizationAuthorizationService(
+        prisma as unknown as PrismaService,
+      );
+
+    await expect(
+      service.canRedelegate(
+        employeeUser,
+        CAPABILITIES.ORGANIZATION_RENAME_UNIT,
+        'office-1',
+        'unit-1',
+        true,
+        new Date('2026-09-03T00:00:00.000Z'),
+        null,
+      ),
+    ).resolves.toBe(false);
+  });
+
+  it('allows descendant redelegation only from an existing subtree grant', async () => {
+    const prisma = createPrisma();
+
+    prisma.delegatedPermission.findMany.mockResolvedValue([
+      {
+        orgUnitId: 'unit-1',
+        includeDescendants: true,
+        effectiveUntil: null,
+      },
+    ]);
+
+    prisma.orgUnitClosure.findUnique.mockResolvedValue({
+      depth: 1,
+    });
+
+    const service =
+      new OrganizationAuthorizationService(
+        prisma as unknown as PrismaService,
+      );
+
+    await expect(
+      service.canRedelegate(
+        employeeUser,
+        CAPABILITIES.ORGANIZATION_RENAME_UNIT,
+        'office-1',
+        'child-1',
+        true,
+        new Date('2026-09-03T00:00:00.000Z'),
+        null,
+      ),
+    ).resolves.toBe(true);
+  });
+
+  it('does not let a finite delegated grant create authority beyond its expiry', async () => {
+    const prisma = createPrisma();
+
+    prisma.delegatedPermission.findMany.mockResolvedValue([
+      {
+        orgUnitId: 'unit-1',
+        includeDescendants: false,
+        effectiveUntil: new Date(
+          '2026-09-05T00:00:00.000Z',
+        ),
+      },
+    ]);
+
+    const service =
+      new OrganizationAuthorizationService(
+        prisma as unknown as PrismaService,
+      );
+
+    await expect(
+      service.canRedelegate(
+        employeeUser,
+        CAPABILITIES.ORGANIZATION_RENAME_UNIT,
+        'office-1',
+        'unit-1',
+        false,
+        new Date('2026-09-04T00:00:00.000Z'),
+        null,
+      ),
+    ).resolves.toBe(false);
+  });
+
+  it('does not let a temporary Office Head delegate beyond the leadership period', async () => {
+    const prisma = createPrisma();
+
+    prisma.orgLeadershipAssignment.findMany.mockResolvedValue([
+      {
+        leadershipType: OrgLeadershipType.OFFICE_HEAD,
+        orgUnitId: null,
+      },
+    ]);
+
+    prisma.orgLeadershipAssignment.findFirst.mockResolvedValue({
+      id: 'acting-office-head',
+      effectiveUntil: new Date('2026-09-05T00:00:00.000Z'),
+    });
+
+    const service =
+      new OrganizationAuthorizationService(
+        prisma as unknown as PrismaService,
+      );
+
+    await expect(
+      service.canRedelegate(
+        employeeUser,
+        CAPABILITIES.ORGANIZATION_RENAME_UNIT,
+        'office-1',
+        'unit-1',
+        false,
+        new Date('2026-09-04T00:00:00.000Z'),
+        new Date('2026-09-06T00:00:00.000Z'),
+      ),
+    ).resolves.toBe(false);
+  });
+
 });
