@@ -23,13 +23,16 @@ import { AssignOrgMembershipDto } from './dto/assign-org-membership.dto';
 import { EndOrgLeadershipDto } from './dto/end-org-leadership.dto';
 import { EndOrgMembershipDto } from './dto/end-org-membership.dto';
 import { TransferPrimaryMembershipDto } from './dto/transfer-primary-membership.dto';
+import { CAPABILITIES } from './organization-capabilities';
 import { OrganizationAuthorityService } from './organization-authority.service';
+import { OrganizationAuthorizationService } from './organization-authorization.service';
 
 @Injectable()
 export class OrganizationPeopleService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly authority: OrganizationAuthorityService,
+    private readonly authorization: OrganizationAuthorizationService,
   ) {}
 
   private normalizeReason(value: string): string {
@@ -309,11 +312,21 @@ export class OrganizationPeopleService {
     officeId: string,
     dto: AssignOrgMembershipDto,
   ) {
-    await this.authority.assertOfficeHead(user, officeId);
     await this.assertOfficeActive(officeId);
 
     const employee = await this.getEligibleEmployee(dto.employeeId);
     const orgUnitId = dto.orgUnitId ?? null;
+    const capability =
+      dto.membershipType === OrgMembershipType.PRIMARY
+        ? CAPABILITIES.MEMBERSHIP_TRANSFER_INTERNAL
+        : CAPABILITIES.MEMBERSHIP_ASSIGN_SECONDARY;
+
+    await this.authorization.assertCan(
+      user,
+      capability,
+      officeId,
+      orgUnitId,
+    );
 
     await this.validateOrgUnit(officeId, orgUnitId);
 
@@ -441,13 +454,50 @@ export class OrganizationPeopleService {
     officeId: string,
     dto: TransferPrimaryMembershipDto,
   ) {
-    await this.authority.assertOfficeHead(user, officeId);
     await this.assertOfficeActive(officeId);
 
     const employee = await this.getEligibleEmployee(dto.employeeId);
     const targetOrgUnitId = dto.orgUnitId ?? null;
 
     await this.validateOrgUnit(officeId, targetOrgUnitId);
+
+    const currentScope = await this.prisma.orgMembership.findFirst({
+      where: {
+        employeeId: employee.id,
+        membershipType: OrgMembershipType.PRIMARY,
+        endsAt: null,
+      },
+      select: {
+        officeId: true,
+        orgUnitId: true,
+      },
+    });
+
+    if (!currentScope) {
+      throw new ConflictException(
+        'This employee does not have an open primary placement.',
+      );
+    }
+
+    if (currentScope.officeId !== officeId) {
+      throw new ConflictException(
+        'Cross-office transfer requires the dedicated office-transfer workflow.',
+      );
+    }
+
+    await this.authorization.assertCan(
+      user,
+      CAPABILITIES.MEMBERSHIP_TRANSFER_INTERNAL,
+      officeId,
+      currentScope.orgUnitId,
+    );
+
+    await this.authorization.assertCan(
+      user,
+      CAPABILITIES.MEMBERSHIP_TRANSFER_INTERNAL,
+      officeId,
+      targetOrgUnitId,
+    );
 
     const now = new Date();
     const effectiveAt = this.parseDate(
@@ -550,8 +600,6 @@ export class OrganizationPeopleService {
     membershipId: string,
     dto: EndOrgMembershipDto,
   ) {
-    await this.authority.assertOfficeHead(user, officeId);
-
     const existing = await this.prisma.orgMembership.findFirst({
       where: {
         id: membershipId,
@@ -559,6 +607,7 @@ export class OrganizationPeopleService {
       },
       select: {
         id: true,
+        orgUnitId: true,
         membershipType: true,
         startsAt: true,
         endsAt: true,
@@ -568,6 +617,13 @@ export class OrganizationPeopleService {
     if (!existing) {
       throw new NotFoundException('Employee placement was not found.');
     }
+
+    await this.authorization.assertCan(
+      user,
+      CAPABILITIES.MEMBERSHIP_ASSIGN_SECONDARY,
+      officeId,
+      existing.orgUnitId,
+    );
 
     if (existing.membershipType === OrgMembershipType.PRIMARY) {
       throw new ConflictException(
@@ -824,12 +880,23 @@ export class OrganizationPeopleService {
     officeId: string,
     dto: AssignOrgLeadershipDto,
   ) {
-    await this.authority.assertOfficeHead(user, officeId);
     await this.assertOfficeActive(officeId);
 
     const employee = await this.getEligibleEmployee(dto.employeeId);
     const orgUnitId = dto.orgUnitId ?? null;
     const isActing = dto.isActing ?? false;
+    const leadershipCapability = isActing
+      ? CAPABILITIES.LEADERSHIP_ASSIGN_ACTING
+      : dto.leadershipType === OrgLeadershipType.DEPUTY
+        ? CAPABILITIES.LEADERSHIP_ASSIGN_DEPUTY
+        : CAPABILITIES.LEADERSHIP_ASSIGN;
+
+    await this.authorization.assertCan(
+      user,
+      leadershipCapability,
+      officeId,
+      orgUnitId,
+    );
 
     const effectiveFrom = this.parseDate(
       dto.effectiveFrom,
@@ -993,6 +1060,7 @@ export class OrganizationPeopleService {
         select: {
           id: true,
           employeeId: true,
+          orgUnitId: true,
           leadershipType: true,
           isActing: true,
           effectiveFrom: true,
@@ -1012,7 +1080,18 @@ export class OrganizationPeopleService {
     ) {
       this.authority.assertPlatformAdmin(user);
     } else {
-      await this.authority.assertOfficeHead(user, officeId);
+      const leadershipCapability = assignment.isActing
+        ? CAPABILITIES.LEADERSHIP_ASSIGN_ACTING
+        : assignment.leadershipType === OrgLeadershipType.DEPUTY
+          ? CAPABILITIES.LEADERSHIP_ASSIGN_DEPUTY
+          : CAPABILITIES.LEADERSHIP_ASSIGN;
+
+      await this.authorization.assertCan(
+        user,
+        leadershipCapability,
+        officeId,
+        assignment.orgUnitId,
+      );
     }
 
     if (assignment.effectiveUntil) {

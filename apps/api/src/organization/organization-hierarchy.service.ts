@@ -16,13 +16,16 @@ import { MoveOrgUnitDto } from './dto/move-org-unit.dto';
 import { SetOrgUnitStatusDto } from './dto/set-org-unit-status.dto';
 import { UpdateOrgUnitDto } from './dto/update-org-unit.dto';
 import { UpdateOrgUnitTypeDto } from './dto/update-org-unit-type.dto';
+import { CAPABILITIES } from './organization-capabilities';
 import { OrganizationAuthorityService } from './organization-authority.service';
+import { OrganizationAuthorizationService } from './organization-authorization.service';
 
 @Injectable()
 export class OrganizationHierarchyService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly authority: OrganizationAuthorityService,
+    private readonly authorization: OrganizationAuthorizationService,
   ) {}
 
   private normalizeCode(value: string): string {
@@ -231,7 +234,12 @@ export class OrganizationHierarchyService {
     officeId: string,
     dto: CreateOrgUnitTypeDto,
   ) {
-    await this.authority.assertOfficeHead(user, officeId);
+    await this.authorization.assertCan(
+      user,
+      CAPABILITIES.ORGANIZATION_CREATE_UNIT,
+      officeId,
+      null,
+    );
 
     const code = this.normalizeCode(dto.code);
     const name = this.normalizeName(dto.name);
@@ -269,7 +277,21 @@ export class OrganizationHierarchyService {
     typeId: string,
     dto: UpdateOrgUnitTypeDto,
   ) {
-    await this.authority.assertOfficeHead(user, officeId);
+    await this.authorization.assertCan(
+      user,
+      CAPABILITIES.ORGANIZATION_RENAME_UNIT,
+      officeId,
+      null,
+    );
+
+    if (dto.isActive !== undefined) {
+      await this.authorization.assertCan(
+        user,
+        CAPABILITIES.ORGANIZATION_DEACTIVATE_UNIT,
+        officeId,
+        null,
+      );
+    }
 
     const existing = await this.prisma.orgUnitType.findFirst({
       where: {
@@ -352,15 +374,12 @@ export class OrganizationHierarchyService {
     officeId: string,
     dto: CreateOrgUnitDto,
   ) {
-    if (dto.parentOrgUnitId) {
-      await this.authority.assertCanManageOrgUnit(
-        user,
-        officeId,
-        dto.parentOrgUnitId,
-      );
-    } else {
-      await this.authority.assertOfficeHead(user, officeId);
-    }
+    await this.authorization.assertCan(
+      user,
+      CAPABILITIES.ORGANIZATION_CREATE_UNIT,
+      officeId,
+      dto.parentOrgUnitId ?? null,
+    );
 
     const code = this.normalizeCode(dto.code);
     const name = this.normalizeName(dto.name);
@@ -478,8 +497,9 @@ export class OrganizationHierarchyService {
       unitId,
     );
 
-    await this.authority.assertCanManageOrgUnit(
+    await this.authorization.assertCan(
       user,
+      CAPABILITIES.ORGANIZATION_RENAME_UNIT,
       officeId,
       unitId,
     );
@@ -544,8 +564,9 @@ export class OrganizationHierarchyService {
       unitId,
     );
 
-    await this.authority.assertCanManageOrgUnit(
+    await this.authorization.assertCan(
       user,
+      CAPABILITIES.ORGANIZATION_MOVE_UNIT,
       officeId,
       unitId,
     );
@@ -574,15 +595,18 @@ export class OrganizationHierarchyService {
         );
       }
 
-      await this.authority.assertCanManageOrgUnit(
+      await this.authorization.assertCan(
         user,
+        CAPABILITIES.ORGANIZATION_MOVE_UNIT,
         officeId,
         newParentId,
       );
     } else {
-      await this.authority.assertOfficeHead(
+      await this.authorization.assertCan(
         user,
+        CAPABILITIES.ORGANIZATION_MOVE_UNIT,
         officeId,
+        null,
       );
     }
 
@@ -704,8 +728,9 @@ export class OrganizationHierarchyService {
       unitId,
     );
 
-    await this.authority.assertCanManageOrgUnit(
+    await this.authorization.assertCan(
       user,
+      CAPABILITIES.ORGANIZATION_DEACTIVATE_UNIT,
       officeId,
       unitId,
     );

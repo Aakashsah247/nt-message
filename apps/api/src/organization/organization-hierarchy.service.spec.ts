@@ -1,10 +1,16 @@
-import { BadRequestException, ConflictException } from '@nestjs/common';
+import {
+  BadRequestException,
+  ConflictException,
+  ForbiddenException,
+} from '@nestjs/common';
 
 import type { AuthenticatedUser } from '../auth/types/auth.types';
 import { PrismaService } from '../database/prisma.service';
 import { AccountRole } from '../generated/prisma/client';
 
+import { CAPABILITIES } from './organization-capabilities';
 import { OrganizationAuthorityService } from './organization-authority.service';
+import { OrganizationAuthorizationService } from './organization-authorization.service';
 import { OrganizationHierarchyService } from './organization-hierarchy.service';
 
 describe('OrganizationHierarchyService', () => {
@@ -68,10 +74,15 @@ describe('OrganizationHierarchyService', () => {
       assertOfficeHead: jest.fn(),
     } as unknown as OrganizationAuthorityService;
 
+    const authorization = {
+      assertCan: jest.fn().mockResolvedValue(undefined),
+    } as unknown as OrganizationAuthorizationService;
+
     const service =
       new OrganizationHierarchyService(
         prisma,
         authority,
+        authorization,
       );
 
     await service.createOrgUnit(
@@ -83,6 +94,13 @@ describe('OrganizationHierarchyService', () => {
         code: 'child',
         name: 'Child',
       },
+    );
+
+    expect(authorization.assertCan).toHaveBeenCalledWith(
+      user,
+      CAPABILITIES.ORGANIZATION_CREATE_UNIT,
+      'office-1',
+      'parent-1',
     );
 
     expect(
@@ -155,10 +173,15 @@ describe('OrganizationHierarchyService', () => {
       assertOfficeHead: jest.fn(),
     } as unknown as OrganizationAuthorityService;
 
+    const authorization = {
+      assertCan: jest.fn().mockResolvedValue(undefined),
+    } as unknown as OrganizationAuthorizationService;
+
     const service =
       new OrganizationHierarchyService(
         prisma,
         authority,
+        authorization,
       );
 
     await expect(
@@ -203,10 +226,15 @@ describe('OrganizationHierarchyService', () => {
       assertOfficeHead: jest.fn(),
     } as unknown as OrganizationAuthorityService;
 
+    const authorization = {
+      assertCan: jest.fn().mockResolvedValue(undefined),
+    } as unknown as OrganizationAuthorizationService;
+
     const service =
       new OrganizationHierarchyService(
         prisma,
         authority,
+        authorization,
       );
 
     await expect(
@@ -253,10 +281,15 @@ describe('OrganizationHierarchyService', () => {
       assertOfficeHead: jest.fn(),
     } as unknown as OrganizationAuthorityService;
 
+    const authorization = {
+      assertCan: jest.fn().mockResolvedValue(undefined),
+    } as unknown as OrganizationAuthorizationService;
+
     const service =
       new OrganizationHierarchyService(
         prisma,
         authority,
+        authorization,
       );
 
     await expect(
@@ -270,6 +303,52 @@ describe('OrganizationHierarchyService', () => {
       ),
     ).rejects.toBeInstanceOf(BadRequestException);
 
+    expect(prisma.$transaction).not.toHaveBeenCalled();
+  });
+
+  it('does not fall back to legacy hierarchy authority when central authorization denies', async () => {
+    const prisma = {
+      $transaction: jest.fn(),
+    } as unknown as PrismaService;
+
+    const authority = {
+      assertCanManageOrgUnit: jest
+        .fn()
+        .mockResolvedValue(undefined),
+      assertOfficeHead: jest
+        .fn()
+        .mockResolvedValue(undefined),
+    } as unknown as OrganizationAuthorityService;
+
+    const authorization = {
+      assertCan: jest
+        .fn()
+        .mockRejectedValue(new ForbiddenException()),
+    } as unknown as OrganizationAuthorizationService;
+
+    const service = new OrganizationHierarchyService(
+      prisma,
+      authority,
+      authorization,
+    );
+
+    await expect(
+      service.createOrgUnit(user, 'office-1', {
+        orgUnitTypeId: 'type-1',
+        parentOrgUnitId: 'team-1',
+        code: 'child',
+        name: 'Child',
+      }),
+    ).rejects.toBeInstanceOf(ForbiddenException);
+
+    expect(authorization.assertCan).toHaveBeenCalledWith(
+      user,
+      CAPABILITIES.ORGANIZATION_CREATE_UNIT,
+      'office-1',
+      'team-1',
+    );
+    expect(authority.assertCanManageOrgUnit).not.toHaveBeenCalled();
+    expect(authority.assertOfficeHead).not.toHaveBeenCalled();
     expect(prisma.$transaction).not.toHaveBeenCalled();
   });
 });

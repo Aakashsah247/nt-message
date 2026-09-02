@@ -227,4 +227,86 @@ describe('OrganizationAuthorizationService', () => {
       ),
     ).resolves.toBe(true);
   });
+
+  it('does not grant Team Lead structural mutation', async () => {
+    const prisma = createPrisma();
+
+    prisma.orgLeadershipAssignment.findMany.mockResolvedValue([
+      {
+        leadershipType: OrgLeadershipType.TEAM_LEAD,
+        orgUnitId: 'team-1',
+      },
+    ]);
+
+    const service =
+      new OrganizationAuthorizationService(
+        prisma as unknown as PrismaService,
+      );
+
+    await expect(
+      service.can(
+        employeeUser,
+        CAPABILITIES.ORGANIZATION_RENAME_UNIT,
+        'office-1',
+        'team-1',
+      ),
+    ).resolves.toBe(false);
+  });
+
+  it('does not grant Org Unit Head structural mutation without delegation', async () => {
+    const prisma = createPrisma();
+
+    prisma.orgLeadershipAssignment.findMany.mockResolvedValue([
+      {
+        leadershipType: OrgLeadershipType.ORG_UNIT_HEAD,
+        orgUnitId: 'unit-1',
+      },
+    ]);
+
+    const service =
+      new OrganizationAuthorizationService(
+        prisma as unknown as PrismaService,
+      );
+
+    await expect(
+      service.can(
+        employeeUser,
+        CAPABILITIES.ORGANIZATION_RENAME_UNIT,
+        'office-1',
+        'unit-1',
+      ),
+    ).resolves.toBe(false);
+  });
+
+  it('allows an explicitly delegated structural mutation within scope', async () => {
+    const prisma = createPrisma();
+
+    prisma.orgLeadershipAssignment.findMany.mockResolvedValue([
+      {
+        leadershipType: OrgLeadershipType.ORG_UNIT_HEAD,
+        orgUnitId: 'unit-1',
+      },
+    ]);
+
+    prisma.delegatedPermission.findMany.mockResolvedValue([
+      {
+        orgUnitId: 'unit-1',
+        includeDescendants: false,
+      },
+    ]);
+
+    const service =
+      new OrganizationAuthorizationService(
+        prisma as unknown as PrismaService,
+      );
+
+    await expect(
+      service.can(
+        employeeUser,
+        CAPABILITIES.ORGANIZATION_RENAME_UNIT,
+        'office-1',
+        'unit-1',
+      ),
+    ).resolves.toBe(true);
+  });
 });

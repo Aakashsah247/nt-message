@@ -14,7 +14,9 @@ import {
   OrgMembershipType,
 } from '../generated/prisma/client';
 
+import { CAPABILITIES } from './organization-capabilities';
 import { OrganizationAuthorityService } from './organization-authority.service';
+import { OrganizationAuthorizationService } from './organization-authorization.service';
 import { OrganizationPeopleService } from './organization-people.service';
 
 describe('OrganizationPeopleService', () => {
@@ -97,10 +99,15 @@ describe('OrganizationPeopleService', () => {
       assertPlatformAdmin: jest.fn(),
     } as unknown as OrganizationAuthorityService;
 
+    const authorization = {
+      assertCan: jest.fn().mockResolvedValue(undefined),
+    } as unknown as OrganizationAuthorizationService;
+
     const service =
       new OrganizationPeopleService(
         prisma,
         authority,
+        authorization,
       );
 
     const result = await service.assignOfficeHead(
@@ -169,10 +176,15 @@ describe('OrganizationPeopleService', () => {
         .mockResolvedValue(undefined),
     } as unknown as OrganizationAuthorityService;
 
+    const authorization = {
+      assertCan: jest.fn().mockResolvedValue(undefined),
+    } as unknown as OrganizationAuthorizationService;
+
     const service =
       new OrganizationPeopleService(
         prisma,
         authority,
+        authorization,
       );
 
     await expect(
@@ -223,10 +235,15 @@ describe('OrganizationPeopleService', () => {
         .mockResolvedValue(undefined),
     } as unknown as OrganizationAuthorityService;
 
+    const authorization = {
+      assertCan: jest.fn().mockResolvedValue(undefined),
+    } as unknown as OrganizationAuthorizationService;
+
     const service =
       new OrganizationPeopleService(
         prisma,
         authority,
+        authorization,
       );
 
     await expect(
@@ -294,6 +311,12 @@ describe('OrganizationPeopleService', () => {
           },
         }),
       },
+      orgMembership: {
+        findFirst: jest.fn().mockResolvedValue({
+          officeId: 'office-1',
+          orgUnitId: 'old-unit',
+        }),
+      },
       $transaction: jest.fn(
         async (
           callback: (
@@ -309,10 +332,15 @@ describe('OrganizationPeopleService', () => {
         .mockResolvedValue(undefined),
     } as unknown as OrganizationAuthorityService;
 
+    const authorization = {
+      assertCan: jest.fn().mockResolvedValue(undefined),
+    } as unknown as OrganizationAuthorizationService;
+
     const service =
       new OrganizationPeopleService(
         prisma,
         authority,
+        authorization,
       );
 
     await service.transferPrimaryMembership(
@@ -323,6 +351,22 @@ describe('OrganizationPeopleService', () => {
         orgUnitId: 'new-unit',
         reason: 'Internal organizational transfer',
       },
+    );
+
+    expect(authorization.assertCan).toHaveBeenNthCalledWith(
+      1,
+      officeHeadUser,
+      CAPABILITIES.MEMBERSHIP_TRANSFER_INTERNAL,
+      'office-1',
+      'old-unit',
+    );
+
+    expect(authorization.assertCan).toHaveBeenNthCalledWith(
+      2,
+      officeHeadUser,
+      CAPABILITIES.MEMBERSHIP_TRANSFER_INTERNAL,
+      'office-1',
+      'new-unit',
     );
 
     expect(
