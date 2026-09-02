@@ -1,4 +1,4 @@
-import { ConflictException } from '@nestjs/common';
+import { BadRequestException, ConflictException } from '@nestjs/common';
 
 import type { AuthenticatedUser } from '../auth/types/auth.types';
 import { PrismaService } from '../database/prisma.service';
@@ -171,5 +171,105 @@ describe('OrganizationHierarchyService', () => {
         },
       ),
     ).rejects.toBeInstanceOf(ConflictException);
+  });
+
+  it('rejects creating a child under a parent from another Office', async () => {
+    const transaction = {
+      orgUnitType: {
+        findFirst: jest.fn().mockResolvedValue({
+          id: 'type-1',
+        }),
+      },
+      orgUnit: {
+        findFirst: jest.fn().mockResolvedValue(null),
+        create: jest.fn(),
+      },
+    };
+
+    const prisma = {
+      $transaction: jest.fn(
+        async (
+          callback: (
+            tx: typeof transaction,
+          ) => Promise<unknown>,
+        ) => callback(transaction),
+      ),
+    } as unknown as PrismaService;
+
+    const authority = {
+      assertCanManageOrgUnit: jest
+        .fn()
+        .mockResolvedValue(undefined),
+      assertOfficeHead: jest.fn(),
+    } as unknown as OrganizationAuthorityService;
+
+    const service =
+      new OrganizationHierarchyService(
+        prisma,
+        authority,
+      );
+
+    await expect(
+      service.createOrgUnit(
+        user,
+        'office-1',
+        {
+          orgUnitTypeId: 'type-1',
+          parentOrgUnitId: 'foreign-office-parent',
+          code: 'child',
+          name: 'Child',
+        },
+      ),
+    ).rejects.toBeInstanceOf(BadRequestException);
+
+    expect(
+      transaction.orgUnit.create,
+    ).not.toHaveBeenCalled();
+  });
+
+  it('rejects moving a unit beneath a parent from another Office', async () => {
+    const orgUnitFindFirst = jest
+      .fn()
+      .mockResolvedValueOnce({
+        id: 'unit-1',
+        officeId: 'office-1',
+        parentOrgUnitId: null,
+        orgUnitTypeId: 'type-1',
+        isActive: true,
+      })
+      .mockResolvedValueOnce(null);
+
+    const prisma = {
+      orgUnit: {
+        findFirst: orgUnitFindFirst,
+      },
+      $transaction: jest.fn(),
+    } as unknown as PrismaService;
+
+    const authority = {
+      assertCanManageOrgUnit: jest
+        .fn()
+        .mockResolvedValue(undefined),
+      assertOfficeHead: jest.fn(),
+    } as unknown as OrganizationAuthorityService;
+
+    const service =
+      new OrganizationHierarchyService(
+        prisma,
+        authority,
+      );
+
+    await expect(
+      service.moveOrgUnit(
+        user,
+        'office-1',
+        'unit-1',
+        {
+          parentOrgUnitId: 'foreign-office-parent',
+        },
+      ),
+    ).rejects.toBeInstanceOf(BadRequestException);
+
+    expect(prisma.$transaction).not.toHaveBeenCalled();
   });
 });
