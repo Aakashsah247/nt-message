@@ -28,6 +28,46 @@ export class OrganizationPeopleController {
     private readonly organizationPeopleService: OrganizationPeopleService,
   ) {}
 
+  @Get('people')
+  listOfficePeople(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('officeId', new ParseUUIDPipe({ version: '4' }))
+    officeId: string,
+  ) {
+    return this.organizationPeopleService.listOfficePeople(
+      user,
+      officeId,
+    );
+  }
+
+  @Get('people/actions')
+  getOfficePeopleActions(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('officeId', new ParseUUIDPipe({ version: '4' }))
+    officeId: string,
+  ) {
+    return this.organizationPeopleService.getPeopleActionContext(
+      user,
+      officeId,
+      null,
+    );
+  }
+
+  @Get('units/:orgUnitId/people/actions')
+  getOrgUnitPeopleActions(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('officeId', new ParseUUIDPipe({ version: '4' }))
+    officeId: string,
+    @Param('orgUnitId', new ParseUUIDPipe({ version: '4' }))
+    orgUnitId: string,
+  ) {
+    return this.organizationPeopleService.getPeopleActionContext(
+      user,
+      officeId,
+      orgUnitId,
+    );
+  }
+
   @Get('employees/:employeeId/memberships')
   listEmployeeMemberships(
     @CurrentUser() user: AuthenticatedUser,

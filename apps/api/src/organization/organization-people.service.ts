@@ -237,6 +237,267 @@ export class OrganizationPeopleService {
     return membership;
   }
 
+  async getPeopleActionContext(
+    user: AuthenticatedUser,
+    officeId: string,
+    orgUnitId: string | null,
+  ) {
+    await this.authority.assertCanViewOffice(user, officeId);
+
+    if (orgUnitId) {
+      const orgUnit = await this.prisma.orgUnit.findFirst({
+        where: {
+          id: orgUnitId,
+          officeId,
+        },
+        select: {
+          id: true,
+        },
+      });
+
+      if (!orgUnit) {
+        throw new NotFoundException(
+          'Organizational unit was not found in this office.',
+        );
+      }
+    }
+
+    const [
+      viewMemberships,
+      transferPrimary,
+      assignSecondary,
+      viewLeadership,
+      assignLeadership,
+      assignActing,
+      assignDeputy,
+    ] = await Promise.all([
+      this.authorization.can(
+        user,
+        CAPABILITIES.MEMBERSHIP_VIEW,
+        officeId,
+        orgUnitId,
+      ),
+      this.authorization.can(
+        user,
+        CAPABILITIES.MEMBERSHIP_TRANSFER_INTERNAL,
+        officeId,
+        orgUnitId,
+      ),
+      this.authorization.can(
+        user,
+        CAPABILITIES.MEMBERSHIP_ASSIGN_SECONDARY,
+        officeId,
+        orgUnitId,
+      ),
+      this.authorization.can(
+        user,
+        CAPABILITIES.LEADERSHIP_VIEW,
+        officeId,
+        orgUnitId,
+      ),
+      this.authorization.can(
+        user,
+        CAPABILITIES.LEADERSHIP_ASSIGN,
+        officeId,
+        orgUnitId,
+      ),
+      this.authorization.can(
+        user,
+        CAPABILITIES.LEADERSHIP_ASSIGN_ACTING,
+        officeId,
+        orgUnitId,
+      ),
+      this.authorization.can(
+        user,
+        CAPABILITIES.LEADERSHIP_ASSIGN_DEPUTY,
+        officeId,
+        orgUnitId,
+      ),
+    ]);
+
+    return {
+      officeId,
+      orgUnitId,
+      availableActions: {
+        viewMemberships,
+        transferPrimary,
+        assignSecondary,
+        viewLeadership,
+        assignLeadership,
+        assignActing,
+        assignDeputy,
+      },
+    };
+  }
+
+  async listOfficePeople(
+    user: AuthenticatedUser,
+    officeId: string,
+  ) {
+    await this.authority.assertCanViewOffice(user, officeId);
+
+    const [officeWideMemberships, officeWideLeadership] =
+      await Promise.all([
+        this.authorization.can(
+          user,
+          CAPABILITIES.MEMBERSHIP_VIEW,
+          officeId,
+          null,
+        ),
+        this.authorization.can(
+          user,
+          CAPABILITIES.LEADERSHIP_VIEW,
+          officeId,
+          null,
+        ),
+      ]);
+
+    const officeWide = officeWideMemberships || officeWideLeadership;
+
+    const visibleOrgUnitIds = officeWide
+      ? []
+      : Array.from(
+          new Set(
+            (
+              await Promise.all([
+                this.authorization.visibleOrgUnitIds(
+                  user,
+                  CAPABILITIES.MEMBERSHIP_VIEW,
+                  officeId,
+                ),
+                this.authorization.visibleOrgUnitIds(
+                  user,
+                  CAPABILITIES.LEADERSHIP_VIEW,
+                  officeId,
+                ),
+              ])
+            ).flat(),
+          ),
+        );
+
+    if (!officeWide && visibleOrgUnitIds.length === 0) {
+      throw new ForbiddenException(
+        'You do not have permission to view people in this organizational area.',
+      );
+    }
+
+    const now = new Date();
+    const primaryMemberships = await this.prisma.orgMembership.findMany({
+      where: {
+        officeId,
+        membershipType: OrgMembershipType.PRIMARY,
+        startsAt: {
+          lte: now,
+        },
+        OR: [
+          {
+            endsAt: null,
+          },
+          {
+            endsAt: {
+              gt: now,
+            },
+          },
+        ],
+        ...(officeWide
+          ? {}
+          : {
+              orgUnitId: {
+                in: visibleOrgUnitIds,
+              },
+            }),
+        employee: {
+          is: {
+            status: EmployeeStatus.ACTIVE,
+            employmentStatus: EmploymentStatus.ACTIVE,
+            archivedAt: null,
+          },
+        },
+      },
+      select: {
+        id: true,
+        officeId: true,
+        orgUnitId: true,
+        membershipType: true,
+        assignmentSource: true,
+        startsAt: true,
+        employee: {
+          select: {
+            id: true,
+            empId: true,
+            empName: true,
+            designation: true,
+            status: true,
+            employmentStatus: true,
+            isActivated: true,
+            account: {
+              select: {
+                id: true,
+                username: true,
+                role: true,
+                isEnabled: true,
+              },
+            },
+          },
+        },
+        orgUnit: {
+          select: {
+            id: true,
+            code: true,
+            name: true,
+            isActive: true,
+            orgUnitType: {
+              select: {
+                id: true,
+                code: true,
+                name: true,
+                isTeam: true,
+              },
+            },
+          },
+        },
+      },
+    });
+
+    const data = primaryMemberships
+      .filter(
+        (membership) =>
+          membership.employee.account?.role !==
+          AccountRole.SUPER_ADMIN,
+      )
+      .sort((left, right) => {
+        const byName = left.employee.empName.localeCompare(
+          right.employee.empName,
+        );
+
+        return byName !== 0
+          ? byName
+          : left.employee.empId.localeCompare(
+              right.employee.empId,
+            );
+      })
+      .map((membership) => ({
+        employee: membership.employee,
+        primaryMembership: {
+          id: membership.id,
+          officeId: membership.officeId,
+          orgUnitId: membership.orgUnitId,
+          membershipType: membership.membershipType,
+          assignmentSource: membership.assignmentSource,
+          startsAt: membership.startsAt,
+          orgUnit: membership.orgUnit,
+        },
+      }));
+
+    return {
+      data,
+      scope: {
+        officeWide,
+        visibleOrgUnitIds,
+      },
+    };
+  }
+
   async listEmployeeMemberships(
     user: AuthenticatedUser,
     officeId: string,
