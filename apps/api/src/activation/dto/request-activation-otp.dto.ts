@@ -37,13 +37,15 @@ export class RequestActivationOtpDto {
   @MaxLength(255)
   officialEmail!: string;
 
+  // Legacy activation pages still send Division/Department identifiers. V3
+  // authorization never trusts them; the backend verifies the provisioned
+  // Office + PRIMARY OrgMembership instead.
+  @IsOptional()
   @IsUUID('4', {
     message: 'Division ID must be a valid UUID.',
   })
-  divisionId!: string;
+  divisionId?: string | null;
 
-  // Senior Management is division-scoped; all department-scoped roles are
-  // rejected later unless this value exactly matches the approved record.
   @IsOptional()
   @IsUUID('4', {
     message: 'Department ID must be a valid UUID.',

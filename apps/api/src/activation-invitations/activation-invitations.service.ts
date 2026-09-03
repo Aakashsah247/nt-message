@@ -1,5 +1,9 @@
 import { Injectable, Logger, UnauthorizedException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import {
+  isCanonicalOfficeActivationRequest,
+  primaryMembershipMatchesActivationScope,
+} from '../account-requests/account-request-activation-policy';
 import { maskNepalPhoneNumber } from '../common/normalization/account-identity-normalization';
 import {
   buildActivationInvitationUrl,
@@ -11,10 +15,12 @@ import {
 import { PrismaService } from '../database/prisma.service';
 import {
   AccountRequestActionType,
+  AccountRequestLifecycleState,
   AccountRequestStatus,
   AccountRole,
   ActivationEmailDeliveryStatus,
   EmployeeStatus,
+  OrgMembershipType,
 } from '../generated/prisma/enums';
 import type { Prisma } from '../generated/prisma/client';
 import {
@@ -70,8 +76,12 @@ export interface ActivationInvitationPreview {
     officialEmail: string;
   };
   organization: {
-    divisionId: string;
-    divisionName: string;
+    officeId: string | null;
+    officeName: string | null;
+    orgUnitId: string | null;
+    orgUnitName: string | null;
+    divisionId: string | null;
+    divisionName: string | null;
     departmentId: string | null;
     departmentName: string | null;
   };
@@ -298,9 +308,26 @@ export class ActivationInvitationsService {
           select: {
             requestedRole: true,
             status: true,
+            lifecycleState: true,
             employeeId: true,
+            officeId: true,
+            intendedOrgUnitId: true,
             divisionId: true,
             departmentId: true,
+            managementPositionId: true,
+            office: {
+              select: {
+                name: true,
+                isActive: true,
+              },
+            },
+            intendedOrgUnit: {
+              select: {
+                name: true,
+                officeId: true,
+                isActive: true,
+              },
+            },
             division: {
               select: {
                 name: true,
@@ -325,12 +352,54 @@ export class ActivationInvitationsService {
                 id: true,
               },
             },
+            orgMemberships: {
+              where: {
+                membershipType: OrgMembershipType.PRIMARY,
+                endsAt: null,
+              },
+              take: 1,
+              orderBy: {
+                startsAt: 'desc',
+              },
+              select: {
+                officeId: true,
+                orgUnitId: true,
+                membershipType: true,
+                endsAt: true,
+              },
+            },
           },
         },
       },
     });
 
     const now = new Date();
+
+    const canonicalOfficeActivation = invitation
+      ? isCanonicalOfficeActivationRequest(invitation.request)
+      : false;
+
+    const validCanonicalScope = Boolean(
+      invitation &&
+        canonicalOfficeActivation &&
+        invitation.request.office &&
+        invitation.request.office.isActive &&
+        invitation.request.intendedOrgUnit &&
+        invitation.request.intendedOrgUnit.isActive &&
+        invitation.request.intendedOrgUnit.officeId ===
+          invitation.request.officeId &&
+        primaryMembershipMatchesActivationScope(
+          invitation.request,
+          invitation.employee.orgMemberships[0],
+        ),
+    );
+
+    const validLegacyScope = Boolean(
+      invitation &&
+        !canonicalOfficeActivation &&
+        invitation.request.divisionId &&
+        invitation.request.division,
+    );
 
     /*
      * Every unusable state returns the same public message so callers cannot
@@ -348,8 +417,10 @@ export class ActivationInvitationsService {
       (invitation.request.status !== AccountRequestStatus.APPROVED &&
         invitation.request.status !==
           AccountRequestStatus.ACTIVATION_PENDING) ||
-      !invitation.request.divisionId ||
-      !invitation.request.division
+      (invitation.request.status === AccountRequestStatus.ACTIVATION_PENDING &&
+        invitation.request.lifecycleState !==
+          AccountRequestLifecycleState.PROVISIONED) ||
+      (!validCanonicalScope && !validLegacyScope)
     ) {
       throw new UnauthorizedException(
         'The activation invitation is invalid or expired.',
@@ -362,8 +433,12 @@ export class ActivationInvitationsService {
         officialEmail: invitation.employee.officialEmail,
       },
       organization: {
+        officeId: invitation.request.officeId,
+        officeName: invitation.request.office?.name ?? null,
+        orgUnitId: invitation.request.intendedOrgUnitId,
+        orgUnitName: invitation.request.intendedOrgUnit?.name ?? null,
         divisionId: invitation.request.divisionId,
-        divisionName: invitation.request.division.name,
+        divisionName: invitation.request.division?.name ?? null,
         departmentId: invitation.request.departmentId,
         departmentName: invitation.request.department?.name ?? null,
       },

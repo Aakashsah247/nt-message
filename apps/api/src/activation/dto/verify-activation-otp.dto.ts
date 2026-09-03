@@ -37,13 +37,14 @@ export class VerifyActivationOtpDto {
   @MaxLength(255)
   officialEmail!: string;
 
+  // Compatibility-only organization values. Canonical V3 activation is bound
+  // to the persisted Office, intended OrgUnit and current PRIMARY membership.
+  @IsOptional()
   @IsUUID('4', {
     message: 'Division ID must be a valid UUID.',
   })
-  divisionId!: string;
+  divisionId?: string | null;
 
-  // Senior Management is division-scoped; all department-scoped roles are
-  // rejected later unless this value exactly matches the approved record.
   @IsOptional()
   @IsUUID('4', {
     message: 'Department ID must be a valid UUID.',

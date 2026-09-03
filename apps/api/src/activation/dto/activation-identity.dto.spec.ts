@@ -28,6 +28,13 @@ describe('activation identity DTO validation', () => {
     expect(validateSync(buildRequestDto(null))).toHaveLength(0);
   });
 
+  it('accepts V3 activation identity without legacy organization identifiers', () => {
+    const dto = buildRequestDto(null);
+    dto.divisionId = null;
+
+    expect(validateSync(dto)).toHaveLength(0);
+  });
+
   it('requires a valid division UUID', () => {
     const dto = Object.assign(buildRequestDto(), {
       divisionId: 'not-a-uuid',

@@ -25,16 +25,23 @@ import {
   normalizeOfficialEmailForLookup,
   sanitizeOfficialEmail,
 } from '../common/normalization/account-identity-normalization';
+import {
+  isCanonicalOfficeActivationRequest,
+  primaryMembershipMatchesActivationScope,
+} from '../account-requests/account-request-activation-policy';
+import { AccountRequestLifecycleService } from '../account-requests/account-request-lifecycle.service';
 import { ConversationsService } from '../conversations/conversations.service';
 import { PrismaService } from '../database/prisma.service';
 
 import {
   AccountRequestActionType,
+  AccountRequestLifecycleState,
   AccountRequestStatus,
   AccountRole,
   EmployeeStatus,
-  OtpPurpose,
   ManagementPositionType,
+  OrgMembershipType,
+  OtpPurpose,
 } from '../generated/prisma/client';
 
 import { MailService } from '../mail/mail.service';
@@ -194,6 +201,7 @@ export class ActivationService {
 
   constructor(
     private readonly prisma: PrismaService,
+    private readonly lifecycle: AccountRequestLifecycleService,
     private readonly conversationsService: ConversationsService,
     private readonly mailService: MailService,
     private readonly jwtService: JwtService,
@@ -240,16 +248,10 @@ export class ActivationService {
     const officialEmail = sanitizeOfficialEmail(dto.officialEmail);
     const officialEmailLookup = normalizeOfficialEmailForLookup(officialEmail);
 
-    /*
-     * Organization identifiers are matched exactly against the approved
-     * employee record. A null department is valid only for a division-level
-     * role because department-scoped records cannot match that value.
-     */
-    /*
-     * Repeat the exact organization match during OTP verification so changing
-     * division or department after OTP issuance cannot bypass identity checks.
-     */
-    const divisionId = dto.divisionId.trim();
+    // Compatibility-only values for older activation pages. Canonical V3
+    // activation derives organization from the provisioned request and the
+    // employee's current PRIMARY OrgMembership.
+    const divisionId = dto.divisionId?.trim() || null;
     const departmentId = dto.departmentId?.trim() || null;
 
     const now = new Date();
@@ -276,8 +278,6 @@ export class ActivationService {
               equals: officialEmailLookup,
               mode: 'insensitive',
             },
-            divisionId,
-            departmentId,
 
             empName: {
               equals: empName,
@@ -293,6 +293,22 @@ export class ActivationService {
             departmentId: true,
             status: true,
             isActivated: true,
+            orgMemberships: {
+              where: {
+                membershipType: OrgMembershipType.PRIMARY,
+                endsAt: null,
+              },
+              take: 1,
+              orderBy: {
+                startsAt: 'desc',
+              },
+              select: {
+                officeId: true,
+                orgUnitId: true,
+                membershipType: true,
+                endsAt: true,
+              },
+            },
           },
         });
 
@@ -332,10 +348,6 @@ export class ActivationService {
               mode: 'insensitive',
             },
 
-            divisionId: employee.divisionId,
-
-            departmentId: employee.departmentId,
-
             status: {
               in: [
                 AccountRequestStatus.APPROVED,
@@ -357,14 +369,65 @@ export class ActivationService {
           select: {
             id: true,
             status: true,
+            lifecycleState: true,
             requestedRole: true,
             employeeId: true,
+            officeId: true,
+            intendedOrgUnitId: true,
             divisionId: true,
             departmentId: true,
+            managementPositionId: true,
           },
         });
 
         if (!accountRequest) {
+          return {
+            status: 'invalid',
+          };
+        }
+
+        if (
+          accountRequest.lifecycleState !==
+            AccountRequestLifecycleState.APPROVED &&
+          accountRequest.lifecycleState !==
+            AccountRequestLifecycleState.PROVISIONED
+        ) {
+          return {
+            status: 'invalid',
+          };
+        }
+
+        if (
+          accountRequest.status === AccountRequestStatus.ACTIVATION_PENDING &&
+          accountRequest.lifecycleState !==
+            AccountRequestLifecycleState.PROVISIONED
+        ) {
+          return {
+            status: 'invalid',
+          };
+        }
+
+        const canonicalOfficeActivation =
+          isCanonicalOfficeActivationRequest(accountRequest);
+
+        if (canonicalOfficeActivation) {
+          if (
+            !primaryMembershipMatchesActivationScope(
+              accountRequest,
+              employee.orgMemberships[0],
+            )
+          ) {
+            return {
+              status: 'invalid',
+            };
+          }
+        } else if (
+          !divisionId ||
+          employee.divisionId !== divisionId ||
+          employee.departmentId !== departmentId ||
+          accountRequest.divisionId !== divisionId ||
+          accountRequest.departmentId !== departmentId
+        ) {
           return {
             status: 'invalid',
           };
@@ -431,15 +494,28 @@ export class ActivationService {
         });
 
         if (accountRequest.status === AccountRequestStatus.APPROVED) {
+          let lifecycleState = accountRequest.lifecycleState;
+
+          if (
+            lifecycleState === AccountRequestLifecycleState.APPROVED
+          ) {
+            this.lifecycle.assertTransition(
+              AccountRequestLifecycleState.APPROVED,
+              AccountRequestLifecycleState.PROVISIONED,
+            );
+            lifecycleState = AccountRequestLifecycleState.PROVISIONED;
+          }
+
           const activationClaim = await transaction.accountRequest.updateMany({
             where: {
               id: accountRequest.id,
-
               status: AccountRequestStatus.APPROVED,
+              lifecycleState: accountRequest.lifecycleState,
             },
 
             data: {
               status: AccountRequestStatus.ACTIVATION_PENDING,
+              lifecycleState,
             },
           });
 
@@ -467,7 +543,15 @@ export class ActivationService {
 
                 requestedRole: accountRequest.requestedRole,
 
-                departmentId: accountRequest.departmentId,
+                lifecycleState,
+
+                officeId: accountRequest.officeId,
+
+                intendedOrgUnitId: accountRequest.intendedOrgUnitId,
+
+                legacyDivisionId: accountRequest.divisionId,
+
+                legacyDepartmentId: accountRequest.departmentId,
 
                 otpVerificationId: otpRecord.id,
               },
@@ -552,7 +636,7 @@ export class ActivationService {
     const officialEmail = sanitizeOfficialEmail(dto.officialEmail);
     const officialEmailLookup = normalizeOfficialEmailForLookup(officialEmail);
 
-    const divisionId = dto.divisionId.trim();
+    const divisionId = dto.divisionId?.trim() || null;
     const departmentId = dto.departmentId?.trim() || null;
 
     const otp = dto.otp.trim();
@@ -571,8 +655,6 @@ export class ActivationService {
               equals: officialEmailLookup,
               mode: 'insensitive',
             },
-            divisionId,
-            departmentId,
 
             empName: {
               equals: empName,
@@ -589,6 +671,22 @@ export class ActivationService {
             departmentId: true,
             status: true,
             isActivated: true,
+            orgMemberships: {
+              where: {
+                membershipType: OrgMembershipType.PRIMARY,
+                endsAt: null,
+              },
+              take: 1,
+              orderBy: {
+                startsAt: 'desc',
+              },
+              select: {
+                officeId: true,
+                orgUnitId: true,
+                membershipType: true,
+                endsAt: true,
+              },
+            },
           },
         });
 
@@ -628,11 +726,8 @@ export class ActivationService {
               mode: 'insensitive',
             },
 
-            divisionId: employee.divisionId,
-
-            departmentId: employee.departmentId,
-
             status: AccountRequestStatus.ACTIVATION_PENDING,
+            lifecycleState: AccountRequestLifecycleState.PROVISIONED,
           },
 
           orderBy: [
@@ -647,12 +742,44 @@ export class ActivationService {
           select: {
             id: true,
             requestedRole: true,
+            lifecycleState: true,
+            officeId: true,
+            intendedOrgUnitId: true,
+            divisionId: true,
+            departmentId: true,
+            managementPositionId: true,
           },
         });
 
         if (
           !accountRequest ||
           accountRequest.requestedRole === AccountRole.SUPER_ADMIN
+        ) {
+          return {
+            status: 'invalid',
+          };
+        }
+
+        const canonicalOfficeActivation =
+          isCanonicalOfficeActivationRequest(accountRequest);
+
+        if (canonicalOfficeActivation) {
+          if (
+            !primaryMembershipMatchesActivationScope(
+              accountRequest,
+              employee.orgMemberships[0],
+            )
+          ) {
+            return {
+              status: 'invalid',
+            };
+          }
+        } else if (
+          !divisionId ||
+          employee.divisionId !== divisionId ||
+          employee.departmentId !== departmentId ||
+          accountRequest.divisionId !== divisionId ||
+          accountRequest.departmentId !== departmentId
         ) {
           return {
             status: 'invalid',
@@ -885,26 +1012,20 @@ export class ActivationService {
                 id: true,
               },
             },
-            accountRequests: {
+            orgMemberships: {
               where: {
-                status: {
-                  in: [
-                    AccountRequestStatus.APPROVED,
-                    AccountRequestStatus.ACTIVATION_PENDING,
-                  ],
-                },
+                membershipType: OrgMembershipType.PRIMARY,
+                endsAt: null,
               },
-
-              orderBy: {
-                reviewedAt: 'desc',
-              },
-
               take: 1,
-
+              orderBy: {
+                startsAt: 'desc',
+              },
               select: {
-                id: true,
-                requestedRole: true,
-                status: true,
+                officeId: true,
+                orgUnitId: true,
+                membershipType: true,
+                endsAt: true,
               },
             },
           },
@@ -927,14 +1048,6 @@ export class ActivationService {
             status: 'activated',
           };
         }
-        // The activated account role must come from the approved request.
-        const approvedRequest = employee.accountRequests[0];
-
-        if (!approvedRequest) {
-          return {
-            status: 'invalid',
-          };
-        }
 
         const accountRequest = await transaction.accountRequest.findFirst({
           where: {
@@ -954,19 +1067,19 @@ export class ActivationService {
               mode: 'insensitive',
             },
 
-            divisionId: employee.divisionId,
-
-            departmentId: employee.departmentId,
-
             requestedRole: payload.requestedRole,
 
             status: AccountRequestStatus.ACTIVATION_PENDING,
+            lifecycleState: AccountRequestLifecycleState.PROVISIONED,
           },
 
           select: {
             id: true,
             requestedRole: true,
             status: true,
+            lifecycleState: true,
+            officeId: true,
+            intendedOrgUnitId: true,
             divisionId: true,
             departmentId: true,
             managementPositionId: true,
@@ -983,13 +1096,39 @@ export class ActivationService {
           };
         }
 
+        const canonicalOfficeActivation =
+          isCanonicalOfficeActivationRequest(accountRequest);
+
+        if (canonicalOfficeActivation) {
+          if (
+            !primaryMembershipMatchesActivationScope(
+              accountRequest,
+              employee.orgMemberships[0],
+            )
+          ) {
+            throw new ConflictException(
+              'The provisioned PRIMARY organization membership no longer matches this account request.',
+            );
+          }
+        } else if (
+          accountRequest.divisionId !== employee.divisionId ||
+          accountRequest.departmentId !== employee.departmentId
+        ) {
+          return {
+            status: 'invalid',
+          };
+        }
+
         let managementPositionId: string | null = null;
 
         let managementAssignedByAccountId: string | null = null;
 
         let managementAssignmentId: string | null = null;
 
-        if (accountRequest.requestedRole !== AccountRole.EMPLOYEE) {
+        if (
+          !canonicalOfficeActivation &&
+          accountRequest.requestedRole !== AccountRole.EMPLOYEE
+        ) {
           if (
             !accountRequest.managementPositionId ||
             !accountRequest.reviewedByAccountId
@@ -1089,7 +1228,10 @@ export class ActivationService {
           managementPositionId = managementPosition.id;
 
           managementAssignedByAccountId = accountRequest.reviewedByAccountId;
-        } else if (accountRequest.managementPositionId) {
+        } else if (
+          !canonicalOfficeActivation &&
+          accountRequest.managementPositionId
+        ) {
           throw new ConflictException(
             'A normal employee activation must not reference a management position.',
           );
@@ -1137,10 +1279,14 @@ export class ActivationService {
           };
         }
 
+        this.lifecycle.assertTransition(
+          AccountRequestLifecycleState.PROVISIONED,
+          AccountRequestLifecycleState.ACTIVE,
+        );
+
         /*
-         * Claim the approved request first.
-         * Throwing on a race condition causes
-         * the complete transaction to roll back.
+         * Claim the provisioned request first. Lifecycle and legacy status are
+         * advanced together so no account can be ACTIVE in only one model.
          */
         const requestClaim = await transaction.accountRequest.updateMany({
           where: {
@@ -1151,10 +1297,13 @@ export class ActivationService {
             requestedRole: payload.requestedRole,
 
             status: AccountRequestStatus.ACTIVATION_PENDING,
+
+            lifecycleState: AccountRequestLifecycleState.PROVISIONED,
           },
 
           data: {
             status: AccountRequestStatus.ACTIVATED,
+            lifecycleState: AccountRequestLifecycleState.ACTIVE,
           },
         });
 
@@ -1193,7 +1342,12 @@ export class ActivationService {
 
             username,
 
-            role: accountRequest.requestedRole,
+            // Canonical V3 provisioning always creates a normal Office
+            // account. Leadership and delegated capabilities remain separate
+            // organization assignments rather than AccountRole side effects.
+            role: canonicalOfficeActivation
+              ? AccountRole.EMPLOYEE
+              : accountRequest.requestedRole,
 
             passwordHash,
 
@@ -1285,11 +1439,17 @@ export class ActivationService {
 
               requestedRole: accountRequest.requestedRole,
 
+              lifecycleState: AccountRequestLifecycleState.ACTIVE,
+
               otpVerificationId: otpVerification.id,
 
-              divisionId: accountRequest.divisionId,
+              officeId: accountRequest.officeId,
 
-              departmentId: accountRequest.departmentId,
+              intendedOrgUnitId: accountRequest.intendedOrgUnitId,
+
+              legacyDivisionId: accountRequest.divisionId,
+
+              legacyDepartmentId: accountRequest.departmentId,
 
               managementPositionId,
 
