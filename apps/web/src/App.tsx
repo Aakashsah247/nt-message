@@ -33,6 +33,7 @@ import { WorkReportsPage } from "./pages/WorkReportsPage";
 import { TeamManagementPage } from "./pages/TeamManagementPage";
 import { SecurityPage } from "./pages/SecurityPage";
 import { SettingsPage } from "./pages/SettingsPage";
+import { OrganizationPage } from "./pages/OrganizationPage";
 
 export default function App() {
   return (
@@ -86,6 +87,24 @@ export default function App() {
           >
             <ManagementLayout>
               <DirectoryPage />
+            </ManagementLayout>
+          </ProtectedRoute>
+        }
+      />
+
+      <Route
+        path="/organization"
+        element={
+          <ProtectedRoute
+            roles={[
+              "SUPER_ADMIN",
+              "SENIOR_MANAGEMENT",
+              "TEAM_MANAGER",
+              "EMPLOYEE",
+            ]}
+          >
+            <ManagementLayout>
+              <OrganizationPage />
             </ManagementLayout>
           </ProtectedRoute>
         }

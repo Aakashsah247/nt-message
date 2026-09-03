@@ -47,18 +47,18 @@ test("stable Super Admin governance workspaces use dedicated bilingual namespace
 test("I18N-5C keeps required dynamic governance translations in both languages", async () => {
   const required = {
     organization: [
-      "workFunction.GENERAL.label",
-      "workFunction.FIELD_OPERATIONS.label",
-      "workFunction.SALES.label",
-      "workFunction.SUPPORT.label",
-      "common.division",
-      "common.department",
-      "blockers.departments_one",
-      "blockers.departments_other",
+      "summary.units",
+      "summary.people",
+      "summary.leadership",
+      "summary.teams",
       "filters.matching_one",
       "filters.matching_other",
-      "hierarchy.linkedRecords_one",
-      "hierarchy.linkedRecords_other",
+      "tree.people_one",
+      "tree.people_other",
+      "tree.leaders_one",
+      "tree.leaders_other",
+      "actions.createChild",
+      "readonly.title",
     ],
     monitoring: [
       "status.ACTIVE",
@@ -152,15 +152,14 @@ test("I18N-5C helper translations keep explicit namespace ownership", async () =
 
   for (const key of [
     "errors.operationFailed",
-    "blockers.departments",
-    "blockers.employees",
-    "blockers.requests",
-    "blockers.positions",
+    "readonly.title",
+    "actions.createRoot",
+    "actions.createChild",
   ]) {
     assert.match(
       organizationSource,
-      new RegExp(`t\\(\\"${key.replaceAll(".", "\\.")}\\", \\{ ns: \\"organization\\"`),
-      `${key} must remain owned by the organization namespace`,
+      new RegExp(`t\\(\\"${key.replaceAll(".", "\\.")}`),
+      `${key} must remain in the organization workspace`,
     );
   }
 

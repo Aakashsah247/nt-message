@@ -1,87 +1,43 @@
 {
+  "session": {
+    "title": "Secure session unavailable",
+    "description": "Sign in again to open the organization workspace."
+  },
+  "hero": {
+    "eyebrow": "Office organization",
+    "title": "Organization & Structure",
+    "description": "View the Office hierarchy and manage authorized organizational units without fixed Division or Department depth.",
+    "office": "Office",
+    "refresh": "Refresh",
+    "refreshing": "Refreshing…"
+  },
   "common": {
-    "notAvailable": "Not available",
     "active": "Active",
     "inactive": "Inactive",
     "close": "Close",
     "cancel": "Cancel",
-    "division": "division",
-    "department": "department",
-    "divisionLabel": "Division",
-    "departmentLabel": "Department",
-    "code": "Code",
-    "name": "Name",
-    "status": "Status",
-    "created": "Created",
-    "lastUpdated": "Last updated",
-    "employees": "Employees",
-    "requests": "Requests",
-    "positions": "Positions",
-    "departments": "Departments"
+    "notAvailable": "Not available"
   },
-  "workFunction": {
-    "label": "Work assignment function",
-    "GENERAL": {
-      "label": "General",
-      "description": "No specialist work-assignment function"
-    },
-    "FIELD_OPERATIONS": {
-      "label": "Field operations",
-      "description": "Teams that own field and installation work"
-    },
-    "SALES": {
-      "label": "Sales",
-      "description": "Customer and sales coordination members"
-    },
-    "SUPPORT": {
-      "label": "Support",
-      "description": "Optional supporting staff for all work types"
-    }
-  },
-  "errors": {
-    "operationFailed": "The organization operation could not be completed.",
-    "invalidDivision": "Enter a valid division code and name.",
-    "selectDivision": "Select a division.",
-    "invalidDepartment": "Enter a valid department code and name.",
-    "invalidUnit": "Enter a valid code and name.",
-    "deleteBlocked": "Cannot delete {{name}}. It has {{blockers}}. Edit or deactivate it instead.",
-    "confirmDelete": "Type DELETE exactly to confirm permanent deletion."
-  },
-  "blockers": {
-    "departments_one": "{{count}} department",
-    "departments_other": "{{count}} departments",
-    "employees_one": "{{count}} employee",
-    "employees_other": "{{count}} employees",
-    "requests_one": "{{count}} account request",
-    "requests_other": "{{count}} account requests",
-    "positions_one": "{{count}} management position",
-    "positions_other": "{{count}} management positions"
-  },
-  "hero": {
-    "eyebrow": "Organization control",
-    "title": "Organization Management",
-    "description": "Maintain Nepal Telecom divisions and departments with protected, dependency-aware administration.",
-    "createAccount": "Create account",
-    "createDivision": "Create division",
-    "createDepartment": "Create department",
-    "refreshing": "Refreshing...",
-    "refresh": "Refresh"
+  "readonly": {
+    "title": "Read-only organization view",
+    "description": "You can review this hierarchy, but no organization changes are available in your current authorized scope.",
+    "unit": "This unit is read-only in your current authorized scope."
   },
   "summary": {
     "aria": "Organization summary",
-    "divisions": "Divisions",
-    "divisionsDetail": "Top-level organization units",
-    "departments": "Departments",
-    "departmentsDetail": "Operational units across divisions",
-    "active": "Active units",
-    "activeDetail": "Divisions and departments currently enabled",
-    "protected": "Deletion-protected units",
-    "protectedDetail": "Units that contain linked organization records"
+    "units": "Organizational units",
+    "unitsDetail": "{{active}} currently active",
+    "people": "Office placements",
+    "peopleDetail": "Current and historical membership records",
+    "leadership": "Leadership records",
+    "leadershipDetail": "Office and OrgUnit leadership assignments",
+    "teams": "Team units",
+    "teamsDetail": "OrgUnits configured as teams"
   },
   "filters": {
     "aria": "Organization filters",
-    "search": "Search organization",
-    "placeholder": "Division, department or code",
+    "search": "Search hierarchy",
+    "placeholder": "Unit name, code or type",
     "status": "Status",
     "all": "All statuses",
     "active": "Active",
@@ -90,83 +46,73 @@
     "matching_other": "{{count}} matching units",
     "clear": "Clear filters"
   },
-  "hierarchy": {
-    "eyebrow": "Organization hierarchy",
-    "title": "Division and department structure",
+  "tree": {
+    "eyebrow": "Recursive hierarchy",
+    "title": "Office structure",
+    "description": "Expand any branch to view Division, Department, Section, Unit, Sub-Unit, Team or other configured OrgUnits.",
     "loadingTitle": "Loading organization structure",
-    "loadingDescription": "Please wait while the latest organization units are loaded.",
-    "emptyTitle": "No matching organization units",
-    "emptyDescription": "Change the search or status filter to view divisions and departments.",
-    "hideDepartments": "Hide departments ↑",
-    "viewDepartments": "View departments ({{value}}) ↓",
-    "noMatchingDepartments": "No matching departments",
-    "noDepartments": "No departments",
-    "protected": "Protected by {{value}} linked records",
-    "eligible": "Eligible for deletion",
-    "linkedRecords_one": "{{count}} linked record",
-    "linkedRecords_other": "{{count}} linked records",
-    "noDependencies": "No dependencies",
-    "description": "Use the explicit controls to view departments or manage a unit. Rows are not clickable, and destructive actions stay inside the management drawer.",
-    "divisionSummary": "{{code}} · {{departments}} departments · {{employees}} employees",
-    "departmentSummary": "{{code}} · {{employees}} employees",
-    "accountRequests": "{{value}} account requests",
-    "managementPositions": "{{value}} management positions",
-    "manageUnit": "Manage unit",
-    "edit": "Edit"
-  },
-  "create": {
-    "eyebrow": "Create organization unit",
-    "dialogAria": "Create {{kind}}",
-    "division": "Create Division",
-    "department": "Create Department",
-    "close": "Close create dialog",
-    "divisionCode": "Division code",
-    "divisionCodePlaceholder": "Example: TECH",
-    "divisionName": "Division name",
-    "divisionNamePlaceholder": "Technical Division",
-    "departmentCode": "Department code",
-    "departmentCodePlaceholder": "Example: NETWORK",
-    "departmentName": "Department name",
-    "departmentNamePlaceholder": "Network Department",
-    "selectDivision": "Select division",
-    "creating": "Creating...",
-    "createDivision": "Create division",
-    "createDepartment": "Create department"
+    "loadingDescription": "Please wait while the latest authorized hierarchy is loaded.",
+    "noOfficeTitle": "No Office available",
+    "noOfficeDescription": "No active or visible Office is available for this account.",
+    "emptyTitle": "No matching organizational units",
+    "emptyDescription": "Change the search or status filter to view another part of the hierarchy.",
+    "expand": "Expand {{name}}",
+    "collapse": "Collapse {{name}}",
+    "people_one": "{{count}} person",
+    "people_other": "{{count}} people",
+    "leaders_one": "{{count}} leader",
+    "leaders_other": "{{count}} leaders"
   },
   "detail": {
-    "aria": "{{kind}} details",
-    "close": "Close details",
-    "deletionProtected": "Deletion protected",
-    "parentDivision": "Parent division",
-    "dependencyProtection": "Dependency protection",
-    "noLinkedRecords": "No linked records currently prevent permanent deletion.",
-    "created": "Created",
+    "title": "Organization details",
+    "office": "Office",
+    "officeDescription": "Select an organizational unit from the hierarchy to review its details and available actions.",
+    "unitDescription": "Unit code: {{code}}",
+    "code": "Code",
+    "parent": "Parent",
+    "officeRoot": "Office root",
+    "people": "Memberships",
+    "children": "Child units",
+    "leadership": "Leadership",
     "updated": "Last updated",
-    "deleteBlocked": "Cannot delete: {{blockers}}",
-    "deleteUnused": "Delete this unused organization unit",
-    "deleteUnavailable": "Delete unavailable",
-    "deletePermanently": "Delete permanently",
-    "notice": "Deactivation preserves employees, requests, positions and history. Permanent deletion is only available for a completely unused unit.",
-    "editUnit": "Edit unit"
+    "selectUnit": "Choose a unit from the hierarchy to review its placement and current authorized actions."
   },
-  "edit": {
-    "aria": "Edit {{kind}}",
+  "actions": {
+    "aria": "Available organization actions",
+    "createRoot": "Create root unit",
+    "createChild": "Create child unit",
+    "edit": "Edit unit",
+    "move": "Move unit",
+    "activate": "Activate unit",
+    "deactivate": "Deactivate unit"
+  },
+  "editor": {
     "eyebrow": "Organization maintenance",
-    "title": "Edit {{kind}}",
-    "close": "Close edit dialog",
-    "notice": "Deactivation is the safe option for a unit that already contains employees, account requests, management positions or history.",
-    "saving": "Saving...",
-    "save": "Save changes"
+    "createTitle": "Create organizational unit",
+    "editTitle": "Edit organizational unit",
+    "moveTitle": "Move organizational unit",
+    "activateTitle": "Activate organizational unit",
+    "deactivateTitle": "Deactivate organizational unit",
+    "parent": "Parent unit",
+    "newParent": "New parent unit",
+    "officeRoot": "{{office}} root",
+    "type": "Unit type",
+    "selectType": "Select unit type",
+    "code": "Unit code",
+    "name": "Unit name",
+    "sortOrder": "Display order",
+    "typeRequired": "Select an active organization type.",
+    "validCodeName": "Enter a valid unit code and name.",
+    "moveNotice": "Moving a unit keeps its identity and history. The backend prevents cycles and unauthorized destinations.",
+    "deactivateNotice": "Deactivation is allowed only after active child units, memberships and leadership are moved or ended.",
+    "activateNotice": "The parent unit and organization type must be active before this unit can be activated.",
+    "saving": "Saving…",
+    "create": "Create unit",
+    "save": "Save changes",
+    "move": "Move unit"
   },
-  "delete": {
-    "aria": "Delete {{kind}}",
-    "eyebrow": "Permanent deletion",
-    "title": "Delete {{kind}}",
-    "close": "Close delete dialog",
-    "description": "You are permanently deleting {{name}}. This action cannot be undone.",
-    "serverProtection": "The server will reject deletion if another record started using this unit after the current organization snapshot was loaded.",
-    "confirmLabel": "Type DELETE to confirm",
-    "deleting": "Deleting...",
-    "delete": "Delete permanently"
+  "errors": {
+    "operationFailed": "The organization operation could not be completed.",
+    "actionContextFailed": "Available organization actions could not be loaded."
   }
 }
