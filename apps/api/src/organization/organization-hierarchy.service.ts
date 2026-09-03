@@ -241,6 +241,71 @@ export class OrganizationHierarchyService {
     };
   }
 
+  async getAvailableActions(
+    user: AuthenticatedUser,
+    officeId: string,
+    orgUnitId: string | null,
+  ) {
+    await this.authority.assertCanViewOffice(user, officeId);
+
+    if (orgUnitId) {
+      await this.getUnitForOffice(officeId, orgUnitId);
+    }
+
+    const createUnit = await this.authorization.can(
+      user,
+      CAPABILITIES.ORGANIZATION_CREATE_UNIT,
+      officeId,
+      orgUnitId,
+    );
+
+    if (!orgUnitId) {
+      return {
+        officeId,
+        orgUnitId: null,
+        availableActions: {
+          createChildUnit: createUnit,
+          renameUnit: false,
+          moveUnit: false,
+          changeUnitStatus: false,
+        },
+      };
+    }
+
+    const [renameUnit, moveUnit, changeUnitStatus] =
+      await Promise.all([
+        this.authorization.can(
+          user,
+          CAPABILITIES.ORGANIZATION_RENAME_UNIT,
+          officeId,
+          orgUnitId,
+        ),
+        this.authorization.can(
+          user,
+          CAPABILITIES.ORGANIZATION_MOVE_UNIT,
+          officeId,
+          orgUnitId,
+        ),
+        this.authorization.can(
+          user,
+          CAPABILITIES.ORGANIZATION_DEACTIVATE_UNIT,
+          officeId,
+          orgUnitId,
+        ),
+      ]);
+
+    return {
+      officeId,
+      orgUnitId,
+      availableActions: {
+        createChildUnit: createUnit,
+        renameUnit,
+        moveUnit,
+        changeUnitStatus,
+      },
+    };
+  }
+
   async createUnitType(
     user: AuthenticatedUser,
     officeId: string,

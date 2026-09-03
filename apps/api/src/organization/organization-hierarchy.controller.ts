@@ -60,6 +60,34 @@ export class OrganizationHierarchyController {
     return this.hierarchyService.getTree(user, officeId);
   }
 
+  @Get('offices/:officeId/actions')
+  getOfficeActions(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('officeId', new ParseUUIDPipe({ version: '4' }))
+    officeId: string,
+  ) {
+    return this.hierarchyService.getAvailableActions(
+      user,
+      officeId,
+      null,
+    );
+  }
+
+  @Get('offices/:officeId/units/:unitId/actions')
+  getOrgUnitActions(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('officeId', new ParseUUIDPipe({ version: '4' }))
+    officeId: string,
+    @Param('unitId', new ParseUUIDPipe({ version: '4' }))
+    unitId: string,
+  ) {
+    return this.hierarchyService.getAvailableActions(
+      user,
+      officeId,
+      unitId,
+    );
+  }
+
   @Post('offices/:officeId/unit-types')
   createUnitType(
     @CurrentUser() user: AuthenticatedUser,
