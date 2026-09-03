@@ -70,6 +70,7 @@ describe('AccountRequestsService V3 create flow', () => {
       prisma as never,
       {} as never,
       requestAuthority as never,
+      {} as never,
     );
 
     await service.createRequest(

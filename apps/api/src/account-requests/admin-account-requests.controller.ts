@@ -80,6 +80,53 @@ export class AdminAccountRequestsController {
     });
   }
 
+  @Patch(':id/start-review')
+  startReview(
+    @CurrentUser() user: AuthenticatedUser,
+
+    @Param(
+      'id',
+      new ParseUUIDPipe({
+        version: '4',
+      }),
+    )
+    id: string,
+
+    @Req() request: Request,
+  ) {
+    return this.accountRequestsService.startReview(user, id, {
+      ipAddress: request.ip ?? request.socket.remoteAddress ?? null,
+      userAgent: request.get('user-agent') ?? null,
+    });
+  }
+
+  @Patch(':id/return-for-correction')
+  returnForCorrection(
+    @CurrentUser() user: AuthenticatedUser,
+
+    @Param(
+      'id',
+      new ParseUUIDPipe({
+        version: '4',
+      }),
+    )
+    id: string,
+
+    @Body() dto: RejectAccountRequestDto,
+
+    @Req() request: Request,
+  ) {
+    return this.accountRequestsService.returnForCorrection(
+      user,
+      id,
+      dto.reason,
+      {
+        ipAddress: request.ip ?? request.socket.remoteAddress ?? null,
+        userAgent: request.get('user-agent') ?? null,
+      },
+    );
+  }
+
   @Patch(':id/invalidate')
   invalidateRequest(
     @CurrentUser()

@@ -21,6 +21,8 @@ import {
   EmployeeStatus,
   EmploymentStatus,
   ManagementPositionType,
+  OrgAssignmentSource,
+  OrgMembershipType,
 } from '../generated/prisma/client';
 
 import type { Prisma } from '../generated/prisma/client';
@@ -29,6 +31,7 @@ import { resolveOrCreateVacantManagementPosition } from '../management-assignmen
 
 import { getActivationEmailResendPolicyViolation } from './account-request-activation-email-policy';
 import { AccountRequestAuthorityService } from './account-request-authority.service';
+import { AccountRequestLifecycleService } from './account-request-lifecycle.service';
 import { CreateAccountRequestDto } from './dto/create-account-request.dto';
 import { ListAccountRequestsQueryDto } from './dto/list-account-requests-query.dto';
 import { ResubmitAccountRequestDto } from './dto/resubmit-account-request.dto';
@@ -51,6 +54,7 @@ export class AccountRequestsService {
     private readonly prisma: PrismaService,
     private readonly activationInvitationsService: ActivationInvitationsService,
     private readonly requestAuthority: AccountRequestAuthorityService,
+    private readonly lifecycle: AccountRequestLifecycleService,
   ) {}
 
   private assertSuperAdmin(user: AuthenticatedUser) {
@@ -1643,12 +1647,643 @@ export class AccountRequestsService {
     };
   }
 
+  private normalizeReviewReason(rawReason: string): string {
+    const reason = rawReason.trim().replace(/\s+/g, ' ');
+
+    if (reason.length < 3) {
+      throw new BadRequestException(
+        'A review reason of at least 3 characters is required.',
+      );
+    }
+
+    if (reason.length > 500) {
+      throw new BadRequestException(
+        'The review reason cannot exceed 500 characters.',
+      );
+    }
+
+    return reason;
+  }
+
+  private isV3ProvisioningCandidate(request: {
+    officeId: string | null;
+    intendedOrgUnitId: string | null;
+    requestedRole: AccountRole;
+    managementPositionId: string | null;
+  }): boolean {
+    return Boolean(
+      request.officeId &&
+        request.intendedOrgUnitId &&
+        request.requestedRole === AccountRole.EMPLOYEE &&
+        request.managementPositionId === null,
+    );
+  }
+
+  async startReview(
+    user: AuthenticatedUser,
+    id: string,
+    metadata: RequestMetadata,
+  ) {
+    this.assertSuperAdmin(user);
+
+    const ipAddress = metadata.ipAddress?.slice(0, 45) || null;
+    const userAgent = metadata.userAgent?.slice(0, 500) || null;
+
+    const accountRequest = await this.prisma.$transaction(
+      async (transaction) => {
+        const request = await transaction.accountRequest.findUnique({
+          where: { id },
+          select: {
+            id: true,
+            lifecycleState: true,
+            status: true,
+          },
+        });
+
+        if (!request) {
+          throw new NotFoundException('Account request was not found.');
+        }
+
+        this.lifecycle.assertTransition(
+          request.lifecycleState,
+          AccountRequestLifecycleState.UNDER_REVIEW,
+        );
+
+        const claim = await transaction.accountRequest.updateMany({
+          where: {
+            id: request.id,
+            lifecycleState: AccountRequestLifecycleState.REQUESTED,
+            status: AccountRequestStatus.PENDING_APPROVAL,
+          },
+          data: {
+            lifecycleState: AccountRequestLifecycleState.UNDER_REVIEW,
+          },
+        });
+
+        if (claim.count !== 1) {
+          throw new ConflictException(
+            'This account request changed before review could begin.',
+          );
+        }
+
+        await transaction.accountRequestAction.create({
+          data: {
+            accountRequestId: request.id,
+            actorAccountId: user.accountId,
+            action: AccountRequestActionType.REVIEW_STARTED,
+            ipAddress,
+            userAgent,
+          },
+        });
+
+        return transaction.accountRequest.findUniqueOrThrow({
+          where: { id: request.id },
+          select: {
+            id: true,
+            lifecycleState: true,
+            status: true,
+            updatedAt: true,
+          },
+        });
+      },
+    );
+
+    return {
+      message: 'Account request review started.',
+      accountRequest,
+    };
+  }
+
+  async returnForCorrection(
+    user: AuthenticatedUser,
+    id: string,
+    rawReason: string,
+    metadata: RequestMetadata,
+  ) {
+    this.assertSuperAdmin(user);
+
+    const reason = this.normalizeReviewReason(rawReason);
+    const reviewedAt = new Date();
+    const ipAddress = metadata.ipAddress?.slice(0, 45) || null;
+    const userAgent = metadata.userAgent?.slice(0, 500) || null;
+
+    const accountRequest = await this.prisma.$transaction(
+      async (transaction) => {
+        const request = await transaction.accountRequest.findUnique({
+          where: { id },
+          select: {
+            id: true,
+            lifecycleState: true,
+            status: true,
+          },
+        });
+
+        if (!request) {
+          throw new NotFoundException('Account request was not found.');
+        }
+
+        this.lifecycle.assertTransition(
+          request.lifecycleState,
+          AccountRequestLifecycleState.RETURNED_FOR_CORRECTION,
+        );
+
+        const claim = await transaction.accountRequest.updateMany({
+          where: {
+            id: request.id,
+            lifecycleState: AccountRequestLifecycleState.UNDER_REVIEW,
+            status: AccountRequestStatus.PENDING_APPROVAL,
+          },
+          data: {
+            lifecycleState:
+              AccountRequestLifecycleState.RETURNED_FOR_CORRECTION,
+            // Compatibility projection until the old status enum is retired.
+            status: AccountRequestStatus.REJECTED,
+            rejectionReason: reason,
+            reviewedByAccountId: user.accountId,
+            reviewedAt,
+          },
+        });
+
+        if (claim.count !== 1) {
+          throw new ConflictException(
+            'This account request changed before it could be returned.',
+          );
+        }
+
+        await transaction.accountRequestAction.create({
+          data: {
+            accountRequestId: request.id,
+            actorAccountId: user.accountId,
+            action: AccountRequestActionType.RETURNED_FOR_CORRECTION,
+            reason,
+            ipAddress,
+            userAgent,
+            metadata: {
+              previousLifecycleState:
+                AccountRequestLifecycleState.UNDER_REVIEW,
+              newLifecycleState:
+                AccountRequestLifecycleState.RETURNED_FOR_CORRECTION,
+            },
+          },
+        });
+
+        return transaction.accountRequest.findUniqueOrThrow({
+          where: { id: request.id },
+          select: {
+            id: true,
+            lifecycleState: true,
+            status: true,
+            rejectionReason: true,
+            reviewedAt: true,
+            updatedAt: true,
+          },
+        });
+      },
+    );
+
+    return {
+      message: 'Account request returned for correction.',
+      accountRequest,
+    };
+  }
+
+  private async approveV3Request(
+    user: AuthenticatedUser,
+    id: string,
+    metadata: RequestMetadata,
+  ) {
+    const reviewedAt = new Date();
+    const ipAddress = metadata.ipAddress?.slice(0, 45) || null;
+    const userAgent = metadata.userAgent?.slice(0, 500) || null;
+    const preparedInvitation =
+      this.activationInvitationsService.prepareInvitation(reviewedAt);
+
+    const provisioned = await this.prisma.$transaction(async (transaction) => {
+      const request = await transaction.accountRequest.findUnique({
+        where: { id },
+        select: {
+          id: true,
+          empId: true,
+          empName: true,
+          phoneNumber: true,
+          officialEmail: true,
+          designation: true,
+          requestedRole: true,
+          lifecycleState: true,
+          status: true,
+          officeId: true,
+          intendedOrgUnitId: true,
+          divisionId: true,
+          departmentId: true,
+          managementPositionId: true,
+          office: {
+            select: {
+              id: true,
+              code: true,
+              name: true,
+              isActive: true,
+            },
+          },
+          intendedOrgUnit: {
+            select: {
+              id: true,
+              officeId: true,
+              code: true,
+              name: true,
+              isActive: true,
+              orgUnitType: {
+                select: {
+                  isActive: true,
+                },
+              },
+            },
+          },
+          division: {
+            select: {
+              id: true,
+              name: true,
+              isActive: true,
+            },
+          },
+          department: {
+            select: {
+              id: true,
+              divisionId: true,
+              name: true,
+              isActive: true,
+            },
+          },
+        },
+      });
+
+      if (!request) {
+        throw new NotFoundException('Account request was not found.');
+      }
+
+      if (!this.isV3ProvisioningCandidate(request)) {
+        throw new BadRequestException(
+          'This account request is not eligible for V3 provisioning.',
+        );
+      }
+
+      if (
+        request.lifecycleState !== AccountRequestLifecycleState.REQUESTED &&
+        request.lifecycleState !== AccountRequestLifecycleState.UNDER_REVIEW
+      ) {
+        throw new ConflictException(
+          'Only a requested or under-review account request can be approved.',
+        );
+      }
+
+      if (request.status !== AccountRequestStatus.PENDING_APPROVAL) {
+        throw new ConflictException(
+          'Only a pending account request can be approved.',
+        );
+      }
+
+      if (
+        !request.officeId ||
+        !request.intendedOrgUnitId ||
+        !request.office ||
+        !request.intendedOrgUnit ||
+        request.intendedOrgUnit.officeId !== request.officeId
+      ) {
+        throw new BadRequestException(
+          'The account request does not have a valid Office and intended OrgUnit.',
+        );
+      }
+
+      if (
+        !request.office.isActive ||
+        !request.intendedOrgUnit.isActive ||
+        !request.intendedOrgUnit.orgUnitType.isActive
+      ) {
+        throw new ConflictException(
+          'The intended Office or OrgUnit is inactive.',
+        );
+      }
+
+      const {
+        empId,
+        empName,
+        phoneNumber,
+        phoneLookupValues,
+        officialEmail,
+        officialEmailLookup,
+      } = normalizeAccountIdentity(request);
+
+      const duplicateEmployee = await transaction.employee.findFirst({
+        where: {
+          OR: [
+            { empId },
+            {
+              officialEmail: {
+                equals: officialEmailLookup,
+                mode: 'insensitive',
+              },
+            },
+            {
+              phoneNumber: {
+                in: phoneLookupValues,
+              },
+            },
+          ],
+        },
+        select: { id: true },
+      });
+
+      if (duplicateEmployee) {
+        throw new ConflictException(
+          'An employee with this employee ID, phone number, or official email already exists.',
+        );
+      }
+
+      if (request.lifecycleState === AccountRequestLifecycleState.REQUESTED) {
+        this.lifecycle.assertTransition(
+          AccountRequestLifecycleState.REQUESTED,
+          AccountRequestLifecycleState.UNDER_REVIEW,
+        );
+
+        const reviewClaim = await transaction.accountRequest.updateMany({
+          where: {
+            id: request.id,
+            lifecycleState: AccountRequestLifecycleState.REQUESTED,
+            status: AccountRequestStatus.PENDING_APPROVAL,
+          },
+          data: {
+            lifecycleState: AccountRequestLifecycleState.UNDER_REVIEW,
+          },
+        });
+
+        if (reviewClaim.count !== 1) {
+          throw new ConflictException(
+            'This account request changed before review could begin.',
+          );
+        }
+
+        await transaction.accountRequestAction.create({
+          data: {
+            accountRequestId: request.id,
+            actorAccountId: user.accountId,
+            action: AccountRequestActionType.REVIEW_STARTED,
+            ipAddress,
+            userAgent,
+            metadata: {
+              source: 'SUPER_ADMIN_APPROVAL_COMPATIBILITY',
+            },
+          },
+        });
+      }
+
+      this.lifecycle.assertTransition(
+        AccountRequestLifecycleState.UNDER_REVIEW,
+        AccountRequestLifecycleState.APPROVED,
+      );
+
+      const approvalClaim = await transaction.accountRequest.updateMany({
+        where: {
+          id: request.id,
+          lifecycleState: AccountRequestLifecycleState.UNDER_REVIEW,
+          status: AccountRequestStatus.PENDING_APPROVAL,
+        },
+        data: {
+          lifecycleState: AccountRequestLifecycleState.APPROVED,
+          status: AccountRequestStatus.APPROVED,
+          reviewedByAccountId: user.accountId,
+          reviewedAt,
+          rejectionReason: null,
+        },
+      });
+
+      if (approvalClaim.count !== 1) {
+        throw new ConflictException(
+          'This account request changed before it could be approved.',
+        );
+      }
+
+      await transaction.accountRequestAction.create({
+        data: {
+          accountRequestId: request.id,
+          actorAccountId: user.accountId,
+          action: AccountRequestActionType.APPROVED,
+          ipAddress,
+          userAgent,
+          metadata: {
+            officeId: request.officeId,
+            intendedOrgUnitId: request.intendedOrgUnitId,
+          },
+        },
+      });
+
+      const legacyDivisionId =
+        request.divisionId && request.division?.isActive
+          ? request.divisionId
+          : null;
+      const legacyDepartmentId =
+        request.departmentId &&
+        request.department?.isActive &&
+        (!legacyDivisionId ||
+          request.department.divisionId === legacyDivisionId)
+          ? request.departmentId
+          : null;
+
+      const employee = await transaction.employee.create({
+        data: {
+          empId,
+          empName,
+          phoneNumber,
+          officialEmail,
+          designation: request.designation,
+          department:
+            request.department?.name ?? request.intendedOrgUnit.name,
+          status: EmployeeStatus.ACTIVE,
+          isActivated: false,
+          ...(legacyDivisionId
+            ? {
+                division: {
+                  connect: { id: legacyDivisionId },
+                },
+              }
+            : {}),
+          ...(legacyDepartmentId
+            ? {
+                departmentUnit: {
+                  connect: { id: legacyDepartmentId },
+                },
+              }
+            : {}),
+        },
+        select: {
+          id: true,
+          empId: true,
+          empName: true,
+          phoneNumber: true,
+          officialEmail: true,
+          divisionId: true,
+          departmentId: true,
+          department: true,
+          designation: true,
+          status: true,
+          isActivated: true,
+          createdAt: true,
+        },
+      });
+
+      const membership = await transaction.orgMembership.create({
+        data: {
+          employeeId: employee.id,
+          officeId: request.officeId,
+          orgUnitId: request.intendedOrgUnitId,
+          membershipType: OrgMembershipType.PRIMARY,
+          assignmentSource: OrgAssignmentSource.ACCOUNT_PROVISIONING,
+          startsAt: reviewedAt,
+          assignedByAccountId: user.accountId,
+          assignmentReason:
+            'Applied from the Office-approved intended OrgUnit during account provisioning.',
+        },
+        select: {
+          id: true,
+          officeId: true,
+          orgUnitId: true,
+          membershipType: true,
+          assignmentSource: true,
+          startsAt: true,
+        },
+      });
+
+      this.lifecycle.assertTransition(
+        AccountRequestLifecycleState.APPROVED,
+        AccountRequestLifecycleState.PROVISIONED,
+      );
+
+      const provisionedRequest = await transaction.accountRequest.update({
+        where: { id: request.id },
+        data: {
+          empId,
+          empName,
+          phoneNumber,
+          officialEmail,
+          employeeId: employee.id,
+          lifecycleState: AccountRequestLifecycleState.PROVISIONED,
+          // Existing activation services move APPROVED to ACTIVATION_PENDING
+          // only when the employee actually starts the security flow.
+          status: AccountRequestStatus.APPROVED,
+        },
+        select: {
+          id: true,
+          empId: true,
+          empName: true,
+          officialEmail: true,
+          requestedRole: true,
+          lifecycleState: true,
+          officeId: true,
+          intendedOrgUnitId: true,
+          divisionId: true,
+          departmentId: true,
+          managementPositionId: true,
+          employeeId: true,
+          revisionNumber: true,
+          status: true,
+          ...activationEmailDeliverySelect,
+          rejectionReason: true,
+          submittedAt: true,
+          reviewedAt: true,
+          updatedAt: true,
+        },
+      });
+
+      await transaction.accountRequestAction.create({
+        data: {
+          accountRequestId: request.id,
+          actorAccountId: user.accountId,
+          action: AccountRequestActionType.PROVISIONED,
+          ipAddress,
+          userAgent,
+          metadata: {
+            employeeId: employee.id,
+            membershipId: membership.id,
+            officeId: request.officeId,
+            intendedOrgUnitId: request.intendedOrgUnitId,
+            assignmentSource: OrgAssignmentSource.ACCOUNT_PROVISIONING,
+          },
+        },
+      });
+
+      const invitation =
+        await this.activationInvitationsService.queueInvitation(
+          transaction,
+          {
+            accountRequestId: request.id,
+            employeeId: employee.id,
+            actorAccountId: user.accountId,
+            source: 'SUPER_ADMIN_APPROVAL',
+            ipAddress,
+            userAgent,
+          },
+          preparedInvitation,
+        );
+
+      return {
+        accountRequest: provisionedRequest,
+        employee,
+        membership,
+        invitation,
+        officeName: request.office.name,
+        orgUnitName: request.intendedOrgUnit.name,
+      };
+    });
+
+    const activationEmailDelivery =
+      await this.activationInvitationsService.deliverQueuedInvitation({
+        ...provisioned.invitation,
+        employeeName: provisioned.employee.empName,
+        employeeCode: provisioned.employee.empId,
+        officialEmail: provisioned.employee.officialEmail,
+        phoneNumber: provisioned.employee.phoneNumber,
+        divisionName: provisioned.officeName,
+        departmentName: provisioned.orgUnitName,
+        requestedRole: provisioned.accountRequest.requestedRole,
+      });
+
+    return {
+      message: 'Account request approved and provisioned successfully.',
+      accountRequest: {
+        ...provisioned.accountRequest,
+        activationEmailStatus: activationEmailDelivery.status,
+        activationEmailLastAttemptAt: activationEmailDelivery.attemptedAt,
+        activationEmailSentAt: activationEmailDelivery.sentAt,
+        activationEmailFailureCategory:
+          activationEmailDelivery.failureCategory,
+      },
+      employee: provisioned.employee,
+      membership: provisioned.membership,
+      activationEmailDelivery,
+    };
+  }
+
   async approveRequest(
     user: AuthenticatedUser,
     id: string,
     metadata: RequestMetadata,
   ) {
     this.assertSuperAdmin(user);
+
+    const provisioningCandidate = await this.prisma.accountRequest.findUnique({
+      where: { id },
+      select: {
+        officeId: true,
+        intendedOrgUnitId: true,
+        requestedRole: true,
+        managementPositionId: true,
+      },
+    });
+
+    if (
+      provisioningCandidate &&
+      this.isV3ProvisioningCandidate(provisioningCandidate)
+    ) {
+      return this.approveV3Request(user, id, metadata);
+    }
 
     const reviewedAt = new Date();
     const ipAddress = metadata.ipAddress?.slice(0, 45) || null;
@@ -2337,13 +2972,7 @@ export class AccountRequestsService {
   ) {
     this.assertSuperAdmin(user);
 
-    const reason = rawReason.trim().replace(/\s+/g, ' ');
-
-    if (reason.length < 3) {
-      throw new BadRequestException(
-        'A rejection reason of at least 3 characters is required.',
-      );
-    }
+    const reason = this.normalizeReviewReason(rawReason);
 
     const reviewedAt = new Date();
     const ipAddress = metadata.ipAddress?.slice(0, 45) || null;
@@ -2358,6 +2987,7 @@ export class AccountRequestsService {
 
           select: {
             id: true,
+            lifecycleState: true,
             status: true,
           },
         });
@@ -2366,19 +2996,74 @@ export class AccountRequestsService {
           throw new NotFoundException('Account request was not found.');
         }
 
+        if (
+          request.lifecycleState !== AccountRequestLifecycleState.REQUESTED &&
+          request.lifecycleState !==
+            AccountRequestLifecycleState.UNDER_REVIEW
+        ) {
+          throw new ConflictException(
+            'Only a requested or under-review account request can be rejected.',
+          );
+        }
+
         if (request.status !== AccountRequestStatus.PENDING_APPROVAL) {
           throw new ConflictException(
             'Only a pending account request can be rejected.',
           );
         }
 
+        if (request.lifecycleState === AccountRequestLifecycleState.REQUESTED) {
+          this.lifecycle.assertTransition(
+            AccountRequestLifecycleState.REQUESTED,
+            AccountRequestLifecycleState.UNDER_REVIEW,
+          );
+
+          const startReviewClaim =
+            await transaction.accountRequest.updateMany({
+              where: {
+                id: request.id,
+                lifecycleState: AccountRequestLifecycleState.REQUESTED,
+                status: AccountRequestStatus.PENDING_APPROVAL,
+              },
+              data: {
+                lifecycleState: AccountRequestLifecycleState.UNDER_REVIEW,
+              },
+            });
+
+          if (startReviewClaim.count !== 1) {
+            throw new ConflictException(
+              'This account request changed before review could begin.',
+            );
+          }
+
+          await transaction.accountRequestAction.create({
+            data: {
+              accountRequestId: request.id,
+              actorAccountId: user.accountId,
+              action: AccountRequestActionType.REVIEW_STARTED,
+              ipAddress,
+              userAgent,
+              metadata: {
+                source: 'SUPER_ADMIN_REJECTION_COMPATIBILITY',
+              },
+            },
+          });
+        }
+
+        this.lifecycle.assertTransition(
+          AccountRequestLifecycleState.UNDER_REVIEW,
+          AccountRequestLifecycleState.REJECTED,
+        );
+
         const reviewClaim = await transaction.accountRequest.updateMany({
           where: {
             id: request.id,
+            lifecycleState: AccountRequestLifecycleState.UNDER_REVIEW,
             status: AccountRequestStatus.PENDING_APPROVAL,
           },
 
           data: {
+            lifecycleState: AccountRequestLifecycleState.REJECTED,
             status: AccountRequestStatus.REJECTED,
             rejectionReason: reason,
             reviewedByAccountId: user.accountId,
@@ -2404,6 +3089,9 @@ export class AccountRequestsService {
             metadata: {
               previousStatus: AccountRequestStatus.PENDING_APPROVAL,
               newStatus: AccountRequestStatus.REJECTED,
+              previousLifecycleState:
+                AccountRequestLifecycleState.UNDER_REVIEW,
+              newLifecycleState: AccountRequestLifecycleState.REJECTED,
             },
           },
         });
@@ -2419,6 +3107,9 @@ export class AccountRequestsService {
             empName: true,
             officialEmail: true,
             requestedRole: true,
+            lifecycleState: true,
+            officeId: true,
+            intendedOrgUnitId: true,
             divisionId: true,
             departmentId: true,
             managementPositionId: true,
