@@ -52,6 +52,29 @@ describe('account request identity DTO validation', () => {
     );
   });
 
+  it('accepts canonical V3 Office and intended OrgUnit UUIDs', () => {
+    const dto = Object.assign(buildCreateDto('9801234567'), {
+      officeId: '11111111-1111-4111-8111-111111111111',
+      intendedOrgUnitId: '22222222-2222-4222-8222-222222222222',
+    });
+
+    expect(validateSync(dto)).toHaveLength(0);
+  });
+
+  it('rejects invalid canonical V3 scope identifiers', () => {
+    const dto = Object.assign(buildCreateDto('9801234567'), {
+      officeId: 'not-a-uuid',
+      intendedOrgUnitId: 'also-not-a-uuid',
+    });
+
+    const errors = validateSync(dto);
+
+    expect(errors.some((error) => error.property === 'officeId')).toBe(true);
+    expect(
+      errors.some((error) => error.property === 'intendedOrgUnitId'),
+    ).toBe(true);
+  });
+
   it('keeps every resubmission field optional', () => {
     expect(validateSync(new ResubmitAccountRequestDto())).toHaveLength(0);
   });

@@ -228,6 +228,82 @@ describe('OrganizationAuthorizationService', () => {
     ).resolves.toBe(true);
   });
 
+
+  it('grants users.request_create automatically to the current Office Head', async () => {
+    const prisma = createPrisma();
+
+    prisma.orgLeadershipAssignment.findMany.mockResolvedValue([
+      {
+        leadershipType: OrgLeadershipType.OFFICE_HEAD,
+        orgUnitId: null,
+      },
+    ]);
+
+    const service =
+      new OrganizationAuthorizationService(
+        prisma as unknown as PrismaService,
+      );
+
+    await expect(
+      service.can(
+        employeeUser,
+        CAPABILITIES.USERS_REQUEST_CREATE,
+        'office-1',
+        'unit-1',
+      ),
+    ).resolves.toBe(true);
+  });
+
+  it('does not grant users.request_create to Team Lead by default', async () => {
+    const prisma = createPrisma();
+
+    prisma.orgLeadershipAssignment.findMany.mockResolvedValue([
+      {
+        leadershipType: OrgLeadershipType.TEAM_LEAD,
+        orgUnitId: 'team-1',
+      },
+    ]);
+
+    const service =
+      new OrganizationAuthorizationService(
+        prisma as unknown as PrismaService,
+      );
+
+    await expect(
+      service.can(
+        employeeUser,
+        CAPABILITIES.USERS_REQUEST_CREATE,
+        'office-1',
+        'team-1',
+      ),
+    ).resolves.toBe(false);
+  });
+
+  it('allows users.request_create only when explicitly delegated to a normal Office user', async () => {
+    const prisma = createPrisma();
+
+    prisma.delegatedPermission.findMany.mockResolvedValue([
+      {
+        orgUnitId: 'unit-1',
+        includeDescendants: false,
+      },
+    ]);
+
+    const service =
+      new OrganizationAuthorizationService(
+        prisma as unknown as PrismaService,
+      );
+
+    await expect(
+      service.can(
+        employeeUser,
+        CAPABILITIES.USERS_REQUEST_CREATE,
+        'office-1',
+        'unit-1',
+      ),
+    ).resolves.toBe(true);
+  });
+
   it('does not grant Team Lead structural mutation', async () => {
     const prisma = createPrisma();
 

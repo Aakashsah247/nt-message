@@ -32,7 +32,13 @@ const ALL_ACCOUNT_ROLES = [
   AccountRole.EMPLOYEE,
 ] as const;
 
-const REQUEST_CREATOR_ROLES = [
+const V3_REQUEST_CREATOR_ROLES = [
+  AccountRole.SENIOR_MANAGEMENT,
+  AccountRole.TEAM_MANAGER,
+  AccountRole.EMPLOYEE,
+] as const;
+
+const LEGACY_MANAGER_REQUEST_ROLES = [
   AccountRole.SENIOR_MANAGEMENT,
   AccountRole.TEAM_MANAGER,
 ] as const;
@@ -54,7 +60,7 @@ export class AccountRequestsController {
   }
 
   @Get('context')
-  @Roles(...REQUEST_CREATOR_ROLES)
+  @Roles(...V3_REQUEST_CREATOR_ROLES)
   getRequestContext(
     @CurrentUser()
     user: AuthenticatedUser,
@@ -63,7 +69,7 @@ export class AccountRequestsController {
   }
 
   @Post()
-  @Roles(...REQUEST_CREATOR_ROLES)
+  @Roles(...V3_REQUEST_CREATOR_ROLES)
   createRequest(
     @CurrentUser() user: AuthenticatedUser,
     @Body() dto: CreateAccountRequestDto,
@@ -107,7 +113,7 @@ export class AccountRequestsController {
   // The route guard limits eligible role classes; the service performs the
   // authoritative requester-ownership and organization-scope checks.
   @Post(':id/activation-email/resend')
-  @Roles(AccountRole.SUPER_ADMIN, ...REQUEST_CREATOR_ROLES)
+  @Roles(AccountRole.SUPER_ADMIN, ...LEGACY_MANAGER_REQUEST_ROLES)
   resendActivationEmail(
     @CurrentUser() user: AuthenticatedUser,
     @Param(
@@ -126,7 +132,7 @@ export class AccountRequestsController {
   }
 
   @Get('mine')
-  @Roles(...REQUEST_CREATOR_ROLES)
+  @Roles(...V3_REQUEST_CREATOR_ROLES)
   listMyRequests(
     @CurrentUser() user: AuthenticatedUser,
     @Query() query: ListAccountRequestsQueryDto,
@@ -135,7 +141,7 @@ export class AccountRequestsController {
   }
 
   @Post('mine/:id/resubmit')
-  @Roles(...REQUEST_CREATOR_ROLES)
+  @Roles(...LEGACY_MANAGER_REQUEST_ROLES)
   resubmitRequest(
     @CurrentUser() user: AuthenticatedUser,
 
@@ -161,7 +167,7 @@ export class AccountRequestsController {
   }
 
   @Patch('mine/:id/cancel')
-  @Roles(...REQUEST_CREATOR_ROLES)
+  @Roles(...LEGACY_MANAGER_REQUEST_ROLES)
   cancelRequest(
     @CurrentUser()
     user: AuthenticatedUser,
@@ -188,7 +194,7 @@ export class AccountRequestsController {
   }
 
   @Get('mine/:id')
-  @Roles(...REQUEST_CREATOR_ROLES)
+  @Roles(...V3_REQUEST_CREATOR_ROLES)
   getMyRequest(
     @CurrentUser() user: AuthenticatedUser,
 

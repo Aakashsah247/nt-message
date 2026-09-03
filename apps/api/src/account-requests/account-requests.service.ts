@@ -14,6 +14,7 @@ import { normalizeAccountIdentity } from '../common/normalization/account-identi
 import { PrismaService } from '../database/prisma.service';
 import {
   AccountRequestActionType,
+  AccountRequestLifecycleState,
   AccountRequestStatus,
   AccountRole,
   ActivationEmailDeliveryStatus,
@@ -27,6 +28,7 @@ import type { Prisma } from '../generated/prisma/client';
 import { resolveOrCreateVacantManagementPosition } from '../management-assignments/management-position-resolver';
 
 import { getActivationEmailResendPolicyViolation } from './account-request-activation-email-policy';
+import { AccountRequestAuthorityService } from './account-request-authority.service';
 import { CreateAccountRequestDto } from './dto/create-account-request.dto';
 import { ListAccountRequestsQueryDto } from './dto/list-account-requests-query.dto';
 import { ResubmitAccountRequestDto } from './dto/resubmit-account-request.dto';
@@ -48,6 +50,7 @@ export class AccountRequestsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly activationInvitationsService: ActivationInvitationsService,
+    private readonly requestAuthority: AccountRequestAuthorityService,
   ) {}
 
   private assertSuperAdmin(user: AuthenticatedUser) {
@@ -538,95 +541,34 @@ export class AccountRequestsService {
   }
 
   async getRequestContext(user: AuthenticatedUser) {
-    const requester = await this.getRequester(user);
-
-    const employee = requester.employee;
-
-    if (!employee) {
-      throw new ForbiddenException(
-        'Your account does not have an active employee identity.',
-      );
-    }
-
-    if (requester.role === AccountRole.SENIOR_MANAGEMENT) {
-      if (
-        !employee.divisionId ||
-        !employee.division ||
-        !employee.division.isActive
-      ) {
-        throw new ForbiddenException(
-          'Your Senior Management account does not have an active division assignment.',
-        );
-      }
-
-      const departments = await this.prisma.department.findMany({
-        where: {
-          divisionId: employee.divisionId,
-          isActive: true,
-        },
-
-        orderBy: {
-          name: 'asc',
-        },
-
-        select: {
-          id: true,
-          divisionId: true,
-          code: true,
-          name: true,
-          isActive: true,
-        },
-      });
-
-      return {
-        role: requester.role,
-
-        requestedRole: AccountRole.TEAM_MANAGER,
-
-        scope: {
-          division: employee.division,
-
-          department: null,
-        },
-
-        departments,
-
-        availableManagementPositions: [],
-      };
-    }
-
-    if (
-      !employee.divisionId ||
-      !employee.departmentId ||
-      !employee.division ||
-      !employee.departmentUnit
-    ) {
-      throw new ForbiddenException(
-        'Your Team Manager account does not have a complete organization assignment.',
-      );
-    }
-
-    if (!employee.division.isActive || !employee.departmentUnit.isActive) {
-      throw new ForbiddenException('Your organization assignment is inactive.');
-    }
-
-    if (employee.departmentUnit.divisionId !== employee.divisionId) {
-      throw new ForbiddenException('Your organization assignment is invalid.');
-    }
+    const context = await this.requestAuthority.getCreatorContext(user);
 
     return {
-      role: requester.role,
+      role: context.requester.role,
 
+      /*
+       * New account requests provision a normal Office account. Leadership is
+       * assigned separately through the organization leadership workflow.
+       */
       requestedRole: AccountRole.EMPLOYEE,
 
-      scope: {
-        division: employee.division,
+      office: context.office,
+      primaryOrgUnit: context.primaryOrgUnit,
+      orgUnits: context.requestableOrgUnits,
 
-        department: employee.departmentUnit,
+      /*
+       * Temporary compatibility shape for the current manager request UI.
+       * Phase 4 UI switches to office/orgUnits and this legacy projection can
+       * then be removed without changing authorization semantics.
+       */
+      scope: {
+        office: context.office,
+        orgUnit: context.primaryOrgUnit,
+        division: context.requester.employee?.division ?? null,
+        department: context.requester.employee?.departmentUnit ?? null,
       },
 
-      departments: [employee.departmentUnit],
-
+      departments: context.compatibilityDepartments,
       availableManagementPositions: [],
     };
   }
@@ -636,15 +578,17 @@ export class AccountRequestsService {
     dto: CreateAccountRequestDto,
     metadata: RequestMetadata,
   ) {
-    const requester = await this.getRequester(user);
-
-    const requesterEmployee = requester.employee;
-
-    if (!requesterEmployee) {
-      throw new ForbiddenException(
-        'Your account does not have an active employee identity.',
+    if (dto.managementPositionId) {
+      throw new BadRequestException(
+        'Management positions are not part of the V3 account-request workflow. Assign leadership separately after provisioning.',
       );
     }
+
+    const target = await this.requestAuthority.resolveCreateTarget(user, {
+      officeId: dto.officeId,
+      intendedOrgUnitId: dto.intendedOrgUnitId,
+      legacyDepartmentId: dto.departmentId,
+    });
 
     const {
       empId,
@@ -660,119 +604,6 @@ export class AccountRequestsService {
       throw new BadRequestException(
         'Employee name must contain at least 2 characters.',
       );
-    }
-
-    let requestedRole: AccountRole;
-    let divisionId: string;
-    let departmentId: string;
-    let managementPositionId: string | null = null;
-
-    if (requester.role === AccountRole.SENIOR_MANAGEMENT) {
-      requestedRole = AccountRole.TEAM_MANAGER;
-
-      if (
-        !requesterEmployee.divisionId ||
-        !requesterEmployee.division ||
-        !requesterEmployee.division.isActive
-      ) {
-        throw new ForbiddenException(
-          'Your Senior Management account does not have an active division assignment.',
-        );
-      }
-
-      if (!dto.departmentId) {
-        throw new BadRequestException(
-          'Department ID is required when requesting a Team Manager account.',
-        );
-      }
-
-      const department = await this.prisma.department.findUnique({
-        where: {
-          id: dto.departmentId,
-        },
-
-        select: {
-          id: true,
-          divisionId: true,
-          isActive: true,
-
-          division: {
-            select: {
-              id: true,
-              isActive: true,
-            },
-          },
-        },
-      });
-
-      if (!department) {
-        throw new NotFoundException('Department was not found.');
-      }
-
-      if (!department.isActive || !department.division.isActive) {
-        throw new ConflictException(
-          'The selected organization assignment is inactive.',
-        );
-      }
-
-      if (department.divisionId !== requesterEmployee.divisionId) {
-        throw new ForbiddenException(
-          'You can request Team Manager accounts only inside your assigned division.',
-        );
-      }
-
-      divisionId = requesterEmployee.divisionId;
-      departmentId = department.id;
-      managementPositionId = dto.managementPositionId ?? null;
-    } else {
-      requestedRole = AccountRole.EMPLOYEE;
-
-      if (
-        !requesterEmployee.divisionId ||
-        !requesterEmployee.departmentId ||
-        !requesterEmployee.division ||
-        !requesterEmployee.departmentUnit
-      ) {
-        throw new ForbiddenException(
-          'Your Team Manager account does not have a complete organization assignment.',
-        );
-      }
-
-      if (
-        !requesterEmployee.division.isActive ||
-        !requesterEmployee.departmentUnit.isActive
-      ) {
-        throw new ForbiddenException(
-          'Your organization assignment is inactive.',
-        );
-      }
-
-      if (
-        requesterEmployee.departmentUnit.divisionId !==
-        requesterEmployee.divisionId
-      ) {
-        throw new ForbiddenException(
-          'Your organization assignment is invalid.',
-        );
-      }
-
-      if (
-        dto.departmentId &&
-        dto.departmentId !== requesterEmployee.departmentId
-      ) {
-        throw new ForbiddenException(
-          'You can request employee accounts only inside your assigned department.',
-        );
-      }
-
-      if (dto.managementPositionId) {
-        throw new BadRequestException(
-          'A normal employee request must not reference a management position.',
-        );
-      }
-
-      divisionId = requesterEmployee.divisionId;
-      departmentId = requesterEmployee.departmentId;
     }
 
     const existingEmployee = await this.prisma.employee.findFirst({
@@ -808,8 +639,8 @@ export class AccountRequestsService {
 
     const existingRequest = await this.prisma.accountRequest.findFirst({
       where: {
-        status: {
-          not: AccountRequestStatus.REJECTED,
+        lifecycleState: {
+          not: AccountRequestLifecycleState.REJECTED,
         },
 
         OR: [
@@ -832,7 +663,7 @@ export class AccountRequestsService {
 
       select: {
         id: true,
-        status: true,
+        lifecycleState: true,
       },
     });
 
@@ -843,19 +674,24 @@ export class AccountRequestsService {
     }
 
     const ipAddress = metadata.ipAddress?.slice(0, 45) || null;
-
     const userAgent = metadata.userAgent?.slice(0, 500) || null;
 
     const accountRequest = await this.prisma.$transaction(
       async (transaction) => {
-        if (requestedRole !== AccountRole.EMPLOYEE) {
-          // Resolve and recheck the official vacancy inside the transaction.
-          managementPositionId = await this.resolveManagementPositionId(
-            transaction,
-            managementPositionId,
-            requestedRole,
-            divisionId,
-            departmentId,
+        const currentTarget = await transaction.orgUnit.findFirst({
+          where: {
+            id: target.intendedOrgUnit.id,
+            officeId: target.office.id,
+            isActive: true,
+          },
+          select: {
+            id: true,
+          },
+        });
+
+        if (!currentTarget) {
+          throw new ConflictException(
+            'The intended OrgUnit is no longer active in the selected Office.',
           );
         }
 
@@ -866,11 +702,27 @@ export class AccountRequestsService {
             phoneNumber,
             officialEmail,
             designation,
-            requestedRole,
-            divisionId,
-            departmentId,
-            managementPositionId,
-            requestedByAccountId: requester.id,
+
+            /*
+             * Legacy role remains required by the compatibility schema, but
+             * organizational authority is no longer encoded in it. New V3
+             * requests therefore provision the ordinary Office-user class.
+             */
+            requestedRole: AccountRole.EMPLOYEE,
+
+            lifecycleState: AccountRequestLifecycleState.REQUESTED,
+            officeId: target.office.id,
+            intendedOrgUnitId: target.intendedOrgUnit.id,
+
+            /*
+             * Compatibility projection only. New authorization and placement
+             * decisions use Office + intended OrgUnit above.
+             */
+            divisionId: target.legacyDivisionId,
+            departmentId: target.legacyDepartmentId,
+            managementPositionId: null,
+
+            requestedByAccountId: target.requesterId,
             status: AccountRequestStatus.PENDING_APPROVAL,
           },
 
@@ -882,6 +734,9 @@ export class AccountRequestsService {
             officialEmail: true,
             designation: true,
             requestedRole: true,
+            lifecycleState: true,
+            officeId: true,
+            intendedOrgUnitId: true,
             divisionId: true,
             departmentId: true,
             managementPositionId: true,
@@ -892,6 +747,22 @@ export class AccountRequestsService {
             submittedAt: true,
             createdAt: true,
             updatedAt: true,
+
+            office: {
+              select: {
+                id: true,
+                code: true,
+                name: true,
+              },
+            },
+
+            intendedOrgUnit: {
+              select: {
+                id: true,
+                code: true,
+                name: true,
+              },
+            },
 
             division: {
               select: {
@@ -914,16 +785,17 @@ export class AccountRequestsService {
         await transaction.accountRequestAction.create({
           data: {
             accountRequestId: createdRequest.id,
-            actorAccountId: requester.id,
+            actorAccountId: target.requesterId,
             action: AccountRequestActionType.SUBMITTED,
             ipAddress,
             userAgent,
 
             metadata: {
-              requestedRole,
-              divisionId,
-              departmentId,
-              managementPositionId,
+              lifecycleState: AccountRequestLifecycleState.REQUESTED,
+              officeId: target.office.id,
+              intendedOrgUnitId: target.intendedOrgUnit.id,
+              legacyDivisionId: target.legacyDivisionId,
+              legacyDepartmentId: target.legacyDepartmentId,
             },
           },
         });

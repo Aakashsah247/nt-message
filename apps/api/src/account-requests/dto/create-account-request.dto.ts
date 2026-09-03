@@ -9,6 +9,27 @@ import {
 } from 'class-validator';
 
 export class CreateAccountRequestDto {
+  /**
+   * Canonical V3 Office scope. Optional only while the existing manager UI
+   * migrates; the backend resolves the requester's active Office when omitted.
+   */
+  @IsOptional()
+  @IsUUID('4', {
+    message: 'Office ID must be a valid UUID.',
+  })
+  officeId?: string;
+
+  /**
+   * Canonical V3 intended organizational placement. New clients send this
+   * directly. The legacy departmentId below is accepted only as a temporary
+   * compatibility bridge and is mapped to its reconciled OrgUnit.
+   */
+  @IsOptional()
+  @IsUUID('4', {
+    message: 'Intended OrgUnit ID must be a valid UUID.',
+  })
+  intendedOrgUnitId?: string;
+
   @IsString()
   @MinLength(2)
   @MaxLength(50)
@@ -39,12 +60,9 @@ export class CreateAccountRequestDto {
   @MaxLength(255)
   officialEmail!: string;
 
-  /*
-   * Senior Management selects the department
-   * for the requested Team Manager.
-   *
-   * Team Managers do not need to provide this.
-   * Their own department is used automatically.
+  /**
+   * Temporary legacy compatibility input. It is resolved through
+   * LegacyOrgUnitMapping and never defines authorization by itself.
    */
   @IsOptional()
   @IsUUID('4', {
@@ -52,9 +70,9 @@ export class CreateAccountRequestDto {
   })
   departmentId?: string;
 
-  /*
-   * A management client may provide the exact official position.
-   * The backend resolves the unique scoped position when omitted.
+  /**
+   * Deprecated compatibility field. V3 account requests do not assign
+   * leadership or reserve legacy management positions.
    */
   @IsOptional()
   @IsUUID('4', {
