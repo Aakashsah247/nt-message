@@ -4,6 +4,7 @@ import type {
   CreateOrganizationUnitInput,
   MoveOrganizationUnitInput,
   OrganizationActionContext,
+  OrganizationNavigationContextResponse,
   OrganizationOfficeListResponse,
   OrganizationOfficeResponse,
   OrganizationTreeResponse,
@@ -24,6 +25,17 @@ export function getOrganizationOffices(
   return apiRequest<OrganizationOfficeListResponse>("/organization/offices", {
     headers: authHeader(accessToken),
   });
+}
+
+export function getOrganizationNavigationContext(
+  accessToken: string,
+): Promise<OrganizationNavigationContextResponse> {
+  return apiRequest<OrganizationNavigationContextResponse>(
+    "/organization/navigation-context",
+    {
+      headers: authHeader(accessToken),
+    },
+  );
 }
 
 export function getOrganizationOffice(

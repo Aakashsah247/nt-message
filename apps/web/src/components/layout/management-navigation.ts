@@ -1,4 +1,5 @@
 import type { AccountRole } from "../../types/auth";
+import type { OrganizationNavigationMode } from "../../types/organization-v3";
 import type { ManagementIconName } from "./ManagementIcon";
 
 export type AdminWorkspaceView =
@@ -12,6 +13,7 @@ export type AdminWorkspaceView =
 export type ManagementNavigationSectionId =
   | "overview"
   | "people-access"
+  | "office-management"
   | "operations"
   | "governance"
   | "communication"
@@ -42,6 +44,20 @@ const ACCOUNT_SETTINGS_SECTION: ManagementNavigationSection = {
       label: "Settings",
       labelKey: "navigation.items.settings",
       path: "/settings",
+    },
+  ],
+};
+
+const OFFICE_MANAGEMENT_SECTION: ManagementNavigationSection = {
+  id: "office-management",
+  label: "Office Management",
+  labelKey: "navigation.sections.officeManagement",
+  items: [
+    {
+      icon: "organization",
+      label: "Organization & People",
+      labelKey: "navigation.items.organizationPeople",
+      path: "/organization",
     },
   ],
 };
@@ -125,10 +141,9 @@ const SUPER_ADMIN_NAVIGATION: ManagementNavigationSection[] = [
     items: [
       {
         icon: "organization",
-        label: "Organization",
-        labelKey: "navigation.items.organization",
-        path: "/super-admin",
-        view: "organization",
+        label: "Organization Viewer",
+        labelKey: "navigation.items.organizationViewer",
+        path: "/organization",
       },
       {
         icon: "analytics",
@@ -286,20 +301,51 @@ function getManagerNavigation(
   ];
 }
 
-// ProtectedRoute remains the authorization boundary; this list controls navigation visibility only.
+function withOfficeManagement(
+  sections: ManagementNavigationSection[],
+  organizationMode: OrganizationNavigationMode,
+): ManagementNavigationSection[] {
+  if (organizationMode !== "MANAGE") {
+    return sections;
+  }
+
+  const operationsIndex = sections.findIndex(
+    (section) => section.id === "operations",
+  );
+
+  if (operationsIndex < 0) {
+    return [...sections, OFFICE_MANAGEMENT_SECTION];
+  }
+
+  return [
+    ...sections.slice(0, operationsIndex),
+    OFFICE_MANAGEMENT_SECTION,
+    ...sections.slice(operationsIndex),
+  ];
+}
+
+// Navigation visibility follows the server-resolved organization context.
+// ProtectedRoute and backend authorization remain the security boundaries.
 export function getManagementNavigation(
   role: AccountRole,
+  organizationMode: OrganizationNavigationMode = "NONE",
 ): ManagementNavigationSection[] {
   if (role === "SUPER_ADMIN") {
     return [...SUPER_ADMIN_NAVIGATION, ACCOUNT_SETTINGS_SECTION];
   }
 
   if (role === "SENIOR_MANAGEMENT" || role === "TEAM_MANAGER") {
-    return [...getManagerNavigation(role), ACCOUNT_SETTINGS_SECTION];
+    return [
+      ...withOfficeManagement(getManagerNavigation(role), organizationMode),
+      ACCOUNT_SETTINGS_SECTION,
+    ];
   }
 
   if (role === "EMPLOYEE") {
-    return [...EMPLOYEE_NAVIGATION, ACCOUNT_SETTINGS_SECTION];
+    return [
+      ...withOfficeManagement(EMPLOYEE_NAVIGATION, organizationMode),
+      ACCOUNT_SETTINGS_SECTION,
+    ];
   }
 
   return [];

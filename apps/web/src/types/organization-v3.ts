@@ -69,6 +69,14 @@ export interface OrganizationActionContext {
   availableActions: OrganizationAvailableActions;
 }
 
+export type OrganizationNavigationMode = "NONE" | "VIEW" | "MANAGE";
+
+export interface OrganizationNavigationContextResponse {
+  mode: OrganizationNavigationMode;
+  officeIds: string[];
+  manageableOfficeIds: string[];
+}
+
 export interface OrganizationOfficeListResponse {
   data: OrganizationOfficeSummary[];
 }

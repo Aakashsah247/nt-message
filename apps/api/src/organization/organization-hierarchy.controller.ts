@@ -42,6 +42,11 @@ export class OrganizationHierarchyController {
     return this.hierarchyService.listOffices(user);
   }
 
+  @Get('navigation-context')
+  getNavigationContext(@CurrentUser() user: AuthenticatedUser) {
+    return this.hierarchyService.getNavigationContext(user);
+  }
+
   @Get('offices/:officeId')
   getOffice(
     @CurrentUser() user: AuthenticatedUser,

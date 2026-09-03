@@ -15,7 +15,8 @@
       "governance": "Governance",
       "communication": "Communication",
       "account": "Account",
-      "emergency": "Emergency"
+      "emergency": "Emergency",
+      "officeManagement": "Office Management"
     },
     "items": {
       "dashboard": "Dashboard",
@@ -33,7 +34,9 @@
       "monitoring": "Monitoring",
       "officialProfile": "Official profile",
       "messages": "Messages",
-      "settings": "Settings"
+      "settings": "Settings",
+      "organizationViewer": "Organization Viewer",
+      "organizationPeople": "Organization & People"
     },
     "open": "Open navigation"
   },

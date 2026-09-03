@@ -15,7 +15,8 @@
       "governance": "व्यवस्थापन",
       "communication": "सञ्चार",
       "account": "खाता",
-      "emergency": "आपतकालीन"
+      "emergency": "आपतकालीन",
+      "officeManagement": "कार्यालय व्यवस्थापन"
     },
     "items": {
       "dashboard": "ड्यासबोर्ड",
@@ -33,7 +34,9 @@
       "monitoring": "अनुगमन",
       "officialProfile": "आधिकारिक प्रोफाइल",
       "messages": "सन्देशहरू",
-      "settings": "सेटिङहरू"
+      "settings": "सेटिङहरू",
+      "organizationViewer": "संगठन अवलोकन",
+      "organizationPeople": "संगठन तथा कर्मचारी"
     },
     "open": "नेभिगेसन खोल्नुहोस्"
   },

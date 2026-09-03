@@ -15,6 +15,8 @@ import {
 import { EmergencyAlertButton } from "../EmergencyAlertButton";
 import { ProtectedAvatar } from "../ProtectedAvatar";
 import { useAuth } from "../../context/AuthContext";
+import { getOrganizationNavigationContext } from "../../services/organization-v3.service";
+import type { OrganizationNavigationMode } from "../../types/organization-v3";
 import { getRoleHomePath } from "../../utils/get-role-home-path";
 import { ManagementIcon } from "./ManagementIcon";
 import {
@@ -92,6 +94,7 @@ export function ManagementLayout({
 }: ManagementLayoutProps) {
   const {
     account,
+    accessToken,
     logout,
   } = useAuth();
   const { t } = useTranslation("workspace");
@@ -100,6 +103,8 @@ export function ManagementLayout({
   const [searchParams] = useSearchParams();
   const [mobileOpen, setMobileOpen] = useState(false);
   const [loggingOut, setLoggingOut] = useState(false);
+  const [organizationNavigationMode, setOrganizationNavigationMode] =
+    useState<OrganizationNavigationMode>("NONE");
   const storageKey = account
     ? `${SIDEBAR_STORAGE_PREFIX}:${account.id}`
     : SIDEBAR_STORAGE_PREFIX;
@@ -112,9 +117,13 @@ export function ManagementLayout({
   });
 
   const adminView = getDefaultAdminView(searchParams.get("view"));
+  const accountId = account?.id ?? null;
+  const accountRole = account?.role ?? null;
   const navigation = useMemo(
-    () => account ? getManagementNavigation(account.role) : [],
-    [account],
+    () => accountRole
+      ? getManagementNavigation(accountRole, organizationNavigationMode)
+      : [],
+    [accountRole, organizationNavigationMode],
   );
   const activeItem = navigation
     .flatMap((section) => section.items)
@@ -123,6 +132,44 @@ export function ManagementLayout({
   useEffect(() => {
     setMobileOpen(false);
   }, [location.pathname, location.search]);
+
+  useEffect(() => {
+    let active = true;
+
+    if (!accountId || !accountRole) {
+      setOrganizationNavigationMode("NONE");
+      return () => {
+        active = false;
+      };
+    }
+
+    const fallbackMode: OrganizationNavigationMode =
+      accountRole === "SUPER_ADMIN" ? "VIEW" : "NONE";
+
+    setOrganizationNavigationMode(fallbackMode);
+
+    if (!accessToken) {
+      return () => {
+        active = false;
+      };
+    }
+
+    getOrganizationNavigationContext(accessToken)
+      .then((context) => {
+        if (active) {
+          setOrganizationNavigationMode(context.mode);
+        }
+      })
+      .catch(() => {
+        if (active) {
+          setOrganizationNavigationMode(fallbackMode);
+        }
+      });
+
+    return () => {
+      active = false;
+    };
+  }, [accessToken, accountId, accountRole]);
 
   useEffect(() => {
     window.localStorage.setItem(

@@ -7,7 +7,7 @@ import {
 
 import type { AuthenticatedUser } from '../auth/types/auth.types';
 import { PrismaService } from '../database/prisma.service';
-import type { Prisma } from '../generated/prisma/client';
+import { AccountRole, type Prisma } from '../generated/prisma/client';
 
 import { CreateOfficeDto } from './dto/create-office.dto';
 import { CreateOrgUnitDto } from './dto/create-org-unit.dto';
@@ -114,6 +114,76 @@ export class OrganizationHierarchyService {
     });
 
     return { data: offices };
+  }
+
+  async getNavigationContext(user: AuthenticatedUser) {
+    const { data: offices } = await this.listOffices(user);
+    const officeIds = offices.map((office) => office.id);
+
+    if (user.role === AccountRole.SUPER_ADMIN) {
+      return {
+        mode: 'VIEW' as const,
+        officeIds,
+        manageableOfficeIds: [],
+      };
+    }
+
+    const manageableOfficeIds: string[] = [];
+
+    for (const office of offices) {
+      const [
+        canCreateRoot,
+        createScopes,
+        renameScopes,
+        moveScopes,
+        statusScopes,
+      ] = await Promise.all([
+        this.authorization.can(
+          user,
+          CAPABILITIES.ORGANIZATION_CREATE_UNIT,
+          office.id,
+          null,
+        ),
+        this.authorization.visibleOrgUnitIds(
+          user,
+          CAPABILITIES.ORGANIZATION_CREATE_UNIT,
+          office.id,
+        ),
+        this.authorization.visibleOrgUnitIds(
+          user,
+          CAPABILITIES.ORGANIZATION_RENAME_UNIT,
+          office.id,
+        ),
+        this.authorization.visibleOrgUnitIds(
+          user,
+          CAPABILITIES.ORGANIZATION_MOVE_UNIT,
+          office.id,
+        ),
+        this.authorization.visibleOrgUnitIds(
+          user,
+          CAPABILITIES.ORGANIZATION_DEACTIVATE_UNIT,
+          office.id,
+        ),
+      ]);
+
+      if (
+        canCreateRoot ||
+        createScopes.length > 0 ||
+        renameScopes.length > 0 ||
+        moveScopes.length > 0 ||
+        statusScopes.length > 0
+      ) {
+        manageableOfficeIds.push(office.id);
+      }
+    }
+
+    return {
+      mode: manageableOfficeIds.length > 0
+        ? ('MANAGE' as const)
+        : ('NONE' as const),
+      officeIds,
+      manageableOfficeIds,
+    };
   }
 
   async getOffice(user: AuthenticatedUser, officeId: string) {
