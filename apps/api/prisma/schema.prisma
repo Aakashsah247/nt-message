@@ -61,10 +61,23 @@ enum AccountRequestStatus {
   ACTIVATED
 }
 
+enum AccountRequestLifecycleState {
+  REQUESTED
+  UNDER_REVIEW
+  RETURNED_FOR_CORRECTION
+  REJECTED
+  APPROVED
+  PROVISIONED
+  ACTIVE
+}
+
 enum AccountRequestActionType {
   CREATED
   SUBMITTED
+  REVIEW_STARTED
+  RETURNED_FOR_CORRECTION
   APPROVED
+  PROVISIONED
   REJECTED
   RESUBMITTED
   ACTIVATION_STARTED
@@ -405,6 +418,7 @@ model Office {
   leadershipAssignments OrgLeadershipAssignment[]
   delegatedPermissions DelegatedPermission[]
   legacyOrgUnitMappings LegacyOrgUnitMapping[]
+  accountRequests       AccountRequest[] @relation("AccountRequestOffice")
 
   @@index([isActive, sortOrder], map: "offices_active_sort_idx")
   @@map("offices")
@@ -454,8 +468,9 @@ model OrgUnit {
   descendantLinks       OrgUnitClosure[]            @relation("OrgUnitClosureAncestor")
   memberships           OrgMembership[]
   leadershipAssignments OrgLeadershipAssignment[]
-  delegatedPermissions DelegatedPermission[]
-  legacyOrgUnitMappings LegacyOrgUnitMapping[]
+  delegatedPermissions     DelegatedPermission[]
+  legacyOrgUnitMappings   LegacyOrgUnitMapping[]
+  intendedAccountRequests AccountRequest[]         @relation("AccountRequestIntendedOrgUnit")
 
   @@unique([officeId, code], map: "org_units_office_code_key")
   @@index([officeId, parentOrgUnitId, isActive, sortOrder], map: "org_units_parent_active_sort_idx")
@@ -1034,6 +1049,10 @@ model AccountRequest {
 
   requestedRole AccountRole @map("requested_role")
 
+  lifecycleState    AccountRequestLifecycleState @default(REQUESTED) @map("lifecycle_state")
+  officeId          String?                      @map("office_id") @db.Uuid
+  intendedOrgUnitId String?                      @map("intended_org_unit_id") @db.Uuid
+
   divisionId   String? @map("division_id") @db.Uuid
   departmentId String? @map("department_id") @db.Uuid
   employeeId   String? @map("employee_id") @db.Uuid
@@ -1060,6 +1079,9 @@ model AccountRequest {
   createdAt   DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt   DateTime  @updatedAt @map("updated_at") @db.Timestamptz(3)
 
+  office          Office?  @relation("AccountRequestOffice", fields: [officeId], references: [id], onDelete: Restrict)
+  intendedOrgUnit OrgUnit? @relation("AccountRequestIntendedOrgUnit", fields: [intendedOrgUnitId], references: [id], onDelete: Restrict)
+
   division   Division?   @relation(fields: [divisionId], references: [id], onDelete: Restrict)
   department Department? @relation(fields: [departmentId], references: [id], onDelete: Restrict)
   employee   Employee?   @relation(fields: [employeeId], references: [id], onDelete: Restrict)
@@ -1078,6 +1100,9 @@ model AccountRequest {
   activationInvitations ActivationInvitation[]
 
   @@index([status, createdAt], map: "account_requests_status_created_idx")
+  @@index([lifecycleState, createdAt], map: "account_requests_lifecycle_created_idx")
+  @@index([officeId, lifecycleState, createdAt], map: "account_requests_office_lifecycle_created_idx")
+  @@index([intendedOrgUnitId, lifecycleState], map: "account_requests_intended_unit_lifecycle_idx")
   @@index([requestedByAccountId, status], map: "account_requests_requester_status_idx")
   @@index([reviewedByAccountId], map: "account_requests_reviewer_idx")
   @@index([requestedRole], map: "account_requests_requested_role_idx")
