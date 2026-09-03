@@ -647,7 +647,337 @@
   margin-top: 0.7rem;
 }
 
+.organization-workspace-tabs {
+  display: inline-flex;
+  width: fit-content;
+  max-width: 100%;
+  padding: 0.25rem;
+  border: 1px solid var(--organization-border);
+  border-radius: 0.9rem;
+  background: #ffffff;
+  box-shadow: 0 8px 20px rgba(20, 61, 92, 0.04);
+}
+
+.organization-workspace-tabs button {
+  min-height: 2.45rem;
+  border: 0;
+  border-radius: 0.7rem;
+  background: transparent;
+  padding: 0.5rem 0.9rem;
+  color: #557086;
+  font-size: 0.8rem;
+  font-weight: 850;
+}
+
+.organization-workspace-tabs button.is-active {
+  background: linear-gradient(135deg, var(--organization-navy), var(--organization-blue));
+  color: #ffffff;
+  box-shadow: 0 6px 14px rgba(6, 80, 132, 0.16);
+}
+
+.organization-people-workspace {
+  display: grid;
+  gap: 0.9rem;
+  min-width: 0;
+}
+
+.organization-people-toolbar {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 1rem;
+  border: 1px solid var(--organization-border);
+  border-radius: 1rem;
+  background: #ffffff;
+}
+
+.organization-people-toolbar > div > span,
+.organization-person-detail-header > div > span,
+.organization-membership-history > header > div > span {
+  color: var(--organization-blue);
+  font-size: 0.7rem;
+  font-weight: 900;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+}
+
+.organization-people-toolbar h3,
+.organization-person-detail-header h3,
+.organization-membership-history h4 {
+  margin: 0.2rem 0 0;
+  color: var(--organization-navy);
+  font-weight: 900;
+}
+
+.organization-people-toolbar p,
+.organization-person-detail-header p {
+  margin: 0.3rem 0 0;
+  color: var(--organization-muted);
+  font-size: 0.8rem;
+  line-height: 1.5;
+}
+
+.organization-people-toolbar label {
+  display: grid;
+  gap: 0.35rem;
+  width: min(22rem, 100%);
+}
+
+.organization-people-toolbar label > span {
+  color: #506a80;
+  font-size: 0.7rem;
+  font-weight: 850;
+  text-transform: uppercase;
+}
+
+.organization-people-toolbar input {
+  min-height: 2.75rem;
+  border: 1px solid #cbdbe7;
+  border-radius: 0.75rem;
+  background: #ffffff;
+  padding: 0.55rem 0.75rem;
+  outline: none;
+}
+
+.organization-people-toolbar input:focus {
+  border-color: var(--organization-blue);
+  box-shadow: 0 0 0 3px rgba(8, 120, 190, 0.12);
+}
+
+.organization-people-layout {
+  display: grid;
+  grid-template-columns: minmax(18rem, 0.7fr) minmax(0, 1.3fr);
+  align-items: start;
+  gap: 1rem;
+}
+
+.organization-people-list-panel,
+.organization-person-detail-panel {
+  min-width: 0;
+  border: 1px solid var(--organization-border);
+  border-radius: 1.05rem;
+  background: #ffffff;
+  box-shadow: 0 12px 28px rgba(20, 61, 92, 0.045);
+}
+
+.organization-people-list-panel {
+  overflow: hidden;
+}
+
+.organization-people-list-panel > header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.6rem;
+  padding: 0.85rem 0.9rem;
+  border-bottom: 1px solid #e4edf3;
+}
+
+.organization-people-list-panel > header strong {
+  color: var(--organization-navy);
+  font-size: 0.84rem;
+}
+
+.organization-people-list-panel > header span {
+  color: var(--organization-muted);
+  font-size: 0.7rem;
+}
+
+.organization-people-list {
+  display: grid;
+  max-height: min(62vh, 42rem);
+  overflow: auto;
+}
+
+.organization-person-row {
+  display: grid;
+  grid-template-columns: 2.25rem minmax(0, 1fr) minmax(8rem, 0.9fr);
+  align-items: center;
+  gap: 0.65rem;
+  border: 0;
+  border-bottom: 1px solid #edf2f6;
+  background: #ffffff;
+  padding: 0.75rem 0.85rem;
+  color: inherit;
+  text-align: start;
+}
+
+.organization-person-row:hover,
+.organization-person-row.is-selected {
+  background: #f3f9fd;
+}
+
+.organization-person-row.is-selected {
+  box-shadow: inset 3px 0 0 var(--organization-blue);
+}
+
+.organization-person-avatar {
+  display: grid;
+  width: 2.25rem;
+  height: 2.25rem;
+  place-items: center;
+  border-radius: 50%;
+  background: linear-gradient(135deg, #e7f4fc, #d5ebf8);
+  color: var(--organization-navy);
+  font-weight: 900;
+}
+
+.organization-person-identity,
+.organization-person-placement {
+  min-width: 0;
+}
+
+.organization-person-identity strong,
+.organization-person-identity small,
+.organization-person-placement strong,
+.organization-person-placement small {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.organization-person-identity strong,
+.organization-person-placement strong {
+  color: #1d425c;
+  font-size: 0.78rem;
+}
+
+.organization-person-identity small,
+.organization-person-placement small {
+  margin-top: 0.12rem;
+  color: #7890a2;
+  font-size: 0.66rem;
+}
+
+.organization-person-detail-panel {
+  padding: 1rem;
+}
+
+.organization-person-detail-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.8rem;
+  padding-bottom: 0.85rem;
+  border-bottom: 1px solid #e5edf3;
+}
+
+.organization-person-facts {
+  margin-top: 0.9rem;
+}
+
+.organization-people-actions {
+  margin-bottom: 0.9rem;
+}
+
+.organization-membership-history {
+  margin-top: 1rem;
+  padding-top: 0.95rem;
+  border-top: 1px solid #e2ebf1;
+}
+
+.organization-membership-history > header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+.organization-membership-history > header > span {
+  color: var(--organization-muted);
+  font-size: 0.7rem;
+}
+
+.organization-membership-list {
+  display: grid;
+  gap: 0.55rem;
+  margin-top: 0.75rem;
+}
+
+.organization-membership-card {
+  display: grid;
+  grid-template-columns: minmax(10rem, 1.1fr) minmax(9rem, 0.8fr) minmax(10rem, 1fr) auto;
+  align-items: center;
+  gap: 0.7rem;
+  padding: 0.75rem;
+  border: 1px solid #e0e9f0;
+  border-radius: 0.85rem;
+  background: #f9fbfc;
+}
+
+.organization-membership-card > div:first-child strong,
+.organization-membership-card > div:first-child small {
+  display: block;
+}
+
+.organization-membership-card > div:first-child strong {
+  margin-top: 0.35rem;
+  color: #21465f;
+  font-size: 0.78rem;
+}
+
+.organization-membership-card > div:first-child small,
+.organization-membership-dates span,
+.organization-membership-reason span {
+  color: #71899b;
+  font-size: 0.65rem;
+}
+
+.organization-membership-dates,
+.organization-membership-reason {
+  display: grid;
+  gap: 0.15rem;
+}
+
+.organization-membership-dates strong,
+.organization-membership-reason p {
+  margin: 0;
+  color: #31526a;
+  font-size: 0.72rem;
+}
+
+.organization-membership-card > button {
+  min-height: 2.35rem;
+  border: 1px solid #d8b6bb;
+  border-radius: 0.7rem;
+  background: #fff5f6;
+  padding: 0.45rem 0.7rem;
+  color: #9a3240;
+  font-size: 0.72rem;
+  font-weight: 850;
+}
+
+.organization-people-editor {
+  margin-top: 1rem;
+}
+
+.organization-form-wide {
+  grid-column: 1 / -1;
+}
+
+.organization-people-footnote {
+  padding: 0.75rem 0.9rem;
+  border: 1px solid #d5e4ef;
+  border-radius: 0.85rem;
+  background: #f5f9fc;
+  color: #4b667a;
+  font-size: 0.75rem;
+}
+
 @media (max-width: 1100px) {
+  .organization-people-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .organization-people-list {
+    max-height: 24rem;
+  }
+
+  .organization-membership-card {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
   .organization-summary-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
@@ -671,6 +1001,41 @@
 }
 
 @media (max-width: 760px) {
+  .organization-workspace-tabs {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    width: 100%;
+  }
+
+  .organization-people-toolbar {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .organization-people-toolbar label {
+    width: 100%;
+  }
+
+  .organization-person-row {
+    grid-template-columns: 2.25rem minmax(0, 1fr);
+  }
+
+  .organization-person-placement {
+    grid-column: 2;
+  }
+
+  .organization-person-detail-header,
+  .organization-membership-history > header {
+    flex-direction: column;
+  }
+
+  .organization-membership-card {
+    grid-template-columns: 1fr;
+  }
+
+  .organization-membership-card > button {
+    width: 100%;
+  }
   .organization-workspace {
     gap: 0.85rem;
     padding: 0;

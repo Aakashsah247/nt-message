@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import type { FormEvent } from "react";
 import { useTranslation } from "react-i18next";
 
+import { OrganizationPeoplePanel } from "./organization/OrganizationPeoplePanel";
 import { OrganizationTree } from "./organization/OrganizationTree";
 
 import {
@@ -36,6 +37,7 @@ interface AdminOrganizationPanelProps {
   accessToken: string;
 }
 
+type OrganizationWorkspaceView = "STRUCTURE" | "PEOPLE";
 type EditorMode = "CREATE" | "EDIT" | "MOVE" | "STATUS" | null;
 
 interface CreateUnitForm {
@@ -76,6 +78,7 @@ export function AdminOrganizationPanel({
   const { t, i18n } = useTranslation("organization");
   const locale = i18n.resolvedLanguage === "ne" ? "ne-NP" : "en-GB";
 
+  const [workspaceView, setWorkspaceView] = useState<OrganizationWorkspaceView>("STRUCTURE");
   const [offices, setOffices] = useState<OrganizationOfficeSummary[]>([]);
   const [selectedOfficeId, setSelectedOfficeId] = useState("");
   const [office, setOffice] = useState<OrganizationOfficeDetail | null>(null);
@@ -571,6 +574,30 @@ export function AdminOrganizationPanel({
         </div>
       )}
 
+      <nav className="organization-workspace-tabs" aria-label={t("tabs.aria")}>
+        <button
+          type="button"
+          className={workspaceView === "STRUCTURE" ? "is-active" : ""}
+          onClick={() => setWorkspaceView("STRUCTURE")}
+          aria-current={workspaceView === "STRUCTURE" ? "page" : undefined}
+        >
+          {t("tabs.structure")}
+        </button>
+        <button
+          type="button"
+          className={workspaceView === "PEOPLE" ? "is-active" : ""}
+          onClick={() => {
+            setWorkspaceView("PEOPLE");
+            setEditorMode(null);
+          }}
+          aria-current={workspaceView === "PEOPLE" ? "page" : undefined}
+        >
+          {t("tabs.people")}
+        </button>
+      </nav>
+
+      {workspaceView === "STRUCTURE" ? (
+        <>
       <section className="organization-summary-grid" aria-label={t("summary.aria")}>
         <article className="organization-summary-card">
           <span>{t("summary.units")}</span>
@@ -1133,6 +1160,19 @@ export function AdminOrganizationPanel({
           )}
         </section>
       </div>
+        </>
+      ) : office ? (
+        <OrganizationPeoplePanel
+          accessToken={accessToken}
+          office={office}
+          tree={tree}
+        />
+      ) : (
+        <div className="organization-empty-state">
+          <strong>{t("tree.noOfficeTitle")}</strong>
+          <span>{t("tree.noOfficeDescription")}</span>
+        </div>
+      )}
     </section>
   );
 }

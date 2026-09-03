@@ -2,14 +2,21 @@ import { apiRequest } from "../lib/api";
 
 import type {
   CreateOrganizationUnitInput,
+  AssignOrganizationMembershipInput,
+  EndOrganizationMembershipInput,
   MoveOrganizationUnitInput,
   OrganizationActionContext,
+  OrganizationEmployeeMembershipsResponse,
+  OrganizationMembershipMutationResponse,
+  OrganizationPeopleActionContext,
+  OrganizationPeopleResponse,
   OrganizationNavigationContextResponse,
   OrganizationOfficeListResponse,
   OrganizationOfficeResponse,
   OrganizationTreeResponse,
   OrganizationUnitMutationResponse,
   SetOrganizationUnitStatusInput,
+  TransferPrimaryMembershipInput,
   UpdateOrganizationUnitInput,
 } from "../types/organization-v3";
 
@@ -131,6 +138,91 @@ export function setOrganizationUnitStatus(
 ): Promise<OrganizationUnitMutationResponse> {
   return apiRequest<OrganizationUnitMutationResponse>(
     `/organization/offices/${officeId}/units/${unitId}/status`,
+    {
+      method: "PATCH",
+      headers: authHeader(accessToken),
+      body: JSON.stringify(input),
+    },
+  );
+}
+
+export function getOrganizationPeople(
+  accessToken: string,
+  officeId: string,
+): Promise<OrganizationPeopleResponse> {
+  return apiRequest<OrganizationPeopleResponse>(
+    `/organization/offices/${officeId}/people`,
+    {
+      headers: authHeader(accessToken),
+    },
+  );
+}
+
+export function getOrganizationPeopleActions(
+  accessToken: string,
+  officeId: string,
+  orgUnitId: string | null,
+): Promise<OrganizationPeopleActionContext> {
+  const path = orgUnitId
+    ? `/organization/offices/${officeId}/units/${orgUnitId}/people/actions`
+    : `/organization/offices/${officeId}/people/actions`;
+
+  return apiRequest<OrganizationPeopleActionContext>(path, {
+    headers: authHeader(accessToken),
+  });
+}
+
+export function getEmployeeOrganizationMemberships(
+  accessToken: string,
+  officeId: string,
+  employeeId: string,
+): Promise<OrganizationEmployeeMembershipsResponse> {
+  return apiRequest<OrganizationEmployeeMembershipsResponse>(
+    `/organization/offices/${officeId}/employees/${employeeId}/memberships`,
+    {
+      headers: authHeader(accessToken),
+    },
+  );
+}
+
+export function transferPrimaryOrganizationMembership(
+  accessToken: string,
+  officeId: string,
+  input: TransferPrimaryMembershipInput,
+): Promise<OrganizationMembershipMutationResponse> {
+  return apiRequest<OrganizationMembershipMutationResponse>(
+    `/organization/offices/${officeId}/memberships/transfer-primary`,
+    {
+      method: "POST",
+      headers: authHeader(accessToken),
+      body: JSON.stringify(input),
+    },
+  );
+}
+
+export function assignOrganizationMembership(
+  accessToken: string,
+  officeId: string,
+  input: AssignOrganizationMembershipInput,
+): Promise<OrganizationMembershipMutationResponse> {
+  return apiRequest<OrganizationMembershipMutationResponse>(
+    `/organization/offices/${officeId}/memberships`,
+    {
+      method: "POST",
+      headers: authHeader(accessToken),
+      body: JSON.stringify(input),
+    },
+  );
+}
+
+export function endOrganizationMembership(
+  accessToken: string,
+  officeId: string,
+  membershipId: string,
+  input: EndOrganizationMembershipInput,
+): Promise<OrganizationMembershipMutationResponse> {
+  return apiRequest<OrganizationMembershipMutationResponse>(
+    `/organization/offices/${officeId}/memberships/${membershipId}/end`,
     {
       method: "PATCH",
       headers: authHeader(accessToken),
