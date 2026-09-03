@@ -21,18 +21,23 @@ import { AccountRole } from '../generated/prisma/client';
 
 import { ArchiveEmployeeDto } from './dto/archive-employee.dto';
 import { ChangeEmployeeRoleDto } from './dto/change-employee-role.dto';
+import { CorrectEmployeeIdentityDto } from './dto/correct-employee-identity.dto';
 import { CreateEmployeeDto } from './dto/create-employee.dto';
 import { EndEmployeeEmploymentDto } from './dto/end-employee-employment.dto';
 import { ListEmployeesQueryDto } from './dto/list-employees-query.dto';
 import { UpdateEmployeeStatusDto } from './dto/update-employee-status.dto';
 import { UpdateEmployeeDto } from './dto/update-employee.dto';
+import { EmployeeIdentityCorrectionService } from './employee-identity-correction.service';
 import { EmployeesService } from './employees.service';
 
 @Controller('admin/employees')
 @UseGuards(AccessTokenGuard, RolesGuard)
 @Roles(AccountRole.SUPER_ADMIN)
 export class EmployeesController {
-  constructor(private readonly employeesService: EmployeesService) {}
+  constructor(
+    private readonly employeesService: EmployeesService,
+    private readonly identityCorrectionService: EmployeeIdentityCorrectionService,
+  ) {}
 
   @Post()
   createEmployee(
@@ -186,6 +191,47 @@ export class EmployeesController {
     return this.employeesService.updateEmployeeStatus(user, id, dto.status, {
       ipAddress: request.ip ?? request.socket.remoteAddress ?? null,
 
+      userAgent: request.get('user-agent') ?? null,
+    });
+  }
+
+  @Get(':id/identity-corrections')
+  getIdentityCorrectionHistory(
+    @CurrentUser()
+    user: AuthenticatedUser,
+
+    @Param(
+      'id',
+      new ParseUUIDPipe({
+        version: '4',
+      }),
+    )
+    id: string,
+  ) {
+    return this.identityCorrectionService.getCorrectionHistory(user, id);
+  }
+
+  @Patch(':id/identity')
+  correctEmployeeIdentity(
+    @CurrentUser()
+    user: AuthenticatedUser,
+
+    @Param(
+      'id',
+      new ParseUUIDPipe({
+        version: '4',
+      }),
+    )
+    id: string,
+
+    @Body()
+    dto: CorrectEmployeeIdentityDto,
+
+    @Req()
+    request: Request,
+  ) {
+    return this.identityCorrectionService.correctIdentity(user, id, dto, {
+      ipAddress: request.ip ?? request.socket.remoteAddress ?? null,
       userAgent: request.get('user-agent') ?? null,
     });
   }

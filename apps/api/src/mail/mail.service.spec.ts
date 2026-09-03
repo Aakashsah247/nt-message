@@ -173,6 +173,34 @@ describe('MailService security messages', () => {
     );
   });
 
+  it('sends an identity-correction notice without exposing previous identity values', async () => {
+    const service = createService();
+    const correctedAt = new Date('2026-09-03T17:45:00.000Z');
+
+    await service.sendIdentityCorrectionNotification({
+      to: 'corrected@example.test',
+      displayName: 'Corrected Employee',
+      correctedFields: ['EMPLOYEE_ID', 'OFFICIAL_EMAIL'],
+      correctedAt,
+      sessionsRevoked: 2,
+    });
+
+    const message = sendMail.mock.calls[0]?.[0] as {
+      subject: string;
+      text: string;
+    };
+
+    expect(message.subject).toBe(
+      'Your NT Message official identity was corrected',
+    );
+    expect(message.text).toContain('employee id, official email');
+    expect(message.text).toContain(correctedAt.toISOString());
+    expect(message.text).toContain('active NT Message sessions were signed out');
+    expect(message.text).not.toMatch(
+      /previous employee|previous email|old employee|old email|password|otp|token/i,
+    );
+  });
+
 it('sends a one-time password recovery code without password data', async () => {
   const service = createService();
 

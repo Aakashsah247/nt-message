@@ -47,6 +47,13 @@ enum EmployeeLifecycleActionType {
   REHIRED
 }
 
+enum IdentityCorrectionField {
+  OFFICIAL_NAME
+  EMPLOYEE_ID
+  OFFICIAL_EMAIL
+  PHONE_NUMBER
+}
+
 enum OtpPurpose {
   ACCOUNT_ACTIVATION
   PASSWORD_RESET
@@ -714,6 +721,7 @@ model Employee {
   accountRequests       AccountRequest[]
   activationInvitations ActivationInvitation[]
   lifecycleActions      EmployeeLifecycleAction[]
+  identityCorrectionAudits IdentityCorrectionAudit[]
   managementAssignments ManagementAssignment[]
   teamMemberships       DepartmentTeamMember[]
   teamsAdministered     DepartmentTeam[]          @relation("DepartmentTeamAdmin")
@@ -760,6 +768,7 @@ model Account {
   accountRequestActions           AccountRequestAction[]
   createdActivationInvitations    ActivationInvitation[]            @relation("ActivationInvitationsCreatedBy")
   employeeLifecycleActions        EmployeeLifecycleAction[]         @relation("EmployeeLifecycleActionsByActor")
+  identityCorrectionAudits        IdentityCorrectionAudit[]         @relation("IdentityCorrectionAuditsByActor")
   assignedManagementAssignments   ManagementAssignment[]            @relation("ManagementAssignmentsAssignedBy")
   endedManagementAssignments      ManagementAssignment[]            @relation("ManagementAssignmentsEndedBy")
   createdConversations            Conversation[]                    @relation("ConversationsCreatedBy")
@@ -1200,6 +1209,34 @@ model EmployeeLifecycleAction {
   @@index([actorAccountId, createdAt], map: "employee_lifecycle_actions_actor_created_idx")
   @@index([action], map: "employee_lifecycle_actions_action_idx")
   @@map("employee_lifecycle_actions")
+}
+
+model IdentityCorrectionAudit {
+  id String @id @default(uuid()) @db.Uuid
+
+  operationId    String @map("operation_id") @db.Uuid
+  employeeId     String @map("employee_id") @db.Uuid
+  actorAccountId String @map("actor_account_id") @db.Uuid
+
+  field    IdentityCorrectionField
+  oldValue String @map("old_value") @db.VarChar(255)
+  newValue String @map("new_value") @db.VarChar(255)
+  reason   String @db.VarChar(500)
+
+  ipAddress String? @map("ip_address") @db.VarChar(45)
+  userAgent String? @map("user_agent") @db.VarChar(500)
+  metadata  Json?
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  employee Employee @relation(fields: [employeeId], references: [id], onDelete: Restrict)
+  actor    Account  @relation("IdentityCorrectionAuditsByActor", fields: [actorAccountId], references: [id], onDelete: Restrict)
+
+  @@unique([operationId, field], map: "identity_correction_audits_operation_field_key")
+  @@index([employeeId, createdAt], map: "identity_correction_audits_employee_created_idx")
+  @@index([actorAccountId, createdAt], map: "identity_correction_audits_actor_created_idx")
+  @@index([field, createdAt], map: "identity_correction_audits_field_created_idx")
+  @@map("identity_correction_audits")
 }
 
 model Conversation {

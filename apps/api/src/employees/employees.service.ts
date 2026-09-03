@@ -9,13 +9,8 @@ import {
 import { ActivationInvitationsService } from '../activation-invitations/activation-invitations.service';
 import type { AuthenticatedUser } from '../auth/types/auth.types';
 import {
-  getNepalPhoneLookupVariants,
   normalizeAccountIdentity,
-  normalizeEmployeeId,
-  normalizeEmployeeName,
-  normalizeNepalPhoneNumber,
   normalizeOfficialEmailForLookup,
-  sanitizeOfficialEmail,
 } from '../common/normalization/account-identity-normalization';
 import { ConversationsService } from '../conversations/conversations.service';
 import { PrismaService } from '../database/prisma.service';
@@ -826,26 +821,38 @@ export class EmployeesService {
   }
 
   async updateEmployee(id: string, dto: UpdateEmployeeDto) {
+    if (
+      dto.empId !== undefined ||
+      dto.empName !== undefined ||
+      dto.phoneNumber !== undefined ||
+      dto.officialEmail !== undefined
+    ) {
+      throw new ForbiddenException(
+        'Protected identity fields must be changed through the protected identity correction workflow.',
+      );
+    }
+
+    if (dto.divisionId !== undefined || dto.departmentId !== undefined) {
+      throw new ForbiddenException(
+        'Organization placement must be changed through the organization membership workflow.',
+      );
+    }
+
+    if (dto.designation === undefined) {
+      throw new BadRequestException(
+        'Provide a designation update, or use the dedicated identity or organization workflow.',
+      );
+    }
+
+    const designation = dto.designation.trim() || null;
+
     const employee = await this.prisma.employee.findUnique({
       where: {
         id,
       },
-
       select: {
         id: true,
-        empId: true,
-        empName: true,
-        phoneNumber: true,
-        officialEmail: true,
-        divisionId: true,
-        departmentId: true,
-        isActivated: true,
-
-        account: {
-          select: {
-            id: true,
-          },
-        },
+        designation: true,
       },
     });
 
@@ -853,212 +860,9 @@ export class EmployeesService {
       throw new NotFoundException('Employee was not found.');
     }
 
-    const empId =
-      dto.empId !== undefined ? normalizeEmployeeId(dto.empId) : undefined;
-
-    const empName =
-      dto.empName !== undefined
-        ? normalizeEmployeeName(dto.empName)
-        : undefined;
-
-    const phoneNumber =
-      dto.phoneNumber !== undefined
-        ? normalizeNepalPhoneNumber(dto.phoneNumber)
-        : undefined;
-
-    const phoneLookupValues =
-      phoneNumber !== undefined
-        ? getNepalPhoneLookupVariants(phoneNumber)
-        : undefined;
-
-    const officialEmail =
-      dto.officialEmail !== undefined
-        ? sanitizeOfficialEmail(dto.officialEmail)
-        : undefined;
-
-    const officialEmailLookup =
-      officialEmail !== undefined
-        ? normalizeOfficialEmailForLookup(officialEmail)
-        : undefined;
-
-    const designation =
-      dto.designation !== undefined
-        ? dto.designation.trim() || null
-        : undefined;
-
-    if (empName !== undefined && empName.length < 2) {
-      throw new BadRequestException(
-        'Employee name must contain at least 2 characters.',
-      );
-    }
-
-    /*
-     * Activated accounts may correct formatting or email capitalization, but
-     * they cannot change the underlying approved employee identity.
-     */
-    const identityChanged =
-      employee.isActivated &&
-      ((empId !== undefined && empId !== employee.empId) ||
-        (phoneNumber !== undefined &&
-          phoneNumber !== normalizeNepalPhoneNumber(employee.phoneNumber)) ||
-        (officialEmailLookup !== undefined &&
-          officialEmailLookup !==
-            normalizeOfficialEmailForLookup(employee.officialEmail)));
-
-    if (identityChanged) {
+    if (employee.designation === designation) {
       throw new ConflictException(
-        'Employee ID, phone number and official email cannot be changed after account activation.',
-      );
-    }
-
-    const duplicateConditions: Prisma.EmployeeWhereInput[] = [];
-
-    if (empId !== undefined) {
-      duplicateConditions.push({
-        empId,
-      });
-    }
-
-    if (officialEmailLookup !== undefined) {
-      duplicateConditions.push({
-        officialEmail: {
-          equals: officialEmailLookup,
-          mode: 'insensitive',
-        },
-      });
-    }
-
-    if (phoneLookupValues !== undefined) {
-      duplicateConditions.push({
-        phoneNumber: {
-          in: phoneLookupValues,
-        },
-      });
-    }
-
-    if (duplicateConditions.length > 0) {
-      /*
-       * Keep duplicate detection as one OR query so adding phone validation
-       * does not add another database round trip.
-       */
-      const duplicate = await this.prisma.employee.findFirst({
-        where: {
-          id: {
-            not: id,
-          },
-
-          OR: duplicateConditions,
-        },
-
-        select: {
-          empId: true,
-          phoneNumber: true,
-          officialEmail: true,
-        },
-      });
-
-      if (duplicate?.empId === empId) {
-        throw new ConflictException(
-          'An employee with this employee ID already exists.',
-        );
-      }
-
-      if (
-        duplicate &&
-        officialEmailLookup !== undefined &&
-        normalizeOfficialEmailForLookup(duplicate.officialEmail) ===
-          officialEmailLookup
-      ) {
-        throw new ConflictException(
-          'An employee with this official email already exists.',
-        );
-      }
-
-      if (duplicate && phoneLookupValues?.includes(duplicate.phoneNumber)) {
-        throw new ConflictException(
-          'An employee with this phone number already exists.',
-        );
-      }
-    }
-
-    const organizationChangeRequested =
-      dto.divisionId !== undefined || dto.departmentId !== undefined;
-
-    let assignedDivisionId: string | undefined;
-
-    let assignedDepartmentId: string | undefined;
-
-    let assignedDepartmentName: string | undefined;
-
-    if (organizationChangeRequested) {
-      const targetDivisionId = dto.divisionId ?? employee.divisionId;
-
-      const targetDepartmentId = dto.departmentId ?? employee.departmentId;
-
-      if (!targetDivisionId || !targetDepartmentId) {
-        throw new BadRequestException(
-          'Both division ID and department ID are required when assigning organization details.',
-        );
-      }
-
-      const { division, department } =
-        await this.validateOrganizationAssignment(
-          targetDivisionId,
-          targetDepartmentId,
-        );
-
-      assignedDivisionId = division.id;
-
-      assignedDepartmentId = department.id;
-
-      assignedDepartmentName = department.name;
-    }
-
-    const data: Prisma.EmployeeUpdateInput = {};
-
-    if (empId !== undefined) {
-      data.empId = empId;
-    }
-
-    if (empName !== undefined) {
-      data.empName = empName;
-    }
-
-    if (phoneNumber !== undefined) {
-      data.phoneNumber = phoneNumber;
-    }
-
-    if (officialEmail !== undefined) {
-      data.officialEmail = officialEmail;
-    }
-
-    if (designation !== undefined) {
-      data.designation = designation;
-    }
-
-    if (assignedDivisionId && assignedDepartmentId && assignedDepartmentName) {
-      data.division = {
-        connect: {
-          id: assignedDivisionId,
-        },
-      };
-
-      data.departmentUnit = {
-        connect: {
-          id: assignedDepartmentId,
-        },
-      };
-
-      /*
-       * Keep the legacy text field synchronized
-       * until it is removed in a later migration.
-       */
-      data.department = assignedDepartmentName;
-    }
-
-    if (Object.keys(data).length === 0) {
-      throw new BadRequestException(
-        'Provide at least one employee field to update.',
+        'The employee already has the supplied designation.',
       );
     }
 
@@ -1066,9 +870,9 @@ export class EmployeesService {
       where: {
         id,
       },
-
-      data,
-
+      data: {
+        designation,
+      },
       select: {
         id: true,
         empId: true,
@@ -1083,35 +887,11 @@ export class EmployeesService {
         isActivated: true,
         createdAt: true,
         updatedAt: true,
-
-        division: {
-          select: {
-            id: true,
-            code: true,
-            name: true,
-            isActive: true,
-          },
-        },
-
-        departmentUnit: {
-          select: {
-            id: true,
-            code: true,
-            name: true,
-            isActive: true,
-          },
-        },
       },
     });
 
-    await this.synchronizeOfficialGroups(
-      employee.account?.id,
-      null,
-      'EMPLOYEE_PROFILE_UPDATED',
-    );
-
     return {
-      message: 'Employee updated successfully.',
+      message: 'Employee designation updated successfully.',
       employee: updatedEmployee,
     };
   }

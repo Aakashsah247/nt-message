@@ -40,6 +40,14 @@ export interface PasswordResetNotificationEmail {
   changedAt: Date;
 }
 
+export interface IdentityCorrectionNotificationEmail {
+  to: string;
+  displayName: string;
+  correctedFields: string[];
+  correctedAt: Date;
+  sessionsRevoked: number;
+}
+
 export type MailDeliveryFailureCategory = 'SMTP_DELIVERY_FAILED';
 
 export class MailDeliveryError extends Error {
@@ -245,67 +253,105 @@ export class MailService {
       throw new MailDeliveryError('SMTP_DELIVERY_FAILED');
     }
   }
-async sendPasswordResetOtp(
-  email: PasswordResetOtpEmail,
-): Promise<void> {
-  try {
-    await this.transporter.sendMail({
-      from: this.fromAddress,
-      to: email.to,
-      subject: 'NT Message password recovery code',
+  async sendPasswordResetOtp(
+    email: PasswordResetOtpEmail,
+  ): Promise<void> {
+    try {
+      await this.transporter.sendMail({
+        from: this.fromAddress,
+        to: email.to,
+        subject: 'NT Message password recovery code',
 
-      /*
-       * OTP is delivered only by email and is never returned by the public
-       * request endpoint or written to logs and audit metadata.
-       */
-      text: [
-        `Dear ${email.displayName},`,
-        '',
-        'A password recovery request was received for your NT Message account.',
-        '',
-        `Recovery code: ${email.otp}`,
-        '',
-        `This code expires in ${email.expiresInMinutes} minutes and can be used once.`,
-        '',
-        'If you did not request this code, you can ignore this message. Your current password remains unchanged.',
-        '',
-        'Do not share this code, your password or any OTP with anyone. Nepal Telecom administrators will never ask you to provide them.',
-      ].join('\n'),
-    });
-  } catch {
-    throw new MailDeliveryError('SMTP_DELIVERY_FAILED');
+        /*
+         * OTP is delivered only by email and is never returned by the public
+         * request endpoint or written to logs and audit metadata.
+         */
+        text: [
+          `Dear ${email.displayName},`,
+          '',
+          'A password recovery request was received for your NT Message account.',
+          '',
+          `Recovery code: ${email.otp}`,
+          '',
+          `This code expires in ${email.expiresInMinutes} minutes and can be used once.`,
+          '',
+          'If you did not request this code, you can ignore this message. Your current password remains unchanged.',
+          '',
+          'Do not share this code, your password or any OTP with anyone. Nepal Telecom administrators will never ask you to provide them.',
+        ].join('\n'),
+      });
+    } catch {
+      throw new MailDeliveryError('SMTP_DELIVERY_FAILED');
+    }
   }
-}
 
-async sendPasswordResetNotification(
-  email: PasswordResetNotificationEmail,
-): Promise<void> {
-  try {
-    await this.transporter.sendMail({
-      from: this.fromAddress,
-      to: email.to,
-      subject: 'Your NT Message password was reset',
+  async sendPasswordResetNotification(
+    email: PasswordResetNotificationEmail,
+  ): Promise<void> {
+    try {
+      await this.transporter.sendMail({
+        from: this.fromAddress,
+        to: email.to,
+        subject: 'Your NT Message password was reset',
 
-      /*
-       * Confirmation contains only security-event information. It never
-       * contains either password, the OTP or the reset token.
-       */
-      text: [
-        `Dear ${email.displayName},`,
-        '',
-        'The password for your NT Message account was reset successfully.',
-        '',
-        `Reset at: ${email.changedAt.toISOString()}`,
-        '',
-        'All active NT Message sessions were signed out. Sign in again using your new password.',
-        '',
-        'If you did not complete this recovery, contact the authorized Nepal Telecom system administrator immediately.',
-        '',
-        'Nepal Telecom administrators will never ask you to provide your password or OTP.',
-      ].join('\n'),
-    });
-  } catch {
-    throw new MailDeliveryError('SMTP_DELIVERY_FAILED');
+        /*
+         * Confirmation contains only security-event information. It never
+         * contains either password, the OTP or the reset token.
+         */
+        text: [
+          `Dear ${email.displayName},`,
+          '',
+          'The password for your NT Message account was reset successfully.',
+          '',
+          `Reset at: ${email.changedAt.toISOString()}`,
+          '',
+          'All active NT Message sessions were signed out. Sign in again using your new password.',
+          '',
+          'If you did not complete this recovery, contact the authorized Nepal Telecom system administrator immediately.',
+          '',
+          'Nepal Telecom administrators will never ask you to provide your password or OTP.',
+        ].join('\n'),
+      });
+    } catch {
+      throw new MailDeliveryError('SMTP_DELIVERY_FAILED');
+    }
   }
-}
+
+  async sendIdentityCorrectionNotification(
+    email: IdentityCorrectionNotificationEmail,
+  ): Promise<void> {
+    const fieldLabels = email.correctedFields
+      .map((field) => field.toLowerCase().replaceAll('_', ' '))
+      .join(', ');
+
+    try {
+      await this.transporter.sendMail({
+        from: this.fromAddress,
+        to: email.to,
+        subject: 'Your NT Message official identity was corrected',
+
+        /*
+         * Confirm the administrative security event without repeating previous
+         * identity values. The immutable before/after record stays in the
+         * protected audit table rather than being exposed through email.
+         */
+        text: [
+          `Dear ${email.displayName},`,
+          '',
+          'An authorized Nepal Telecom system administrator corrected official identity information on your NT Message account.',
+          '',
+          `Corrected fields: ${fieldLabels}`,
+          `Corrected at: ${email.correctedAt.toISOString()}`,
+          '',
+          email.sessionsRevoked > 0
+            ? 'For security, active NT Message sessions were signed out. Sign in again using your current official account information.'
+            : 'Your account remains available using your current official account information.',
+          '',
+          'If this correction is unexpected, contact the authorized Nepal Telecom system administrator.',
+        ].join('\n'),
+      });
+    } catch {
+      throw new MailDeliveryError('SMTP_DELIVERY_FAILED');
+    }
+  }
 }
