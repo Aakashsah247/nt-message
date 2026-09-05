@@ -233,6 +233,12 @@ enum WorkItemType {
   ADMINISTRATIVE_TASK
 }
 
+enum WorkTypeVersionStatus {
+  DRAFT
+  PUBLISHED
+  RETIRED
+}
+
 enum WorkServiceType {
   DATA
   VOICE
@@ -426,6 +432,7 @@ model Office {
   delegatedPermissions DelegatedPermission[]
   legacyOrgUnitMappings LegacyOrgUnitMapping[]
   accountRequests       AccountRequest[] @relation("AccountRequestOffice")
+  workTypeDefinitions    WorkTypeDefinition[]
 
   @@index([isActive, sortOrder], map: "offices_active_sort_idx")
   @@map("offices")
@@ -847,6 +854,10 @@ model Account {
   delegatedPermissionsReceived DelegatedPermission[] @relation("DelegatedPermissionsGrantedTo")
   delegatedPermissionsGranted DelegatedPermission[] @relation("DelegatedPermissionsGrantedBy")
   delegatedPermissionsRevoked DelegatedPermission[] @relation("DelegatedPermissionsRevokedBy")
+  workTypeDefinitionsCreated WorkTypeDefinition[] @relation("WorkTypeDefinitionsCreatedBy")
+  workTypeVersionsCreated    WorkTypeVersion[]    @relation("WorkTypeVersionsCreatedBy")
+  workTypeVersionsPublished  WorkTypeVersion[]    @relation("WorkTypeVersionsPublishedBy")
+  workTypeVersionsRetired    WorkTypeVersion[]    @relation("WorkTypeVersionsRetiredBy")
 
   @@index([role], map: "accounts_role_idx")
   @@index([isEnabled], map: "accounts_is_enabled_idx")
@@ -1877,6 +1888,60 @@ model EmergencyAlertRecipient {
   @@index([recipientAccountId, createdAt], map: "emergency_alert_recipients_recipient_created_idx")
   @@index([status, createdAt], map: "emergency_alert_recipients_status_created_idx")
   @@map("emergency_alert_recipients")
+}
+
+model WorkTypeDefinition {
+  id                 String        @id @default(uuid()) @db.Uuid
+  officeId           String        @map("office_id") @db.Uuid
+  code               String        @db.VarChar(80)
+  legacyWorkItemType WorkItemType? @map("legacy_work_item_type")
+  isActive           Boolean       @default(true) @map("is_active")
+  sortOrder          Int           @default(0) @map("sort_order")
+  createdByAccountId String        @map("created_by_account_id") @db.Uuid
+  createdAt          DateTime      @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt          DateTime      @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  office    Office            @relation(fields: [officeId], references: [id], onDelete: Restrict)
+  createdBy Account           @relation("WorkTypeDefinitionsCreatedBy", fields: [createdByAccountId], references: [id], onDelete: Restrict)
+  versions  WorkTypeVersion[]
+
+  @@unique([officeId, code], map: "work_type_definitions_office_code_key")
+  @@unique([officeId, legacyWorkItemType], map: "work_type_definitions_office_legacy_type_key")
+  @@index([officeId, isActive, sortOrder], map: "work_type_definitions_office_active_sort_idx")
+  @@index([createdByAccountId], map: "work_type_definitions_created_by_idx")
+  @@map("work_type_definitions")
+}
+
+model WorkTypeVersion {
+  id                   String                @id @default(uuid()) @db.Uuid
+  workTypeDefinitionId String                @map("work_type_definition_id") @db.Uuid
+  version              Int
+  status               WorkTypeVersionStatus @default(DRAFT)
+  name                 String                @db.VarChar(150)
+  description          String?               @db.VarChar(1000)
+  changeReason         String?               @map("change_reason") @db.VarChar(500)
+
+  createdByAccountId   String  @map("created_by_account_id") @db.Uuid
+  publishedByAccountId String? @map("published_by_account_id") @db.Uuid
+  retiredByAccountId   String? @map("retired_by_account_id") @db.Uuid
+
+  publishedAt DateTime? @map("published_at") @db.Timestamptz(3)
+  retiredAt   DateTime? @map("retired_at") @db.Timestamptz(3)
+  createdAt   DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt   DateTime  @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  workTypeDefinition WorkTypeDefinition @relation(fields: [workTypeDefinitionId], references: [id], onDelete: Restrict)
+  createdBy          Account            @relation("WorkTypeVersionsCreatedBy", fields: [createdByAccountId], references: [id], onDelete: Restrict)
+  publishedBy        Account?           @relation("WorkTypeVersionsPublishedBy", fields: [publishedByAccountId], references: [id], onDelete: Restrict)
+  retiredBy          Account?           @relation("WorkTypeVersionsRetiredBy", fields: [retiredByAccountId], references: [id], onDelete: Restrict)
+
+  @@unique([workTypeDefinitionId, version], map: "work_type_versions_definition_version_key")
+  @@index([workTypeDefinitionId, status, version], map: "work_type_versions_definition_status_version_idx")
+  @@index([status, createdAt], map: "work_type_versions_status_created_idx")
+  @@index([createdByAccountId], map: "work_type_versions_created_by_idx")
+  @@index([publishedByAccountId], map: "work_type_versions_published_by_idx")
+  @@index([retiredByAccountId], map: "work_type_versions_retired_by_idx")
+  @@map("work_type_versions")
 }
 
 model WorkItem {
