@@ -341,3 +341,119 @@ export interface OrganizationLeadershipMutationResponse {
     endReason?: string | null;
   };
 }
+export type OrganizationDelegationCapability =
+  | "organization.view"
+  | "organization.create_unit"
+  | "organization.rename_unit"
+  | "organization.move_unit"
+  | "organization.deactivate_unit"
+  | "membership.view"
+  | "membership.transfer_internal"
+  | "membership.assign_secondary"
+  | "leadership.view"
+  | "leadership.assign"
+  | "leadership.assign_acting"
+  | "leadership.assign_deputy"
+  | "users.request_create";
+
+export interface OrganizationDelegationCandidate {
+  accountId: string;
+  username: string;
+  employeeId: string;
+  empId: string;
+  empName: string;
+  designation: string | null;
+  primaryOrgUnit: {
+    id: string;
+    code: string;
+    name: string;
+  } | null;
+}
+
+export interface OrganizationDelegationContextResponse {
+  officeId: string;
+  orgUnitId: string | null;
+  includeDescendants: boolean;
+  hasDelegationAuthority: boolean;
+  availableCapabilities: OrganizationDelegationCapability[];
+  candidates: OrganizationDelegationCandidate[];
+}
+
+export interface OrganizationDelegationRecord {
+  id: string;
+  granteeAccountId: string;
+  officeId: string;
+  orgUnitId: string | null;
+  capability: string;
+  includeDescendants: boolean;
+  canRedelegate: boolean;
+  effectiveFrom: string;
+  effectiveUntil: string | null;
+  grantedByAccountId: string;
+  revokedByAccountId: string | null;
+  revokedAt: string | null;
+  grantReason: string;
+  revokeReason: string | null;
+  createdAt: string;
+  updatedAt: string;
+  grantee: {
+    id: string;
+    username: string;
+    employee: {
+      empId: string;
+      empName: string;
+    } | null;
+  };
+  orgUnit: {
+    id: string;
+    code: string;
+    name: string;
+  } | null;
+  grantedBy: {
+    id: string;
+    username: string;
+  };
+  revokedBy: {
+    id: string;
+    username: string;
+  } | null;
+  availableActions: {
+    revoke: boolean;
+  };
+}
+
+export interface OrganizationDelegationListResponse {
+  data: OrganizationDelegationRecord[];
+}
+
+export interface CreateOrganizationDelegationInput {
+  granteeAccountId: string;
+  capability: OrganizationDelegationCapability;
+  orgUnitId?: string | null;
+  includeDescendants?: boolean;
+  canRedelegate?: boolean;
+  effectiveFrom?: string;
+  effectiveUntil?: string;
+  reason: string;
+}
+
+export interface RevokeOrganizationDelegationInput {
+  effectiveAt?: string;
+  reason: string;
+}
+
+export interface OrganizationDelegationMutationResponse {
+  message: string;
+  delegatedPermission: {
+    id: string;
+    granteeAccountId: string;
+    officeId: string;
+    orgUnitId: string | null;
+    capability: string;
+    includeDescendants: boolean;
+    canRedelegate: boolean;
+    effectiveFrom: string;
+    effectiveUntil: string | null;
+    revokedAt: string | null;
+  };
+}

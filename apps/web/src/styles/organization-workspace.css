@@ -1225,7 +1225,239 @@
   background: #ffffff;
 }
 
+
+.organization-delegation-workspace {
+  display: grid;
+  gap: 0.9rem;
+  min-width: 0;
+}
+
+.organization-delegation-toolbar {
+  align-items: center;
+}
+
+.organization-delegation-filters {
+  grid-template-columns: minmax(14rem, 1.5fr) minmax(10rem, 0.65fr) auto;
+}
+
+.organization-delegation-editor {
+  padding: 0.95rem;
+  border: 1px solid #d9e5ed;
+  border-radius: 0.95rem;
+  background: #ffffff;
+}
+
+.organization-form .organization-delegation-check {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+  min-height: 2.75rem;
+  padding: 0.55rem 0.7rem;
+  border: 1px solid #dbe6ee;
+  border-radius: 0.75rem;
+  background: #f8fbfd;
+}
+
+.organization-form .organization-delegation-check input {
+  width: 1rem;
+  min-height: auto;
+  height: 1rem;
+  margin: 0;
+  accent-color: var(--organization-blue);
+}
+
+.organization-form .organization-delegation-check > span {
+  color: #45647a;
+  font-size: 0.73rem;
+  font-weight: 800;
+  letter-spacing: 0;
+  text-transform: none;
+}
+
+.organization-delegation-list-panel {
+  min-width: 0;
+  border: 1px solid var(--organization-border);
+  border-radius: 1rem;
+  background: #ffffff;
+  overflow: hidden;
+}
+
+.organization-delegation-list-panel > header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 0.9rem 1rem;
+  border-bottom: 1px solid #e3ecf2;
+}
+
+.organization-delegation-list-panel > header > div > span {
+  color: var(--organization-blue);
+  font-size: 0.7rem;
+  font-weight: 900;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+}
+
+.organization-delegation-list-panel > header h4 {
+  margin: 0.2rem 0 0;
+  color: var(--organization-navy);
+  font-size: 1rem;
+}
+
+.organization-delegation-list-panel > header > span {
+  color: var(--organization-muted);
+  font-size: 0.7rem;
+}
+
+.organization-delegation-list {
+  display: grid;
+}
+
+.organization-delegation-card {
+  display: grid;
+  grid-template-columns: minmax(11rem, 1fr) minmax(12rem, 1.15fr) minmax(9rem, 0.8fr) minmax(8rem, 0.65fr) minmax(12rem, 1.1fr) auto;
+  align-items: center;
+  gap: 0.7rem;
+  min-width: 0;
+  padding: 0.8rem 0.9rem;
+  border-bottom: 1px solid #e9f0f4;
+}
+
+.organization-delegation-card:last-child {
+  border-bottom: 0;
+}
+
+.organization-delegation-person {
+  display: grid;
+  grid-template-columns: 2.25rem minmax(0, 1fr);
+  align-items: center;
+  gap: 0.55rem;
+  min-width: 0;
+}
+
+.organization-delegation-person > span:last-child,
+.organization-delegation-capability,
+.organization-delegation-period,
+.organization-delegation-flags,
+.organization-delegation-reason {
+  min-width: 0;
+}
+
+.organization-delegation-person strong,
+.organization-delegation-person small,
+.organization-delegation-capability strong,
+.organization-delegation-capability small,
+.organization-delegation-period strong,
+.organization-delegation-period small,
+.organization-delegation-reason small {
+  display: block;
+}
+
+.organization-delegation-person strong,
+.organization-delegation-capability strong,
+.organization-delegation-period strong {
+  overflow: hidden;
+  color: #284d66;
+  font-size: 0.75rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.organization-delegation-person small,
+.organization-delegation-capability > span,
+.organization-delegation-capability small,
+.organization-delegation-period > span,
+.organization-delegation-period small,
+.organization-delegation-reason > span,
+.organization-delegation-reason small {
+  color: #71899b;
+  font-size: 0.64rem;
+  line-height: 1.4;
+}
+
+.organization-delegation-capability strong,
+.organization-delegation-period strong {
+  margin-top: 0.2rem;
+}
+
+.organization-delegation-reason p {
+  margin: 0.2rem 0 0;
+  color: #4a6578;
+  font-size: 0.7rem;
+  line-height: 1.4;
+}
+
+.organization-delegation-reason small {
+  margin-top: 0.16rem;
+}
+
+.organization-delegation-flags {
+  display: flex;
+  align-items: flex-start;
+  flex-direction: column;
+  gap: 0.3rem;
+}
+
+.organization-delegation-flags small {
+  display: inline-flex;
+  width: fit-content;
+  border: 1px solid #d6e3ec;
+  border-radius: 999px;
+  background: #f6fafc;
+  padding: 0.18rem 0.42rem;
+  color: #557287;
+  font-size: 0.61rem;
+  font-weight: 800;
+}
+
+.organization-delegation-state {
+  display: inline-flex;
+  width: fit-content;
+  border: 1px solid #acd7be;
+  border-radius: 999px;
+  background: #eff9f3;
+  padding: 0.22rem 0.5rem;
+  color: #20704a;
+  font-size: 0.65rem;
+  font-weight: 850;
+}
+
+.organization-delegation-state.is-upcoming {
+  border-color: #b8d5e8;
+  background: #f2f8fc;
+  color: #326784;
+}
+
+.organization-delegation-state.is-history {
+  border-color: #d4dce3;
+  background: #f7f8f9;
+  color: #6c7e8a;
+}
+
+.organization-delegation-card > button {
+  min-height: 2.35rem;
+  border: 1px solid #d8b6bb;
+  border-radius: 0.7rem;
+  background: #fff5f6;
+  padding: 0.45rem 0.7rem;
+  color: #9a3240;
+  font-size: 0.72rem;
+  font-weight: 850;
+}
+
 @media (max-width: 1100px) {
+  .organization-delegation-filters {
+    grid-template-columns: minmax(0, 1fr) minmax(10rem, 0.5fr);
+  }
+
+  .organization-delegation-card {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .organization-delegation-card > button {
+    width: 100%;
+  }
   .organization-leadership-toolbar {
     align-items: stretch;
     flex-direction: column;
@@ -1278,6 +1510,20 @@
 }
 
 @media (max-width: 760px) {
+  .organization-delegation-toolbar .organization-button {
+    width: 100%;
+  }
+
+  .organization-delegation-filters,
+  .organization-delegation-card {
+    grid-template-columns: 1fr;
+  }
+
+  .organization-delegation-person strong,
+  .organization-delegation-capability strong,
+  .organization-delegation-period strong {
+    white-space: normal;
+  }
   .organization-leadership-toolbar__controls,
   .organization-leadership-summary,
   .organization-leadership-card {
@@ -1285,7 +1531,8 @@
   }
 
   .organization-leadership-scope-note,
-  .organization-leadership-list-panel > header {
+  .organization-leadership-list-panel > header,
+  .organization-delegation-list-panel > header {
     align-items: stretch;
     flex-direction: column;
   }
@@ -1301,12 +1548,13 @@
   }
   .organization-workspace-tabs {
     display: grid;
-    grid-template-columns: repeat(3, minmax(0, 1fr));
+    grid-template-columns: repeat(4, minmax(0, 1fr));
     width: 100%;
   }
 
   .organization-people-toolbar,
-.organization-leadership-toolbar {
+  .organization-leadership-toolbar,
+  .organization-delegation-toolbar {
     align-items: stretch;
     flex-direction: column;
   }

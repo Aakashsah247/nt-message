@@ -1,10 +1,14 @@
 import { apiRequest } from "../lib/api";
 
 import type {
+  CreateOrganizationDelegationInput,
   CreateOrganizationUnitInput,
   AssignOrganizationMembershipInput,
   AssignOrganizationLeadershipInput,
   EndOrganizationMembershipInput,
+  OrganizationDelegationContextResponse,
+  OrganizationDelegationListResponse,
+  OrganizationDelegationMutationResponse,
   EndOrganizationLeadershipInput,
   MoveOrganizationUnitInput,
   OrganizationActionContext,
@@ -20,6 +24,7 @@ import type {
   OrganizationTreeResponse,
   OrganizationUnitMutationResponse,
   SetOrganizationUnitStatusInput,
+  RevokeOrganizationDelegationInput,
   TransferPrimaryMembershipInput,
   UpdateOrganizationUnitInput,
 } from "../types/organization-v3";
@@ -270,6 +275,71 @@ export function endOrganizationLeadership(
 ): Promise<OrganizationLeadershipMutationResponse> {
   return apiRequest<OrganizationLeadershipMutationResponse>(
     `/organization/offices/${officeId}/leadership/${assignmentId}/end`,
+    {
+      method: "PATCH",
+      headers: authHeader(accessToken),
+      body: JSON.stringify(input),
+    },
+  );
+}
+export function getOrganizationDelegations(
+  accessToken: string,
+  officeId: string,
+): Promise<OrganizationDelegationListResponse> {
+  return apiRequest<OrganizationDelegationListResponse>(
+    `/organization/offices/${officeId}/delegations`,
+    {
+      headers: authHeader(accessToken),
+    },
+  );
+}
+
+export function getOrganizationDelegationContext(
+  accessToken: string,
+  officeId: string,
+  orgUnitId: string | null,
+  includeDescendants: boolean,
+): Promise<OrganizationDelegationContextResponse> {
+  const query = new URLSearchParams();
+
+  if (orgUnitId) {
+    query.set("orgUnitId", orgUnitId);
+    query.set("includeDescendants", String(includeDescendants));
+  }
+
+  const suffix = query.toString() ? `?${query.toString()}` : "";
+
+  return apiRequest<OrganizationDelegationContextResponse>(
+    `/organization/offices/${officeId}/delegations/context${suffix}`,
+    {
+      headers: authHeader(accessToken),
+    },
+  );
+}
+
+export function createOrganizationDelegation(
+  accessToken: string,
+  officeId: string,
+  input: CreateOrganizationDelegationInput,
+): Promise<OrganizationDelegationMutationResponse> {
+  return apiRequest<OrganizationDelegationMutationResponse>(
+    `/organization/offices/${officeId}/delegations`,
+    {
+      method: "POST",
+      headers: authHeader(accessToken),
+      body: JSON.stringify(input),
+    },
+  );
+}
+
+export function revokeOrganizationDelegation(
+  accessToken: string,
+  officeId: string,
+  permissionId: string,
+  input: RevokeOrganizationDelegationInput,
+): Promise<OrganizationDelegationMutationResponse> {
+  return apiRequest<OrganizationDelegationMutationResponse>(
+    `/organization/offices/${officeId}/delegations/${permissionId}/revoke`,
     {
       method: "PATCH",
       headers: authHeader(accessToken),

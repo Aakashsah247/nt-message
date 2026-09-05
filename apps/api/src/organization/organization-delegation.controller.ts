@@ -6,6 +6,7 @@ import {
   ParseUUIDPipe,
   Patch,
   Post,
+  Query,
   UseGuards,
 } from '@nestjs/common';
 
@@ -14,6 +15,7 @@ import { AccessTokenGuard } from '../auth/guards/access-token.guard';
 import type { AuthenticatedUser } from '../auth/types/auth.types';
 
 import { CreateDelegatedPermissionDto } from './dto/create-delegated-permission.dto';
+import { OrganizationDelegationContextQueryDto } from './dto/organization-delegation-context-query.dto';
 import { RevokeDelegatedPermissionDto } from './dto/revoke-delegated-permission.dto';
 import { OrganizationDelegationService } from './organization-delegation.service';
 
@@ -31,6 +33,20 @@ export class OrganizationDelegationController {
     officeId: string,
   ) {
     return this.delegationService.list(user, officeId);
+  }
+
+  @Get('context')
+  context(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('officeId', new ParseUUIDPipe({ version: '4' }))
+    officeId: string,
+    @Query() query: OrganizationDelegationContextQueryDto,
+  ) {
+    return this.delegationService.getUiContext(
+      user,
+      officeId,
+      query,
+    );
   }
 
   @Post()

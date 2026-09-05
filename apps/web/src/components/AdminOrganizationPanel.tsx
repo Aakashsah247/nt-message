@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import type { FormEvent } from "react";
 import { useTranslation } from "react-i18next";
 
+import { OrganizationDelegationPanel } from "./organization/OrganizationDelegationPanel";
 import { OrganizationLeadershipPanel } from "./organization/OrganizationLeadershipPanel";
 import { OrganizationPeoplePanel } from "./organization/OrganizationPeoplePanel";
 import { OrganizationTree } from "./organization/OrganizationTree";
@@ -38,7 +39,7 @@ interface AdminOrganizationPanelProps {
   accessToken: string;
 }
 
-type OrganizationWorkspaceView = "STRUCTURE" | "PEOPLE" | "LEADERSHIP";
+type OrganizationWorkspaceView = "STRUCTURE" | "PEOPLE" | "LEADERSHIP" | "DELEGATION";
 type EditorMode = "CREATE" | "EDIT" | "MOVE" | "STATUS" | null;
 
 interface CreateUnitForm {
@@ -605,6 +606,17 @@ export function AdminOrganizationPanel({
           aria-current={workspaceView === "LEADERSHIP" ? "page" : undefined}
         >
           {t("tabs.leadership")}
+        </button>
+        <button
+          type="button"
+          className={workspaceView === "DELEGATION" ? "is-active" : ""}
+          onClick={() => {
+            setWorkspaceView("DELEGATION");
+            setEditorMode(null);
+          }}
+          aria-current={workspaceView === "DELEGATION" ? "page" : undefined}
+        >
+          {t("tabs.delegation")}
         </button>
       </nav>
 
@@ -1180,8 +1192,14 @@ export function AdminOrganizationPanel({
             office={office}
             tree={tree}
           />
-        ) : (
+        ) : workspaceView === "LEADERSHIP" ? (
           <OrganizationLeadershipPanel
+            accessToken={accessToken}
+            office={office}
+            tree={tree}
+          />
+        ) : (
+          <OrganizationDelegationPanel
             accessToken={accessToken}
             office={office}
             tree={tree}
