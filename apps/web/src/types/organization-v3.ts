@@ -259,3 +259,85 @@ export interface OrganizationMembershipMutationResponse {
   message: string;
   membership: OrganizationMembershipRecord;
 }
+
+export type OrganizationLeadershipType =
+  | "OFFICE_HEAD"
+  | "ORG_UNIT_HEAD"
+  | "TEAM_LEAD"
+  | "DEPUTY";
+
+export interface OrganizationLeadershipRecord {
+  id: string;
+  officeId: string;
+  orgUnitId: string | null;
+  employeeId: string;
+  leadershipType: OrganizationLeadershipType;
+  assignmentSource: string;
+  isActing: boolean;
+  effectiveFrom: string;
+  effectiveUntil: string | null;
+  assignmentReason: string | null;
+  endReason: string | null;
+  createdAt: string;
+  updatedAt: string;
+  employee: {
+    id: string;
+    empId: string;
+    empName: string;
+    designation: string | null;
+  };
+  orgUnit: {
+    id: string;
+    code: string;
+    name: string;
+    isActive: boolean;
+    orgUnitType: {
+      name: string;
+      isTeam: boolean;
+    };
+  } | null;
+  assignedBy: {
+    id: string;
+    username: string;
+  } | null;
+  endedBy: {
+    id: string;
+    username: string;
+  } | null;
+}
+
+export interface OrganizationLeadershipResponse {
+  data: OrganizationLeadershipRecord[];
+}
+
+export interface AssignOrganizationLeadershipInput {
+  employeeId: string;
+  orgUnitId?: string | null;
+  leadershipType: OrganizationLeadershipType;
+  isActing?: boolean;
+  effectiveFrom?: string;
+  effectiveUntil?: string;
+  reason: string;
+}
+
+export interface EndOrganizationLeadershipInput {
+  effectiveAt?: string;
+  reason: string;
+}
+
+export interface OrganizationLeadershipMutationResponse {
+  message: string;
+  assignment: {
+    id: string;
+    employeeId: string;
+    officeId: string;
+    orgUnitId: string | null;
+    leadershipType: OrganizationLeadershipType;
+    assignmentSource: string;
+    isActing: boolean;
+    effectiveFrom: string;
+    effectiveUntil: string | null;
+    assignmentReason: string | null;
+    endReason?: string | null;
+  };
+}

@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import type { FormEvent } from "react";
 import { useTranslation } from "react-i18next";
 
+import { OrganizationLeadershipPanel } from "./organization/OrganizationLeadershipPanel";
 import { OrganizationPeoplePanel } from "./organization/OrganizationPeoplePanel";
 import { OrganizationTree } from "./organization/OrganizationTree";
 
@@ -37,7 +38,7 @@ interface AdminOrganizationPanelProps {
   accessToken: string;
 }
 
-type OrganizationWorkspaceView = "STRUCTURE" | "PEOPLE";
+type OrganizationWorkspaceView = "STRUCTURE" | "PEOPLE" | "LEADERSHIP";
 type EditorMode = "CREATE" | "EDIT" | "MOVE" | "STATUS" | null;
 
 interface CreateUnitForm {
@@ -593,6 +594,17 @@ export function AdminOrganizationPanel({
           aria-current={workspaceView === "PEOPLE" ? "page" : undefined}
         >
           {t("tabs.people")}
+        </button>
+        <button
+          type="button"
+          className={workspaceView === "LEADERSHIP" ? "is-active" : ""}
+          onClick={() => {
+            setWorkspaceView("LEADERSHIP");
+            setEditorMode(null);
+          }}
+          aria-current={workspaceView === "LEADERSHIP" ? "page" : undefined}
+        >
+          {t("tabs.leadership")}
         </button>
       </nav>
 
@@ -1162,11 +1174,19 @@ export function AdminOrganizationPanel({
       </div>
         </>
       ) : office ? (
-        <OrganizationPeoplePanel
-          accessToken={accessToken}
-          office={office}
-          tree={tree}
-        />
+        workspaceView === "PEOPLE" ? (
+          <OrganizationPeoplePanel
+            accessToken={accessToken}
+            office={office}
+            tree={tree}
+          />
+        ) : (
+          <OrganizationLeadershipPanel
+            accessToken={accessToken}
+            office={office}
+            tree={tree}
+          />
+        )
       ) : (
         <div className="organization-empty-state">
           <strong>{t("tree.noOfficeTitle")}</strong>

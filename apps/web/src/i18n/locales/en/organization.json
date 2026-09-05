@@ -5,8 +5,8 @@
   },
   "hero": {
     "eyebrow": "Office organization",
-    "title": "Organization & Structure",
-    "description": "View the Office hierarchy and manage authorized organizational units without fixed Division or Department depth.",
+    "title": "Organization & People",
+    "description": "Manage Office structure, people placement and leadership through the configurable OrgUnit hierarchy and authorized organizational scope.",
     "office": "Office",
     "refresh": "Refresh",
     "refreshing": "Refreshing…"
@@ -118,7 +118,8 @@
   "tabs": {
     "aria": "Organization workspace sections",
     "structure": "Structure",
-    "people": "People & Placement"
+    "people": "People & Placement",
+    "leadership": "Leadership"
   },
   "people": {
     "eyebrow": "Office people",
@@ -186,6 +187,78 @@
       "reason": "Provide a clear reason containing at least 3 characters.",
       "temporaryEnd": "Temporary placement requires an end time.",
       "targetNotAllowed": "You are not authorized for the selected placement scope."
+    }
+  }
+,
+  "leadership": {
+    "eyebrow": "Office leadership",
+    "title": "Leadership & Acting Assignments",
+    "description": "Review current and historical leadership, then manage authorized Head, Team Lead, Deputy and temporary Acting assignments by organizational scope.",
+    "scope": "Leadership scope",
+    "allVisible": "All visible leadership",
+    "officeScope": "Office level",
+    "status": "Period status",
+    "search": "Search leadership",
+    "searchPlaceholder": "Employee, staff ID, unit or leadership type",
+    "summaryAria": "Leadership summary",
+    "current": "Current leaders",
+    "acting": "Acting assignments",
+    "deputies": "Deputies",
+    "visibleRecords": "Visible records",
+    "selectedScope": "Selected scope",
+    "readonlyScope": "Leadership changes are read-only for this scope.",
+    "assign": "Assign leadership",
+    "actionEyebrow": "Leadership action",
+    "assignTitle": "Assign leadership",
+    "endTitle": "End leadership assignment",
+    "role": "Leadership role",
+    "employee": "Employee",
+    "selectEmployee": "Select an employee",
+    "effectiveFrom": "Effective start",
+    "effectiveUntil": "Effective end",
+    "effectiveAt": "End time",
+    "reason": "Reason",
+    "saving": "Saving…",
+    "end": "End assignment",
+    "deputyNotice": "Deputy is a separate leadership assignment and does not automatically receive Head authority.",
+    "actingNotice": "Acting leadership is temporary. An effective end time is required and the backend applies authority only during that period.",
+    "endNotice": "Ending an open assignment preserves its complete history. Permanent Office Head remains a protected system action.",
+    "recordsEyebrow": "Leadership history",
+    "recordsTitle": "Leadership assignments",
+    "matching_one": "{{count}} matching record",
+    "matching_other": "{{count}} matching records",
+    "loading": "Loading leadership assignments",
+    "empty": "No matching leadership assignments",
+    "emptyDescription": "Change the scope, period status or search to review another leadership record.",
+    "period": "Effective period",
+    "until": "Until {{date}}",
+    "openEnded": "Open-ended",
+    "protectedOfficeHead": "Protected Office Head record",
+    "scheduledEnd": "Ends automatically at the scheduled time",
+    "noTeamsNotice": "No active OrgUnit is currently configured as a Team, so Team Lead assignment is unavailable until a Team unit exists.",
+    "filters": {
+      "CURRENT": "Current",
+      "UPCOMING": "Upcoming",
+      "HISTORY": "History",
+      "ALL": "All periods"
+    },
+    "kinds": {
+      "OFFICE_HEAD": "Office Head",
+      "ORG_UNIT_HEAD": "Org Unit Head",
+      "TEAM_LEAD": "Team Lead",
+      "DEPUTY": "Deputy",
+      "ACTING_OFFICE_HEAD": "Acting Office Head",
+      "ACTING_ORG_UNIT_HEAD": "Acting Org Unit Head",
+      "ACTING_TEAM_LEAD": "Acting Team Lead"
+    },
+    "errors": {
+      "load": "Leadership assignments could not be loaded.",
+      "actions": "Leadership actions could not be loaded for the selected scope.",
+      "save": "The leadership action could not be completed.",
+      "selection": "Select an authorized leadership scope, role and employee.",
+      "reason": "Provide a clear reason containing at least 3 characters.",
+      "actingEnd": "Acting leadership requires an effective end time.",
+      "scope": "You are not authorized for this leadership action in the selected scope."
     }
   }
 }

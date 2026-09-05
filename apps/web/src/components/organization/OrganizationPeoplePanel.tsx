@@ -11,6 +11,11 @@ import {
   transferPrimaryOrganizationMembership,
 } from "../../services/organization-v3.service";
 import { flattenTree, formatOrganizationDate } from "../../utils/organization-v3";
+import {
+  getOrganizationScopeKey,
+  normalizeOrganizationReason,
+  toOptionalOrganizationIso,
+} from "../../utils/organization-people";
 import type {
   OrganizationMembershipRecord,
   OrganizationOfficeDetail,
@@ -43,23 +48,6 @@ function getErrorMessage(error: unknown, fallback: string): string {
   return error instanceof Error && error.message.trim()
     ? error.message
     : fallback;
-}
-
-function toOptionalIso(value: string): string | undefined {
-  if (!value) {
-    return undefined;
-  }
-
-  const parsed = new Date(value);
-  return Number.isNaN(parsed.getTime()) ? undefined : parsed.toISOString();
-}
-
-function normalizeReason(value: string): string {
-  return value.trim().replace(/\s+/g, " ");
-}
-
-function getScopeKey(orgUnitId: string | null): string {
-  return orgUnitId ?? "__OFFICE__";
 }
 
 export function OrganizationPeoplePanel({
@@ -242,7 +230,7 @@ export function OrganizationPeoplePanel({
               office.id,
               orgUnitId,
             );
-            return [getScopeKey(orgUnitId), response.availableActions] as const;
+            return [getOrganizationScopeKey(orgUnitId), response.availableActions] as const;
           }),
         );
 
@@ -296,7 +284,7 @@ export function OrganizationPeoplePanel({
       return;
     }
 
-    const cleanReason = normalizeReason(reason);
+    const cleanReason = normalizeOrganizationReason(reason);
     if (cleanReason.length < 3) {
       setFormError(t("people.errors.reason"));
       return;
@@ -316,7 +304,7 @@ export function OrganizationPeoplePanel({
         {
           employeeId: selectedPerson.employee.id,
           orgUnitId: targetOrgUnitIdValue,
-          effectiveAt: toOptionalIso(effectiveAt),
+          effectiveAt: toOptionalOrganizationIso(effectiveAt),
           reason: cleanReason,
         },
       );
@@ -334,7 +322,7 @@ export function OrganizationPeoplePanel({
       return;
     }
 
-    const cleanReason = normalizeReason(reason);
+    const cleanReason = normalizeOrganizationReason(reason);
     if (cleanReason.length < 3) {
       setFormError(t("people.errors.reason"));
       return;
@@ -358,8 +346,8 @@ export function OrganizationPeoplePanel({
           employeeId: selectedPerson.employee.id,
           orgUnitId: targetOrgUnitIdValue,
           membershipType,
-          startsAt: toOptionalIso(effectiveAt),
-          endsAt: membershipType === "TEMPORARY" ? toOptionalIso(endsAt) : undefined,
+          startsAt: toOptionalOrganizationIso(effectiveAt),
+          endsAt: membershipType === "TEMPORARY" ? toOptionalOrganizationIso(endsAt) : undefined,
           reason: cleanReason,
         },
       );
@@ -378,13 +366,13 @@ export function OrganizationPeoplePanel({
       return;
     }
 
-    const cleanReason = normalizeReason(reason);
+    const cleanReason = normalizeOrganizationReason(reason);
     if (cleanReason.length < 3) {
       setFormError(t("people.errors.reason"));
       return;
     }
 
-    const actions = scopeActions[getScopeKey(membership.orgUnitId)] ?? NO_PEOPLE_ACTIONS;
+    const actions = scopeActions[getOrganizationScopeKey(membership.orgUnitId)] ?? NO_PEOPLE_ACTIONS;
     if (!actions.assignSecondary) {
       setFormError(t("people.errors.targetNotAllowed"));
       return;
@@ -398,7 +386,7 @@ export function OrganizationPeoplePanel({
         office.id,
         membership.id,
         {
-          effectiveAt: toOptionalIso(effectiveAt),
+          effectiveAt: toOptionalOrganizationIso(effectiveAt),
           reason: cleanReason,
         },
       );
@@ -580,7 +568,7 @@ export function OrganizationPeoplePanel({
                         const canEnd =
                           membership.membershipType !== "PRIMARY" &&
                           membership.endsAt === null &&
-                          (scopeActions[getScopeKey(membership.orgUnitId)]?.assignSecondary ?? false);
+                          (scopeActions[getOrganizationScopeKey(membership.orgUnitId)]?.assignSecondary ?? false);
                         return (
                           <article key={membership.id} className="organization-membership-card">
                             <div>

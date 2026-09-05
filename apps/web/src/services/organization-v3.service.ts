@@ -3,11 +3,15 @@ import { apiRequest } from "../lib/api";
 import type {
   CreateOrganizationUnitInput,
   AssignOrganizationMembershipInput,
+  AssignOrganizationLeadershipInput,
   EndOrganizationMembershipInput,
+  EndOrganizationLeadershipInput,
   MoveOrganizationUnitInput,
   OrganizationActionContext,
   OrganizationEmployeeMembershipsResponse,
   OrganizationMembershipMutationResponse,
+  OrganizationLeadershipMutationResponse,
+  OrganizationLeadershipResponse,
   OrganizationPeopleActionContext,
   OrganizationPeopleResponse,
   OrganizationNavigationContextResponse,
@@ -223,6 +227,49 @@ export function endOrganizationMembership(
 ): Promise<OrganizationMembershipMutationResponse> {
   return apiRequest<OrganizationMembershipMutationResponse>(
     `/organization/offices/${officeId}/memberships/${membershipId}/end`,
+    {
+      method: "PATCH",
+      headers: authHeader(accessToken),
+      body: JSON.stringify(input),
+    },
+  );
+}
+
+export function getOrganizationLeadership(
+  accessToken: string,
+  officeId: string,
+): Promise<OrganizationLeadershipResponse> {
+  return apiRequest<OrganizationLeadershipResponse>(
+    `/organization/offices/${officeId}/leadership`,
+    {
+      headers: authHeader(accessToken),
+    },
+  );
+}
+
+export function assignOrganizationLeadership(
+  accessToken: string,
+  officeId: string,
+  input: AssignOrganizationLeadershipInput,
+): Promise<OrganizationLeadershipMutationResponse> {
+  return apiRequest<OrganizationLeadershipMutationResponse>(
+    `/organization/offices/${officeId}/leadership`,
+    {
+      method: "POST",
+      headers: authHeader(accessToken),
+      body: JSON.stringify(input),
+    },
+  );
+}
+
+export function endOrganizationLeadership(
+  accessToken: string,
+  officeId: string,
+  assignmentId: string,
+  input: EndOrganizationLeadershipInput,
+): Promise<OrganizationLeadershipMutationResponse> {
+  return apiRequest<OrganizationLeadershipMutationResponse>(
+    `/organization/offices/${officeId}/leadership/${assignmentId}/end`,
     {
       method: "PATCH",
       headers: authHeader(accessToken),

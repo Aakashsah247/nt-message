@@ -681,7 +681,8 @@
   min-width: 0;
 }
 
-.organization-people-toolbar {
+.organization-people-toolbar,
+.organization-leadership-toolbar {
   display: flex;
   align-items: flex-end;
   justify-content: space-between;
@@ -693,6 +694,7 @@
 }
 
 .organization-people-toolbar > div > span,
+.organization-leadership-toolbar > div > span,
 .organization-person-detail-header > div > span,
 .organization-membership-history > header > div > span {
   color: var(--organization-blue);
@@ -703,6 +705,7 @@
 }
 
 .organization-people-toolbar h3,
+.organization-leadership-toolbar h3,
 .organization-person-detail-header h3,
 .organization-membership-history h4 {
   margin: 0.2rem 0 0;
@@ -711,6 +714,7 @@
 }
 
 .organization-people-toolbar p,
+.organization-leadership-toolbar p,
 .organization-person-detail-header p {
   margin: 0.3rem 0 0;
   color: var(--organization-muted);
@@ -966,7 +970,280 @@
   font-size: 0.75rem;
 }
 
+.organization-leadership-workspace {
+  display: grid;
+  gap: 0.9rem;
+  min-width: 0;
+}
+
+.organization-leadership-toolbar {
+  align-items: flex-start;
+}
+
+.organization-leadership-toolbar__controls {
+  display: grid;
+  grid-template-columns: minmax(12rem, 1fr) minmax(10rem, 0.7fr) minmax(13rem, 1fr);
+  gap: 0.65rem;
+  width: min(48rem, 100%);
+}
+
+.organization-leadership-toolbar__controls label {
+  display: grid;
+  gap: 0.35rem;
+  min-width: 0;
+}
+
+.organization-leadership-toolbar__controls label > span,
+.organization-leadership-scope-note > div > span,
+.organization-leadership-card__scope > span,
+.organization-leadership-card__period > span,
+.organization-leadership-card__reason > span {
+  color: #667f91;
+  font-size: 0.66rem;
+  font-weight: 850;
+  letter-spacing: 0.035em;
+  text-transform: uppercase;
+}
+
+.organization-leadership-toolbar__controls select,
+.organization-leadership-toolbar__controls input {
+  width: 100%;
+  min-height: 2.7rem;
+  border: 1px solid #cbdbe7;
+  border-radius: 0.75rem;
+  background: #ffffff;
+  padding: 0.5rem 0.7rem;
+  color: var(--organization-ink);
+  outline: none;
+}
+
+.organization-leadership-toolbar__controls select:focus,
+.organization-leadership-toolbar__controls input:focus {
+  border-color: var(--organization-blue);
+  box-shadow: 0 0 0 3px rgba(8, 120, 190, 0.12);
+}
+
+.organization-leadership-summary {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 0.65rem;
+}
+
+.organization-leadership-summary article {
+  min-width: 0;
+  padding: 0.85rem 0.9rem;
+  border: 1px solid var(--organization-border);
+  border-radius: 0.9rem;
+  background: #ffffff;
+}
+
+.organization-leadership-summary span {
+  display: block;
+  color: var(--organization-muted);
+  font-size: 0.7rem;
+  font-weight: 800;
+}
+
+.organization-leadership-summary strong {
+  display: block;
+  margin-top: 0.22rem;
+  color: var(--organization-navy);
+  font-size: 1.35rem;
+}
+
+.organization-leadership-scope-note {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.8rem;
+  padding: 0.85rem 0.95rem;
+  border: 1px solid #d4e3ee;
+  border-radius: 0.9rem;
+  background: #f6fafc;
+}
+
+.organization-leadership-scope-note > div {
+  min-width: 0;
+}
+
+.organization-leadership-scope-note strong,
+.organization-leadership-scope-note small {
+  display: block;
+}
+
+.organization-leadership-scope-note strong {
+  margin-top: 0.16rem;
+  color: #244a64;
+  font-size: 0.84rem;
+}
+
+.organization-leadership-scope-note small {
+  margin-top: 0.08rem;
+  color: var(--organization-muted);
+  font-size: 0.68rem;
+}
+
+.organization-leadership-list-panel {
+  min-width: 0;
+  border: 1px solid var(--organization-border);
+  border-radius: 1rem;
+  background: #ffffff;
+  overflow: hidden;
+}
+
+.organization-leadership-list-panel > header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 0.9rem 1rem;
+  border-bottom: 1px solid #e3ecf2;
+}
+
+.organization-leadership-list-panel > header > div > span {
+  color: var(--organization-blue);
+  font-size: 0.7rem;
+  font-weight: 900;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+}
+
+.organization-leadership-list-panel > header h4 {
+  margin: 0.2rem 0 0;
+  color: var(--organization-navy);
+  font-size: 1rem;
+}
+
+.organization-leadership-list-panel > header > span {
+  color: var(--organization-muted);
+  font-size: 0.7rem;
+}
+
+.organization-leadership-list {
+  display: grid;
+}
+
+.organization-leadership-card {
+  display: grid;
+  grid-template-columns: minmax(12rem, 1.2fr) minmax(10rem, 0.9fr) minmax(8.5rem, 0.8fr) minmax(7rem, 0.6fr) minmax(10rem, 1fr) auto;
+  align-items: center;
+  gap: 0.7rem;
+  min-width: 0;
+  padding: 0.8rem 0.9rem;
+  border-bottom: 1px solid #e9f0f4;
+}
+
+.organization-leadership-card:last-child {
+  border-bottom: 0;
+}
+
+.organization-leadership-card__identity,
+.organization-leadership-card__scope,
+.organization-leadership-card__period,
+.organization-leadership-card__status,
+.organization-leadership-card__reason {
+  min-width: 0;
+}
+
+.organization-leadership-card__identity > strong,
+.organization-leadership-card__identity > small,
+.organization-leadership-card__scope > strong,
+.organization-leadership-card__scope > small,
+.organization-leadership-card__period > strong,
+.organization-leadership-card__period > small,
+.organization-leadership-card__status > small {
+  display: block;
+}
+
+.organization-leadership-card__identity > strong,
+.organization-leadership-card__scope > strong,
+.organization-leadership-card__period > strong {
+  margin-top: 0.3rem;
+  overflow: hidden;
+  color: #284d66;
+  font-size: 0.76rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.organization-leadership-card__identity > small,
+.organization-leadership-card__scope > small,
+.organization-leadership-card__period > small,
+.organization-leadership-card__status > small {
+  margin-top: 0.13rem;
+  color: #7890a2;
+  font-size: 0.64rem;
+  line-height: 1.4;
+}
+
+.organization-leadership-card__reason p {
+  margin: 0.22rem 0 0;
+  color: #4a6578;
+  font-size: 0.7rem;
+  line-height: 1.4;
+}
+
+.organization-leadership-state {
+  display: inline-flex;
+  width: fit-content;
+  border: 1px solid #b7d8c5;
+  border-radius: 999px;
+  background: #f0faf4;
+  padding: 0.22rem 0.5rem;
+  color: #23714c;
+  font-size: 0.65rem;
+  font-weight: 850;
+}
+
+.organization-leadership-state.is-upcoming {
+  border-color: #b8d5e8;
+  background: #f2f8fc;
+  color: #326784;
+}
+
+.organization-leadership-state.is-history {
+  border-color: #d4dce3;
+  background: #f7f8f9;
+  color: #6c7e8a;
+}
+
+.organization-leadership-card > button {
+  min-height: 2.35rem;
+  border: 1px solid #d8b6bb;
+  border-radius: 0.7rem;
+  background: #fff5f6;
+  padding: 0.45rem 0.7rem;
+  color: #9a3240;
+  font-size: 0.72rem;
+  font-weight: 850;
+}
+
+.organization-leadership-editor {
+  padding: 0.95rem;
+  border: 1px solid #d9e5ed;
+  border-radius: 0.95rem;
+  background: #ffffff;
+}
+
 @media (max-width: 1100px) {
+  .organization-leadership-toolbar {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .organization-leadership-toolbar__controls,
+  .organization-leadership-summary {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    width: 100%;
+  }
+
+  .organization-leadership-card {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .organization-leadership-card > button {
+    width: 100%;
+  }
   .organization-people-layout {
     grid-template-columns: 1fr;
   }
@@ -1001,13 +1278,35 @@
 }
 
 @media (max-width: 760px) {
-  .organization-workspace-tabs {
-    display: grid;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
+  .organization-leadership-toolbar__controls,
+  .organization-leadership-summary,
+  .organization-leadership-card {
+    grid-template-columns: 1fr;
+  }
+
+  .organization-leadership-scope-note,
+  .organization-leadership-list-panel > header {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .organization-leadership-scope-note .organization-button {
     width: 100%;
   }
 
-  .organization-people-toolbar {
+  .organization-leadership-card__identity > strong,
+  .organization-leadership-card__scope > strong,
+  .organization-leadership-card__period > strong {
+    white-space: normal;
+  }
+  .organization-workspace-tabs {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    width: 100%;
+  }
+
+  .organization-people-toolbar,
+.organization-leadership-toolbar {
     align-items: stretch;
     flex-direction: column;
   }
