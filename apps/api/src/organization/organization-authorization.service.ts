@@ -15,6 +15,7 @@ import {
 
 import {
   CAPABILITIES,
+  DELEGABLE_CAPABILITIES,
   type Capability,
 } from './organization-capabilities';
 
@@ -35,6 +36,10 @@ const OFFICE_HEAD_CAPABILITIES = new Set<Capability>([
   CAPABILITIES.LEADERSHIP_ASSIGN_DEPUTY,
 
   CAPABILITIES.USERS_REQUEST_CREATE,
+
+  CAPABILITIES.WORK_TYPE_VIEW,
+  CAPABILITIES.WORK_TYPE_DRAFT,
+  CAPABILITIES.WORK_TYPE_PUBLISH,
 ]);
 
 const ORG_UNIT_HEAD_CAPABILITIES = new Set<Capability>([
@@ -306,6 +311,10 @@ export class OrganizationAuthorizationService {
     requestedEffectiveFrom = new Date(),
     requestedEffectiveUntil: Date | null = null,
   ): Promise<boolean> {
+    if (!DELEGABLE_CAPABILITIES.has(capability)) {
+      return false;
+    }
+
     if (
       requestedEffectiveUntil &&
       requestedEffectiveUntil.getTime() <=

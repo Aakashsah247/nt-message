@@ -3,6 +3,7 @@ import { Module } from '@nestjs/common';
 import { AttachmentsModule } from '../attachments/attachments.module';
 import { AuthModule } from '../auth/auth.module';
 import { PrismaModule } from '../database/prisma.module';
+import { OrganizationModule } from '../organization/organization.module';
 import { DutyManagementController } from './duty-management.controller';
 import { DutyAvailabilityService } from './duty-availability.service';
 import { DutyCoverageRequirementsService } from './duty-coverage-requirements.service';
@@ -19,13 +20,16 @@ import { WorkNotificationsService } from './work-notifications.service';
 import { WorkScopeService } from './work-scope.service';
 import { WorkSalesCommunicationService } from './work-sales-communication.service';
 import { WorkStatusTransitionService } from './work-status-transition.service';
+import { WorkTypeV3Controller } from './work-type-v3.controller';
+import { WorkTypeV3Service } from './work-type-v3.service';
 
 @Module({
-  imports: [PrismaModule, AuthModule, AttachmentsModule],
+  imports: [PrismaModule, AuthModule, AttachmentsModule, OrganizationModule],
   controllers: [
     WorkItemsController,
     DutyManagementController,
     WorkReportsController,
+    WorkTypeV3Controller,
   ],
   providers: [
     DutyAvailabilityService,
@@ -41,6 +45,7 @@ import { WorkStatusTransitionService } from './work-status-transition.service';
     WorkScopeService,
     WorkSalesCommunicationService,
     WorkStatusTransitionService,
+    WorkTypeV3Service,
   ],
   exports: [
     DutyAvailabilityService,
@@ -54,6 +59,7 @@ import { WorkStatusTransitionService } from './work-status-transition.service';
     WorkRetentionService,
     WorkScopeService,
     WorkSalesCommunicationService,
+    WorkTypeV3Service,
   ],
 })
 export class WorkManagementModule {}
