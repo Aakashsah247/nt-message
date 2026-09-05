@@ -1,7 +1,7 @@
 import {
-  Body,
   Controller,
   Delete,
+  ForbiddenException,
   Get,
   Param,
   ParseUUIDPipe,
@@ -15,10 +15,6 @@ import { AccessTokenGuard } from '../auth/guards/access-token.guard';
 import { RolesGuard } from '../auth/guards/roles.guard';
 import { AccountRole } from '../generated/prisma/client';
 
-import { CreateDepartmentDto } from './dto/create-department.dto';
-import { CreateDivisionDto } from './dto/create-division.dto';
-import { UpdateDepartmentDto } from './dto/update-department.dto';
-import { UpdateDivisionDto } from './dto/update-division.dto';
 import { OrganizationService } from './organization.service';
 
 @Controller('organization')
@@ -26,14 +22,17 @@ import { OrganizationService } from './organization.service';
 export class OrganizationController {
   constructor(private readonly organizationService: OrganizationService) {}
 
+  private rejectLegacyHierarchyWrite(): never {
+    throw new ForbiddenException(
+      'The legacy Division and Department hierarchy is read-only. Manage the Office hierarchy through Organization & People.',
+    );
+  }
+
   @Post('divisions')
   @UseGuards(RolesGuard)
   @Roles(AccountRole.SUPER_ADMIN)
-  createDivision(
-    @Body()
-    dto: CreateDivisionDto,
-  ) {
-    return this.organizationService.createDivision(dto);
+  createDivision() {
+    return this.rejectLegacyHierarchyWrite();
   }
 
   @Get('divisions')
@@ -57,44 +56,22 @@ export class OrganizationController {
   @Patch('divisions/:id')
   @UseGuards(RolesGuard)
   @Roles(AccountRole.SUPER_ADMIN)
-  updateDivision(
-    @Param(
-      'id',
-      new ParseUUIDPipe({
-        version: '4',
-      }),
-    )
-    id: string,
-
-    @Body()
-    dto: UpdateDivisionDto,
-  ) {
-    return this.organizationService.updateDivision(id, dto);
+  updateDivision() {
+    return this.rejectLegacyHierarchyWrite();
   }
 
   @Delete('divisions/:id')
   @UseGuards(RolesGuard)
   @Roles(AccountRole.SUPER_ADMIN)
-  deleteDivision(
-    @Param(
-      'id',
-      new ParseUUIDPipe({
-        version: '4',
-      }),
-    )
-    id: string,
-  ) {
-    return this.organizationService.deleteDivision(id);
+  deleteDivision() {
+    return this.rejectLegacyHierarchyWrite();
   }
 
   @Post('departments')
   @UseGuards(RolesGuard)
   @Roles(AccountRole.SUPER_ADMIN)
-  createDepartment(
-    @Body()
-    dto: CreateDepartmentDto,
-  ) {
-    return this.organizationService.createDepartment(dto);
+  createDepartment() {
+    return this.rejectLegacyHierarchyWrite();
   }
 
   @Get('departments')
@@ -118,33 +95,14 @@ export class OrganizationController {
   @Patch('departments/:id')
   @UseGuards(RolesGuard)
   @Roles(AccountRole.SUPER_ADMIN)
-  updateDepartment(
-    @Param(
-      'id',
-      new ParseUUIDPipe({
-        version: '4',
-      }),
-    )
-    id: string,
-
-    @Body()
-    dto: UpdateDepartmentDto,
-  ) {
-    return this.organizationService.updateDepartment(id, dto);
+  updateDepartment() {
+    return this.rejectLegacyHierarchyWrite();
   }
 
   @Delete('departments/:id')
   @UseGuards(RolesGuard)
   @Roles(AccountRole.SUPER_ADMIN)
-  deleteDepartment(
-    @Param(
-      'id',
-      new ParseUUIDPipe({
-        version: '4',
-      }),
-    )
-    id: string,
-  ) {
-    return this.organizationService.deleteDepartment(id);
+  deleteDepartment() {
+    return this.rejectLegacyHierarchyWrite();
   }
 }
