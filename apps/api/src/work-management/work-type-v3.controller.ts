@@ -7,6 +7,7 @@ import {
   ParseUUIDPipe,
   Patch,
   Post,
+  Put,
   UseGuards,
 } from '@nestjs/common';
 
@@ -14,6 +15,7 @@ import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import { AccessTokenGuard } from '../auth/guards/access-token.guard';
 import type { AuthenticatedUser } from '../auth/types/auth.types';
 import { CreateWorkTypeDraftDto } from './dto/create-work-type-draft.dto';
+import { ReplaceWorkTypeDraftConfigurationDto } from './dto/replace-work-type-draft-configuration.dto';
 import { UpdateWorkTypeDraftDto } from './dto/update-work-type-draft.dto';
 import { WorkTypeV3Service } from './work-type-v3.service';
 
@@ -83,6 +85,29 @@ export class WorkTypeV3Controller {
     );
   }
 
+
+  @Put(':workTypeDefinitionId/drafts/:versionId/configuration')
+  replaceDraftConfiguration(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('officeId', new ParseUUIDPipe({ version: '4' }))
+    officeId: string,
+    @Param(
+      'workTypeDefinitionId',
+      new ParseUUIDPipe({ version: '4' }),
+    )
+    workTypeDefinitionId: string,
+    @Param('versionId', new ParseUUIDPipe({ version: '4' }))
+    versionId: string,
+    @Body() dto: ReplaceWorkTypeDraftConfigurationDto,
+  ) {
+    return this.workTypeService.replaceDraftConfiguration(
+      user,
+      officeId,
+      workTypeDefinitionId,
+      versionId,
+      dto,
+    );
+  }
   @Delete(':workTypeDefinitionId/drafts/:versionId')
   discardDraft(
     @CurrentUser() user: AuthenticatedUser,

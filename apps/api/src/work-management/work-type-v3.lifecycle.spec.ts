@@ -9,6 +9,15 @@ import type { AuthenticatedUser } from '../auth/types/auth.types';
 import { PrismaService } from '../database/prisma.service';
 import {
   AccountRole,
+  WorkFieldType,
+  WorkFinalClosureMode,
+  WorkSlaBasis,
+  WorkStageActivationMode,
+  WorkStageApprovalMode,
+  WorkStageAssignmentMode,
+  WorkStageResponsibleOrgUnitRule,
+  WorkTypeCreatorCategory,
+  WorkTypeCreatorScope,
   WorkTypeVersionStatus,
 } from '../generated/prisma/client';
 import { CAPABILITIES } from '../organization/organization-capabilities';
@@ -29,6 +38,51 @@ const office = {
 
 const definitionId = 'definition-1';
 const draftId = 'draft-2';
+function emptyPublishedConfiguration() {
+  return {
+    primaryOwnerOrgUnitId: null,
+    creatorCategories: [],
+    creatorScope: WorkTypeCreatorScope.PRIMARY_OWNER_SUBTREE,
+    finalClosureMode: WorkFinalClosureMode.AUTO_AFTER_REQUIRED_STAGES,
+    finalClosureLeadershipType: null,
+    slaBasis: WorkSlaBasis.CALENDAR_DURATION,
+    overallSlaMinutes: null,
+    creatorOrgUnits: [],
+    creatorAccounts: [],
+    fields: [],
+    stages: [],
+    stageDependencies: [],
+  };
+}
+
+function publishableConfiguration() {
+  return {
+    ...emptyPublishedConfiguration(),
+    primaryOwnerOrgUnitId: 'org-1',
+    creatorCategories: [WorkTypeCreatorCategory.OFFICE_HEAD],
+    stages: [
+      {
+        id: 'stage-1',
+        code: 'EXECUTE',
+        name: 'Execute',
+        description: null,
+        sortOrder: 0,
+        isRequired: true,
+        responsibleOrgUnitRule:
+          WorkStageResponsibleOrgUnitRule.PRIMARY_OWNER,
+        responsibleOrgUnitId: null,
+        assignmentMode: WorkStageAssignmentMode.ORG_UNIT_QUEUE,
+        approvalMode: WorkStageApprovalMode.NONE,
+        approvalLeadershipType: null,
+        activationMode: WorkStageActivationMode.ALWAYS,
+        activationFieldDefinitionId: null,
+        activationExpectedValue: null,
+        slaMinutes: null,
+      },
+    ],
+  };
+}
+
 
 function draftVersion(overrides: Record<string, unknown> = {}) {
   return {
@@ -62,12 +116,41 @@ function createHarness(options: {
           ? [{ id: definitionId }]
           : options.lockRows,
       ),
+    $executeRaw: jest.fn().mockResolvedValue(0),
     workTypeVersion: {
       findFirst: jest.fn(),
       findMany: jest.fn(),
+      findUnique: jest.fn().mockResolvedValue(publishableConfiguration()),
       create: jest.fn(),
       update: jest.fn(),
       delete: jest.fn(),
+    },
+    workTypeCreatorOrgUnit: {
+      createMany: jest.fn(),
+      deleteMany: jest.fn(),
+    },
+    workTypeCreatorAccount: {
+      createMany: jest.fn(),
+      deleteMany: jest.fn(),
+    },
+    workStageDefinition: {
+      create: jest.fn(),
+      update: jest.fn(),
+      deleteMany: jest.fn(),
+    },
+    workFieldDefinition: {
+      create: jest.fn(),
+      deleteMany: jest.fn(),
+    },
+    workStageDependency: {
+      createMany: jest.fn(),
+      deleteMany: jest.fn(),
+    },
+    orgUnit: {
+      findMany: jest.fn().mockResolvedValue([{ id: 'org-1' }]),
+    },
+    account: {
+      findMany: jest.fn().mockResolvedValue([]),
     },
   };
 
@@ -104,6 +187,7 @@ describe('WorkTypeV3Service lifecycle', () => {
       .mockResolvedValueOnce({
         name: 'Routine Work',
         description: 'Current description',
+        ...emptyPublishedConfiguration(),
       })
       .mockResolvedValueOnce({
         version: 1,
@@ -152,6 +236,104 @@ describe('WorkTypeV3Service lifecycle', () => {
     );
   });
 
+
+  it('clones normalized configuration into a new draft without reusing source IDs', async () => {
+    const { service, tx } = createHarness();
+
+    tx.workTypeVersion.findFirst
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce({
+        name: 'New Installation',
+        description: 'Current configuration',
+        ...emptyPublishedConfiguration(),
+        primaryOwnerOrgUnitId: 'org-1',
+        creatorCategories: [WorkTypeCreatorCategory.OFFICE_HEAD],
+        creatorOrgUnits: [
+          {
+            id: 'creator-rule-1',
+            orgUnitId: 'org-1',
+            includeDescendants: true,
+          },
+        ],
+        fields: [
+          {
+            id: 'field-old',
+            code: 'MATERIAL_REQUIRED',
+            label: 'Material required',
+            fieldType: WorkFieldType.BOOLEAN,
+            isRequired: false,
+            sortOrder: 10,
+            config: null,
+            stageDefinitionId: null,
+          },
+        ],
+        stages: [
+          {
+            id: 'stage-old',
+            code: 'MATERIAL_SUPPORT',
+            name: 'Material support',
+            description: null,
+            sortOrder: 20,
+            isRequired: false,
+            responsibleOrgUnitRule:
+              WorkStageResponsibleOrgUnitRule.PRIMARY_OWNER,
+            responsibleOrgUnitId: null,
+            assignmentMode: WorkStageAssignmentMode.ORG_UNIT_QUEUE,
+            approvalMode: WorkStageApprovalMode.NONE,
+            approvalLeadershipType: null,
+            activationMode: WorkStageActivationMode.FIELD_TRUE,
+            activationFieldDefinitionId: 'field-old',
+            activationExpectedValue: null,
+            slaMinutes: null,
+          },
+        ],
+      })
+      .mockResolvedValueOnce({ version: 1 });
+
+    tx.workTypeVersion.create.mockResolvedValue(
+      draftVersion({ name: 'New Installation' }),
+    );
+    tx.workStageDefinition.create.mockResolvedValue({ id: 'stage-new' });
+    tx.workFieldDefinition.create.mockResolvedValue({ id: 'field-new' });
+    tx.workStageDefinition.update.mockResolvedValue({ id: 'stage-new' });
+
+    await service.createDraft(user, office.id, definitionId, {});
+
+    expect(tx.workTypeCreatorOrgUnit.createMany).toHaveBeenCalledWith({
+      data: [
+        {
+          workTypeVersionId: draftId,
+          orgUnitId: 'org-1',
+          includeDescendants: true,
+        },
+      ],
+    });
+    expect(tx.workStageDefinition.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          workTypeVersionId: draftId,
+          code: 'MATERIAL_SUPPORT',
+          activationMode: WorkStageActivationMode.ALWAYS,
+        }),
+      }),
+    );
+    expect(tx.workFieldDefinition.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          workTypeVersionId: draftId,
+          code: 'MATERIAL_REQUIRED',
+        }),
+      }),
+    );
+    expect(tx.workStageDefinition.update).toHaveBeenCalledWith({
+      where: { id: 'stage-new' },
+      data: {
+        activationMode: WorkStageActivationMode.FIELD_TRUE,
+        activationFieldDefinitionId: 'field-new',
+        activationExpectedValue: undefined,
+      },
+    });
+  });
   it('rejects creation when an open draft already exists', async () => {
     const { service, tx } = createHarness();
 
@@ -291,6 +473,27 @@ describe('WorkTypeV3Service lifecycle', () => {
     });
   });
 
+
+  it('does not publish an incomplete configuration', async () => {
+    const { service, tx } = createHarness();
+
+    tx.workTypeVersion.findFirst.mockResolvedValueOnce(draftVersion());
+    tx.workTypeVersion.findUnique.mockResolvedValueOnce(
+      emptyPublishedConfiguration(),
+    );
+
+    await expect(
+      service.publishDraft(
+        user,
+        office.id,
+        definitionId,
+        draftId,
+      ),
+    ).rejects.toBeInstanceOf(BadRequestException);
+
+    expect(tx.workTypeVersion.findMany).not.toHaveBeenCalled();
+    expect(tx.workTypeVersion.update).not.toHaveBeenCalled();
+  });
   it('publishes a draft atomically and retires the previous published version', async () => {
     const { service, authorization, tx } = createHarness();
     const draft = draftVersion();

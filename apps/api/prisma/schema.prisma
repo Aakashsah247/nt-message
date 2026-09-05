@@ -239,6 +239,78 @@ enum WorkTypeVersionStatus {
   RETIRED
 }
 
+enum WorkTypeCreatorCategory {
+  OFFICE_HEAD
+  ORG_UNIT_HEAD
+  TEAM_LEAD
+  EMPLOYEE
+}
+
+enum WorkTypeCreatorScope {
+  OFFICE_WIDE
+  PRIMARY_OWNER_SUBTREE
+  SPECIFIC_ORG_UNITS
+}
+
+enum WorkFieldType {
+  TEXT
+  LONG_TEXT
+  NUMBER
+  DECIMAL
+  DATE
+  DATETIME
+  BOOLEAN
+  SELECT
+  MULTI_SELECT
+  USER
+  ORG_UNIT
+  REFERENCE
+  IMAGE
+  FILE
+}
+
+enum WorkStageResponsibleOrgUnitRule {
+  PRIMARY_OWNER
+  SPECIFIC_ORG_UNIT
+  RUNTIME_REQUESTED_PARTICIPANT
+}
+
+enum WorkStageAssignmentMode {
+  ORG_UNIT_QUEUE
+  TEAM
+  INDIVIDUAL
+  ORG_UNIT_OR_TEAM
+  ORG_UNIT_OR_USER
+  RESPONSIBLE_ORG_UNIT_HEAD
+}
+
+enum WorkStageApprovalMode {
+  NONE
+  RESPONSIBLE_ORG_UNIT_HEAD
+  TEAM_LEAD
+  SPECIFIC_LEADERSHIP
+  OFFICE_HEAD
+}
+
+enum WorkStageActivationMode {
+  ALWAYS
+  MANUAL_WHEN_REQUIRED
+  FIELD_TRUE
+  FIELD_EQUALS
+}
+
+enum WorkFinalClosureMode {
+  AUTO_AFTER_REQUIRED_STAGES
+  PRIMARY_OWNER_HEAD
+  SPECIFIC_LEADERSHIP
+  OFFICE_HEAD
+}
+
+enum WorkSlaBasis {
+  CALENDAR_DURATION
+  OFFICE_WORKING_DURATION
+}
+
 enum WorkServiceType {
   DATA
   VOICE
@@ -429,10 +501,10 @@ model Office {
   orgUnits              OrgUnit[]
   memberships           OrgMembership[]
   leadershipAssignments OrgLeadershipAssignment[]
-  delegatedPermissions DelegatedPermission[]
+  delegatedPermissions  DelegatedPermission[]
   legacyOrgUnitMappings LegacyOrgUnitMapping[]
-  accountRequests       AccountRequest[] @relation("AccountRequestOffice")
-  workTypeDefinitions    WorkTypeDefinition[]
+  accountRequests       AccountRequest[]          @relation("AccountRequestOffice")
+  workTypeDefinitions   WorkTypeDefinition[]
 
   @@index([isActive, sortOrder], map: "offices_active_sort_idx")
   @@map("offices")
@@ -478,13 +550,16 @@ model OrgUnit {
   parentOrgUnit OrgUnit?  @relation("OrgUnitHierarchy", fields: [parentOrgUnitId], references: [id], onDelete: Restrict)
   childOrgUnits OrgUnit[] @relation("OrgUnitHierarchy")
 
-  ancestorLinks         OrgUnitClosure[]            @relation("OrgUnitClosureDescendant")
-  descendantLinks       OrgUnitClosure[]            @relation("OrgUnitClosureAncestor")
-  memberships           OrgMembership[]
-  leadershipAssignments OrgLeadershipAssignment[]
-  delegatedPermissions     DelegatedPermission[]
-  legacyOrgUnitMappings   LegacyOrgUnitMapping[]
-  intendedAccountRequests AccountRequest[]         @relation("AccountRequestIntendedOrgUnit")
+  ancestorLinks             OrgUnitClosure[]          @relation("OrgUnitClosureDescendant")
+  descendantLinks           OrgUnitClosure[]          @relation("OrgUnitClosureAncestor")
+  memberships               OrgMembership[]
+  leadershipAssignments     OrgLeadershipAssignment[]
+  delegatedPermissions      DelegatedPermission[]
+  legacyOrgUnitMappings     LegacyOrgUnitMapping[]
+  intendedAccountRequests   AccountRequest[]          @relation("AccountRequestIntendedOrgUnit")
+  primaryWorkTypeVersions   WorkTypeVersion[]         @relation("WorkTypeVersionPrimaryOwner")
+  workTypeCreatorRules      WorkTypeCreatorOrgUnit[]
+  workStageResponsibilities WorkStageDefinition[]     @relation("WorkStageResponsibleOrgUnit")
 
   @@unique([officeId, code], map: "org_units_office_code_key")
   @@index([officeId, parentOrgUnitId, isActive, sortOrder], map: "org_units_parent_active_sort_idx")
@@ -508,24 +583,24 @@ model OrgUnitClosure {
 }
 
 model OrgMembership {
-  id                  String            @id @default(uuid()) @db.Uuid
-  employeeId          String            @map("employee_id") @db.Uuid
-  officeId            String            @map("office_id") @db.Uuid
-  orgUnitId           String?           @map("org_unit_id") @db.Uuid
-  membershipType      OrgMembershipType  @map("membership_type")
+  id                  String              @id @default(uuid()) @db.Uuid
+  employeeId          String              @map("employee_id") @db.Uuid
+  officeId            String              @map("office_id") @db.Uuid
+  orgUnitId           String?             @map("org_unit_id") @db.Uuid
+  membershipType      OrgMembershipType   @map("membership_type")
   assignmentSource    OrgAssignmentSource @default(MANUAL) @map("assignment_source")
-  startsAt            DateTime           @default(now()) @map("starts_at") @db.Timestamptz(3)
-  endsAt              DateTime?          @map("ends_at") @db.Timestamptz(3)
-  assignedByAccountId String?            @map("assigned_by_account_id") @db.Uuid
-  endedByAccountId    String?           @map("ended_by_account_id") @db.Uuid
-  assignmentReason    String?           @map("assignment_reason") @db.VarChar(500)
-  endReason           String?           @map("end_reason") @db.VarChar(500)
-  createdAt           DateTime          @default(now()) @map("created_at") @db.Timestamptz(3)
-  updatedAt           DateTime          @updatedAt @map("updated_at") @db.Timestamptz(3)
+  startsAt            DateTime            @default(now()) @map("starts_at") @db.Timestamptz(3)
+  endsAt              DateTime?           @map("ends_at") @db.Timestamptz(3)
+  assignedByAccountId String?             @map("assigned_by_account_id") @db.Uuid
+  endedByAccountId    String?             @map("ended_by_account_id") @db.Uuid
+  assignmentReason    String?             @map("assignment_reason") @db.VarChar(500)
+  endReason           String?             @map("end_reason") @db.VarChar(500)
+  createdAt           DateTime            @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt           DateTime            @updatedAt @map("updated_at") @db.Timestamptz(3)
 
-  employee   Employee @relation(fields: [employeeId], references: [id], onDelete: Restrict)
-  office     Office   @relation(fields: [officeId], references: [id], onDelete: Restrict)
-  orgUnit    OrgUnit? @relation(fields: [orgUnitId], references: [id], onDelete: Restrict)
+  employee Employee @relation(fields: [employeeId], references: [id], onDelete: Restrict)
+  office   Office   @relation(fields: [officeId], references: [id], onDelete: Restrict)
+  orgUnit  OrgUnit? @relation(fields: [orgUnitId], references: [id], onDelete: Restrict)
 
   assignedBy Account? @relation("OrgMembershipsAssignedBy", fields: [assignedByAccountId], references: [id], onDelete: Restrict)
   endedBy    Account? @relation("OrgMembershipsEndedBy", fields: [endedByAccountId], references: [id], onDelete: Restrict)
@@ -539,21 +614,21 @@ model OrgMembership {
 }
 
 model OrgLeadershipAssignment {
-  id                  String            @id @default(uuid()) @db.Uuid
-  employeeId          String            @map("employee_id") @db.Uuid
-  officeId            String            @map("office_id") @db.Uuid
-  orgUnitId           String?           @map("org_unit_id") @db.Uuid
-  leadershipType      OrgLeadershipType  @map("leadership_type")
+  id                  String              @id @default(uuid()) @db.Uuid
+  employeeId          String              @map("employee_id") @db.Uuid
+  officeId            String              @map("office_id") @db.Uuid
+  orgUnitId           String?             @map("org_unit_id") @db.Uuid
+  leadershipType      OrgLeadershipType   @map("leadership_type")
   assignmentSource    OrgAssignmentSource @default(MANUAL) @map("assignment_source")
-  isActing            Boolean            @default(false) @map("is_acting")
-  effectiveFrom       DateTime           @default(now()) @map("effective_from") @db.Timestamptz(3)
-  effectiveUntil      DateTime?          @map("effective_until") @db.Timestamptz(3)
-  assignedByAccountId String?            @map("assigned_by_account_id") @db.Uuid
-  endedByAccountId    String?           @map("ended_by_account_id") @db.Uuid
-  assignmentReason    String?           @map("assignment_reason") @db.VarChar(500)
-  endReason           String?           @map("end_reason") @db.VarChar(500)
-  createdAt           DateTime          @default(now()) @map("created_at") @db.Timestamptz(3)
-  updatedAt           DateTime          @updatedAt @map("updated_at") @db.Timestamptz(3)
+  isActing            Boolean             @default(false) @map("is_acting")
+  effectiveFrom       DateTime            @default(now()) @map("effective_from") @db.Timestamptz(3)
+  effectiveUntil      DateTime?           @map("effective_until") @db.Timestamptz(3)
+  assignedByAccountId String?             @map("assigned_by_account_id") @db.Uuid
+  endedByAccountId    String?             @map("ended_by_account_id") @db.Uuid
+  assignmentReason    String?             @map("assignment_reason") @db.VarChar(500)
+  endReason           String?             @map("end_reason") @db.VarChar(500)
+  createdAt           DateTime            @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt           DateTime            @updatedAt @map("updated_at") @db.Timestamptz(3)
 
   employee Employee @relation(fields: [employeeId], references: [id], onDelete: Restrict)
   office   Office   @relation(fields: [officeId], references: [id], onDelete: Restrict)
@@ -571,12 +646,11 @@ model OrgLeadershipAssignment {
   @@map("org_leadership_assignments")
 }
 
-
 model DelegatedPermission {
   id String @id @default(uuid()) @db.Uuid
 
-  granteeAccountId String @map("grantee_account_id") @db.Uuid
-  officeId         String @map("office_id") @db.Uuid
+  granteeAccountId String  @map("grantee_account_id") @db.Uuid
+  officeId         String  @map("office_id") @db.Uuid
   orgUnitId        String? @map("org_unit_id") @db.Uuid
 
   capability         String  @db.VarChar(100)
@@ -586,8 +660,8 @@ model DelegatedPermission {
   effectiveFrom  DateTime  @default(now()) @map("effective_from") @db.Timestamptz(3)
   effectiveUntil DateTime? @map("effective_until") @db.Timestamptz(3)
 
-  grantedByAccountId String  @map("granted_by_account_id") @db.Uuid
-  revokedByAccountId String? @map("revoked_by_account_id") @db.Uuid
+  grantedByAccountId String    @map("granted_by_account_id") @db.Uuid
+  revokedByAccountId String?   @map("revoked_by_account_id") @db.Uuid
   revokedAt          DateTime? @map("revoked_at") @db.Timestamptz(3)
 
   grantReason  String  @map("grant_reason") @db.VarChar(500)
@@ -596,9 +670,9 @@ model DelegatedPermission {
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
 
-  grantee   Account @relation("DelegatedPermissionsGrantedTo", fields: [granteeAccountId], references: [id], onDelete: Restrict)
-  office    Office  @relation(fields: [officeId], references: [id], onDelete: Restrict)
-  orgUnit   OrgUnit? @relation(fields: [orgUnitId], references: [id], onDelete: Restrict)
+  grantee Account  @relation("DelegatedPermissionsGrantedTo", fields: [granteeAccountId], references: [id], onDelete: Restrict)
+  office  Office   @relation(fields: [officeId], references: [id], onDelete: Restrict)
+  orgUnit OrgUnit? @relation(fields: [orgUnitId], references: [id], onDelete: Restrict)
 
   grantedBy Account  @relation("DelegatedPermissionsGrantedBy", fields: [grantedByAccountId], references: [id], onDelete: Restrict)
   revokedBy Account? @relation("DelegatedPermissionsRevokedBy", fields: [revokedByAccountId], references: [id], onDelete: Restrict)
@@ -611,7 +685,6 @@ model DelegatedPermission {
   @@index([revokedAt], map: "delegated_permissions_revoked_at_idx")
   @@map("delegated_permissions")
 }
-
 
 model LegacyOrgUnitMapping {
   id               String @id @default(uuid()) @db.Uuid
@@ -720,18 +793,18 @@ model Employee {
   division       Division?   @relation(fields: [divisionId], references: [id], onDelete: Restrict)
   departmentUnit Department? @relation(fields: [departmentId], references: [id], onDelete: Restrict)
 
-  orgMemberships          OrgMembership[]
+  orgMemberships           OrgMembership[]
   orgLeadershipAssignments OrgLeadershipAssignment[]
 
-  account               Account?
-  otpVerifications      OtpVerification[]
-  accountRequests       AccountRequest[]
-  activationInvitations ActivationInvitation[]
-  lifecycleActions      EmployeeLifecycleAction[]
+  account                  Account?
+  otpVerifications         OtpVerification[]
+  accountRequests          AccountRequest[]
+  activationInvitations    ActivationInvitation[]
+  lifecycleActions         EmployeeLifecycleAction[]
   identityCorrectionAudits IdentityCorrectionAudit[]
-  managementAssignments ManagementAssignment[]
-  teamMemberships       DepartmentTeamMember[]
-  teamsAdministered     DepartmentTeam[]          @relation("DepartmentTeamAdmin")
+  managementAssignments    ManagementAssignment[]
+  teamMemberships          DepartmentTeamMember[]
+  teamsAdministered        DepartmentTeam[]          @relation("DepartmentTeamAdmin")
 
   @@index([empName], map: "employees_emp_name_idx")
   @@index([department], map: "employees_department_idx")
@@ -744,120 +817,121 @@ model Employee {
 }
 
 model Account {
-  id                  String      @id @default(uuid()) @db.Uuid
-  employeeId          String?     @unique @map("employee_id") @db.Uuid
-  username            String?     @unique @db.VarChar(255)
-  role                AccountRole
-  passwordHash        String      @map("password_hash") @db.VarChar(255)
-  isEnabled           Boolean     @default(true) @map("is_enabled")
-  failedLoginAttempts Int         @default(0) @map("failed_login_attempts")
-  lockedUntil         DateTime?   @map("locked_until") @db.Timestamptz(3)
-  lastLoginAt         DateTime?   @map("last_login_at") @db.Timestamptz(3)
-  passwordChangedAt   DateTime    @default(now()) @map("password_changed_at") @db.Timestamptz(3)
-  profilePhotoKey     String?     @map("profile_photo_key") @db.VarChar(500)
-  profileBio          String?     @map("profile_bio") @db.VarChar(160)
+  id                     String      @id @default(uuid()) @db.Uuid
+  employeeId             String?     @unique @map("employee_id") @db.Uuid
+  username               String?     @unique @db.VarChar(255)
+  role                   AccountRole
+  passwordHash           String      @map("password_hash") @db.VarChar(255)
+  isEnabled              Boolean     @default(true) @map("is_enabled")
+  failedLoginAttempts    Int         @default(0) @map("failed_login_attempts")
+  lockedUntil            DateTime?   @map("locked_until") @db.Timestamptz(3)
+  lastLoginAt            DateTime?   @map("last_login_at") @db.Timestamptz(3)
+  passwordChangedAt      DateTime    @default(now()) @map("password_changed_at") @db.Timestamptz(3)
+  profilePhotoKey        String?     @map("profile_photo_key") @db.VarChar(500)
+  profileBio             String?     @map("profile_bio") @db.VarChar(160)
   showOnlineStatus       Boolean     @default(true) @map("show_online_status")
   showReadReceipts       Boolean     @default(true) @map("show_read_receipts")
   requireMessageRequests Boolean     @default(true) @map("require_message_requests")
-  interfaceLanguage     String      @default("en") @map("interface_language") @db.VarChar(8)
+  interfaceLanguage      String      @default("en") @map("interface_language") @db.VarChar(8)
   createdAt              DateTime    @default(now()) @map("created_at") @db.Timestamptz(3)
-  updatedAt           DateTime    @updatedAt @map("updated_at") @db.Timestamptz(3)
+  updatedAt              DateTime    @updatedAt @map("updated_at") @db.Timestamptz(3)
 
-  employee                         Employee?                  @relation(fields: [employeeId], references: [id], onDelete: Restrict)
-  orgMembershipsAssigned           OrgMembership[]            @relation("OrgMembershipsAssignedBy")
-  orgMembershipsEnded              OrgMembership[]            @relation("OrgMembershipsEndedBy")
-  orgLeadershipAssignmentsAssigned OrgLeadershipAssignment[]  @relation("OrgLeadershipAssignmentsAssignedBy")
-  orgLeadershipAssignmentsEnded    OrgLeadershipAssignment[]  @relation("OrgLeadershipAssignmentsEndedBy")
-  sessions                        AuthSession[]
+  employee                         Employee?                         @relation(fields: [employeeId], references: [id], onDelete: Restrict)
+  orgMembershipsAssigned           OrgMembership[]                   @relation("OrgMembershipsAssignedBy")
+  orgMembershipsEnded              OrgMembership[]                   @relation("OrgMembershipsEndedBy")
+  orgLeadershipAssignmentsAssigned OrgLeadershipAssignment[]         @relation("OrgLeadershipAssignmentsAssignedBy")
+  orgLeadershipAssignmentsEnded    OrgLeadershipAssignment[]         @relation("OrgLeadershipAssignmentsEndedBy")
+  sessions                         AuthSession[]
   messagingPushSubscriptions       MessagingPushSubscription[]
-  submittedAccountRequests        AccountRequest[]                  @relation("AccountRequestsRequestedBy")
-  reviewedAccountRequests         AccountRequest[]                  @relation("AccountRequestsReviewedBy")
-  accountRequestActions           AccountRequestAction[]
-  createdActivationInvitations    ActivationInvitation[]            @relation("ActivationInvitationsCreatedBy")
-  employeeLifecycleActions        EmployeeLifecycleAction[]         @relation("EmployeeLifecycleActionsByActor")
-  identityCorrectionAudits        IdentityCorrectionAudit[]         @relation("IdentityCorrectionAuditsByActor")
-  assignedManagementAssignments   ManagementAssignment[]            @relation("ManagementAssignmentsAssignedBy")
-  endedManagementAssignments      ManagementAssignment[]            @relation("ManagementAssignmentsEndedBy")
-  createdConversations            Conversation[]                    @relation("ConversationsCreatedBy")
-  conversationParticipants        ConversationParticipant[]
-  officialGroupReceiptIntervals   OfficialGroupReceiptInterval[]
-  sentMessages                    Message[]                         @relation("MessagesSentBy")
-  deletedMessages                 Message[]                         @relation("MessagesDeletedBy")
-  messageReceipts                 MessageReceipt[]
-  hiddenMessages                  MessageHiddenForAccount[]
-  messageReactions                MessageReaction[]
-  messageStars                    MessageStar[]
-  pinnedMessages                  MessagePin[]                      @relation("MessagePinsPinnedBy")
-  unpinnedMessages                MessagePin[]                      @relation("MessagePinsUnpinnedBy")
-  sentMessageRequests             MessageRequest[]                  @relation("MessageRequestsSent")
-  receivedMessageRequests         MessageRequest[]                  @relation("MessageRequestsReceived")
-  blockedMessageRequests          MessageRequest[]                  @relation("MessageRequestsBlockedBy")
-  officialGroupAuditActions       OfficialGroupAuditLog[]           @relation("OfficialGroupAuditActor")
-  receivedNotifications           MessagingNotification[]           @relation("MessagingNotificationsRecipient")
-  actedNotifications              MessagingNotification[]           @relation("MessagingNotificationsActor")
-  blocksCreated                   MessagingAccountBlock[]           @relation("MessagingAccountBlocksCreated")
-  blocksReceived                  MessagingAccountBlock[]           @relation("MessagingAccountBlocksReceived")
-  createdGroupInvitationLinks     GroupInvitationLink[]             @relation("GroupInvitationLinksCreatedBy")
-  revokedGroupInvitationLinks     GroupInvitationLink[]             @relation("GroupInvitationLinksRevokedBy")
-  activityEvents                  ActivityEvent[]
-  dailyActivitySummaries          DailyActivitySummary[]
-  superAdminProfile               SuperAdminProfile?                @relation("SuperAdminProfileAccount")
-  emergencyAlertsSent             EmergencyAlert[]                  @relation("EmergencyAlertSender")
-  emergencyAlertRecipients        EmergencyAlertRecipient[]         @relation("EmergencyAlertRecipientAccount")
-  passwordResetChallenges         PasswordResetChallenge[]
-  announcementsCreated            Announcement[]                    @relation("AnnouncementsCreatedBy")
-  announcementRevisions           AnnouncementRevision[]            @relation("AnnouncementRevisionEditor")
-  announcementRecipients          AnnouncementRecipient[]
-  announcementAcknowledgements    AnnouncementAcknowledgement[]
-  workItemsCreated                WorkItem[]                        @relation("WorkItemsCreatedBy")
-  workItemsManaged                WorkItem[]                        @relation("WorkItemsResponsibleManager")
-  workItemsAsSalesMember          WorkItem[]                        @relation("WorkItemsSalesMember")
-  workRetentionHolds              WorkItem[]                        @relation("WorkItemsRetentionHoldBy")
-  workDeletionRequests            WorkItem[]                        @relation("WorkItemsDeletionRequestedBy")
-  workAssignments                 WorkAssignment[]                  @relation("WorkAssignmentsAssignee")
-  workAssignmentsCreated          WorkAssignment[]                  @relation("WorkAssignmentsAssignedBy")
-  workActivities                  WorkActivity[]
-  workCompletionReportsSubmitted  WorkCompletionReport[]            @relation("WorkCompletionReportsSubmittedBy")
-  workCompletionReportsReviewed   WorkCompletionReport[]            @relation("WorkCompletionReportsReviewedBy")
-  workHelpRequestsCreated         WorkHelpRequest[]                 @relation("WorkHelpRequestsCreatedBy")
-  workHelpRequestsReceived        WorkHelpRequest[]                 @relation("WorkHelpRequestsRequestedHelper")
-  workHelpRequestsResponded       WorkHelpRequest[]                 @relation("WorkHelpRequestsRespondedBy")
-  workHelpRequestsCoordinated     WorkHelpRequest[]                 @relation("WorkHelpRequestsCoordinatedBy")
-  workSalesMessagesSent           WorkSalesMessage[]                @relation("WorkSalesMessagesSender")
-  dutyShiftTemplatesCreated       DutyShiftTemplate[]               @relation("DutyShiftTemplatesCreatedBy")
-  dutyScheduleSeriesCreated       DutyScheduleSeries[]              @relation("DutyScheduleSeriesCreatedBy")
-  dutyScheduleSeriesEmployee      DutyScheduleSeries[]              @relation("DutyScheduleSeriesEmployee")
-  dutyScheduleSeriesSupervisor    DutyScheduleSeries[]              @relation("DutyScheduleSeriesSupervisor")
-  dutyAssignmentsEmployee         DutyAssignment[]                  @relation("DutyAssignmentsEmployee")
-  dutyAssignmentsSupervisor       DutyAssignment[]                  @relation("DutyAssignmentsSupervisor")
-  dutyAssignmentsCreated          DutyAssignment[]                  @relation("DutyAssignmentsCreatedBy")
-  dutyAssignmentsCancelled        DutyAssignment[]                  @relation("DutyAssignmentsCancelledBy")
-  dutyExceptionsEmployee          DutyException[]                   @relation("DutyExceptionsEmployee")
-  dutyExceptionsCreated           DutyException[]                   @relation("DutyExceptionsCreatedBy")
-  dutyHolidaysCreated             DutyHoliday[]                     @relation("DutyHolidaysCreatedBy")
-  dutyHolidaysUpdated             DutyHoliday[]                     @relation("DutyHolidaysUpdatedBy")
-  dutyHolidaysCancelled           DutyHoliday[]                     @relation("DutyHolidaysCancelledBy")
-  dutyWeeklyOffSettingsUpdated    DutyWeeklyOffSetting[]            @relation("DutyWeeklyOffSettingsUpdatedBy")
-  workAvailability                EmployeeWorkAvailability?         @relation("EmployeeWorkAvailabilityAccount")
-  dutyActivitiesEmployee          DutyActivity[]                    @relation("DutyActivitiesEmployee")
-  dutyActivitiesActor             DutyActivity[]                    @relation("DutyActivitiesActor")
-  dutyCoverageRequirementsCreated DutyCoverageRequirement[]         @relation("DutyCoverageRequirementsCreatedBy")
-  dutyCoverageRequirementsUpdated DutyCoverageRequirement[]         @relation("DutyCoverageRequirementsUpdatedBy")
-  dutyCoverageRequirementActions  DutyCoverageRequirementActivity[] @relation("DutyCoverageRequirementActivitiesActor")
-  departmentTeamsCreated          DepartmentTeam[]                  @relation("DepartmentTeamsCreatedBy")
-  departmentTeamsUpdated          DepartmentTeam[]                  @relation("DepartmentTeamsUpdatedBy")
-  departmentTeamsArchived         DepartmentTeam[]                  @relation("DepartmentTeamsArchivedBy")
-  departmentTeamMembersAdded      DepartmentTeamMember[]            @relation("DepartmentTeamMembersAddedBy")
-  departmentTeamActivities        DepartmentTeamActivity[]          @relation("DepartmentTeamActivitiesActor")
-  chatFolders                     ChatFolder[]
-  chatFolderTargetItems           ChatFolderItem[]                  @relation("ChatFolderItemTargetAccount")
-  delegatedPermissionsReceived DelegatedPermission[] @relation("DelegatedPermissionsGrantedTo")
-  delegatedPermissionsGranted DelegatedPermission[] @relation("DelegatedPermissionsGrantedBy")
-  delegatedPermissionsRevoked DelegatedPermission[] @relation("DelegatedPermissionsRevokedBy")
-  workTypeDefinitionsCreated WorkTypeDefinition[] @relation("WorkTypeDefinitionsCreatedBy")
-  workTypeVersionsCreated    WorkTypeVersion[]    @relation("WorkTypeVersionsCreatedBy")
-  workTypeVersionsPublished  WorkTypeVersion[]    @relation("WorkTypeVersionsPublishedBy")
-  workTypeVersionsRetired    WorkTypeVersion[]    @relation("WorkTypeVersionsRetiredBy")
+  submittedAccountRequests         AccountRequest[]                  @relation("AccountRequestsRequestedBy")
+  reviewedAccountRequests          AccountRequest[]                  @relation("AccountRequestsReviewedBy")
+  accountRequestActions            AccountRequestAction[]
+  createdActivationInvitations     ActivationInvitation[]            @relation("ActivationInvitationsCreatedBy")
+  employeeLifecycleActions         EmployeeLifecycleAction[]         @relation("EmployeeLifecycleActionsByActor")
+  identityCorrectionAudits         IdentityCorrectionAudit[]         @relation("IdentityCorrectionAuditsByActor")
+  assignedManagementAssignments    ManagementAssignment[]            @relation("ManagementAssignmentsAssignedBy")
+  endedManagementAssignments       ManagementAssignment[]            @relation("ManagementAssignmentsEndedBy")
+  createdConversations             Conversation[]                    @relation("ConversationsCreatedBy")
+  conversationParticipants         ConversationParticipant[]
+  officialGroupReceiptIntervals    OfficialGroupReceiptInterval[]
+  sentMessages                     Message[]                         @relation("MessagesSentBy")
+  deletedMessages                  Message[]                         @relation("MessagesDeletedBy")
+  messageReceipts                  MessageReceipt[]
+  hiddenMessages                   MessageHiddenForAccount[]
+  messageReactions                 MessageReaction[]
+  messageStars                     MessageStar[]
+  pinnedMessages                   MessagePin[]                      @relation("MessagePinsPinnedBy")
+  unpinnedMessages                 MessagePin[]                      @relation("MessagePinsUnpinnedBy")
+  sentMessageRequests              MessageRequest[]                  @relation("MessageRequestsSent")
+  receivedMessageRequests          MessageRequest[]                  @relation("MessageRequestsReceived")
+  blockedMessageRequests           MessageRequest[]                  @relation("MessageRequestsBlockedBy")
+  officialGroupAuditActions        OfficialGroupAuditLog[]           @relation("OfficialGroupAuditActor")
+  receivedNotifications            MessagingNotification[]           @relation("MessagingNotificationsRecipient")
+  actedNotifications               MessagingNotification[]           @relation("MessagingNotificationsActor")
+  blocksCreated                    MessagingAccountBlock[]           @relation("MessagingAccountBlocksCreated")
+  blocksReceived                   MessagingAccountBlock[]           @relation("MessagingAccountBlocksReceived")
+  createdGroupInvitationLinks      GroupInvitationLink[]             @relation("GroupInvitationLinksCreatedBy")
+  revokedGroupInvitationLinks      GroupInvitationLink[]             @relation("GroupInvitationLinksRevokedBy")
+  activityEvents                   ActivityEvent[]
+  dailyActivitySummaries           DailyActivitySummary[]
+  superAdminProfile                SuperAdminProfile?                @relation("SuperAdminProfileAccount")
+  emergencyAlertsSent              EmergencyAlert[]                  @relation("EmergencyAlertSender")
+  emergencyAlertRecipients         EmergencyAlertRecipient[]         @relation("EmergencyAlertRecipientAccount")
+  passwordResetChallenges          PasswordResetChallenge[]
+  announcementsCreated             Announcement[]                    @relation("AnnouncementsCreatedBy")
+  announcementRevisions            AnnouncementRevision[]            @relation("AnnouncementRevisionEditor")
+  announcementRecipients           AnnouncementRecipient[]
+  announcementAcknowledgements     AnnouncementAcknowledgement[]
+  workItemsCreated                 WorkItem[]                        @relation("WorkItemsCreatedBy")
+  workItemsManaged                 WorkItem[]                        @relation("WorkItemsResponsibleManager")
+  workItemsAsSalesMember           WorkItem[]                        @relation("WorkItemsSalesMember")
+  workRetentionHolds               WorkItem[]                        @relation("WorkItemsRetentionHoldBy")
+  workDeletionRequests             WorkItem[]                        @relation("WorkItemsDeletionRequestedBy")
+  workAssignments                  WorkAssignment[]                  @relation("WorkAssignmentsAssignee")
+  workAssignmentsCreated           WorkAssignment[]                  @relation("WorkAssignmentsAssignedBy")
+  workActivities                   WorkActivity[]
+  workCompletionReportsSubmitted   WorkCompletionReport[]            @relation("WorkCompletionReportsSubmittedBy")
+  workCompletionReportsReviewed    WorkCompletionReport[]            @relation("WorkCompletionReportsReviewedBy")
+  workHelpRequestsCreated          WorkHelpRequest[]                 @relation("WorkHelpRequestsCreatedBy")
+  workHelpRequestsReceived         WorkHelpRequest[]                 @relation("WorkHelpRequestsRequestedHelper")
+  workHelpRequestsResponded        WorkHelpRequest[]                 @relation("WorkHelpRequestsRespondedBy")
+  workHelpRequestsCoordinated      WorkHelpRequest[]                 @relation("WorkHelpRequestsCoordinatedBy")
+  workSalesMessagesSent            WorkSalesMessage[]                @relation("WorkSalesMessagesSender")
+  dutyShiftTemplatesCreated        DutyShiftTemplate[]               @relation("DutyShiftTemplatesCreatedBy")
+  dutyScheduleSeriesCreated        DutyScheduleSeries[]              @relation("DutyScheduleSeriesCreatedBy")
+  dutyScheduleSeriesEmployee       DutyScheduleSeries[]              @relation("DutyScheduleSeriesEmployee")
+  dutyScheduleSeriesSupervisor     DutyScheduleSeries[]              @relation("DutyScheduleSeriesSupervisor")
+  dutyAssignmentsEmployee          DutyAssignment[]                  @relation("DutyAssignmentsEmployee")
+  dutyAssignmentsSupervisor        DutyAssignment[]                  @relation("DutyAssignmentsSupervisor")
+  dutyAssignmentsCreated           DutyAssignment[]                  @relation("DutyAssignmentsCreatedBy")
+  dutyAssignmentsCancelled         DutyAssignment[]                  @relation("DutyAssignmentsCancelledBy")
+  dutyExceptionsEmployee           DutyException[]                   @relation("DutyExceptionsEmployee")
+  dutyExceptionsCreated            DutyException[]                   @relation("DutyExceptionsCreatedBy")
+  dutyHolidaysCreated              DutyHoliday[]                     @relation("DutyHolidaysCreatedBy")
+  dutyHolidaysUpdated              DutyHoliday[]                     @relation("DutyHolidaysUpdatedBy")
+  dutyHolidaysCancelled            DutyHoliday[]                     @relation("DutyHolidaysCancelledBy")
+  dutyWeeklyOffSettingsUpdated     DutyWeeklyOffSetting[]            @relation("DutyWeeklyOffSettingsUpdatedBy")
+  workAvailability                 EmployeeWorkAvailability?         @relation("EmployeeWorkAvailabilityAccount")
+  dutyActivitiesEmployee           DutyActivity[]                    @relation("DutyActivitiesEmployee")
+  dutyActivitiesActor              DutyActivity[]                    @relation("DutyActivitiesActor")
+  dutyCoverageRequirementsCreated  DutyCoverageRequirement[]         @relation("DutyCoverageRequirementsCreatedBy")
+  dutyCoverageRequirementsUpdated  DutyCoverageRequirement[]         @relation("DutyCoverageRequirementsUpdatedBy")
+  dutyCoverageRequirementActions   DutyCoverageRequirementActivity[] @relation("DutyCoverageRequirementActivitiesActor")
+  departmentTeamsCreated           DepartmentTeam[]                  @relation("DepartmentTeamsCreatedBy")
+  departmentTeamsUpdated           DepartmentTeam[]                  @relation("DepartmentTeamsUpdatedBy")
+  departmentTeamsArchived          DepartmentTeam[]                  @relation("DepartmentTeamsArchivedBy")
+  departmentTeamMembersAdded       DepartmentTeamMember[]            @relation("DepartmentTeamMembersAddedBy")
+  departmentTeamActivities         DepartmentTeamActivity[]          @relation("DepartmentTeamActivitiesActor")
+  chatFolders                      ChatFolder[]
+  chatFolderTargetItems            ChatFolderItem[]                  @relation("ChatFolderItemTargetAccount")
+  delegatedPermissionsReceived     DelegatedPermission[]             @relation("DelegatedPermissionsGrantedTo")
+  delegatedPermissionsGranted      DelegatedPermission[]             @relation("DelegatedPermissionsGrantedBy")
+  delegatedPermissionsRevoked      DelegatedPermission[]             @relation("DelegatedPermissionsRevokedBy")
+  workTypeDefinitionsCreated       WorkTypeDefinition[]              @relation("WorkTypeDefinitionsCreatedBy")
+  workTypeVersionsCreated          WorkTypeVersion[]                 @relation("WorkTypeVersionsCreatedBy")
+  workTypeVersionsPublished        WorkTypeVersion[]                 @relation("WorkTypeVersionsPublishedBy")
+  workTypeVersionsRetired          WorkTypeVersion[]                 @relation("WorkTypeVersionsRetiredBy")
+  workTypeCreatorRules             WorkTypeCreatorAccount[]
 
   @@index([role], map: "accounts_role_idx")
   @@index([isEnabled], map: "accounts_is_enabled_idx")
@@ -965,8 +1039,8 @@ model AuthSession {
   lastUsedAt       DateTime  @default(now()) @map("last_used_at") @db.Timestamptz(3)
   createdAt        DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
 
-  account        Account         @relation(fields: [accountId], references: [id], onDelete: Cascade)
-  activityEvents ActivityEvent[]
+  account                    Account                     @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  activityEvents             ActivityEvent[]
   messagingPushSubscriptions MessagingPushSubscription[]
 
   @@index([accountId, revokedAt], map: "auth_sessions_account_revoked_idx")
@@ -1006,13 +1080,13 @@ model DepartmentTeam {
   createdAt           DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt           DateTime  @updatedAt @map("updated_at") @db.Timestamptz(3)
 
-  department       Department               @relation(fields: [departmentId], references: [id], onDelete: Restrict)
-  teamAdmin        Employee                 @relation("DepartmentTeamAdmin", fields: [teamAdminEmployeeId], references: [id], onDelete: Restrict)
-  createdBy        Account                  @relation("DepartmentTeamsCreatedBy", fields: [createdByAccountId], references: [id], onDelete: Restrict)
-  updatedBy        Account                  @relation("DepartmentTeamsUpdatedBy", fields: [updatedByAccountId], references: [id], onDelete: Restrict)
-  archivedBy       Account?                 @relation("DepartmentTeamsArchivedBy", fields: [archivedByAccountId], references: [id], onDelete: Restrict)
-  members          DepartmentTeamMember[]
-  activities       DepartmentTeamActivity[]
+  department        Department               @relation(fields: [departmentId], references: [id], onDelete: Restrict)
+  teamAdmin         Employee                 @relation("DepartmentTeamAdmin", fields: [teamAdminEmployeeId], references: [id], onDelete: Restrict)
+  createdBy         Account                  @relation("DepartmentTeamsCreatedBy", fields: [createdByAccountId], references: [id], onDelete: Restrict)
+  updatedBy         Account                  @relation("DepartmentTeamsUpdatedBy", fields: [updatedByAccountId], references: [id], onDelete: Restrict)
+  archivedBy        Account?                 @relation("DepartmentTeamsArchivedBy", fields: [archivedByAccountId], references: [id], onDelete: Restrict)
+  members           DepartmentTeamMember[]
+  activities        DepartmentTeamActivity[]
   assignedWorkItems WorkItem[]               @relation("WorkItemsAssignedTeam")
 
   @@unique([departmentId, nameKey], map: "department_teams_department_name_key")
@@ -1230,9 +1304,9 @@ model IdentityCorrectionAudit {
   actorAccountId String @map("actor_account_id") @db.Uuid
 
   field    IdentityCorrectionField
-  oldValue String @map("old_value") @db.VarChar(255)
-  newValue String @map("new_value") @db.VarChar(255)
-  reason   String @db.VarChar(500)
+  oldValue String                  @map("old_value") @db.VarChar(255)
+  newValue String                  @map("new_value") @db.VarChar(255)
+  reason   String                  @db.VarChar(500)
 
   ipAddress String? @map("ip_address") @db.VarChar(45)
   userAgent String? @map("user_agent") @db.VarChar(500)
@@ -1270,19 +1344,19 @@ model Conversation {
   createdAt     DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt     DateTime  @updatedAt @map("updated_at") @db.Timestamptz(3)
 
-  createdBy          Account                   @relation("ConversationsCreatedBy", fields: [createdByAccountId], references: [id], onDelete: Restrict)
-  officialDivision   Division?                 @relation("OfficialGroupDivision", fields: [officialDivisionId], references: [id], onDelete: Restrict)
-  officialDepartment Department?               @relation("OfficialGroupDepartment", fields: [officialDepartmentId], references: [id], onDelete: Restrict)
-  participants       ConversationParticipant[]
+  createdBy                Account                        @relation("ConversationsCreatedBy", fields: [createdByAccountId], references: [id], onDelete: Restrict)
+  officialDivision         Division?                      @relation("OfficialGroupDivision", fields: [officialDivisionId], references: [id], onDelete: Restrict)
+  officialDepartment       Department?                    @relation("OfficialGroupDepartment", fields: [officialDepartmentId], references: [id], onDelete: Restrict)
+  participants             ConversationParticipant[]
   officialReceiptIntervals OfficialGroupReceiptInterval[]
-  messages           Message[]
-  messageRequest     MessageRequest?
-  officialAuditLogs  OfficialGroupAuditLog[]
-  notifications      MessagingNotification[]
-  messagePins        MessagePin[]
-  invitationLinks    GroupInvitationLink[]
-  announcements      Announcement[]            @relation("AnnouncementOfficialConversation")
-  chatFolderItems    ChatFolderItem[]
+  messages                 Message[]
+  messageRequest           MessageRequest?
+  officialAuditLogs        OfficialGroupAuditLog[]
+  notifications            MessagingNotification[]
+  messagePins              MessagePin[]
+  invitationLinks          GroupInvitationLink[]
+  announcements            Announcement[]                 @relation("AnnouncementOfficialConversation")
+  chatFolderItems          ChatFolderItem[]
 
   @@index([type, lastMessageAt], map: "conversations_type_last_message_idx")
   @@index([groupKind, updatedAt], map: "conversations_group_kind_idx")
@@ -1356,8 +1430,8 @@ model OfficialGroupReceiptInterval {
   conversationId String @map("conversation_id") @db.Uuid
   accountId      String @map("account_id") @db.Uuid
 
-  joinedAt DateTime  @map("joined_at") @db.Timestamptz(3)
-  leftAt   DateTime  @map("left_at") @db.Timestamptz(3)
+  joinedAt DateTime @map("joined_at") @db.Timestamptz(3)
+  leftAt   DateTime @map("left_at") @db.Timestamptz(3)
 
   deliveredThroughMessageId String?   @map("delivered_through_message_id") @db.Uuid
   deliveredThroughSentAt    DateTime? @map("delivered_through_sent_at") @db.Timestamptz(3)
@@ -1637,7 +1711,7 @@ model MessagingAccountBlock {
 model Announcement {
   id String @id @default(uuid()) @db.Uuid
 
-  createdByAccountId   String  @map("created_by_account_id") @db.Uuid
+  createdByAccountId     String                   @map("created_by_account_id") @db.Uuid
   audienceType           AnnouncementAudienceType @map("audience_type")
   divisionId             String?                  @map("division_id") @db.Uuid
   departmentId           String?                  @map("department_id") @db.Uuid
@@ -1652,10 +1726,10 @@ model Announcement {
   allowAttachmentDownload Boolean @default(true) @map("allow_attachment_download")
   isPinned                Boolean @default(false) @map("is_pinned")
 
-  currentRevision Int       @default(1) @map("current_revision")
-  scheduledAt     DateTime? @map("scheduled_at") @db.Timestamptz(3)
-  publishedAt     DateTime? @map("published_at") @db.Timestamptz(3)
-  expiresAt       DateTime? @map("expires_at") @db.Timestamptz(3)
+  currentRevision      Int       @default(1) @map("current_revision")
+  scheduledAt          DateTime? @map("scheduled_at") @db.Timestamptz(3)
+  publishedAt          DateTime? @map("published_at") @db.Timestamptz(3)
+  expiresAt            DateTime? @map("expires_at") @db.Timestamptz(3)
   publishClaimedAt     DateTime? @map("publish_claimed_at") @db.Timestamptz(3)
   nextPublishAttemptAt DateTime? @map("next_publish_attempt_at") @db.Timestamptz(3)
   publishAttempts      Int       @default(0) @map("publish_attempts")
@@ -1913,13 +1987,20 @@ model WorkTypeDefinition {
 }
 
 model WorkTypeVersion {
-  id                   String                @id @default(uuid()) @db.Uuid
-  workTypeDefinitionId String                @map("work_type_definition_id") @db.Uuid
-  version              Int
-  status               WorkTypeVersionStatus @default(DRAFT)
-  name                 String                @db.VarChar(150)
-  description          String?               @db.VarChar(1000)
-  changeReason         String?               @map("change_reason") @db.VarChar(500)
+  id                         String                    @id @default(uuid()) @db.Uuid
+  workTypeDefinitionId       String                    @map("work_type_definition_id") @db.Uuid
+  version                    Int
+  status                     WorkTypeVersionStatus     @default(DRAFT)
+  name                       String                    @db.VarChar(150)
+  description                String?                   @db.VarChar(1000)
+  changeReason               String?                   @map("change_reason") @db.VarChar(500)
+  primaryOwnerOrgUnitId      String?                   @map("primary_owner_org_unit_id") @db.Uuid
+  creatorCategories          WorkTypeCreatorCategory[] @default([]) @map("creator_categories")
+  creatorScope               WorkTypeCreatorScope      @default(PRIMARY_OWNER_SUBTREE) @map("creator_scope")
+  finalClosureMode           WorkFinalClosureMode      @default(AUTO_AFTER_REQUIRED_STAGES) @map("final_closure_mode")
+  finalClosureLeadershipType OrgLeadershipType?        @map("final_closure_leadership_type")
+  slaBasis                   WorkSlaBasis              @default(CALENDAR_DURATION) @map("sla_basis")
+  overallSlaMinutes          Int?                      @map("overall_sla_minutes")
 
   createdByAccountId   String  @map("created_by_account_id") @db.Uuid
   publishedByAccountId String? @map("published_by_account_id") @db.Uuid
@@ -1930,18 +2011,128 @@ model WorkTypeVersion {
   createdAt   DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt   DateTime  @updatedAt @map("updated_at") @db.Timestamptz(3)
 
-  workTypeDefinition WorkTypeDefinition @relation(fields: [workTypeDefinitionId], references: [id], onDelete: Restrict)
-  createdBy          Account            @relation("WorkTypeVersionsCreatedBy", fields: [createdByAccountId], references: [id], onDelete: Restrict)
-  publishedBy        Account?           @relation("WorkTypeVersionsPublishedBy", fields: [publishedByAccountId], references: [id], onDelete: Restrict)
-  retiredBy          Account?           @relation("WorkTypeVersionsRetiredBy", fields: [retiredByAccountId], references: [id], onDelete: Restrict)
+  workTypeDefinition  WorkTypeDefinition       @relation(fields: [workTypeDefinitionId], references: [id], onDelete: Restrict)
+  createdBy           Account                  @relation("WorkTypeVersionsCreatedBy", fields: [createdByAccountId], references: [id], onDelete: Restrict)
+  publishedBy         Account?                 @relation("WorkTypeVersionsPublishedBy", fields: [publishedByAccountId], references: [id], onDelete: Restrict)
+  retiredBy           Account?                 @relation("WorkTypeVersionsRetiredBy", fields: [retiredByAccountId], references: [id], onDelete: Restrict)
+  primaryOwnerOrgUnit OrgUnit?                 @relation("WorkTypeVersionPrimaryOwner", fields: [primaryOwnerOrgUnitId], references: [id], onDelete: Restrict)
+  creatorOrgUnits     WorkTypeCreatorOrgUnit[]
+  creatorAccounts     WorkTypeCreatorAccount[]
+  fields              WorkFieldDefinition[]
+  stages              WorkStageDefinition[]
+  stageDependencies   WorkStageDependency[]
 
   @@unique([workTypeDefinitionId, version], map: "work_type_versions_definition_version_key")
   @@index([workTypeDefinitionId, status, version], map: "work_type_versions_definition_status_version_idx")
   @@index([status, createdAt], map: "work_type_versions_status_created_idx")
+  @@index([primaryOwnerOrgUnitId], map: "work_type_versions_primary_owner_idx")
   @@index([createdByAccountId], map: "work_type_versions_created_by_idx")
   @@index([publishedByAccountId], map: "work_type_versions_published_by_idx")
   @@index([retiredByAccountId], map: "work_type_versions_retired_by_idx")
   @@map("work_type_versions")
+}
+
+model WorkTypeCreatorOrgUnit {
+  id                 String   @id @default(uuid()) @db.Uuid
+  workTypeVersionId  String   @map("work_type_version_id") @db.Uuid
+  orgUnitId          String   @map("org_unit_id") @db.Uuid
+  includeDescendants Boolean  @default(false) @map("include_descendants")
+  createdAt          DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  workTypeVersion WorkTypeVersion @relation(fields: [workTypeVersionId], references: [id], onDelete: Cascade)
+  orgUnit         OrgUnit         @relation(fields: [orgUnitId], references: [id], onDelete: Restrict)
+
+  @@unique([workTypeVersionId, orgUnitId], map: "work_type_creator_org_units_version_unit_key")
+  @@index([orgUnitId, workTypeVersionId], map: "work_type_creator_org_units_unit_version_idx")
+  @@map("work_type_creator_org_units")
+}
+
+model WorkTypeCreatorAccount {
+  id                String   @id @default(uuid()) @db.Uuid
+  workTypeVersionId String   @map("work_type_version_id") @db.Uuid
+  accountId         String   @map("account_id") @db.Uuid
+  createdAt         DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  workTypeVersion WorkTypeVersion @relation(fields: [workTypeVersionId], references: [id], onDelete: Cascade)
+  account         Account         @relation(fields: [accountId], references: [id], onDelete: Restrict)
+
+  @@unique([workTypeVersionId, accountId], map: "work_type_creator_accounts_version_account_key")
+  @@index([accountId, workTypeVersionId], map: "work_type_creator_accounts_account_version_idx")
+  @@map("work_type_creator_accounts")
+}
+
+model WorkFieldDefinition {
+  id                String        @id @default(uuid()) @db.Uuid
+  workTypeVersionId String        @map("work_type_version_id") @db.Uuid
+  stageDefinitionId String?       @map("stage_definition_id") @db.Uuid
+  code              String        @db.VarChar(80)
+  label             String        @db.VarChar(150)
+  fieldType         WorkFieldType @map("field_type")
+  isRequired        Boolean       @default(false) @map("is_required")
+  sortOrder         Int           @default(0) @map("sort_order")
+  config            Json?         @db.JsonB
+  createdAt         DateTime      @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt         DateTime      @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  workTypeVersion  WorkTypeVersion       @relation(fields: [workTypeVersionId], references: [id], onDelete: Cascade)
+  stageDefinition  WorkStageDefinition?  @relation("WorkStageFields", fields: [stageDefinitionId], references: [id], onDelete: Cascade)
+  activationStages WorkStageDefinition[] @relation("WorkStageActivationField")
+
+  @@unique([workTypeVersionId, code], map: "work_field_definitions_version_code_key")
+  @@index([workTypeVersionId, stageDefinitionId, sortOrder], map: "work_field_definitions_version_stage_sort_idx")
+  @@index([stageDefinitionId], map: "work_field_definitions_stage_idx")
+  @@map("work_field_definitions")
+}
+
+model WorkStageDefinition {
+  id                          String                          @id @default(uuid()) @db.Uuid
+  workTypeVersionId           String                          @map("work_type_version_id") @db.Uuid
+  code                        String                          @db.VarChar(80)
+  name                        String                          @db.VarChar(150)
+  description                 String?                         @db.VarChar(1000)
+  sortOrder                   Int                             @default(0) @map("sort_order")
+  isRequired                  Boolean                         @default(true) @map("is_required")
+  responsibleOrgUnitRule      WorkStageResponsibleOrgUnitRule @map("responsible_org_unit_rule")
+  responsibleOrgUnitId        String?                         @map("responsible_org_unit_id") @db.Uuid
+  assignmentMode              WorkStageAssignmentMode         @map("assignment_mode")
+  approvalMode                WorkStageApprovalMode           @default(NONE) @map("approval_mode")
+  approvalLeadershipType      OrgLeadershipType?              @map("approval_leadership_type")
+  activationMode              WorkStageActivationMode         @default(ALWAYS) @map("activation_mode")
+  activationFieldDefinitionId String?                         @map("activation_field_definition_id") @db.Uuid
+  activationExpectedValue     Json?                           @map("activation_expected_value") @db.JsonB
+  slaMinutes                  Int?                            @map("sla_minutes")
+  createdAt                   DateTime                        @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt                   DateTime                        @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  workTypeVersion           WorkTypeVersion       @relation(fields: [workTypeVersionId], references: [id], onDelete: Cascade)
+  responsibleOrgUnit        OrgUnit?              @relation("WorkStageResponsibleOrgUnit", fields: [responsibleOrgUnitId], references: [id], onDelete: Restrict)
+  activationFieldDefinition WorkFieldDefinition?  @relation("WorkStageActivationField", fields: [activationFieldDefinitionId], references: [id], onDelete: Restrict)
+  fields                    WorkFieldDefinition[] @relation("WorkStageFields")
+  dependencies              WorkStageDependency[] @relation("WorkStageDependencyStage")
+  dependents                WorkStageDependency[] @relation("WorkStageDependencyPrerequisite")
+
+  @@unique([workTypeVersionId, code], map: "work_stage_definitions_version_code_key")
+  @@index([workTypeVersionId, sortOrder], map: "work_stage_definitions_version_sort_idx")
+  @@index([responsibleOrgUnitId], map: "work_stage_definitions_responsible_unit_idx")
+  @@index([activationFieldDefinitionId], map: "work_stage_definitions_activation_field_idx")
+  @@map("work_stage_definitions")
+}
+
+model WorkStageDependency {
+  id                  String   @id @default(uuid()) @db.Uuid
+  workTypeVersionId   String   @map("work_type_version_id") @db.Uuid
+  stageDefinitionId   String   @map("stage_definition_id") @db.Uuid
+  prerequisiteStageId String   @map("prerequisite_stage_id") @db.Uuid
+  createdAt           DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  workTypeVersion   WorkTypeVersion     @relation(fields: [workTypeVersionId], references: [id], onDelete: Cascade)
+  stageDefinition   WorkStageDefinition @relation("WorkStageDependencyStage", fields: [stageDefinitionId], references: [id], onDelete: Cascade)
+  prerequisiteStage WorkStageDefinition @relation("WorkStageDependencyPrerequisite", fields: [prerequisiteStageId], references: [id], onDelete: Cascade)
+
+  @@unique([stageDefinitionId, prerequisiteStageId], map: "work_stage_dependencies_stage_prerequisite_key")
+  @@index([workTypeVersionId], map: "work_stage_dependencies_version_idx")
+  @@index([prerequisiteStageId], map: "work_stage_dependencies_prerequisite_idx")
+  @@map("work_stage_dependencies")
 }
 
 model WorkItem {
@@ -1966,15 +2157,15 @@ model WorkItem {
   fdcName               String?           @map("fdc_name") @db.VarChar(100)
   fapName               String?           @map("fap_name") @db.VarChar(100)
 
-  divisionId          String  @map("division_id") @db.Uuid
-  departmentId        String? @map("department_id") @db.Uuid
-  parentWorkItemId    String? @map("parent_work_item_id") @db.Uuid
-  assignedTeamId      String? @map("assigned_team_id") @db.Uuid
-  salesMemberAccountId String? @map("sales_member_account_id") @db.Uuid
+  divisionId              String                       @map("division_id") @db.Uuid
+  departmentId            String?                      @map("department_id") @db.Uuid
+  parentWorkItemId        String?                      @map("parent_work_item_id") @db.Uuid
+  assignedTeamId          String?                      @map("assigned_team_id") @db.Uuid
+  salesMemberAccountId    String?                      @map("sales_member_account_id") @db.Uuid
   salesCoordinationStatus WorkSalesCoordinationStatus? @map("sales_coordination_status")
-  salesDocumentsSentAt DateTime? @map("sales_documents_sent_at") @db.Timestamptz(3)
-  salesCompletedAt DateTime? @map("sales_completed_at") @db.Timestamptz(3)
-  salesCompletionNote String? @map("sales_completion_note") @db.VarChar(1500)
+  salesDocumentsSentAt    DateTime?                    @map("sales_documents_sent_at") @db.Timestamptz(3)
+  salesCompletedAt        DateTime?                    @map("sales_completed_at") @db.Timestamptz(3)
+  salesCompletionNote     String?                      @map("sales_completion_note") @db.VarChar(1500)
 
   locationText   String?   @map("location_text") @db.VarChar(300)
   registeredAt   DateTime  @map("registered_at") @db.Timestamptz(3)
@@ -2011,10 +2202,10 @@ model WorkItem {
   salesMember         Account?        @relation("WorkItemsSalesMember", fields: [salesMemberAccountId], references: [id], onDelete: Restrict)
   createdBy           Account         @relation("WorkItemsCreatedBy", fields: [createdByAccountId], references: [id], onDelete: Restrict)
   responsibleManager  Account         @relation("WorkItemsResponsibleManager", fields: [responsibleManagerAccountId], references: [id], onDelete: Restrict)
-  retentionHoldBy     Account?    @relation("WorkItemsRetentionHoldBy", fields: [retentionHoldByAccountId], references: [id], onDelete: Restrict)
-  deletionRequestedBy Account?    @relation("WorkItemsDeletionRequestedBy", fields: [deletionRequestedByAccountId], references: [id], onDelete: Restrict)
-  parentWorkItem      WorkItem?   @relation("WorkItemDelegation", fields: [parentWorkItemId], references: [id], onDelete: SetNull)
-  childWorkItems      WorkItem[]  @relation("WorkItemDelegation")
+  retentionHoldBy     Account?        @relation("WorkItemsRetentionHoldBy", fields: [retentionHoldByAccountId], references: [id], onDelete: Restrict)
+  deletionRequestedBy Account?        @relation("WorkItemsDeletionRequestedBy", fields: [deletionRequestedByAccountId], references: [id], onDelete: Restrict)
+  parentWorkItem      WorkItem?       @relation("WorkItemDelegation", fields: [parentWorkItemId], references: [id], onDelete: SetNull)
+  childWorkItems      WorkItem[]      @relation("WorkItemDelegation")
 
   assignments       WorkAssignment[]
   activities        WorkActivity[]
@@ -2122,18 +2313,17 @@ model WorkCompletionReport {
   @@map("work_completion_reports")
 }
 
-
 model WorkSalesMessage {
   id String @id @default(uuid()) @db.Uuid
 
-  workItemId     String @map("work_item_id") @db.Uuid
-  senderAccountId String @map("sender_account_id") @db.Uuid
+  workItemId      String  @map("work_item_id") @db.Uuid
+  senderAccountId String  @map("sender_account_id") @db.Uuid
   text            String? @db.VarChar(1500)
 
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
 
-  workItem    WorkItem @relation(fields: [workItemId], references: [id], onDelete: Cascade)
-  sender      Account  @relation("WorkSalesMessagesSender", fields: [senderAccountId], references: [id], onDelete: Restrict)
+  workItem    WorkItem              @relation(fields: [workItemId], references: [id], onDelete: Cascade)
+  sender      Account               @relation("WorkSalesMessagesSender", fields: [senderAccountId], references: [id], onDelete: Restrict)
   attachments WorkSalesAttachment[]
 
   @@index([workItemId, createdAt], map: "work_sales_messages_item_created_idx")
@@ -2404,11 +2594,11 @@ model DutyHoliday {
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
 
-  division    Division?  @relation(fields: [divisionId], references: [id], onDelete: Restrict)
+  division    Division?   @relation(fields: [divisionId], references: [id], onDelete: Restrict)
   department  Department? @relation(fields: [departmentId], references: [id], onDelete: Restrict)
-  createdBy   Account    @relation("DutyHolidaysCreatedBy", fields: [createdByAccountId], references: [id], onDelete: Restrict)
-  updatedBy   Account    @relation("DutyHolidaysUpdatedBy", fields: [updatedByAccountId], references: [id], onDelete: Restrict)
-  cancelledBy Account?   @relation("DutyHolidaysCancelledBy", fields: [cancelledByAccountId], references: [id], onDelete: Restrict)
+  createdBy   Account     @relation("DutyHolidaysCreatedBy", fields: [createdByAccountId], references: [id], onDelete: Restrict)
+  updatedBy   Account     @relation("DutyHolidaysUpdatedBy", fields: [updatedByAccountId], references: [id], onDelete: Restrict)
+  cancelledBy Account?    @relation("DutyHolidaysCancelledBy", fields: [cancelledByAccountId], references: [id], onDelete: Restrict)
 
   @@index([startDate, endDate, cancelledAt], map: "duty_holidays_dates_cancelled_idx")
   @@index([divisionId, startDate, endDate], map: "duty_holidays_division_dates_idx")
@@ -2512,14 +2702,14 @@ model DailyActivitySummary {
 }
 
 model ChatFolder {
-  id        String   @id @default(uuid()) @db.Uuid
-  accountId String   @map("account_id") @db.Uuid
+  id        String @id @default(uuid()) @db.Uuid
+  accountId String @map("account_id") @db.Uuid
 
-  name      String   @db.VarChar(100)
-  nameKey   String   @map("name_key") @db.VarChar(100)
-  icon      String   @default("folder") @db.VarChar(50)
-  color     String?  @db.VarChar(30)
-  position  Int      @default(0)
+  name     String  @db.VarChar(100)
+  nameKey  String  @map("name_key") @db.VarChar(100)
+  icon     String  @default("folder") @db.VarChar(50)
+  color    String? @db.VarChar(30)
+  position Int     @default(0)
 
   includePrivate    Boolean @default(false) @map("include_private")
   includeGroups     Boolean @default(false) @map("include_groups")
@@ -2556,4 +2746,3 @@ model ChatFolderItem {
   @@index([folderId], map: "chat_folder_items_folder_idx")
   @@map("chat_folder_items")
 }
-
