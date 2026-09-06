@@ -311,6 +311,76 @@ enum WorkSlaBasis {
   OFFICE_WORKING_DURATION
 }
 
+enum WorkRuntimeStatus {
+  DRAFT
+  OPEN
+  IN_PROGRESS
+  WAITING
+  BLOCKED
+  COMPLETED
+  CANCELLED
+}
+
+enum WorkParticipantRole {
+  PRIMARY_OWNER
+  REQUIRED_PARTICIPANT
+  CONDITIONAL_PARTICIPANT
+  SUPPORTING_PARTICIPANT
+  OBSERVER
+}
+
+enum WorkStageStatus {
+  PENDING
+  READY
+  IN_PROGRESS
+  BLOCKED
+  SUBMITTED
+  RETURNED
+  COMPLETED
+  SKIPPED
+  CANCELLED
+}
+
+enum WorkStageAssignmentTargetType {
+  ORG_UNIT_QUEUE
+  TEAM
+  ACCOUNT
+}
+
+enum WorkStageAssignmentRole {
+  PRIMARY
+  SUPPORTING
+}
+
+enum WorkStageApprovalDecision {
+  APPROVED
+  RETURNED
+}
+
+enum WorkEventType {
+  WORK_CREATED
+  WORK_STATUS_CHANGED
+  PARTICIPANT_ADDED
+  PARTICIPANT_ENDED
+  STAGE_READY
+  STAGE_ASSIGNED
+  STAGE_STARTED
+  STAGE_BLOCKED
+  STAGE_UNBLOCKED
+  STAGE_SUBMITTED
+  STAGE_APPROVED
+  STAGE_RETURNED
+  STAGE_COMPLETED
+  STAGE_SKIPPED
+  STAGE_CANCELLED
+  WORK_COMPLETED
+  WORK_CANCELLED
+  WORK_REOPENED
+  OWNERSHIP_TRANSFERRED
+  FIELD_UPDATED
+  REFERENCE_UPDATED
+}
+
 enum WorkServiceType {
   DATA
   VOICE
@@ -505,6 +575,7 @@ model Office {
   legacyOrgUnitMappings LegacyOrgUnitMapping[]
   accountRequests       AccountRequest[]          @relation("AccountRequestOffice")
   workTypeDefinitions   WorkTypeDefinition[]
+  runtimeWorkItems      WorkItem[]                @relation("WorkItemsOfficeV3")
 
   @@index([isActive, sortOrder], map: "offices_active_sort_idx")
   @@map("offices")
@@ -560,6 +631,12 @@ model OrgUnit {
   primaryWorkTypeVersions   WorkTypeVersion[]         @relation("WorkTypeVersionPrimaryOwner")
   workTypeCreatorRules      WorkTypeCreatorOrgUnit[]
   workStageResponsibilities WorkStageDefinition[]     @relation("WorkStageResponsibleOrgUnit")
+  primaryOwnedWorkItems      WorkItem[]                @relation("WorkItemsPrimaryOwnerOrgUnitV3")
+  workParticipants           WorkOrgUnitParticipant[]
+  responsibleWorkStages      WorkStage[]               @relation("WorkStagesResponsibleOrgUnit")
+  workStageAssignmentTargets WorkStageAssignment[]     @relation("WorkStageAssignmentsTargetOrgUnit")
+  ownershipTransfersFrom     WorkOwnershipTransfer[]   @relation("WorkOwnershipTransfersFromOrgUnit")
+  ownershipTransfersTo       WorkOwnershipTransfer[]   @relation("WorkOwnershipTransfersToOrgUnit")
 
   @@unique([officeId, code], map: "org_units_office_code_key")
   @@index([officeId, parentOrgUnitId, isActive, sortOrder], map: "org_units_parent_active_sort_idx")
@@ -932,6 +1009,18 @@ model Account {
   workTypeVersionsPublished        WorkTypeVersion[]                 @relation("WorkTypeVersionsPublishedBy")
   workTypeVersionsRetired          WorkTypeVersion[]                 @relation("WorkTypeVersionsRetiredBy")
   workTypeCreatorRules             WorkTypeCreatorAccount[]
+  workParticipantsAdded            WorkOrgUnitParticipant[]          @relation("WorkParticipantsAddedBy")
+  workParticipantsEnded            WorkOrgUnitParticipant[]          @relation("WorkParticipantsEndedBy")
+  workStageAssignmentsReceived     WorkStageAssignment[]             @relation("WorkStageAssignmentsTargetAccount")
+  workStageAssignmentsCreated      WorkStageAssignment[]             @relation("WorkStageAssignmentsAssignedBy")
+  workStageAssignmentsEnded        WorkStageAssignment[]             @relation("WorkStageAssignmentsEndedBy")
+  workStageSubmissions             WorkStageSubmission[]
+  workStageApprovals               WorkStageApproval[]
+  workFieldValuesUpdated           WorkFieldValue[]                  @relation("WorkFieldValuesUpdatedBy")
+  workReferencesCreated            WorkReference[]                   @relation("WorkReferencesCreatedBy")
+  workEvents                       WorkEvent[]
+  workOwnershipTransfersRequested  WorkOwnershipTransfer[]           @relation("WorkOwnershipTransfersRequestedBy")
+  workOwnershipTransfersApproved   WorkOwnershipTransfer[]           @relation("WorkOwnershipTransfersApprovedBy")
 
   @@index([role], map: "accounts_role_idx")
   @@index([isEnabled], map: "accounts_is_enabled_idx")
@@ -2021,6 +2110,7 @@ model WorkTypeVersion {
   fields              WorkFieldDefinition[]
   stages              WorkStageDefinition[]
   stageDependencies   WorkStageDependency[]
+  runtimeWorkItems     WorkItem[]              @relation("WorkItemsWorkTypeVersionV3")
 
   @@unique([workTypeDefinitionId, version], map: "work_type_versions_definition_version_key")
   @@index([workTypeDefinitionId, status, version], map: "work_type_versions_definition_status_version_idx")
@@ -2077,6 +2167,8 @@ model WorkFieldDefinition {
   workTypeVersion  WorkTypeVersion       @relation(fields: [workTypeVersionId], references: [id], onDelete: Cascade)
   stageDefinition  WorkStageDefinition?  @relation("WorkStageFields", fields: [stageDefinitionId], references: [id], onDelete: Cascade)
   activationStages WorkStageDefinition[] @relation("WorkStageActivationField")
+  runtimeValues     WorkFieldValue[]
+  runtimeReferences WorkReference[]
 
   @@unique([workTypeVersionId, code], map: "work_field_definitions_version_code_key")
   @@index([workTypeVersionId, stageDefinitionId, sortOrder], map: "work_field_definitions_version_stage_sort_idx")
@@ -2110,6 +2202,7 @@ model WorkStageDefinition {
   fields                    WorkFieldDefinition[] @relation("WorkStageFields")
   dependencies              WorkStageDependency[] @relation("WorkStageDependencyStage")
   dependents                WorkStageDependency[] @relation("WorkStageDependencyPrerequisite")
+  runtimeStages             WorkStage[]
 
   @@unique([workTypeVersionId, code], map: "work_stage_definitions_version_code_key")
   @@index([workTypeVersionId, sortOrder], map: "work_stage_definitions_version_sort_idx")
@@ -2135,6 +2228,267 @@ model WorkStageDependency {
   @@map("work_stage_dependencies")
 }
 
+model WorkOrgUnitParticipant {
+  id String @id @default(uuid()) @db.Uuid
+
+  workItemId String              @map("work_item_id") @db.Uuid
+  orgUnitId  String              @map("org_unit_id") @db.Uuid
+  role       WorkParticipantRole
+
+  addedByAccountId String? @map("added_by_account_id") @db.Uuid
+  endedByAccountId String? @map("ended_by_account_id") @db.Uuid
+
+  startedAt DateTime  @default(now()) @map("started_at") @db.Timestamptz(3)
+  endedAt   DateTime? @map("ended_at") @db.Timestamptz(3)
+  endReason String?   @map("end_reason") @db.VarChar(500)
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  workItem WorkItem @relation(fields: [workItemId], references: [id], onDelete: Cascade)
+  orgUnit  OrgUnit  @relation(fields: [orgUnitId], references: [id], onDelete: Restrict)
+
+  addedBy Account? @relation("WorkParticipantsAddedBy", fields: [addedByAccountId], references: [id], onDelete: Restrict)
+  endedBy Account? @relation("WorkParticipantsEndedBy", fields: [endedByAccountId], references: [id], onDelete: Restrict)
+
+  @@index([workItemId, endedAt, role], map: "work_participants_item_active_role_idx")
+  @@index([orgUnitId, endedAt, role], map: "work_participants_unit_active_role_idx")
+  @@index([addedByAccountId, createdAt], map: "work_participants_added_by_created_idx")
+  @@index([endedByAccountId, endedAt], map: "work_participants_ended_by_ended_idx")
+  @@map("work_org_unit_participants")
+}
+
+model WorkStage {
+  id String @id @default(uuid()) @db.Uuid
+
+  workItemId           String @map("work_item_id") @db.Uuid
+  stageDefinitionId    String @map("stage_definition_id") @db.Uuid
+  responsibleOrgUnitId String @map("responsible_org_unit_id") @db.Uuid
+
+  code       String  @db.VarChar(80)
+  name       String  @db.VarChar(150)
+  sortOrder  Int     @default(0) @map("sort_order")
+  isRequired Boolean @default(true) @map("is_required")
+
+  assignmentMode          WorkStageAssignmentMode @map("assignment_mode")
+  approvalMode            WorkStageApprovalMode   @default(NONE) @map("approval_mode")
+  approvalLeadershipType  OrgLeadershipType?      @map("approval_leadership_type")
+  activationMode          WorkStageActivationMode @default(ALWAYS) @map("activation_mode")
+  activationFieldCode     String?                 @map("activation_field_code") @db.VarChar(80)
+  activationExpectedValue Json?                   @map("activation_expected_value") @db.JsonB
+  slaMinutes              Int?                    @map("sla_minutes")
+
+  status            WorkStageStatus  @default(PENDING)
+  version           Int              @default(1)
+  blockedFromStatus WorkStageStatus? @map("blocked_from_status")
+  blockerReason     String?          @map("blocker_reason") @db.VarChar(1000)
+
+  dueAt       DateTime? @map("due_at") @db.Timestamptz(3)
+  readyAt     DateTime? @map("ready_at") @db.Timestamptz(3)
+  startedAt   DateTime? @map("started_at") @db.Timestamptz(3)
+  submittedAt DateTime? @map("submitted_at") @db.Timestamptz(3)
+  completedAt DateTime? @map("completed_at") @db.Timestamptz(3)
+  blockedAt   DateTime? @map("blocked_at") @db.Timestamptz(3)
+  cancelledAt DateTime? @map("cancelled_at") @db.Timestamptz(3)
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  workItem           WorkItem            @relation(fields: [workItemId], references: [id], onDelete: Cascade)
+  stageDefinition    WorkStageDefinition @relation(fields: [stageDefinitionId], references: [id], onDelete: Restrict)
+  responsibleOrgUnit OrgUnit             @relation("WorkStagesResponsibleOrgUnit", fields: [responsibleOrgUnitId], references: [id], onDelete: Restrict)
+
+  assignments WorkStageAssignment[]
+  submissions WorkStageSubmission[]
+  approvals   WorkStageApproval[]
+  fieldValues WorkFieldValue[]
+  events      WorkEvent[]
+
+  @@unique([workItemId, stageDefinitionId], map: "work_stages_item_definition_key")
+  @@index([workItemId, status], map: "work_stages_item_status_idx")
+  @@index([responsibleOrgUnitId, status], map: "work_stages_responsible_unit_status_idx")
+  @@index([status, dueAt], map: "work_stages_status_due_idx")
+  @@index([stageDefinitionId], map: "work_stages_definition_idx")
+  @@map("work_stages")
+}
+
+model WorkStageAssignment {
+  id String @id @default(uuid()) @db.Uuid
+
+  workStageId     String                        @map("work_stage_id") @db.Uuid
+  targetType      WorkStageAssignmentTargetType @map("target_type")
+  targetOrgUnitId String?                       @map("target_org_unit_id") @db.Uuid
+  targetAccountId String?                       @map("target_account_id") @db.Uuid
+  assignmentRole  WorkStageAssignmentRole       @default(PRIMARY) @map("assignment_role")
+
+  assignedByAccountId String? @map("assigned_by_account_id") @db.Uuid
+  endedByAccountId    String? @map("ended_by_account_id") @db.Uuid
+  assignmentReason    String? @map("assignment_reason") @db.VarChar(500)
+  endReason           String? @map("end_reason") @db.VarChar(500)
+
+  startsAt DateTime  @default(now()) @map("starts_at") @db.Timestamptz(3)
+  endsAt   DateTime? @map("ends_at") @db.Timestamptz(3)
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  workStage       WorkStage @relation(fields: [workStageId], references: [id], onDelete: Cascade)
+  targetOrgUnit   OrgUnit?  @relation("WorkStageAssignmentsTargetOrgUnit", fields: [targetOrgUnitId], references: [id], onDelete: Restrict)
+  targetAccount   Account?  @relation("WorkStageAssignmentsTargetAccount", fields: [targetAccountId], references: [id], onDelete: Restrict)
+  assignedBy      Account?  @relation("WorkStageAssignmentsAssignedBy", fields: [assignedByAccountId], references: [id], onDelete: Restrict)
+  endedBy         Account?  @relation("WorkStageAssignmentsEndedBy", fields: [endedByAccountId], references: [id], onDelete: Restrict)
+
+  @@index([workStageId, endsAt, assignmentRole], map: "work_stage_assignments_stage_active_role_idx")
+  @@index([targetOrgUnitId, endsAt], map: "work_stage_assignments_target_unit_active_idx")
+  @@index([targetAccountId, endsAt], map: "work_stage_assignments_target_account_active_idx")
+  @@index([assignedByAccountId, createdAt], map: "work_stage_assignments_assigned_by_created_idx")
+  @@index([endedByAccountId, endsAt], map: "work_stage_assignments_ended_by_ended_idx")
+  @@map("work_stage_assignments")
+}
+
+model WorkStageSubmission {
+  id String @id @default(uuid()) @db.Uuid
+
+  workStageId          String  @map("work_stage_id") @db.Uuid
+  submittedByAccountId String  @map("submitted_by_account_id") @db.Uuid
+  submissionNumber     Int     @map("submission_number")
+  stageVersion         Int     @map("stage_version")
+  valuesSnapshot       Json    @map("values_snapshot") @db.JsonB
+  note                 String? @db.VarChar(2000)
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  workStage   WorkStage          @relation(fields: [workStageId], references: [id], onDelete: Cascade)
+  submittedBy Account            @relation(fields: [submittedByAccountId], references: [id], onDelete: Restrict)
+  approval    WorkStageApproval?
+
+  @@unique([workStageId, submissionNumber], map: "work_stage_submissions_stage_number_key")
+  @@index([submittedByAccountId, createdAt], map: "work_stage_submissions_submitter_created_idx")
+  @@index([workStageId, createdAt], map: "work_stage_submissions_stage_created_idx")
+  @@map("work_stage_submissions")
+}
+
+model WorkStageApproval {
+  id String @id @default(uuid()) @db.Uuid
+
+  workStageId        String                    @map("work_stage_id") @db.Uuid
+  submissionId       String                    @unique(map: "work_stage_approvals_submission_key") @map("submission_id") @db.Uuid
+  decidedByAccountId String                    @map("decided_by_account_id") @db.Uuid
+  decision           WorkStageApprovalDecision
+  reason             String?                   @db.VarChar(1000)
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  workStage  WorkStage           @relation(fields: [workStageId], references: [id], onDelete: Cascade)
+  submission WorkStageSubmission @relation(fields: [submissionId], references: [id], onDelete: Cascade)
+  decidedBy  Account             @relation(fields: [decidedByAccountId], references: [id], onDelete: Restrict)
+
+  @@index([workStageId, createdAt], map: "work_stage_approvals_stage_created_idx")
+  @@index([decidedByAccountId, createdAt], map: "work_stage_approvals_decider_created_idx")
+  @@map("work_stage_approvals")
+}
+
+model WorkFieldValue {
+  id String @id @default(uuid()) @db.Uuid
+
+  workItemId         String  @map("work_item_id") @db.Uuid
+  fieldDefinitionId  String  @map("field_definition_id") @db.Uuid
+  workStageId        String? @map("work_stage_id") @db.Uuid
+  value              Json    @db.JsonB
+  version            Int     @default(1)
+  updatedByAccountId String? @map("updated_by_account_id") @db.Uuid
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  workItem        WorkItem            @relation(fields: [workItemId], references: [id], onDelete: Cascade)
+  fieldDefinition WorkFieldDefinition @relation(fields: [fieldDefinitionId], references: [id], onDelete: Restrict)
+  workStage       WorkStage?          @relation(fields: [workStageId], references: [id], onDelete: Cascade)
+  updatedBy       Account?            @relation("WorkFieldValuesUpdatedBy", fields: [updatedByAccountId], references: [id], onDelete: Restrict)
+
+  @@unique([workItemId, fieldDefinitionId], map: "work_field_values_item_definition_key")
+  @@index([workStageId], map: "work_field_values_stage_idx")
+  @@index([fieldDefinitionId], map: "work_field_values_definition_idx")
+  @@index([updatedByAccountId, updatedAt], map: "work_field_values_updated_by_at_idx")
+  @@map("work_field_values")
+}
+
+model WorkReference {
+  id String @id @default(uuid()) @db.Uuid
+
+  workItemId              String  @map("work_item_id") @db.Uuid
+  referenceType           String  @map("reference_type") @db.VarChar(80)
+  value                   String  @db.VarChar(255)
+  normalizedValue         String  @map("normalized_value") @db.VarChar(255)
+  sourceFieldDefinitionId String? @map("source_field_definition_id") @db.Uuid
+  createdByAccountId      String? @map("created_by_account_id") @db.Uuid
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  workItem              WorkItem             @relation(fields: [workItemId], references: [id], onDelete: Cascade)
+  sourceFieldDefinition WorkFieldDefinition? @relation(fields: [sourceFieldDefinitionId], references: [id], onDelete: Restrict)
+  createdBy             Account?             @relation("WorkReferencesCreatedBy", fields: [createdByAccountId], references: [id], onDelete: Restrict)
+
+  @@unique([workItemId, referenceType, normalizedValue], map: "work_references_item_type_normalized_key")
+  @@index([referenceType, normalizedValue], map: "work_references_type_normalized_idx")
+  @@index([workItemId, referenceType], map: "work_references_item_type_idx")
+  @@index([sourceFieldDefinitionId], map: "work_references_source_field_idx")
+  @@index([createdByAccountId, createdAt], map: "work_references_created_by_created_idx")
+  @@map("work_references")
+}
+
+model WorkOwnershipTransfer {
+  id String @id @default(uuid()) @db.Uuid
+
+  workItemId           String   @map("work_item_id") @db.Uuid
+  fromOrgUnitId        String   @map("from_org_unit_id") @db.Uuid
+  toOrgUnitId          String   @map("to_org_unit_id") @db.Uuid
+  requestedByAccountId String   @map("requested_by_account_id") @db.Uuid
+  approvedByAccountId  String   @map("approved_by_account_id") @db.Uuid
+  reason               String   @db.VarChar(1000)
+  effectiveAt          DateTime @default(now()) @map("effective_at") @db.Timestamptz(3)
+  createdAt            DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  workItem    WorkItem @relation(fields: [workItemId], references: [id], onDelete: Cascade)
+  fromOrgUnit OrgUnit  @relation("WorkOwnershipTransfersFromOrgUnit", fields: [fromOrgUnitId], references: [id], onDelete: Restrict)
+  toOrgUnit   OrgUnit  @relation("WorkOwnershipTransfersToOrgUnit", fields: [toOrgUnitId], references: [id], onDelete: Restrict)
+  requestedBy Account  @relation("WorkOwnershipTransfersRequestedBy", fields: [requestedByAccountId], references: [id], onDelete: Restrict)
+  approvedBy  Account  @relation("WorkOwnershipTransfersApprovedBy", fields: [approvedByAccountId], references: [id], onDelete: Restrict)
+
+  @@index([workItemId, effectiveAt], map: "work_ownership_transfers_item_effective_idx")
+  @@index([fromOrgUnitId, effectiveAt], map: "work_ownership_transfers_from_unit_idx")
+  @@index([toOrgUnitId, effectiveAt], map: "work_ownership_transfers_to_unit_idx")
+  @@map("work_ownership_transfers")
+}
+
+model WorkEvent {
+  id String @id @default(uuid()) @db.Uuid
+
+  workItemId     String        @map("work_item_id") @db.Uuid
+  workStageId    String?       @map("work_stage_id") @db.Uuid
+  actorAccountId String?       @map("actor_account_id") @db.Uuid
+  eventType      WorkEventType @map("event_type")
+
+  fromWorkStatus  WorkRuntimeStatus? @map("from_work_status")
+  toWorkStatus    WorkRuntimeStatus? @map("to_work_status")
+  fromStageStatus WorkStageStatus?   @map("from_stage_status")
+  toStageStatus   WorkStageStatus?   @map("to_stage_status")
+  details         Json?              @db.JsonB
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  workItem  WorkItem  @relation(fields: [workItemId], references: [id], onDelete: Cascade)
+  workStage WorkStage? @relation(fields: [workStageId], references: [id], onDelete: Cascade)
+  actor     Account?  @relation(fields: [actorAccountId], references: [id], onDelete: Restrict)
+
+  @@index([workItemId, createdAt], map: "work_events_item_created_idx")
+  @@index([workStageId, createdAt], map: "work_events_stage_created_idx")
+  @@index([actorAccountId, createdAt], map: "work_events_actor_created_idx")
+  @@index([eventType, createdAt], map: "work_events_type_created_idx")
+  @@map("work_events")
+}
+
 model WorkItem {
   id String @id @default(uuid()) @db.Uuid
 
@@ -2144,6 +2498,12 @@ model WorkItem {
   description  String         @db.Text
   category     String?        @db.VarChar(80)
   status       WorkItemStatus @default(ASSIGNED)
+
+  officeId              String?            @map("office_id") @db.Uuid
+  workTypeVersionId     String?            @map("work_type_version_id") @db.Uuid
+  primaryOwnerOrgUnitId String?            @map("primary_owner_org_unit_id") @db.Uuid
+  runtimeStatus         WorkRuntimeStatus? @map("runtime_status")
+  openedAt              DateTime?          @map("opened_at") @db.Timestamptz(3)
 
   customerName          String?           @map("customer_name") @db.VarChar(160)
   customerContactType   WorkContactType?  @map("customer_contact_type")
@@ -2196,6 +2556,10 @@ model WorkItem {
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
 
+  office              Office?          @relation("WorkItemsOfficeV3", fields: [officeId], references: [id], onDelete: Restrict)
+  workTypeVersion     WorkTypeVersion? @relation("WorkItemsWorkTypeVersionV3", fields: [workTypeVersionId], references: [id], onDelete: Restrict)
+  primaryOwnerOrgUnit OrgUnit?         @relation("WorkItemsPrimaryOwnerOrgUnitV3", fields: [primaryOwnerOrgUnitId], references: [id], onDelete: Restrict)
+
   division            Division        @relation(fields: [divisionId], references: [id], onDelete: Restrict)
   department          Department?     @relation(fields: [departmentId], references: [id], onDelete: Restrict)
   assignedTeam        DepartmentTeam? @relation("WorkItemsAssignedTeam", fields: [assignedTeamId], references: [id], onDelete: Restrict)
@@ -2212,7 +2576,16 @@ model WorkItem {
   completionReports WorkCompletionReport[]
   helpRequests      WorkHelpRequest[]
   salesMessages     WorkSalesMessage[]
+  orgUnitParticipants WorkOrgUnitParticipant[]
+  runtimeStages       WorkStage[]
+  fieldValues         WorkFieldValue[]
+  references          WorkReference[]
+  events              WorkEvent[]
+  ownershipTransfers  WorkOwnershipTransfer[]
 
+  @@index([officeId, runtimeStatus, createdAt], map: "work_items_office_runtime_status_created_idx")
+  @@index([primaryOwnerOrgUnitId, runtimeStatus, dueAt], map: "work_items_primary_owner_runtime_status_due_idx")
+  @@index([workTypeVersionId, createdAt], map: "work_items_work_type_version_created_idx")
   @@index([status, dueAt], map: "work_items_status_due_idx")
   @@index([divisionId, status, dueAt], map: "work_items_division_status_due_idx")
   @@index([departmentId, status, dueAt], map: "work_items_department_status_due_idx")
