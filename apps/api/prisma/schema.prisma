@@ -395,6 +395,7 @@ enum WorkContactType {
 }
 
 enum WorkItemStatus {
+  V3_RUNTIME
   ASSIGNED
   ACKNOWLEDGED
   IN_PROGRESS
@@ -2493,7 +2494,7 @@ model WorkItem {
   id String @id @default(uuid()) @db.Uuid
 
   ticketNumber String         @unique @map("ticket_number") @db.VarChar(50)
-  type         WorkItemType
+  type         WorkItemType?
   title        String         @db.VarChar(160)
   description  String         @db.Text
   category     String?        @db.VarChar(80)
@@ -2503,7 +2504,9 @@ model WorkItem {
   workTypeVersionId     String?            @map("work_type_version_id") @db.Uuid
   primaryOwnerOrgUnitId String?            @map("primary_owner_org_unit_id") @db.Uuid
   runtimeStatus         WorkRuntimeStatus? @map("runtime_status")
-  openedAt              DateTime?          @map("opened_at") @db.Timestamptz(3)
+  openedAt                  DateTime?          @map("opened_at") @db.Timestamptz(3)
+  creationRequestId          String?            @map("creation_request_id") @db.Uuid
+  creationRequestFingerprint String?            @map("creation_request_fingerprint") @db.VarChar(64)
 
   customerName          String?           @map("customer_name") @db.VarChar(160)
   customerContactType   WorkContactType?  @map("customer_contact_type")
@@ -2517,7 +2520,7 @@ model WorkItem {
   fdcName               String?           @map("fdc_name") @db.VarChar(100)
   fapName               String?           @map("fap_name") @db.VarChar(100)
 
-  divisionId              String                       @map("division_id") @db.Uuid
+  divisionId              String?                      @map("division_id") @db.Uuid
   departmentId            String?                      @map("department_id") @db.Uuid
   parentWorkItemId        String?                      @map("parent_work_item_id") @db.Uuid
   assignedTeamId          String?                      @map("assigned_team_id") @db.Uuid
@@ -2528,12 +2531,12 @@ model WorkItem {
   salesCompletionNote     String?                      @map("sales_completion_note") @db.VarChar(1500)
 
   locationText   String?   @map("location_text") @db.VarChar(300)
-  registeredAt   DateTime  @map("registered_at") @db.Timestamptz(3)
+  registeredAt   DateTime? @map("registered_at") @db.Timestamptz(3)
   plannedStartAt DateTime? @map("planned_start_at") @db.Timestamptz(3)
   dueAt          DateTime  @map("due_at") @db.Timestamptz(3)
 
   createdByAccountId          String @map("created_by_account_id") @db.Uuid
-  responsibleManagerAccountId String @map("responsible_manager_account_id") @db.Uuid
+  responsibleManagerAccountId String? @map("responsible_manager_account_id") @db.Uuid
 
   completedAt        DateTime? @map("completed_at") @db.Timestamptz(3)
   closedAt           DateTime? @map("closed_at") @db.Timestamptz(3)
@@ -2560,12 +2563,12 @@ model WorkItem {
   workTypeVersion     WorkTypeVersion? @relation("WorkItemsWorkTypeVersionV3", fields: [workTypeVersionId], references: [id], onDelete: Restrict)
   primaryOwnerOrgUnit OrgUnit?         @relation("WorkItemsPrimaryOwnerOrgUnitV3", fields: [primaryOwnerOrgUnitId], references: [id], onDelete: Restrict)
 
-  division            Division        @relation(fields: [divisionId], references: [id], onDelete: Restrict)
+  division            Division?       @relation(fields: [divisionId], references: [id], onDelete: Restrict)
   department          Department?     @relation(fields: [departmentId], references: [id], onDelete: Restrict)
   assignedTeam        DepartmentTeam? @relation("WorkItemsAssignedTeam", fields: [assignedTeamId], references: [id], onDelete: Restrict)
   salesMember         Account?        @relation("WorkItemsSalesMember", fields: [salesMemberAccountId], references: [id], onDelete: Restrict)
   createdBy           Account         @relation("WorkItemsCreatedBy", fields: [createdByAccountId], references: [id], onDelete: Restrict)
-  responsibleManager  Account         @relation("WorkItemsResponsibleManager", fields: [responsibleManagerAccountId], references: [id], onDelete: Restrict)
+  responsibleManager  Account?        @relation("WorkItemsResponsibleManager", fields: [responsibleManagerAccountId], references: [id], onDelete: Restrict)
   retentionHoldBy     Account?        @relation("WorkItemsRetentionHoldBy", fields: [retentionHoldByAccountId], references: [id], onDelete: Restrict)
   deletionRequestedBy Account?        @relation("WorkItemsDeletionRequestedBy", fields: [deletionRequestedByAccountId], references: [id], onDelete: Restrict)
   parentWorkItem      WorkItem?       @relation("WorkItemDelegation", fields: [parentWorkItemId], references: [id], onDelete: SetNull)
@@ -2586,6 +2589,7 @@ model WorkItem {
   @@index([officeId, runtimeStatus, createdAt], map: "work_items_office_runtime_status_created_idx")
   @@index([primaryOwnerOrgUnitId, runtimeStatus, dueAt], map: "work_items_primary_owner_runtime_status_due_idx")
   @@index([workTypeVersionId, createdAt], map: "work_items_work_type_version_created_idx")
+  @@index([createdByAccountId, creationRequestId], map: "work_items_creator_creation_request_idx")
   @@index([status, dueAt], map: "work_items_status_due_idx")
   @@index([divisionId, status, dueAt], map: "work_items_division_status_due_idx")
   @@index([departmentId, status, dueAt], map: "work_items_department_status_due_idx")

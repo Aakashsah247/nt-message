@@ -24,6 +24,7 @@ import { UpdateWorkAvailabilityDto } from './dto/update-work-availability.dto';
 import { DutyNotificationsService } from './duty-notifications.service';
 import { workAccountSummarySelect } from './work-items.service';
 import { WorkScopeService } from './work-scope.service';
+import { requireLegacyWorkValue } from './work-v2-compatibility';
 
 const KATHMANDU_OFFSET_MINUTES = 5 * 60 + 45;
 const ACTIVE_WORK_STATUSES = [
@@ -292,6 +293,10 @@ export class DutyAvailabilityService {
         'Division-level management work must be coordinated through an authorized department before requesting an employee helper.',
       );
     }
+    const divisionId = requireLegacyWorkValue(
+      workItem.divisionId,
+      'division',
+    );
 
     const excludedIds = [
       actor.accountId,
@@ -305,7 +310,7 @@ export class DutyAvailabilityService {
 
     const departments = await this.prisma.department.findMany({
       where: {
-        divisionId: workItem.divisionId,
+        divisionId,
         id: { not: workItem.departmentId },
         isActive: true,
       },
@@ -318,7 +323,7 @@ export class DutyAvailabilityService {
         id: workItem.id,
         ticketNumber: workItem.ticketNumber,
         title: workItem.title,
-        divisionId: workItem.divisionId,
+        divisionId,
         departmentId: workItem.departmentId,
       },
       data: recommendations,

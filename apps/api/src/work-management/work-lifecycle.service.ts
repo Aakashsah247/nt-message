@@ -38,6 +38,7 @@ import { DutyAvailabilityService } from './duty-availability.service';
 import { WorkNotificationsService } from './work-notifications.service';
 import { WorkScopeService, type WorkActorContext } from './work-scope.service';
 import { WorkStatusTransitionService } from './work-status-transition.service';
+import { requireLegacyWorkValue } from './work-v2-compatibility';
 
 const lifecycleCurrentSelect = {
   id: true,
@@ -107,13 +108,40 @@ const lifecycleCurrentSelect = {
   },
 } satisfies Prisma.WorkItemSelect;
 
-type LifecycleCurrentWorkItem = Prisma.WorkItemGetPayload<{
+type LifecycleCurrentWorkItemPayload = Prisma.WorkItemGetPayload<{
   select: typeof lifecycleCurrentSelect;
 }>;
 
-type WorkItemDetail = Prisma.WorkItemGetPayload<{
+type LifecycleCurrentWorkItem = Omit<
+  LifecycleCurrentWorkItemPayload,
+  'type' | 'divisionId' | 'registeredAt' | 'responsibleManagerAccountId'
+> & {
+  type: WorkItemType;
+  divisionId: string;
+  registeredAt: Date;
+  responsibleManagerAccountId: string;
+};
+
+type WorkItemDetailPayload = Prisma.WorkItemGetPayload<{
   select: typeof workItemDetailSelect;
 }>;
+
+type WorkItemDetail = Omit<
+  WorkItemDetailPayload,
+  | 'type'
+  | 'divisionId'
+  | 'registeredAt'
+  | 'responsibleManagerAccountId'
+  | 'division'
+  | 'responsibleManager'
+> & {
+  type: WorkItemType;
+  divisionId: string;
+  registeredAt: Date;
+  responsibleManagerAccountId: string;
+  division: NonNullable<WorkItemDetailPayload['division']>;
+  responsibleManager: NonNullable<WorkItemDetailPayload['responsibleManager']>;
+};
 
 type WorkDatabaseClient = Pick<Prisma.TransactionClient, 'workItem'>;
 
@@ -2116,17 +2144,48 @@ export class WorkLifecycleService {
       );
     }
 
-    return current;
+    return {
+      ...current,
+      type: requireLegacyWorkValue(current.type, 'work type'),
+      divisionId: requireLegacyWorkValue(current.divisionId, 'division'),
+      registeredAt: requireLegacyWorkValue(
+        current.registeredAt,
+        'registered time',
+      ),
+      responsibleManagerAccountId: requireLegacyWorkValue(
+        current.responsibleManagerAccountId,
+        'responsible manager',
+      ),
+    };
   }
 
   private async findDetail(
     client: WorkDatabaseClient,
     workItemId: string,
   ): Promise<WorkItemDetail> {
-    return client.workItem.findUniqueOrThrow({
+    const workItem = await client.workItem.findUniqueOrThrow({
       where: { id: workItemId },
       select: workItemDetailSelect,
     });
+
+    return {
+      ...workItem,
+      type: requireLegacyWorkValue(workItem.type, 'work type'),
+      divisionId: requireLegacyWorkValue(workItem.divisionId, 'division'),
+      registeredAt: requireLegacyWorkValue(
+        workItem.registeredAt,
+        'registered time',
+      ),
+      responsibleManagerAccountId: requireLegacyWorkValue(
+        workItem.responsibleManagerAccountId,
+        'responsible manager',
+      ),
+      division: requireLegacyWorkValue(workItem.division, 'division'),
+      responsibleManager: requireLegacyWorkValue(
+        workItem.responsibleManager,
+        'responsible manager',
+      ),
+    };
   }
 
   private getRequiredPrimaryAssignment(

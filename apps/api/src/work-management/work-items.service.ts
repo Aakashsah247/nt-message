@@ -35,6 +35,7 @@ import type {
   WorkTeamRecord,
 } from './work-scope.service';
 import { WorkStatusTransitionService } from './work-status-transition.service';
+import { requireLegacyWorkValue } from './work-v2-compatibility';
 
 export const workAccountSummarySelect = {
   id: true,
@@ -124,6 +125,7 @@ export const workItemListSelect = {
   departmentId: true,
   parentWorkItemId: true,
   assignedTeamId: true,
+  responsibleManagerAccountId: true,
   salesMemberAccountId: true,
   salesCoordinationStatus: true,
   salesDocumentsSentAt: true,
@@ -2452,9 +2454,13 @@ ${this.normalizeRequiredText(dto.delegationInstructions, 'Delegation instruction
     action: 'CREATED' | 'ACKNOWLEDGED' | 'STARTED',
     content: { title: string; body: string },
   ): Promise<void> {
+    const responsibleManager = requireLegacyWorkValue(
+      workItem.responsibleManager,
+      'responsible manager',
+    );
     const recipients = [
       workItem.createdBy.id,
-      workItem.responsibleManager.id,
+      responsibleManager.id,
       ...workItem.assignments.map((assignment) => assignment.assignee.id),
       ...(workItem.salesMember ? [workItem.salesMember.id] : []),
       actorAccountId,
@@ -2465,7 +2471,7 @@ ${this.normalizeRequiredText(dto.delegationInstructions, 'Delegation instruction
         ? [
             ...new Set([
               workItem.createdBy.id,
-              workItem.responsibleManager.id,
+              responsibleManager.id,
             ]),
           ]
         : undefined;
@@ -2504,7 +2510,24 @@ ${this.normalizeRequiredText(dto.delegationInstructions, 'Delegation instruction
       throw new NotFoundException('Work item was not found.');
     }
 
-    return workItem;
+    return {
+      ...workItem,
+      type: requireLegacyWorkValue(workItem.type, 'work type'),
+      divisionId: requireLegacyWorkValue(workItem.divisionId, 'division'),
+      registeredAt: requireLegacyWorkValue(
+        workItem.registeredAt,
+        'registered time',
+      ),
+      responsibleManagerAccountId: requireLegacyWorkValue(
+        workItem.responsibleManagerAccountId,
+        'responsible manager',
+      ),
+      division: requireLegacyWorkValue(workItem.division, 'division'),
+      responsibleManager: requireLegacyWorkValue(
+        workItem.responsibleManager,
+        'responsible manager',
+      ),
+    };
   }
 
   private getKathmanduCalendarDay(value: Date): { start: Date; end: Date } {

@@ -33,6 +33,7 @@ import {
 } from './work-sales-attachment.constants';
 import { WorkNotificationsService } from './work-notifications.service';
 import { WorkScopeService } from './work-scope.service';
+import { requireLegacyWorkValue } from './work-v2-compatibility';
 
 const salesMessageSelect = {
   id: true,
@@ -302,10 +303,14 @@ export class WorkSalesCommunicationService {
     if (!workItem || !workItem.salesMemberAccountId) {
       throw new NotFoundException('Sales work not found.');
     }
+    const responsibleManagerAccountId = requireLegacyWorkValue(
+      workItem.responsibleManagerAccountId,
+      'responsible manager',
+    );
 
     const isSalesMember = workItem.salesMemberAccountId === actor.accountId;
     const isResponsibleManager =
-      workItem.responsibleManagerAccountId === actor.accountId;
+      responsibleManagerAccountId === actor.accountId;
     const isActivePrimary = workItem.assignments.some(
       (assignment) =>
         assignment.assignmentRole === WorkAssignmentRole.PRIMARY &&
@@ -344,7 +349,10 @@ export class WorkSalesCommunicationService {
     }
 
     return {
-      workItem,
+      workItem: {
+        ...workItem,
+        responsibleManagerAccountId,
+      },
       actorAccountId: actor.accountId,
       isPrimaryTeamMember,
       isSalesMember,

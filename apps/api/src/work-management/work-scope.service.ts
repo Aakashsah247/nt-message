@@ -509,64 +509,79 @@ export class WorkScopeService {
   }
 
   buildVisibleWorkWhere(actor: WorkActorContext): Prisma.WorkItemWhereInput {
-    // Managers see operational work only inside their current organization scope.
+    // WM-V2 callers must not consume native V3 Work before the explicit read
+    // compatibility/cutover milestone. `officeId: null` is the additive
+    // boundary established by P6-A/P6-B Part 1.
+    const legacyOnly: Prisma.WorkItemWhereInput = { officeId: null };
+
     if (actor.role === AccountRole.SUPER_ADMIN) {
-      return {};
+      return legacyOnly;
     }
 
     if (actor.role === AccountRole.SENIOR_MANAGEMENT) {
       return {
-        divisionId: actor.divisionId ?? '__missing_division__',
+        AND: [
+          legacyOnly,
+          { divisionId: actor.divisionId ?? '__missing_division__' },
+        ],
       };
     }
 
     if (actor.role === AccountRole.TEAM_MANAGER) {
       return {
-        OR: [
-          { departmentId: actor.departmentId ?? '__missing_department__' },
-          { createdByAccountId: actor.accountId },
-          { responsibleManagerAccountId: actor.accountId },
+        AND: [
+          legacyOnly,
+          {
+            OR: [
+              { departmentId: actor.departmentId ?? '__missing_department__' },
+              { createdByAccountId: actor.accountId },
+              { responsibleManagerAccountId: actor.accountId },
+            ],
+          },
         ],
       };
     }
 
     return {
-      OR: [
+      AND: [
+        legacyOnly,
         {
-          assignments: {
-            some: {
-              assigneeAccountId: actor.accountId,
-              endedAt: null,
-            },
-          },
-        },
-        {
-          status: {
-            in: [WorkItemStatus.CLOSED, WorkItemStatus.CANCELLED],
-          },
-          assignments: {
-            some: {
-              assigneeAccountId: actor.accountId,
-            },
-          },
-        },
-        {
-          assignedTeam: {
-            is: {
-              members: {
+          OR: [
+            {
+              assignments: {
                 some: {
-                  employee: {
-                    is: {
-                      account: { is: { id: actor.accountId } },
+                  assigneeAccountId: actor.accountId,
+                  endedAt: null,
+                },
+              },
+            },
+            {
+              status: {
+                in: [WorkItemStatus.CLOSED, WorkItemStatus.CANCELLED],
+              },
+              assignments: {
+                some: {
+                  assigneeAccountId: actor.accountId,
+                },
+              },
+            },
+            {
+              assignedTeam: {
+                is: {
+                  members: {
+                    some: {
+                      employee: {
+                        is: {
+                          account: { is: { id: actor.accountId } },
+                        },
+                      },
                     },
                   },
                 },
               },
             },
-          },
-        },
-        {
-          salesMemberAccountId: actor.accountId,
+            { salesMemberAccountId: actor.accountId },
+          ],
         },
       ],
     };
@@ -575,26 +590,35 @@ export class WorkScopeService {
   buildOrganizationHierarchyWorkWhere(
     actor: WorkActorContext,
   ): Prisma.WorkItemWhereInput {
-    // Branch scope is deployment-wide for Super Admin. Lower management receives
-    // a strict hierarchy slice so branch/division/department overview counts cannot
-    // be widened by creator/reviewer relationships from another unit.
+    // This method is still the WM-V2 hierarchy projection. V3 Office/OrgUnit
+    // reporting gets its own scope path during the reporting cutover.
+    const legacyOnly: Prisma.WorkItemWhereInput = { officeId: null };
+
     if (actor.role === AccountRole.SUPER_ADMIN) {
-      return {};
+      return legacyOnly;
     }
 
     if (actor.role === AccountRole.SENIOR_MANAGEMENT) {
       return {
-        divisionId: actor.divisionId ?? '__missing_division__',
+        AND: [
+          legacyOnly,
+          { divisionId: actor.divisionId ?? '__missing_division__' },
+        ],
       };
     }
 
     if (actor.role === AccountRole.TEAM_MANAGER) {
       return {
-        departmentId: actor.departmentId ?? '__missing_department__',
+        AND: [
+          legacyOnly,
+          { departmentId: actor.departmentId ?? '__missing_department__' },
+        ],
       };
     }
 
-    return { id: '__management_scope_unavailable__' };
+    return {
+      AND: [legacyOnly, { id: '__management_scope_unavailable__' }],
+    };
   }
 
   assertCanManageWork(actor: WorkActorContext): void {

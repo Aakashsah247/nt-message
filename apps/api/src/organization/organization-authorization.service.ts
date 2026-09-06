@@ -141,6 +141,17 @@ export class OrganizationAuthorizationService {
       return false;
     }
 
+    /*
+     * Work creation is a base capability of an active Office member. The
+     * published Work Type Version remains the authoritative business-rule
+     * gate for whether this specific member/category/scope may create a
+     * particular Work. Keeping that policy in the Work domain avoids
+     * hard-coding Work Type rules into organization authorization.
+     */
+    if (capability === CAPABILITIES.WORK_CREATE) {
+      return true;
+    }
+
     const leadership =
       await this.prisma.orgLeadershipAssignment.findMany({
         where: {

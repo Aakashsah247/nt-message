@@ -16,6 +16,7 @@ import { ListWorkAssigneesQueryDto } from './dto/list-work-assignees-query.dto';
 import { workItemListSelect } from './work-items.service';
 import { WorkScopeService } from './work-scope.service';
 import type { WorkActorContext } from './work-scope.service';
+import { requireLegacyWorkValue } from './work-v2-compatibility';
 
 const ACTIVE_WORK_STATUSES = [
   WorkItemStatus.ASSIGNED,
@@ -404,47 +405,63 @@ export class WorkManagementQueryService {
 
     for (const row of activeRows) {
       const count = row._count._all;
-      applyCount(row.divisionId, row.departmentId, row.assignedTeamId, (metrics) => {
-        metrics.active += count;
-        if (
-          row.status === WorkItemStatus.ASSIGNED ||
-          row.status === WorkItemStatus.ACKNOWLEDGED
-        ) {
-          metrics.newWork += count;
-        }
-        if (
-          row.status === WorkItemStatus.IN_PROGRESS ||
-          row.status === WorkItemStatus.HELP_REQUESTED ||
-          row.status === WorkItemStatus.REOPENED ||
-          row.status === WorkItemStatus.BLOCKED
-        ) {
-          metrics.inProgress += count;
-        }
-        if (row.status === WorkItemStatus.COMPLETED_PENDING_REVIEW) {
-          metrics.waitingForApproval += count;
-        }
-        if (
-          row.salesCoordinationStatus ===
-            WorkSalesCoordinationStatus.WAITING_FOR_DOCUMENTS ||
-          row.salesCoordinationStatus === WorkSalesCoordinationStatus.READY_FOR_SALES
-        ) {
-          metrics.waitingForSales += count;
-        }
-      });
+      applyCount(
+        requireLegacyWorkValue(row.divisionId, 'division'),
+        row.departmentId,
+        row.assignedTeamId,
+        (metrics) => {
+          metrics.active += count;
+          if (
+            row.status === WorkItemStatus.ASSIGNED ||
+            row.status === WorkItemStatus.ACKNOWLEDGED
+          ) {
+            metrics.newWork += count;
+          }
+          if (
+            row.status === WorkItemStatus.IN_PROGRESS ||
+            row.status === WorkItemStatus.HELP_REQUESTED ||
+            row.status === WorkItemStatus.REOPENED ||
+            row.status === WorkItemStatus.BLOCKED
+          ) {
+            metrics.inProgress += count;
+          }
+          if (row.status === WorkItemStatus.COMPLETED_PENDING_REVIEW) {
+            metrics.waitingForApproval += count;
+          }
+          if (
+            row.salesCoordinationStatus ===
+              WorkSalesCoordinationStatus.WAITING_FOR_DOCUMENTS ||
+            row.salesCoordinationStatus ===
+              WorkSalesCoordinationStatus.READY_FOR_SALES
+          ) {
+            metrics.waitingForSales += count;
+          }
+        },
+      );
     }
 
     for (const row of overdueRows) {
       const count = row._count._all;
-      applyCount(row.divisionId, row.departmentId, row.assignedTeamId, (metrics) => {
-        metrics.overdue += count;
-      });
+      applyCount(
+        requireLegacyWorkValue(row.divisionId, 'division'),
+        row.departmentId,
+        row.assignedTeamId,
+        (metrics) => {
+          metrics.overdue += count;
+        },
+      );
     }
 
     for (const row of completedRows) {
       const count = row._count._all;
-      applyCount(row.divisionId, row.departmentId, row.assignedTeamId, (metrics) => {
-        metrics.completedToday += count;
-      });
+      applyCount(
+        requireLegacyWorkValue(row.divisionId, 'division'),
+        row.departmentId,
+        row.assignedTeamId,
+        (metrics) => {
+          metrics.completedToday += count;
+        },
+      );
     }
 
     const teamsByDepartment = new Map<string, typeof teams>();

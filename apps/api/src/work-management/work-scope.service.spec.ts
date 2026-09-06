@@ -407,7 +407,9 @@ describe('WorkScopeService', () => {
         divisionId: 'division-a',
         departmentId: 'department-a',
       }),
-    ).toEqual({ divisionId: 'division-a' });
+    ).toEqual({
+      AND: [{ officeId: null }, { divisionId: 'division-a' }],
+    });
   });
 
   it('uses strict hierarchy scope for branch, division and department overviews', () => {
@@ -418,7 +420,7 @@ describe('WorkScopeService', () => {
         divisionId: null,
         departmentId: null,
       }),
-    ).toEqual({});
+    ).toEqual({ officeId: null });
 
     expect(
       service.buildOrganizationHierarchyWorkWhere({
@@ -427,7 +429,9 @@ describe('WorkScopeService', () => {
         divisionId: 'division-a',
         departmentId: null,
       }),
-    ).toEqual({ divisionId: 'division-a' });
+    ).toEqual({
+      AND: [{ officeId: null }, { divisionId: 'division-a' }],
+    });
 
     expect(
       service.buildOrganizationHierarchyWorkWhere({
@@ -436,7 +440,9 @@ describe('WorkScopeService', () => {
         divisionId: 'division-a',
         departmentId: 'department-a',
       }),
-    ).toEqual({ departmentId: 'department-a' });
+    ).toEqual({
+      AND: [{ officeId: null }, { departmentId: 'department-a' }],
+    });
   });
 
   it('keeps Employee visibility assignment-scoped', () => {
@@ -448,42 +454,45 @@ describe('WorkScopeService', () => {
         departmentId: 'department-a',
       }),
     ).toEqual({
-      OR: [
+      AND: [
+        { officeId: null },
         {
-          assignments: {
-            some: {
-              assigneeAccountId: 'employee',
-              endedAt: null,
-            },
-          },
-        },
-        {
-          status: {
-            in: [WorkItemStatus.CLOSED, WorkItemStatus.CANCELLED],
-          },
-          assignments: {
-            some: {
-              assigneeAccountId: 'employee',
-            },
-          },
-        },
-        {
-          assignedTeam: {
-            is: {
-              members: {
+          OR: [
+            {
+              assignments: {
                 some: {
-                  employee: {
-                    is: {
-                      account: { is: { id: 'employee' } },
+                  assigneeAccountId: 'employee',
+                  endedAt: null,
+                },
+              },
+            },
+            {
+              status: {
+                in: [WorkItemStatus.CLOSED, WorkItemStatus.CANCELLED],
+              },
+              assignments: {
+                some: {
+                  assigneeAccountId: 'employee',
+                },
+              },
+            },
+            {
+              assignedTeam: {
+                is: {
+                  members: {
+                    some: {
+                      employee: {
+                        is: {
+                          account: { is: { id: 'employee' } },
+                        },
+                      },
                     },
                   },
                 },
               },
             },
-          },
-        },
-        {
-          salesMemberAccountId: 'employee',
+            { salesMemberAccountId: 'employee' },
+          ],
         },
       ],
     });

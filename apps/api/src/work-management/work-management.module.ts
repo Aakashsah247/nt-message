@@ -15,6 +15,8 @@ import { WorkLifecycleService } from './work-lifecycle.service';
 import { WorkManagementQueryService } from './work-management-query.service';
 import { WorkReportsController } from './work-reports.controller';
 import { WorkReportsService } from './work-reports.service';
+import { WorkRuntimeV3Controller } from './work-runtime-v3.controller';
+import { WorkRuntimeV3Service } from './work-runtime-v3.service';
 import { WorkRetentionService } from './work-retention.service';
 import { WorkNotificationsService } from './work-notifications.service';
 import { WorkScopeService } from './work-scope.service';
@@ -29,6 +31,7 @@ import { WorkTypeV3Service } from './work-type-v3.service';
     WorkItemsController,
     DutyManagementController,
     WorkReportsController,
+    WorkRuntimeV3Controller,
     WorkTypeV3Controller,
   ],
   providers: [
@@ -42,6 +45,7 @@ import { WorkTypeV3Service } from './work-type-v3.service';
     WorkNotificationsService,
     WorkReportsService,
     WorkRetentionService,
+    WorkRuntimeV3Service,
     WorkScopeService,
     WorkSalesCommunicationService,
     WorkStatusTransitionService,
@@ -57,6 +61,7 @@ import { WorkTypeV3Service } from './work-type-v3.service';
     WorkNotificationsService,
     WorkReportsService,
     WorkRetentionService,
+    WorkRuntimeV3Service,
     WorkScopeService,
     WorkSalesCommunicationService,
     WorkTypeV3Service,

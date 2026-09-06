@@ -108,6 +108,17 @@ describe('OrganizationAuthorizationService', () => {
     ).resolves.toBe(false);
   });
 
+  it('allows an active Office member to reach the Work Type creation policy gate', async () => {
+    const prisma = createPrisma();
+    const service = new OrganizationAuthorizationService(
+      prisma as unknown as PrismaService,
+    );
+
+    await expect(
+      service.can(employeeUser, CAPABILITIES.WORK_CREATE, 'office-1'),
+    ).resolves.toBe(true);
+  });
+
   it('does not grant Deputy automatic management authority', async () => {
     const prisma = createPrisma();
 

@@ -30,6 +30,7 @@ import {
 } from './dto/work-report-query.dto';
 import { WorkScopeService } from './work-scope.service';
 import type { WorkActorContext } from './work-scope.service';
+import { requireLegacyWorkValue } from './work-v2-compatibility';
 
 const BRANCH_TIME_ZONE = 'Asia/Kathmandu' as const;
 const KATHMANDU_OFFSET_MS = 5.75 * 60 * 60 * 1000;
@@ -707,7 +708,8 @@ export class WorkReportsService {
 
     for (const item of workItems) {
       const team = item.assignedTeam;
-      const typeKey = workTypeKey(item.type);
+      const legacyType = requireLegacyWorkValue(item.type, 'work type');
+      const typeKey = workTypeKey(legacyType);
       if (!team || !typeKey) continue;
 
       // A cancelled work item is not a performance ticket once the cancellation
@@ -745,7 +747,7 @@ export class WorkReportsService {
         const serviceNumber = item.serviceNumber?.trim();
         const reference = tokenNumber
           ? tokenNumber
-          : item.type !== WorkItemType.NEW_CONNECTION && serviceNumber
+          : legacyType !== WorkItemType.NEW_CONNECTION && serviceNumber
             ? serviceNumber
             : null;
         if (reference) people.references.add(reference);
@@ -1011,6 +1013,8 @@ export class WorkReportsService {
     return {
       pagination: this.buildDrilldownPagination(page, limit, total),
       rows: records.map((record) => {
+        const legacyType = requireLegacyWorkValue(record.type, 'work type');
+        const division = requireLegacyWorkValue(record.division, 'division');
         const completedChildren = record.childWorkItems.filter(
           (child) => child.status === WorkItemStatus.CLOSED,
         ).length;
@@ -1028,7 +1032,7 @@ export class WorkReportsService {
         const workflowStage = this.getRecordWorkflowStage(record);
         const reference = record.requestNumber
           ? { type: 'TOKEN_NUMBER' as const, value: record.requestNumber }
-          : record.type !== WorkItemType.NEW_CONNECTION && record.serviceNumber
+          : legacyType !== WorkItemType.NEW_CONNECTION && record.serviceNumber
             ? {
                 type: 'SERVICE_NUMBER' as const,
                 value: record.serviceNumber,
@@ -1043,13 +1047,13 @@ export class WorkReportsService {
           id: record.id,
           ticketNumber: record.ticketNumber,
           title: record.title,
-          type: record.type,
+          type: legacyType,
           workflowStage,
           customerName: record.customerName,
           location: record.locationText,
           reference,
           cpcSerial:
-            record.type === WorkItemType.NEW_CONNECTION
+            legacyType === WorkItemType.NEW_CONNECTION
               ? record.cpcSerial
               : null,
           olt: record.olt,
@@ -1064,7 +1068,7 @@ export class WorkReportsService {
                 Math.floor((cutoff.getTime() - record.dueAt.getTime()) / DAY_MS),
               )
             : 0,
-          division: record.division,
+          division,
           department: record.department,
           assignedTeam: record.assignedTeam,
           primaryAssignee: this.accountName(primary?.assignee),
@@ -1369,16 +1373,18 @@ export class WorkReportsService {
         'Manager Approved At',
       ],
       rows.map((row) => {
+        const legacyType = requireLegacyWorkValue(row.type, 'work type');
+        const division = requireLegacyWorkValue(row.division, 'division');
         const primary = row.assignments[0];
         const reference = row.requestNumber
           ? { type: 'TOKEN_NUMBER', value: row.requestNumber }
-          : row.type !== WorkItemType.NEW_CONNECTION && row.serviceNumber
+          : legacyType !== WorkItemType.NEW_CONNECTION && row.serviceNumber
             ? { type: 'SERVICE_NUMBER', value: row.serviceNumber }
             : null;
         const stage = this.getRecordWorkflowStage(row);
         return [
           row.ticketNumber,
-          row.type,
+          legacyType,
           stage,
           row.assignedTeam?.name ?? this.accountName(primary?.assignee),
           primary?.startedAt ? this.accountName(primary.assignee) : '',
@@ -1388,11 +1394,13 @@ export class WorkReportsService {
           row.salesMember ? this.accountName(row.salesMember) : '',
           row.customerName ?? '',
           row.locationText ?? '',
-          row.type === WorkItemType.NEW_CONNECTION ? row.cpcSerial ?? '' : '',
+          legacyType === WorkItemType.NEW_CONNECTION
+            ? row.cpcSerial ?? ''
+            : '',
           row.olt ?? '',
           row.fdcName ?? '',
           row.fapName ?? '',
-          `${row.division.code} - ${row.division.name}`,
+          `${division.code} - ${division.name}`,
           row.department
             ? `${row.department.code} - ${row.department.name}`
             : 'Division-level responsibility',

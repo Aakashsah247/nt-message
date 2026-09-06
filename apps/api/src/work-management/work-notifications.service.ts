@@ -18,6 +18,7 @@ import {
   MessagingEventsService,
   type WorkItemRealtimeAction,
 } from '../realtime/messaging-events.service';
+import { requireLegacyWorkValue } from './work-v2-compatibility';
 
 const workNotificationSelect = {
   id: true,
@@ -211,6 +212,9 @@ export class WorkNotificationsService implements OnModuleInit, OnModuleDestroy {
       const dueSoonBoundary = new Date(now.getTime() + 60 * 60 * 1000);
       const candidates = await this.prisma.workItem.findMany({
         where: {
+          // WM-V2 deadline notifications must not consume native V3 Work.
+          // V3 stage/work notifications are emitted by the V3 runtime engine.
+          officeId: null,
           status: {
             notIn: [...TERMINAL_WORK_STATUSES],
           },
@@ -267,7 +271,10 @@ export class WorkNotificationsService implements OnModuleInit, OnModuleDestroy {
         }
 
         const recipients = [
-          workItem.responsibleManagerAccountId,
+          requireLegacyWorkValue(
+            workItem.responsibleManagerAccountId,
+            'responsible manager',
+          ),
           ...workItem.assignments.map(
             (assignment) => assignment.assigneeAccountId,
           ),

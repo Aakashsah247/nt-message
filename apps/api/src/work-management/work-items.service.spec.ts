@@ -121,6 +121,24 @@ function createSchedule() {
   };
 }
 
+function createLegacyWorkDetailFixture(
+  overrides: Record<string, unknown> = {},
+) {
+  return {
+    type: WorkItemType.TROUBLE_TICKET,
+    divisionId: 'division-a',
+    registeredAt: new Date(Date.now() - 30 * 60 * 1000),
+    responsibleManagerAccountId: 'manager',
+    division: {
+      id: 'division-a',
+      code: 'DIV-A',
+      name: 'Division A',
+    },
+    responsibleManager: { id: 'manager' },
+    ...overrides,
+  };
+}
+
 describe('WorkItemsService M20 Phase 2', () => {
   const transaction = {
     $queryRawUnsafe: jest.fn(),
@@ -430,13 +448,13 @@ describe('WorkItemsService M20 Phase 2', () => {
       divisionId: 'division-a',
       departmentId: 'department-a',
     };
-    const parent = {
+    const parent = createLegacyWorkDetailFixture({
       id: 'parent-work',
       type: WorkItemType.MAINTENANCE,
       status: WorkItemStatus.IN_PROGRESS,
       archiveEligibleAt: null,
       assignments: [],
-    };
+    });
 
     jest.mocked(scope.resolveActorContext).mockResolvedValue(actor);
     jest.mocked(scope.buildVisibleWorkWhere).mockReturnValue({
@@ -480,7 +498,7 @@ describe('WorkItemsService M20 Phase 2', () => {
       departmentId: null,
     };
     const parentDueAt = new Date(Date.now() + 2 * 60 * 60 * 1000);
-    const parent = {
+    const parent = createLegacyWorkDetailFixture({
       id: 'parent-work',
       ticketNumber: 'NT-PAT-DIVA-2026-000040',
       type: WorkItemType.ADMINISTRATIVE_TASK,
@@ -504,6 +522,8 @@ describe('WorkItemsService M20 Phase 2', () => {
       fapName: null,
       locationText: null,
       registeredAt: new Date(Date.now() - 60 * 60 * 1000),
+      responsibleManagerAccountId: actor.accountId,
+      responsibleManager: { id: actor.accountId },
       plannedStartAt: new Date(Date.now() - 30 * 60 * 1000),
       dueAt: parentDueAt,
       assignments: [
@@ -513,7 +533,7 @@ describe('WorkItemsService M20 Phase 2', () => {
           assignee: { id: actor.accountId },
         },
       ],
-    };
+    });
 
     jest.mocked(scope.resolveActorContext).mockResolvedValue(actor);
     jest.mocked(scope.buildVisibleWorkWhere).mockReturnValue({
@@ -2294,10 +2314,12 @@ describe('WorkItemsService M20 Phase 2', () => {
     };
     jest.mocked(scope.resolveActorContext).mockResolvedValue(actor);
     jest.mocked(scope.buildVisibleWorkWhere).mockReturnValue({});
-    jest.mocked(prisma.workItem.findFirst).mockResolvedValue({
-      id: 'root-work',
-      childWorkItems: [],
-    } as never);
+    jest.mocked(prisma.workItem.findFirst).mockResolvedValue(
+      createLegacyWorkDetailFixture({
+        id: 'root-work',
+        childWorkItems: [],
+      }) as never,
+    );
     jest
       .mocked(prisma.workItem.findMany)
       .mockResolvedValueOnce([
@@ -2388,10 +2410,12 @@ describe('WorkItemsService M20 Phase 2', () => {
     jest.mocked(scope.buildVisibleWorkWhere).mockReturnValue({
       divisionId: 'division-a',
     });
-    jest.mocked(prisma.workItem.findFirst).mockResolvedValue({
-      id: 'parent-work',
-      childWorkItems: [],
-    } as never);
+    jest.mocked(prisma.workItem.findFirst).mockResolvedValue(
+      createLegacyWorkDetailFixture({
+        id: 'parent-work',
+        childWorkItems: [],
+      }) as never,
+    );
     jest.mocked(prisma.workItem.groupBy).mockResolvedValue([
       {
         parentWorkItemId: 'parent-work',
