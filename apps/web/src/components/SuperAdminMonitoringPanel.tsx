@@ -220,13 +220,22 @@ export function SuperAdminMonitoringPanel({
   const hasLoadedMonitoring = useRef(false);
 
   useEffect(() => {
-    if (!accessToken) {
-      setError(t("errors.session"));
-      setLoading(false);
-      return;
-    }
-
     let active = true;
+
+    if (!accessToken) {
+      queueMicrotask(() => {
+        if (!active) {
+          return;
+        }
+
+        setError(t("errors.session"));
+        setLoading(false);
+      });
+
+      return () => {
+        active = false;
+      };
+    }
 
     function loadMonitoring(): void {
       if (hasLoadedMonitoring.current) {
@@ -371,7 +380,7 @@ export function SuperAdminMonitoringPanel({
   const roles = useMemo(
     () =>
       Array.from(new Set(sortedEmployees.map((employee) => employee.role))).sort(),
-    [sortedEmployees, t],
+    [sortedEmployees],
   );
 
   const departments = useMemo(
@@ -386,7 +395,7 @@ export function SuperAdminMonitoringPanel({
             .filter(Boolean),
         ),
       ).sort(),
-    [sortedEmployees],
+    [sortedEmployees, t],
   );
 
   const selectedEmployee = useMemo(

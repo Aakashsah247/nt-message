@@ -174,7 +174,9 @@ export function AdminAccountRequestsPage() {
   }, [searchInput]);
 
   useEffect(() => {
-    setPage(1);
+    queueMicrotask(() => {
+      setPage(1);
+    });
   }, [status]);
 
   useEffect(() => {
@@ -220,7 +222,11 @@ export function AdminAccountRequestsPage() {
     }
 
     let active = true;
-    setSummaryLoading(true);
+    queueMicrotask(() => {
+      if (active) {
+        setSummaryLoading(true);
+      }
+    });
 
     getAdminAccountRequestSummary(accessToken)
       .then((response) => {
@@ -282,7 +288,11 @@ export function AdminAccountRequestsPage() {
     }
 
     let active = true;
-    setLoading(true);
+    queueMicrotask(() => {
+      if (active) {
+        setLoading(true);
+      }
+    });
 
     listAdminAccountRequests(accessToken, query)
       .then((response) => {

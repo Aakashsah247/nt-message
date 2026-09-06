@@ -34,6 +34,7 @@ import { TeamManagementPage } from "./pages/TeamManagementPage";
 import { SecurityPage } from "./pages/SecurityPage";
 import { SettingsPage } from "./pages/SettingsPage";
 import { OrganizationPage } from "./pages/OrganizationPage";
+import { WorkTypeManagementPage } from "./pages/WorkTypeManagementPage";
 
 export default function App() {
   return (
@@ -185,6 +186,24 @@ export default function App() {
           <ProtectedRoute roles={["TEAM_MANAGER"]}>
             <ManagementLayout>
               <ManagerAccountRequestsPage />
+            </ManagementLayout>
+          </ProtectedRoute>
+        }
+      />
+
+      <Route
+        path="/work-types"
+        element={
+          <ProtectedRoute
+            roles={[
+              "SUPER_ADMIN",
+              "SENIOR_MANAGEMENT",
+              "TEAM_MANAGER",
+              "EMPLOYEE",
+            ]}
+          >
+            <ManagementLayout>
+              <WorkTypeManagementPage />
             </ManagementLayout>
           </ProtectedRoute>
         }

@@ -10,7 +10,10 @@ import { PrismaService } from '../database/prisma.service';
 import type { Prisma } from '../generated/prisma/client';
 import {
   AccountRole,
+  EmployeeStatus,
+  EmploymentStatus,
   OrgLeadershipType,
+  OrgMembershipType,
   WorkFieldType,
   WorkFinalClosureMode,
   WorkSlaBasis,
@@ -112,7 +115,6 @@ const VERSION_CONFIGURATION_SELECT = {
   },
 } satisfies Prisma.WorkTypeVersionSelect;
 
-
 @Injectable()
 export class WorkTypeV3Service {
   constructor(
@@ -152,9 +154,7 @@ export class WorkTypeV3Service {
     `;
 
     if (locked.length === 0) {
-      throw new NotFoundException(
-        'Work type was not found in this office.',
-      );
+      throw new NotFoundException('Work type was not found in this office.');
     }
   }
 
@@ -394,7 +394,8 @@ export class WorkTypeV3Service {
       }
       dependencyKeys.add(key);
 
-      const prerequisites = prerequisitesByStage.get(dependency.stageCode) ?? [];
+      const prerequisites =
+        prerequisitesByStage.get(dependency.stageCode) ?? [];
       prerequisites.push(dependency.prerequisiteStageCode);
       prerequisitesByStage.set(dependency.stageCode, prerequisites);
     }
@@ -482,11 +483,7 @@ export class WorkTypeV3Service {
           `Field ${field.code} maximum must be a finite number.`,
         );
       }
-      if (
-        typeof min === 'number' &&
-        typeof max === 'number' &&
-        min > max
-      ) {
+      if (typeof min === 'number' && typeof max === 'number' && min > max) {
         throw new BadRequestException(
           `Field ${field.code} minimum cannot be greater than maximum.`,
         );
@@ -494,29 +491,43 @@ export class WorkTypeV3Service {
     };
 
     const validateOptions = (): string[] => {
-      const options = config.options;
+      const rawOptions = config.options;
+
+      const isUnknownArray = (value: unknown): value is unknown[] =>
+        Array.isArray(value);
+
       if (
-        !Array.isArray(options) ||
-        options.length === 0 ||
-        options.length > 100 ||
-        options.some(
-          (option) =>
-            typeof option !== 'string' ||
-            option.trim().length === 0 ||
-            option.length > 120,
-        )
+        !isUnknownArray(rawOptions) ||
+        rawOptions.length === 0 ||
+        rawOptions.length > 100
       ) {
         throw new BadRequestException(
           `Field ${field.code} options must contain 1 to 100 non-empty strings.`,
         );
       }
 
-      const normalized = options.map((option) => option.trim());
+      const normalized: string[] = [];
+
+      for (const option of rawOptions) {
+        if (
+          typeof option !== 'string' ||
+          option.trim().length === 0 ||
+          option.length > 120
+        ) {
+          throw new BadRequestException(
+            `Field ${field.code} options must contain 1 to 100 non-empty strings.`,
+          );
+        }
+
+        normalized.push(option.trim());
+      }
+
       if (new Set(normalized).size !== normalized.length) {
         throw new BadRequestException(
           `Field ${field.code} options must be unique.`,
         );
       }
+
       return normalized;
     };
 
@@ -583,7 +594,6 @@ export class WorkTypeV3Service {
         }
     }
   }
-
 
   private async clearStageActivationReferences(
     tx: Prisma.TransactionClient,
@@ -792,7 +802,9 @@ export class WorkTypeV3Service {
     for (const stage of source.stages) {
       const newStageId = stageIdMap.get(stage.id);
       if (!newStageId) {
-        throw new ConflictException('Failed to clone work stage configuration.');
+        throw new ConflictException(
+          'Failed to clone work stage configuration.',
+        );
       }
 
       await tx.workStageDefinition.update({
@@ -894,10 +906,7 @@ export class WorkTypeV3Service {
     );
   }
 
-  async getActionContext(
-    user: AuthenticatedUser,
-    officeId: string,
-  ) {
+  async getActionContext(user: AuthenticatedUser, officeId: string) {
     const office = await this.getOffice(officeId);
 
     await this.authorization.assertCan(
@@ -932,10 +941,117 @@ export class WorkTypeV3Service {
     };
   }
 
-  async list(
-    user: AuthenticatedUser,
-    officeId: string,
-  ) {
+  async getConfigurationContext(user: AuthenticatedUser, officeId: string) {
+    const office = await this.getOffice(officeId);
+
+    await this.authorization.assertCan(
+      user,
+      CAPABILITIES.WORK_TYPE_VIEW,
+      officeId,
+      null,
+    );
+
+    const canDraft = await this.authorization.can(
+      user,
+      CAPABILITIES.WORK_TYPE_DRAFT,
+      officeId,
+      null,
+    );
+
+    const orgUnits = await this.prisma.orgUnit.findMany({
+      where: { officeId },
+      orderBy: [{ isActive: 'desc' }, { sortOrder: 'asc' }, { name: 'asc' }],
+      select: {
+        id: true,
+        code: true,
+        name: true,
+        isActive: true,
+        parentOrgUnitId: true,
+        orgUnitType: {
+          select: {
+            code: true,
+            name: true,
+            isTeam: true,
+          },
+        },
+      },
+    });
+
+    if (!canDraft) {
+      return {
+        office,
+        orgUnits,
+        creatorAccounts: [],
+      };
+    }
+
+    const now = new Date();
+    const memberships = await this.prisma.orgMembership.findMany({
+      where: {
+        officeId,
+        membershipType: OrgMembershipType.PRIMARY,
+        startsAt: { lte: now },
+        OR: [{ endsAt: null }, { endsAt: { gt: now } }],
+        employee: {
+          status: EmployeeStatus.ACTIVE,
+          employmentStatus: EmploymentStatus.ACTIVE,
+          archivedAt: null,
+          account: {
+            is: {
+              isEnabled: true,
+              role: { not: AccountRole.SUPER_ADMIN },
+            },
+          },
+        },
+      },
+      orderBy: [
+        { employee: { empName: 'asc' } },
+        { employee: { empId: 'asc' } },
+      ],
+      select: {
+        orgUnitId: true,
+        employee: {
+          select: {
+            id: true,
+            empId: true,
+            empName: true,
+            designation: true,
+            account: {
+              select: {
+                id: true,
+                username: true,
+                role: true,
+                isEnabled: true,
+              },
+            },
+          },
+        },
+      },
+    });
+
+    return {
+      office,
+      orgUnits,
+      creatorAccounts: memberships.flatMap((membership) =>
+        membership.employee.account
+          ? [
+              {
+                accountId: membership.employee.account.id,
+                username: membership.employee.account.username,
+                role: membership.employee.account.role,
+                employeeId: membership.employee.id,
+                empId: membership.employee.empId,
+                empName: membership.employee.empName,
+                designation: membership.employee.designation,
+                primaryOrgUnitId: membership.orgUnitId,
+              },
+            ]
+          : [],
+      ),
+    };
+  }
+
+  async list(user: AuthenticatedUser, officeId: string) {
     const office = await this.getOffice(officeId);
 
     await this.authorization.assertCan(
@@ -947,10 +1063,7 @@ export class WorkTypeV3Service {
 
     const definitions = await this.prisma.workTypeDefinition.findMany({
       where: { officeId },
-      orderBy: [
-        { sortOrder: 'asc' },
-        { code: 'asc' },
-      ],
+      orderBy: [{ sortOrder: 'asc' }, { code: 'asc' }],
       select: {
         id: true,
         officeId: true,
@@ -976,16 +1089,10 @@ export class WorkTypeV3Service {
           in: definitions.map((definition) => definition.id),
         },
         status: {
-          in: [
-            WorkTypeVersionStatus.DRAFT,
-            WorkTypeVersionStatus.PUBLISHED,
-          ],
+          in: [WorkTypeVersionStatus.DRAFT, WorkTypeVersionStatus.PUBLISHED],
         },
       },
-      orderBy: [
-        { workTypeDefinitionId: 'asc' },
-        { version: 'desc' },
-      ],
+      orderBy: [{ workTypeDefinitionId: 'asc' }, { version: 'desc' }],
       select: {
         id: true,
         workTypeDefinitionId: true,
@@ -1009,9 +1116,7 @@ export class WorkTypeV3Service {
     >();
 
     for (const version of versions) {
-      const current = currentByDefinition.get(
-        version.workTypeDefinitionId,
-      ) ?? {
+      const current = currentByDefinition.get(version.workTypeDefinitionId) ?? {
         draft: null,
         published: null,
       };
@@ -1030,10 +1135,7 @@ export class WorkTypeV3Service {
         current.published = version;
       }
 
-      currentByDefinition.set(
-        version.workTypeDefinitionId,
-        current,
-      );
+      currentByDefinition.set(version.workTypeDefinitionId, current);
     }
 
     return {
@@ -1064,11 +1166,7 @@ export class WorkTypeV3Service {
     );
 
     const draft = await this.prisma.$transaction(async (tx) => {
-      await this.lockWorkTypeDefinition(
-        tx,
-        officeId,
-        workTypeDefinitionId,
-      );
+      await this.lockWorkTypeDefinition(tx, officeId, workTypeDefinitionId);
 
       const existingDraft = await tx.workTypeVersion.findFirst({
         where: {
@@ -1132,8 +1230,7 @@ export class WorkTypeV3Service {
           creatorCategories: published.creatorCategories,
           creatorScope: published.creatorScope,
           finalClosureMode: published.finalClosureMode,
-          finalClosureLeadershipType:
-            published.finalClosureLeadershipType,
+          finalClosureLeadershipType: published.finalClosureLeadershipType,
           slaBasis: published.slaBasis,
           overallSlaMinutes: published.overallSlaMinutes,
           createdByAccountId: user.accountId,
@@ -1193,17 +1290,9 @@ export class WorkTypeV3Service {
     }
 
     const draft = await this.prisma.$transaction(async (tx) => {
-      await this.lockWorkTypeDefinition(
-        tx,
-        officeId,
-        workTypeDefinitionId,
-      );
+      await this.lockWorkTypeDefinition(tx, officeId, workTypeDefinitionId);
 
-      await this.requireDraft(
-        tx,
-        workTypeDefinitionId,
-        versionId,
-      );
+      await this.requireDraft(tx, workTypeDefinitionId, versionId);
 
       return tx.workTypeVersion.update({
         where: {
@@ -1239,11 +1328,7 @@ export class WorkTypeV3Service {
     this.validateConfigurationShape(dto);
 
     const configuration = await this.prisma.$transaction(async (tx) => {
-      await this.lockWorkTypeDefinition(
-        tx,
-        officeId,
-        workTypeDefinitionId,
-      );
+      await this.lockWorkTypeDefinition(tx, officeId, workTypeDefinitionId);
 
       await this.requireDraft(tx, workTypeDefinitionId, versionId);
 
@@ -1255,11 +1340,7 @@ export class WorkTypeV3Service {
           .filter((id): id is string => Boolean(id)),
       ];
 
-      await this.assertOrgUnitsInOffice(
-        tx,
-        officeId,
-        referencedOrgUnitIds,
-      );
+      await this.assertOrgUnitsInOffice(tx, officeId, referencedOrgUnitIds);
       await this.assertCreatorAccountsInOffice(
         tx,
         officeId,
@@ -1290,8 +1371,7 @@ export class WorkTypeV3Service {
           creatorCategories: dto.creatorCategories,
           creatorScope: dto.creatorScope,
           finalClosureMode: dto.finalClosureMode,
-          finalClosureLeadershipType:
-            dto.finalClosureLeadershipType ?? null,
+          finalClosureLeadershipType: dto.finalClosureLeadershipType ?? null,
           slaBasis: dto.slaBasis,
           overallSlaMinutes: dto.overallSlaMinutes ?? null,
         },
@@ -1330,8 +1410,7 @@ export class WorkTypeV3Service {
             responsibleOrgUnitId: stage.responsibleOrgUnitId ?? null,
             assignmentMode: stage.assignmentMode,
             approvalMode: stage.approvalMode ?? WorkStageApprovalMode.NONE,
-            approvalLeadershipType:
-              stage.approvalLeadershipType ?? null,
+            approvalLeadershipType: stage.approvalLeadershipType ?? null,
             activationMode: WorkStageActivationMode.ALWAYS,
             activationFieldDefinitionId: null,
             activationExpectedValue: undefined,
@@ -1365,9 +1444,7 @@ export class WorkTypeV3Service {
       for (const stage of dto.stages) {
         const stageId = stageIdByCode.get(stage.code);
         if (!stageId) {
-          throw new ConflictException(
-            `Failed to save stage ${stage.code}.`,
-          );
+          throw new ConflictException(`Failed to save stage ${stage.code}.`);
         }
 
         const activationMode =
@@ -1442,11 +1519,7 @@ export class WorkTypeV3Service {
     );
 
     const discarded = await this.prisma.$transaction(async (tx) => {
-      await this.lockWorkTypeDefinition(
-        tx,
-        officeId,
-        workTypeDefinitionId,
-      );
+      await this.lockWorkTypeDefinition(tx, officeId, workTypeDefinitionId);
 
       const draft = await this.requireDraft(
         tx,
@@ -1489,76 +1562,61 @@ export class WorkTypeV3Service {
       null,
     );
 
-    const publishedVersion = await this.prisma.$transaction(
-      async (tx) => {
-        await this.lockWorkTypeDefinition(
-          tx,
-          officeId,
+    const publishedVersion = await this.prisma.$transaction(async (tx) => {
+      await this.lockWorkTypeDefinition(tx, officeId, workTypeDefinitionId);
+
+      await this.requireDraft(tx, workTypeDefinitionId, versionId);
+
+      await this.assertPublishableConfiguration(tx, officeId, versionId);
+
+      const currentPublished = await tx.workTypeVersion.findMany({
+        where: {
           workTypeDefinitionId,
+          status: WorkTypeVersionStatus.PUBLISHED,
+        },
+        orderBy: {
+          version: 'desc',
+        },
+        select: {
+          id: true,
+        },
+      });
+
+      if (currentPublished.length > 1) {
+        throw new ConflictException(
+          'This work type has more than one published version and must be reconciled before publishing.',
         );
+      }
 
-        await this.requireDraft(
-          tx,
-          workTypeDefinitionId,
-          versionId,
-        );
+      const now = new Date();
 
-        await this.assertPublishableConfiguration(
-          tx,
-          officeId,
-          versionId,
-        );
-
-        const currentPublished =
-          await tx.workTypeVersion.findMany({
-            where: {
-              workTypeDefinitionId,
-              status: WorkTypeVersionStatus.PUBLISHED,
-            },
-            orderBy: {
-              version: 'desc',
-            },
-            select: {
-              id: true,
-            },
-          });
-
-        if (currentPublished.length > 1) {
-          throw new ConflictException(
-            'This work type has more than one published version and must be reconciled before publishing.',
-          );
-        }
-
-        const now = new Date();
-
-        if (currentPublished[0]) {
-          await tx.workTypeVersion.update({
-            where: {
-              id: currentPublished[0].id,
-            },
-            data: {
-              status: WorkTypeVersionStatus.RETIRED,
-              retiredByAccountId: user.accountId,
-              retiredAt: now,
-            },
-          });
-        }
-
-        return tx.workTypeVersion.update({
+      if (currentPublished[0]) {
+        await tx.workTypeVersion.update({
           where: {
-            id: versionId,
+            id: currentPublished[0].id,
           },
           data: {
-            status: WorkTypeVersionStatus.PUBLISHED,
-            publishedByAccountId: user.accountId,
-            publishedAt: now,
-            retiredByAccountId: null,
-            retiredAt: null,
+            status: WorkTypeVersionStatus.RETIRED,
+            retiredByAccountId: user.accountId,
+            retiredAt: now,
           },
-          select: VERSION_SUMMARY_SELECT,
         });
-      },
-    );
+      }
+
+      return tx.workTypeVersion.update({
+        where: {
+          id: versionId,
+        },
+        data: {
+          status: WorkTypeVersionStatus.PUBLISHED,
+          publishedByAccountId: user.accountId,
+          publishedAt: now,
+          retiredByAccountId: null,
+          retiredAt: null,
+        },
+        select: VERSION_SUMMARY_SELECT,
+      });
+    });
 
     return {
       office,

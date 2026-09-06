@@ -171,7 +171,7 @@ export function uploadAnnouncementAttachment(
     };
 
     request.onload = () => {
-      let body: unknown = null;
+      let body: unknown;
       try { body = JSON.parse(request.responseText || "null"); } catch { body = null; }
       if (request.status < 200 || request.status >= 300) {
         reject(new Error(parseErrorMessage(body, "Announcement attachment could not be uploaded.")));

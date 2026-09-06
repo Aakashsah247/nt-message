@@ -1,7 +1,4 @@
-import {
-  ForbiddenException,
-  NotFoundException,
-} from '@nestjs/common';
+import { ForbiddenException, NotFoundException } from '@nestjs/common';
 
 import type { AuthenticatedUser } from '../auth/types/auth.types';
 import { PrismaService } from '../database/prisma.service';
@@ -26,20 +23,26 @@ const office = {
   isActive: true,
 };
 
-function createService(overrides: {
-  office?: unknown;
-  definitions?: unknown[];
-  versions?: unknown[];
-  detail?: unknown;
-  assertCanError?: Error;
-  draft?: boolean;
-  publish?: boolean;
-} = {}) {
+function createService(
+  overrides: {
+    office?: unknown;
+    definitions?: unknown[];
+    versions?: unknown[];
+    detail?: unknown;
+    orgUnits?: unknown[];
+    memberships?: unknown[];
+    assertCanError?: Error;
+    draft?: boolean;
+    publish?: boolean;
+  } = {},
+) {
   const prisma = {
     office: {
-      findUnique: jest.fn().mockResolvedValue(
-        overrides.office === undefined ? office : overrides.office,
-      ),
+      findUnique: jest
+        .fn()
+        .mockResolvedValue(
+          overrides.office === undefined ? office : overrides.office,
+        ),
     },
     workTypeDefinition: {
       findMany: jest.fn().mockResolvedValue(overrides.definitions ?? []),
@@ -47,6 +50,12 @@ function createService(overrides: {
     },
     workTypeVersion: {
       findMany: jest.fn().mockResolvedValue(overrides.versions ?? []),
+    },
+    orgUnit: {
+      findMany: jest.fn().mockResolvedValue(overrides.orgUnits ?? []),
+    },
+    orgMembership: {
+      findMany: jest.fn().mockResolvedValue(overrides.memberships ?? []),
     },
   } as unknown as PrismaService;
 
@@ -80,9 +89,7 @@ describe('WorkTypeV3Service', () => {
       publish: false,
     });
 
-    await expect(
-      service.getActionContext(user, office.id),
-    ).resolves.toEqual({
+    await expect(service.getActionContext(user, office.id)).resolves.toEqual({
       office,
       availableActions: {
         view: true,
@@ -97,6 +104,81 @@ describe('WorkTypeV3Service', () => {
       office.id,
       null,
     );
+  });
+
+  it('returns Work Type configuration options without requiring organization-management APIs', async () => {
+    const orgUnit = {
+      id: 'unit-1',
+      code: 'TECH',
+      name: 'Technical',
+      isActive: true,
+      parentOrgUnitId: null,
+      orgUnitType: {
+        code: 'DIVISION',
+        name: 'Division',
+        isTeam: false,
+      },
+    };
+    const membership = {
+      orgUnitId: orgUnit.id,
+      employee: {
+        id: 'employee-1',
+        empId: 'NTC-1001',
+        empName: 'Employee One',
+        designation: 'Engineer',
+        account: {
+          id: 'account-2',
+          username: 'employee.one',
+          role: AccountRole.EMPLOYEE,
+          isEnabled: true,
+        },
+      },
+    };
+
+    const { service, prisma } = createService({
+      draft: true,
+      orgUnits: [orgUnit],
+      memberships: [membership],
+    });
+
+    await expect(
+      service.getConfigurationContext(user, office.id),
+    ).resolves.toEqual({
+      office,
+      orgUnits: [orgUnit],
+      creatorAccounts: [
+        {
+          accountId: 'account-2',
+          username: 'employee.one',
+          role: AccountRole.EMPLOYEE,
+          employeeId: 'employee-1',
+          empId: 'NTC-1001',
+          empName: 'Employee One',
+          designation: 'Engineer',
+          primaryOrgUnitId: 'unit-1',
+        },
+      ],
+    });
+
+    expect(prisma.orgMembership.findMany).toHaveBeenCalledTimes(1);
+  });
+
+  it('keeps creator-account candidates hidden from read-only viewers', async () => {
+    const { service, prisma } = createService({
+      draft: false,
+      orgUnits: [],
+      memberships: [{ id: 'should-not-load' }],
+    });
+
+    await expect(
+      service.getConfigurationContext(user, office.id),
+    ).resolves.toEqual({
+      office,
+      orgUnits: [],
+      creatorAccounts: [],
+    });
+
+    expect(prisma.orgMembership.findMany).not.toHaveBeenCalled();
   });
 
   it('lists definitions with the latest published and draft versions', async () => {
@@ -151,9 +233,9 @@ describe('WorkTypeV3Service', () => {
       assertCanError: new ForbiddenException(),
     });
 
-    await expect(
-      service.list(user, office.id),
-    ).rejects.toBeInstanceOf(ForbiddenException);
+    await expect(service.list(user, office.id)).rejects.toBeInstanceOf(
+      ForbiddenException,
+    );
   });
 
   it('rejects a definition from another office or an unknown definition', async () => {
@@ -171,8 +253,8 @@ describe('WorkTypeV3Service', () => {
       office: null,
     });
 
-    await expect(
-      service.list(user, 'missing-office'),
-    ).rejects.toBeInstanceOf(NotFoundException);
+    await expect(service.list(user, 'missing-office')).rejects.toBeInstanceOf(
+      NotFoundException,
+    );
   });
 });

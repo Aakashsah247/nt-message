@@ -1,0 +1,230 @@
+{
+  "session": {
+    "title": "सुरक्षित सत्र उपलब्ध छैन",
+    "description": "कार्य प्रकार कन्फिगरेसन खोल्न पुनः साइन इन गर्नुहोस्।"
+  },
+  "hero": {
+    "eyebrow": "कार्य व्यवस्थापन V3",
+    "title": "कार्य प्रकार कन्फिगरेसन",
+    "description": "प्रकाशित कार्य प्रकार हेर्नुहोस्, नियन्त्रित ड्राफ्ट तयार गर्नुहोस् र पुरानो कार्य इतिहास नबदलिई संस्करणयुक्त नियम प्रकाशित गर्नुहोस्।"
+  },
+  "summary": {
+    "total": "कार्य प्रकार",
+    "published": "प्रकाशित",
+    "drafts": "खुला ड्राफ्ट"
+  },
+  "filters": {
+    "office": "कार्यालय",
+    "search": "कार्य प्रकार खोज्नुहोस्",
+    "searchPlaceholder": "नाम, कोड वा पुरानो प्रकार"
+  },
+  "list": {
+    "aria": "कार्य प्रकार सूची"
+  },
+  "states": {
+    "loading": "कार्य प्रकार कार्यक्षेत्र लोड हुँदैछ…",
+    "loadingWorkTypes": "कार्य प्रकारहरू लोड हुँदैछन्…",
+    "loadingDetail": "कार्य प्रकार विवरण लोड हुँदैछ…",
+    "noWorkTypes": "कार्य प्रकार भेटिएन",
+    "noWorkTypesDescription": "हालको फिल्टरमा यस कार्यालयका लागि कुनै कार्य प्रकार उपलब्ध छैन।",
+    "selectWorkType": "कार्य प्रकार छान्नुहोस्",
+    "selectWorkTypeDescription": "प्रकाशित संस्करण, ड्राफ्ट र इतिहास हेर्न सूचीबाट कार्य प्रकार छान्नुहोस्।"
+  },
+  "detail": {
+    "noDescription": "यस कार्य प्रकारका लागि विवरण राखिएको छैन।",
+    "access": "तपाईंको पहुँच"
+  },
+  "access": {
+    "publish": "ड्राफ्ट र प्रकाशन",
+    "draft": "ड्राफ्ट मात्र",
+    "readOnly": "हेर्न मात्र"
+  },
+  "draft": {
+    "reason": "नयाँ ड्राफ्टको कारण",
+    "reasonPlaceholder": "यो संस्करण किन चाहिएको हो छोटकरीमा लेख्नुहोस्"
+  },
+  "metadata": {
+    "eyebrow": "ड्राफ्ट संस्करण",
+    "title": "संस्करण {{version}} विवरण",
+    "name": "देखाइने नाम",
+    "description": "विवरण",
+    "changeReason": "परिवर्तनको कारण"
+  },
+  "configuration": {
+    "eyebrow": "नियन्त्रित कन्फिगरेसन",
+    "title": "स्वामित्व, सिर्जनाकर्ता, बन्द गर्ने नियम र SLA",
+    "description": "यी नियम यस ड्राफ्ट संस्करणमा सुरक्षित हुन्छन् र प्रकाशित भएपछि परिवर्तन गर्न मिल्दैन।",
+    "primaryOwner": "मुख्य जिम्मेवार OrgUnit",
+    "creatorScope": "कार्य सिर्जना दायरा",
+    "creatorCategories": "अनुमति प्राप्त सिर्जनाकर्ता प्रकार",
+    "creatorOrgUnits": "अनुमति प्राप्त सिर्जनाकर्ता OrgUnit",
+    "includeDescendants": "तलका OrgUnit पनि समावेश गर्नुहोस्",
+    "creatorAccounts": "विशेष सिर्जनाकर्ता खाताहरू",
+    "creatorAccountsDescription": "यो कार्य प्रकार सिधै सिर्जना गर्न पाउने खाताहरू मात्र छान्नुहोस्।",
+    "searchPeople": "कर्मचारी खोज्नुहोस्",
+    "closureMode": "अन्तिम बन्द गर्ने नियम",
+    "closureLeadership": "बन्द गर्ने नेतृत्व",
+    "slaBasis": "SLA आधार",
+    "overallSla": "समग्र SLA",
+    "optionalMinutes": "वैकल्पिक मिनेट"
+  },
+  "fields": {
+    "title": "कार्य फिल्डहरू",
+    "description": "यस कार्य प्रकार संस्करणमा प्रयोग हुने नियन्त्रित डाटा फिल्डहरू कन्फिगर गर्नुहोस्।",
+    "empty": "कुनै फिल्ड कन्फिगर गरिएको छैन",
+    "emptyDescription": "यो कार्य प्रकारलाई आवश्यक फिल्ड मात्र थप्नुहोस्।",
+    "code": "कोड",
+    "label": "लेबल",
+    "type": "फिल्ड प्रकार",
+    "stage": "चरण",
+    "workLevel": "समग्र कार्य फिल्ड",
+    "required": "आवश्यक",
+    "options": "विकल्पहरू",
+    "optionsPlaceholder": "विकल्प A, विकल्प B, विकल्प C",
+    "min": "न्यूनतम",
+    "max": "अधिकतम",
+    "maxLength": "अधिकतम लम्बाइ"
+  },
+  "stages": {
+    "title": "कार्यप्रवाह चरणहरू",
+    "description": "जिम्मेवारी र असाइनमेन्ट नियम परिभाषित गर्नुहोस्। प्रकाशित संस्करणबाट रनटाइम चरण पछि बनाइन्छ।",
+    "empty": "कुनै चरण कन्फिगर गरिएको छैन",
+    "emptyDescription": "प्रकाशनयोग्य कार्य प्रकारमा कम्तीमा एउटा आवश्यक चरण चाहिन्छ।",
+    "code": "कोड",
+    "name": "चरणको नाम",
+    "responsibility": "जिम्मेवार OrgUnit नियम",
+    "assignment": "असाइनमेन्ट तरिका",
+    "orgUnit": "जिम्मेवार OrgUnit",
+    "approval": "स्वीकृति नियम",
+    "approvalLeadership": "स्वीकृति नेतृत्व",
+    "activation": "सक्रिय हुने नियम",
+    "activationField": "सक्रियता फिल्ड",
+    "expectedValue": "अपेक्षित मान",
+    "sla": "चरण SLA मिनेट",
+    "descriptionLabel": "विवरण",
+    "required": "आवश्यक चरण"
+  },
+  "dependencies": {
+    "title": "चरण निर्भरता",
+    "description": "अर्को चरण सकिएपछि मात्र सुरु हुनुपर्ने अवस्थामा निर्भरता प्रयोग गर्नुहोस्।",
+    "none": "कुनै निर्भरता छैन। सक्रियता नियमले अनुमति दिएमा चरणहरू समानान्तर चल्न सक्छन्।",
+    "prerequisite": "पहिले सकिनुपर्ने",
+    "nextStage": "त्यसपछि सुरु हुने"
+  },
+  "release": {
+    "title": "ड्राफ्ट प्रकाशन",
+    "publishDescription": "प्रकाशनअघि ड्राफ्ट कन्फिगरेसन सुरक्षित गर्नुहोस्। प्रकाशनले अघिल्लो प्रकाशित संस्करणलाई इतिहासमा राख्छ।",
+    "draftOnlyDescription": "तपाईं ड्राफ्ट तयार गर्न सक्नुहुन्छ, तर अन्तिम संस्करण Office Head ले मात्र प्रकाशित गर्न सक्छ।",
+    "confirmPublish": "प्रकाशन पुष्टि गर्नुहोस्",
+    "confirmPublishDescription": "यो ड्राफ्ट भविष्यका कार्यका लागि प्रकाशित संस्करण बन्छ। पुराना कार्य आफ्नै पुरानो संस्करणसँग जोडिएका रहन्छन्।",
+    "confirmDiscard": "ड्राफ्ट हटाउने पुष्टि गर्नुहोस्",
+    "confirmDiscardDescription": "हालको ड्राफ्ट मात्र हट्छ। प्रकाशित र पुराना संस्करण परिवर्तन हुँदैनन्।"
+  },
+  "readonly": {
+    "title": "हेर्न मात्र मिल्ने कार्य प्रकार अवलोकन",
+    "description": "तपाईं प्रकाशित नियम र संस्करण इतिहास हेर्न सक्नुहुन्छ। ड्राफ्ट, सम्पादन, हटाउने वा प्रकाशन गर्ने कार्य उपलब्ध छैन।"
+  },
+  "published": {
+    "eyebrow": "हालको प्रकाशित संस्करण",
+    "fields": "फिल्डहरू",
+    "stages": "चरणहरू",
+    "owner": "मुख्य जिम्मेवार",
+    "publishedAt": "प्रकाशित"
+  },
+  "history": {
+    "title": "संस्करण इतिहास",
+    "description": "पुराना कार्यको अर्थ जोगाउन प्रकाशित र निवृत्त संस्करणहरू पढ्न मिल्ने अवस्थामा रहन्छन्।",
+    "created": "बनाइएको",
+    "published": "प्रकाशित",
+    "noReason": "परिवर्तनको कारण राखिएको छैन",
+    "noPrevious": "अघिल्लो संस्करण इतिहास छैन।"
+  },
+  "actions": {
+    "createDraft": "ड्राफ्ट बनाउनुहोस्",
+    "saveMetadata": "विवरण सुरक्षित गर्नुहोस्",
+    "saveConfiguration": "कन्फिगरेसन सुरक्षित गर्नुहोस्",
+    "addField": "फिल्ड थप्नुहोस्",
+    "addStage": "चरण थप्नुहोस्",
+    "addDependency": "निर्भरता थप्नुहोस्",
+    "remove": "हटाउनुहोस्",
+    "discardDraft": "ड्राफ्ट हटाउनुहोस्",
+    "publishDraft": "ड्राफ्ट प्रकाशित गर्नुहोस्",
+    "confirmDiscard": "हो, ड्राफ्ट हटाउनुहोस्",
+    "confirmPublish": "हो, संस्करण प्रकाशित गर्नुहोस्",
+    "cancel": "रद्द गर्नुहोस्"
+  },
+  "messages": {
+    "draftCreated": "ड्राफ्ट बनाइयो।",
+    "metadataSaved": "ड्राफ्ट विवरण सुरक्षित भयो।",
+    "configurationSaved": "ड्राफ्ट कन्फिगरेसन सुरक्षित भयो।",
+    "draftDiscarded": "ड्राफ्ट हटाइयो।",
+    "draftPublished": "कार्य प्रकार संस्करण प्रकाशित भयो।"
+  },
+  "errors": {
+    "loadOffices": "कार्यालय लोड गर्न सकिएन।",
+    "loadWorkTypes": "यस कार्यालयका कार्य प्रकार लोड गर्न सकिएन।",
+    "loadDetail": "कार्य प्रकार विवरण लोड गर्न सकिएन।",
+    "createDraft": "ड्राफ्ट बनाउन सकिएन।",
+    "saveMetadata": "ड्राफ्ट विवरण सुरक्षित गर्न सकिएन।",
+    "saveConfiguration": "कार्य प्रकार कन्फिगरेसन सुरक्षित गर्न सकिएन।",
+    "discardDraft": "ड्राफ्ट हटाउन सकिएन।",
+    "publishDraft": "ड्राफ्ट प्रकाशित गर्न सकिएन।"
+  },
+  "editor": {
+    "newField": "नयाँ फिल्ड",
+    "newStage": "नयाँ चरण"
+  },
+  "common": {
+    "select": "छान्नुहोस्",
+    "notSet": "सेट गरिएको छैन",
+    "notAvailable": "उपलब्ध छैन"
+  },
+  "labels": {
+    "OFFICE_HEAD": "Office Head",
+    "ORG_UNIT_HEAD": "Org Unit Head",
+    "TEAM_LEAD": "Team Lead",
+    "DEPUTY": "उपप्रमुख",
+    "EMPLOYEE": "कर्मचारी",
+    "OFFICE_WIDE": "सम्पूर्ण कार्यालय",
+    "PRIMARY_OWNER_SUBTREE": "मुख्य जिम्मेवारको उप-क्षेत्र",
+    "SPECIFIC_ORG_UNITS": "विशेष OrgUnit",
+    "TEXT": "पाठ",
+    "LONG_TEXT": "लामो पाठ",
+    "NUMBER": "अङ्क",
+    "DECIMAL": "दशमलव",
+    "DATE": "मिति",
+    "DATETIME": "मिति र समय",
+    "BOOLEAN": "हो / होइन",
+    "SELECT": "एक विकल्प",
+    "MULTI_SELECT": "धेरै विकल्प",
+    "USER": "प्रयोगकर्ता",
+    "ORG_UNIT": "OrgUnit",
+    "REFERENCE": "सन्दर्भ",
+    "IMAGE": "तस्बिर",
+    "FILE": "फाइल",
+    "PRIMARY_OWNER": "मुख्य जिम्मेवार",
+    "SPECIFIC_ORG_UNIT": "विशेष OrgUnit",
+    "RUNTIME_REQUESTED_PARTICIPANT": "रनटाइममा अनुरोध गरिएको सहभागी",
+    "ORG_UNIT_QUEUE": "OrgUnit सूची",
+    "TEAM": "टोली",
+    "INDIVIDUAL": "व्यक्ति",
+    "ORG_UNIT_OR_TEAM": "OrgUnit वा टोली",
+    "ORG_UNIT_OR_USER": "OrgUnit वा प्रयोगकर्ता",
+    "RESPONSIBLE_ORG_UNIT_HEAD": "जिम्मेवार Org Unit Head",
+    "NONE": "स्वीकृति नचाहिने",
+    "SPECIFIC_LEADERSHIP": "विशेष नेतृत्व",
+    "ALWAYS": "सधैं",
+    "MANUAL_WHEN_REQUIRED": "आवश्यक पर्दा हातैले",
+    "FIELD_TRUE": "फिल्ड हो हुँदा",
+    "FIELD_EQUALS": "फिल्ड मान बराबर हुँदा",
+    "AUTO_AFTER_REQUIRED_STAGES": "आवश्यक चरणपछि स्वतः",
+    "PRIMARY_OWNER_HEAD": "मुख्य जिम्मेवार Head",
+    "CALENDAR_DURATION": "क्यालेन्डर अवधि",
+    "OFFICE_WORKING_DURATION": "कार्यालय कार्य अवधि",
+    "ACTIVE": "सक्रिय",
+    "INACTIVE": "निष्क्रिय",
+    "DRAFT": "ड्राफ्ट",
+    "PUBLISHED": "प्रकाशित",
+    "RETIRED": "निवृत्त"
+  }
+}

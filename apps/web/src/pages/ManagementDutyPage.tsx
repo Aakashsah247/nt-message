@@ -376,12 +376,27 @@ export function ManagementDutyPage() {
     } finally {
       setLoading(false);
     }
-  }, [accessToken, activeAssignmentListView, departmentId, historyFrom, historyPage, historyTo, peopleSearch, refreshKey, view, weekFrom, weekTo]);
-
-  useEffect(() => { void loadData(); }, [loadData]);
+  }, [accessToken, activeAssignmentListView, departmentId, historyFrom, historyPage, historyTo, peopleSearch, view, weekFrom, weekTo]);
 
   useEffect(() => {
-    if (view === "ASSIGNMENTS" || view === "HISTORY") setHistoryPage(1);
+    let active = true;
+    queueMicrotask(() => {
+      if (active) {
+        void loadData();
+      }
+    });
+
+    return () => {
+      active = false;
+    };
+  }, [loadData, refreshKey]);
+
+  useEffect(() => {
+    if (view === "ASSIGNMENTS" || view === "HISTORY") {
+      queueMicrotask(() => {
+        setHistoryPage(1);
+      });
+    }
   }, [view]);
 
   useEffect(() => {
@@ -437,7 +452,7 @@ export function ManagementDutyPage() {
   }, [dialog]);
 
   const people = useMemo(() => roster?.people ?? [], [roster?.people]);
-  const departments = roster?.departments ?? [];
+  const departments = useMemo(() => roster?.departments ?? [], [roster?.departments]);
   const divisions = useMemo(() => {
     const byId = new Map<string, { id: string; code: string; name: string }>();
     for (const department of departments) {
@@ -482,16 +497,32 @@ export function ManagementDutyPage() {
   }, [assignmentSearch]);
 
   useEffect(() => {
+    let cancelled = false;
+
     if (!accessToken || dialog !== "SCHEDULE" || !assignmentScopeReady || !assignmentRole) {
-      setAssignmentCandidates([]);
-      setAssignmentCandidatesLoading(false);
-      setAssignmentCandidatesError("");
-      return;
+      queueMicrotask(() => {
+        if (cancelled) {
+          return;
+        }
+
+        setAssignmentCandidates([]);
+        setAssignmentCandidatesLoading(false);
+        setAssignmentCandidatesError("");
+      });
+
+      return () => {
+        cancelled = true;
+      };
     }
 
-    let cancelled = false;
-    setAssignmentCandidatesLoading(true);
-    setAssignmentCandidatesError("");
+    queueMicrotask(() => {
+      if (cancelled) {
+        return;
+      }
+
+      setAssignmentCandidatesLoading(true);
+      setAssignmentCandidatesError("");
+    });
     const queryDepartmentId =
       account?.role === "TEAM_MANAGER"
         ? departments[0]?.id
@@ -545,10 +576,21 @@ export function ManagementDutyPage() {
   ]);
 
   useEffect(() => {
+    let cancelled = false;
+
     if (!accessToken || dialog !== "SCHEDULE" || selectedStaff.length === 0) {
-      setAssignmentTemplates([]);
-      setScheduleForm((current) => current.shiftTemplateId ? { ...current, shiftTemplateId: "" } : current);
-      return;
+      queueMicrotask(() => {
+        if (cancelled) {
+          return;
+        }
+
+        setAssignmentTemplates([]);
+        setScheduleForm((current) => current.shiftTemplateId ? { ...current, shiftTemplateId: "" } : current);
+      });
+
+      return () => {
+        cancelled = true;
+      };
     }
 
     const divisionIds = [...new Set(selectedStaff.map((person) => person.account.employee?.division.id).filter(Boolean))] as string[];
@@ -560,7 +602,6 @@ export function ManagementDutyPage() {
           ? "DIVISION"
           : "BRANCH";
 
-    let cancelled = false;
     void listDutyShiftTemplates(accessToken, {
       targetScope,
       divisionId: targetScope === "BRANCH" ? undefined : divisionIds[0],
@@ -588,9 +629,11 @@ export function ManagementDutyPage() {
     // Roster selections follow the visible list, but the Assign Duty picker owns its own scoped selection.
     if (dialog === "SCHEDULE") return;
     const visibleIds = new Set(people.map((person) => person.account.id));
-    setSelectedIds((current) => {
-      const next = current.filter((id) => visibleIds.has(id));
-      return next.length === current.length ? current : next;
+    queueMicrotask(() => {
+      setSelectedIds((current) => {
+        const next = current.filter((id) => visibleIds.has(id));
+        return next.length === current.length ? current : next;
+      });
     });
   }, [dialog, people]);
   const schedulePayload = useCallback((): BulkDutyScheduleInput => ({

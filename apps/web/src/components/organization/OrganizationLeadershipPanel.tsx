@@ -15,6 +15,7 @@ import {
   toOptionalOrganizationIso,
 } from "../../utils/organization-people";
 import { flattenTree, formatOrganizationDate } from "../../utils/organization-v3";
+import { useCurrentTime } from "../../utils/use-current-time";
 import type {
   OrganizationLeadershipRecord,
   OrganizationLeadershipType,
@@ -232,9 +233,8 @@ export function OrganizationLeadershipPanel({
   }, [isSpecificScope, scopeActions, scopeValue, selectedScopeUnit]);
 
   const normalizedSearch = searchTerm.trim().toLowerCase();
+  const currentTime = useCurrentTime();
   const filteredAssignments = useMemo(() => {
-    const now = Date.now();
-
     return assignments.filter((assignment) => {
       if (
         scopeValue !== ALL_SCOPES &&
@@ -246,7 +246,7 @@ export function OrganizationLeadershipPanel({
       const effectiveStatus = getOrganizationEffectiveStatus(
         assignment.effectiveFrom,
         assignment.effectiveUntil,
-        now,
+        currentTime,
       );
 
       if (filter !== "ALL" && effectiveStatus !== filter) {
@@ -267,7 +267,16 @@ export function OrganizationLeadershipPanel({
         t(`leadership.kinds.${kind}`),
       ].some((value) => value.toLowerCase().includes(normalizedSearch));
     });
-  }, [assignments, filter, normalizedSearch, office.code, office.name, scopeValue, t]);
+  }, [
+    assignments,
+    currentTime,
+    filter,
+    normalizedSearch,
+    office.code,
+    office.name,
+    scopeValue,
+    t,
+  ]);
 
   const currentCount = assignments.filter(
     (assignment) =>
@@ -314,7 +323,12 @@ export function OrganizationLeadershipPanel({
 
   useEffect(() => {
     let active = true;
-    setLoading(true);
+
+    queueMicrotask(() => {
+      if (active) {
+        setLoading(true);
+      }
+    });
 
     Promise.all([
       getOrganizationLeadership(accessToken, office.id),
@@ -346,15 +360,31 @@ export function OrganizationLeadershipPanel({
   }, [accessToken, office.id, refreshVersion, t]);
 
   useEffect(() => {
+    let active = true;
+
     if (!isSpecificScope) {
-      setScopeActions(NO_PEOPLE_ACTIONS);
-      resetAction();
-      return;
+      queueMicrotask(() => {
+        if (!active) {
+          return;
+        }
+
+        setScopeActions(NO_PEOPLE_ACTIONS);
+        resetAction();
+      });
+
+      return () => {
+        active = false;
+      };
     }
 
-    let active = true;
-    setScopeActions(NO_PEOPLE_ACTIONS);
-    resetAction();
+    queueMicrotask(() => {
+      if (!active) {
+        return;
+      }
+
+      setScopeActions(NO_PEOPLE_ACTIONS);
+      resetAction();
+    });
 
     getOrganizationPeopleActions(accessToken, office.id, selectedScopeId)
       .then((response) => {
@@ -381,7 +411,10 @@ export function OrganizationLeadershipPanel({
     }
 
     if (!availableKinds.includes(assignmentKind)) {
-      setAssignmentKind(availableKinds[0]);
+      const nextAssignmentKind = availableKinds[0];
+      queueMicrotask(() => {
+        setAssignmentKind(nextAssignmentKind);
+      });
     }
   }, [assignmentKind, availableKinds]);
 

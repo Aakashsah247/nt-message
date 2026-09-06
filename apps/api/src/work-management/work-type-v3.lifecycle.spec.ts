@@ -68,8 +68,7 @@ function publishableConfiguration() {
         description: null,
         sortOrder: 0,
         isRequired: true,
-        responsibleOrgUnitRule:
-          WorkStageResponsibleOrgUnitRule.PRIMARY_OWNER,
+        responsibleOrgUnitRule: WorkStageResponsibleOrgUnitRule.PRIMARY_OWNER,
         responsibleOrgUnitId: null,
         assignmentMode: WorkStageAssignmentMode.ORG_UNIT_QUEUE,
         approvalMode: WorkStageApprovalMode.NONE,
@@ -82,7 +81,6 @@ function publishableConfiguration() {
     ],
   };
 }
-
 
 function draftVersion(overrides: Record<string, unknown> = {}) {
   return {
@@ -104,10 +102,12 @@ function draftVersion(overrides: Record<string, unknown> = {}) {
   };
 }
 
-function createHarness(options: {
-  lockRows?: Array<{ id: string }>;
-  assertCanError?: Error;
-} = {}) {
+function createHarness(
+  options: {
+    lockRows?: Array<{ id: string }>;
+    assertCanError?: Error;
+  } = {},
+) {
   const tx = {
     $queryRaw: jest
       .fn()
@@ -159,8 +159,7 @@ function createHarness(options: {
       findUnique: jest.fn().mockResolvedValue(office),
     },
     $transaction: jest.fn(
-      async (callback: (client: typeof tx) => Promise<unknown>) =>
-        callback(tx),
+      async (callback: (client: typeof tx) => Promise<unknown>) => callback(tx),
     ),
   } as unknown as PrismaService;
 
@@ -201,14 +200,9 @@ describe('WorkTypeV3Service lifecycle', () => {
     tx.workTypeVersion.create.mockResolvedValue(created);
 
     await expect(
-      service.createDraft(
-        user,
-        office.id,
-        definitionId,
-        {
-          changeReason: 'Clarify wording',
-        },
-      ),
+      service.createDraft(user, office.id, definitionId, {
+        changeReason: 'Clarify wording',
+      }),
     ).resolves.toEqual({
       office,
       draft: created,
@@ -235,7 +229,6 @@ describe('WorkTypeV3Service lifecycle', () => {
       }),
     );
   });
-
 
   it('clones normalized configuration into a new draft without reusing source IDs', async () => {
     const { service, tx } = createHarness();
@@ -375,16 +368,10 @@ describe('WorkTypeV3Service lifecycle', () => {
     tx.workTypeVersion.update.mockResolvedValue(updated);
 
     await expect(
-      service.updateDraft(
-        user,
-        office.id,
-        definitionId,
-        draftId,
-        {
-          name: 'Routine Field Work',
-          description: null,
-        },
-      ),
+      service.updateDraft(user, office.id, definitionId, draftId, {
+        name: 'Routine Field Work',
+        description: null,
+      }),
     ).resolves.toEqual({
       office,
       draft: updated,
@@ -413,15 +400,9 @@ describe('WorkTypeV3Service lifecycle', () => {
     );
 
     await expect(
-      service.updateDraft(
-        user,
-        office.id,
-        definitionId,
-        draftId,
-        {
-          name: 'Do not change',
-        },
-      ),
+      service.updateDraft(user, office.id, definitionId, draftId, {
+        name: 'Do not change',
+      }),
     ).rejects.toBeInstanceOf(BadRequestException);
 
     expect(tx.workTypeVersion.update).not.toHaveBeenCalled();
@@ -431,13 +412,7 @@ describe('WorkTypeV3Service lifecycle', () => {
     const { service, prisma, tx } = createHarness();
 
     await expect(
-      service.updateDraft(
-        user,
-        office.id,
-        definitionId,
-        draftId,
-        {},
-      ),
+      service.updateDraft(user, office.id, definitionId, draftId, {}),
     ).rejects.toBeInstanceOf(BadRequestException);
 
     expect(prisma.$transaction).not.toHaveBeenCalled();
@@ -452,12 +427,7 @@ describe('WorkTypeV3Service lifecycle', () => {
     tx.workTypeVersion.delete.mockResolvedValue(draft);
 
     await expect(
-      service.discardDraft(
-        user,
-        office.id,
-        definitionId,
-        draftId,
-      ),
+      service.discardDraft(user, office.id, definitionId, draftId),
     ).resolves.toEqual({
       office,
       discardedDraft: {
@@ -473,7 +443,6 @@ describe('WorkTypeV3Service lifecycle', () => {
     });
   });
 
-
   it('does not publish an incomplete configuration', async () => {
     const { service, tx } = createHarness();
 
@@ -483,12 +452,7 @@ describe('WorkTypeV3Service lifecycle', () => {
     );
 
     await expect(
-      service.publishDraft(
-        user,
-        office.id,
-        definitionId,
-        draftId,
-      ),
+      service.publishDraft(user, office.id, definitionId, draftId),
     ).rejects.toBeInstanceOf(BadRequestException);
 
     expect(tx.workTypeVersion.findMany).not.toHaveBeenCalled();
@@ -516,12 +480,7 @@ describe('WorkTypeV3Service lifecycle', () => {
       .mockResolvedValueOnce(published);
 
     await expect(
-      service.publishDraft(
-        user,
-        office.id,
-        definitionId,
-        draftId,
-      ),
+      service.publishDraft(user, office.id, definitionId, draftId),
     ).resolves.toEqual({
       office,
       publishedVersion: published,
@@ -564,8 +523,7 @@ describe('WorkTypeV3Service lifecycle', () => {
       }),
     );
 
-    const retiredAt =
-      tx.workTypeVersion.update.mock.calls[0][0].data.retiredAt;
+    const retiredAt = tx.workTypeVersion.update.mock.calls[0][0].data.retiredAt;
     const publishedAt =
       tx.workTypeVersion.update.mock.calls[1][0].data.publishedAt;
 
@@ -575,21 +533,14 @@ describe('WorkTypeV3Service lifecycle', () => {
   it('stops publishing when configuration already has multiple published versions', async () => {
     const { service, tx } = createHarness();
 
-    tx.workTypeVersion.findFirst.mockResolvedValueOnce(
-      draftVersion(),
-    );
+    tx.workTypeVersion.findFirst.mockResolvedValueOnce(draftVersion());
     tx.workTypeVersion.findMany.mockResolvedValue([
       { id: 'published-2' },
       { id: 'published-1' },
     ]);
 
     await expect(
-      service.publishDraft(
-        user,
-        office.id,
-        definitionId,
-        draftId,
-      ),
+      service.publishDraft(user, office.id, definitionId, draftId),
     ).rejects.toBeInstanceOf(ConflictException);
 
     expect(tx.workTypeVersion.update).not.toHaveBeenCalled();

@@ -151,8 +151,15 @@ export function ManagerRequestHistory({
 
   useEffect(() => {
     let active = true;
-    setLoading(true);
-    setError("");
+
+    queueMicrotask(() => {
+      if (!active) {
+        return;
+      }
+
+      setLoading(true);
+      setError("");
+    });
 
     const requestPromise = isDivisionEmployeeView
       ? listDivisionEmployeeRequests(

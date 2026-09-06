@@ -60,8 +60,7 @@ function baseDto(): ReplaceWorkTypeDraftConfigurationDto {
         name: 'Intake',
         sortOrder: 10,
         isRequired: true,
-        responsibleOrgUnitRule:
-          WorkStageResponsibleOrgUnitRule.PRIMARY_OWNER,
+        responsibleOrgUnitRule: WorkStageResponsibleOrgUnitRule.PRIMARY_OWNER,
         responsibleOrgUnitId: null,
         assignmentMode: WorkStageAssignmentMode.ORG_UNIT_QUEUE,
         approvalMode: WorkStageApprovalMode.NONE,
@@ -92,15 +91,17 @@ function baseDto(): ReplaceWorkTypeDraftConfigurationDto {
   };
 }
 
-function createHarness(options: {
-  orgUnits?: string[];
-  creatorAccounts?: Array<{
-    id: string;
-    role: AccountRole;
-    isEnabled: boolean;
-    membershipCount: number;
-  }>;
-} = {}) {
+function createHarness(
+  options: {
+    orgUnits?: string[];
+    creatorAccounts?: Array<{
+      id: string;
+      role: AccountRole;
+      isEnabled: boolean;
+      membershipCount: number;
+    }>;
+  } = {},
+) {
   const savedConfiguration = {
     id: draftId,
     workTypeDefinitionId: definitionId,
@@ -144,11 +145,13 @@ function createHarness(options: {
       findUnique: jest.fn().mockResolvedValue(savedConfiguration),
     },
     orgUnit: {
-      findMany: jest.fn().mockImplementation(({ where }: { where: { id: { in: string[] } } }) =>
-        (options.orgUnits ?? ['org-1', 'org-2']).map((id) => ({ id })).filter(
-          ({ id }) => where.id.in.includes(id),
+      findMany: jest
+        .fn()
+        .mockImplementation(({ where }: { where: { id: { in: string[] } } }) =>
+          (options.orgUnits ?? ['org-1', 'org-2'])
+            .map((id) => ({ id }))
+            .filter(({ id }) => where.id.in.includes(id)),
         ),
-      ),
     },
     account: {
       findMany: jest.fn().mockImplementation(() =>
@@ -171,16 +174,20 @@ function createHarness(options: {
     },
     workStageDefinition: {
       deleteMany: jest.fn().mockResolvedValue({ count: 0 }),
-      create: jest.fn().mockImplementation(({ data }: { data: { code: string } }) =>
-        Promise.resolve({ id: `stage-${data.code}` }),
-      ),
+      create: jest
+        .fn()
+        .mockImplementation(({ data }: { data: { code: string } }) =>
+          Promise.resolve({ id: `stage-${data.code}` }),
+        ),
       update: jest.fn().mockResolvedValue({}),
     },
     workFieldDefinition: {
       deleteMany: jest.fn().mockResolvedValue({ count: 0 }),
-      create: jest.fn().mockImplementation(({ data }: { data: { code: string } }) =>
-        Promise.resolve({ id: `field-${data.code}` }),
-      ),
+      create: jest
+        .fn()
+        .mockImplementation(({ data }: { data: { code: string } }) =>
+          Promise.resolve({ id: `field-${data.code}` }),
+        ),
     },
     workTypeCreatorOrgUnit: {
       deleteMany: jest.fn().mockResolvedValue({ count: 0 }),
@@ -197,8 +204,7 @@ function createHarness(options: {
       findUnique: jest.fn().mockResolvedValue(office),
     },
     $transaction: jest.fn(
-      async (callback: (client: typeof tx) => Promise<unknown>) =>
-        callback(tx),
+      async (callback: (client: typeof tx) => Promise<unknown>) => callback(tx),
     ),
   } as unknown as PrismaService;
 

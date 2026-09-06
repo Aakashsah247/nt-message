@@ -160,7 +160,11 @@ export function AdminOrganizationPanel({
   useEffect(() => {
     let active = true;
 
-    setLoading(true);
+    queueMicrotask(() => {
+      if (active) {
+        setLoading(true);
+      }
+    });
     getOrganizationOffices(accessToken)
       .then((response) => {
         if (!active) {
@@ -201,17 +205,33 @@ export function AdminOrganizationPanel({
   }, [accessToken, refreshVersion, t]);
 
   useEffect(() => {
+    let active = true;
+
     if (!selectedOfficeId) {
-      setOffice(null);
-      setTree([]);
-      setOfficeActions(NO_ACTIONS);
-      return;
+      queueMicrotask(() => {
+        if (!active) {
+          return;
+        }
+
+        setOffice(null);
+        setTree([]);
+        setOfficeActions(NO_ACTIONS);
+      });
+
+      return () => {
+        active = false;
+      };
     }
 
-    let active = true;
-    setLoadingWorkspace(true);
-    setEditorMode(null);
-    setEditorError("");
+    queueMicrotask(() => {
+      if (!active) {
+        return;
+      }
+
+      setLoadingWorkspace(true);
+      setEditorMode(null);
+      setEditorError("");
+    });
 
     Promise.all([
       getOrganizationOffice(accessToken, selectedOfficeId),
@@ -260,13 +280,25 @@ export function AdminOrganizationPanel({
   }, [accessToken, selectedOfficeId, refreshVersion, t]);
 
   useEffect(() => {
+    let active = true;
+
     if (!selectedOfficeId || !selectedUnitId) {
-      setSelectedActions(NO_ACTIONS);
-      return;
+      queueMicrotask(() => {
+        if (active) {
+          setSelectedActions(NO_ACTIONS);
+        }
+      });
+
+      return () => {
+        active = false;
+      };
     }
 
-    let active = true;
-    setSelectedActions(NO_ACTIONS);
+    queueMicrotask(() => {
+      if (active) {
+        setSelectedActions(NO_ACTIONS);
+      }
+    });
 
     getOrganizationActions(accessToken, selectedOfficeId, selectedUnitId)
       .then((response) => {

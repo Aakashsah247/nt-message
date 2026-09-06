@@ -11,7 +11,7 @@ const IDLE_AFTER_MS = 5 * 60 * 1000;
 export function ActivityTracker() {
   const { accessToken } = useAuth();
   const location = useLocation();
-  const lastActivityAtRef = useRef(Date.now());
+  const lastActivityAtRef = useRef(0);
   const idleRef = useRef(false);
 
   function sendActivity(
@@ -40,6 +40,8 @@ export function ActivityTracker() {
     if (!accessToken) {
       return;
     }
+
+    lastActivityAtRef.current = Date.now();
 
     function markActive(): void {
       lastActivityAtRef.current = Date.now();

@@ -425,15 +425,25 @@ export function ManagementPositionsPage() {
   }, [accessToken, t]);
 
   useEffect(() => {
-    if (!accessToken) {
-      setLoading(false);
-
-      return;
-    }
-
     let active = true;
 
-    setLoading(true);
+    if (!accessToken) {
+      queueMicrotask(() => {
+        if (active) {
+          setLoading(false);
+        }
+      });
+
+      return () => {
+        active = false;
+      };
+    }
+
+    queueMicrotask(() => {
+      if (active) {
+        setLoading(true);
+      }
+    });
 
     listManagementPositions(
       accessToken,
@@ -494,14 +504,16 @@ export function ManagementPositionsPage() {
     t,
   ]);
 
+  const selectedPositionId = selectedPosition?.id ?? null;
+
   useLayoutEffect(() => {
-    if (!selectedPosition || !detailContentRef.current) {
+    if (!selectedPositionId || !detailContentRef.current) {
       return;
     }
 
     // Reset before paint so a newly selected position never inherits old drawer scroll.
     detailContentRef.current.scrollTop = 0;
-  }, [selectedPosition?.id]);
+  }, [selectedPositionId]);
 
   useEffect(() => {
     if (

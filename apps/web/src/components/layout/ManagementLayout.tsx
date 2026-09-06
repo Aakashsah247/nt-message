@@ -15,8 +15,13 @@ import {
 import { EmergencyAlertButton } from "../EmergencyAlertButton";
 import { ProtectedAvatar } from "../ProtectedAvatar";
 import { useAuth } from "../../context/AuthContext";
-import { getOrganizationNavigationContext } from "../../services/organization-v3.service";
+import {
+  getOrganizationNavigationContext,
+  getOrganizationOffices,
+} from "../../services/organization-v3.service";
+import { getWorkTypeActions } from "../../services/work-type-v3.service";
 import type { OrganizationNavigationMode } from "../../types/organization-v3";
+import type { WorkTypeNavigationMode } from "../../types/work-type-v3";
 import { getRoleHomePath } from "../../utils/get-role-home-path";
 import { ManagementIcon } from "./ManagementIcon";
 import {
@@ -101,10 +106,16 @@ export function ManagementLayout({
   const location = useLocation();
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
-  const [mobileOpen, setMobileOpen] = useState(false);
+  const accountId = account?.id ?? null;
+  const accountRole = account?.role ?? null;
+  const currentRouteKey = `${location.pathname}${location.search}`;
+  const [mobileOpenRoute, setMobileOpenRoute] = useState<string | null>(null);
+  const mobileOpen = mobileOpenRoute === currentRouteKey;
   const [loggingOut, setLoggingOut] = useState(false);
-  const [organizationNavigationMode, setOrganizationNavigationMode] =
-    useState<OrganizationNavigationMode>("NONE");
+  const [organizationNavigationResult, setOrganizationNavigationResult] =
+    useState<{ accountId: string; mode: OrganizationNavigationMode } | null>(null);
+  const [workTypeNavigationResult, setWorkTypeNavigationResult] =
+    useState<{ accountId: string; mode: WorkTypeNavigationMode } | null>(null);
   const storageKey = account
     ? `${SIDEBAR_STORAGE_PREFIX}:${account.id}`
     : SIDEBAR_STORAGE_PREFIX;
@@ -117,38 +128,40 @@ export function ManagementLayout({
   });
 
   const adminView = getDefaultAdminView(searchParams.get("view"));
-  const accountId = account?.id ?? null;
-  const accountRole = account?.role ?? null;
+  const organizationFallbackMode: OrganizationNavigationMode =
+    accountRole === "SUPER_ADMIN" ? "VIEW" : "NONE";
+  const workTypeFallbackMode: WorkTypeNavigationMode =
+    accountRole === "SUPER_ADMIN" ? "VIEW" : "NONE";
+  const organizationNavigationMode: OrganizationNavigationMode =
+    accountId && accountRole
+      ? accessToken && organizationNavigationResult?.accountId === accountId
+        ? organizationNavigationResult.mode
+        : organizationFallbackMode
+      : "NONE";
+  const workTypeNavigationMode: WorkTypeNavigationMode =
+    accountId && accountRole
+      ? accessToken && workTypeNavigationResult?.accountId === accountId
+        ? workTypeNavigationResult.mode
+        : workTypeFallbackMode
+      : "NONE";
   const navigation = useMemo(
     () => accountRole
-      ? getManagementNavigation(accountRole, organizationNavigationMode)
+      ? getManagementNavigation(
+          accountRole,
+          organizationNavigationMode,
+          workTypeNavigationMode,
+        )
       : [],
-    [accountRole, organizationNavigationMode],
+    [accountRole, organizationNavigationMode, workTypeNavigationMode],
   );
   const activeItem = navigation
     .flatMap((section) => section.items)
     .find((item) => isItemActive(item, location.pathname, adminView));
 
   useEffect(() => {
-    setMobileOpen(false);
-  }, [location.pathname, location.search]);
-
-  useEffect(() => {
     let active = true;
 
-    if (!accountId || !accountRole) {
-      setOrganizationNavigationMode("NONE");
-      return () => {
-        active = false;
-      };
-    }
-
-    const fallbackMode: OrganizationNavigationMode =
-      accountRole === "SUPER_ADMIN" ? "VIEW" : "NONE";
-
-    setOrganizationNavigationMode(fallbackMode);
-
-    if (!accessToken) {
+    if (!accountId || !accountRole || !accessToken) {
       return () => {
         active = false;
       };
@@ -157,19 +170,81 @@ export function ManagementLayout({
     getOrganizationNavigationContext(accessToken)
       .then((context) => {
         if (active) {
-          setOrganizationNavigationMode(context.mode);
+          setOrganizationNavigationResult({
+            accountId,
+            mode: context.mode,
+          });
         }
       })
       .catch(() => {
         if (active) {
-          setOrganizationNavigationMode(fallbackMode);
+          setOrganizationNavigationResult({
+            accountId,
+            mode: organizationFallbackMode,
+          });
         }
       });
 
     return () => {
       active = false;
     };
-  }, [accessToken, accountId, accountRole]);
+  }, [accessToken, accountId, accountRole, organizationFallbackMode]);
+
+  useEffect(() => {
+    let active = true;
+
+    if (!accountId || !accountRole || !accessToken) {
+      return () => {
+        active = false;
+      };
+    }
+
+    getOrganizationOffices(accessToken)
+      .then(async (response) => {
+        const contexts = await Promise.allSettled(
+          response.data.map((office) =>
+            getWorkTypeActions(accessToken, office.id),
+          ),
+        );
+
+        if (!active) {
+          return;
+        }
+
+        let mode: WorkTypeNavigationMode = workTypeFallbackMode;
+        for (const result of contexts) {
+          if (result.status !== "fulfilled") {
+            continue;
+          }
+          const actions = result.value.availableActions;
+          if (actions.publish) {
+            mode = "PUBLISH";
+            break;
+          }
+          if (actions.draft) {
+            mode = "DRAFT";
+          } else if (actions.view && mode === "NONE") {
+            mode = "VIEW";
+          }
+        }
+        setWorkTypeNavigationResult({
+          accountId,
+          mode,
+        });
+      })
+      .catch(() => {
+        if (active) {
+          setWorkTypeNavigationResult({
+            accountId,
+            mode: workTypeFallbackMode,
+          });
+        }
+      });
+
+    return () => {
+      active = false;
+    };
+  }, [accessToken, accountId, accountRole, workTypeFallbackMode]);
 
   useEffect(() => {
     window.localStorage.setItem(
@@ -185,7 +260,7 @@ export function ManagementLayout({
 
     function closeOnEscape(event: KeyboardEvent): void {
       if (event.key === "Escape") {
-        setMobileOpen(false);
+        setMobileOpenRoute(null);
       }
     }
 
@@ -231,7 +306,7 @@ export function ManagementLayout({
           ? "management-layout__backdrop management-layout__backdrop--visible"
           : "management-layout__backdrop"}
         aria-label={t("navigation.close")}
-        onClick={() => setMobileOpen(false)}
+        onClick={() => setMobileOpenRoute(null)}
       />
 
       <aside
@@ -247,6 +322,7 @@ export function ManagementLayout({
               ? "/employee"
               : getRoleHomePath(account.role)}
             aria-label={t("brand.dashboardAria")}
+            onClick={() => setMobileOpenRoute(null)}
           >
             <span className="management-layout__logo">
               <img src="/nt-logo.png" alt="" />
@@ -306,6 +382,7 @@ export function ManagementLayout({
                       aria-current={active ? "page" : undefined}
                       aria-label={itemLabel}
                       title={collapsed ? itemLabel : undefined}
+                      onClick={() => setMobileOpenRoute(null)}
                     >
                       <ManagementIcon name={item.icon} />
                       <span>{itemLabel}</span>
@@ -358,7 +435,7 @@ export function ManagementLayout({
             className="management-layout__mobile-menu"
             aria-label={t("navigation.open")}
             aria-expanded={mobileOpen}
-            onClick={() => setMobileOpen(true)}
+            onClick={() => setMobileOpenRoute(currentRouteKey)}
           >
             <span />
             <span />

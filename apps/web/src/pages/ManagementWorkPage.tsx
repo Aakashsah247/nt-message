@@ -39,6 +39,7 @@ import {
   kathmanduDateTimeLocalToIso,
 } from "../utils/nepal-calendar";
 import type { WorkCalendarMode } from "../utils/nepal-calendar";
+import { useCurrentTime } from "../utils/use-current-time";
 import type {
   WorkActivity,
   WorkAssignmentCandidate,
@@ -382,6 +383,7 @@ export function ManagementWorkPage() {
   const location = useLocation();
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
+  const currentTime = useCurrentTime();
   const isDedicatedCreateRoute = location.pathname === "/work-management/create";
   const editRouteMatch = location.pathname.match(/^\/work-management\/([^/]+)\/edit$/);
   const dedicatedEditWorkId = editRouteMatch?.[1] ? decodeURIComponent(editRouteMatch[1]) : null;
@@ -440,6 +442,8 @@ export function ManagementWorkPage() {
   useEffect(() => {
     if (!account?.role) return;
 
+    let active = true;
+
     const teamFocuses: WorkQueueFocus[] = [
       "TEAM_QUEUE",
       "ASSIGNED_TO_ME",
@@ -473,39 +477,49 @@ export function ManagementWorkPage() {
         ? ["ACTIVE", "HISTORY", "ARCHIVE", "DELETION_REVIEW"]
         : ["ACTIVE", "HISTORY", "ARCHIVE"];
 
-    if (requestedView && allowedViews.includes(requestedView as WorkQueueView)) {
-      setWorkspaceMode(
-        requestedView === "HISTORY"
-          ? "HISTORY"
-          : requestedView === "ARCHIVE" || requestedView === "DELETION_REVIEW"
-            ? "ARCHIVE"
-            : "CURRENT",
-      );
-    }
+    queueMicrotask(() => {
+      if (!active) {
+        return;
+      }
 
-    // Report links are navigation hints only; the role allow-list and API remain authoritative.
-    setFilters((current) => {
-      const focus =
-        requestedFocus &&
-        allowedFocuses.includes(requestedFocus as WorkQueueFocus)
-          ? (requestedFocus as WorkQueueFocus)
-          : allowedFocuses.includes(current.focus)
-            ? current.focus
-            : defaultFocusForRole();
-      const view =
-        requestedView && allowedViews.includes(requestedView as WorkQueueView)
-          ? (requestedView as WorkQueueView)
-          : current.view;
-      const status =
-        requestedStatus && STATUSES.includes(requestedStatus as WorkItemStatus)
-          ? (requestedStatus as WorkItemStatus)
-          : current.status;
-      return focus === current.focus &&
-        view === current.view &&
-        status === current.status
-        ? current
-        : { ...current, focus, view, status, page: 1 };
+      if (requestedView && allowedViews.includes(requestedView as WorkQueueView)) {
+        setWorkspaceMode(
+          requestedView === "HISTORY"
+            ? "HISTORY"
+            : requestedView === "ARCHIVE" || requestedView === "DELETION_REVIEW"
+              ? "ARCHIVE"
+              : "CURRENT",
+        );
+      }
+
+      // Report links are navigation hints only; the role allow-list and API remain authoritative.
+      setFilters((current) => {
+        const focus =
+          requestedFocus &&
+          allowedFocuses.includes(requestedFocus as WorkQueueFocus)
+            ? (requestedFocus as WorkQueueFocus)
+            : allowedFocuses.includes(current.focus)
+              ? current.focus
+              : defaultFocusForRole();
+        const view =
+          requestedView && allowedViews.includes(requestedView as WorkQueueView)
+            ? (requestedView as WorkQueueView)
+            : current.view;
+        const status =
+          requestedStatus && STATUSES.includes(requestedStatus as WorkItemStatus)
+            ? (requestedStatus as WorkItemStatus)
+            : current.status;
+        return focus === current.focus &&
+          view === current.view &&
+          status === current.status
+          ? current
+          : { ...current, focus, view, status, page: 1 };
+      });
     });
+
+    return () => {
+      active = false;
+    };
   }, [
     account?.role,
     requestedFocus,
@@ -532,15 +546,26 @@ export function ManagementWorkPage() {
     if (!isDedicatedCreateRoute) return;
 
     const initialForm = createDefaultWorkForm();
-    setCreateForm(initialForm);
-    setCreateInitialSnapshot(JSON.stringify(initialForm));
-    setCreateStep(1);
-    setCreateCalendarMode("AD");
-    setSupportMemberSearch("");
-    setCreateReviewSubmitReady(false);
-    setActionError("");
-    setNotice("");
-    setActionMode("CREATE");
+    let active = true;
+    queueMicrotask(() => {
+      if (!active) {
+        return;
+      }
+
+      setCreateForm(initialForm);
+      setCreateInitialSnapshot(JSON.stringify(initialForm));
+      setCreateStep(1);
+      setCreateCalendarMode("AD");
+      setSupportMemberSearch("");
+      setCreateReviewSubmitReady(false);
+      setActionError("");
+      setNotice("");
+      setActionMode("CREATE");
+    });
+
+    return () => {
+      active = false;
+    };
   }, [isDedicatedCreateRoute]);
 
   useEffect(() => {
@@ -549,12 +574,18 @@ export function ManagementWorkPage() {
     let cancelled = false;
     // Edit Work is route-driven. Clear any legacy dialog action state so
     // browser/touchpad history cannot resurrect the removed Edit modal.
-    setActionMode(null);
-    setActionError("");
-    setNotice("");
-    setSelectedWork(null);
-    setDetailLoading(true);
-    setEditCalendarMode("AD");
+    queueMicrotask(() => {
+      if (cancelled) {
+        return;
+      }
+
+      setActionMode(null);
+      setActionError("");
+      setNotice("");
+      setSelectedWork(null);
+      setDetailLoading(true);
+      setEditCalendarMode("AD");
+    });
 
     void getWorkItem(accessToken, dedicatedEditWorkId)
       .then((response) => {
@@ -577,7 +608,9 @@ export function ManagementWorkPage() {
 
   useEffect(() => {
     if (!isDedicatedCreateRoute || createForm.parentWorkItemId || createStep !== 3) {
-      setCreateReviewSubmitReady(false);
+      queueMicrotask(() => {
+        setCreateReviewSubmitReady(false);
+      });
       return;
     }
 
@@ -602,11 +635,13 @@ export function ManagementWorkPage() {
     // memory and re-render the same form through the legacy dialog path. Clear
     // that stale state as soon as the route is left. Administrative delegation
     // intentionally keeps using its existing dialog because it has a parent task.
-    setActionMode(null);
-    setCreateInitialSnapshot("");
-    setCreateStep(1);
-    setSupportMemberSearch("");
-    setCreateReviewSubmitReady(false);
+    queueMicrotask(() => {
+      setActionMode(null);
+      setCreateInitialSnapshot("");
+      setCreateStep(1);
+      setSupportMemberSearch("");
+      setCreateReviewSubmitReady(false);
+    });
   }, [actionMode, createForm.parentWorkItemId, isDedicatedCreateRoute]);
 
   useEffect(() => {
@@ -651,12 +686,21 @@ export function ManagementWorkPage() {
     const message = window.sessionStorage.getItem("nt-message:work-created-notice");
     const workItemId = window.sessionStorage.getItem("nt-message:work-created-id");
     if (message) {
-      setNotice(message);
       window.sessionStorage.removeItem("nt-message:work-created-notice");
     }
     if (workItemId) {
-      setSelectedId(workItemId);
       window.sessionStorage.removeItem("nt-message:work-created-id");
+    }
+
+    if (message || workItemId) {
+      queueMicrotask(() => {
+        if (message) {
+          setNotice(message);
+        }
+        if (workItemId) {
+          setSelectedId(workItemId);
+        }
+      });
     }
   }, [isDedicatedFormRoute]);
 
@@ -760,29 +804,49 @@ export function ManagementWorkPage() {
 
   useEffect(() => {
     // Reconcile the queue focus after authentication restores the authoritative account role.
-    setFilters((current) => {
-      const teamManager = account?.role === "TEAM_MANAGER";
-      const invalidTeamFocus =
-        teamManager && ["ACTION_CENTER", "EXCEPTIONS", "EXPLORER"].includes(current.focus);
-      const invalidOversightFocus = !teamManager && current.focus === "TEAM_QUEUE";
-      const invalidSuperAdminFocus =
-        account?.role === "SUPER_ADMIN" && current.focus === "ASSIGNED_TO_ME";
+    queueMicrotask(() => {
+      setFilters((current) => {
+        const teamManager = account?.role === "TEAM_MANAGER";
+        const invalidTeamFocus =
+          teamManager && ["ACTION_CENTER", "EXCEPTIONS", "EXPLORER"].includes(current.focus);
+        const invalidOversightFocus = !teamManager && current.focus === "TEAM_QUEUE";
+        const invalidSuperAdminFocus =
+          account?.role === "SUPER_ADMIN" && current.focus === "ASSIGNED_TO_ME";
 
-      return invalidTeamFocus || invalidOversightFocus || invalidSuperAdminFocus
-        ? { ...current, focus: defaultFocusForRole(), page: 1 }
-        : current;
+        return invalidTeamFocus || invalidOversightFocus || invalidSuperAdminFocus
+          ? { ...current, focus: defaultFocusForRole(), page: 1 }
+          : current;
+      });
     });
   }, [account?.role]);
 
   useEffect(() => {
     if (!isDedicatedFormRoute) {
-      void loadOverview();
+      let active = true;
+      queueMicrotask(() => {
+        if (active) {
+          void loadOverview();
+        }
+      });
+
+      return () => {
+        active = false;
+      };
     }
   }, [isDedicatedFormRoute, loadOverview, refreshKey]);
 
   useEffect(() => {
     if (!isDedicatedFormRoute) {
-      void loadOrganizationSummary();
+      let active = true;
+      queueMicrotask(() => {
+        if (active) {
+          void loadOrganizationSummary();
+        }
+      });
+
+      return () => {
+        active = false;
+      };
     }
   }, [isDedicatedFormRoute, loadOrganizationSummary, refreshKey]);
 
@@ -802,7 +866,11 @@ export function ManagementWorkPage() {
     const range = getLocalDayRange();
     const focus: WorkQueueFocus =
       account.role === "TEAM_MANAGER" ? "TEAM_QUEUE" : "EXPLORER";
-    setDailyLoading(true);
+    queueMicrotask(() => {
+      if (active) {
+        setDailyLoading(true);
+      }
+    });
 
     Promise.all([
       listWorkItems(accessToken, {
@@ -848,12 +916,32 @@ export function ManagementWorkPage() {
   }, [accessToken, account?.role, dayKey, isDedicatedFormRoute, refreshKey]);
 
   useEffect(() => {
-    if (!isDedicatedEditRoute) void loadOptions();
+    if (!isDedicatedEditRoute) {
+      let active = true;
+      queueMicrotask(() => {
+        if (active) {
+          void loadOptions();
+        }
+      });
+
+      return () => {
+        active = false;
+      };
+    }
   }, [isDedicatedEditRoute, loadOptions, refreshKey]);
 
   useEffect(() => {
     if (!isDedicatedFormRoute) {
-      void loadDetail();
+      let active = true;
+      queueMicrotask(() => {
+        if (active) {
+          void loadDetail();
+        }
+      });
+
+      return () => {
+        active = false;
+      };
     }
   }, [isDedicatedFormRoute, loadDetail, refreshKey]);
 
@@ -2159,8 +2247,9 @@ export function ManagementWorkPage() {
   const selectedWorkIsArchived = isArchivedWork(selectedWork);
   const selectedWorkIsOverdue = Boolean(
     selectedWork &&
+      currentTime > 0 &&
       !["CLOSED", "CANCELLED"].includes(selectedWork.status) &&
-      new Date(selectedWork.dueAt).getTime() < Date.now(),
+      new Date(selectedWork.dueAt).getTime() < currentTime,
   );
   const informationWasRequested = hasInformationRequest(selectedWork);
   // Management accounts can also be operational assignees. Actions are based on

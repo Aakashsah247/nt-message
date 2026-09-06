@@ -136,8 +136,14 @@ export function EmergencyAlertButton({
 
     let active = true;
 
-    setContactsLoading(true);
-    setError("");
+    queueMicrotask(() => {
+      if (!active) {
+        return;
+      }
+
+      setContactsLoading(true);
+      setError("");
+    });
 
     listEmergencyAlertContacts(accessToken)
       .then((response) => {
@@ -166,6 +172,7 @@ export function EmergencyAlertButton({
   }, [
     accessToken,
     open,
+    t,
   ]);
 
 

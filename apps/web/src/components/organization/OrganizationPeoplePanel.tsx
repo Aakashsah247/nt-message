@@ -144,7 +144,12 @@ export function OrganizationPeoplePanel({
 
   useEffect(() => {
     let active = true;
-    setLoading(true);
+
+    queueMicrotask(() => {
+      if (active) {
+        setLoading(true);
+      }
+    });
 
     getOrganizationPeople(accessToken, office.id)
       .then((response) => {
@@ -177,18 +182,34 @@ export function OrganizationPeoplePanel({
   }, [accessToken, office.id, refreshVersion, t]);
 
   useEffect(() => {
+    let active = true;
+
     if (!selectedPerson) {
-      setMemberships([]);
-      setSelectedActions(NO_PEOPLE_ACTIONS);
-      setScopeActions({});
-      return;
+      queueMicrotask(() => {
+        if (!active) {
+          return;
+        }
+
+        setMemberships([]);
+        setSelectedActions(NO_PEOPLE_ACTIONS);
+        setScopeActions({});
+      });
+
+      return () => {
+        active = false;
+      };
     }
 
-    let active = true;
     const currentScope = selectedPerson.primaryMembership.orgUnitId;
-    setLoadingMemberships(true);
-    setMemberships([]);
-    setScopeActions({});
+    queueMicrotask(() => {
+      if (!active) {
+        return;
+      }
+
+      setLoadingMemberships(true);
+      setMemberships([]);
+      setScopeActions({});
+    });
 
     Promise.all([
       getOrganizationPeopleActions(accessToken, office.id, currentScope),
@@ -255,12 +276,20 @@ export function OrganizationPeoplePanel({
   }, [accessToken, office.id, refreshVersion, selectedPerson, t]);
 
   useEffect(() => {
+    let active = true;
+
     if (!actionMode || (actionMode !== "TRANSFER" && actionMode !== "ASSIGN")) {
-      setTargetActions(NO_PEOPLE_ACTIONS);
-      return;
+      queueMicrotask(() => {
+        if (active) {
+          setTargetActions(NO_PEOPLE_ACTIONS);
+        }
+      });
+
+      return () => {
+        active = false;
+      };
     }
 
-    let active = true;
     getOrganizationPeopleActions(accessToken, office.id, targetOrgUnitIdValue)
       .then((response) => {
         if (active) {

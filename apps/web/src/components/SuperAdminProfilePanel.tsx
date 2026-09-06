@@ -237,8 +237,14 @@ export function SuperAdminProfilePanel({
   useEffect(() => {
     let active = true;
 
-    setLoading(true);
-    setError("");
+    queueMicrotask(() => {
+      if (!active) {
+        return;
+      }
+
+      setLoading(true);
+      setError("");
+    });
 
     // This profile is display-only so the official emergency identity cannot
     // be altered from an authenticated browser session.
@@ -266,6 +272,7 @@ export function SuperAdminProfilePanel({
   }, [
     accessToken,
     refreshKey,
+    t,
   ]);
 
   useEffect(() => {

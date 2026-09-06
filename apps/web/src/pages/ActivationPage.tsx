@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import type { FormEvent } from "react";
 import { Trans, useTranslation } from "react-i18next";
 import { Link, useSearchParams } from "react-router";
@@ -118,7 +118,7 @@ export function ActivationPage() {
     }
   }
 
-  async function loadOrganization(): Promise<void> {
+  const loadOrganization = useCallback(async (): Promise<void> => {
     setOrganizationLoading(true);
     setOrganizationError("");
 
@@ -140,22 +140,47 @@ export function ActivationPage() {
     } finally {
       setOrganizationLoading(false);
     }
-  }
+  }, [t]);
 
   useEffect(() => {
-    void loadOrganization();
-  }, []);
+    let active = true;
+    queueMicrotask(() => {
+      if (active) {
+        void loadOrganization();
+      }
+    });
+
+    return () => {
+      active = false;
+    };
+  }, [loadOrganization]);
 
   useEffect(() => {
+    let active = true;
+
     if (!invitationToken) {
-      setInvitationLoading(false);
-      setManualMode(true);
-      return;
+      queueMicrotask(() => {
+        if (!active) {
+          return;
+        }
+
+        setInvitationLoading(false);
+        setManualMode(true);
+      });
+
+      return () => {
+        active = false;
+      };
     }
 
-    let active = true;
-    setInvitationLoading(true);
-    setInvitationError("");
+    queueMicrotask(() => {
+      if (!active) {
+        return;
+      }
+
+      setInvitationLoading(true);
+      setInvitationError("");
+    });
 
     getActivationInvitationPreview(invitationToken)
       .then((preview) => {
@@ -200,7 +225,7 @@ export function ActivationPage() {
     return () => {
       active = false;
     };
-  }, [invitationToken]);
+  }, [invitationToken, t]);
 
   const visibleDepartments = useMemo(
     () =>

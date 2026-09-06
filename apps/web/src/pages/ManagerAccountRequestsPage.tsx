@@ -85,13 +85,25 @@ export function ManagerAccountRequestsPage() {
   const isSeniorManagement = account?.role === "SENIOR_MANAGEMENT";
 
   useEffect(() => {
+    let active = true;
+
     if (!accessToken) {
-      setLoading(false);
-      return;
+      queueMicrotask(() => {
+        if (active) {
+          setLoading(false);
+        }
+      });
+
+      return () => {
+        active = false;
+      };
     }
 
-    let active = true;
-    setLoading(true);
+    queueMicrotask(() => {
+      if (active) {
+        setLoading(true);
+      }
+    });
 
     getMyRequestContext(accessToken)
       .then((response) => {

@@ -150,20 +150,35 @@ export function DualCalendarDateTimeInput({
   const calendarRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
+    let active = true;
     const nextDate = toKathmanduDateLocal(value);
     const nextTime = toKathmanduTimeLocal(value);
-    setDateValue(nextDate);
-    setDateDraft(getModeDate(mode, nextDate));
-    setTimeValue(nextTime);
-    setError("");
-    setShowError(false);
 
-    const displayDate = getModeDate(mode, nextDate || toKathmanduDateLocal(new Date()));
-    const parts = parseDate(displayDate);
-    if (parts) {
-      setDisplayYear(parts.year);
-      setDisplayMonth(parts.month);
-    }
+    queueMicrotask(() => {
+      if (!active) {
+        return;
+      }
+
+      setDateValue(nextDate);
+      setDateDraft(getModeDate(mode, nextDate));
+      setTimeValue(nextTime);
+      setError("");
+      setShowError(false);
+
+      const displayDate = getModeDate(
+        mode,
+        nextDate || toKathmanduDateLocal(new Date()),
+      );
+      const parts = parseDate(displayDate);
+      if (parts) {
+        setDisplayYear(parts.year);
+        setDisplayMonth(parts.month);
+      }
+    });
+
+    return () => {
+      active = false;
+    };
   }, [mode, value]);
 
   useEffect(() => {
@@ -200,8 +215,16 @@ export function DualCalendarDateTimeInput({
 
   useLayoutEffect(() => {
     if (!open) {
-      setCalendarPosition(null);
-      return undefined;
+      let active = true;
+      queueMicrotask(() => {
+        if (active) {
+          setCalendarPosition(null);
+        }
+      });
+
+      return () => {
+        active = false;
+      };
     }
 
     function updateCalendarPosition(): void {

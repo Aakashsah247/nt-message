@@ -1,0 +1,230 @@
+{
+  "session": {
+    "title": "Secure session unavailable",
+    "description": "Sign in again to open Work Type configuration."
+  },
+  "hero": {
+    "eyebrow": "Work Management V3",
+    "title": "Work Type Configuration",
+    "description": "Review published Work Types, prepare controlled drafts, and publish versioned rules without changing existing Work history."
+  },
+  "summary": {
+    "total": "Work Types",
+    "published": "Published",
+    "drafts": "Open drafts"
+  },
+  "filters": {
+    "office": "Office",
+    "search": "Search Work Types",
+    "searchPlaceholder": "Name, code, or legacy type"
+  },
+  "list": {
+    "aria": "Work Type list"
+  },
+  "states": {
+    "loading": "Loading Work Type workspace…",
+    "loadingWorkTypes": "Loading Work Types…",
+    "loadingDetail": "Loading Work Type details…",
+    "noWorkTypes": "No Work Types found",
+    "noWorkTypesDescription": "There are no Work Types available in this office for the current filter.",
+    "selectWorkType": "Select a Work Type",
+    "selectWorkTypeDescription": "Choose a Work Type from the list to review its published version, draft, and history."
+  },
+  "detail": {
+    "noDescription": "No description has been recorded for this Work Type.",
+    "access": "Your access"
+  },
+  "access": {
+    "publish": "Draft and publish",
+    "draft": "Draft only",
+    "readOnly": "Read only"
+  },
+  "draft": {
+    "reason": "Reason for new draft",
+    "reasonPlaceholder": "Briefly explain why this version is needed"
+  },
+  "metadata": {
+    "eyebrow": "Draft version",
+    "title": "Version {{version}} details",
+    "name": "Display name",
+    "description": "Description",
+    "changeReason": "Change reason"
+  },
+  "configuration": {
+    "eyebrow": "Controlled configuration",
+    "title": "Ownership, creators, closure and SLA",
+    "description": "These rules are stored in this draft version and become immutable after publication.",
+    "primaryOwner": "Primary Owner OrgUnit",
+    "creatorScope": "Creator scope",
+    "creatorCategories": "Allowed creator categories",
+    "creatorOrgUnits": "Allowed creator OrgUnits",
+    "includeDescendants": "Include descendant OrgUnits",
+    "creatorAccounts": "Explicit creator accounts",
+    "creatorAccountsDescription": "Select only accounts that are allowed to create this Work Type directly.",
+    "searchPeople": "Search people",
+    "closureMode": "Final closure rule",
+    "closureLeadership": "Closure leadership",
+    "slaBasis": "SLA basis",
+    "overallSla": "Overall SLA",
+    "optionalMinutes": "Optional minutes"
+  },
+  "fields": {
+    "title": "Work fields",
+    "description": "Configure the controlled data fields used by this Work Type version.",
+    "empty": "No fields configured",
+    "emptyDescription": "Add only the fields required by this Work Type.",
+    "code": "Code",
+    "label": "Label",
+    "type": "Field type",
+    "stage": "Stage",
+    "workLevel": "Work-level field",
+    "required": "Required",
+    "options": "Options",
+    "optionsPlaceholder": "Option A, Option B, Option C",
+    "min": "Minimum",
+    "max": "Maximum",
+    "maxLength": "Max length"
+  },
+  "stages": {
+    "title": "Workflow stages",
+    "description": "Define responsibility and assignment rules. Runtime Work stages are created later from the published version.",
+    "empty": "No stages configured",
+    "emptyDescription": "A publishable Work Type needs at least one required stage.",
+    "code": "Code",
+    "name": "Stage name",
+    "responsibility": "Responsible OrgUnit rule",
+    "assignment": "Assignment mode",
+    "orgUnit": "Responsible OrgUnit",
+    "approval": "Approval rule",
+    "approvalLeadership": "Approval leadership",
+    "activation": "Activation rule",
+    "activationField": "Activation field",
+    "expectedValue": "Expected value",
+    "sla": "Stage SLA minutes",
+    "descriptionLabel": "Description",
+    "required": "Required stage"
+  },
+  "dependencies": {
+    "title": "Stage dependencies",
+    "description": "Use dependencies only when a stage must wait for another stage to finish.",
+    "none": "No dependencies configured. Stages may proceed in parallel when their activation rules allow it.",
+    "prerequisite": "Must finish first",
+    "nextStage": "Then allow"
+  },
+  "release": {
+    "title": "Draft release",
+    "publishDescription": "Save the draft configuration before publishing. Publishing retires the previous published version and keeps its history intact.",
+    "draftOnlyDescription": "You can prepare this draft, but only the Office Head can publish the final version.",
+    "confirmPublish": "Confirm publication",
+    "confirmPublishDescription": "This makes the draft the published version for future Work. Existing Work remains linked to its original version.",
+    "confirmDiscard": "Confirm draft discard",
+    "confirmDiscardDescription": "This removes the current draft only. Published and retired versions remain unchanged."
+  },
+  "readonly": {
+    "title": "Read-only Work Type oversight",
+    "description": "You can review published rules and version history. Draft, edit, discard, and publish actions are not available for your account."
+  },
+  "published": {
+    "eyebrow": "Current published version",
+    "fields": "Fields",
+    "stages": "Stages",
+    "owner": "Primary owner",
+    "publishedAt": "Published"
+  },
+  "history": {
+    "title": "Version history",
+    "description": "Published and retired versions remain readable so historical Work keeps its original meaning.",
+    "created": "Created",
+    "published": "Published",
+    "noReason": "No change reason recorded",
+    "noPrevious": "No previous version history yet."
+  },
+  "actions": {
+    "createDraft": "Create draft",
+    "saveMetadata": "Save details",
+    "saveConfiguration": "Save configuration",
+    "addField": "Add field",
+    "addStage": "Add stage",
+    "addDependency": "Add dependency",
+    "remove": "Remove",
+    "discardDraft": "Discard draft",
+    "publishDraft": "Publish draft",
+    "confirmDiscard": "Yes, discard draft",
+    "confirmPublish": "Yes, publish version",
+    "cancel": "Cancel"
+  },
+  "messages": {
+    "draftCreated": "Draft created.",
+    "metadataSaved": "Draft details saved.",
+    "configurationSaved": "Draft configuration saved.",
+    "draftDiscarded": "Draft discarded.",
+    "draftPublished": "Work Type version published."
+  },
+  "errors": {
+    "loadOffices": "Unable to load offices.",
+    "loadWorkTypes": "Unable to load Work Types for this office.",
+    "loadDetail": "Unable to load Work Type details.",
+    "createDraft": "Unable to create a draft.",
+    "saveMetadata": "Unable to save draft details.",
+    "saveConfiguration": "Unable to save Work Type configuration.",
+    "discardDraft": "Unable to discard the draft.",
+    "publishDraft": "Unable to publish the draft."
+  },
+  "editor": {
+    "newField": "New field",
+    "newStage": "New stage"
+  },
+  "common": {
+    "select": "Select",
+    "notSet": "Not set",
+    "notAvailable": "Not available"
+  },
+  "labels": {
+    "OFFICE_HEAD": "Office Head",
+    "ORG_UNIT_HEAD": "Org Unit Head",
+    "TEAM_LEAD": "Team Lead",
+    "DEPUTY": "Deputy",
+    "EMPLOYEE": "Employee",
+    "OFFICE_WIDE": "Office-wide",
+    "PRIMARY_OWNER_SUBTREE": "Primary Owner subtree",
+    "SPECIFIC_ORG_UNITS": "Specific OrgUnits",
+    "TEXT": "Text",
+    "LONG_TEXT": "Long text",
+    "NUMBER": "Number",
+    "DECIMAL": "Decimal",
+    "DATE": "Date",
+    "DATETIME": "Date and time",
+    "BOOLEAN": "Yes / No",
+    "SELECT": "Single choice",
+    "MULTI_SELECT": "Multiple choice",
+    "USER": "User",
+    "ORG_UNIT": "OrgUnit",
+    "REFERENCE": "Reference",
+    "IMAGE": "Image",
+    "FILE": "File",
+    "PRIMARY_OWNER": "Primary Owner",
+    "SPECIFIC_ORG_UNIT": "Specific OrgUnit",
+    "RUNTIME_REQUESTED_PARTICIPANT": "Runtime requested participant",
+    "ORG_UNIT_QUEUE": "OrgUnit queue",
+    "TEAM": "Team",
+    "INDIVIDUAL": "Individual",
+    "ORG_UNIT_OR_TEAM": "OrgUnit or Team",
+    "ORG_UNIT_OR_USER": "OrgUnit or user",
+    "RESPONSIBLE_ORG_UNIT_HEAD": "Responsible Org Unit Head",
+    "NONE": "No approval",
+    "SPECIFIC_LEADERSHIP": "Specific leadership",
+    "ALWAYS": "Always",
+    "MANUAL_WHEN_REQUIRED": "Manual when required",
+    "FIELD_TRUE": "When field is Yes",
+    "FIELD_EQUALS": "When field equals value",
+    "AUTO_AFTER_REQUIRED_STAGES": "Automatic after required stages",
+    "PRIMARY_OWNER_HEAD": "Primary Owner Head",
+    "CALENDAR_DURATION": "Calendar duration",
+    "OFFICE_WORKING_DURATION": "Office working duration",
+    "ACTIVE": "Active",
+    "INACTIVE": "Inactive",
+    "DRAFT": "Draft",
+    "PUBLISHED": "Published",
+    "RETIRED": "Retired"
+  }
+}

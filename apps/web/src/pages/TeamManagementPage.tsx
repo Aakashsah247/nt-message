@@ -103,6 +103,7 @@ export function TeamManagementPage() {
   const [deleting, setDeleting] = useState(false);
 
   const noticeTimerRef = useRef<number | null>(null);
+  const selectedMemberIdsRef = useRef<string[]>([]);
 
   const filteredDepartments = useMemo(() => {
     if (!context) {
@@ -141,8 +142,14 @@ export function TeamManagementPage() {
     }
 
     let active = true;
-    setLoading(true);
-    setError("");
+    queueMicrotask(() => {
+      if (!active) {
+        return;
+      }
+
+      setLoading(true);
+      setError("");
+    });
 
     getTeamManagementContext(accessToken)
       .then((result) => {
@@ -190,14 +197,16 @@ export function TeamManagementPage() {
       })
         .then((result) => {
           setTeams(result.items);
-          if (selectedTeam) {
-            const refreshed = result.items.find(
-              (team) => team.id === selectedTeam.id,
-            );
-            if (refreshed) {
-              setSelectedTeam(refreshed);
+          setSelectedTeam((current) => {
+            if (!current) {
+              return current;
             }
-          }
+
+            const refreshed = result.items.find(
+              (team) => team.id === current.id,
+            );
+            return refreshed ?? current;
+          });
         })
         .catch((requestError) => {
           setError(errorMessage(requestError, t));
@@ -213,8 +222,14 @@ export function TeamManagementPage() {
   }, [accessToken, context, departmentId, divisionId, search, t]);
 
   useEffect(() => {
+    selectedMemberIdsRef.current = form?.memberIds ?? [];
+  }, [form?.memberIds]);
+
+  useEffect(() => {
     if (!accessToken || !form?.departmentId) {
-      setMembers([]);
+      queueMicrotask(() => {
+        setMembers([]);
+      });
       return;
     }
 
@@ -229,7 +244,7 @@ export function TeamManagementPage() {
         .then((result) => {
           setMembers((current) => {
             const selectedFromCurrent = current.filter((member) =>
-              form.memberIds.includes(member.id),
+              selectedMemberIdsRef.current.includes(member.id),
             );
             const merged = new Map<string, TeamMemberOption>();
             [...selectedFromCurrent, ...result.items].forEach((member) => {

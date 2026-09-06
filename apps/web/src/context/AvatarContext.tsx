@@ -115,7 +115,16 @@ export function AvatarProvider({ children }: AvatarProviderProps) {
   useEffect(() => {
     // Access tokens rotate during long sessions. Re-fetch protected images with
     // the active token instead of retaining URLs created by an older session.
-    resetAvatarRegistry(true);
+    let active = true;
+    queueMicrotask(() => {
+      if (active) {
+        resetAvatarRegistry(true);
+      }
+    });
+
+    return () => {
+      active = false;
+    };
   }, [accessToken, resetAvatarRegistry]);
 
   useEffect(() => {
@@ -160,8 +169,7 @@ export function AvatarProvider({ children }: AvatarProviderProps) {
       return;
     }
 
-    let request: Promise<void>;
-    request = createMessagingProfilePhotoObjectUrl(accessToken, accountId)
+    const request = createMessagingProfilePhotoObjectUrl(accessToken, accountId)
       .then((url) => {
         if (
           generation !== generationRef.current ||
@@ -254,8 +262,7 @@ export function AvatarProvider({ children }: AvatarProviderProps) {
       return;
     }
 
-    let request: Promise<void>;
-    request = createDirectoryProfilePhotoObjectUrl(accessToken, employeeId)
+    const request = createDirectoryProfilePhotoObjectUrl(accessToken, employeeId)
       .then((url) => {
         if (
           generation !== generationRef.current ||
@@ -334,8 +341,7 @@ export function AvatarProvider({ children }: AvatarProviderProps) {
 
     // Activated request rows do not expose employeeId. Resolve the protected
     // directory identity once and reuse it for desktop and mobile queue cards.
-    let request: Promise<void>;
-    request = listDirectoryEmployees(accessToken, {
+    const request = listDirectoryEmployees(accessToken, {
       search: normalizedEmail,
       recordStatus: "CURRENT",
       page: 1,

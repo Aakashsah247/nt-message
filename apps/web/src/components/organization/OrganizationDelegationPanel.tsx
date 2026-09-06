@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import type { FormEvent } from "react";
 import { useTranslation } from "react-i18next";
 
@@ -108,6 +108,22 @@ export function OrganizationDelegationPanel({
     [records, selectedPermissionId],
   );
 
+  const capabilityLabel = useCallback(
+    (value: string): string => {
+      const key = CAPABILITY_KEYS[value as OrganizationDelegationCapability];
+      if (key) {
+        return t(`delegation.capabilities.${key}`);
+      }
+
+      return value
+        .split(/[._]/)
+        .filter(Boolean)
+        .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+        .join(" ");
+    },
+    [t],
+  );
+
   const normalizedSearch = searchTerm.trim().toLowerCase();
   const filteredRecords = useMemo(
     () => records.filter((record) => {
@@ -132,25 +148,13 @@ export function OrganizationDelegationPanel({
         record.grantedBy.username,
       ].some((value) => value.toLowerCase().includes(normalizedSearch));
     }),
-    [filter, normalizedSearch, office.code, office.name, records, t],
+    [capabilityLabel, filter, normalizedSearch, office.code, office.name, records],
   );
 
   const currentCount = records.filter((record) => delegationStatus(record) === "CURRENT").length;
   const upcomingCount = records.filter((record) => delegationStatus(record) === "UPCOMING").length;
   const historyCount = records.filter((record) => delegationStatus(record) === "HISTORY").length;
 
-  function capabilityLabel(value: string): string {
-    const key = CAPABILITY_KEYS[value as OrganizationDelegationCapability];
-    if (key) {
-      return t(`delegation.capabilities.${key}`);
-    }
-
-    return value
-      .split(/[._]/)
-      .filter(Boolean)
-      .map((part) => `${part.slice(0, 1).toUpperCase()}${part.slice(1)}`)
-      .join(" ");
-  }
 
   function resetGrantForm(): void {
     setScopeOrgUnitId("");
@@ -183,7 +187,12 @@ export function OrganizationDelegationPanel({
 
   useEffect(() => {
     let active = true;
-    setLoading(true);
+
+    queueMicrotask(() => {
+      if (active) {
+        setLoading(true);
+      }
+    });
 
     getOrganizationDelegations(accessToken, office.id)
       .then((response) => {
@@ -210,7 +219,12 @@ export function OrganizationDelegationPanel({
 
   useEffect(() => {
     let active = true;
-    setLoadingContext(true);
+
+    queueMicrotask(() => {
+      if (active) {
+        setLoadingContext(true);
+      }
+    });
 
     getOrganizationDelegationContext(
       accessToken,

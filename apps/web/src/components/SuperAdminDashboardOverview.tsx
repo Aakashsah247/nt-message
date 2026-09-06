@@ -88,7 +88,12 @@ export function SuperAdminDashboardOverview({
 
   useEffect(() => {
     let active = true;
-    setLoading(true);
+
+    queueMicrotask(() => {
+      if (active) {
+        setLoading(true);
+      }
+    });
 
     // The operational dashboard uses governance metadata only. It never asks
     // the API for private messages, attachment contents or communication links.
@@ -123,14 +128,18 @@ export function SuperAdminDashboardOverview({
     };
   }, [accessToken, refreshKey, t]);
 
-  const counts = summary?.counts ?? {
-    DRAFT: 0,
-    PENDING_APPROVAL: 0,
-    APPROVED: 0,
-    REJECTED: 0,
-    ACTIVATION_PENDING: 0,
-    ACTIVATED: 0,
-  };
+  const counts = useMemo(
+    () =>
+      summary?.counts ?? {
+        DRAFT: 0,
+        PENDING_APPROVAL: 0,
+        APPROVED: 0,
+        REJECTED: 0,
+        ACTIVATION_PENDING: 0,
+        ACTIVATED: 0,
+      },
+    [summary?.counts],
+  );
 
   const lifecycleMaximum = useMemo(
     () => Math.max(1, ...LIFECYCLE_STATUSES.map((status) => counts[status])),

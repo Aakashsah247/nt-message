@@ -51,13 +51,23 @@ export function StarredMessagesPage() {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
+    let cancelled = false;
+
     if (!accessToken) {
-      setItems([]);
-      setLoading(false);
-      return;
+      queueMicrotask(() => {
+        if (cancelled) {
+          return;
+        }
+
+        setItems([]);
+        setLoading(false);
+      });
+
+      return () => {
+        cancelled = true;
+      };
     }
 
-    let cancelled = false;
     const token = accessToken;
 
     async function loadStarredMessages(): Promise<void> {

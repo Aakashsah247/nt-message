@@ -132,15 +132,31 @@ export function MyAccountStatusPanel({
   const [refreshKey, setRefreshKey] = useState(0);
 
   useEffect(() => {
+    let active = true;
+
     if (!accessToken) {
-      setLoading(false);
-      setError(t("myStatus.sessionUnavailable"));
-      return;
+      queueMicrotask(() => {
+        if (!active) {
+          return;
+        }
+
+        setLoading(false);
+        setError(t("myStatus.sessionUnavailable"));
+      });
+
+      return () => {
+        active = false;
+      };
     }
 
-    let active = true;
-    setLoading(true);
-    setError("");
+    queueMicrotask(() => {
+      if (!active) {
+        return;
+      }
+
+      setLoading(true);
+      setError("");
+    });
 
     getOwnAccountStatus(accessToken)
       .then((result) => {

@@ -33,6 +33,15 @@ export class WorkTypeV3Controller {
     return this.workTypeService.getActionContext(user, officeId);
   }
 
+  @Get('configuration-context')
+  getConfigurationContext(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('officeId', new ParseUUIDPipe({ version: '4' }))
+    officeId: string,
+  ) {
+    return this.workTypeService.getConfigurationContext(user, officeId);
+  }
+
   @Get()
   list(
     @CurrentUser() user: AuthenticatedUser,
@@ -47,10 +56,7 @@ export class WorkTypeV3Controller {
     @CurrentUser() user: AuthenticatedUser,
     @Param('officeId', new ParseUUIDPipe({ version: '4' }))
     officeId: string,
-    @Param(
-      'workTypeDefinitionId',
-      new ParseUUIDPipe({ version: '4' }),
-    )
+    @Param('workTypeDefinitionId', new ParseUUIDPipe({ version: '4' }))
     workTypeDefinitionId: string,
     @Body() dto: CreateWorkTypeDraftDto,
   ) {
@@ -67,10 +73,7 @@ export class WorkTypeV3Controller {
     @CurrentUser() user: AuthenticatedUser,
     @Param('officeId', new ParseUUIDPipe({ version: '4' }))
     officeId: string,
-    @Param(
-      'workTypeDefinitionId',
-      new ParseUUIDPipe({ version: '4' }),
-    )
+    @Param('workTypeDefinitionId', new ParseUUIDPipe({ version: '4' }))
     workTypeDefinitionId: string,
     @Param('versionId', new ParseUUIDPipe({ version: '4' }))
     versionId: string,
@@ -85,16 +88,12 @@ export class WorkTypeV3Controller {
     );
   }
 
-
   @Put(':workTypeDefinitionId/drafts/:versionId/configuration')
   replaceDraftConfiguration(
     @CurrentUser() user: AuthenticatedUser,
     @Param('officeId', new ParseUUIDPipe({ version: '4' }))
     officeId: string,
-    @Param(
-      'workTypeDefinitionId',
-      new ParseUUIDPipe({ version: '4' }),
-    )
+    @Param('workTypeDefinitionId', new ParseUUIDPipe({ version: '4' }))
     workTypeDefinitionId: string,
     @Param('versionId', new ParseUUIDPipe({ version: '4' }))
     versionId: string,
@@ -113,10 +112,7 @@ export class WorkTypeV3Controller {
     @CurrentUser() user: AuthenticatedUser,
     @Param('officeId', new ParseUUIDPipe({ version: '4' }))
     officeId: string,
-    @Param(
-      'workTypeDefinitionId',
-      new ParseUUIDPipe({ version: '4' }),
-    )
+    @Param('workTypeDefinitionId', new ParseUUIDPipe({ version: '4' }))
     workTypeDefinitionId: string,
     @Param('versionId', new ParseUUIDPipe({ version: '4' }))
     versionId: string,
@@ -134,10 +130,7 @@ export class WorkTypeV3Controller {
     @CurrentUser() user: AuthenticatedUser,
     @Param('officeId', new ParseUUIDPipe({ version: '4' }))
     officeId: string,
-    @Param(
-      'workTypeDefinitionId',
-      new ParseUUIDPipe({ version: '4' }),
-    )
+    @Param('workTypeDefinitionId', new ParseUUIDPipe({ version: '4' }))
     workTypeDefinitionId: string,
     @Param('versionId', new ParseUUIDPipe({ version: '4' }))
     versionId: string,
@@ -155,16 +148,9 @@ export class WorkTypeV3Controller {
     @CurrentUser() user: AuthenticatedUser,
     @Param('officeId', new ParseUUIDPipe({ version: '4' }))
     officeId: string,
-    @Param(
-      'workTypeDefinitionId',
-      new ParseUUIDPipe({ version: '4' }),
-    )
+    @Param('workTypeDefinitionId', new ParseUUIDPipe({ version: '4' }))
     workTypeDefinitionId: string,
   ) {
-    return this.workTypeService.getById(
-      user,
-      officeId,
-      workTypeDefinitionId,
-    );
+    return this.workTypeService.getById(user, officeId, workTypeDefinitionId);
   }
 }

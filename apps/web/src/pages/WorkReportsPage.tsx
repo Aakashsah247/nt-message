@@ -604,7 +604,11 @@ function WorkRecordsView({
 
   useEffect(() => {
     if (!section || !selectedId) return;
-    if (!section.rows.some((row) => row.id === selectedId)) setSelectedId(null);
+    if (!section.rows.some((row) => row.id === selectedId)) {
+      queueMicrotask(() => {
+        setSelectedId(null);
+      });
+    }
   }, [section, selectedId]);
 
   useEffect(() => {
@@ -1469,7 +1473,16 @@ export function WorkReportsPage() {
   }, [accessToken, overviewApplied]);
 
   useEffect(() => {
-    void loadOverview();
+    let active = true;
+    queueMicrotask(() => {
+      if (active) {
+        void loadOverview();
+      }
+    });
+
+    return () => {
+      active = false;
+    };
   }, [loadOverview]);
 
   const loadPerformanceReport = useCallback(async () => {
@@ -1493,7 +1506,16 @@ export function WorkReportsPage() {
   }, [accessToken, performanceApplied, view]);
 
   useEffect(() => {
-    void loadPerformanceReport();
+    let active = true;
+    queueMicrotask(() => {
+      if (active) {
+        void loadPerformanceReport();
+      }
+    });
+
+    return () => {
+      active = false;
+    };
   }, [loadPerformanceReport]);
 
   const loadWorkRecords = useCallback(async () => {
@@ -1517,7 +1539,16 @@ export function WorkReportsPage() {
   }, [accessToken, recordsApplied, recordsPage, view]);
 
   useEffect(() => {
-    void loadWorkRecords();
+    let active = true;
+    queueMicrotask(() => {
+      if (active) {
+        void loadWorkRecords();
+      }
+    });
+
+    return () => {
+      active = false;
+    };
   }, [loadWorkRecords]);
 
   const loadDutyReport = useCallback(async () => {
@@ -1541,7 +1572,16 @@ export function WorkReportsPage() {
   }, [accessToken, dutyApplied, dutyPage, view]);
 
   useEffect(() => {
-    void loadDutyReport();
+    let active = true;
+    queueMicrotask(() => {
+      if (active) {
+        void loadDutyReport();
+      }
+    });
+
+    return () => {
+      active = false;
+    };
   }, [loadDutyReport]);
 
   const overviewDivisions = useMemo(

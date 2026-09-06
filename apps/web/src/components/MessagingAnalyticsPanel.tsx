@@ -216,16 +216,31 @@ export function MessagingAnalyticsPanel({
   const [refreshKey, setRefreshKey] = useState(0);
 
   useEffect(() => {
-    if (!accessToken) {
-      setError(t("errors.session"));
-      setLoading(false);
-      return;
-    }
-
     let active = true;
 
-    setLoading(true);
-    setError("");
+    if (!accessToken) {
+      queueMicrotask(() => {
+        if (!active) {
+          return;
+        }
+
+        setError(t("errors.session"));
+        setLoading(false);
+      });
+
+      return () => {
+        active = false;
+      };
+    }
+
+    queueMicrotask(() => {
+      if (!active) {
+        return;
+      }
+
+      setLoading(true);
+      setError("");
+    });
 
     // Workforce totals follow the authorized organization scope; communication totals are personal.
     getMessagingAnalytics(accessToken)

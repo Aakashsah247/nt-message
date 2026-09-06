@@ -9,6 +9,7 @@ import type { FormEvent, ReactNode } from "react";
 import { Link, useSearchParams } from "react-router";
 
 import { useAuth } from "../context/AuthContext";
+import { useCurrentTime } from "../utils/use-current-time";
 import {
   connectMessagingSocketAfterEffectCommit,
   createMessagingSocket,
@@ -303,6 +304,7 @@ function activityLabel(activity: WorkActivity): string {
 export function EmployeeWorkPage() {
   const { account, accessToken } = useAuth();
   const [searchParams, setSearchParams] = useSearchParams();
+  const currentTime = useCurrentTime();
   const [items, setItems] = useState<WorkItem[]>([]);
   const [pagination, setPagination] = useState({ page: 1, total: 0, totalPages: 1 });
   const [pendingHelpRequests, setPendingHelpRequests] = useState<WorkHelpRequest[]>([]);
@@ -393,11 +395,20 @@ export function EmployeeWorkPage() {
     } finally {
       setLoadingList(false);
     }
-  }, [accessToken, historyFrom, historyTo, page, refreshKey, search, status, view]);
+  }, [accessToken, historyFrom, historyTo, page, search, status, view]);
 
   useEffect(() => {
-    void loadOverview();
-  }, [loadOverview]);
+    let active = true;
+    queueMicrotask(() => {
+      if (active) {
+        void loadOverview();
+      }
+    });
+
+    return () => {
+      active = false;
+    };
+  }, [loadOverview, refreshKey]);
 
   useEffect(() => {
     const timer = window.setInterval(() => {
@@ -424,7 +435,11 @@ export function EmployeeWorkPage() {
 
     let active = true;
     const range = getLocalDayRange();
-    setDailyLoading(true);
+    queueMicrotask(() => {
+      if (active) {
+        setDailyLoading(true);
+      }
+    });
 
     Promise.all([
       listEmployeeWorkItems(accessToken, {
@@ -468,15 +483,31 @@ export function EmployeeWorkPage() {
   }, [accessToken, dayKey, refreshKey]);
 
   useEffect(() => {
+    let active = true;
+
     if (!accessToken || !selectedId) {
-      setSelectedItem(null);
-      setActivities([]);
-      return;
+      queueMicrotask(() => {
+        if (!active) {
+          return;
+        }
+
+        setSelectedItem(null);
+        setActivities([]);
+      });
+
+      return () => {
+        active = false;
+      };
     }
 
-    let active = true;
-    setLoadingDetail(true);
-    setActionError("");
+    queueMicrotask(() => {
+      if (!active) {
+        return;
+      }
+
+      setLoadingDetail(true);
+      setActionError("");
+    });
 
     Promise.all([
       getEmployeeWorkItem(accessToken, selectedId),
@@ -705,17 +736,33 @@ export function EmployeeWorkPage() {
                     ? { title: "Work already started", message: `Started by ${sharedTeamStartedBy}. Everyone on the team sees the same progress.` }
                     : null;
 
+  const selectedItemId = selectedItem?.id ?? null;
+
   useEffect(() => {
-    if (!accessToken || !selectedItem || !canUseSalesPanel) {
-      setSalesMessages([]);
-      setSalesText("");
-      setSalesFiles([]);
-      return;
+    let active = true;
+
+    if (!accessToken || !selectedItemId || !canUseSalesPanel) {
+      queueMicrotask(() => {
+        if (!active) {
+          return;
+        }
+
+        setSalesMessages([]);
+        setSalesText("");
+        setSalesFiles([]);
+      });
+
+      return () => {
+        active = false;
+      };
     }
 
-    let active = true;
-    setLoadingSalesMessages(true);
-    listEmployeeWorkSalesMessages(accessToken, selectedItem.id)
+    queueMicrotask(() => {
+      if (active) {
+        setLoadingSalesMessages(true);
+      }
+    });
+    listEmployeeWorkSalesMessages(accessToken, selectedItemId)
       .then((response) => {
         if (active) setSalesMessages(response.messages);
       })
@@ -729,7 +776,7 @@ export function EmployeeWorkPage() {
     return () => {
       active = false;
     };
-  }, [accessToken, canUseSalesPanel, refreshKey, selectedItem?.id]);
+  }, [accessToken, canUseSalesPanel, refreshKey, selectedItemId]);
 
   const selectTicket = (workItemId: string) => {
     setSearchParams({ ticket: workItemId });
@@ -910,20 +957,34 @@ export function EmployeeWorkPage() {
   };
 
   useEffect(() => {
+    let active = true;
+
     if (
       dialog !== "help" ||
       !accessToken ||
       !selectedItem ||
       helpReason !== "NEED_ANOTHER_EMPLOYEE"
     ) {
-      setHelpOptions(null);
-      setSelectedHelperAccountId("");
-      setSelectedHelpDepartmentId("");
-      return;
+      queueMicrotask(() => {
+        if (!active) {
+          return;
+        }
+
+        setHelpOptions(null);
+        setSelectedHelperAccountId("");
+        setSelectedHelpDepartmentId("");
+      });
+
+      return () => {
+        active = false;
+      };
     }
 
-    let active = true;
-    setLoadingHelpOptions(true);
+    queueMicrotask(() => {
+      if (active) {
+        setLoadingHelpOptions(true);
+      }
+    });
 
     listDutyHelpRecommendations(accessToken, selectedItem.id)
       .then((response) => {
@@ -1425,7 +1486,7 @@ export function EmployeeWorkPage() {
                     <span className={`employee-work-status employee-work-status--${item.status.toLowerCase()}`}>
                       {STATUS_LABELS[item.status]}
                     </span>
-                    <time className={new Date(item.dueAt).getTime() < Date.now() && !TERMINAL_STATUSES.includes(item.status) ? "employee-work-ticket__due employee-work-ticket__due--overdue" : "employee-work-ticket__due"}>
+                    <time className={currentTime > 0 && new Date(item.dueAt).getTime() < currentTime && !TERMINAL_STATUSES.includes(item.status) ? "employee-work-ticket__due employee-work-ticket__due--overdue" : "employee-work-ticket__due"}>
                       {formatRelativeDue(item.dueAt)}
                     </time>
                   </div>

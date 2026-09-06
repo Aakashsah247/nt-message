@@ -162,16 +162,32 @@ export function EmployeeDashboardPage() {
   }, []);
 
   useEffect(() => {
+    let active = true;
+
     if (!accessToken) {
-      setLoading(false);
-      setError("Your secure session is unavailable. Sign in again.");
-      return;
+      queueMicrotask(() => {
+        if (!active) {
+          return;
+        }
+
+        setLoading(false);
+        setError("Your secure session is unavailable. Sign in again.");
+      });
+
+      return () => {
+        active = false;
+      };
     }
 
-    let active = true;
     const range = getLocalDayRange();
-    setLoading(true);
-    setError("");
+    queueMicrotask(() => {
+      if (!active) {
+        return;
+      }
+
+      setLoading(true);
+      setError("");
+    });
 
     Promise.all([
       getEmployeeWorkDashboardSummary(accessToken),

@@ -1,5 +1,6 @@
 import type { AccountRole } from "../../types/auth";
 import type { OrganizationNavigationMode } from "../../types/organization-v3";
+import type { WorkTypeNavigationMode } from "../../types/work-type-v3";
 import type { ManagementIconName } from "./ManagementIcon";
 
 export type AdminWorkspaceView =
@@ -324,26 +325,69 @@ function withOfficeManagement(
   ];
 }
 
+function withWorkTypeNavigation(
+  sections: ManagementNavigationSection[],
+  workTypeMode: WorkTypeNavigationMode,
+): ManagementNavigationSection[] {
+  if (workTypeMode === "NONE") {
+    return sections;
+  }
+
+  const item: ManagementNavigationItem = {
+    icon: "work",
+    label: "Work Types",
+    labelKey: "navigation.items.workTypes",
+    path: "/work-types",
+  };
+
+  const preferredIndex = sections.findIndex(
+    (section) => section.id === "office-management",
+  );
+  const targetIndex = preferredIndex >= 0
+    ? preferredIndex
+    : sections.findIndex((section) => section.id === "operations");
+
+  if (targetIndex < 0) {
+    return sections;
+  }
+
+  return sections.map((section, index) =>
+    index === targetIndex
+      ? { ...section, items: [...section.items, item] }
+      : section,
+  );
+}
+
 // Navigation visibility follows the server-resolved organization context.
 // ProtectedRoute and backend authorization remain the security boundaries.
 export function getManagementNavigation(
   role: AccountRole,
   organizationMode: OrganizationNavigationMode = "NONE",
+  workTypeMode: WorkTypeNavigationMode = "NONE",
 ): ManagementNavigationSection[] {
   if (role === "SUPER_ADMIN") {
-    return [...SUPER_ADMIN_NAVIGATION, ACCOUNT_SETTINGS_SECTION];
+    return [
+      ...withWorkTypeNavigation(SUPER_ADMIN_NAVIGATION, workTypeMode),
+      ACCOUNT_SETTINGS_SECTION,
+    ];
   }
 
   if (role === "SENIOR_MANAGEMENT" || role === "TEAM_MANAGER") {
     return [
-      ...withOfficeManagement(getManagerNavigation(role), organizationMode),
+      ...withWorkTypeNavigation(
+        withOfficeManagement(getManagerNavigation(role), organizationMode),
+        workTypeMode,
+      ),
       ACCOUNT_SETTINGS_SECTION,
     ];
   }
 
   if (role === "EMPLOYEE") {
     return [
-      ...withOfficeManagement(EMPLOYEE_NAVIGATION, organizationMode),
+      ...withWorkTypeNavigation(
+        withOfficeManagement(EMPLOYEE_NAVIGATION, organizationMode),
+        workTypeMode,
+      ),
       ACCOUNT_SETTINGS_SECTION,
     ];
   }

@@ -17,6 +17,7 @@ const namespaces = [
   "monitoring",
   "analytics",
   "officialProfile",
+  "workTypes",
 ];
 
 async function readCatalog(language, namespace) {

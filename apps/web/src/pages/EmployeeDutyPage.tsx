@@ -105,8 +105,14 @@ export function EmployeeDutyPage() {
     if (!accessToken) return;
 
     let active = true;
-    setLoading(true);
-    setError("");
+    queueMicrotask(() => {
+      if (!active) {
+        return;
+      }
+
+      setLoading(true);
+      setError("");
+    });
 
     const from = branchDateInput();
     void Promise.all([

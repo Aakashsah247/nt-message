@@ -2,6 +2,7 @@ import {
   Fragment,
   useCallback,
   useEffect,
+  useEffectEvent,
   useLayoutEffect,
   useMemo,
   useRef,
@@ -21,6 +22,7 @@ import type { TFunction } from "i18next";
 
 import { useAuth } from "../context/AuthContext";
 import { useAvatarRegistry } from "../context/AvatarContext";
+import { useCurrentTime } from "../utils/use-current-time";
 import { logoutAllAuth } from "../services/auth.service";
 import {
   acceptMessageRequest,
@@ -952,9 +954,20 @@ function CompactAttachmentAudio({
   const progressRatio = duration > 0 ? Math.min(currentTime / duration, 1) : 0;
 
   useEffect(() => {
-    setPlaying(false);
-    setCurrentTime(0);
-    setDuration(0);
+    let active = true;
+    queueMicrotask(() => {
+      if (!active) {
+        return;
+      }
+
+      setPlaying(false);
+      setCurrentTime(0);
+      setDuration(0);
+    });
+
+    return () => {
+      active = false;
+    };
   }, [src]);
 
   function togglePlayback() {
@@ -1118,19 +1131,39 @@ function MessageAttachmentCard({
     !attachment.isExpired && (mediaPreview || audioPreview);
 
   useEffect(() => {
+    let active = true;
+
     if (!needsProtectedPreview) {
-      setPreviewEligible(false);
-      return undefined;
+      queueMicrotask(() => {
+        if (active) {
+          setPreviewEligible(false);
+        }
+      });
+
+      return () => {
+        active = false;
+      };
     }
 
     const element = cardRef.current;
 
     if (!element || typeof IntersectionObserver === "undefined") {
-      setPreviewEligible(true);
-      return undefined;
+      queueMicrotask(() => {
+        if (active) {
+          setPreviewEligible(true);
+        }
+      });
+
+      return () => {
+        active = false;
+      };
     }
 
-    setPreviewEligible(false);
+    queueMicrotask(() => {
+      if (active) {
+        setPreviewEligible(false);
+      }
+    });
     const scrollRoot = element.closest<HTMLElement>(".message-thread");
     const observer = new IntersectionObserver(
       (entries) => {
@@ -1151,8 +1184,14 @@ function MessageAttachmentCard({
     );
 
     observer.observe(element);
-    return () => observer.disconnect();
+    return () => {
+      active = false;
+      observer.disconnect();
+    };
   }, [attachment.id, needsProtectedPreview]);
+
+  const attachmentPreviewUsesStream =
+    isVideoAttachment(attachment) || isAudioAttachment(attachment);
 
   useEffect(() => {
     if (!accessToken || !needsProtectedPreview || !previewEligible) {
@@ -1162,13 +1201,17 @@ function MessageAttachmentCard({
     let cancelled = false;
     let objectUrl: string | null = null;
 
-    setPreviewUrl(null);
-    setPreviewError(null);
+    queueMicrotask(() => {
+      if (!cancelled) {
+        setPreviewUrl(null);
+        setPreviewError(null);
+      }
+    });
 
     // Images keep the authenticated Blob preview. Video/audio use a short-lived
     // protected URL so the browser can request only the byte ranges it needs.
     const previewRequest =
-      isVideoAttachment(attachment) || isAudioAttachment(attachment)
+      attachmentPreviewUsesStream
         ? createConversationAttachmentStreamUrl(
             accessToken,
             conversationId,
@@ -1216,11 +1259,13 @@ function MessageAttachmentCard({
   }, [
     accessToken,
     attachment.id,
+    attachmentPreviewUsesStream,
     conversationId,
     messageId,
     needsProtectedPreview,
     previewEligible,
     previewRequestVersion,
+    t,
   ]);
 
   const displayName = isVoiceNote ? t("attachment.voiceNote") : attachment.originalFileName;
@@ -2029,6 +2074,7 @@ function getMessageLocationPayload(
 
 function isLiveLocationActive(
   location: MessagingLocationPayload | null,
+  currentTime: number,
 ): boolean {
   if (
     !location ||
@@ -2039,7 +2085,7 @@ function isLiveLocationActive(
     return false;
   }
 
-  return new Date(location.liveExpiresAt).getTime() > Date.now();
+  return currentTime > 0 && new Date(location.liveExpiresAt).getTime() > currentTime;
 }
 
 function formatLocationCoordinate(value: number): string {
@@ -2111,19 +2157,22 @@ function LocationMessageCard({
   onStop,
 }: LocationMessageCardProps) {
   const { t } = useTranslation("messaging");
+  const currentTime = useCurrentTime();
   const location = getMessageLocationPayload(message);
 
   if (!location) {
     return null;
   }
 
-  const active = isLiveLocationActive(location);
+  const active = isLiveLocationActive(location, currentTime);
   const ownMessage = message.senderAccountId === viewerAccountId;
   const statusLabel = location.label ?? (location.kind === "CURRENT"
     ? t("location.current")
     : location.liveStoppedAt
       ? t("location.stopped")
-      : location.liveExpiresAt && new Date(location.liveExpiresAt).getTime() <= Date.now()
+      : currentTime > 0 &&
+          location.liveExpiresAt &&
+          new Date(location.liveExpiresAt).getTime() <= currentTime
         ? t("location.expired")
         : t("location.active"));
 
@@ -2527,7 +2576,9 @@ function SharedMediaThumbnail({
     }
 
     if (typeof IntersectionObserver === "undefined") {
-      setShouldLoad(true);
+      queueMicrotask(() => {
+        setShouldLoad(true);
+      });
       return;
     }
 
@@ -2545,6 +2596,8 @@ function SharedMediaThumbnail({
     return () => observer.disconnect();
   }, [shouldLoad]);
 
+  const video = isVideoAttachment(item.attachment);
+
   useEffect(() => {
     if (!accessToken || !shouldLoad) {
       return;
@@ -2553,9 +2606,13 @@ function SharedMediaThumbnail({
     let cancelled = false;
     let createdObjectUrl: string | null = null;
 
-    setPreviewError(false);
+    queueMicrotask(() => {
+      if (!cancelled) {
+        setPreviewError(false);
+      }
+    });
 
-    const previewRequest = isVideoAttachment(item.attachment)
+    const previewRequest = video
       ? createConversationAttachmentStreamUrl(
           accessToken,
           item.conversationId,
@@ -2600,9 +2657,8 @@ function SharedMediaThumbnail({
     item.conversationId,
     item.messageId,
     shouldLoad,
+    video,
   ]);
-
-  const video = isVideoAttachment(item.attachment);
 
   return (
     <button
@@ -3396,8 +3452,10 @@ function useMessageModalKeyboardBoundary(
   const closeDisabledRef = useRef(closeDisabled);
   const returnFocusRef = useRef<HTMLElement | null>(null);
 
-  closeRef.current = onRequestClose;
-  closeDisabledRef.current = closeDisabled;
+  useLayoutEffect(() => {
+    closeRef.current = onRequestClose;
+    closeDisabledRef.current = closeDisabled;
+  }, [closeDisabled, onRequestClose]);
 
   useEffect(() => {
     if (!open) {
@@ -4635,7 +4693,7 @@ export function MessageAppPage() {
     return () => {
       cancelled = true;
     };
-  }, [accessToken]);
+  }, [accessToken, t]);
 
   const loadBlockedAccounts = useCallback(async () => {
     if (!accessToken) {
@@ -4658,7 +4716,7 @@ export function MessageAppPage() {
     } finally {
       setBlockedAccountsLoading(false);
     }
-  }, [accessToken]);
+  }, [accessToken, t]);
 
   useEffect(() => {
     void loadBlockedAccounts();
@@ -4940,7 +4998,7 @@ export function MessageAppPage() {
         }
       }
     },
-    [accessToken, selectedOfficialConversationId],
+    [accessToken, selectedOfficialConversationId, t],
   );
 
   useEffect(() => {
@@ -5252,6 +5310,7 @@ export function MessageAppPage() {
     activeMentionQuery,
     editingMessage,
     selectedOfficialConversationId,
+    t,
   ]);
 
   async function loadMoreOfficialMentionSuggestions(): Promise<void> {
@@ -5515,7 +5574,7 @@ export function MessageAppPage() {
     }, 280);
 
     return () => window.clearTimeout(timer);
-  }, [accessToken, searchPanelOpen, searchText, selectedConversationId]);
+  }, [accessToken, searchPanelOpen, searchText, selectedConversationId, t]);
 
   useEffect(() => {
     // Search is conversation-specific. Never carry results or a query into a
@@ -5670,7 +5729,7 @@ export function MessageAppPage() {
       document.body.classList.remove("message-attachment-viewer-open");
       window.removeEventListener("keydown", handleViewerKeyboard);
     };
-  }, [attachmentViewer?.attachment.id]);
+  }, [attachmentViewer]);
 
   useEffect(() => {
     if (!settingsMode && storageUsageScope) {
@@ -5754,7 +5813,7 @@ export function MessageAppPage() {
     return () => {
       cancelled = true;
     };
-  }, [accessToken, account?.id, profileAccountId]);
+  }, [accessToken, account?.id, profileAccountId, t]);
 
   useEffect(() => {
     if (!accessToken || !profileData?.profilePhotoKey) {
@@ -6256,7 +6315,7 @@ export function MessageAppPage() {
         .toLowerCase()
         .includes(query),
     );
-  }, [conversationSearch, officialGroupConversations]);
+  }, [conversationSearch, officialGroupConversations, t]);
 
   const filteredStarredItems = useMemo(() => {
     const query = conversationSearch.trim().toLowerCase();
@@ -6279,7 +6338,7 @@ export function MessageAppPage() {
         .toLowerCase()
         .includes(query),
     );
-  }, [conversationSearch, starredItems]);
+  }, [conversationSearch, starredItems, t]);
 
   const requestItems = useMemo(
     () =>
@@ -6311,7 +6370,7 @@ export function MessageAppPage() {
         .toLowerCase()
         .includes(query),
     );
-  }, [conversationSearch, requestItems]);
+  }, [conversationSearch, requestItems, t]);
 
   const filteredNotifications = useMemo(() => {
     const query = conversationSearch.trim().toLowerCase();
@@ -6509,7 +6568,7 @@ export function MessageAppPage() {
         }
       }
     },
-    [accessToken, conversationListView, listMode, selectedListId],
+    [accessToken, conversationListView, listMode, selectedListId, t],
   );
 
   const loadMoreConversations = useCallback(async (): Promise<void> => {
@@ -6586,6 +6645,7 @@ export function MessageAppPage() {
     conversationNextCursor,
     listMode,
     selectedListId,
+    t,
   ]);
 
   const loadChatFolders = useCallback(
@@ -6617,7 +6677,7 @@ export function MessageAppPage() {
         }
       }
     },
-    [accessToken],
+    [accessToken, t],
   );
 
   const loadListCandidateConversations = useCallback(
@@ -6690,7 +6750,7 @@ export function MessageAppPage() {
         setListCandidatesLoading(false);
       }
     },
-    [accessToken],
+    [accessToken, t],
   );
 
   const loadSelectedGroupAnnouncements = useCallback(
@@ -6737,7 +6797,7 @@ export function MessageAppPage() {
         }
       }
     },
-    [accessToken],
+    [accessToken, t],
   );
 
   function resetAnnouncementComposer(): void {
@@ -7085,7 +7145,7 @@ export function MessageAppPage() {
               : attachment,
           ),
         );
-        throw new Error(`${pending.file.name}: ${message}`);
+        throw new Error(`${pending.file.name}: ${message}`, { cause: error });
       }
     }
   }
@@ -7556,7 +7616,7 @@ export function MessageAppPage() {
         }
       }
     },
-    [accessToken],
+    [accessToken, t],
   );
 
   const loadMoreStarredMessages = useCallback(async (): Promise<void> => {
@@ -7609,7 +7669,7 @@ export function MessageAppPage() {
         }
       }
     },
-    [accessToken],
+    [accessToken, t],
   );
 
   const loadMessages = useCallback(
@@ -7749,7 +7809,7 @@ export function MessageAppPage() {
         }
       }
     },
-    [accessToken, account?.id],
+    [accessToken, account?.id, t],
   );
 
   useEffect(() => {
@@ -8414,11 +8474,31 @@ export function MessageAppPage() {
     } finally {
       setNotificationsLoading(false);
     }
-  }, [accessToken]);
+  }, [accessToken, t]);
 
   useEffect(() => {
     void loadNotifications();
   }, [loadNotifications]);
+
+  const resetAttachmentUpload = useCallback((): void => {
+    setAttachmentUpload(EMPTY_ATTACHMENT_UPLOAD_STATE);
+  }, []);
+
+  const clearSelectedAttachment = useCallback((): void => {
+    selectedAttachmentsRef.current.forEach((attachment) => {
+      if (attachment.previewUrl) {
+        URL.revokeObjectURL(attachment.previewUrl);
+      }
+    });
+    selectedAttachmentsRef.current = [];
+    setSelectedAttachments([]);
+    setSelectedAttachmentKind("FILE");
+    resetAttachmentUpload();
+
+    if (attachmentInputRef.current) {
+      attachmentInputRef.current.value = "";
+    }
+  }, [resetAttachmentUpload]);
 
   const applyPersonalConversationHistoryLocally = useCallback(
     (
@@ -8502,7 +8582,19 @@ export function MessageAppPage() {
         clearSelectedAttachment();
       }
     },
-    [stopLocalTyping],
+    [clearSelectedAttachment, stopLocalTyping],
+  );
+
+  const handleRealtimeNotificationClick = useEffectEvent(
+    (notification: MessagingNotification) => {
+      void handleNotificationClick(notification);
+    },
+  );
+  const resetRealtimeGroupDialogState = useEffectEvent(() => {
+    resetGroupDialogState();
+  });
+  const getBrowserNotificationOpenText = useEffectEvent(() =>
+    t("feedback.browserNotificationOpen"),
   );
 
   useEffect(() => {
@@ -8722,7 +8814,7 @@ export function MessageAppPage() {
           {
             body: messagingSettings.notificationPreview
               ? payload.notification.body
-              : t("feedback.browserNotificationOpen"),
+              : getBrowserNotificationOpenText(),
             tag: payload.notification.id,
           },
         );
@@ -8730,7 +8822,7 @@ export function MessageAppPage() {
         browserNotification.onclick = () => {
           window.focus();
           browserNotification.close();
-          void handleNotificationClick(payload.notification);
+          handleRealtimeNotificationClick(payload.notification);
         };
       }
     };
@@ -8963,7 +9055,7 @@ export function MessageAppPage() {
           setSelectedConversationId(null);
           setDetailsPanelOpen(false);
           setGroupManagementWorkspaceOpen(false);
-          resetGroupDialogState();
+          resetRealtimeGroupDialogState();
         }
       }
 
@@ -9193,12 +9285,7 @@ export function MessageAppPage() {
         item.conversationId ? [item.conversationId] : [],
       ),
     );
-  }, [
-    listMode,
-    selectedChatFolder?.id,
-    selectedChatFolder?.name,
-    selectedChatFolder?.updatedAt,
-  ]);
+  }, [listMode, selectedChatFolder]);
 
   useEffect(() => {
     if (
@@ -9216,6 +9303,7 @@ export function MessageAppPage() {
     chatFoldersLoading,
     listMode,
     selectedChatFolder,
+    t,
   ]);
 
   useEffect(() => {
@@ -9971,7 +10059,7 @@ export function MessageAppPage() {
       active = false;
       window.clearTimeout(timer);
     };
-  }, [accessToken, contactSearch, newConversationOpen]);
+  }, [accessToken, contactSearch, newConversationOpen, t]);
 
   useEffect(() => {
     if (
@@ -10021,6 +10109,7 @@ export function MessageAppPage() {
     groupKind,
     groupSearch,
     selectedConversation?.groupKind,
+    t,
   ]);
 
   useEffect(() => {
@@ -10059,7 +10148,7 @@ export function MessageAppPage() {
       active = false;
       window.clearTimeout(timer);
     };
-  }, [accessToken, privateGroupDialogOpen, privateGroupSearch]);
+  }, [accessToken, privateGroupDialogOpen, privateGroupSearch, t]);
 
   useEffect(() => {
     if (
@@ -10104,7 +10193,7 @@ export function MessageAppPage() {
     return () => {
       active = false;
     };
-  }, [accessToken, canCreateOfficialGroup, groupDialogMode]);
+  }, [accessToken, canCreateOfficialGroup, groupDialogMode, t]);
 
   useEffect(() => {
     if (
@@ -10150,6 +10239,7 @@ export function MessageAppPage() {
     selectedConversation?.canManageGroup,
     selectedConversation?.groupKind,
     selectedConversation?.id,
+    t,
   ]);
 
   useEffect(() => {
@@ -10201,6 +10291,8 @@ export function MessageAppPage() {
     selectedConversation?.canManageGroup,
     selectedConversation?.groupKind,
     selectedConversation?.id,
+    selectedConversation?.type,
+    t,
   ]);
 
   useEffect(() => {
@@ -10259,7 +10351,7 @@ export function MessageAppPage() {
         navigate("/messages", { replace: true });
       }
     })();
-  }, [accessToken, location.pathname, location.search, navigate]);
+  }, [accessToken, location.pathname, location.search, navigate, t]);
 
   useEffect(() => {
     if (!accessToken) {
@@ -10297,7 +10389,7 @@ export function MessageAppPage() {
       .finally(() => {
         setInviteJoinLoading(false);
       });
-  }, [accessToken, location.search, loadConversations, navigate]);
+  }, [accessToken, loadConversations, location.search, navigate, t]);
 
   function resetGroupInviteState(): void {
     setGroupInviteLink(null);
@@ -12635,10 +12727,6 @@ export function MessageAppPage() {
     }
   }
 
-  function resetAttachmentUpload(): void {
-    setAttachmentUpload(EMPTY_ATTACHMENT_UPLOAD_STATE);
-  }
-
   function updateAttachmentUploadProgress(
     progress: AttachmentUploadProgress,
   ): void {
@@ -12649,21 +12737,6 @@ export function MessageAppPage() {
       totalBytes: progress.totalBytes,
       error: null,
     });
-  }
-
-  function clearSelectedAttachment(): void {
-    selectedAttachments.forEach((attachment) => {
-      if (attachment.previewUrl) {
-        URL.revokeObjectURL(attachment.previewUrl);
-      }
-    });
-    setSelectedAttachments([]);
-    setSelectedAttachmentKind("FILE");
-    resetAttachmentUpload();
-
-    if (attachmentInputRef.current) {
-      attachmentInputRef.current.value = "";
-    }
   }
 
   function removeSelectedAttachment(attachmentId: string): void {

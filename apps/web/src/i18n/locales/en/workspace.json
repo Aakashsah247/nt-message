@@ -36,7 +36,8 @@
       "messages": "Messages",
       "settings": "Settings",
       "organizationViewer": "Organization Viewer",
-      "organizationPeople": "Organization & People"
+      "organizationPeople": "Organization & People",
+      "workTypes": "Work Types"
     },
     "open": "Open navigation"
   },
