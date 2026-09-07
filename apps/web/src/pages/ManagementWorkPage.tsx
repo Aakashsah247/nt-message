@@ -2548,7 +2548,7 @@ export function ManagementWorkPage() {
             </Link>
             <button
               type="button"
-              onClick={() => navigate("/work-management/create")}
+              onClick={() => navigate("/work-runtime-v3/create")}
             >
               + Create Work
             </button>
@@ -3577,7 +3577,7 @@ export function ManagementWorkPage() {
                   <strong>{workspaceMode === "CURRENT" ? "No current work" : workspaceMode === "HISTORY" ? "No work history" : "No archived work"}</strong>
                   <p>{queue?.queue.explorerRequiresFilter ? "Choose at least one filter to load this queue." : "There are no work items in this view."}</p>
                   {workspaceMode === "CURRENT" && (
-                    <button type="button" onClick={() => navigate("/work-management/create")}>Create Work</button>
+                    <button type="button" onClick={() => navigate("/work-runtime-v3/create")}>Create Work</button>
                   )}
                 </div>
               ) : (

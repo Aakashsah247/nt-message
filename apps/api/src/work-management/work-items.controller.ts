@@ -1,5 +1,6 @@
 import {
   Body,
+  ConflictException,
   Controller,
   Delete,
   Get,
@@ -30,7 +31,6 @@ import { AccountRole } from '../generated/prisma/client';
 import { CancelWorkItemDto } from './dto/cancel-work-item.dto';
 import { CompleteSalesWorkDto } from './dto/complete-sales-work.dto';
 import { CoordinateWorkHelpDto } from './dto/coordinate-work-help.dto';
-import { CreateWorkItemDto } from './dto/create-work-item.dto';
 import { CreateWorkSalesMessageDto } from './dto/create-work-sales-message.dto';
 import { ListWorkAssigneesQueryDto } from './dto/list-work-assignees-query.dto';
 import { ListWorkItemsQueryDto } from './dto/list-work-items-query.dto';
@@ -80,12 +80,10 @@ export class WorkItemsController {
 
   @Post()
   @Roles(...WORK_ASSIGNER_ROLES)
-  create(
-    @CurrentUser() user: AuthenticatedUser,
-    @Body() dto: CreateWorkItemDto,
-  ) {
-    // The service derives organization scope from server-owned employee records.
-    return this.workItemsService.create(user, dto);
+  create(): never {
+    throw new ConflictException(
+      'WM-V2 creation is closed after the Work Runtime V3 cutover. Create new Work from the Work Runtime workspace.',
+    );
   }
 
   @Get()

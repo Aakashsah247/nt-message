@@ -1,6 +1,5 @@
 import { ForbiddenException } from '@nestjs/common';
 
-import type { AuthenticatedUser } from '../auth/types/auth.types';
 import type { PrismaService } from '../database/prisma.service';
 import {
   AccountRole,
@@ -408,7 +407,10 @@ describe('WorkScopeService', () => {
         departmentId: 'department-a',
       }),
     ).toEqual({
-      AND: [{ officeId: null }, { divisionId: 'division-a' }],
+      AND: [
+        { status: { not: WorkItemStatus.V3_RUNTIME } },
+        { divisionId: 'division-a' },
+      ],
     });
   });
 
@@ -420,7 +422,7 @@ describe('WorkScopeService', () => {
         divisionId: null,
         departmentId: null,
       }),
-    ).toEqual({ officeId: null });
+    ).toEqual({ status: { not: WorkItemStatus.V3_RUNTIME } });
 
     expect(
       service.buildOrganizationHierarchyWorkWhere({
@@ -430,7 +432,10 @@ describe('WorkScopeService', () => {
         departmentId: null,
       }),
     ).toEqual({
-      AND: [{ officeId: null }, { divisionId: 'division-a' }],
+      AND: [
+        { status: { not: WorkItemStatus.V3_RUNTIME } },
+        { divisionId: 'division-a' },
+      ],
     });
 
     expect(
@@ -441,7 +446,10 @@ describe('WorkScopeService', () => {
         departmentId: 'department-a',
       }),
     ).toEqual({
-      AND: [{ officeId: null }, { departmentId: 'department-a' }],
+      AND: [
+        { status: { not: WorkItemStatus.V3_RUNTIME } },
+        { departmentId: 'department-a' },
+      ],
     });
   });
 
@@ -455,7 +463,7 @@ describe('WorkScopeService', () => {
       }),
     ).toEqual({
       AND: [
-        { officeId: null },
+        { status: { not: WorkItemStatus.V3_RUNTIME } },
         {
           OR: [
             {

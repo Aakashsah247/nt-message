@@ -509,10 +509,12 @@ export class WorkScopeService {
   }
 
   buildVisibleWorkWhere(actor: WorkActorContext): Prisma.WorkItemWhereInput {
-    // WM-V2 callers must not consume native V3 Work before the explicit read
-    // compatibility/cutover milestone. `officeId: null` is the additive
-    // boundary established by P6-A/P6-B Part 1.
-    const legacyOnly: Prisma.WorkItemWhereInput = { officeId: null };
+    // Migration 87 compatibility-binds legacy WM-V2 rows to an Office, so
+    // officeId can no longer identify the legacy read path. Keep native V3
+    // rows out of WM-V2 reads using the dedicated runtime marker status.
+    const legacyOnly: Prisma.WorkItemWhereInput = {
+      status: { not: WorkItemStatus.V3_RUNTIME },
+    };
 
     if (actor.role === AccountRole.SUPER_ADMIN) {
       return legacyOnly;
@@ -590,9 +592,12 @@ export class WorkScopeService {
   buildOrganizationHierarchyWorkWhere(
     actor: WorkActorContext,
   ): Prisma.WorkItemWhereInput {
-    // This method is still the WM-V2 hierarchy projection. V3 Office/OrgUnit
-    // reporting gets its own scope path during the reporting cutover.
-    const legacyOnly: Prisma.WorkItemWhereInput = { officeId: null };
+    // This method is still the WM-V2 hierarchy projection. Migration 87 gives
+    // legacy rows an Office binding, so use the native-runtime marker rather
+    // than officeId to preserve compatibility reads after backfill.
+    const legacyOnly: Prisma.WorkItemWhereInput = {
+      status: { not: WorkItemStatus.V3_RUNTIME },
+    };
 
     if (actor.role === AccountRole.SUPER_ADMIN) {
       return legacyOnly;

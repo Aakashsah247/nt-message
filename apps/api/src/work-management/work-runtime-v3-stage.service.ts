@@ -731,6 +731,133 @@ export class WorkRuntimeV3StageService {
     return this.getStage(user, officeId, stageId);
   }
 
+  async getWorkAvailableActions(
+    user: AuthenticatedUser,
+    officeId: string,
+    workItemId: string,
+  ): Promise<string[]> {
+    if (user.role === AccountRole.SUPER_ADMIN) {
+      return [];
+    }
+
+    const work = await this.prisma.workItem.findFirst({
+      where: { id: workItemId, officeId },
+      select: {
+        id: true,
+        officeId: true,
+        primaryOwnerOrgUnitId: true,
+        runtimeStatus: true,
+        workTypeVersion: {
+          select: {
+            finalClosureMode: true,
+            finalClosureLeadershipType: true,
+          },
+        },
+        runtimeStages: {
+          select: { id: true, isRequired: true, status: true },
+        },
+      },
+    });
+    if (!work?.runtimeStatus || !work.workTypeVersion) {
+      throw new NotFoundException('Native V3 Work was not found.');
+    }
+
+    const actions: string[] = [];
+    const at = new Date();
+    const workTypeVersion = work.workTypeVersion;
+
+    if (
+      work.runtimeStatus !== WorkRuntimeStatus.COMPLETED &&
+      work.runtimeStatus !== WorkRuntimeStatus.CANCELLED
+    ) {
+      if (
+        workTypeVersion.finalClosureMode !==
+          WorkFinalClosureMode.AUTO_AFTER_REQUIRED_STAGES &&
+        work.runtimeStages
+          .filter((stage) => stage.isRequired)
+          .every(
+            (stage) =>
+              stage.status === WorkStageStatus.COMPLETED ||
+              stage.status === WorkStageStatus.SKIPPED,
+          ) &&
+        (await this.authorization.can(
+          user,
+          CAPABILITIES.WORK_APPROVE_STAGE,
+          officeId,
+          work.primaryOwnerOrgUnitId,
+        ))
+      ) {
+        try {
+          await this.prisma.$transaction(async (tx) => {
+            await this.assertFinalClosureAuthority(tx, user, work, at);
+          });
+          actions.push('COMPLETE');
+        } catch (error) {
+          if (
+            !(error instanceof ForbiddenException) &&
+            !(error instanceof ConflictException)
+          ) {
+            throw error;
+          }
+        }
+      }
+
+      if (
+        await this.authorization.can(user, CAPABILITIES.WORK_CANCEL, officeId)
+      ) {
+        try {
+          await this.prisma.$transaction(async (tx) => {
+            await this.assertCurrentOfficeHead(tx, user, officeId, at, 'cancel');
+          });
+          actions.push('CANCEL');
+        } catch (error) {
+          if (
+            !(error instanceof ForbiddenException) &&
+            !(error instanceof ConflictException)
+          ) {
+            throw error;
+          }
+        }
+      }
+    }
+
+    if (
+      work.runtimeStatus === WorkRuntimeStatus.COMPLETED &&
+      work.runtimeStages.some(
+        (stage) => stage.status === WorkStageStatus.COMPLETED,
+      ) &&
+      (await this.authorization.can(
+        user,
+        CAPABILITIES.WORK_REOPEN,
+        officeId,
+        work.primaryOwnerOrgUnitId,
+      ))
+    ) {
+      try {
+        await this.prisma.$transaction(async (tx) => {
+          if (
+            workTypeVersion.finalClosureMode ===
+            WorkFinalClosureMode.AUTO_AFTER_REQUIRED_STAGES
+          ) {
+            await this.assertCurrentOfficeHead(tx, user, officeId, at, 'reopen');
+          } else {
+            await this.assertFinalClosureAuthority(tx, user, work, at);
+          }
+        });
+        actions.push('REOPEN');
+      } catch (error) {
+        if (
+          !(error instanceof ForbiddenException) &&
+          !(error instanceof ConflictException)
+        ) {
+          throw error;
+        }
+      }
+    }
+
+    return actions;
+  }
+
   async completeWork(
     user: AuthenticatedUser,
     officeId: string,

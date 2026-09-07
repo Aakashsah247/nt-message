@@ -259,6 +259,16 @@ describe('WorkNotificationsService', () => {
 
     await service.processDeadlineNotifications();
 
+    expect(prisma.workItem.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          status: {
+            notIn: expect.arrayContaining([WorkItemStatus.V3_RUNTIME]),
+          },
+        }),
+      }),
+    );
+
     expect(publish).toHaveBeenCalledWith(
       expect.objectContaining({
         action: 'DUE_SOON',

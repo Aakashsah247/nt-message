@@ -23,6 +23,8 @@ import {
   WorkParticipantRole,
   WorkRuntimeStatus,
   WorkSlaBasis,
+  WorkStageAssignmentRole,
+  WorkStageAssignmentTargetType,
   WorkStageActivationMode,
   WorkStageResponsibleOrgUnitRule,
   WorkStageStatus,
@@ -84,6 +86,7 @@ const WORK_TYPE_RUNTIME_SELECT = {
     select: {
       id: true,
       code: true,
+      label: true,
       fieldType: true,
       isRequired: true,
       stageDefinitionId: true,
@@ -168,6 +171,13 @@ const CREATED_WORK_SELECT = {
       orgUnitId: true,
       role: true,
       startedAt: true,
+      orgUnit: {
+        select: {
+          id: true,
+          code: true,
+          name: true,
+        },
+      },
     },
   },
   runtimeStages: {
@@ -187,6 +197,16 @@ const CREATED_WORK_SELECT = {
       version: true,
       dueAt: true,
       readyAt: true,
+      startedAt: true,
+      submittedAt: true,
+      completedAt: true,
+      responsibleOrgUnit: {
+        select: {
+          id: true,
+          code: true,
+          name: true,
+        },
+      },
     },
   },
   fieldValues: {
@@ -229,6 +249,25 @@ const CREATED_WORK_SELECT = {
       toStageStatus: true,
       details: true,
       createdAt: true,
+      actor: {
+        select: {
+          id: true,
+          username: true,
+          employee: {
+            select: {
+              empId: true,
+              empName: true,
+            },
+          },
+        },
+      },
+      workStage: {
+        select: {
+          id: true,
+          code: true,
+          name: true,
+        },
+      },
     },
   },
 } satisfies Prisma.WorkItemSelect;
@@ -265,6 +304,92 @@ export class WorkRuntimeV3Service {
     private readonly prisma: PrismaService,
     private readonly authorization: OrganizationAuthorizationService,
   ) {}
+
+  async getCreateContext(user: AuthenticatedUser, officeId: string) {
+    await this.authorization.assertCan(
+      user,
+      CAPABILITIES.WORK_CREATE,
+      officeId,
+      null,
+    );
+
+    return this.prisma.$transaction(async (tx) => {
+      const office = await tx.office.findUnique({
+        where: { id: officeId },
+        select: { id: true, code: true, name: true, isActive: true },
+      });
+      if (!office || !office.isActive) {
+        throw new NotFoundException('An active Office was not found.');
+      }
+
+      const now = new Date();
+      const actorContext = await this.getActorContext(
+        tx,
+        user.accountId,
+        officeId,
+        now,
+      );
+      const versions = await tx.workTypeVersion.findMany({
+        where: {
+          status: WorkTypeVersionStatus.PUBLISHED,
+          workTypeDefinition: { officeId, isActive: true },
+        },
+        orderBy: [
+          { workTypeDefinition: { sortOrder: 'asc' } },
+          { version: 'desc' },
+        ],
+        select: WORK_TYPE_RUNTIME_SELECT,
+      });
+
+      const allowed: RuntimeVersion[] = [];
+      const seenDefinitions = new Set<string>();
+      for (const version of versions) {
+        if (seenDefinitions.has(version.workTypeDefinition.id)) continue;
+        seenDefinitions.add(version.workTypeDefinition.id);
+
+        if (
+          !version.primaryOwnerOrgUnitId ||
+          !version.primaryOwnerOrgUnit ||
+          !version.primaryOwnerOrgUnit.isActive ||
+          version.primaryOwnerOrgUnit.officeId !== officeId
+        ) {
+          continue;
+        }
+
+        try {
+          await this.assertCreatorPolicy(tx, version, actorContext);
+          allowed.push(version);
+        } catch (error: unknown) {
+          if (error instanceof ForbiddenException) continue;
+          throw error;
+        }
+      }
+
+      return {
+        office,
+        workTypes: allowed.map((version) => ({
+          workTypeDefinitionId: version.workTypeDefinition.id,
+          code: version.workTypeDefinition.code,
+          workTypeVersionId: version.id,
+          version: version.version,
+          name: version.name,
+          primaryOwnerOrgUnit: version.primaryOwnerOrgUnit,
+          slaBasis: version.slaBasis,
+          overallSlaMinutes: version.overallSlaMinutes,
+          fields: version.fields
+            .filter((field) => field.stageDefinitionId === null)
+            .map((field) => ({
+              id: field.id,
+              code: field.code,
+              label: field.label,
+              fieldType: field.fieldType,
+              isRequired: field.isRequired,
+              config: field.config,
+            })),
+        })),
+      };
+    });
+  }
 
   async create(
     user: AuthenticatedUser,
@@ -524,6 +649,31 @@ export class WorkRuntimeV3Service {
     });
   }
 
+  async getWork(
+    user: AuthenticatedUser,
+    officeId: string,
+    workItemId: string,
+  ) {
+    const work = await this.prisma.workItem.findFirst({
+      where: {
+        id: workItemId,
+        officeId,
+        runtimeStatus: { not: null },
+      },
+      select: CREATED_WORK_SELECT,
+    });
+
+    if (!work || !work.officeId || !work.primaryOwnerOrgUnitId) {
+      throw new NotFoundException('Native V3 Work was not found.');
+    }
+
+    if (!(await this.canViewWork(user, work))) {
+      throw new ForbiddenException('You do not have access to this Work.');
+    }
+
+    return work;
+  }
+
   private async getCreatedWork(tx: Prisma.TransactionClient, workItemId: string) {
     const work = await tx.workItem.findUnique({
       where: { id: workItemId },
@@ -533,6 +683,66 @@ export class WorkRuntimeV3Service {
       throw new ConflictException('The V3 Work runtime record is incomplete.');
     }
     return work;
+  }
+
+  private async canViewWork(
+    user: AuthenticatedUser,
+    work: Prisma.WorkItemGetPayload<{ select: typeof CREATED_WORK_SELECT }>,
+  ): Promise<boolean> {
+    if (!work.officeId || !work.primaryOwnerOrgUnitId) {
+      return false;
+    }
+
+    if (
+      await this.authorization.can(
+        user,
+        CAPABILITIES.WORK_VIEW,
+        work.officeId,
+        work.primaryOwnerOrgUnitId,
+      )
+    ) {
+      return true;
+    }
+
+    if (work.createdByAccountId === user.accountId) {
+      return true;
+    }
+
+    const now = new Date();
+    const memberships = await this.prisma.orgMembership.findMany({
+      where: {
+        employee: { account: { id: user.accountId, isEnabled: true } },
+        officeId: work.officeId,
+        startsAt: { lte: now },
+        OR: [{ endsAt: null }, { endsAt: { gt: now } }],
+      },
+      select: { orgUnitId: true },
+    });
+    const orgUnitIds = memberships
+      .map((membership) => membership.orgUnitId)
+      .filter((orgUnitId): orgUnitId is string => Boolean(orgUnitId));
+
+    return Boolean(
+      await this.prisma.workStageAssignment.findFirst({
+        where: {
+          workStage: { workItemId: work.id },
+          endsAt: null,
+          assignmentRole: WorkStageAssignmentRole.PRIMARY,
+          OR: [
+            { targetAccountId: user.accountId },
+            ...(orgUnitIds.length > 0
+              ? [
+                  {
+                    targetType: WorkStageAssignmentTargetType.TEAM,
+                    targetOrgUnitId: { in: orgUnitIds },
+                  },
+                ]
+              : []),
+          ],
+        },
+        select: { id: true },
+      }),
+    );
   }
 
   private async getActorContext(

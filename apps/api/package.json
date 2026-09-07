@@ -24,7 +24,8 @@
     "db:generate": "prisma generate",
     "db:migrate": "prisma migrate dev",
     "db:seed": "prisma db seed",
-    "db:studio": "prisma studio"
+    "db:studio": "prisma studio",
+    "db:verify-work-v3-cutover": "node scripts/verify_work_v3_cutover.js"
   },
   "dependencies": {
     "@nestjs/common": "^11.0.1",

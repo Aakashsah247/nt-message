@@ -178,6 +178,61 @@ function createHarness(stage = runtimeStage()) {
 }
 
 describe('WorkRuntimeV3StageService', () => {
+  it('exposes only server-authorized Work lifecycle actions', async () => {
+    const harness = createHarness();
+    harness.prisma.workItem.findFirst.mockResolvedValue({
+      id: workItemId,
+      officeId,
+      primaryOwnerOrgUnitId: responsibleOrgUnitId,
+      runtimeStatus: WorkRuntimeStatus.IN_PROGRESS,
+      workTypeVersion: {
+        finalClosureMode: WorkFinalClosureMode.PRIMARY_OWNER_HEAD,
+        finalClosureLeadershipType: null,
+      },
+      runtimeStages: [
+        { id: stageId, isRequired: true, status: WorkStageStatus.COMPLETED },
+      ],
+    } as never);
+
+    await expect(
+      harness.service.getWorkAvailableActions(user, officeId, workItemId),
+    ).resolves.toEqual(['COMPLETE', 'CANCEL']);
+  });
+
+  it('exposes reopen only after completed Work when authority is current', async () => {
+    const harness = createHarness();
+    harness.prisma.workItem.findFirst.mockResolvedValue({
+      id: workItemId,
+      officeId,
+      primaryOwnerOrgUnitId: responsibleOrgUnitId,
+      runtimeStatus: WorkRuntimeStatus.COMPLETED,
+      workTypeVersion: {
+        finalClosureMode: WorkFinalClosureMode.AUTO_AFTER_REQUIRED_STAGES,
+        finalClosureLeadershipType: null,
+      },
+      runtimeStages: [
+        { id: stageId, isRequired: true, status: WorkStageStatus.COMPLETED },
+      ],
+    } as never);
+
+    await expect(
+      harness.service.getWorkAvailableActions(user, officeId, workItemId),
+    ).resolves.toEqual(['REOPEN']);
+  });
+
+  it('never exposes operational Work lifecycle actions to Super Admin', async () => {
+    const harness = createHarness();
+    const superAdmin = {
+      ...user,
+      role: AccountRole.SUPER_ADMIN,
+    } satisfies AuthenticatedUser;
+
+    await expect(
+      harness.service.getWorkAvailableActions(superAdmin, officeId, workItemId),
+    ).resolves.toEqual([]);
+    expect(harness.prisma.workItem.findFirst).not.toHaveBeenCalled();
+  });
+
   it('routes a READY stage to the responsible OrgUnit queue with assignment history', async () => {
     const harness = createHarness();
 

@@ -35,6 +35,9 @@ import { SecurityPage } from "./pages/SecurityPage";
 import { SettingsPage } from "./pages/SettingsPage";
 import { OrganizationPage } from "./pages/OrganizationPage";
 import { WorkTypeManagementPage } from "./pages/WorkTypeManagementPage";
+import { WorkRuntimeV3Page } from "./pages/WorkRuntimeV3Page";
+import { WorkRuntimeV3DetailPage } from "./pages/WorkRuntimeV3DetailPage";
+import { WorkRuntimeV3CreatePage } from "./pages/WorkRuntimeV3CreatePage";
 
 export default function App() {
   return (
@@ -210,6 +213,60 @@ export default function App() {
       />
 
       <Route
+        path="/work-runtime-v3"
+        element={
+          <ProtectedRoute
+            roles={[
+              "SUPER_ADMIN",
+              "SENIOR_MANAGEMENT",
+              "TEAM_MANAGER",
+              "EMPLOYEE",
+            ]}
+          >
+            <ManagementLayout>
+              <WorkRuntimeV3Page />
+            </ManagementLayout>
+          </ProtectedRoute>
+        }
+      />
+
+      <Route
+        path="/work-runtime-v3/create"
+        element={
+          <ProtectedRoute
+            roles={[
+              "SUPER_ADMIN",
+              "SENIOR_MANAGEMENT",
+              "TEAM_MANAGER",
+              "EMPLOYEE",
+            ]}
+          >
+            <ManagementLayout>
+              <WorkRuntimeV3CreatePage />
+            </ManagementLayout>
+          </ProtectedRoute>
+        }
+      />
+
+      <Route
+        path="/work-runtime-v3/offices/:officeId/work-items/:workItemId"
+        element={
+          <ProtectedRoute
+            roles={[
+              "SUPER_ADMIN",
+              "SENIOR_MANAGEMENT",
+              "TEAM_MANAGER",
+              "EMPLOYEE",
+            ]}
+          >
+            <ManagementLayout>
+              <WorkRuntimeV3DetailPage />
+            </ManagementLayout>
+          </ProtectedRoute>
+        }
+      />
+
+      <Route
         path="/work-management"
         element={
           <ProtectedRoute
@@ -236,9 +293,7 @@ export default function App() {
               "TEAM_MANAGER",
             ]}
           >
-            <ManagementLayout>
-              <ManagementWorkPage />
-            </ManagementLayout>
+            <Navigate replace to="/work-runtime-v3/create" />
           </ProtectedRoute>
         }
       />

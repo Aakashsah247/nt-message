@@ -212,11 +212,14 @@ export class WorkNotificationsService implements OnModuleInit, OnModuleDestroy {
       const dueSoonBoundary = new Date(now.getTime() + 60 * 60 * 1000);
       const candidates = await this.prisma.workItem.findMany({
         where: {
-          // WM-V2 deadline notifications must not consume native V3 Work.
-          // V3 stage/work notifications are emitted by the V3 runtime engine.
-          officeId: null,
+          // Migration 87 gives legacy WM-V2 rows an Office binding. Exclude
+          // native V3 Work by its runtime marker; V3 notifications are emitted
+          // by the V3 runtime engine.
           status: {
-            notIn: [...TERMINAL_WORK_STATUSES],
+            notIn: [
+              ...TERMINAL_WORK_STATUSES,
+              WorkItemStatus.V3_RUNTIME,
+            ],
           },
           OR: [
             {

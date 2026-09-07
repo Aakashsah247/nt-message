@@ -36,6 +36,14 @@ export class WorkRuntimeV3Controller {
     private readonly stageRuntime: WorkRuntimeV3StageService,
   ) {}
 
+  @Get('create-context')
+  getCreateContext(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('officeId', new ParseUUIDPipe({ version: '4' })) officeId: string,
+  ) {
+    return this.workRuntime.getCreateContext(user, officeId);
+  }
+
   @Post()
   create(
     @CurrentUser() user: AuthenticatedUser,
@@ -43,6 +51,25 @@ export class WorkRuntimeV3Controller {
     @Body() dto: CreateWorkRuntimeV3Dto,
   ) {
     return this.workRuntime.create(user, officeId, dto);
+  }
+
+  @Get('work-items/:workItemId')
+  getWork(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('officeId', new ParseUUIDPipe({ version: '4' })) officeId: string,
+    @Param('workItemId', new ParseUUIDPipe({ version: '4' })) workItemId: string,
+  ) {
+    return this.workRuntime.getWork(user, officeId, workItemId);
+  }
+
+  @Get('work-items/:workItemId/actions')
+  async getWorkActions(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('officeId', new ParseUUIDPipe({ version: '4' })) officeId: string,
+    @Param('workItemId', new ParseUUIDPipe({ version: '4' })) workItemId: string,
+  ) {
+    await this.workRuntime.getWork(user, officeId, workItemId);
+    return this.stageRuntime.getWorkAvailableActions(user, officeId, workItemId);
   }
 
   @Get('stages/:stageId')

@@ -206,6 +206,29 @@ function reportWorkRecord(overrides: Record<string, unknown> = {}) {
 }
 
 describe('WorkReportsService — final REPORT-V2 contract', () => {
+  it('keeps Reports V2 legacy-only so native V3 Work is not double counted', async () => {
+    const prisma = createPrismaMock();
+    const scopeService = createScopeService(superAdminActor);
+    const service = new WorkReportsService(
+      prisma as never,
+      scopeService as never,
+    );
+
+    await service.getSummary(superAdminUser, {
+      from: '2026-08-01',
+      to: '2026-08-23',
+    });
+
+    const createdWhere = prisma.workItem.findMany.mock.calls[0][0].where as {
+      AND: Array<{ AND?: unknown[] }>;
+    };
+    const reportBaseWhere = createdWhere.AND[0] as { AND: unknown[] };
+
+    expect(reportBaseWhere.AND[0]).toEqual({
+      status: { not: WorkItemStatus.V3_RUNTIME },
+    });
+  });
+
   it('rejects a division filter outside Senior Management scope', async () => {
     const prisma = createPrismaMock();
     const scopeService = createScopeService(seniorManagementActor);

@@ -1700,7 +1700,14 @@ export class WorkReportsService {
     }
 
     return {
-      AND: [this.workScopeService.buildVisibleWorkWhere(actor), filter],
+      AND: [
+        // Reports V2 is intentionally legacy-only until the dedicated Reports V3
+        // migration. Keep one report row per legacy Work and never derive report
+        // totals from V3 participants/stages, which would risk double counting.
+        { status: { not: WorkItemStatus.V3_RUNTIME } },
+        this.workScopeService.buildVisibleWorkWhere(actor),
+        filter,
+      ],
     };
   }
 
