@@ -187,15 +187,20 @@ function createHarness() {
     ),
     getWorkSlaSummary: jest.fn(),
   };
+  const notifications = {
+    publishReadyStageEvents: jest.fn().mockResolvedValue(undefined),
+  };
 
   return {
     tx,
     prisma,
     authorization,
+    notifications,
     service: new WorkRuntimeV3Service(
       prisma as unknown as PrismaService,
       authorization as unknown as OrganizationAuthorizationService,
       sla as never,
+      notifications as never,
     ),
   };
 }
@@ -362,10 +367,12 @@ describe('WorkRuntimeV3Service shared Work visibility', () => {
         .mockResolvedValueOnce(true),
     };
     const sla = { getWorkSlaSummary: jest.fn() };
+    const notifications = { publishReadyStageEvents: jest.fn() };
     const service = new WorkRuntimeV3Service(
       prisma as unknown as PrismaService,
       authorization as unknown as OrganizationAuthorizationService,
       sla as never,
+      notifications as never,
     );
 
     await expect(

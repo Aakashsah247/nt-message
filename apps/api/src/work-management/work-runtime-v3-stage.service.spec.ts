@@ -182,14 +182,21 @@ function createHarness(stage = runtimeStage()) {
         new Date(startsAt.getTime() + minutes * 60_000),
     ),
   };
+  const notifications = {
+    publishStageAssigned: jest.fn().mockResolvedValue(undefined),
+    publishStageReturned: jest.fn().mockResolvedValue(undefined),
+    publishReadyStageEvents: jest.fn().mockResolvedValue(undefined),
+    publishWorkLifecycle: jest.fn().mockResolvedValue(undefined),
+  };
   const service = new WorkRuntimeV3StageService(
     prisma as unknown as PrismaService,
     authorization as unknown as OrganizationAuthorizationService,
     sla as never,
+    notifications as never,
   );
   jest.spyOn(service, 'getStage').mockResolvedValue({ id: stageId } as never);
 
-  return { tx, prisma, authorization, service };
+  return { tx, prisma, authorization, notifications, service };
 }
 
 describe('WorkRuntimeV3StageService', () => {

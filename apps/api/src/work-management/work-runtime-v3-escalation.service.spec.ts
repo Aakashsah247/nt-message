@@ -1,4 +1,4 @@
-import { NotFoundException } from '@nestjs/common';
+import { ForbiddenException, NotFoundException } from '@nestjs/common';
 
 import type { AuthenticatedUser } from '../auth/types/auth.types';
 import {
@@ -61,12 +61,12 @@ describe('WorkRuntimeV3EscalationService', () => {
     orgLeadershipAssignment: { findMany: jest.fn() },
     orgUnit: { findFirst: jest.fn() },
   } as any;
-  const stageRuntime = { getStage: jest.fn() } as any;
-  const service = new WorkRuntimeV3EscalationService(prisma, stageRuntime);
+  const authorization = { can: jest.fn() } as any;
+  const service = new WorkRuntimeV3EscalationService(prisma, authorization);
 
   beforeEach(() => {
     jest.clearAllMocks();
-    stageRuntime.getStage.mockResolvedValue({ id: stageId });
+    authorization.can.mockResolvedValue(true);
     prisma.workStage.findFirst.mockResolvedValue({
       id: stageId,
       code: 'ACCOUNTS_VERIFY',
@@ -77,6 +77,7 @@ describe('WorkRuntimeV3EscalationService', () => {
       workItem: {
         id: workItemId,
         ticketNumber: 'WRK-1001',
+        createdByAccountId: 'ffffffff-ffff-4fff-8fff-ffffffffffff',
         runtimeStatus: WorkRuntimeStatus.IN_PROGRESS,
       },
       responsibleOrgUnit: {
@@ -167,7 +168,12 @@ describe('WorkRuntimeV3EscalationService', () => {
   it('resolves assignee, team lead, OrgUnit ancestry and Office Head in order', async () => {
     const result = await service.getStageEscalation(user, officeId, stageId);
 
-    expect(stageRuntime.getStage).toHaveBeenCalledWith(user, officeId, stageId);
+    expect(authorization.can).toHaveBeenCalledWith(
+      user,
+      'work.view',
+      officeId,
+      responsibleOrgUnitId,
+    );
     expect(result.steps.map((step) => step.kind)).toEqual([
       'ASSIGNEE',
       'TEAM_LEAD',
@@ -310,5 +316,13 @@ describe('WorkRuntimeV3EscalationService', () => {
     await expect(
       service.resolveStageEscalation(officeId, stageId),
     ).rejects.toBeInstanceOf(NotFoundException);
+  });
+
+  it('denies escalation-path access when normal stage visibility rules do not allow it', async () => {
+    authorization.can.mockResolvedValue(false);
+
+    await expect(
+      service.getStageEscalation(user, officeId, stageId),
+    ).rejects.toBeInstanceOf(ForbiddenException);
   });
 });

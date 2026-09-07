@@ -119,7 +119,15 @@ export type WorkItemRealtimeAction =
   | 'SUPPORT_REMOVED'
   | 'DETAILS_UPDATED'
   | 'DUE_SOON'
-  | 'OVERDUE';
+  | 'OVERDUE'
+  | 'V3_STAGE_READY'
+  | 'V3_DEPENDENCY_UNBLOCKED'
+  | 'V3_COLLABORATION_REQUESTED'
+  | 'V3_STAGE_ASSIGNED'
+  | 'V3_STAGE_RETURNED'
+  | 'V3_WORK_COMPLETED'
+  | 'V3_WORK_CANCELLED'
+  | 'V3_WORK_REOPENED';
 
 export interface WorkItemRealtimePayload {
   workItemId: string;

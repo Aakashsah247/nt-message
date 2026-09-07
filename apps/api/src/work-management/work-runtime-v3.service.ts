@@ -33,6 +33,7 @@ import {
 } from '../generated/prisma/client';
 import { CAPABILITIES } from '../organization/organization-capabilities';
 import { OrganizationAuthorizationService } from '../organization/organization-authorization.service';
+import { WorkRuntimeV3NotificationsService } from './work-runtime-v3-notifications.service';
 import { WorkRuntimeV3SlaService } from './work-runtime-v3-sla.service';
 import type { CreateWorkRuntimeV3Dto } from './dto/create-work-runtime-v3.dto';
 import {
@@ -305,6 +306,7 @@ export class WorkRuntimeV3Service {
     private readonly prisma: PrismaService,
     private readonly authorization: OrganizationAuthorizationService,
     private readonly sla: WorkRuntimeV3SlaService,
+    private readonly notifications: WorkRuntimeV3NotificationsService,
   ) {}
 
   async getCreateContext(user: AuthenticatedUser, officeId: string) {
@@ -406,8 +408,9 @@ export class WorkRuntimeV3Service {
     );
 
     const fingerprint = this.createRequestFingerprint(officeId, dto);
+    const notificationSince = new Date();
 
-    return this.prisma.$transaction(async (tx) => {
+    const created = await this.prisma.$transaction(async (tx) => {
       await tx.$queryRaw`
         SELECT pg_advisory_xact_lock(
           hashtextextended(${`${user.accountId}:${dto.clientRequestId}`}, 0)
@@ -649,6 +652,14 @@ export class WorkRuntimeV3Service {
 
       return this.getCreatedWork(tx, work.id);
     });
+
+    await this.notifications.publishReadyStageEvents(
+      officeId,
+      created.id,
+      user.accountId,
+      notificationSince,
+    );
+    return created;
   }
 
   async getWork(

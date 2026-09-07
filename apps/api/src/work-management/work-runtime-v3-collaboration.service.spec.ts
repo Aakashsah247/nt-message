@@ -148,6 +148,10 @@ function createHarness() {
   const stageRuntime = {
     bindRuntimeRequestedParticipant: jest.fn().mockResolvedValue(undefined),
   };
+  const notifications = {
+    publishCollaborationRequested: jest.fn().mockResolvedValue(undefined),
+    publishCollaborationReadyStageEvents: jest.fn().mockResolvedValue(undefined),
+  };
 
   return {
     tx,
@@ -155,11 +159,13 @@ function createHarness() {
     authorization,
     workRuntime,
     stageRuntime,
+    notifications,
     service: new WorkRuntimeV3CollaborationService(
       prisma as unknown as PrismaService,
       authorization as unknown as OrganizationAuthorizationService,
       workRuntime as unknown as WorkRuntimeV3Service,
       stageRuntime as unknown as WorkRuntimeV3StageService,
+      notifications as never,
     ),
   };
 }

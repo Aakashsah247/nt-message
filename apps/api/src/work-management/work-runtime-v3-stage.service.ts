@@ -44,6 +44,7 @@ import {
   assertRuntimeIdentityFieldValues,
   validateRuntimeStageFields,
 } from './work-runtime-v3-field-validator';
+import { WorkRuntimeV3NotificationsService } from './work-runtime-v3-notifications.service';
 import { stableJson } from './work-runtime-v3.service';
 import { WorkRuntimeV3SlaService } from './work-runtime-v3-sla.service';
 
@@ -187,6 +188,7 @@ export class WorkRuntimeV3StageService {
     private readonly prisma: PrismaService,
     private readonly authorization: OrganizationAuthorizationService,
     private readonly sla: WorkRuntimeV3SlaService,
+    private readonly notifications: WorkRuntimeV3NotificationsService,
   ) {}
 
   async assign(
@@ -266,6 +268,12 @@ export class WorkRuntimeV3StageService {
         },
       });
     });
+
+    await this.notifications.publishStageAssigned(
+      officeId,
+      stageId,
+      user.accountId,
+    );
 
     return this.getStage(user, officeId, stageId);
   }
@@ -460,9 +468,12 @@ export class WorkRuntimeV3StageService {
       CAPABILITIES.WORK_SUBMIT_STAGE,
       officeId,
     );
+    const notificationSince = new Date();
+    let affectedWorkItemId: string | null = null;
 
     await this.prisma.$transaction(async (tx) => {
       const stage = await this.requireStage(tx, officeId, stageId);
+      affectedWorkItemId = stage.workItemId;
       this.assertWorkOperational(stage);
       this.assertExpectedVersion(stage, dto.expectedStageVersion);
 
@@ -603,6 +614,21 @@ export class WorkRuntimeV3StageService {
       await this.recalculateWorkStatus(tx, stage.workItemId, user.accountId);
     });
 
+    if (affectedWorkItemId) {
+      await this.notifications.publishReadyStageEvents(
+        officeId,
+        affectedWorkItemId,
+        user.accountId,
+        notificationSince,
+      );
+      await this.notifications.publishWorkLifecycle(
+        officeId,
+        affectedWorkItemId,
+        user.accountId,
+        'V3_WORK_COMPLETED',
+      );
+    }
+
     return this.getStage(user, officeId, stageId);
   }
 
@@ -612,8 +638,11 @@ export class WorkRuntimeV3StageService {
     stageId: string,
     dto: ApproveWorkRuntimeV3StageDto,
   ) {
+    const notificationSince = new Date();
+    let affectedWorkItemId: string | null = null;
     await this.prisma.$transaction(async (tx) => {
       const stage = await this.requireStage(tx, officeId, stageId);
+      affectedWorkItemId = stage.workItemId;
       await this.authorization.assertCan(
         user,
         CAPABILITIES.WORK_APPROVE_STAGE,
@@ -671,6 +700,21 @@ export class WorkRuntimeV3StageService {
 
       await this.recalculateWorkStatus(tx, stage.workItemId, user.accountId);
     });
+
+    if (affectedWorkItemId) {
+      await this.notifications.publishReadyStageEvents(
+        officeId,
+        affectedWorkItemId,
+        user.accountId,
+        notificationSince,
+      );
+      await this.notifications.publishWorkLifecycle(
+        officeId,
+        affectedWorkItemId,
+        user.accountId,
+        'V3_WORK_COMPLETED',
+      );
+    }
 
     return this.getStage(user, officeId, stageId);
   }
@@ -731,6 +775,12 @@ export class WorkRuntimeV3StageService {
 
       await this.recalculateWorkStatus(tx, stage.workItemId, user.accountId);
     });
+
+    await this.notifications.publishStageReturned(
+      officeId,
+      stageId,
+      user.accountId,
+    );
 
     return this.getStage(user, officeId, stageId);
   }
@@ -970,6 +1020,13 @@ export class WorkRuntimeV3StageService {
       });
     });
 
+    await this.notifications.publishWorkLifecycle(
+      officeId,
+      workItemId,
+      user.accountId,
+      'V3_WORK_COMPLETED',
+    );
+
     return this.prisma.workItem.findFirst({
       where: { id: workItemId, officeId },
       select: {
@@ -1120,6 +1177,13 @@ export class WorkRuntimeV3StageService {
       });
     });
 
+    await this.notifications.publishWorkLifecycle(
+      officeId,
+      workItemId,
+      user.accountId,
+      'V3_WORK_CANCELLED',
+    );
+
     return this.prisma.workItem.findFirst({
       where: { id: workItemId, officeId },
       select: {
@@ -1244,6 +1308,8 @@ export class WorkRuntimeV3StageService {
           blockedAt: null,
           cancelledAt: null,
           dueAt,
+          dueSoonNotifiedAt: null,
+          overdueNotifiedAt: null,
           version: { increment: 1 },
         },
       });
@@ -1268,6 +1334,8 @@ export class WorkRuntimeV3StageService {
           completedAt: null,
           closedAt: null,
           cancelledAt: null,
+          dueSoonNotifiedAt: null,
+          overdueNotifiedAt: null,
           version: { increment: 1 },
         },
       });
@@ -1294,6 +1362,13 @@ export class WorkRuntimeV3StageService {
         },
       });
     });
+
+    await this.notifications.publishWorkLifecycle(
+      officeId,
+      workItemId,
+      user.accountId,
+      'V3_WORK_REOPENED',
+    );
 
     return this.prisma.workItem.findFirst({
       where: { id: workItemId, officeId },

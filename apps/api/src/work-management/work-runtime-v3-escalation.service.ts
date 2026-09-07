@@ -1,4 +1,5 @@
 import {
+  ForbiddenException,
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
@@ -6,6 +7,7 @@ import {
 import type { AuthenticatedUser } from '../auth/types/auth.types';
 import { PrismaService } from '../database/prisma.service';
 import {
+  AccountRole,
   EmployeeStatus,
   EmploymentStatus,
   OrgLeadershipType,
@@ -14,7 +16,8 @@ import {
   WorkStageAssignmentTargetType,
   WorkStageStatus,
 } from '../generated/prisma/client';
-import { WorkRuntimeV3StageService } from './work-runtime-v3-stage.service';
+import { CAPABILITIES } from '../organization/organization-capabilities';
+import { OrganizationAuthorizationService } from '../organization/organization-authorization.service';
 
 type EscalationStepKind =
   | 'ASSIGNEE'
@@ -66,7 +69,7 @@ type ActiveLeadershipAssignment = {
 export class WorkRuntimeV3EscalationService {
   constructor(
     private readonly prisma: PrismaService,
-    private readonly stageRuntime: WorkRuntimeV3StageService,
+    private readonly authorization: OrganizationAuthorizationService,
   ) {}
 
   async getStageEscalation(
@@ -74,8 +77,21 @@ export class WorkRuntimeV3EscalationService {
     officeId: string,
     stageId: string,
   ) {
-    await this.stageRuntime.getStage(user, officeId, stageId);
-    return this.resolveStageEscalation(officeId, stageId);
+    const escalation = await this.resolveStageEscalation(officeId, stageId);
+    if (
+      !(await this.canViewEscalation(
+        user,
+        officeId,
+        stageId,
+        escalation.createdByAccountId,
+        escalation.responsibleOrgUnit.id,
+      ))
+    ) {
+      throw new ForbiddenException(
+        'You do not have access to this Work stage escalation path.',
+      );
+    }
+    return escalation;
   }
 
   async resolveStageEscalation(
@@ -99,6 +115,7 @@ export class WorkRuntimeV3EscalationService {
           select: {
             id: true,
             ticketNumber: true,
+            createdByAccountId: true,
             runtimeStatus: true,
           },
         },
@@ -379,6 +396,7 @@ export class WorkRuntimeV3EscalationService {
     return {
       workItemId: stage.workItem.id,
       ticketNumber: stage.workItem.ticketNumber,
+      createdByAccountId: stage.workItem.createdByAccountId,
       workStatus: stage.workItem.runtimeStatus,
       stageId: stage.id,
       stageCode: stage.code,
@@ -410,6 +428,113 @@ export class WorkRuntimeV3EscalationService {
         (step) => step.kind === 'OFFICE_HEAD',
       ),
     };
+  }
+
+  private async canViewEscalation(
+    user: AuthenticatedUser,
+    officeId: string,
+    stageId: string,
+    createdByAccountId: string,
+    responsibleOrgUnitId: string,
+  ): Promise<boolean> {
+    if (
+      user.role === AccountRole.SUPER_ADMIN ||
+      createdByAccountId === user.accountId ||
+      (await this.authorization.can(
+        user,
+        CAPABILITIES.WORK_VIEW,
+        officeId,
+        responsibleOrgUnitId,
+      ))
+    ) {
+      return true;
+    }
+
+    const stage = await this.prisma.workStage.findFirst({
+      where: {
+        id: stageId,
+        workItem: { officeId },
+      },
+      select: {
+        assignments: {
+          where: {
+            endsAt: null,
+            assignmentRole: WorkStageAssignmentRole.PRIMARY,
+          },
+          orderBy: { startsAt: 'desc' },
+          take: 1,
+          select: {
+            targetType: true,
+            targetOrgUnitId: true,
+            targetAccountId: true,
+          },
+        },
+      },
+    });
+    if (!stage) return false;
+
+    const assignment = stage.assignments[0] ?? null;
+    if (assignment?.targetAccountId === user.accountId) {
+      return true;
+    }
+    if (
+      assignment?.targetType === WorkStageAssignmentTargetType.TEAM &&
+      assignment.targetOrgUnitId &&
+      (await this.accountHasExactMembership(
+        user.accountId,
+        officeId,
+        assignment.targetOrgUnitId,
+      ))
+    ) {
+      return true;
+    }
+    if (
+      (!assignment ||
+        assignment.targetType ===
+          WorkStageAssignmentTargetType.ORG_UNIT_QUEUE) &&
+      (await this.authorization.can(
+        user,
+        CAPABILITIES.WORK_ASSIGN,
+        officeId,
+        responsibleOrgUnitId,
+      ))
+    ) {
+      return true;
+    }
+    return false;
+  }
+
+  private async accountHasExactMembership(
+    accountId: string,
+    officeId: string,
+    orgUnitId: string,
+  ): Promise<boolean> {
+    const now = new Date();
+    return Boolean(
+      await this.prisma.account.findFirst({
+        where: {
+          id: accountId,
+          isEnabled: true,
+          role: { not: AccountRole.SUPER_ADMIN },
+          employee: {
+            is: {
+              status: EmployeeStatus.ACTIVE,
+              employmentStatus: EmploymentStatus.ACTIVE,
+              archivedAt: null,
+              orgMemberships: {
+                some: {
+                  officeId,
+                  orgUnitId,
+                  startsAt: { lte: now },
+                  OR: [{ endsAt: null }, { endsAt: { gt: now } }],
+                },
+              },
+            },
+          },
+        },
+        select: { id: true },
+      }),
+    );
   }
 
   private appendLeadershipStep(

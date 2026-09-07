@@ -27,6 +27,7 @@ import type {
   WorkRuntimeV3CollaborationMutationDto,
 } from './dto/work-runtime-v3-collaboration.dto';
 import { WorkRuntimeV3StageService } from './work-runtime-v3-stage.service';
+import { WorkRuntimeV3NotificationsService } from './work-runtime-v3-notifications.service';
 import { WorkRuntimeV3Service } from './work-runtime-v3.service';
 
 const ACTIVE_COLLABORATION_STATUSES = [
@@ -135,6 +136,7 @@ export class WorkRuntimeV3CollaborationService {
     private readonly authorization: OrganizationAuthorizationService,
     private readonly workRuntime: WorkRuntimeV3Service,
     private readonly stageRuntime: WorkRuntimeV3StageService,
+    private readonly notifications: WorkRuntimeV3NotificationsService,
   ) {}
 
   async request(
@@ -307,6 +309,12 @@ export class WorkRuntimeV3CollaborationService {
       return request.id;
     });
 
+    await this.notifications.publishCollaborationRequested(
+      officeId,
+      requestId,
+      user.accountId,
+    );
+
     return this.getDecoratedRequest(user, officeId, requestId);
   }
 
@@ -320,6 +328,7 @@ export class WorkRuntimeV3CollaborationService {
       officeId,
       requestId,
     );
+    const notificationSince = new Date();
     await this.authorization.assertCan(
       user,
       CAPABILITIES.WORK_ACCEPT_PARTICIPANT,
@@ -439,6 +448,13 @@ export class WorkRuntimeV3CollaborationService {
         ],
       });
     });
+
+    await this.notifications.publishCollaborationReadyStageEvents(
+      officeId,
+      requestId,
+      user.accountId,
+      notificationSince,
+    );
 
     return this.getDecoratedRequest(user, officeId, requestId);
   }
