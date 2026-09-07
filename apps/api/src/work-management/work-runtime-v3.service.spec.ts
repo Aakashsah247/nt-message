@@ -284,3 +284,50 @@ describe('WorkRuntimeV3Service creation', () => {
     expect(secondHarness.tx.workItem.create).not.toHaveBeenCalled();
   });
 });
+
+describe('WorkRuntimeV3Service shared Work visibility', () => {
+  it('allows scoped leadership to read Work through an active participant OrgUnit', async () => {
+    const participantOrgUnitId = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
+    const sharedWork = {
+      id: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
+      officeId,
+      primaryOwnerOrgUnitId: ownerId,
+      createdByAccountId: 'cccccccc-cccc-4ccc-8ccc-cccccccccccc',
+      orgUnitParticipants: [{ orgUnitId: participantOrgUnitId }],
+    };
+    const prisma = {
+      workItem: {
+        findFirst: jest.fn().mockResolvedValue(sharedWork),
+      },
+    };
+    const authorization = {
+      can: jest
+        .fn()
+        .mockResolvedValueOnce(false)
+        .mockResolvedValueOnce(true),
+    };
+    const service = new WorkRuntimeV3Service(
+      prisma as unknown as PrismaService,
+      authorization as unknown as OrganizationAuthorizationService,
+    );
+
+    await expect(
+      service.getWork(user, officeId, sharedWork.id),
+    ).resolves.toBe(sharedWork);
+
+    expect(authorization.can).toHaveBeenNthCalledWith(
+      1,
+      user,
+      'work.view',
+      officeId,
+      ownerId,
+    );
+    expect(authorization.can).toHaveBeenNthCalledWith(
+      2,
+      user,
+      'work.view',
+      officeId,
+      participantOrgUnitId,
+    );
+  });
+});

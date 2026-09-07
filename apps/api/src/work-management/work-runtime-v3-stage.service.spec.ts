@@ -1,4 +1,8 @@
-import { ConflictException, ForbiddenException } from '@nestjs/common';
+import {
+  BadRequestException,
+  ConflictException,
+  ForbiddenException,
+} from '@nestjs/common';
 
 import type { AuthenticatedUser } from '../auth/types/auth.types';
 import { PrismaService } from '../database/prisma.service';
@@ -259,6 +263,25 @@ describe('WorkRuntimeV3StageService', () => {
         data: expect.objectContaining({ version: { increment: 1 } }),
       }),
     );
+  });
+
+  it('rejects direct assignment of an account outside the responsible OrgUnit scope', async () => {
+    const stage = runtimeStage({
+      assignmentMode: WorkStageAssignmentMode.INDIVIDUAL,
+    });
+    const harness = createHarness(stage);
+    harness.tx.account.findFirst.mockResolvedValue(null);
+
+    await expect(
+      harness.service.assign(user, officeId, stageId, {
+        expectedStageVersion: 1,
+        targetType: WorkStageAssignmentTargetType.ACCOUNT,
+        targetAccountId: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
+        reason: 'Attempt cross-unit assignment',
+      }),
+    ).rejects.toBeInstanceOf(BadRequestException);
+
+    expect(harness.tx.workStageAssignment.create).not.toHaveBeenCalled();
   });
 
   it('rejects a stale stage version before mutation', async () => {

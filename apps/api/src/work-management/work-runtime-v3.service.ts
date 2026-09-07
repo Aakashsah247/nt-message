@@ -704,6 +704,19 @@ export class WorkRuntimeV3Service {
       return true;
     }
 
+    for (const participant of work.orgUnitParticipants) {
+      if (
+        await this.authorization.can(
+          user,
+          CAPABILITIES.WORK_VIEW,
+          work.officeId,
+          participant.orgUnitId,
+        )
+      ) {
+        return true;
+      }
+    }
+
     if (work.createdByAccountId === user.accountId) {
       return true;
     }

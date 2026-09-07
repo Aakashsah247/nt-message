@@ -14,6 +14,13 @@ import { AccessTokenGuard } from '../auth/guards/access-token.guard';
 import type { AuthenticatedUser } from '../auth/types/auth.types';
 import { CreateWorkRuntimeV3Dto } from './dto/create-work-runtime-v3.dto';
 import {
+  CancelWorkRuntimeV3CollaborationDto,
+  CreateWorkRuntimeV3CollaborationRequestDto,
+  DeclineWorkRuntimeV3CollaborationDto,
+  WorkRuntimeV3CollaborationMutationDto,
+  WorkRuntimeV3CollaborationQueueQueryDto,
+} from './dto/work-runtime-v3-collaboration.dto';
+import {
   AssignWorkRuntimeV3StageDto,
   ApproveWorkRuntimeV3StageDto,
   BlockWorkRuntimeV3StageDto,
@@ -25,6 +32,7 @@ import {
   WorkRuntimeV3QueueQueryDto,
   WorkRuntimeV3StageMutationDto,
 } from './dto/work-runtime-v3-stage.dto';
+import { WorkRuntimeV3CollaborationService } from './work-runtime-v3-collaboration.service';
 import { WorkRuntimeV3StageService } from './work-runtime-v3-stage.service';
 import { WorkRuntimeV3Service } from './work-runtime-v3.service';
 
@@ -34,6 +42,7 @@ export class WorkRuntimeV3Controller {
   constructor(
     private readonly workRuntime: WorkRuntimeV3Service,
     private readonly stageRuntime: WorkRuntimeV3StageService,
+    private readonly collaborationRuntime: WorkRuntimeV3CollaborationService,
   ) {}
 
   @Get('create-context')
@@ -70,6 +79,64 @@ export class WorkRuntimeV3Controller {
   ) {
     await this.workRuntime.getWork(user, officeId, workItemId);
     return this.stageRuntime.getWorkAvailableActions(user, officeId, workItemId);
+  }
+
+  @Post('work-items/:workItemId/collaboration-requests')
+  requestCollaboration(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('officeId', new ParseUUIDPipe({ version: '4' })) officeId: string,
+    @Param('workItemId', new ParseUUIDPipe({ version: '4' })) workItemId: string,
+    @Body() dto: CreateWorkRuntimeV3CollaborationRequestDto,
+  ) {
+    return this.collaborationRuntime.request(user, officeId, workItemId, dto);
+  }
+
+  @Get('work-items/:workItemId/collaboration-requests')
+  listWorkCollaborations(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('officeId', new ParseUUIDPipe({ version: '4' })) officeId: string,
+    @Param('workItemId', new ParseUUIDPipe({ version: '4' })) workItemId: string,
+  ) {
+    return this.collaborationRuntime.listForWork(user, officeId, workItemId);
+  }
+
+  @Get('collaboration-requests/incoming')
+  listIncomingCollaborations(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('officeId', new ParseUUIDPipe({ version: '4' })) officeId: string,
+    @Query() query: WorkRuntimeV3CollaborationQueueQueryDto,
+  ) {
+    return this.collaborationRuntime.listIncoming(user, officeId, query.take);
+  }
+
+  @Post('collaboration-requests/:requestId/accept')
+  acceptCollaboration(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('officeId', new ParseUUIDPipe({ version: '4' })) officeId: string,
+    @Param('requestId', new ParseUUIDPipe({ version: '4' })) requestId: string,
+    @Body() dto: WorkRuntimeV3CollaborationMutationDto,
+  ) {
+    return this.collaborationRuntime.accept(user, officeId, requestId, dto);
+  }
+
+  @Post('collaboration-requests/:requestId/decline')
+  declineCollaboration(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('officeId', new ParseUUIDPipe({ version: '4' })) officeId: string,
+    @Param('requestId', new ParseUUIDPipe({ version: '4' })) requestId: string,
+    @Body() dto: DeclineWorkRuntimeV3CollaborationDto,
+  ) {
+    return this.collaborationRuntime.decline(user, officeId, requestId, dto);
+  }
+
+  @Post('collaboration-requests/:requestId/cancel')
+  cancelCollaboration(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('officeId', new ParseUUIDPipe({ version: '4' })) officeId: string,
+    @Param('requestId', new ParseUUIDPipe({ version: '4' })) requestId: string,
+    @Body() dto: CancelWorkRuntimeV3CollaborationDto,
+  ) {
+    return this.collaborationRuntime.cancel(user, officeId, requestId, dto);
   }
 
   @Get('stages/:stageId')

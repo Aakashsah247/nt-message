@@ -110,6 +110,22 @@ describe('OrganizationAuthorizationService', () => {
     await expect(
       service.can(
         superAdmin,
+        CAPABILITIES.WORK_REQUEST_PARTICIPANT,
+        'office-1',
+      ),
+    ).resolves.toBe(false);
+
+    await expect(
+      service.can(
+        superAdmin,
+        CAPABILITIES.WORK_ACCEPT_PARTICIPANT,
+        'office-1',
+      ),
+    ).resolves.toBe(false);
+
+    await expect(
+      service.can(
+        superAdmin,
         CAPABILITIES.WORK_START_STAGE,
         'office-1',
       ),
@@ -190,6 +206,24 @@ describe('OrganizationAuthorizationService', () => {
       service.can(
         employeeUser,
         CAPABILITIES.WORK_REOPEN,
+        'office-1',
+        'child-1',
+      ),
+    ).resolves.toBe(true);
+
+    await expect(
+      service.can(
+        employeeUser,
+        CAPABILITIES.WORK_REQUEST_PARTICIPANT,
+        'office-1',
+        'child-1',
+      ),
+    ).resolves.toBe(true);
+
+    await expect(
+      service.can(
+        employeeUser,
+        CAPABILITIES.WORK_ACCEPT_PARTICIPANT,
         'office-1',
         'child-1',
       ),
@@ -311,6 +345,24 @@ describe('OrganizationAuthorizationService', () => {
         CAPABILITIES.MEMBERSHIP_VIEW,
         'office-1',
         'team-child',
+      ),
+    ).resolves.toBe(false);
+
+    await expect(
+      service.can(
+        employeeUser,
+        CAPABILITIES.WORK_REQUEST_PARTICIPANT,
+        'office-1',
+        'team-1',
+      ),
+    ).resolves.toBe(false);
+
+    await expect(
+      service.can(
+        employeeUser,
+        CAPABILITIES.WORK_ACCEPT_PARTICIPANT,
+        'office-1',
+        'team-1',
       ),
     ).resolves.toBe(false);
   });
