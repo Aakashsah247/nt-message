@@ -34,6 +34,7 @@ import {
   WorkRuntimeV3StageMutationDto,
 } from './dto/work-runtime-v3-stage.dto';
 import { WorkRuntimeV3CollaborationService } from './work-runtime-v3-collaboration.service';
+import { WorkRuntimeV3EscalationService } from './work-runtime-v3-escalation.service';
 import { ReplaceOfficeWorkingCalendarDto } from './dto/work-runtime-v3-sla.dto';
 import { WorkRuntimeV3StageService } from './work-runtime-v3-stage.service';
 import { WorkRuntimeV3SlaService } from './work-runtime-v3-sla.service';
@@ -46,6 +47,7 @@ export class WorkRuntimeV3Controller {
     private readonly workRuntime: WorkRuntimeV3Service,
     private readonly stageRuntime: WorkRuntimeV3StageService,
     private readonly collaborationRuntime: WorkRuntimeV3CollaborationService,
+    private readonly escalationRuntime: WorkRuntimeV3EscalationService,
     private readonly slaRuntime: WorkRuntimeV3SlaService,
   ) {}
 
@@ -167,6 +169,15 @@ export class WorkRuntimeV3Controller {
     @Body() dto: CancelWorkRuntimeV3CollaborationDto,
   ) {
     return this.collaborationRuntime.cancel(user, officeId, requestId, dto);
+  }
+
+  @Get('stages/:stageId/escalation')
+  getStageEscalation(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('officeId', new ParseUUIDPipe({ version: '4' })) officeId: string,
+    @Param('stageId', new ParseUUIDPipe({ version: '4' })) stageId: string,
+  ) {
+    return this.escalationRuntime.getStageEscalation(user, officeId, stageId);
   }
 
   @Get('stages/:stageId')

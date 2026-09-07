@@ -17,6 +17,7 @@ import { WorkReportsController } from './work-reports.controller';
 import { WorkReportsService } from './work-reports.service';
 import { WorkRuntimeV3Controller } from './work-runtime-v3.controller';
 import { WorkRuntimeV3CollaborationService } from './work-runtime-v3-collaboration.service';
+import { WorkRuntimeV3EscalationService } from './work-runtime-v3-escalation.service';
 import { WorkRuntimeV3StageService } from './work-runtime-v3-stage.service';
 import { WorkRuntimeV3SlaService } from './work-runtime-v3-sla.service';
 import { WorkRuntimeV3Service } from './work-runtime-v3.service';
@@ -50,6 +51,7 @@ import { WorkTypeV3Service } from './work-type-v3.service';
     WorkRetentionService,
     WorkRuntimeV3Service,
     WorkRuntimeV3CollaborationService,
+    WorkRuntimeV3EscalationService,
     WorkRuntimeV3StageService,
     WorkRuntimeV3SlaService,
     WorkScopeService,
@@ -69,6 +71,7 @@ import { WorkTypeV3Service } from './work-type-v3.service';
     WorkRetentionService,
     WorkRuntimeV3Service,
     WorkRuntimeV3CollaborationService,
+    WorkRuntimeV3EscalationService,
     WorkRuntimeV3StageService,
     WorkRuntimeV3SlaService,
     WorkScopeService,
