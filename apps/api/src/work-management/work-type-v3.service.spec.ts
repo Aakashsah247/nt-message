@@ -75,8 +75,10 @@ function createService(
       ),
   } as unknown as OrganizationAuthorizationService;
 
+  const sla = { assertUsableOfficeCalendar: jest.fn().mockResolvedValue(undefined) };
+
   return {
-    service: new WorkTypeV3Service(prisma, authorization),
+    service: new WorkTypeV3Service(prisma, authorization, sla as never),
     prisma,
     authorization,
   };

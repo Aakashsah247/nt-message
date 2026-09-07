@@ -36,6 +36,9 @@ export const CAPABILITIES = {
   WORK_TYPE_DRAFT: 'work_type.draft',
   WORK_TYPE_PUBLISH: 'work_type.publish',
 
+  WORK_SLA_CALENDAR_VIEW: 'work.sla_calendar.view',
+  WORK_SLA_CALENDAR_MANAGE: 'work.sla_calendar.manage',
+
   DUTY_VIEW: 'duty.view',
   DUTY_CREATE: 'duty.create',
   DUTY_ASSIGN: 'duty.assign',

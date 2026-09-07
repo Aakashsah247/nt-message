@@ -13,6 +13,7 @@ import {
   WorkFieldType,
   WorkFinalClosureMode,
   WorkRuntimeStatus,
+  WorkSlaBasis,
   WorkStageActivationMode,
   WorkStageApprovalDecision,
   WorkStageApprovalMode,
@@ -119,10 +120,12 @@ function createHarness(stage = runtimeStage()) {
     workItem: {
       findFirst: jest.fn(),
       findUnique: jest.fn().mockResolvedValue({
+        officeId,
         runtimeStatus: WorkRuntimeStatus.OPEN,
         version: 1,
         workTypeVersion: {
           finalClosureMode: WorkFinalClosureMode.PRIMARY_OWNER_HEAD,
+          slaBasis: WorkSlaBasis.CALENDAR_DURATION,
         },
       }),
       update: jest.fn().mockResolvedValue({ id: workItemId }),
@@ -173,9 +176,16 @@ function createHarness(stage = runtimeStage()) {
     can: jest.fn().mockResolvedValue(true),
     visibleOrgUnitIds: jest.fn().mockResolvedValue([responsibleOrgUnitId]),
   };
+  const sla = {
+    resolveDueAt: jest.fn(
+      async (_tx: unknown, _officeId: string, _basis: unknown, startsAt: Date, minutes: number) =>
+        new Date(startsAt.getTime() + minutes * 60_000),
+    ),
+  };
   const service = new WorkRuntimeV3StageService(
     prisma as unknown as PrismaService,
     authorization as unknown as OrganizationAuthorizationService,
+    sla as never,
   );
   jest.spyOn(service, 'getStage').mockResolvedValue({ id: stageId } as never);
 
@@ -760,10 +770,12 @@ describe('WorkRuntimeV3StageService', () => {
       { status: WorkStageStatus.COMPLETED, isRequired: true },
     ]);
     harness.tx.workItem.findUnique.mockResolvedValue({
+      officeId,
       runtimeStatus: WorkRuntimeStatus.IN_PROGRESS,
       version: 4,
       workTypeVersion: {
         finalClosureMode: WorkFinalClosureMode.AUTO_AFTER_REQUIRED_STAGES,
+        slaBasis: WorkSlaBasis.CALENDAR_DURATION,
       },
     });
 

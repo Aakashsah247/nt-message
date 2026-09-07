@@ -592,9 +592,60 @@ model Office {
   accountRequests       AccountRequest[]          @relation("AccountRequestOffice")
   workTypeDefinitions   WorkTypeDefinition[]
   runtimeWorkItems      WorkItem[]                @relation("WorkItemsOfficeV3")
+  workingCalendar       OfficeWorkingCalendar?
 
   @@index([isActive, sortOrder], map: "offices_active_sort_idx")
   @@map("offices")
+}
+
+model OfficeWorkingCalendar {
+  id                 String   @id @default(uuid()) @db.Uuid
+  officeId           String   @unique @map("office_id") @db.Uuid
+  timeZone           String   @default("Asia/Kathmandu") @map("time_zone") @db.VarChar(64)
+  isActive           Boolean  @default(true) @map("is_active")
+  version            Int      @default(1)
+  updatedByAccountId String   @map("updated_by_account_id") @db.Uuid
+  createdAt          DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt          DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  office    Office                          @relation(fields: [officeId], references: [id], onDelete: Restrict)
+  updatedBy Account                         @relation("OfficeWorkingCalendarsUpdatedBy", fields: [updatedByAccountId], references: [id], onDelete: Restrict)
+  intervals OfficeWorkingCalendarInterval[]
+  closures  OfficeWorkingCalendarClosure[]
+
+  @@index([isActive], map: "office_working_calendars_active_idx")
+  @@index([updatedByAccountId, updatedAt], map: "office_working_calendars_updated_by_at_idx")
+  @@map("office_working_calendars")
+}
+
+model OfficeWorkingCalendarInterval {
+  id          String   @id @default(uuid()) @db.Uuid
+  calendarId  String   @map("calendar_id") @db.Uuid
+  weekday     Int
+  startMinute Int      @map("start_minute")
+  endMinute   Int      @map("end_minute")
+  sortOrder   Int      @default(0) @map("sort_order")
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  calendar OfficeWorkingCalendar @relation(fields: [calendarId], references: [id], onDelete: Cascade)
+
+  @@unique([calendarId, weekday, startMinute, endMinute], map: "office_working_calendar_intervals_unique")
+  @@index([calendarId, weekday, startMinute], map: "office_working_calendar_intervals_day_idx")
+  @@map("office_working_calendar_intervals")
+}
+
+model OfficeWorkingCalendarClosure {
+  id          String   @id @default(uuid()) @db.Uuid
+  calendarId  String   @map("calendar_id") @db.Uuid
+  closureDate DateTime @map("closure_date") @db.Date
+  label       String?  @db.VarChar(160)
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  calendar OfficeWorkingCalendar @relation(fields: [calendarId], references: [id], onDelete: Cascade)
+
+  @@unique([calendarId, closureDate], map: "office_working_calendar_closures_date_key")
+  @@index([calendarId, closureDate], map: "office_working_calendar_closures_date_idx")
+  @@map("office_working_calendar_closures")
 }
 
 model OrgUnitType {
@@ -1042,6 +1093,7 @@ model Account {
   workEvents                         WorkEvent[]
   workOwnershipTransfersRequested    WorkOwnershipTransfer[]           @relation("WorkOwnershipTransfersRequestedBy")
   workOwnershipTransfersApproved     WorkOwnershipTransfer[]           @relation("WorkOwnershipTransfersApprovedBy")
+  officeWorkingCalendarsUpdated      OfficeWorkingCalendar[]           @relation("OfficeWorkingCalendarsUpdatedBy")
 
   @@index([role], map: "accounts_role_idx")
   @@index([isEnabled], map: "accounts_is_enabled_idx")

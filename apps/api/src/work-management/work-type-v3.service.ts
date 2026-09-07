@@ -26,6 +26,7 @@ import {
 } from '../generated/prisma/client';
 import { CAPABILITIES } from '../organization/organization-capabilities';
 import { OrganizationAuthorizationService } from '../organization/organization-authorization.service';
+import { WorkRuntimeV3SlaService } from './work-runtime-v3-sla.service';
 import type { CreateWorkTypeDraftDto } from './dto/create-work-type-draft.dto';
 import type {
   ReplaceWorkTypeDraftConfigurationDto,
@@ -120,6 +121,7 @@ export class WorkTypeV3Service {
   constructor(
     private readonly prisma: PrismaService,
     private readonly authorization: OrganizationAuthorizationService,
+    private readonly sla: WorkRuntimeV3SlaService,
   ) {}
 
   private async getOffice(officeId: string) {
@@ -886,9 +888,7 @@ export class WorkTypeV3Service {
     }
 
     if (configuration.slaBasis === WorkSlaBasis.OFFICE_WORKING_DURATION) {
-      throw new BadRequestException(
-        'Office-working-duration SLA cannot be published until an Office working calendar is configured.',
-      );
+      await this.sla.assertUsableOfficeCalendar(tx, officeId);
     }
 
     const orgUnitIds = [

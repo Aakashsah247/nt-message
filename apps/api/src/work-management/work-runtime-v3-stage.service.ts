@@ -45,6 +45,7 @@ import {
   validateRuntimeStageFields,
 } from './work-runtime-v3-field-validator';
 import { stableJson } from './work-runtime-v3.service';
+import { WorkRuntimeV3SlaService } from './work-runtime-v3-sla.service';
 
 const MUTABLE_STAGE_STATUSES = [
   WorkStageStatus.READY,
@@ -185,6 +186,7 @@ export class WorkRuntimeV3StageService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly authorization: OrganizationAuthorizationService,
+    private readonly sla: WorkRuntimeV3SlaService,
   ) {}
 
   async assign(
@@ -1150,6 +1152,7 @@ export class WorkRuntimeV3StageService {
             select: {
               finalClosureMode: true,
               finalClosureLeadershipType: true,
+              slaBasis: true,
             },
           },
         },
@@ -1214,7 +1217,13 @@ export class WorkRuntimeV3StageService {
         ? WorkStageStatus.IN_PROGRESS
         : WorkStageStatus.READY;
       const dueAt = stage.slaMinutes
-        ? new Date(now.getTime() + stage.slaMinutes * 60_000)
+        ? await this.sla.resolveDueAt(
+            tx,
+            officeId,
+            work.workTypeVersion.slaBasis,
+            now,
+            stage.slaMinutes,
+          )
         : null;
 
       const reopenedStage = await tx.workStage.updateMany({
@@ -1483,6 +1492,12 @@ export class WorkRuntimeV3StageService {
         stageDefinition: {
           select: { responsibleOrgUnitRule: true },
         },
+        workItem: {
+          select: {
+            officeId: true,
+            workTypeVersion: { select: { slaBasis: true } },
+          },
+        },
       },
     });
     if (!stage) {
@@ -1570,8 +1585,14 @@ export class WorkRuntimeV3StageService {
       activation === 'READY' ? WorkStageStatus.READY : WorkStageStatus.SKIPPED;
     const readyAt = nextStatus === WorkStageStatus.READY ? at : null;
     const dueAt =
-      readyAt && stage.slaMinutes
-        ? new Date(readyAt.getTime() + stage.slaMinutes * 60_000)
+      readyAt && stage.slaMinutes && stage.workItem.officeId && stage.workItem.workTypeVersion
+        ? await this.sla.resolveDueAt(
+            tx,
+            stage.workItem.officeId,
+            stage.workItem.workTypeVersion.slaBasis,
+            readyAt,
+            stage.slaMinutes,
+          )
         : null;
     const release = await tx.workStage.updateMany({
       where: {
@@ -2618,6 +2639,17 @@ export class WorkRuntimeV3StageService {
     actorAccountId: string,
     at: Date,
   ): Promise<void> {
+    const work = await tx.workItem.findUnique({
+      where: { id: workItemId },
+      select: {
+        officeId: true,
+        workTypeVersion: { select: { slaBasis: true } },
+      },
+    });
+    if (!work?.officeId || !work.workTypeVersion) {
+      throw new ConflictException('The V3 Work SLA context is incomplete.');
+    }
+
     const queue = [settledStageDefinitionId];
 
     while (queue.length > 0) {
@@ -2721,7 +2753,13 @@ export class WorkRuntimeV3StageService {
         const readyAt = nextStatus === WorkStageStatus.READY ? at : null;
         const dueAt =
           readyAt && stage.slaMinutes
-            ? new Date(readyAt.getTime() + stage.slaMinutes * 60_000)
+            ? await this.sla.resolveDueAt(
+                tx,
+                work.officeId,
+                work.workTypeVersion.slaBasis,
+                readyAt,
+                stage.slaMinutes,
+              )
             : null;
         const claim = await tx.workStage.updateMany({
           where: {

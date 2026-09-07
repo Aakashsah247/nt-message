@@ -169,11 +169,14 @@ function createHarness(
       : jest.fn().mockResolvedValue(undefined),
   } as unknown as OrganizationAuthorizationService;
 
+  const sla = { assertUsableOfficeCalendar: jest.fn().mockResolvedValue(undefined) };
+
   return {
-    service: new WorkTypeV3Service(prisma, authorization),
+    service: new WorkTypeV3Service(prisma, authorization, sla as never),
     prisma,
     authorization,
     tx,
+    sla,
   };
 }
 
@@ -457,6 +460,27 @@ describe('WorkTypeV3Service lifecycle', () => {
 
     expect(tx.workTypeVersion.findMany).not.toHaveBeenCalled();
     expect(tx.workTypeVersion.update).not.toHaveBeenCalled();
+  });
+
+  it('requires a usable Office working calendar before publishing Office-working SLA', async () => {
+    const { service, tx, sla } = createHarness();
+    const draft = draftVersion();
+
+    tx.workTypeVersion.findFirst.mockResolvedValueOnce(draft);
+    tx.workTypeVersion.findUnique.mockResolvedValueOnce({
+      ...publishableConfiguration(),
+      slaBasis: WorkSlaBasis.OFFICE_WORKING_DURATION,
+      overallSlaMinutes: 240,
+    });
+    tx.workTypeVersion.findMany.mockResolvedValue([]);
+    tx.workTypeVersion.update.mockResolvedValueOnce({
+      ...draft,
+      status: WorkTypeVersionStatus.PUBLISHED,
+    });
+
+    await service.publishDraft(user, office.id, definitionId, draftId);
+
+    expect(sla.assertUsableOfficeCalendar).toHaveBeenCalledWith(tx, office.id);
   });
   it('publishes a draft atomically and retires the previous published version', async () => {
     const { service, authorization, tx } = createHarness();

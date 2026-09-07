@@ -94,6 +94,22 @@ describe('OrganizationAuthorizationService', () => {
     await expect(
       service.can(
         superAdmin,
+        CAPABILITIES.WORK_SLA_CALENDAR_VIEW,
+        'office-1',
+      ),
+    ).resolves.toBe(true);
+
+    await expect(
+      service.can(
+        superAdmin,
+        CAPABILITIES.WORK_SLA_CALENDAR_MANAGE,
+        'office-1',
+      ),
+    ).resolves.toBe(false);
+
+    await expect(
+      service.can(
+        superAdmin,
         CAPABILITIES.WORK_CREATE,
         'office-1',
       ),
@@ -420,6 +436,42 @@ describe('OrganizationAuthorizationService', () => {
         'unit-1',
       ),
     ).resolves.toBe(true);
+
+  });
+
+
+  it('grants Office Head calendar management while keeping it outside normal employee authority', async () => {
+    const prisma = createPrisma();
+
+    prisma.orgLeadershipAssignment.findMany.mockResolvedValue([
+      {
+        leadershipType: OrgLeadershipType.OFFICE_HEAD,
+        orgUnitId: null,
+      },
+    ]);
+
+    const service = new OrganizationAuthorizationService(
+      prisma as unknown as PrismaService,
+    );
+
+    await expect(
+      service.can(
+        employeeUser,
+        CAPABILITIES.WORK_SLA_CALENDAR_MANAGE,
+        'office-1',
+        null,
+      ),
+    ).resolves.toBe(true);
+
+    prisma.orgLeadershipAssignment.findMany.mockResolvedValue([]);
+    await expect(
+      service.can(
+        employeeUser,
+        CAPABILITIES.WORK_SLA_CALENDAR_MANAGE,
+        'office-1',
+        null,
+      ),
+    ).resolves.toBe(false);
   });
 
   it('does not grant users.request_create to Team Lead by default', async () => {

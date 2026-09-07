@@ -5,6 +5,7 @@ import {
   Param,
   ParseUUIDPipe,
   Post,
+  Put,
   Query,
   UseGuards,
 } from '@nestjs/common';
@@ -33,7 +34,9 @@ import {
   WorkRuntimeV3StageMutationDto,
 } from './dto/work-runtime-v3-stage.dto';
 import { WorkRuntimeV3CollaborationService } from './work-runtime-v3-collaboration.service';
+import { ReplaceOfficeWorkingCalendarDto } from './dto/work-runtime-v3-sla.dto';
 import { WorkRuntimeV3StageService } from './work-runtime-v3-stage.service';
+import { WorkRuntimeV3SlaService } from './work-runtime-v3-sla.service';
 import { WorkRuntimeV3Service } from './work-runtime-v3.service';
 
 @Controller('work-v3/offices/:officeId')
@@ -43,7 +46,25 @@ export class WorkRuntimeV3Controller {
     private readonly workRuntime: WorkRuntimeV3Service,
     private readonly stageRuntime: WorkRuntimeV3StageService,
     private readonly collaborationRuntime: WorkRuntimeV3CollaborationService,
+    private readonly slaRuntime: WorkRuntimeV3SlaService,
   ) {}
+
+  @Get('working-calendar')
+  getWorkingCalendar(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('officeId', new ParseUUIDPipe({ version: '4' })) officeId: string,
+  ) {
+    return this.slaRuntime.getOfficeWorkingCalendar(user, officeId);
+  }
+
+  @Put('working-calendar')
+  replaceWorkingCalendar(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('officeId', new ParseUUIDPipe({ version: '4' })) officeId: string,
+    @Body() dto: ReplaceOfficeWorkingCalendarDto,
+  ) {
+    return this.slaRuntime.replaceOfficeWorkingCalendar(user, officeId, dto);
+  }
 
   @Get('create-context')
   getCreateContext(
@@ -69,6 +90,15 @@ export class WorkRuntimeV3Controller {
     @Param('workItemId', new ParseUUIDPipe({ version: '4' })) workItemId: string,
   ) {
     return this.workRuntime.getWork(user, officeId, workItemId);
+  }
+
+  @Get('work-items/:workItemId/sla')
+  getWorkSlaSummary(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('officeId', new ParseUUIDPipe({ version: '4' })) officeId: string,
+    @Param('workItemId', new ParseUUIDPipe({ version: '4' })) workItemId: string,
+  ) {
+    return this.workRuntime.getWorkSlaSummary(user, officeId, workItemId);
   }
 
   @Get('work-items/:workItemId/actions')

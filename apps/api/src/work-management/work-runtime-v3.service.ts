@@ -22,7 +22,6 @@ import {
   WorkItemStatus,
   WorkParticipantRole,
   WorkRuntimeStatus,
-  WorkSlaBasis,
   WorkStageAssignmentRole,
   WorkStageAssignmentTargetType,
   WorkStageActivationMode,
@@ -34,6 +33,7 @@ import {
 } from '../generated/prisma/client';
 import { CAPABILITIES } from '../organization/organization-capabilities';
 import { OrganizationAuthorizationService } from '../organization/organization-authorization.service';
+import { WorkRuntimeV3SlaService } from './work-runtime-v3-sla.service';
 import type { CreateWorkRuntimeV3Dto } from './dto/create-work-runtime-v3.dto';
 import {
   assertRuntimeIdentityFieldValues,
@@ -304,6 +304,7 @@ export class WorkRuntimeV3Service {
   constructor(
     private readonly prisma: PrismaService,
     private readonly authorization: OrganizationAuthorizationService,
+    private readonly sla: WorkRuntimeV3SlaService,
   ) {}
 
   async getCreateContext(user: AuthenticatedUser, officeId: string) {
@@ -486,7 +487,7 @@ export class WorkRuntimeV3Service {
       const plannedStartAt = dto.plannedStartAt
         ? this.parseDate(dto.plannedStartAt, 'Planned start')
         : null;
-      const dueAt = this.resolveOverallDueAt(version, dto, now);
+      const dueAt = await this.resolveOverallDueAt(tx, officeId, version, dto, now);
       if (plannedStartAt && plannedStartAt.getTime() >= dueAt.getTime()) {
         throw new BadRequestException('Due time must be later than the planned start time.');
       }
@@ -673,6 +674,15 @@ export class WorkRuntimeV3Service {
     }
 
     return work;
+  }
+
+  async getWorkSlaSummary(
+    user: AuthenticatedUser,
+    officeId: string,
+    workItemId: string,
+  ) {
+    await this.getWork(user, officeId, workItemId);
+    return this.sla.getWorkSlaSummary(officeId, workItemId);
   }
 
   private async getCreatedWork(tx: Prisma.TransactionClient, workItemId: string) {
@@ -923,19 +933,21 @@ export class WorkRuntimeV3Service {
     return count > 0;
   }
 
-  private resolveOverallDueAt(
+  private async resolveOverallDueAt(
+    tx: Prisma.TransactionClient,
+    officeId: string,
     version: RuntimeVersion,
     dto: CreateWorkRuntimeV3Dto,
     now: Date,
-  ): Date {
-    if (version.slaBasis === WorkSlaBasis.OFFICE_WORKING_DURATION) {
-      throw new ConflictException(
-        'Office-working-duration SLA cannot run until the Office calendar engine is enabled.',
-      );
-    }
-
+  ): Promise<Date> {
     const dueAt = version.overallSlaMinutes
-      ? new Date(now.getTime() + version.overallSlaMinutes * 60_000)
+      ? await this.sla.resolveDueAt(
+          tx,
+          officeId,
+          version.slaBasis,
+          now,
+          version.overallSlaMinutes,
+        )
       : dto.dueAt
         ? this.parseDate(dto.dueAt, 'Due time')
         : null;
@@ -1071,7 +1083,8 @@ export class WorkRuntimeV3Service {
       return status;
     };
 
-    return version.stages.map((stage) => {
+    const plans: InitialStagePlan[] = [];
+    for (const stage of version.stages) {
       const awaitsRuntimeParticipant =
         stage.responsibleOrgUnitRule ===
         WorkStageResponsibleOrgUnitRule.RUNTIME_REQUESTED_PARTICIPANT;
@@ -1083,17 +1096,24 @@ export class WorkRuntimeV3Service {
       const readyAt = status === WorkStageStatus.READY ? now : null;
       const dueAt =
         readyAt && stage.slaMinutes
-          ? new Date(readyAt.getTime() + stage.slaMinutes * 60_000)
+          ? await this.sla.resolveDueAt(
+              tx,
+              officeId,
+              version.slaBasis,
+              readyAt,
+              stage.slaMinutes,
+            )
           : null;
-      return {
+      plans.push({
         definition: stage,
         responsibleOrgUnitId: resolvedOrgUnitIds.get(stage.id)!,
         awaitsRuntimeParticipant,
         status,
         readyAt,
         dueAt,
-      };
-    });
+      });
+    }
+    return plans;
   }
 
   private buildParticipantRoles(
