@@ -22,6 +22,10 @@ export class CreateWorkRuntimeV3CollaborationRequestDto {
   @IsUUID('4')
   requestedOrgUnitId!: string;
 
+  @IsOptional()
+  @IsUUID('4')
+  workStageId?: string;
+
   @Transform(({ value }: { value: unknown }) => trimText(value))
   @IsString()
   @MinLength(2)

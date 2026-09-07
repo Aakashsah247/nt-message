@@ -279,6 +279,7 @@ type RuntimeVersion = Prisma.WorkTypeVersionGetPayload<{
 type InitialStagePlan = {
   definition: RuntimeVersion['stages'][number];
   responsibleOrgUnitId: string;
+  awaitsRuntimeParticipant: boolean;
   status: WorkStageStatus;
   readyAt: Date | null;
   dueAt: Date | null;
@@ -973,17 +974,12 @@ export class WorkRuntimeV3Service {
 
     const resolvedOrgUnitIds = new Map<string, string>();
     for (const stage of version.stages) {
-      if (
-        stage.responsibleOrgUnitRule ===
-        WorkStageResponsibleOrgUnitRule.RUNTIME_REQUESTED_PARTICIPANT
-      ) {
-        throw new BadRequestException(
-          `Stage ${stage.code} requires runtime-requested participation, which belongs to the cross-OrgUnit collaboration milestone.`,
-        );
-      }
       const responsibleOrgUnitId =
         stage.responsibleOrgUnitRule === WorkStageResponsibleOrgUnitRule.PRIMARY_OWNER
           ? version.primaryOwnerOrgUnitId!
+          : stage.responsibleOrgUnitRule ===
+              WorkStageResponsibleOrgUnitRule.RUNTIME_REQUESTED_PARTICIPANT
+            ? version.primaryOwnerOrgUnitId!
           : stage.responsibleOrgUnitId;
       if (!responsibleOrgUnitId) {
         throw new ConflictException(`Stage ${stage.code} has no responsible OrgUnit.`);
@@ -1076,7 +1072,14 @@ export class WorkRuntimeV3Service {
     };
 
     return version.stages.map((stage) => {
-      const status = resolveStatus(stage.id);
+      const awaitsRuntimeParticipant =
+        stage.responsibleOrgUnitRule ===
+        WorkStageResponsibleOrgUnitRule.RUNTIME_REQUESTED_PARTICIPANT;
+      const resolvedStatus = resolveStatus(stage.id);
+      const status =
+        awaitsRuntimeParticipant && resolvedStatus === WorkStageStatus.READY
+          ? WorkStageStatus.PENDING
+          : resolvedStatus;
       const readyAt = status === WorkStageStatus.READY ? now : null;
       const dueAt =
         readyAt && stage.slaMinutes
@@ -1085,6 +1088,7 @@ export class WorkRuntimeV3Service {
       return {
         definition: stage,
         responsibleOrgUnitId: resolvedOrgUnitIds.get(stage.id)!,
+        awaitsRuntimeParticipant,
         status,
         readyAt,
         dueAt,
@@ -1101,6 +1105,7 @@ export class WorkRuntimeV3Service {
     ]);
 
     for (const stage of stages) {
+      if (stage.awaitsRuntimeParticipant) continue;
       if (stage.responsibleOrgUnitId === primaryOwnerOrgUnitId) continue;
       const nextRole = stage.definition.isRequired
         ? WorkParticipantRole.REQUIRED_PARTICIPANT

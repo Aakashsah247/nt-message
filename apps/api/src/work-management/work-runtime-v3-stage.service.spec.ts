@@ -19,6 +19,7 @@ import {
   WorkStageAssignmentMode,
   WorkStageAssignmentRole,
   WorkStageAssignmentTargetType,
+  WorkStageResponsibleOrgUnitRule,
   WorkStageStatus,
 } from '../generated/prisma/client';
 import { OrganizationAuthorizationService } from '../organization/organization-authorization.service';
@@ -639,6 +640,9 @@ describe('WorkRuntimeV3StageService', () => {
         activationFieldCode: null,
         activationExpectedValue: null,
         slaMinutes: null,
+        stageDefinition: {
+          responsibleOrgUnitRule: WorkStageResponsibleOrgUnitRule.PRIMARY_OWNER,
+        },
       });
     harness.tx.workStage.findMany
       .mockResolvedValueOnce([
@@ -696,6 +700,9 @@ describe('WorkRuntimeV3StageService', () => {
         activationFieldCode: null,
         activationExpectedValue: null,
         slaMinutes: 30,
+        stageDefinition: {
+          responsibleOrgUnitRule: WorkStageResponsibleOrgUnitRule.PRIMARY_OWNER,
+        },
       });
     harness.tx.workStage.findMany
       .mockResolvedValueOnce([

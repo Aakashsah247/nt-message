@@ -14,6 +14,8 @@ import {
   WorkItemStatus,
   WorkParticipantRole,
   WorkRuntimeStatus,
+  WorkStageResponsibleOrgUnitRule,
+  WorkStageStatus,
 } from '../generated/prisma/client';
 import type { Prisma } from '../generated/prisma/client';
 import { CAPABILITIES } from '../organization/organization-capabilities';
@@ -24,6 +26,7 @@ import type {
   DeclineWorkRuntimeV3CollaborationDto,
   WorkRuntimeV3CollaborationMutationDto,
 } from './dto/work-runtime-v3-collaboration.dto';
+import { WorkRuntimeV3StageService } from './work-runtime-v3-stage.service';
 import { WorkRuntimeV3Service } from './work-runtime-v3.service';
 
 const ACTIVE_COLLABORATION_STATUSES = [
@@ -131,6 +134,7 @@ export class WorkRuntimeV3CollaborationService {
     private readonly prisma: PrismaService,
     private readonly authorization: OrganizationAuthorizationService,
     private readonly workRuntime: WorkRuntimeV3Service,
+    private readonly stageRuntime: WorkRuntimeV3StageService,
   ) {}
 
   async request(
@@ -185,6 +189,53 @@ export class WorkRuntimeV3CollaborationService {
         );
       }
 
+      if (dto.workStageId) {
+        const stage = await tx.workStage.findFirst({
+          where: {
+            id: dto.workStageId,
+            workItemId,
+          },
+          select: {
+            id: true,
+            status: true,
+            stageDefinition: {
+              select: { responsibleOrgUnitRule: true },
+            },
+          },
+        });
+        if (!stage) {
+          throw new BadRequestException(
+            'The requested runtime stage does not belong to this Work.',
+          );
+        }
+        if (
+          stage.stageDefinition.responsibleOrgUnitRule !==
+          WorkStageResponsibleOrgUnitRule.RUNTIME_REQUESTED_PARTICIPANT
+        ) {
+          throw new BadRequestException(
+            'Only a runtime-requested participant stage can be linked to a collaboration request.',
+          );
+        }
+        if (stage.status !== WorkStageStatus.PENDING) {
+          throw new ConflictException(
+            `Only a PENDING runtime-requested stage can request participation; it is ${stage.status}.`,
+          );
+        }
+
+        const activeStageRequest = await tx.workCollaborationRequest.findFirst({
+          where: {
+            workStageId: dto.workStageId,
+            status: { in: [...ACTIVE_COLLABORATION_STATUSES] },
+          },
+          select: { id: true },
+        });
+        if (activeStageRequest) {
+          throw new ConflictException(
+            'This runtime stage already has an active collaboration request.',
+          );
+        }
+      }
+
       const existingParticipant = await tx.workOrgUnitParticipant.findFirst({
         where: {
           workItemId,
@@ -225,6 +276,7 @@ export class WorkRuntimeV3CollaborationService {
       const request = await tx.workCollaborationRequest.create({
         data: {
           workItemId,
+          workStageId: dto.workStageId ?? null,
           sourceOrgUnitId: dto.sourceOrgUnitId,
           requestedOrgUnitId: dto.requestedOrgUnitId,
           requestedByAccountId: user.accountId,
@@ -244,6 +296,7 @@ export class WorkRuntimeV3CollaborationService {
             collaborationRequestId: request.id,
             sourceOrgUnitId: dto.sourceOrgUnitId,
             requestedOrgUnitId: dto.requestedOrgUnitId,
+            workStageId: dto.workStageId ?? null,
             purpose,
             neededBy: neededBy?.toISOString() ?? null,
             workRuntimeStatus: work.runtimeStatus,
@@ -345,6 +398,17 @@ export class WorkRuntimeV3CollaborationService {
       if (claimed.count !== 1) {
         throw new ConflictException(
           'The collaboration request changed while it was being accepted. Refresh and try again.',
+        );
+      }
+
+      if (request.workStageId) {
+        await this.stageRuntime.bindRuntimeRequestedParticipant(
+          tx,
+          request.workItemId,
+          request.workStageId,
+          request.requestedOrgUnitId,
+          user.accountId,
+          now,
         );
       }
 

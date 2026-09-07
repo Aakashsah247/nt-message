@@ -14,6 +14,7 @@ import {
   EmployeeStatus,
   EmploymentStatus,
   OrgLeadershipType,
+  WorkCollaborationStatus,
   WorkEventType,
   WorkFinalClosureMode,
   WorkRuntimeStatus,
@@ -23,6 +24,7 @@ import {
   WorkStageAssignmentMode,
   WorkStageAssignmentRole,
   WorkStageAssignmentTargetType,
+  WorkStageResponsibleOrgUnitRule,
   WorkStageStatus,
 } from '../generated/prisma/client';
 import { CAPABILITIES } from '../organization/organization-capabilities';
@@ -1459,6 +1461,167 @@ export class WorkRuntimeV3StageService {
     );
   }
 
+  async bindRuntimeRequestedParticipant(
+    tx: Prisma.TransactionClient,
+    workItemId: string,
+    workStageId: string,
+    responsibleOrgUnitId: string,
+    actorAccountId: string,
+    at: Date,
+  ): Promise<void> {
+    const stage = await tx.workStage.findFirst({
+      where: { id: workStageId, workItemId },
+      select: {
+        id: true,
+        stageDefinitionId: true,
+        status: true,
+        version: true,
+        activationMode: true,
+        activationFieldCode: true,
+        activationExpectedValue: true,
+        slaMinutes: true,
+        stageDefinition: {
+          select: { responsibleOrgUnitRule: true },
+        },
+      },
+    });
+    if (!stage) {
+      throw new ConflictException(
+        'The collaboration-linked runtime stage no longer exists.',
+      );
+    }
+    if (
+      stage.stageDefinition.responsibleOrgUnitRule !==
+      WorkStageResponsibleOrgUnitRule.RUNTIME_REQUESTED_PARTICIPANT
+    ) {
+      throw new ConflictException(
+        'Only a runtime-requested participant stage can be bound through collaboration.',
+      );
+    }
+    if (stage.status !== WorkStageStatus.PENDING) {
+      throw new ConflictException(
+        `Runtime-requested participant stage must be PENDING before acceptance; it is ${stage.status}.`,
+      );
+    }
+
+    const binding = await tx.workStage.updateMany({
+      where: {
+        id: stage.id,
+        version: stage.version,
+        status: WorkStageStatus.PENDING,
+      },
+      data: {
+        responsibleOrgUnitId,
+        version: { increment: 1 },
+      },
+    });
+    if (binding.count !== 1) {
+      throw new ConflictException(
+        'The collaboration-linked stage changed while responsibility was being accepted. Refresh and try again.',
+      );
+    }
+
+    const dependencies = await tx.workStageDependency.findMany({
+      where: { stageDefinitionId: stage.stageDefinitionId },
+      select: { prerequisiteStageId: true },
+    });
+    const prerequisiteIds = dependencies.map(
+      (dependency) => dependency.prerequisiteStageId,
+    );
+    if (prerequisiteIds.length > 0) {
+      const prerequisiteStages = await tx.workStage.findMany({
+        where: {
+          workItemId,
+          stageDefinitionId: { in: prerequisiteIds },
+        },
+        select: { stageDefinitionId: true, status: true },
+      });
+      if (prerequisiteStages.length !== prerequisiteIds.length) {
+        throw new ConflictException(
+          'The Work runtime dependency graph is incomplete.',
+        );
+      }
+      if (
+        !prerequisiteStages.every(
+          (prerequisite) =>
+            prerequisite.status === WorkStageStatus.COMPLETED ||
+            prerequisite.status === WorkStageStatus.SKIPPED,
+        )
+      ) {
+        return;
+      }
+    }
+
+    const activation =
+      stage.activationMode === WorkStageActivationMode.MANUAL_WHEN_REQUIRED
+        ? 'READY'
+        : await this.resolveDependentActivation(
+            tx,
+            workItemId,
+            stage.activationMode,
+            stage.activationFieldCode,
+            stage.activationExpectedValue,
+          );
+    if (activation === 'DEFERRED') {
+      return;
+    }
+
+    const nextStatus =
+      activation === 'READY' ? WorkStageStatus.READY : WorkStageStatus.SKIPPED;
+    const readyAt = nextStatus === WorkStageStatus.READY ? at : null;
+    const dueAt =
+      readyAt && stage.slaMinutes
+        ? new Date(readyAt.getTime() + stage.slaMinutes * 60_000)
+        : null;
+    const release = await tx.workStage.updateMany({
+      where: {
+        id: stage.id,
+        status: WorkStageStatus.PENDING,
+        version: stage.version + 1,
+      },
+      data: {
+        status: nextStatus,
+        readyAt,
+        dueAt,
+        version: { increment: 1 },
+      },
+    });
+    if (release.count !== 1) {
+      throw new ConflictException(
+        'The collaboration-linked stage changed while it was being released. Refresh and try again.',
+      );
+    }
+
+    await tx.workEvent.create({
+      data: {
+        workItemId,
+        workStageId: stage.id,
+        actorAccountId,
+        eventType:
+          nextStatus === WorkStageStatus.READY
+            ? WorkEventType.STAGE_READY
+            : WorkEventType.STAGE_SKIPPED,
+        fromStageStatus: WorkStageStatus.PENDING,
+        toStageStatus: nextStatus,
+        details: {
+          reason: 'RUNTIME_PARTICIPANT_ACCEPTED',
+          responsibleOrgUnitId,
+        },
+      },
+    });
+
+    if (nextStatus === WorkStageStatus.SKIPPED) {
+      await this.releaseDependentStages(
+        tx,
+        workItemId,
+        stage.stageDefinitionId,
+        actorAccountId,
+        at,
+      );
+    }
+    await this.recalculateWorkStatus(tx, workItemId, actorAccountId);
+  }
+
   private async assertCanAssign(
     user: AuthenticatedUser,
     officeId: string,
@@ -2479,10 +2642,36 @@ export class WorkRuntimeV3StageService {
             activationFieldCode: true,
             activationExpectedValue: true,
             slaMinutes: true,
+            stageDefinition: {
+              select: { responsibleOrgUnitRule: true },
+            },
           },
         });
         if (!stage || stage.status !== WorkStageStatus.PENDING) {
           continue;
+        }
+
+        if (
+          stage.stageDefinition.responsibleOrgUnitRule ===
+          WorkStageResponsibleOrgUnitRule.RUNTIME_REQUESTED_PARTICIPANT
+        ) {
+          const acceptedRequest = await tx.workCollaborationRequest.findFirst({
+            where: {
+              workItemId,
+              workStageId: stage.id,
+              status: {
+                in: [
+                  WorkCollaborationStatus.ACCEPTED,
+                  WorkCollaborationStatus.IN_PROGRESS,
+                  WorkCollaborationStatus.COMPLETED,
+                ],
+              },
+            },
+            select: { id: true },
+          });
+          if (!acceptedRequest) {
+            continue;
+          }
         }
 
         const dependencies = await tx.workStageDependency.findMany({

@@ -261,6 +261,53 @@ describe('WorkRuntimeV3Service creation', () => {
     });
   });
 
+  it('creates runtime-requested participant stages as pending without pre-adding another OrgUnit', async () => {
+    const harness = createHarness();
+    const version = runtimeVersion();
+    version.stages[0] = {
+      ...version.stages[0],
+      code: 'ACCOUNTS_SUPPORT',
+      name: 'Accounts support',
+      responsibleOrgUnitRule:
+        WorkStageResponsibleOrgUnitRule.RUNTIME_REQUESTED_PARTICIPANT,
+    };
+    harness.tx.workTypeVersion.findFirst.mockResolvedValue(version);
+    harness.tx.workStage.findMany.mockResolvedValue([
+      {
+        id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+        code: 'ACCOUNTS_SUPPORT',
+        status: WorkStageStatus.PENDING,
+      },
+    ]);
+
+    await harness.service.create(user, officeId, createDto());
+
+    expect(harness.tx.workItem.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          orgUnitParticipants: {
+            create: [
+              expect.objectContaining({
+                orgUnitId: ownerId,
+              }),
+            ],
+          },
+        }),
+      }),
+    );
+    expect(harness.tx.workStage.createMany).toHaveBeenCalledWith({
+      data: [
+        expect.objectContaining({
+          code: 'ACCOUNTS_SUPPORT',
+          responsibleOrgUnitId: ownerId,
+          status: WorkStageStatus.PENDING,
+          readyAt: null,
+          dueAt: null,
+        }),
+      ],
+    });
+  });
+
   it('returns the original Work for an identical idempotent retry', async () => {
     const harness = createHarness();
     const dto = createDto();

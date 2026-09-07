@@ -9,11 +9,14 @@ import {
   WorkItemStatus,
   WorkParticipantRole,
   WorkRuntimeStatus,
+  WorkStageResponsibleOrgUnitRule,
+  WorkStageStatus,
 } from '../generated/prisma/client';
 import { CAPABILITIES } from '../organization/organization-capabilities';
 import { OrganizationAuthorizationService } from '../organization/organization-authorization.service';
 import type { CreateWorkRuntimeV3CollaborationRequestDto } from './dto/work-runtime-v3-collaboration.dto';
 import { WorkRuntimeV3CollaborationService } from './work-runtime-v3-collaboration.service';
+import { WorkRuntimeV3StageService } from './work-runtime-v3-stage.service';
 import { WorkRuntimeV3Service } from './work-runtime-v3.service';
 
 const user = {
@@ -28,6 +31,7 @@ const workItemId = '33333333-3333-4333-8333-333333333333';
 const sourceOrgUnitId = '44444444-4444-4444-8444-444444444444';
 const requestedOrgUnitId = '55555555-5555-4555-8555-555555555555';
 const requestId = '66666666-6666-4666-8666-666666666666';
+const workStageId = '77777777-7777-4777-8777-777777777777';
 
 function collaborationRecord(
   status: WorkCollaborationStatus = WorkCollaborationStatus.REQUESTED,
@@ -96,6 +100,16 @@ function createHarness() {
     orgUnit: {
       findFirst: jest.fn().mockResolvedValue({ id: requestedOrgUnitId }),
     },
+    workStage: {
+      findFirst: jest.fn().mockResolvedValue({
+        id: workStageId,
+        status: WorkStageStatus.PENDING,
+        stageDefinition: {
+          responsibleOrgUnitRule:
+            WorkStageResponsibleOrgUnitRule.RUNTIME_REQUESTED_PARTICIPANT,
+        },
+      }),
+    },
     workOrgUnitParticipant: {
       findFirst: jest
         .fn()
@@ -131,16 +145,21 @@ function createHarness() {
   const workRuntime = {
     getWork: jest.fn().mockResolvedValue({ id: workItemId }),
   };
+  const stageRuntime = {
+    bindRuntimeRequestedParticipant: jest.fn().mockResolvedValue(undefined),
+  };
 
   return {
     tx,
     prisma,
     authorization,
     workRuntime,
+    stageRuntime,
     service: new WorkRuntimeV3CollaborationService(
       prisma as unknown as PrismaService,
       authorization as unknown as OrganizationAuthorizationService,
       workRuntime as unknown as WorkRuntimeV3Service,
+      stageRuntime as unknown as WorkRuntimeV3StageService,
     ),
   };
 }
@@ -181,6 +200,30 @@ describe('WorkRuntimeV3CollaborationService', () => {
         workItemId,
         eventType: WorkEventType.COLLABORATION_REQUESTED,
       }),
+    });
+  });
+
+  it('links a runtime-requested participant stage to the collaboration request', async () => {
+    const harness = createHarness();
+
+    await harness.service.request(user, officeId, workItemId, {
+      ...requestDto(),
+      workStageId,
+    });
+
+    expect(harness.tx.workStage.findFirst).toHaveBeenCalledWith({
+      where: { id: workStageId, workItemId },
+      select: {
+        id: true,
+        status: true,
+        stageDefinition: {
+          select: { responsibleOrgUnitRule: true },
+        },
+      },
+    });
+    expect(harness.tx.workCollaborationRequest.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({ workStageId }),
+      select: { id: true },
     });
   });
 
@@ -247,6 +290,42 @@ describe('WorkRuntimeV3CollaborationService', () => {
         }),
       ]),
     });
+  });
+
+  it('binds an accepted collaboration to its runtime-requested participant stage', async () => {
+    const harness = createHarness();
+    harness.prisma.workCollaborationRequest.findFirst.mockResolvedValue(
+      collaborationRecord(),
+    );
+    harness.tx.workCollaborationRequest.findFirst.mockResolvedValue({
+      id: requestId,
+      workItemId,
+      workStageId,
+      participantId: null,
+      sourceOrgUnitId,
+      requestedOrgUnitId,
+      status: WorkCollaborationStatus.REQUESTED,
+      version: 1,
+    });
+    harness.tx.workOrgUnitParticipant.findFirst
+      .mockReset()
+      .mockResolvedValueOnce({ id: 'source-participant' })
+      .mockResolvedValueOnce(null);
+
+    await harness.service.accept(user, officeId, requestId, {
+      expectedVersion: 1,
+    });
+
+    expect(
+      harness.stageRuntime.bindRuntimeRequestedParticipant,
+    ).toHaveBeenCalledWith(
+      harness.tx,
+      workItemId,
+      workStageId,
+      requestedOrgUnitId,
+      user.accountId,
+      expect.any(Date),
+    );
   });
 
   it('records a receiving-unit decline without adding a participant', async () => {
