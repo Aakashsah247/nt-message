@@ -37,6 +37,11 @@ const OFFICE_HEAD_CAPABILITIES = new Set<Capability>([
 
   CAPABILITIES.USERS_REQUEST_CREATE,
 
+  CAPABILITIES.WORK_VIEW,
+  CAPABILITIES.WORK_ASSIGN,
+  CAPABILITIES.WORK_START_STAGE,
+  CAPABILITIES.WORK_SUBMIT_STAGE,
+
   CAPABILITIES.WORK_TYPE_VIEW,
   CAPABILITIES.WORK_TYPE_DRAFT,
   CAPABILITIES.WORK_TYPE_PUBLISH,
@@ -46,12 +51,20 @@ const ORG_UNIT_HEAD_CAPABILITIES = new Set<Capability>([
   CAPABILITIES.ORGANIZATION_VIEW,
   CAPABILITIES.MEMBERSHIP_VIEW,
   CAPABILITIES.LEADERSHIP_VIEW,
+  CAPABILITIES.WORK_VIEW,
+  CAPABILITIES.WORK_ASSIGN,
+  CAPABILITIES.WORK_START_STAGE,
+  CAPABILITIES.WORK_SUBMIT_STAGE,
 ]);
 
 const TEAM_LEAD_CAPABILITIES = new Set<Capability>([
   CAPABILITIES.ORGANIZATION_VIEW,
   CAPABILITIES.MEMBERSHIP_VIEW,
   CAPABILITIES.LEADERSHIP_VIEW,
+  CAPABILITIES.WORK_VIEW,
+  CAPABILITIES.WORK_ASSIGN,
+  CAPABILITIES.WORK_START_STAGE,
+  CAPABILITIES.WORK_SUBMIT_STAGE,
 ]);
 
 const SUPER_ADMIN_CAPABILITIES = new Set<Capability>([
@@ -142,13 +155,16 @@ export class OrganizationAuthorizationService {
     }
 
     /*
-     * Work creation is a base capability of an active Office member. The
-     * published Work Type Version remains the authoritative business-rule
-     * gate for whether this specific member/category/scope may create a
-     * particular Work. Keeping that policy in the Work domain avoids
-     * hard-coding Work Type rules into organization authorization.
+     * Work creation and assigned-stage execution are base capabilities of an
+     * active Office member. The Work domain remains authoritative for creator
+     * policy, assignment, stage state and scope, so organization authorization
+     * does not duplicate those business rules.
      */
-    if (capability === CAPABILITIES.WORK_CREATE) {
+    if (
+      capability === CAPABILITIES.WORK_CREATE ||
+      capability === CAPABILITIES.WORK_START_STAGE ||
+      capability === CAPABILITIES.WORK_SUBMIT_STAGE
+    ) {
       return true;
     }
 

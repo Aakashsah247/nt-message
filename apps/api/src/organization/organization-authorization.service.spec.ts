@@ -106,6 +106,14 @@ describe('OrganizationAuthorizationService', () => {
         'office-1',
       ),
     ).resolves.toBe(false);
+
+    await expect(
+      service.can(
+        superAdmin,
+        CAPABILITIES.WORK_START_STAGE,
+        'office-1',
+      ),
+    ).resolves.toBe(false);
   });
 
   it('allows an active Office member to reach the Work Type creation policy gate', async () => {
@@ -116,6 +124,14 @@ describe('OrganizationAuthorizationService', () => {
 
     await expect(
       service.can(employeeUser, CAPABILITIES.WORK_CREATE, 'office-1'),
+    ).resolves.toBe(true);
+
+    await expect(
+      service.can(employeeUser, CAPABILITIES.WORK_START_STAGE, 'office-1'),
+    ).resolves.toBe(true);
+
+    await expect(
+      service.can(employeeUser, CAPABILITIES.WORK_SUBMIT_STAGE, 'office-1'),
     ).resolves.toBe(true);
   });
 
@@ -706,7 +722,7 @@ describe('OrganizationAuthorizationService', () => {
 
     prisma.orgLeadershipAssignment.findMany.mockImplementation(
       async (args) => {
-        const at = args.where.effectiveFrom.lte;
+        const at = args.where.effectiveFrom.lte as Date;
 
         return at.getTime() < effectiveUntil.getTime()
           ? [

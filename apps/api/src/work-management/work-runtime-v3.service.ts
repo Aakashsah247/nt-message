@@ -34,6 +34,7 @@ import { CAPABILITIES } from '../organization/organization-capabilities';
 import { OrganizationAuthorizationService } from '../organization/organization-authorization.service';
 import type { CreateWorkRuntimeV3Dto } from './dto/create-work-runtime-v3.dto';
 import {
+  assertRuntimeIdentityFieldValues,
   normalizeReferenceValue,
   validateRuntimeIntakeFields,
   type NormalizedRuntimeFieldValue,
@@ -349,7 +350,7 @@ export class WorkRuntimeV3Service {
       await this.assertCreatorPolicy(tx, version, actorContext);
 
       const validatedFields = validateRuntimeIntakeFields(version.fields, dto.fields);
-      await this.assertIdentityFieldValues(
+      await assertRuntimeIdentityFieldValues(
         tx,
         officeId,
         now,
@@ -696,68 +697,6 @@ export class WorkRuntimeV3Service {
       },
     });
     return count > 0;
-  }
-
-  private async assertIdentityFieldValues(
-    tx: Prisma.TransactionClient,
-    officeId: string,
-    at: Date,
-    identityValues: ReturnType<typeof validateRuntimeIntakeFields>['identityValues'],
-  ): Promise<void> {
-    const orgUnitIds = [
-      ...new Set(
-        identityValues
-          .filter((item) => item.fieldType === WorkFieldType.ORG_UNIT)
-          .map((item) => item.id),
-      ),
-    ];
-    if (orgUnitIds.length > 0) {
-      const count = await tx.orgUnit.count({
-        where: { id: { in: orgUnitIds }, officeId, isActive: true },
-      });
-      if (count !== orgUnitIds.length) {
-        throw new BadRequestException(
-          'One or more OrgUnit field values are not active in this Office.',
-        );
-      }
-    }
-
-    const accountIds = [
-      ...new Set(
-        identityValues
-          .filter((item) => item.fieldType === WorkFieldType.USER)
-          .map((item) => item.id),
-      ),
-    ];
-    if (accountIds.length > 0) {
-      const count = await tx.account.count({
-        where: {
-          id: { in: accountIds },
-          isEnabled: true,
-          role: { not: AccountRole.SUPER_ADMIN },
-          employee: {
-            is: {
-              status: EmployeeStatus.ACTIVE,
-              employmentStatus: EmploymentStatus.ACTIVE,
-              archivedAt: null,
-              orgMemberships: {
-                some: {
-                  officeId,
-                  membershipType: OrgMembershipType.PRIMARY,
-                  startsAt: { lte: at },
-                  OR: [{ endsAt: null }, { endsAt: { gt: at } }],
-                },
-              },
-            },
-          },
-        },
-      });
-      if (count !== accountIds.length) {
-        throw new BadRequestException(
-          'One or more user field values are not active members of this Office.',
-        );
-      }
-    }
   }
 
   private resolveOverallDueAt(

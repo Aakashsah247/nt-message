@@ -1,7 +1,13 @@
 import { BadRequestException } from '@nestjs/common';
 
 import type { Prisma } from '../generated/prisma/client';
-import { WorkFieldType } from '../generated/prisma/client';
+import {
+  AccountRole,
+  EmployeeStatus,
+  EmploymentStatus,
+  OrgMembershipType,
+  WorkFieldType,
+} from '../generated/prisma/client';
 import type { WorkRuntimeV3FieldInputDto } from './dto/create-work-runtime-v3.dto';
 
 type JsonScalar = string | number | boolean;
@@ -234,18 +240,20 @@ function normalizeSingleValue(
   }
 }
 
-export function validateRuntimeIntakeFields(
+function validateRuntimeFieldsForStage(
   definitions: RuntimeFieldDefinitionForValidation[],
   inputs: WorkRuntimeV3FieldInputDto[],
+  stageDefinitionId: string | null,
+  contextLabel: 'intake' | 'stage',
 ): ValidatedRuntimeFieldSet {
-  const intakeDefinitions = definitions.filter(
-    (definition) => definition.stageDefinitionId === null,
+  const scopedDefinitions = definitions.filter(
+    (definition) => definition.stageDefinitionId === stageDefinitionId,
   );
   const allByCode = new Map(
     definitions.map((definition) => [definition.code, definition]),
   );
-  const intakeByCode = new Map(
-    intakeDefinitions.map((definition) => [definition.code, definition]),
+  const scopedByCode = new Map(
+    scopedDefinitions.map((definition) => [definition.code, definition]),
   );
   const inputByCode = new Map<string, WorkRuntimeV3FieldInputDto>();
 
@@ -253,21 +261,30 @@ export function validateRuntimeIntakeFields(
     if (inputByCode.has(input.code)) {
       throw new BadRequestException(`Field ${input.code} was supplied more than once.`);
     }
+
     const definition = allByCode.get(input.code);
     if (!definition) {
       throw new BadRequestException(`Unknown Work field ${input.code}.`);
     }
-    if (definition.stageDefinitionId !== null) {
+
+    if (definition.stageDefinitionId !== stageDefinitionId) {
       throw new BadRequestException(
-        `Field ${input.code} belongs to a Work stage and cannot be supplied at intake.`,
+        contextLabel === 'intake'
+          ? `Field ${input.code} belongs to a Work stage and cannot be supplied at intake.`
+          : `Field ${input.code} does not belong to this Work stage.`,
       );
     }
+
     inputByCode.set(input.code, input);
   }
 
-  for (const definition of intakeDefinitions) {
+  for (const definition of scopedDefinitions) {
     if (definition.isRequired && !inputByCode.has(definition.code)) {
-      throw new BadRequestException(`Required Work field ${definition.code} is missing.`);
+      throw new BadRequestException(
+        contextLabel === 'intake'
+          ? `Required Work field ${definition.code} is missing.`
+          : `Required stage field ${definition.code} is missing.`,
+      );
     }
   }
 
@@ -276,9 +293,13 @@ export function validateRuntimeIntakeFields(
   const identityValues: RuntimeIdentityFieldValue[] = [];
 
   for (const [code, input] of inputByCode.entries()) {
-    const definition = intakeByCode.get(code);
+    const definition = scopedByCode.get(code);
     if (!definition) {
-      throw new BadRequestException(`Unknown Work intake field ${code}.`);
+      throw new BadRequestException(
+        contextLabel === 'intake'
+          ? `Unknown Work intake field ${code}.`
+          : `Unknown Work stage field ${code}.`,
+      );
     }
 
     const value = normalizeSingleValue(definition, input.value);
@@ -305,6 +326,89 @@ export function validateRuntimeIntakeFields(
   values.sort((left, right) => left.code.localeCompare(right.code));
 
   return { values, valuesByCode, identityValues };
+}
+
+export function validateRuntimeIntakeFields(
+  definitions: RuntimeFieldDefinitionForValidation[],
+  inputs: WorkRuntimeV3FieldInputDto[],
+): ValidatedRuntimeFieldSet {
+  return validateRuntimeFieldsForStage(definitions, inputs, null, 'intake');
+}
+
+export function validateRuntimeStageFields(
+  definitions: RuntimeFieldDefinitionForValidation[],
+  stageDefinitionId: string,
+  inputs: WorkRuntimeV3FieldInputDto[],
+): ValidatedRuntimeFieldSet {
+  return validateRuntimeFieldsForStage(
+    definitions,
+    inputs,
+    stageDefinitionId,
+    'stage',
+  );
+}
+export async function assertRuntimeIdentityFieldValues(
+  tx: Prisma.TransactionClient,
+  officeId: string,
+  at: Date,
+  identityValues: RuntimeIdentityFieldValue[],
+): Promise<void> {
+  const orgUnitIds = [
+    ...new Set(
+      identityValues
+        .filter((item) => item.fieldType === WorkFieldType.ORG_UNIT)
+        .map((item) => item.id),
+    ),
+  ];
+
+  if (orgUnitIds.length > 0) {
+    const count = await tx.orgUnit.count({
+      where: { id: { in: orgUnitIds }, officeId, isActive: true },
+    });
+    if (count !== orgUnitIds.length) {
+      throw new BadRequestException(
+        'One or more OrgUnit field values are not active in this Office.',
+      );
+    }
+  }
+
+  const accountIds = [
+    ...new Set(
+      identityValues
+        .filter((item) => item.fieldType === WorkFieldType.USER)
+        .map((item) => item.id),
+    ),
+  ];
+
+  if (accountIds.length > 0) {
+    const count = await tx.account.count({
+      where: {
+        id: { in: accountIds },
+        isEnabled: true,
+        role: { not: AccountRole.SUPER_ADMIN },
+        employee: {
+          is: {
+            status: EmployeeStatus.ACTIVE,
+            employmentStatus: EmploymentStatus.ACTIVE,
+            archivedAt: null,
+            orgMemberships: {
+              some: {
+                officeId,
+                membershipType: OrgMembershipType.PRIMARY,
+                startsAt: { lte: at },
+                OR: [{ endsAt: null }, { endsAt: { gt: at } }],
+              },
+            },
+          },
+        },
+      },
+    });
+    if (count !== accountIds.length) {
+      throw new BadRequestException(
+        'One or more user field values are not active members of this Office.',
+      );
+    }
+  }
 }
 
 export function normalizeReferenceValue(value: string): string {
