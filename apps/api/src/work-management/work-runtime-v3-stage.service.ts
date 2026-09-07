@@ -320,6 +320,13 @@ export class WorkRuntimeV3StageService {
         },
       });
 
+      await this.markLinkedCollaborationInProgress(
+        tx,
+        stage.workItemId,
+        stage.id,
+        user.accountId,
+        now,
+      );
       await this.recalculateWorkStatus(tx, stage.workItemId, user.accountId);
     });
 
@@ -602,6 +609,13 @@ export class WorkRuntimeV3StageService {
           },
         });
 
+        await this.markLinkedCollaborationCompleted(
+          tx,
+          stage.workItemId,
+          stage.id,
+          user.accountId,
+          now,
+        );
         await this.releaseDependentStages(
           tx,
           stage.workItemId,
@@ -690,6 +704,13 @@ export class WorkRuntimeV3StageService {
         },
       });
 
+      await this.markLinkedCollaborationCompleted(
+        tx,
+        stage.workItemId,
+        stage.id,
+        user.accountId,
+        now,
+      );
       await this.releaseDependentStages(
         tx,
         stage.workItemId,
@@ -2592,6 +2613,124 @@ export class WorkRuntimeV3StageService {
           .filter((id): id is string => Boolean(id)) ?? [],
       ),
     ];
+  }
+
+  private async markLinkedCollaborationInProgress(
+    tx: Prisma.TransactionClient,
+    workItemId: string,
+    workStageId: string,
+    actorAccountId: string,
+    at: Date,
+  ): Promise<void> {
+    const request = await tx.workCollaborationRequest.findFirst({
+      where: {
+        workItemId,
+        workStageId,
+        status: WorkCollaborationStatus.ACCEPTED,
+      },
+      select: {
+        id: true,
+        sourceOrgUnitId: true,
+        requestedOrgUnitId: true,
+        version: true,
+      },
+    });
+    if (!request) return;
+
+    const claimed = await tx.workCollaborationRequest.updateMany({
+      where: {
+        id: request.id,
+        version: request.version,
+        status: WorkCollaborationStatus.ACCEPTED,
+      },
+      data: {
+        status: WorkCollaborationStatus.IN_PROGRESS,
+        startedAt: at,
+        version: { increment: 1 },
+      },
+    });
+    if (claimed.count !== 1) {
+      throw new ConflictException(
+        'The linked collaboration request changed while its stage was starting. Refresh and try again.',
+      );
+    }
+
+    await tx.workEvent.create({
+      data: {
+        workItemId,
+        workStageId,
+        actorAccountId,
+        eventType: WorkEventType.COLLABORATION_IN_PROGRESS,
+        details: {
+          collaborationRequestId: request.id,
+          sourceOrgUnitId: request.sourceOrgUnitId,
+          requestedOrgUnitId: request.requestedOrgUnitId,
+        },
+      },
+    });
+  }
+
+  private async markLinkedCollaborationCompleted(
+    tx: Prisma.TransactionClient,
+    workItemId: string,
+    workStageId: string,
+    actorAccountId: string,
+    at: Date,
+  ): Promise<void> {
+    const request = await tx.workCollaborationRequest.findFirst({
+      where: {
+        workItemId,
+        workStageId,
+        status: {
+          in: [
+            WorkCollaborationStatus.ACCEPTED,
+            WorkCollaborationStatus.IN_PROGRESS,
+          ],
+        },
+      },
+      select: {
+        id: true,
+        sourceOrgUnitId: true,
+        requestedOrgUnitId: true,
+        status: true,
+        startedAt: true,
+        version: true,
+      },
+    });
+    if (!request) return;
+
+    const claimed = await tx.workCollaborationRequest.updateMany({
+      where: {
+        id: request.id,
+        version: request.version,
+        status: request.status,
+      },
+      data: {
+        status: WorkCollaborationStatus.COMPLETED,
+        startedAt: request.startedAt ?? at,
+        completedAt: at,
+        version: { increment: 1 },
+      },
+    });
+    if (claimed.count !== 1) {
+      throw new ConflictException(
+        'The linked collaboration request changed while its stage was completing. Refresh and try again.',
+      );
+    }
+
+    await tx.workEvent.create({
+      data: {
+        workItemId,
+        workStageId,
+        actorAccountId,
+        eventType: WorkEventType.COLLABORATION_COMPLETED,
+        details: {
+          collaborationRequestId: request.id,
+          sourceOrgUnitId: request.sourceOrgUnitId,
+          requestedOrgUnitId: request.requestedOrgUnitId,
+        },
+      },
+    });
   }
 
   private async recalculateWorkStatus(

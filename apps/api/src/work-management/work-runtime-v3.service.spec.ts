@@ -7,6 +7,7 @@ import {
   OrgMembershipType,
   WorkFieldType,
   WorkFinalClosureMode,
+  WorkParticipantRole,
   WorkRuntimeStatus,
   WorkSlaBasis,
   WorkStageActivationMode,
@@ -35,6 +36,8 @@ const versionId = '44444444-4444-4444-8444-444444444444';
 const definitionId = '55555555-5555-4555-8555-555555555555';
 const stageDefinitionId = '66666666-6666-4666-8666-666666666666';
 const fieldDefinitionId = '77777777-7777-4777-8777-777777777777';
+const accountsOrgUnitId = 'aaaaaaaa-1111-4111-8111-111111111111';
+const administrationOrgUnitId = 'bbbbbbbb-2222-4222-8222-222222222222';
 
 function runtimeVersion() {
   return {
@@ -271,6 +274,111 @@ describe('WorkRuntimeV3Service creation', () => {
           status: WorkStageStatus.READY,
         }),
       ],
+    });
+  });
+
+  it('creates a Technical + Accounts + Administration Work without transferring Technical primary ownership', async () => {
+    const harness = createHarness();
+    const baseVersion = runtimeVersion();
+    const version = {
+      ...baseVersion,
+      stages: [
+        {
+          ...baseVersion.stages[0],
+          id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa1',
+          code: 'TECHNICAL_INTAKE',
+          name: 'Technical intake',
+          sortOrder: 10,
+          responsibleOrgUnitRule:
+            WorkStageResponsibleOrgUnitRule.PRIMARY_OWNER,
+          responsibleOrgUnitId: null,
+          isRequired: true,
+        },
+        {
+          ...baseVersion.stages[0],
+          id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa2',
+          code: 'ACCOUNTS_VERIFICATION',
+          name: 'Accounts verification',
+          sortOrder: 20,
+          responsibleOrgUnitRule:
+            WorkStageResponsibleOrgUnitRule.SPECIFIC_ORG_UNIT,
+          responsibleOrgUnitId: accountsOrgUnitId,
+          isRequired: true,
+        },
+        {
+          ...baseVersion.stages[0],
+          id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa3',
+          code: 'ADMINISTRATION_SUPPORT',
+          name: 'Administration support',
+          sortOrder: 30,
+          responsibleOrgUnitRule:
+            WorkStageResponsibleOrgUnitRule.SPECIFIC_ORG_UNIT,
+          responsibleOrgUnitId: administrationOrgUnitId,
+          isRequired: false,
+        },
+      ],
+    };
+    harness.tx.workTypeVersion.findFirst.mockResolvedValue(version);
+    harness.tx.orgUnit.count.mockResolvedValue(2);
+    harness.tx.workStage.createMany.mockResolvedValue({ count: 3 });
+    harness.tx.workStage.findMany.mockResolvedValue([
+      {
+        id: 'cccccccc-aaaa-4aaa-8aaa-aaaaaaaaaaa1',
+        code: 'TECHNICAL_INTAKE',
+        status: WorkStageStatus.READY,
+      },
+      {
+        id: 'cccccccc-aaaa-4aaa-8aaa-aaaaaaaaaaa2',
+        code: 'ACCOUNTS_VERIFICATION',
+        status: WorkStageStatus.READY,
+      },
+      {
+        id: 'cccccccc-aaaa-4aaa-8aaa-aaaaaaaaaaa3',
+        code: 'ADMINISTRATION_SUPPORT',
+        status: WorkStageStatus.READY,
+      },
+    ]);
+
+    await harness.service.create(user, officeId, createDto());
+
+    expect(harness.tx.workItem.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          primaryOwnerOrgUnitId: ownerId,
+          orgUnitParticipants: {
+            create: [
+              expect.objectContaining({
+                orgUnitId: ownerId,
+                role: WorkParticipantRole.PRIMARY_OWNER,
+              }),
+              expect.objectContaining({
+                orgUnitId: accountsOrgUnitId,
+                role: WorkParticipantRole.REQUIRED_PARTICIPANT,
+              }),
+              expect.objectContaining({
+                orgUnitId: administrationOrgUnitId,
+                role: WorkParticipantRole.CONDITIONAL_PARTICIPANT,
+              }),
+            ],
+          },
+        }),
+      }),
+    );
+    expect(harness.tx.workStage.createMany).toHaveBeenCalledWith({
+      data: expect.arrayContaining([
+        expect.objectContaining({
+          code: 'TECHNICAL_INTAKE',
+          responsibleOrgUnitId: ownerId,
+        }),
+        expect.objectContaining({
+          code: 'ACCOUNTS_VERIFICATION',
+          responsibleOrgUnitId: accountsOrgUnitId,
+        }),
+        expect.objectContaining({
+          code: 'ADMINISTRATION_SUPPORT',
+          responsibleOrgUnitId: administrationOrgUnitId,
+        }),
+      ]),
     });
   });
 

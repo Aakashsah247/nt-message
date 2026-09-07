@@ -9,6 +9,7 @@ import { PrismaService } from '../database/prisma.service';
 import {
   AccountRole,
   OrgLeadershipType,
+  WorkCollaborationStatus,
   WorkEventType,
   WorkFieldType,
   WorkFinalClosureMode,
@@ -96,6 +97,10 @@ function createHarness(stage = runtimeStage()) {
     },
     workStageDependency: {
       findMany: jest.fn().mockResolvedValue([]),
+    },
+    workCollaborationRequest: {
+      findFirst: jest.fn().mockResolvedValue(null),
+      updateMany: jest.fn().mockResolvedValue({ count: 1 }),
     },
     workStageAssignment: {
       update: jest.fn().mockResolvedValue({ id: 'old-assignment' }),
@@ -335,6 +340,40 @@ describe('WorkRuntimeV3StageService', () => {
         runtimeStatus: WorkRuntimeStatus.IN_PROGRESS,
         version: { increment: 1 },
       },
+    });
+  });
+
+  it('moves a linked accepted collaboration to IN_PROGRESS when its receiving stage starts', async () => {
+    const harness = createHarness();
+    harness.tx.workCollaborationRequest.findFirst.mockResolvedValue({
+      id: '77777777-7777-4777-8777-777777777778',
+      sourceOrgUnitId: '77777777-7777-4777-8777-777777777779',
+      requestedOrgUnitId: responsibleOrgUnitId,
+      version: 2,
+    });
+
+    await harness.service.start(user, officeId, stageId, {
+      expectedStageVersion: 1,
+    });
+
+    expect(harness.tx.workCollaborationRequest.updateMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          status: WorkCollaborationStatus.ACCEPTED,
+          version: 2,
+        }),
+        data: expect.objectContaining({
+          status: WorkCollaborationStatus.IN_PROGRESS,
+          startedAt: expect.any(Date),
+          version: { increment: 1 },
+        }),
+      }),
+    );
+    expect(harness.tx.workEvent.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        workStageId: stageId,
+        eventType: WorkEventType.COLLABORATION_IN_PROGRESS,
+      }),
     });
   });
 
@@ -590,6 +629,14 @@ describe('WorkRuntimeV3StageService', () => {
     harness.tx.workStage.findMany.mockResolvedValue([
       { status: WorkStageStatus.COMPLETED },
     ]);
+    harness.tx.workCollaborationRequest.findFirst.mockResolvedValue({
+      id: '77777777-7777-4777-8777-777777777780',
+      sourceOrgUnitId: '77777777-7777-4777-8777-777777777779',
+      requestedOrgUnitId: responsibleOrgUnitId,
+      status: WorkCollaborationStatus.IN_PROGRESS,
+      startedAt: new Date('2026-09-08T00:00:00.000Z'),
+      version: 3,
+    });
 
     await harness.service.submit(user, officeId, stageId, {
       expectedStageVersion: 1,
@@ -617,6 +664,25 @@ describe('WorkRuntimeV3StageService', () => {
         fromStageStatus: WorkStageStatus.SUBMITTED,
         toStageStatus: WorkStageStatus.COMPLETED,
         details: expect.objectContaining({ automatic: true }),
+      }),
+    });
+    expect(harness.tx.workCollaborationRequest.updateMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          status: WorkCollaborationStatus.IN_PROGRESS,
+          version: 3,
+        }),
+        data: expect.objectContaining({
+          status: WorkCollaborationStatus.COMPLETED,
+          completedAt: expect.any(Date),
+          version: { increment: 1 },
+        }),
+      }),
+    );
+    expect(harness.tx.workEvent.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        workStageId: stageId,
+        eventType: WorkEventType.COLLABORATION_COMPLETED,
       }),
     });
   });

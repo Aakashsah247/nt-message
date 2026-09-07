@@ -132,6 +132,33 @@ describe('WorkRuntimeV3NotificationsService', () => {
     );
   });
 
+  it('publishes a normal stage-ready notification to immediate operational recipients', async () => {
+    const harness = createHarness();
+    harness.prisma.workEvent.findMany.mockResolvedValue([
+      {
+        workStageId: stageId,
+        details: { reason: 'INITIAL_DEPENDENCIES_SATISFIED' },
+      },
+    ]);
+
+    await harness.service.publishReadyStageEvents(
+      officeId,
+      workItemId,
+      actorAccountId,
+      new Date('2026-09-08T00:00:00.000Z'),
+    );
+
+    expect(harness.workNotifications.publishWorkUpdate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: 'V3_STAGE_READY',
+        recipientAccountIds: [assigneeAccountId, unitHeadAccountId],
+        metadata: expect.objectContaining({
+          notificationReason: 'STAGE_READY',
+        }),
+      }),
+    );
+  });
+
   it('classifies newly-ready dependency stages as dependency-unblocked notifications', async () => {
     const harness = createHarness();
     harness.prisma.workEvent.findMany.mockResolvedValue([
@@ -152,6 +179,26 @@ describe('WorkRuntimeV3NotificationsService', () => {
       expect.objectContaining({
         action: 'V3_DEPENDENCY_UNBLOCKED',
         title: 'Work stage is unblocked',
+      }),
+    );
+  });
+
+  it('publishes a returned-stage notification to the executor path and responsible leadership', async () => {
+    const harness = createHarness();
+
+    await harness.service.publishStageReturned(
+      officeId,
+      stageId,
+      actorAccountId,
+    );
+
+    expect(harness.workNotifications.publishWorkUpdate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: 'V3_STAGE_RETURNED',
+        recipientAccountIds: [assigneeAccountId, unitHeadAccountId],
+        metadata: expect.objectContaining({
+          notificationReason: 'STAGE_RETURNED',
+        }),
       }),
     );
   });
@@ -213,6 +260,44 @@ describe('WorkRuntimeV3NotificationsService', () => {
     );
   });
 
+  it('publishes a due-soon stage notification and persists its independent marker', async () => {
+    const harness = createHarness();
+    const dueAt = new Date('2026-09-08T00:30:00.000Z');
+    harness.prisma.workStage.findMany.mockResolvedValue([
+      {
+        id: stageId,
+        workItemId,
+        dueAt,
+        dueSoonNotifiedAt: null,
+        overdueNotifiedAt: null,
+        workItem: { officeId },
+      },
+    ]);
+
+    jest.useFakeTimers().setSystemTime(new Date('2026-09-08T00:00:00.000Z'));
+    try {
+      await harness.service.processDeadlineNotifications();
+    } finally {
+      jest.useRealTimers();
+    }
+
+    expect(harness.workNotifications.publishWorkUpdate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: 'DUE_SOON',
+        recipientAccountIds: [assigneeAccountId, unitHeadAccountId],
+        metadata: expect.objectContaining({
+          notificationReason: 'STAGE_DUE_SOON',
+        }),
+      }),
+    );
+    expect(harness.prisma.workStage.updateMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { id: stageId, dueSoonNotifiedAt: null },
+        data: { dueSoonNotifiedAt: expect.any(Date) },
+      }),
+    );
+  });
+
   it('uses the full escalation path for an overdue stage and persists the marker', async () => {
     const harness = createHarness();
     const dueAt = new Date('2026-09-07T23:00:00.000Z');
@@ -250,6 +335,77 @@ describe('WorkRuntimeV3NotificationsService', () => {
       }),
     );
   });
+
+  it.each([
+    [
+      'V3_WORK_CANCELLED',
+      WorkRuntimeStatus.CANCELLED,
+      'WORK_CANCELLED',
+    ],
+    [
+      'V3_WORK_REOPENED',
+      WorkRuntimeStatus.IN_PROGRESS,
+      'WORK_REOPENED',
+    ],
+  ] as const)(
+    'publishes %s to the primary/participant operational authorities',
+    async (action, runtimeStatus, notificationReason) => {
+      const harness = createHarness();
+      harness.prisma.workItem.findFirst.mockResolvedValue({
+        id: workItemId,
+        ticketNumber: 'WRK-1001',
+        title: 'New installation',
+        runtimeStatus,
+        createdByAccountId: actorAccountId,
+        primaryOwnerOrgUnitId: orgUnitId,
+        orgUnitParticipants: [{ orgUnitId }],
+        collaborationRequests: [],
+      });
+      harness.prisma.orgUnitClosure.findMany.mockResolvedValue([
+        {
+          depth: 0,
+          ancestorOrgUnit: {
+            id: orgUnitId,
+            orgUnitType: { isTeam: false },
+          },
+        },
+      ]);
+      harness.prisma.orgLeadershipAssignment.findMany.mockResolvedValue([
+        {
+          id: 'leader-1',
+          orgUnitId,
+          leadershipType: OrgLeadershipType.ORG_UNIT_HEAD,
+          isActing: false,
+          effectiveFrom: new Date('2026-09-01T00:00:00.000Z'),
+          employee: {
+            status: EmployeeStatus.ACTIVE,
+            employmentStatus: EmploymentStatus.ACTIVE,
+            archivedAt: null,
+            account: {
+              id: unitHeadAccountId,
+              role: AccountRole.EMPLOYEE,
+              isEnabled: true,
+            },
+          },
+        },
+      ]);
+
+      await harness.service.publishWorkLifecycle(
+        officeId,
+        workItemId,
+        actorAccountId,
+        action,
+      );
+
+      expect(harness.workNotifications.publishWorkUpdate).toHaveBeenCalledWith(
+        expect.objectContaining({
+          action,
+          recipientAccountIds: [actorAccountId, unitHeadAccountId],
+          metadata: expect.objectContaining({ notificationReason }),
+        }),
+      );
+    },
+  );
 
   it('does not emit a completion notification before Work is completed', async () => {
     const harness = createHarness();
