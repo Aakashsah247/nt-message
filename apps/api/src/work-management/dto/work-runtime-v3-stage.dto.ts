@@ -84,6 +84,55 @@ export class SubmitWorkRuntimeV3StageDto extends WorkRuntimeV3StageMutationDto {
   fields!: WorkRuntimeV3StageFieldInputDto[];
 }
 
+export class ApproveWorkRuntimeV3StageDto extends WorkRuntimeV3StageMutationDto {
+  @Transform(({ value }: { value: unknown }) => trimText(value))
+  @IsOptional()
+  @IsString()
+  @MaxLength(2000)
+  note?: string;
+}
+
+export class ReturnWorkRuntimeV3StageDto extends WorkRuntimeV3StageMutationDto {
+  @Transform(({ value }: { value: unknown }) => trimText(value))
+  @IsString()
+  @MinLength(2)
+  @MaxLength(1000)
+  reason!: string;
+}
+
+export class WorkRuntimeV3WorkMutationDto {
+  @IsInt()
+  @Min(1)
+  expectedWorkVersion!: number;
+}
+
+export class CompleteWorkRuntimeV3Dto extends WorkRuntimeV3WorkMutationDto {
+  @Transform(({ value }: { value: unknown }) => trimText(value))
+  @IsOptional()
+  @IsString()
+  @MaxLength(2000)
+  note?: string;
+}
+
+export class CancelWorkRuntimeV3Dto extends WorkRuntimeV3WorkMutationDto {
+  @Transform(({ value }: { value: unknown }) => trimText(value))
+  @IsString()
+  @MinLength(2)
+  @MaxLength(500)
+  reason!: string;
+}
+
+export class ReopenWorkRuntimeV3Dto extends WorkRuntimeV3WorkMutationDto {
+  @IsUUID('4')
+  stageId!: string;
+
+  @Transform(({ value }: { value: unknown }) => trimText(value))
+  @IsString()
+  @MinLength(2)
+  @MaxLength(1000)
+  reason!: string;
+}
+
 export class WorkRuntimeV3QueueQueryDto {
   @IsOptional()
   @IsInt()

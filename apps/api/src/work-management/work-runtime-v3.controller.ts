@@ -15,7 +15,12 @@ import type { AuthenticatedUser } from '../auth/types/auth.types';
 import { CreateWorkRuntimeV3Dto } from './dto/create-work-runtime-v3.dto';
 import {
   AssignWorkRuntimeV3StageDto,
+  ApproveWorkRuntimeV3StageDto,
   BlockWorkRuntimeV3StageDto,
+  CancelWorkRuntimeV3Dto,
+  CompleteWorkRuntimeV3Dto,
+  ReopenWorkRuntimeV3Dto,
+  ReturnWorkRuntimeV3StageDto,
   SubmitWorkRuntimeV3StageDto,
   WorkRuntimeV3QueueQueryDto,
   WorkRuntimeV3StageMutationDto,
@@ -97,6 +102,56 @@ export class WorkRuntimeV3Controller {
     @Body() dto: SubmitWorkRuntimeV3StageDto,
   ) {
     return this.stageRuntime.submit(user, officeId, stageId, dto);
+  }
+
+  @Post('stages/:stageId/approve')
+  approveStage(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('officeId', new ParseUUIDPipe({ version: '4' })) officeId: string,
+    @Param('stageId', new ParseUUIDPipe({ version: '4' })) stageId: string,
+    @Body() dto: ApproveWorkRuntimeV3StageDto,
+  ) {
+    return this.stageRuntime.approve(user, officeId, stageId, dto);
+  }
+
+  @Post('stages/:stageId/return')
+  returnStage(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('officeId', new ParseUUIDPipe({ version: '4' })) officeId: string,
+    @Param('stageId', new ParseUUIDPipe({ version: '4' })) stageId: string,
+    @Body() dto: ReturnWorkRuntimeV3StageDto,
+  ) {
+    return this.stageRuntime.returnStage(user, officeId, stageId, dto);
+  }
+
+  @Post('work-items/:workItemId/complete')
+  completeWork(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('officeId', new ParseUUIDPipe({ version: '4' })) officeId: string,
+    @Param('workItemId', new ParseUUIDPipe({ version: '4' })) workItemId: string,
+    @Body() dto: CompleteWorkRuntimeV3Dto,
+  ) {
+    return this.stageRuntime.completeWork(user, officeId, workItemId, dto);
+  }
+
+  @Post('work-items/:workItemId/cancel')
+  cancelWork(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('officeId', new ParseUUIDPipe({ version: '4' })) officeId: string,
+    @Param('workItemId', new ParseUUIDPipe({ version: '4' })) workItemId: string,
+    @Body() dto: CancelWorkRuntimeV3Dto,
+  ) {
+    return this.stageRuntime.cancelWork(user, officeId, workItemId, dto);
+  }
+
+  @Post('work-items/:workItemId/reopen')
+  reopenWork(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('officeId', new ParseUUIDPipe({ version: '4' })) officeId: string,
+    @Param('workItemId', new ParseUUIDPipe({ version: '4' })) workItemId: string,
+    @Body() dto: ReopenWorkRuntimeV3Dto,
+  ) {
+    return this.stageRuntime.reopenWork(user, officeId, workItemId, dto);
   }
 
   @Get('queues/mine')

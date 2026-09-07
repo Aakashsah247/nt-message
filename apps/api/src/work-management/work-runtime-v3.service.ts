@@ -245,7 +245,7 @@ type InitialStagePlan = {
   dueAt: Date | null;
 };
 
-function stableJson(value: unknown): string {
+export function stableJson(value: unknown): string {
   if (value === null || typeof value !== 'object') {
     return JSON.stringify(value);
   }

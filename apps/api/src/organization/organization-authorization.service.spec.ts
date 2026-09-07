@@ -114,6 +114,95 @@ describe('OrganizationAuthorizationService', () => {
         'office-1',
       ),
     ).resolves.toBe(false);
+
+    await expect(
+      service.can(
+        superAdmin,
+        CAPABILITIES.WORK_APPROVE_STAGE,
+        'office-1',
+      ),
+    ).resolves.toBe(false);
+
+    await expect(
+      service.can(
+        superAdmin,
+        CAPABILITIES.WORK_CANCEL,
+        'office-1',
+      ),
+    ).resolves.toBe(false);
+  });
+
+  it('grants Work lifecycle capabilities only through current leadership scope', async () => {
+    const prisma = createPrisma();
+
+    prisma.orgLeadershipAssignment.findMany.mockResolvedValue([
+      {
+        leadershipType: OrgLeadershipType.ORG_UNIT_HEAD,
+        orgUnitId: 'unit-1',
+      },
+    ]);
+
+    prisma.orgUnitClosure.findUnique.mockImplementation(async (args) => {
+      const relation = args.where.ancestorOrgUnitId_descendantOrgUnitId;
+
+      if (
+        relation.ancestorOrgUnitId === 'unit-1' &&
+        relation.descendantOrgUnitId === 'child-1'
+      ) {
+        return { depth: 1 };
+      }
+
+      return null;
+    });
+
+    const service = new OrganizationAuthorizationService(
+      prisma as unknown as PrismaService,
+    );
+
+    await expect(
+      service.can(
+        employeeUser,
+        CAPABILITIES.WORK_APPROVE_STAGE,
+        'office-1',
+        'child-1',
+      ),
+    ).resolves.toBe(true);
+
+    await expect(
+      service.can(
+        employeeUser,
+        CAPABILITIES.WORK_RETURN_STAGE,
+        'office-1',
+        'child-1',
+      ),
+    ).resolves.toBe(true);
+
+    await expect(
+      service.can(
+        employeeUser,
+        CAPABILITIES.WORK_CANCEL,
+        'office-1',
+        'child-1',
+      ),
+    ).resolves.toBe(true);
+
+    await expect(
+      service.can(
+        employeeUser,
+        CAPABILITIES.WORK_REOPEN,
+        'office-1',
+        'child-1',
+      ),
+    ).resolves.toBe(true);
+
+    await expect(
+      service.can(
+        employeeUser,
+        CAPABILITIES.WORK_APPROVE_STAGE,
+        'office-1',
+        'outside-scope',
+      ),
+    ).resolves.toBe(false);
   });
 
   it('allows an active Office member to reach the Work Type creation policy gate', async () => {

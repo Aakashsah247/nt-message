@@ -15,7 +15,11 @@ import {
   EmploymentStatus,
   OrgLeadershipType,
   WorkEventType,
+  WorkFinalClosureMode,
   WorkRuntimeStatus,
+  WorkStageActivationMode,
+  WorkStageApprovalDecision,
+  WorkStageApprovalMode,
   WorkStageAssignmentMode,
   WorkStageAssignmentRole,
   WorkStageAssignmentTargetType,
@@ -25,7 +29,12 @@ import { CAPABILITIES } from '../organization/organization-capabilities';
 import { OrganizationAuthorizationService } from '../organization/organization-authorization.service';
 import type {
   AssignWorkRuntimeV3StageDto,
+  ApproveWorkRuntimeV3StageDto,
   BlockWorkRuntimeV3StageDto,
+  CancelWorkRuntimeV3Dto,
+  CompleteWorkRuntimeV3Dto,
+  ReopenWorkRuntimeV3Dto,
+  ReturnWorkRuntimeV3StageDto,
   SubmitWorkRuntimeV3StageDto,
   WorkRuntimeV3StageMutationDto,
 } from './dto/work-runtime-v3-stage.dto';
@@ -33,17 +42,21 @@ import {
   assertRuntimeIdentityFieldValues,
   validateRuntimeStageFields,
 } from './work-runtime-v3-field-validator';
+import { stableJson } from './work-runtime-v3.service';
 
 const MUTABLE_STAGE_STATUSES = [
   WorkStageStatus.READY,
   WorkStageStatus.IN_PROGRESS,
   WorkStageStatus.BLOCKED,
+  WorkStageStatus.RETURNED,
 ] as const;
 
 const QUEUE_STAGE_STATUSES = [
   WorkStageStatus.READY,
   WorkStageStatus.IN_PROGRESS,
   WorkStageStatus.BLOCKED,
+  WorkStageStatus.SUBMITTED,
+  WorkStageStatus.RETURNED,
 ] as const;
 
 const STAGE_RUNTIME_SELECT = {
@@ -372,10 +385,16 @@ export class WorkRuntimeV3StageService {
       this.assertWorkOperational(stage);
       this.assertExpectedVersion(stage, dto.expectedStageVersion);
 
-      if (stage.status !== WorkStageStatus.BLOCKED) {
-        throw new ConflictException('Only a BLOCKED stage can be resumed.');
+      if (
+        stage.status !== WorkStageStatus.BLOCKED &&
+        stage.status !== WorkStageStatus.RETURNED
+      ) {
+        throw new ConflictException(
+          'Only a BLOCKED or RETURNED stage can be resumed.',
+        );
       }
       if (
+        stage.status === WorkStageStatus.BLOCKED &&
         stage.blockedFromStatus !== WorkStageStatus.READY &&
         stage.blockedFromStatus !== WorkStageStatus.IN_PROGRESS
       ) {
@@ -386,12 +405,20 @@ export class WorkRuntimeV3StageService {
       }
 
       await this.lockWork(tx, stage.workItemId);
-      const resumeStatus = stage.blockedFromStatus;
+      const fromStatus = stage.status;
+      const resumeStatus =
+        stage.status === WorkStageStatus.RETURNED
+          ? WorkStageStatus.IN_PROGRESS
+          : stage.blockedFromStatus!;
       await this.claimStageVersion(tx, stage, dto.expectedStageVersion, {
         status: resumeStatus,
         blockedFromStatus: null,
         blockerReason: null,
         blockedAt: null,
+        submittedAt:
+          stage.status === WorkStageStatus.RETURNED
+            ? null
+            : stage.submittedAt,
       });
 
       await tx.workEvent.create({
@@ -399,9 +426,16 @@ export class WorkRuntimeV3StageService {
           workItemId: stage.workItemId,
           workStageId: stage.id,
           actorAccountId: user.accountId,
-          eventType: WorkEventType.STAGE_UNBLOCKED,
-          fromStageStatus: WorkStageStatus.BLOCKED,
+          eventType:
+            fromStatus === WorkStageStatus.RETURNED
+              ? WorkEventType.STAGE_STARTED
+              : WorkEventType.STAGE_UNBLOCKED,
+          fromStageStatus: fromStatus,
           toStageStatus: resumeStatus,
+          details:
+            fromStatus === WorkStageStatus.RETURNED
+              ? { resumedAfterReturn: true }
+              : undefined,
         },
       });
 
@@ -518,10 +552,622 @@ export class WorkRuntimeV3StageService {
         },
       });
 
+      if (stage.approvalMode === WorkStageApprovalMode.NONE) {
+        const completionClaim = await tx.workStage.updateMany({
+          where: {
+            id: stage.id,
+            version: nextVersion,
+            status: WorkStageStatus.SUBMITTED,
+          },
+          data: {
+            status: WorkStageStatus.COMPLETED,
+            completedAt: now,
+            version: { increment: 1 },
+          },
+        });
+        if (completionClaim.count !== 1) {
+          throw new ConflictException(
+            'Stage changed while automatic completion was being applied. Refresh and try again.',
+          );
+        }
+
+        await tx.workEvent.create({
+          data: {
+            workItemId: stage.workItemId,
+            workStageId: stage.id,
+            actorAccountId: user.accountId,
+            eventType: WorkEventType.STAGE_COMPLETED,
+            fromStageStatus: WorkStageStatus.SUBMITTED,
+            toStageStatus: WorkStageStatus.COMPLETED,
+            details: {
+              submissionId: submission.id,
+              submissionNumber,
+              automatic: true,
+            },
+          },
+        });
+
+        await this.releaseDependentStages(
+          tx,
+          stage.workItemId,
+          stage.stageDefinitionId,
+          user.accountId,
+          now,
+        );
+      }
+
       await this.recalculateWorkStatus(tx, stage.workItemId, user.accountId);
     });
 
     return this.getStage(user, officeId, stageId);
+  }
+
+  async approve(
+    user: AuthenticatedUser,
+    officeId: string,
+    stageId: string,
+    dto: ApproveWorkRuntimeV3StageDto,
+  ) {
+    await this.prisma.$transaction(async (tx) => {
+      const stage = await this.requireStage(tx, officeId, stageId);
+      await this.authorization.assertCan(
+        user,
+        CAPABILITIES.WORK_APPROVE_STAGE,
+        officeId,
+        stage.responsibleOrgUnitId,
+      );
+      this.assertWorkOperational(stage);
+      this.assertExpectedVersion(stage, dto.expectedStageVersion);
+      this.assertStageCanBeReviewed(stage);
+      await this.assertApprovalAuthority(tx, user, stage, new Date());
+
+      const submission = stage.submissions[0];
+      if (!submission) {
+        throw new ConflictException('The submitted stage has no submission record.');
+      }
+
+      await this.lockWork(tx, stage.workItemId);
+      const now = new Date();
+      await tx.workStageApproval.create({
+        data: {
+          workStageId: stage.id,
+          submissionId: submission.id,
+          decidedByAccountId: user.accountId,
+          decision: WorkStageApprovalDecision.APPROVED,
+          reason: dto.note?.trim() || null,
+        },
+      });
+      await this.claimStageVersion(tx, stage, dto.expectedStageVersion, {
+        status: WorkStageStatus.COMPLETED,
+        completedAt: now,
+      });
+      await tx.workEvent.create({
+        data: {
+          workItemId: stage.workItemId,
+          workStageId: stage.id,
+          actorAccountId: user.accountId,
+          eventType: WorkEventType.STAGE_APPROVED,
+          fromStageStatus: WorkStageStatus.SUBMITTED,
+          toStageStatus: WorkStageStatus.COMPLETED,
+          details: {
+            submissionId: submission.id,
+            submissionNumber: submission.submissionNumber,
+            note: dto.note?.trim() || null,
+          },
+        },
+      });
+
+      await this.releaseDependentStages(
+        tx,
+        stage.workItemId,
+        stage.stageDefinitionId,
+        user.accountId,
+        now,
+      );
+
+      await this.recalculateWorkStatus(tx, stage.workItemId, user.accountId);
+    });
+
+    return this.getStage(user, officeId, stageId);
+  }
+
+  async returnStage(
+    user: AuthenticatedUser,
+    officeId: string,
+    stageId: string,
+    dto: ReturnWorkRuntimeV3StageDto,
+  ) {
+    await this.prisma.$transaction(async (tx) => {
+      const stage = await this.requireStage(tx, officeId, stageId);
+      await this.authorization.assertCan(
+        user,
+        CAPABILITIES.WORK_RETURN_STAGE,
+        officeId,
+        stage.responsibleOrgUnitId,
+      );
+      this.assertWorkOperational(stage);
+      this.assertExpectedVersion(stage, dto.expectedStageVersion);
+      this.assertStageCanBeReviewed(stage);
+      await this.assertApprovalAuthority(tx, user, stage, new Date());
+
+      const submission = stage.submissions[0];
+      if (!submission) {
+        throw new ConflictException('The submitted stage has no submission record.');
+      }
+
+      await this.lockWork(tx, stage.workItemId);
+      await tx.workStageApproval.create({
+        data: {
+          workStageId: stage.id,
+          submissionId: submission.id,
+          decidedByAccountId: user.accountId,
+          decision: WorkStageApprovalDecision.RETURNED,
+          reason: dto.reason,
+        },
+      });
+      await this.claimStageVersion(tx, stage, dto.expectedStageVersion, {
+        status: WorkStageStatus.RETURNED,
+        completedAt: null,
+      });
+      await tx.workEvent.create({
+        data: {
+          workItemId: stage.workItemId,
+          workStageId: stage.id,
+          actorAccountId: user.accountId,
+          eventType: WorkEventType.STAGE_RETURNED,
+          fromStageStatus: WorkStageStatus.SUBMITTED,
+          toStageStatus: WorkStageStatus.RETURNED,
+          details: {
+            submissionId: submission.id,
+            submissionNumber: submission.submissionNumber,
+            reason: dto.reason,
+          },
+        },
+      });
+
+      await this.recalculateWorkStatus(tx, stage.workItemId, user.accountId);
+    });
+
+    return this.getStage(user, officeId, stageId);
+  }
+
+  async completeWork(
+    user: AuthenticatedUser,
+    officeId: string,
+    workItemId: string,
+    dto: CompleteWorkRuntimeV3Dto,
+  ) {
+    await this.prisma.$transaction(async (tx) => {
+      const work = await tx.workItem.findFirst({
+        where: { id: workItemId, officeId },
+        select: {
+          id: true,
+          officeId: true,
+          primaryOwnerOrgUnitId: true,
+          runtimeStatus: true,
+          version: true,
+          workTypeVersion: {
+            select: {
+              finalClosureMode: true,
+              finalClosureLeadershipType: true,
+            },
+          },
+        },
+      });
+      if (!work?.runtimeStatus || !work.workTypeVersion) {
+        throw new NotFoundException('Native V3 Work was not found.');
+      }
+      await this.authorization.assertCan(
+        user,
+        CAPABILITIES.WORK_APPROVE_STAGE,
+        officeId,
+        work.primaryOwnerOrgUnitId,
+      );
+      if (work.version !== dto.expectedWorkVersion) {
+        throw new ConflictException(
+          `Work changed from version ${dto.expectedWorkVersion} to ${work.version}. Refresh and try again.`,
+        );
+      }
+      if (work.runtimeStatus === WorkRuntimeStatus.COMPLETED) {
+        throw new ConflictException('Work is already completed.');
+      }
+      if (work.runtimeStatus === WorkRuntimeStatus.CANCELLED) {
+        throw new ConflictException('Cancelled Work cannot be completed.');
+      }
+      if (
+        work.workTypeVersion.finalClosureMode ===
+        WorkFinalClosureMode.AUTO_AFTER_REQUIRED_STAGES
+      ) {
+        throw new ConflictException(
+          'This Work completes automatically after all required stages are settled.',
+        );
+      }
+
+      const requiredStages = await tx.workStage.findMany({
+        where: { workItemId, isRequired: true },
+        select: { status: true },
+      });
+      if (
+        !requiredStages.every(
+          (stage) =>
+            stage.status === WorkStageStatus.COMPLETED ||
+            stage.status === WorkStageStatus.SKIPPED,
+        )
+      ) {
+        throw new ConflictException(
+          'All required stages must be completed or skipped before final closure.',
+        );
+      }
+
+      await this.assertFinalClosureAuthority(tx, user, work, new Date());
+      await this.lockWork(tx, workItemId);
+
+      const now = new Date();
+      const completion = await tx.workItem.updateMany({
+        where: {
+          id: workItemId,
+          version: dto.expectedWorkVersion,
+          runtimeStatus: work.runtimeStatus,
+        },
+        data: {
+          runtimeStatus: WorkRuntimeStatus.COMPLETED,
+          completedAt: now,
+          closedAt: now,
+          cancelledAt: null,
+          version: { increment: 1 },
+        },
+      });
+      if (completion.count !== 1) {
+        throw new ConflictException(
+          'Work changed while final closure was being applied. Refresh and try again.',
+        );
+      }
+
+      await tx.workEvent.create({
+        data: {
+          workItemId,
+          actorAccountId: user.accountId,
+          eventType: WorkEventType.WORK_COMPLETED,
+          fromWorkStatus: work.runtimeStatus,
+          toWorkStatus: WorkRuntimeStatus.COMPLETED,
+          details: {
+            automatic: false,
+            finalClosureMode: work.workTypeVersion.finalClosureMode,
+            note: dto.note?.trim() || null,
+          },
+        },
+      });
+    });
+
+    return this.prisma.workItem.findFirst({
+      where: { id: workItemId, officeId },
+      select: {
+        id: true,
+        ticketNumber: true,
+        runtimeStatus: true,
+        version: true,
+        completedAt: true,
+        closedAt: true,
+      },
+    });
+  }
+
+  async cancelWork(
+    user: AuthenticatedUser,
+    officeId: string,
+    workItemId: string,
+    dto: CancelWorkRuntimeV3Dto,
+  ) {
+    await this.authorization.assertCan(user, CAPABILITIES.WORK_CANCEL, officeId);
+
+    await this.prisma.$transaction(async (tx) => {
+      const work = await tx.workItem.findFirst({
+        where: { id: workItemId, officeId },
+        select: {
+          id: true,
+          officeId: true,
+          runtimeStatus: true,
+          version: true,
+        },
+      });
+      if (!work?.runtimeStatus) {
+        throw new NotFoundException('Native V3 Work was not found.');
+      }
+      if (work.version !== dto.expectedWorkVersion) {
+        throw new ConflictException(
+          `Work changed from version ${dto.expectedWorkVersion} to ${work.version}. Refresh and try again.`,
+        );
+      }
+      if (work.runtimeStatus === WorkRuntimeStatus.COMPLETED) {
+        throw new ConflictException('Completed Work cannot be cancelled. Reopen it first if correction is required.');
+      }
+      if (work.runtimeStatus === WorkRuntimeStatus.CANCELLED) {
+        throw new ConflictException('Work is already cancelled.');
+      }
+
+      const now = new Date();
+      await this.assertCurrentOfficeHead(tx, user, officeId, now, 'cancel');
+      await this.lockWork(tx, workItemId);
+
+      const stages = await tx.workStage.findMany({
+        where: {
+          workItemId,
+          status: {
+            notIn: [
+              WorkStageStatus.COMPLETED,
+              WorkStageStatus.SKIPPED,
+              WorkStageStatus.CANCELLED,
+            ],
+          },
+        },
+        select: {
+          id: true,
+          status: true,
+          version: true,
+        },
+      });
+
+      for (const stage of stages) {
+        const cancelled = await tx.workStage.updateMany({
+          where: {
+            id: stage.id,
+            version: stage.version,
+            status: stage.status,
+          },
+          data: {
+            status: WorkStageStatus.CANCELLED,
+            blockedFromStatus: null,
+            blockerReason: null,
+            blockedAt: null,
+            cancelledAt: now,
+            version: { increment: 1 },
+          },
+        });
+        if (cancelled.count !== 1) {
+          throw new ConflictException(
+            'A Work stage changed while cancellation was being applied. Refresh and try again.',
+          );
+        }
+
+        await tx.workStageAssignment.updateMany({
+          where: {
+            workStageId: stage.id,
+            endsAt: null,
+          },
+          data: {
+            endedByAccountId: user.accountId,
+            endsAt: now,
+            endReason: dto.reason,
+          },
+        });
+
+        await tx.workEvent.create({
+          data: {
+            workItemId,
+            workStageId: stage.id,
+            actorAccountId: user.accountId,
+            eventType: WorkEventType.STAGE_CANCELLED,
+            fromStageStatus: stage.status,
+            toStageStatus: WorkStageStatus.CANCELLED,
+            details: { reason: dto.reason },
+          },
+        });
+      }
+
+      const cancelled = await tx.workItem.updateMany({
+        where: {
+          id: workItemId,
+          version: dto.expectedWorkVersion,
+          runtimeStatus: work.runtimeStatus,
+        },
+        data: {
+          runtimeStatus: WorkRuntimeStatus.CANCELLED,
+          completedAt: null,
+          closedAt: now,
+          cancelledAt: now,
+          version: { increment: 1 },
+        },
+      });
+      if (cancelled.count !== 1) {
+        throw new ConflictException(
+          'Work changed while cancellation was being applied. Refresh and try again.',
+        );
+      }
+
+      await tx.workEvent.create({
+        data: {
+          workItemId,
+          actorAccountId: user.accountId,
+          eventType: WorkEventType.WORK_CANCELLED,
+          fromWorkStatus: work.runtimeStatus,
+          toWorkStatus: WorkRuntimeStatus.CANCELLED,
+          details: {
+            reason: dto.reason,
+            cancelledStageCount: stages.length,
+          },
+        },
+      });
+    });
+
+    return this.prisma.workItem.findFirst({
+      where: { id: workItemId, officeId },
+      select: {
+        id: true,
+        ticketNumber: true,
+        runtimeStatus: true,
+        version: true,
+        cancelledAt: true,
+        closedAt: true,
+      },
+    });
+  }
+
+  async reopenWork(
+    user: AuthenticatedUser,
+    officeId: string,
+    workItemId: string,
+    dto: ReopenWorkRuntimeV3Dto,
+  ) {
+    await this.prisma.$transaction(async (tx) => {
+      const work = await tx.workItem.findFirst({
+        where: { id: workItemId, officeId },
+        select: {
+          id: true,
+          officeId: true,
+          primaryOwnerOrgUnitId: true,
+          runtimeStatus: true,
+          version: true,
+          workTypeVersion: {
+            select: {
+              finalClosureMode: true,
+              finalClosureLeadershipType: true,
+            },
+          },
+        },
+      });
+      if (!work?.runtimeStatus || !work.workTypeVersion) {
+        throw new NotFoundException('Native V3 Work was not found.');
+      }
+      await this.authorization.assertCan(
+        user,
+        CAPABILITIES.WORK_REOPEN,
+        officeId,
+        work.primaryOwnerOrgUnitId,
+      );
+      if (work.version !== dto.expectedWorkVersion) {
+        throw new ConflictException(
+          `Work changed from version ${dto.expectedWorkVersion} to ${work.version}. Refresh and try again.`,
+        );
+      }
+      if (work.runtimeStatus !== WorkRuntimeStatus.COMPLETED) {
+        throw new ConflictException('Only completed Work can be reopened.');
+      }
+
+      const stage = await tx.workStage.findFirst({
+        where: {
+          id: dto.stageId,
+          workItemId,
+        },
+        select: {
+          id: true,
+          status: true,
+          version: true,
+          slaMinutes: true,
+        },
+      });
+      if (!stage) {
+        throw new NotFoundException('The Work stage selected for reopening was not found.');
+      }
+      if (stage.status !== WorkStageStatus.COMPLETED) {
+        throw new ConflictException('Only a completed stage can be reopened.');
+      }
+
+      const now = new Date();
+      if (
+        work.workTypeVersion.finalClosureMode ===
+        WorkFinalClosureMode.AUTO_AFTER_REQUIRED_STAGES
+      ) {
+        await this.assertCurrentOfficeHead(tx, user, officeId, now, 'reopen');
+      } else {
+        await this.assertFinalClosureAuthority(tx, user, work, now);
+      }
+      await this.lockWork(tx, workItemId);
+
+      const activeAssignment = await tx.workStageAssignment.findFirst({
+        where: {
+          workStageId: stage.id,
+          assignmentRole: WorkStageAssignmentRole.PRIMARY,
+          endsAt: null,
+        },
+        select: { id: true },
+      });
+      const nextStageStatus = activeAssignment
+        ? WorkStageStatus.IN_PROGRESS
+        : WorkStageStatus.READY;
+      const dueAt = stage.slaMinutes
+        ? new Date(now.getTime() + stage.slaMinutes * 60_000)
+        : null;
+
+      const reopenedStage = await tx.workStage.updateMany({
+        where: {
+          id: stage.id,
+          version: stage.version,
+          status: WorkStageStatus.COMPLETED,
+        },
+        data: {
+          status: nextStageStatus,
+          readyAt: now,
+          startedAt:
+            nextStageStatus === WorkStageStatus.IN_PROGRESS ? now : null,
+          submittedAt: null,
+          completedAt: null,
+          blockedFromStatus: null,
+          blockerReason: null,
+          blockedAt: null,
+          cancelledAt: null,
+          dueAt,
+          version: { increment: 1 },
+        },
+      });
+      if (reopenedStage.count !== 1) {
+        throw new ConflictException(
+          'The selected stage changed while Work reopening was being applied. Refresh and try again.',
+        );
+      }
+
+      const nextWorkStatus =
+        nextStageStatus === WorkStageStatus.IN_PROGRESS
+          ? WorkRuntimeStatus.IN_PROGRESS
+          : WorkRuntimeStatus.OPEN;
+      const reopenedWork = await tx.workItem.updateMany({
+        where: {
+          id: workItemId,
+          version: dto.expectedWorkVersion,
+          runtimeStatus: WorkRuntimeStatus.COMPLETED,
+        },
+        data: {
+          runtimeStatus: nextWorkStatus,
+          completedAt: null,
+          closedAt: null,
+          cancelledAt: null,
+          version: { increment: 1 },
+        },
+      });
+      if (reopenedWork.count !== 1) {
+        throw new ConflictException(
+          'Work changed while reopening was being applied. Refresh and try again.',
+        );
+      }
+
+      await tx.workEvent.create({
+        data: {
+          workItemId,
+          workStageId: stage.id,
+          actorAccountId: user.accountId,
+          eventType: WorkEventType.WORK_REOPENED,
+          fromWorkStatus: WorkRuntimeStatus.COMPLETED,
+          toWorkStatus: nextWorkStatus,
+          fromStageStatus: WorkStageStatus.COMPLETED,
+          toStageStatus: nextStageStatus,
+          details: {
+            reason: dto.reason,
+            preservedHistory: true,
+          },
+        },
+      });
+    });
+
+    return this.prisma.workItem.findFirst({
+      where: { id: workItemId, officeId },
+      select: {
+        id: true,
+        ticketNumber: true,
+        runtimeStatus: true,
+        version: true,
+        completedAt: true,
+        closedAt: true,
+      },
+    });
   }
 
   async getStage(
@@ -740,6 +1386,248 @@ export class WorkRuntimeV3StageService {
     if (stage.version !== expectedVersion) {
       throw new ConflictException(
         `Stage changed from version ${expectedVersion} to ${stage.version}. Refresh and try again.`,
+      );
+    }
+  }
+
+  private assertStageCanBeReviewed(stage: RuntimeStage): void {
+    if (stage.status !== WorkStageStatus.SUBMITTED) {
+      throw new ConflictException('Only a SUBMITTED stage can be reviewed.');
+    }
+    if (stage.approvalMode === WorkStageApprovalMode.NONE) {
+      throw new ConflictException('This stage does not require approval.');
+    }
+  }
+
+  private async assertApprovalAuthority(
+    tx: Prisma.TransactionClient,
+    user: AuthenticatedUser,
+    stage: RuntimeStage,
+    at: Date,
+  ): Promise<void> {
+    if (user.role === AccountRole.SUPER_ADMIN) {
+      throw new ForbiddenException('System administrators cannot review Work stages.');
+    }
+
+    const employee = await tx.account.findFirst({
+      where: {
+        id: user.accountId,
+        isEnabled: true,
+        role: { not: AccountRole.SUPER_ADMIN },
+        employee: {
+          is: {
+            status: EmployeeStatus.ACTIVE,
+            employmentStatus: EmploymentStatus.ACTIVE,
+            archivedAt: null,
+          },
+        },
+      },
+      select: { employee: { select: { id: true } } },
+    });
+    const employeeId = employee?.employee?.id;
+    if (!employeeId) {
+      throw new ForbiddenException('Only an active Office employee can review this stage.');
+    }
+
+    let leadershipType: OrgLeadershipType;
+    let orgUnitId: string | null;
+
+    if (stage.approvalMode === WorkStageApprovalMode.OFFICE_HEAD) {
+      leadershipType = OrgLeadershipType.OFFICE_HEAD;
+      orgUnitId = null;
+    } else if (
+      stage.approvalMode === WorkStageApprovalMode.RESPONSIBLE_ORG_UNIT_HEAD
+    ) {
+      leadershipType = OrgLeadershipType.ORG_UNIT_HEAD;
+      orgUnitId = stage.responsibleOrgUnitId;
+    } else if (stage.approvalMode === WorkStageApprovalMode.TEAM_LEAD) {
+      const teamAssignment = stage.assignments[0];
+      if (
+        teamAssignment?.targetType !== WorkStageAssignmentTargetType.TEAM ||
+        !teamAssignment.targetOrgUnitId
+      ) {
+        throw new ConflictException(
+          'TEAM_LEAD approval requires the stage to be assigned to a Team.',
+        );
+      }
+      leadershipType = OrgLeadershipType.TEAM_LEAD;
+      orgUnitId = teamAssignment.targetOrgUnitId;
+    } else {
+      if (!stage.approvalLeadershipType) {
+        throw new ConflictException(
+          'The configured approval leadership type is missing.',
+        );
+      }
+      leadershipType = stage.approvalLeadershipType;
+      orgUnitId =
+        leadershipType === OrgLeadershipType.OFFICE_HEAD
+          ? null
+          : stage.responsibleOrgUnitId;
+    }
+
+    const assignment = await tx.orgLeadershipAssignment.findFirst({
+      where: {
+        employeeId,
+        officeId: stage.workItem.officeId!,
+        orgUnitId,
+        leadershipType,
+        effectiveFrom: { lte: at },
+        OR: [{ effectiveUntil: null }, { effectiveUntil: { gt: at } }],
+      },
+      select: { id: true },
+    });
+
+    if (!assignment) {
+      throw new ForbiddenException(
+        'You are not the configured current approver for this stage.',
+      );
+    }
+  }
+
+  private async assertFinalClosureAuthority(
+    tx: Prisma.TransactionClient,
+    user: AuthenticatedUser,
+    work: {
+      officeId: string | null;
+      primaryOwnerOrgUnitId: string | null;
+      workTypeVersion: {
+        finalClosureMode: WorkFinalClosureMode;
+        finalClosureLeadershipType: OrgLeadershipType | null;
+      } | null;
+    },
+    at: Date,
+  ): Promise<void> {
+    if (user.role === AccountRole.SUPER_ADMIN || !work.officeId) {
+      throw new ForbiddenException(
+        'System administrators cannot perform operational Work closure.',
+      );
+    }
+    if (!work.workTypeVersion) {
+      throw new ConflictException(
+        'The Work Type Version configuration is missing for final closure.',
+      );
+    }
+
+    const account = await tx.account.findFirst({
+      where: {
+        id: user.accountId,
+        isEnabled: true,
+        role: { not: AccountRole.SUPER_ADMIN },
+        employee: {
+          is: {
+            status: EmployeeStatus.ACTIVE,
+            employmentStatus: EmploymentStatus.ACTIVE,
+            archivedAt: null,
+          },
+        },
+      },
+      select: { employee: { select: { id: true } } },
+    });
+    const employeeId = account?.employee?.id;
+    if (!employeeId) {
+      throw new ForbiddenException(
+        'Only an active Office employee can perform final Work closure.',
+      );
+    }
+
+    let leadershipType: OrgLeadershipType;
+    let orgUnitId: string | null;
+    const mode = work.workTypeVersion.finalClosureMode;
+
+    if (mode === WorkFinalClosureMode.OFFICE_HEAD) {
+      leadershipType = OrgLeadershipType.OFFICE_HEAD;
+      orgUnitId = null;
+    } else if (mode === WorkFinalClosureMode.PRIMARY_OWNER_HEAD) {
+      if (!work.primaryOwnerOrgUnitId) {
+        throw new ConflictException('The Work primary owner is missing.');
+      }
+      leadershipType = OrgLeadershipType.ORG_UNIT_HEAD;
+      orgUnitId = work.primaryOwnerOrgUnitId;
+    } else {
+      const configured = work.workTypeVersion.finalClosureLeadershipType;
+      if (!configured) {
+        throw new ConflictException(
+          'The configured final-closure leadership type is missing.',
+        );
+      }
+      leadershipType = configured;
+      if (configured === OrgLeadershipType.OFFICE_HEAD) {
+        orgUnitId = null;
+      } else {
+        if (!work.primaryOwnerOrgUnitId) {
+          throw new ConflictException('The Work primary owner is missing.');
+        }
+        orgUnitId = work.primaryOwnerOrgUnitId;
+      }
+    }
+
+    const assignment = await tx.orgLeadershipAssignment.findFirst({
+      where: {
+        employeeId,
+        officeId: work.officeId,
+        orgUnitId,
+        leadershipType,
+        effectiveFrom: { lte: at },
+        OR: [{ effectiveUntil: null }, { effectiveUntil: { gt: at } }],
+      },
+      select: { id: true },
+    });
+    if (!assignment) {
+      throw new ForbiddenException(
+        'You are not the configured current final-closure authority for this Work.',
+      );
+    }
+  }
+
+  private async assertCurrentOfficeHead(
+    tx: Prisma.TransactionClient,
+    user: AuthenticatedUser,
+    officeId: string,
+    at: Date,
+    action: 'cancel' | 'reopen',
+  ): Promise<void> {
+    if (user.role === AccountRole.SUPER_ADMIN) {
+      throw new ForbiddenException(
+        `System administrators cannot ${action} operational Work.`,
+      );
+    }
+
+    const account = await tx.account.findFirst({
+      where: {
+        id: user.accountId,
+        isEnabled: true,
+        role: { not: AccountRole.SUPER_ADMIN },
+        employee: {
+          is: {
+            status: EmployeeStatus.ACTIVE,
+            employmentStatus: EmploymentStatus.ACTIVE,
+            archivedAt: null,
+          },
+        },
+      },
+      select: { employee: { select: { id: true } } },
+    });
+    const employeeId = account?.employee?.id;
+    if (!employeeId) {
+      throw new ForbiddenException(
+        `Only the current Office Head can ${action} this Work.`,
+      );
+    }
+
+    const leadership = await tx.orgLeadershipAssignment.findFirst({
+      where: {
+        employeeId,
+        officeId,
+        orgUnitId: null,
+        leadershipType: OrgLeadershipType.OFFICE_HEAD,
+        effectiveFrom: { lte: at },
+        OR: [{ effectiveUntil: null }, { effectiveUntil: { gt: at } }],
+      },
+      select: { id: true },
+    });
+    if (!leadership) {
+      throw new ForbiddenException(
+        `Only the current Office Head can ${action} this Work.`,
       );
     }
   }
@@ -1141,7 +2029,56 @@ export class WorkRuntimeV3StageService {
     if (canExecute && stage.status === WorkStageStatus.BLOCKED) {
       actions.push('RESUME');
     }
+    if (canExecute && stage.status === WorkStageStatus.RETURNED) {
+      actions.push('RESUME');
+    }
+    if (
+      stage.status === WorkStageStatus.SUBMITTED &&
+      stage.approvalMode !== WorkStageApprovalMode.NONE &&
+      (await this.canReviewStage(user, stage))
+    ) {
+      actions.push('APPROVE', 'RETURN');
+    }
     return actions;
+  }
+
+  private async canReviewStage(
+    user: AuthenticatedUser,
+    stage: RuntimeStage,
+  ): Promise<boolean> {
+    if (
+      user.role === AccountRole.SUPER_ADMIN ||
+      stage.status !== WorkStageStatus.SUBMITTED ||
+      stage.approvalMode === WorkStageApprovalMode.NONE
+    ) {
+      return false;
+    }
+
+    if (
+      !(await this.authorization.can(
+        user,
+        CAPABILITIES.WORK_APPROVE_STAGE,
+        stage.workItem.officeId!,
+        stage.responsibleOrgUnitId,
+      ))
+    ) {
+      return false;
+    }
+
+    try {
+      await this.prisma.$transaction(async (tx) => {
+        await this.assertApprovalAuthority(tx, user, stage, new Date());
+      });
+      return true;
+    } catch (error) {
+      if (
+        error instanceof ForbiddenException ||
+        error instanceof ConflictException
+      ) {
+        return false;
+      }
+      throw error;
+    }
   }
 
   private async accountHasExactMembership(
@@ -1278,7 +2215,11 @@ export class WorkRuntimeV3StageService {
   ): Promise<void> {
     const work = await tx.workItem.findUnique({
       where: { id: workItemId },
-      select: { runtimeStatus: true },
+      select: {
+        runtimeStatus: true,
+        version: true,
+        workTypeVersion: { select: { finalClosureMode: true } },
+      },
     });
     if (!work?.runtimeStatus) {
       throw new ConflictException('The V3 Work runtime status is missing.');
@@ -1292,9 +2233,54 @@ export class WorkRuntimeV3StageService {
 
     const stages = await tx.workStage.findMany({
       where: { workItemId },
-      select: { status: true },
+      select: { status: true, isRequired: true },
     });
     const statuses = stages.map((stage) => stage.status);
+
+    const allRequiredStagesSettled = stages
+      .filter((stage) => stage.isRequired)
+      .every(
+        (stage) =>
+          stage.status === WorkStageStatus.COMPLETED ||
+          stage.status === WorkStageStatus.SKIPPED,
+      );
+    if (
+      allRequiredStagesSettled &&
+      work.workTypeVersion?.finalClosureMode ===
+        WorkFinalClosureMode.AUTO_AFTER_REQUIRED_STAGES
+    ) {
+      const now = new Date();
+      const completion = await tx.workItem.updateMany({
+        where: {
+          id: workItemId,
+          version: work.version,
+          runtimeStatus: work.runtimeStatus,
+        },
+        data: {
+          runtimeStatus: WorkRuntimeStatus.COMPLETED,
+          completedAt: now,
+          closedAt: now,
+          cancelledAt: null,
+          version: { increment: 1 },
+        },
+      });
+      if (completion.count !== 1) {
+        throw new ConflictException(
+          'Work changed while automatic completion was being applied. Refresh and try again.',
+        );
+      }
+      await tx.workEvent.create({
+        data: {
+          workItemId,
+          actorAccountId,
+          eventType: WorkEventType.WORK_COMPLETED,
+          fromWorkStatus: work.runtimeStatus,
+          toWorkStatus: WorkRuntimeStatus.COMPLETED,
+          details: { automatic: true },
+        },
+      });
+      return;
+    }
 
     let nextStatus: WorkRuntimeStatus;
     if (statuses.some((status) => status === WorkStageStatus.BLOCKED)) {
@@ -1333,6 +2319,172 @@ export class WorkRuntimeV3StageService {
         toWorkStatus: nextStatus,
       },
     });
+  }
+
+  private async releaseDependentStages(
+    tx: Prisma.TransactionClient,
+    workItemId: string,
+    settledStageDefinitionId: string,
+    actorAccountId: string,
+    at: Date,
+  ): Promise<void> {
+    const queue = [settledStageDefinitionId];
+
+    while (queue.length > 0) {
+      const prerequisiteStageId = queue.shift()!;
+      const dependents = await tx.workStageDependency.findMany({
+        where: { prerequisiteStageId },
+        select: { stageDefinitionId: true },
+      });
+
+      for (const dependent of dependents) {
+        const stage = await tx.workStage.findFirst({
+          where: {
+            workItemId,
+            stageDefinitionId: dependent.stageDefinitionId,
+          },
+          select: {
+            id: true,
+            stageDefinitionId: true,
+            status: true,
+            version: true,
+            activationMode: true,
+            activationFieldCode: true,
+            activationExpectedValue: true,
+            slaMinutes: true,
+          },
+        });
+        if (!stage || stage.status !== WorkStageStatus.PENDING) {
+          continue;
+        }
+
+        const dependencies = await tx.workStageDependency.findMany({
+          where: { stageDefinitionId: stage.stageDefinitionId },
+          select: { prerequisiteStageId: true },
+        });
+        const prerequisiteIds = dependencies.map(
+          (dependency) => dependency.prerequisiteStageId,
+        );
+        const prerequisiteStages = await tx.workStage.findMany({
+          where: {
+            workItemId,
+            stageDefinitionId: { in: prerequisiteIds },
+          },
+          select: { stageDefinitionId: true, status: true },
+        });
+        if (prerequisiteStages.length !== prerequisiteIds.length) {
+          throw new ConflictException(
+            'The Work runtime dependency graph is incomplete.',
+          );
+        }
+        if (
+          !prerequisiteStages.every(
+            (prerequisite) =>
+              prerequisite.status === WorkStageStatus.COMPLETED ||
+              prerequisite.status === WorkStageStatus.SKIPPED,
+          )
+        ) {
+          continue;
+        }
+
+        const activation = await this.resolveDependentActivation(
+          tx,
+          workItemId,
+          stage.activationMode,
+          stage.activationFieldCode,
+          stage.activationExpectedValue,
+        );
+        if (activation === 'DEFERRED') {
+          continue;
+        }
+
+        const nextStatus =
+          activation === 'READY'
+            ? WorkStageStatus.READY
+            : WorkStageStatus.SKIPPED;
+        const readyAt = nextStatus === WorkStageStatus.READY ? at : null;
+        const dueAt =
+          readyAt && stage.slaMinutes
+            ? new Date(readyAt.getTime() + stage.slaMinutes * 60_000)
+            : null;
+        const claim = await tx.workStage.updateMany({
+          where: {
+            id: stage.id,
+            version: stage.version,
+            status: WorkStageStatus.PENDING,
+          },
+          data: {
+            status: nextStatus,
+            readyAt,
+            dueAt,
+            version: { increment: 1 },
+          },
+        });
+        if (claim.count !== 1) {
+          throw new ConflictException(
+            'A dependent stage changed while dependencies were being released. Refresh and try again.',
+          );
+        }
+
+        await tx.workEvent.create({
+          data: {
+            workItemId,
+            workStageId: stage.id,
+            actorAccountId,
+            eventType:
+              nextStatus === WorkStageStatus.READY
+                ? WorkEventType.STAGE_READY
+                : WorkEventType.STAGE_SKIPPED,
+            fromStageStatus: WorkStageStatus.PENDING,
+            toStageStatus: nextStatus,
+            details: { releasedByStageDefinitionId: prerequisiteStageId },
+          },
+        });
+
+        if (nextStatus === WorkStageStatus.SKIPPED) {
+          queue.push(stage.stageDefinitionId);
+        }
+      }
+    }
+  }
+
+  private async resolveDependentActivation(
+    tx: Prisma.TransactionClient,
+    workItemId: string,
+    activationMode: WorkStageActivationMode,
+    activationFieldCode: string | null,
+    activationExpectedValue: Prisma.JsonValue | null,
+  ): Promise<'READY' | 'SKIPPED' | 'DEFERRED'> {
+    if (activationMode === WorkStageActivationMode.ALWAYS) {
+      return 'READY';
+    }
+    if (activationMode === WorkStageActivationMode.MANUAL_WHEN_REQUIRED) {
+      return 'DEFERRED';
+    }
+    if (!activationFieldCode) {
+      throw new ConflictException(
+        'A conditional runtime stage is missing its activation field.',
+      );
+    }
+
+    const fieldValue = await tx.workFieldValue.findFirst({
+      where: {
+        workItemId,
+        fieldDefinition: { code: activationFieldCode },
+      },
+      select: { value: true },
+    });
+    if (!fieldValue) {
+      return 'DEFERRED';
+    }
+
+    if (activationMode === WorkStageActivationMode.FIELD_TRUE) {
+      return fieldValue.value === true ? 'READY' : 'SKIPPED';
+    }
+
+    return stableJson(fieldValue.value) === stableJson(activationExpectedValue)
+      ? 'READY'
+      : 'SKIPPED';
   }
 
   private normalizeTake(take: number): number {
