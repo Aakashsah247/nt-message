@@ -1,0 +1,203 @@
+{
+  "eyebrow": "कार्यालय प्रतिवेदन",
+  "title": "प्रतिवेदनहरू",
+  "description": "आफ्नो अधिकार क्षेत्रभित्र कार्यसम्पादन, प्राविधिक काम, चरण जिम्मेवारी, SLA र ड्युटी जानकारी हेर्नुहोस्।",
+  "tabs": {
+    "label": "प्रतिवेदन खण्डहरू",
+    "OVERVIEW": "सारांश",
+    "TECHNICAL_PERFORMANCE": "कार्यसम्पादन",
+    "WORK_RECORDS": "कार्य अभिलेख",
+    "STAGE_SLA": "चरण / SLA",
+    "DUTY": "ड्युटी"
+  },
+  "period": {
+    "TODAY": "आज",
+    "WEEK": "हप्ता",
+    "MONTH": "महिना",
+    "CUSTOM": "आफैं छान्नुहोस्"
+  },
+  "filters": {
+    "office": "कार्यालय",
+    "from": "देखि",
+    "to": "सम्म",
+    "search": "खोज्नुहोस्",
+    "searchPlaceholder": "टिकट, सन्दर्भ वा कार्य विवरण",
+    "more": "थप फिल्टर",
+    "all": "सबै",
+    "primaryOwner": "मुख्य जिम्मेवार OrgUnit",
+    "participant": "सहभागी OrgUnit",
+    "responsibleOrgUnit": "जिम्मेवार OrgUnit",
+    "team": "अपरेशनल टिम",
+    "workType": "कार्य प्रकार",
+    "workStatus": "कार्य स्थिति",
+    "stageStatus": "चरण स्थिति",
+    "sla": "SLA स्थिति"
+  },
+  "scope": {
+    "PERSONAL": "व्यक्तिगत क्षेत्र",
+    "TEAM": "अपरेशनल टिम क्षेत्र",
+    "ORG_UNIT": "OrgUnit क्षेत्र",
+    "ORG_UNIT_SUBTREE": "OrgUnit उप-क्षेत्र",
+    "OFFICE": "सम्पूर्ण कार्यालय क्षेत्र",
+    "context": "हालको पहुँच: {{scope}}",
+    "loading": "प्रतिवेदन पहुँच जाँच हुँदैछ…"
+  },
+  "actions": {
+    "apply": "फिल्टर लागू गर्नुहोस्",
+    "loading": "लोड हुँदैछ…",
+    "csv": "CSV निर्यात",
+    "exporting": "निर्यात हुँदैछ…",
+    "print": "प्रिन्ट / PDF",
+    "preparingPrint": "तयार हुँदैछ…",
+    "view": "हेर्नुहोस्",
+    "previous": "अघिल्लो",
+    "next": "अर्को"
+  },
+  "states": {
+    "loading": "प्रतिवेदन डेटा तयार हुँदैछ…",
+    "empty": "छानिएका फिल्टरसँग मिल्ने प्रतिवेदन डेटा छैन।",
+    "noPermissionTitle": "प्रतिवेदन पहुँच उपलब्ध छैन",
+    "noPermission": "तपाईंको हालको कार्यालय क्षेत्रले यो प्रतिवेदन हेर्न अनुमति दिँदैन।"
+  },
+  "errors": {
+    "offices": "कार्यालय सूची लोड गर्न सकिएन।",
+    "context": "प्रतिवेदन पहुँच लोड गर्न सकिएन।",
+    "report": "प्रतिवेदन लोड गर्न सकिएन।",
+    "export": "CSV निर्यात तयार गर्न सकिएन।",
+    "print": "प्रिन्ट प्रतिवेदन तयार गर्न सकिएन।"
+  },
+  "notices": {
+    "exported": "{{filename}} निर्यात भयो"
+  },
+  "overview": {
+    "kpi": {
+      "total": "कुल कार्य",
+      "open": "खुला",
+      "inProgress": "काम भइरहेको",
+      "waiting": "पर्खाइमा",
+      "blocked": "अवरुद्ध",
+      "completed": "सम्पन्न",
+      "cancelled": "रद्द",
+      "overdue": "म्याद नाघेको",
+      "dueSoon": "म्याद नजिक"
+    },
+    "organizationTitle": "संगठन कार्यसम्पादन",
+    "organizationDescription": "दोहोरो गणना रोक्न मुख्य स्वामित्व, सहभागिता र चरण जिम्मेवारी अलग देखाइन्छ।",
+    "teamTitle": "अपरेशनल टिम कार्यसम्पादन",
+    "teamDescription": "टिम गतिविधि औपचारिक OrgUnit संरचनाअन्तर्गत कार्यान्वयन विवरण हो।",
+    "teamExecutionOnly": "कार्यान्वयन विवरण मात्र"
+  },
+  "records": {
+    "title": "कार्य अभिलेख",
+    "count_one": "{{count}} फिल्टर गरिएको कार्य अभिलेख",
+    "count_other": "{{count}} फिल्टर गरिएका कार्य अभिलेख",
+    "noTeam": "टिम कार्यान्वयन छैन"
+  },
+  "technical": {
+    "title": "NTC प्राविधिक कार्यसम्पादन प्रतिवेदन",
+    "description": "प्राविधिक कार्य मात्र। प्रशासनिक कार्य यस प्रतिवेदनमा समावेश हुँदैन।",
+    "noTeam": "OrgUnit बाट प्रत्यक्ष कार्यान्वयन"
+  },
+  "stage": {
+    "title": "चरण र SLA विश्लेषण",
+    "description": "हरेक चरणको जिम्मेवार OrgUnit, कार्यान्वयन टिम, पर्खाइ समय र SLA ढिलाइ पहिचान गर्नुहोस्।",
+    "summary": {
+      "total": "चरण",
+      "completed": "सम्पन्न",
+      "waiting": "पर्खाइमा",
+      "overdue": "म्याद नाघेको"
+    }
+  },
+  "duty": {
+    "compatibilityTitle": "ड्युटी प्रतिवेदन अनुकूलता",
+    "compatibility": "Phase 11 मा OrgUnit माइग्रेसन नभएसम्म ड्युटी प्रतिवेदन हालकै ड्युटी डेटासेटमा चलिरहन्छ।",
+    "scheduled": "तालिकाबद्ध",
+    "people": "तालिकाबद्ध कर्मचारी",
+    "leave": "बिदा",
+    "cancelled": "रद्द",
+    "divisionDuty": "डिभिजन ड्युटी"
+  },
+  "pagination": {
+    "page": "पृष्ठ {{page}} / {{totalPages}}"
+  },
+  "columns": {
+    "sn": "क्र.सं.",
+    "ticket": "टिकट",
+    "workType": "कार्य प्रकार",
+    "ownerTeam": "मुख्य जिम्मेवार / टिम",
+    "reference": "सन्दर्भ",
+    "date": "मिति",
+    "status": "स्थिति",
+    "actions": "कार्य",
+    "orgUnit": "OrgUnit",
+    "primaryOwner": "मुख्य जिम्मेवार कार्य",
+    "participant": "सहभागी कार्य",
+    "stages": "जिम्मेवार चरण",
+    "completed": "सम्पन्न",
+    "overdue": "म्याद नाघेको",
+    "orgUnitTeam": "OrgUnit / टिम",
+    "supportStaff": "सहयोगी कर्मचारी",
+    "otherStaff": "अन्य कर्मचारी / सेल्स",
+    "pending": "बाँकी",
+    "serviceToken": "सेवा / टोकन",
+    "stage": "चरण",
+    "responsibleOrgUnit": "जिम्मेवार OrgUnit",
+    "team": "अपरेशनल टिम",
+    "stageStatus": "चरण स्थिति",
+    "stageSla": "चरण SLA",
+    "workSla": "कार्य SLA",
+    "active": "सक्रिय समय",
+    "waiting": "पर्खाइ समय",
+    "blocked": "अवरुद्ध समय",
+    "employee": "कर्मचारी",
+    "shift": "सिफ्ट",
+    "department": "विभाग",
+    "location": "स्थान"
+  },
+  "status": {
+    "runtime": {
+      "DRAFT": "मस्यौदा",
+      "OPEN": "खुला",
+      "IN_PROGRESS": "काम भइरहेको",
+      "WAITING": "पर्खाइमा",
+      "BLOCKED": "अवरुद्ध",
+      "COMPLETED": "सम्पन्न",
+      "CANCELLED": "रद्द"
+    },
+    "stage": {
+      "PENDING": "बाँकी",
+      "READY": "तयार",
+      "IN_PROGRESS": "काम भइरहेको",
+      "BLOCKED": "अवरुद्ध",
+      "SUBMITTED": "पेश गरिएको",
+      "RETURNED": "फिर्ता",
+      "COMPLETED": "सम्पन्न",
+      "SKIPPED": "छोडिएको",
+      "CANCELLED": "रद्द"
+    },
+    "sla": {
+      "ON_TRACK": "समयभित्र",
+      "DUE_SOON": "म्याद नजिक",
+      "OVERDUE": "म्याद नाघेको"
+    }
+  },
+  "time": {
+    "minutes": "{{minutes}} मिनेट",
+    "hours": "{{hours}} घण्टा",
+    "hoursMinutes": "{{hours}} घण्टा {{minutes}} मिनेट"
+  },
+  "print": {
+    "organization": "नेपाल टेलिकम",
+    "officeFallback": "NT Message कार्यालय",
+    "period": "अवधि",
+    "generated": "तयार गरिएको",
+    "footer": "NT Message द्वारा तयार गरिएको",
+    "title": {
+      "OVERVIEW": "कार्य सारांश प्रतिवेदन",
+      "TECHNICAL_PERFORMANCE": "NTC प्राविधिक कार्यसम्पादन प्रतिवेदन",
+      "WORK_RECORDS": "कार्य अभिलेख प्रतिवेदन",
+      "STAGE_SLA": "चरण तथा SLA प्रतिवेदन",
+      "DUTY": "ड्युटी प्रतिवेदन"
+    }
+  }
+}

@@ -10,6 +10,7 @@ import monitoringEn from "./locales/en/monitoring.json";
 import officialProfileEn from "./locales/en/officialProfile.json";
 import organizationEn from "./locales/en/organization.json";
 import positionsEn from "./locales/en/positions.json";
+import reportsEn from "./locales/en/reports.json";
 import requestsEn from "./locales/en/requests.json";
 import teamsEn from "./locales/en/teams.json";
 import messagingEn from "./locales/en/messaging.json";
@@ -25,6 +26,7 @@ import monitoringNe from "./locales/ne/monitoring.json";
 import officialProfileNe from "./locales/ne/officialProfile.json";
 import organizationNe from "./locales/ne/organization.json";
 import positionsNe from "./locales/ne/positions.json";
+import reportsNe from "./locales/ne/reports.json";
 import requestsNe from "./locales/ne/requests.json";
 import teamsNe from "./locales/ne/teams.json";
 import messagingNe from "./locales/ne/messaging.json";
@@ -86,7 +88,7 @@ void i18n
     fallbackLng: DEFAULT_INTERFACE_LANGUAGE,
     supportedLngs: ["en", "ne"],
     defaultNS: "workspace",
-    ns: ["workspace", "settings", "common", "auth", "messaging", "admin", "directory", "requests", "teams", "positions", "organization", "monitoring", "analytics", "officialProfile", "workTypes"],
+    ns: ["workspace", "settings", "common", "auth", "messaging", "admin", "directory", "requests", "teams", "positions", "organization", "monitoring", "analytics", "officialProfile", "workTypes", "reports"],
     resources: {
       en: {
         workspace: workspaceEn,
@@ -104,6 +106,7 @@ void i18n
         auth: authEn,
         messaging: messagingEn,
         workTypes: workTypesEn,
+        reports: reportsEn,
       },
       ne: {
         workspace: workspaceNe,
@@ -121,6 +124,7 @@ void i18n
         auth: authNe,
         messaging: messagingNe,
         workTypes: workTypesNe,
+        reports: reportsNe,
       },
     },
     interpolation: {

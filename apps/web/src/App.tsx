@@ -87,6 +87,7 @@ export default function App() {
               "SUPER_ADMIN",
               "SENIOR_MANAGEMENT",
               "TEAM_MANAGER",
+              "EMPLOYEE",
             ]}
           >
             <ManagementLayout>
@@ -475,6 +476,7 @@ export default function App() {
               "SUPER_ADMIN",
               "SENIOR_MANAGEMENT",
               "TEAM_MANAGER",
+              "EMPLOYEE",
             ]}
           >
             <ManagementLayout>

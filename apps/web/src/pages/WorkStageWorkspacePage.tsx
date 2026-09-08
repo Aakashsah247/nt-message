@@ -314,35 +314,38 @@ export function WorkStageWorkspacePage({
   }, [accessToken, isSuperAdmin, officeId, selectedStageId, t]);
 
   useEffect(() => {
-    if (
-      !accessToken ||
-      !officeId ||
-      !selectedStage ||
-      isSuperAdmin ||
-      !selectedStage.availableActions.includes("ASSIGN")
-    ) {
-      setAssignmentContext(null);
-      return;
-    }
-
     let active = true;
-    getWorkRuntimeV3StageAssignmentContext(
-      accessToken,
-      officeId,
-      selectedStage.id,
-    )
-      .then((response) => {
-        if (active) setAssignmentContext(response);
-      })
-      .catch((requestError: unknown) => {
-        if (active) {
+    const timeoutId = window.setTimeout(() => {
+      if (!active) return;
+      if (
+        !accessToken ||
+        !officeId ||
+        !selectedStage ||
+        isSuperAdmin ||
+        !selectedStage.availableActions.includes("ASSIGN")
+      ) {
+        setAssignmentContext(null);
+        return;
+      }
+
+      void getWorkRuntimeV3StageAssignmentContext(
+        accessToken,
+        officeId,
+        selectedStage.id,
+      )
+        .then((response) => {
+          if (active) setAssignmentContext(response);
+        })
+        .catch((requestError: unknown) => {
+          if (!active) return;
           setAssignmentContext(null);
           setError(getErrorMessage(requestError, t("work.stageWorkspace.requestError")));
-        }
-      });
+        });
+    }, 0);
 
     return () => {
       active = false;
+      window.clearTimeout(timeoutId);
     };
   }, [accessToken, isSuperAdmin, officeId, selectedStage, t]);
 
@@ -391,9 +394,9 @@ export function WorkStageWorkspacePage({
     return ids;
   }, [flatOrganizationUnits, selectedStage]);
 
-  const assignmentTeams = assignmentContext?.operationalTeams ?? [];
+  const assignmentTeams = assignmentContext?.operationalTeams;
   const selectedOperationalTeam = useMemo(
-    () => assignmentTeams.find((team) => team.id === assignmentTargetId) ?? null,
+    () => assignmentTeams?.find((team) => team.id === assignmentTargetId) ?? null,
     [assignmentTargetId, assignmentTeams],
   );
 
@@ -674,7 +677,7 @@ export function WorkStageWorkspacePage({
                                 {t("work.stageWorkspace.team")}
                                 <select className="rounded-xl border border-slate-300 bg-white px-3 py-2.5 text-sm" value={assignmentTargetId} onChange={(event) => setAssignmentTargetId(event.target.value)}>
                                   <option value="">{t("work.stageWorkspace.selectTeam")}</option>
-                                  {assignmentTeams.map((team) => <option key={team.id} value={team.id}>{team.name} ({team.code})</option>)}
+                                  {assignmentTeams?.map((team) => <option key={team.id} value={team.id}>{team.name} ({team.code})</option>)}
                                 </select>
                               </label>
                               {selectedOperationalTeam ? (

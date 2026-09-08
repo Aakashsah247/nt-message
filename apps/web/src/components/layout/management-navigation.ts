@@ -243,6 +243,12 @@ const EMPLOYEE_NAVIGATION: ManagementNavigationSection[] = [
         labelKey: "navigation.items.myDuty",
         path: "/employee/duty",
       },
+      {
+        icon: "reports",
+        label: "Reports",
+        labelKey: "navigation.items.reports",
+        path: "/work-reports",
+      },
     ],
   },
   {

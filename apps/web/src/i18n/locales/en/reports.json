@@ -1,0 +1,203 @@
+{
+  "eyebrow": "Office reporting",
+  "title": "Reports",
+  "description": "Review Work performance, technical delivery, stage responsibility and Duty information within your authorized scope.",
+  "tabs": {
+    "label": "Report sections",
+    "OVERVIEW": "Overview",
+    "TECHNICAL_PERFORMANCE": "Performance",
+    "WORK_RECORDS": "Work Records",
+    "STAGE_SLA": "Stage / SLA",
+    "DUTY": "Duty"
+  },
+  "period": {
+    "TODAY": "Today",
+    "WEEK": "Week",
+    "MONTH": "Month",
+    "CUSTOM": "Custom"
+  },
+  "filters": {
+    "office": "Office",
+    "from": "From",
+    "to": "To",
+    "search": "Search",
+    "searchPlaceholder": "Ticket, reference or Work details",
+    "more": "More filters",
+    "all": "All",
+    "primaryOwner": "Primary Owner OrgUnit",
+    "participant": "Participant OrgUnit",
+    "responsibleOrgUnit": "Responsible OrgUnit",
+    "team": "Operational Team",
+    "workType": "Work Type",
+    "workStatus": "Work status",
+    "stageStatus": "Stage status",
+    "sla": "SLA state"
+  },
+  "scope": {
+    "PERSONAL": "Personal scope",
+    "TEAM": "Operational Team scope",
+    "ORG_UNIT": "OrgUnit scope",
+    "ORG_UNIT_SUBTREE": "OrgUnit subtree scope",
+    "OFFICE": "Office-wide scope",
+    "context": "Current access: {{scope}}",
+    "loading": "Checking report access…"
+  },
+  "actions": {
+    "apply": "Apply filters",
+    "loading": "Loading…",
+    "csv": "Export CSV",
+    "exporting": "Exporting…",
+    "print": "Print / PDF",
+    "preparingPrint": "Preparing…",
+    "view": "View",
+    "previous": "Previous",
+    "next": "Next"
+  },
+  "states": {
+    "loading": "Preparing report data…",
+    "empty": "No report data matched the selected filters.",
+    "noPermissionTitle": "Report access is not available",
+    "noPermission": "Your current Office scope does not allow this report."
+  },
+  "errors": {
+    "offices": "The Office list could not be loaded.",
+    "context": "Report access could not be loaded.",
+    "report": "The report could not be loaded.",
+    "export": "The CSV export could not be prepared.",
+    "print": "The print report could not be prepared."
+  },
+  "notices": {
+    "exported": "Exported {{filename}}"
+  },
+  "overview": {
+    "kpi": {
+      "total": "Total Work",
+      "open": "Open",
+      "inProgress": "In Progress",
+      "waiting": "Waiting",
+      "blocked": "Blocked",
+      "completed": "Completed",
+      "cancelled": "Cancelled",
+      "overdue": "Overdue",
+      "dueSoon": "Due Soon"
+    },
+    "organizationTitle": "Organization performance",
+    "organizationDescription": "Primary ownership, participation and stage responsibility are shown separately to prevent double counting.",
+    "teamTitle": "Operational Team execution",
+    "teamDescription": "Team activity is an execution drill-down under the formal OrgUnit structure.",
+    "teamExecutionOnly": "Execution dimension only"
+  },
+  "records": {
+    "title": "Work Records",
+    "count_one": "{{count}} filtered Work record",
+    "count_other": "{{count}} filtered Work records",
+    "noTeam": "No Team execution"
+  },
+  "technical": {
+    "title": "NTC Technical Performance Report",
+    "description": "Technical Work only. Administrative Work is excluded from this report.",
+    "noTeam": "Direct OrgUnit execution"
+  },
+  "stage": {
+    "title": "Stage and SLA analysis",
+    "description": "Identify the responsible OrgUnit, execution Team, waiting time and SLA delay for each stage.",
+    "summary": {
+      "total": "Stages",
+      "completed": "Completed",
+      "waiting": "Waiting",
+      "overdue": "Overdue"
+    }
+  },
+  "duty": {
+    "compatibilityTitle": "Duty report compatibility",
+    "compatibility": "Duty reporting remains on the existing Duty dataset until the OrgUnit migration in Phase 11.",
+    "scheduled": "Scheduled",
+    "people": "Employees scheduled",
+    "leave": "Leave",
+    "cancelled": "Cancelled",
+    "divisionDuty": "Division duty"
+  },
+  "pagination": {
+    "page": "Page {{page}} of {{totalPages}}"
+  },
+  "columns": {
+    "sn": "S.N.",
+    "ticket": "Ticket",
+    "workType": "Work Type",
+    "ownerTeam": "Primary Owner / Team",
+    "reference": "Reference",
+    "date": "Date",
+    "status": "Status",
+    "actions": "Actions",
+    "orgUnit": "OrgUnit",
+    "primaryOwner": "Primary Owner Work",
+    "participant": "Participant Work",
+    "stages": "Responsible Stages",
+    "completed": "Completed",
+    "overdue": "Overdue",
+    "orgUnitTeam": "OrgUnit / Team",
+    "supportStaff": "Support Staff",
+    "otherStaff": "Other Staff / Sales",
+    "pending": "Pending",
+    "serviceToken": "Service / Token",
+    "stage": "Stage",
+    "responsibleOrgUnit": "Responsible OrgUnit",
+    "team": "Operational Team",
+    "stageStatus": "Stage Status",
+    "stageSla": "Stage SLA",
+    "workSla": "Work SLA",
+    "active": "Active Time",
+    "waiting": "Waiting Time",
+    "blocked": "Blocked Time",
+    "employee": "Employee",
+    "shift": "Shift",
+    "department": "Department",
+    "location": "Location"
+  },
+  "status": {
+    "runtime": {
+      "DRAFT": "Draft",
+      "OPEN": "Open",
+      "IN_PROGRESS": "In Progress",
+      "WAITING": "Waiting",
+      "BLOCKED": "Blocked",
+      "COMPLETED": "Completed",
+      "CANCELLED": "Cancelled"
+    },
+    "stage": {
+      "PENDING": "Pending",
+      "READY": "Ready",
+      "IN_PROGRESS": "In Progress",
+      "BLOCKED": "Blocked",
+      "SUBMITTED": "Submitted",
+      "RETURNED": "Returned",
+      "COMPLETED": "Completed",
+      "SKIPPED": "Skipped",
+      "CANCELLED": "Cancelled"
+    },
+    "sla": {
+      "ON_TRACK": "On Track",
+      "DUE_SOON": "Due Soon",
+      "OVERDUE": "Overdue"
+    }
+  },
+  "time": {
+    "minutes": "{{minutes}}m",
+    "hours": "{{hours}}h",
+    "hoursMinutes": "{{hours}}h {{minutes}}m"
+  },
+  "print": {
+    "organization": "Nepal Telecom",
+    "officeFallback": "NT Message Office",
+    "period": "Period",
+    "generated": "Generated",
+    "footer": "Generated by NT Message",
+    "title": {
+      "OVERVIEW": "Work Overview Report",
+      "TECHNICAL_PERFORMANCE": "NTC Technical Performance Report",
+      "WORK_RECORDS": "Work Records Report",
+      "STAGE_SLA": "Stage and SLA Report",
+      "DUTY": "Duty Report"
+    }
+  }
+}
