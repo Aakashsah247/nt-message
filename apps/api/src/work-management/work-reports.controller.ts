@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   Controller,
   Get,
   Param,
@@ -15,9 +16,14 @@ import { AccessTokenGuard } from '../auth/guards/access-token.guard';
 import { RolesGuard } from '../auth/guards/roles.guard';
 import type { AuthenticatedUser } from '../auth/types/auth.types';
 import { AccountRole } from '../generated/prisma/client';
-import { ExportWorkReportQueryDto } from './dto/export-work-report-query.dto';
-import { WorkReportDrilldownQueryDto } from './dto/work-report-drilldown-query.dto';
-import { WorkReportQueryDto } from './dto/work-report-query.dto';
+import {
+  ExportWorkReportQueryDto,
+  WorkReportDataset,
+} from './dto/export-work-report-query.dto';
+import {
+  WorkReportDrilldownDataset,
+  WorkReportDrilldownQueryDto,
+} from './dto/work-report-drilldown-query.dto';
 import {
   WorkReportV3QueryDto,
   WorkReportV3RecordsQueryDto,
@@ -27,7 +33,6 @@ import { WorkReportV3ExportQueryDto } from './dto/work-report-v3-export-query.dt
 import {
   WorkReportsService,
   type WorkReportDrilldownResponse,
-  type WorkReportSummary,
 } from './work-reports.service';
 import {
   WorkReportsV3Service,
@@ -164,23 +169,19 @@ export class WorkReportsController {
     return this.workReportsV3Service.getReconciliation(user, officeId);
   }
 
-  @Get('summary')
-  @Roles(...MANAGEMENT_REPORT_ROLES)
-  getSummary(
-    @CurrentUser() user: AuthenticatedUser,
-    @Query() query: WorkReportQueryDto,
-  ): Promise<WorkReportSummary> {
-    // Every report is rebuilt from server-owned role and organization scope.
-    return this.workReportsService.getSummary(user, query);
-  }
-
   @Get('drilldown')
   @Roles(...MANAGEMENT_REPORT_ROLES)
   getDrilldown(
     @CurrentUser() user: AuthenticatedUser,
     @Query() query: WorkReportDrilldownQueryDto,
   ): Promise<WorkReportDrilldownResponse> {
-    // Drill-downs remain paginated and server-scoped so executive reports never become unrestricted data browsers.
+    if (query.dataset !== WorkReportDrilldownDataset.DUTY_ASSIGNMENTS) {
+      throw new BadRequestException(
+        'Legacy Work report drill-downs are retired. Use the Reports V3 Office endpoints.',
+      );
+    }
+
+    // Duty remains on legacy hierarchy compatibility until Phase 11.
     return this.workReportsService.getDrilldown(user, query);
   }
 
@@ -191,6 +192,12 @@ export class WorkReportsController {
     @Query() query: ExportWorkReportQueryDto,
     @Res({ passthrough: true }) response: Response,
   ): Promise<string> {
+    if (query.dataset !== WorkReportDataset.DUTY_ASSIGNMENTS) {
+      throw new BadRequestException(
+        'Legacy Work report exports are retired. Use the Reports V3 Office export endpoint.',
+      );
+    }
+
     const report = await this.workReportsService.exportCsv(user, query);
     response.type('text/csv; charset=utf-8');
     response.setHeader(

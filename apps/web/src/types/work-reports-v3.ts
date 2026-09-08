@@ -247,3 +247,66 @@ export interface WorkReportV3DutyCompatibility {
   csvRoute: "/work-reports/export";
   dataset: "DUTY_ASSIGNMENTS";
 }
+
+export interface WorkReportLegacyDutyQuery {
+  from?: string;
+  to?: string;
+  search?: string;
+  page?: number;
+  limit?: number;
+}
+
+export interface WorkReportLegacyDutyRow {
+  kind: "DUTY_ASSIGNMENT";
+  id: string;
+  dutyDate: string;
+  startsAt: string;
+  endsAt: string;
+  employee: string;
+  employeeId: string | null;
+  employeeRole: string;
+  shift: string;
+  division: { id: string; code: string; name: string };
+  department: { id: string; code: string; name: string } | null;
+  reportingLocation: string;
+  cancelledAt: string | null;
+  cancellationReason: string | null;
+}
+
+export interface WorkReportLegacyDutyResponse {
+  dataset: "DUTY_ASSIGNMENTS";
+  generatedAt: string;
+  timezone: "Asia/Kathmandu";
+  scope: {
+    role: string;
+    type: string;
+    label: string;
+    divisionId: string | null;
+    departmentId: string | null;
+  };
+  period: {
+    from: string;
+    to: string;
+    days: number;
+  };
+  dutySummary: {
+    scheduled: number;
+    cancelled: number;
+    uniqueEmployees: number;
+    leaveDays: number;
+  } | null;
+  sections: {
+    duty: {
+      pagination: {
+        page: number;
+        limit: number;
+        total: number;
+        totalPages: number;
+        hasPrevious: boolean;
+        hasNext: boolean;
+      };
+      rows: WorkReportLegacyDutyRow[];
+    } | null;
+  };
+  notice: string;
+}

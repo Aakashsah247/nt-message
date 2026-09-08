@@ -22,12 +22,31 @@ test("P10-5 Reports page uses the V3 report contracts for Work reporting", async
 });
 
 test("P10-5 keeps Duty on compatibility reads while Work reports are V3", async () => {
-  const page = await source("pages/WorkReportsPage.tsx");
+  const [page, service] = await Promise.all([
+    source("pages/WorkReportsPage.tsx"),
+    source("services/work-reports-v3.service.ts"),
+  ]);
 
   assert.match(page, /getWorkReportV3DutyCompatibility/);
-  assert.match(page, /dataset:\s*"DUTY_ASSIGNMENTS"/);
+  assert.match(page, /getLegacyDutyReportPage/);
   assert.match(page, /loadAllDutyRows/);
   assert.match(page, /t\("reports:duty\.compatibility"\)/);
+  assert.match(service, /dataset:\s*"DUTY_ASSIGNMENTS"/);
+});
+
+test("P10-6 removes active legacy Work report clients and keeps only Duty compatibility", async () => {
+  const [page, workService, reportService, legacyTypes] = await Promise.all([
+    source("pages/WorkReportsPage.tsx"),
+    source("services/work-management.service.ts"),
+    source("services/work-reports-v3.service.ts"),
+    source("types/work-management.ts"),
+  ]);
+
+  assert.doesNotMatch(page, /getWorkReportSummary|getWorkReportDrilldown|downloadWorkReportCsv/);
+  assert.doesNotMatch(workService, /\/work-reports\/summary|\/work-reports\/drilldown|\/work-reports\/export/);
+  assert.match(reportService, /getLegacyDutyReportPage/);
+  assert.match(reportService, /downloadLegacyDutyReportCsv/);
+  assert.doesNotMatch(legacyTypes, /WorkReportDrilldownWorkRow|WorkReportPerformanceSection|WorkReportSummary/);
 });
 
 test("P10-5 report actions are backend-driven and exports use full-dataset endpoints", async () => {

@@ -10,6 +10,8 @@ import type {
   WorkReportV3StageAnalysis,
   WorkReportV3TechnicalPerformance,
   WorkReportV3WorkRecords,
+  WorkReportLegacyDutyQuery,
+  WorkReportLegacyDutyResponse,
 } from "../types/work-reports-v3";
 
 function authHeader(accessToken: string): HeadersInit {
@@ -103,6 +105,35 @@ export function getWorkReportV3DutyCompatibility(
     `${officePath(officeId)}/duty-compatibility`,
     { headers: authHeader(accessToken) },
   );
+}
+
+export function getLegacyDutyReportPage(
+  accessToken: string,
+  query: WorkReportLegacyDutyQuery,
+): Promise<WorkReportLegacyDutyResponse> {
+  return apiRequest<WorkReportLegacyDutyResponse>(
+    `/work-reports/drilldown${queryString({ ...query, dataset: "DUTY_ASSIGNMENTS" })}`,
+    { headers: authHeader(accessToken) },
+  );
+}
+
+export async function downloadLegacyDutyReportCsv(
+  accessToken: string,
+  query: WorkReportLegacyDutyQuery,
+): Promise<string> {
+  const result = await apiDownload(
+    `/work-reports/export${queryString({ ...query, dataset: "DUTY_ASSIGNMENTS" })}`,
+    { headers: authHeader(accessToken) },
+  );
+  const objectUrl = URL.createObjectURL(result.blob);
+  const anchor = document.createElement("a");
+  anchor.href = objectUrl;
+  anchor.download = result.filename;
+  document.body.append(anchor);
+  anchor.click();
+  anchor.remove();
+  URL.revokeObjectURL(objectUrl);
+  return result.filename;
 }
 
 export async function downloadWorkReportV3Csv(

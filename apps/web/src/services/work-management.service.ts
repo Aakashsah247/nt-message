@@ -42,11 +42,6 @@ import type {
   WorkQueueFocus,
   WorkServiceType,
   WorkQueueView,
-  WorkReportDataset,
-  WorkReportDrilldownDataset,
-  WorkReportDrilldownResponse,
-  WorkReportSummary,
-  WorkReportWorkflowStageFilter,
   WorkSalesMessageListResponse,
   WorkSalesMessageMutationResponse,
 } from "../types/work-management";
@@ -85,24 +80,6 @@ export interface WorkAssignmentOptionsQuery {
   search?: string;
   departmentId?: string;
 }
-
-export interface WorkReportQuery {
-  from?: string;
-  to?: string;
-  type?: WorkItemType;
-  divisionId?: string;
-  departmentId?: string;
-  teamId?: string;
-  workflowStage?: WorkReportWorkflowStageFilter;
-  search?: string;
-}
-
-export interface WorkReportDrilldownQuery extends WorkReportQuery {
-  dataset: WorkReportDrilldownDataset;
-  page?: number;
-  limit?: number;
-}
-
 
 export interface DutyCoverageRequirementQuery {
   departmentId?: string;
@@ -168,10 +145,7 @@ function buildQueryString(
     | WorkAssignmentOptionsQuery
     | DutyAssignmentQuery
     | DutyRosterQuery
-    | DutyCoverageRequirementQuery
-    | WorkReportQuery
-    | WorkReportDrilldownQuery
-    | (WorkReportQuery & { dataset: WorkReportDataset }),
+    | DutyCoverageRequirementQuery,
 ): string {
   const params = new URLSearchParams();
 
@@ -986,50 +960,4 @@ export function coordinateManagementHelpRequest(
       body: JSON.stringify(payload),
     },
   );
-}
-
-export function getWorkReportSummary(
-  accessToken: string,
-  query: WorkReportQuery = {},
-): Promise<WorkReportSummary> {
-  return apiRequest<WorkReportSummary>(
-    `/work-reports/summary${buildQueryString(query)}`,
-    { headers: authorizationHeaders(accessToken) },
-  );
-}
-
-
-export function getWorkReportDrilldown(
-  accessToken: string,
-  query: WorkReportDrilldownQuery,
-): Promise<WorkReportDrilldownResponse> {
-  // The API re-applies role and organization scope for every paginated drill-down request.
-  return apiRequest<WorkReportDrilldownResponse>(
-    `/work-reports/drilldown${buildQueryString(query)}`,
-    { headers: authorizationHeaders(accessToken) },
-  );
-}
-
-export async function downloadWorkReportCsv(
-  accessToken: string,
-  dataset: WorkReportDataset,
-  query: WorkReportQuery = {},
-): Promise<{ filename: string; truncated: boolean }> {
-  const download = await apiDownload(
-    `/work-reports/export${buildQueryString({ ...query, dataset })}`,
-    { headers: authorizationHeaders(accessToken) },
-  );
-  const objectUrl = URL.createObjectURL(download.blob);
-  const anchor = document.createElement("a");
-  anchor.href = objectUrl;
-  anchor.download = download.filename;
-  document.body.append(anchor);
-  anchor.click();
-  anchor.remove();
-  URL.revokeObjectURL(objectUrl);
-
-  return {
-    filename: download.filename,
-    truncated: download.truncated,
-  };
 }

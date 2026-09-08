@@ -6,11 +6,9 @@ import { Link } from "react-router";
 import { useAuth } from "../context/AuthContext";
 import { getOrganizationOffices } from "../services/organization-v3.service";
 import {
-  downloadWorkReportCsv,
-  getWorkReportDrilldown,
-} from "../services/work-management.service";
-import {
+  downloadLegacyDutyReportCsv,
   downloadWorkReportV3Csv,
+  getLegacyDutyReportPage,
   getWorkReportV3Context,
   getWorkReportV3DutyCompatibility,
   getWorkReportV3Overview,
@@ -19,12 +17,10 @@ import {
   getWorkReportV3TechnicalPerformance,
   getWorkReportV3WorkRecords,
 } from "../services/work-reports-v3.service";
-import type { WorkReportQuery } from "../services/work-management.service";
 import type {
-  WorkReportDrilldownDutyRow,
-  WorkReportDrilldownResponse,
-} from "../types/work-management";
-import type {
+  WorkReportLegacyDutyQuery,
+  WorkReportLegacyDutyResponse,
+  WorkReportLegacyDutyRow,
   WorkReportV3Context,
   WorkReportV3ExportDataset,
   WorkReportV3Overview,
@@ -399,11 +395,10 @@ function Pagination({
 
 async function loadAllDutyRows(
   accessToken: string,
-  query: WorkReportQuery,
-): Promise<WorkReportDrilldownResponse> {
-  const first = await getWorkReportDrilldown(accessToken, {
+  query: WorkReportLegacyDutyQuery,
+): Promise<WorkReportLegacyDutyResponse> {
+  const first = await getLegacyDutyReportPage(accessToken, {
     ...query,
-    dataset: "DUTY_ASSIGNMENTS",
     page: 1,
     limit: 100,
   });
@@ -412,9 +407,8 @@ async function loadAllDutyRows(
 
   const rows = [...section.rows];
   for (let page = 2; page <= section.pagination.totalPages; page += 1) {
-    const next = await getWorkReportDrilldown(accessToken, {
+    const next = await getLegacyDutyReportPage(accessToken, {
       ...query,
-      dataset: "DUTY_ASSIGNMENTS",
       page,
       limit: 100,
     });
@@ -444,7 +438,7 @@ export function WorkReportsPage() {
   const [records, setRecords] = useState<WorkReportV3WorkRecords | null>(null);
   const [technical, setTechnical] = useState<WorkReportV3TechnicalPerformance | null>(null);
   const [stageAnalysis, setStageAnalysis] = useState<WorkReportV3StageAnalysis | null>(null);
-  const [duty, setDuty] = useState<WorkReportDrilldownResponse | null>(null);
+  const [duty, setDuty] = useState<WorkReportLegacyDutyResponse | null>(null);
   const [recordsPage, setRecordsPage] = useState(1);
   const [stagePage, setStagePage] = useState(1);
   const [dutyPage, setDutyPage] = useState(1);
@@ -454,7 +448,7 @@ export function WorkReportsPage() {
   const [exporting, setExporting] = useState(false);
   const [preparingPrint, setPreparingPrint] = useState(false);
   const [printPayload, setPrintPayload] = useState<WorkReportV3PrintPayload | null>(null);
-  const [printDuty, setPrintDuty] = useState<WorkReportDrilldownResponse | null>(null);
+  const [printDuty, setPrintDuty] = useState<WorkReportLegacyDutyResponse | null>(null);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
 
@@ -568,11 +562,10 @@ export function WorkReportsPage() {
           limit: PAGE_SIZE,
         }));
       } else {
-        setDuty(await getWorkReportDrilldown(accessToken, {
+        setDuty(await getLegacyDutyReportPage(accessToken, {
           from: query.from,
           to: query.to,
           search: query.search,
-          dataset: "DUTY_ASSIGNMENTS",
           page: nextDutyPage,
           limit: PAGE_SIZE,
         }));
@@ -628,12 +621,12 @@ export function WorkReportsPage() {
     setNotice("");
     try {
       if (view === "DUTY") {
-        const result = await downloadWorkReportCsv(accessToken, "DUTY_ASSIGNMENTS", {
+        const filename = await downloadLegacyDutyReportCsv(accessToken, {
           from: applied.from,
           to: applied.to,
           search: applied.search,
         });
-        setNotice(t("reports:notices.exported", { filename: result.filename }));
+        setNotice(t("reports:notices.exported", { filename }));
       } else if (currentDataset) {
         const filename = await downloadWorkReportV3Csv(
           accessToken,
@@ -983,7 +976,7 @@ function ReportContent({
   records: WorkReportV3WorkRecords | null;
   technical: WorkReportV3TechnicalPerformance | null;
   stageAnalysis: WorkReportV3StageAnalysis | null;
-  duty: WorkReportDrilldownResponse | null;
+  duty: WorkReportLegacyDutyResponse | null;
   language: string;
   t: ReturnType<typeof useTranslation>["t"];
   onRecordsPage: (page: number) => void;
@@ -1227,7 +1220,7 @@ function EmptyState({ t }: { t: ReturnType<typeof useTranslation>["t"] }) {
   return <section className="rounded-3xl border border-slate-200 bg-white p-10 text-center text-sm font-medium text-slate-500 shadow-sm">{t("reports:states.empty")}</section>;
 }
 
-function DutyRow({ row, language, t }: { row: WorkReportDrilldownDutyRow; language: string; t: ReturnType<typeof useTranslation>["t"] }) {
+function DutyRow({ row, language, t }: { row: WorkReportLegacyDutyRow; language: string; t: ReturnType<typeof useTranslation>["t"] }) {
   return (
     <tr>
       <td className="px-4 py-3">{formatDate(row.dutyDate, language)}</td>
@@ -1251,7 +1244,7 @@ function PrintableReport({
 }: {
   view: ReportView;
   payload: WorkReportV3PrintPayload | null;
-  duty: WorkReportDrilldownResponse | null;
+  duty: WorkReportLegacyDutyResponse | null;
   office: { id: string; code: string; name: string } | null;
   period: { from: string | null; to: string | null };
   language: string;
@@ -1302,7 +1295,7 @@ function PrintStages({ rows, t }: { rows: WorkReportV3StageAnalysisRow[]; t: Ret
   return <table className="w-full border-collapse"><thead className="print:table-header-group"><tr>{(["ticket", "stage", "responsibleOrgUnit", "team", "stageStatus", "stageSla", "workSla", "active", "waiting", "blocked"] as ReportColumnKey[]).map((key) => <th key={key} className="border border-slate-400 bg-slate-100 p-1 text-left">{columnLabel(key, t)}</th>)}</tr></thead><tbody>{rows.map((row) => <tr key={row.id} className="break-inside-avoid"><td className="border border-slate-300 p-1">{row.workItem.ticketNumber}</td><td className="border border-slate-300 p-1">{row.stage.name}</td><td className="border border-slate-300 p-1">{row.stage.responsibleOrgUnit.name}</td><td className="border border-slate-300 p-1">{row.stage.operationalTeams.map((team) => team.name).join(", ") || "—"}</td><td className="border border-slate-300 p-1">{stageStatusLabel(row.stage.status, t)}</td><td className="border border-slate-300 p-1">{slaStateLabel(row.stage.slaState, t)}</td><td className="border border-slate-300 p-1">{slaStateLabel(row.workItem.workSlaState, t)}</td><td className="border border-slate-300 p-1 text-right">{formatMinutes(row.durations.activeMinutes, t)}</td><td className="border border-slate-300 p-1 text-right">{formatMinutes(row.durations.waitingMinutes, t)}</td><td className="border border-slate-300 p-1 text-right">{formatMinutes(row.durations.blockedMinutes, t)}</td></tr>)}</tbody></table>;
 }
 
-function PrintDuty({ duty, language, t }: { duty: WorkReportDrilldownResponse; language: string; t: ReturnType<typeof useTranslation>["t"] }) {
+function PrintDuty({ duty, language, t }: { duty: WorkReportLegacyDutyResponse; language: string; t: ReturnType<typeof useTranslation>["t"] }) {
   const rows = duty.sections.duty?.rows ?? [];
   return <table className="w-full border-collapse"><thead className="print:table-header-group"><tr>{(["date", "employee", "shift", "department", "location", "status"] as ReportColumnKey[]).map((key) => <th key={key} className="border border-slate-400 bg-slate-100 p-1.5 text-left">{columnLabel(key, t)}</th>)}</tr></thead><tbody>{rows.map((row) => <tr key={row.id} className="break-inside-avoid"><td className="border border-slate-300 p-1.5">{formatDate(row.dutyDate, language)}</td><td className="border border-slate-300 p-1.5">{row.employee}</td><td className="border border-slate-300 p-1.5">{row.shift}</td><td className="border border-slate-300 p-1.5">{row.department?.name ?? row.division.name}</td><td className="border border-slate-300 p-1.5">{row.reportingLocation || "—"}</td><td className="border border-slate-300 p-1.5">{row.cancelledAt ? t("reports:duty.cancelled") : t("reports:duty.scheduled")}</td></tr>)}</tbody></table>;
 }

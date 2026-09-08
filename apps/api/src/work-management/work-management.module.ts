@@ -71,7 +71,6 @@ import { WorkTypeV3Service } from './work-type-v3.service';
     WorkLifecycleService,
     WorkManagementQueryService,
     WorkNotificationsService,
-    WorkReportsService,
     WorkReportsV3Service,
     WorkRetentionService,
     WorkRuntimeV3Service,
