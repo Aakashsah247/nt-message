@@ -214,7 +214,7 @@ export function WorkRuntimeV3DetailPage() {
             <p className="mt-2 text-sm text-slate-600">{t("work.detail.description")}</p>
           </div>
           <div className="flex flex-wrap gap-2">
-            <Link className="rounded-xl border border-slate-300 bg-white px-4 py-2.5 text-sm font-bold text-slate-700 hover:bg-slate-50" to={backPath}>
+            <Link className="inline-flex min-h-11 items-center rounded-xl border border-slate-300 bg-white px-4 py-2.5 text-sm font-bold text-slate-700 transition hover:bg-slate-50 focus:outline-none focus:ring-2 focus:ring-sky-500 focus:ring-offset-2" to={backPath}>
               {fromOversight ? t("work.detail.backToOversight") : t("work.detail.back")}
             </Link>
           </div>
@@ -222,11 +222,11 @@ export function WorkRuntimeV3DetailPage() {
       </section>
 
       {error ? (
-        <div className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm font-semibold text-rose-800">{error}</div>
+        <div role="alert" className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm font-semibold text-rose-800">{error}</div>
       ) : null}
 
       {success ? (
-        <div className="rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-semibold text-emerald-800">{success}</div>
+        <div role="status" aria-live="polite" className="rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-semibold text-emerald-800">{success}</div>
       ) : null}
 
       {loading ? (
@@ -265,14 +265,14 @@ export function WorkRuntimeV3DetailPage() {
                   <div className="rounded-2xl border border-emerald-200 bg-emerald-50/60 p-4">
                     <h3 className="text-sm font-bold text-emerald-950">{t("work.detail.finalCompletion")}</h3>
                     <textarea className="mt-3 min-h-20 w-full rounded-xl border border-emerald-200 bg-white px-3 py-2 text-sm text-slate-900 outline-none focus:border-emerald-500" onChange={(event) => setCompletionNote(event.target.value)} placeholder={t("work.detail.completionNote")} value={completionNote} />
-                    <button className="mt-3 w-full rounded-xl bg-emerald-700 px-4 py-2.5 text-sm font-bold text-white disabled:cursor-not-allowed disabled:opacity-60" disabled={mutating} onClick={handleComplete} type="button">{t("work.detail.complete")}</button>
+                    <button className="mt-3 min-h-11 w-full rounded-xl bg-emerald-700 px-4 py-2.5 text-sm font-bold text-white focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-60" disabled={mutating} onClick={handleComplete} type="button">{t("work.detail.complete")}</button>
                   </div>
                 ) : null}
                 {availableActions.includes("CANCEL") ? (
                   <div className="rounded-2xl border border-rose-200 bg-rose-50/60 p-4">
                     <h3 className="text-sm font-bold text-rose-950">{t("work.detail.cancel")}</h3>
                     <textarea className="mt-3 min-h-20 w-full rounded-xl border border-rose-200 bg-white px-3 py-2 text-sm text-slate-900 outline-none focus:border-rose-500" onChange={(event) => setCancelReason(event.target.value)} placeholder={t("work.detail.cancelReason")} value={cancelReason} />
-                    <button className="mt-3 w-full rounded-xl bg-rose-700 px-4 py-2.5 text-sm font-bold text-white disabled:cursor-not-allowed disabled:opacity-60" disabled={mutating} onClick={handleCancel} type="button">{t("work.detail.cancel")}</button>
+                    <button className="mt-3 min-h-11 w-full rounded-xl bg-rose-700 px-4 py-2.5 text-sm font-bold text-white focus:outline-none focus:ring-2 focus:ring-rose-500 focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-60" disabled={mutating} onClick={handleCancel} type="button">{t("work.detail.cancel")}</button>
                   </div>
                 ) : null}
                 {availableActions.includes("REOPEN") ? (
@@ -285,7 +285,7 @@ export function WorkRuntimeV3DetailPage() {
                       ))}
                     </select>
                     <textarea className="mt-3 min-h-20 w-full rounded-xl border border-amber-200 bg-white px-3 py-2 text-sm text-slate-900 outline-none focus:border-amber-500" onChange={(event) => setReopenReason(event.target.value)} placeholder={t("work.detail.reopenReason")} value={reopenReason} />
-                    <button className="mt-3 w-full rounded-xl bg-amber-700 px-4 py-2.5 text-sm font-bold text-white disabled:cursor-not-allowed disabled:opacity-60" disabled={mutating || !reopenStageId} onClick={handleReopen} type="button">{t("work.detail.reopenAction")}</button>
+                    <button className="mt-3 min-h-11 w-full rounded-xl bg-amber-700 px-4 py-2.5 text-sm font-bold text-white focus:outline-none focus:ring-2 focus:ring-amber-500 focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-60" disabled={mutating || !reopenStageId} onClick={handleReopen} type="button">{t("work.detail.reopenAction")}</button>
                   </div>
                 ) : null}
               </div>
@@ -305,7 +305,7 @@ export function WorkRuntimeV3DetailPage() {
                           <p className="mt-1 text-sm font-bold text-slate-950">{stage.name}</p>
                           <p className="mt-1 text-xs text-slate-500">{stage.responsibleOrgUnit.name}</p>
                         </div>
-                        <span className="rounded-full bg-slate-100 px-2.5 py-1 text-[11px] font-bold text-slate-700">{t(`work.stageStatus.${stage.status}`, { defaultValue: formatStatus(stage.status) })}</span>
+                        <span className="rounded-full bg-slate-100 px-2.5 py-1 text-xs font-bold text-slate-700">{t(`work.stageStatus.${stage.status}`, { defaultValue: formatStatus(stage.status) })}</span>
                       </div>
                       <div className="mt-3 grid gap-2 text-xs text-slate-500 sm:grid-cols-3">
                         <span>{t("work.detail.ready")}: {formatDateTime(stage.readyAt, language, notSet)}</span>
