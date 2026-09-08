@@ -706,6 +706,7 @@ model OrgUnit {
   workStageAssignmentTargets WorkStageAssignment[]      @relation("WorkStageAssignmentsTargetOrgUnit")
   ownershipTransfersFrom     WorkOwnershipTransfer[]    @relation("WorkOwnershipTransfersFromOrgUnit")
   ownershipTransfersTo       WorkOwnershipTransfer[]    @relation("WorkOwnershipTransfersToOrgUnit")
+  operationalTeams           OperationalTeam[]
 
   @@unique([officeId, code], map: "org_units_office_code_key")
   @@index([officeId, parentOrgUnitId, isActive, sortOrder], map: "org_units_parent_active_sort_idx")
@@ -939,8 +940,10 @@ model Employee {
   division       Division?   @relation(fields: [divisionId], references: [id], onDelete: Restrict)
   departmentUnit Department? @relation(fields: [departmentId], references: [id], onDelete: Restrict)
 
-  orgMemberships           OrgMembership[]
-  orgLeadershipAssignments OrgLeadershipAssignment[]
+  orgMemberships                 OrgMembership[]
+  orgLeadershipAssignments       OrgLeadershipAssignment[]
+  operationalTeamMemberships     OperationalTeamMember[]
+  operationalTeamLeadAssignments OperationalTeamLeadAssignment[]
 
   account                  Account?
   otpVerifications         OtpVerification[]
@@ -987,6 +990,13 @@ model Account {
   orgMembershipsEnded                OrgMembership[]                   @relation("OrgMembershipsEndedBy")
   orgLeadershipAssignmentsAssigned   OrgLeadershipAssignment[]         @relation("OrgLeadershipAssignmentsAssignedBy")
   orgLeadershipAssignmentsEnded      OrgLeadershipAssignment[]         @relation("OrgLeadershipAssignmentsEndedBy")
+  operationalTeamsCreated            OperationalTeam[]                 @relation("OperationalTeamsCreatedBy")
+  operationalTeamsUpdated            OperationalTeam[]                 @relation("OperationalTeamsUpdatedBy")
+  operationalTeamsArchived           OperationalTeam[]                 @relation("OperationalTeamsArchivedBy")
+  operationalTeamMembershipsAssigned OperationalTeamMember[]           @relation("OperationalTeamMembersAssignedBy")
+  operationalTeamMembershipsEnded    OperationalTeamMember[]           @relation("OperationalTeamMembersEndedBy")
+  operationalTeamLeadsAssigned       OperationalTeamLeadAssignment[]   @relation("OperationalTeamLeadsAssignedBy")
+  operationalTeamLeadsEnded          OperationalTeamLeadAssignment[]   @relation("OperationalTeamLeadsEndedBy")
   sessions                           AuthSession[]
   messagingPushSubscriptions         MessagingPushSubscription[]
   submittedAccountRequests           AccountRequest[]                  @relation("AccountRequestsRequestedBy")
@@ -1250,6 +1260,7 @@ model DepartmentTeam {
   members           DepartmentTeamMember[]
   activities        DepartmentTeamActivity[]
   assignedWorkItems WorkItem[]               @relation("WorkItemsAssignedTeam")
+  operationalTeam   OperationalTeam?
 
   @@unique([departmentId, nameKey], map: "department_teams_department_name_key")
   @@index([departmentId, isActive, name], map: "department_teams_department_active_name_idx")
@@ -1292,6 +1303,96 @@ model DepartmentTeamActivity {
   @@index([departmentId, createdAt], map: "department_team_activities_department_created_idx")
   @@index([actorAccountId, createdAt], map: "department_team_activities_actor_created_idx")
   @@map("department_team_activities")
+}
+
+model OperationalTeam {
+  id                     String    @id @default(uuid()) @db.Uuid
+  orgUnitId              String    @map("org_unit_id") @db.Uuid
+  legacyDepartmentTeamId String?   @unique(map: "operational_teams_legacy_department_team_key") @map("legacy_department_team_id") @db.Uuid
+  code                   String    @db.VarChar(50)
+  name                   String    @db.VarChar(120)
+  nameKey                String    @map("name_key") @db.VarChar(120)
+  isActive               Boolean   @default(true) @map("is_active")
+  sortOrder              Int       @default(0) @map("sort_order")
+  archivedAt             DateTime? @map("archived_at") @db.Timestamptz(3)
+  createdByAccountId     String?   @map("created_by_account_id") @db.Uuid
+  updatedByAccountId     String?   @map("updated_by_account_id") @db.Uuid
+  archivedByAccountId    String?   @map("archived_by_account_id") @db.Uuid
+  createdAt              DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt              DateTime  @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  orgUnit              OrgUnit         @relation(fields: [orgUnitId], references: [id], onDelete: Restrict)
+  legacyDepartmentTeam DepartmentTeam? @relation(fields: [legacyDepartmentTeamId], references: [id], onDelete: Restrict)
+  createdBy            Account?        @relation("OperationalTeamsCreatedBy", fields: [createdByAccountId], references: [id], onDelete: Restrict)
+  updatedBy            Account?        @relation("OperationalTeamsUpdatedBy", fields: [updatedByAccountId], references: [id], onDelete: Restrict)
+  archivedBy           Account?        @relation("OperationalTeamsArchivedBy", fields: [archivedByAccountId], references: [id], onDelete: Restrict)
+
+  members         OperationalTeamMember[]
+  leadAssignments OperationalTeamLeadAssignment[]
+
+  @@unique([orgUnitId, code], map: "operational_teams_org_unit_code_key")
+  @@unique([orgUnitId, nameKey], map: "operational_teams_org_unit_name_key")
+  @@index([orgUnitId, isActive, sortOrder], map: "operational_teams_org_unit_active_sort_idx")
+  @@index([archivedAt], map: "operational_teams_archived_at_idx")
+  @@index([createdByAccountId, createdAt], map: "operational_teams_created_by_created_idx")
+  @@index([updatedByAccountId, updatedAt], map: "operational_teams_updated_by_updated_idx")
+  @@index([archivedByAccountId, archivedAt], map: "operational_teams_archived_by_archived_idx")
+  @@map("operational_teams")
+}
+
+model OperationalTeamMember {
+  id                  String              @id @default(uuid()) @db.Uuid
+  teamId              String              @map("team_id") @db.Uuid
+  employeeId          String              @map("employee_id") @db.Uuid
+  assignmentSource    OrgAssignmentSource @default(MANUAL) @map("assignment_source")
+  startsAt            DateTime            @default(now()) @map("starts_at") @db.Timestamptz(3)
+  endsAt              DateTime?           @map("ends_at") @db.Timestamptz(3)
+  assignedByAccountId String?             @map("assigned_by_account_id") @db.Uuid
+  endedByAccountId    String?             @map("ended_by_account_id") @db.Uuid
+  assignmentReason    String?             @map("assignment_reason") @db.VarChar(500)
+  endReason           String?             @map("end_reason") @db.VarChar(500)
+  createdAt           DateTime            @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt           DateTime            @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  team       OperationalTeam @relation(fields: [teamId], references: [id], onDelete: Restrict)
+  employee   Employee        @relation(fields: [employeeId], references: [id], onDelete: Restrict)
+  assignedBy Account?        @relation("OperationalTeamMembersAssignedBy", fields: [assignedByAccountId], references: [id], onDelete: Restrict)
+  endedBy    Account?        @relation("OperationalTeamMembersEndedBy", fields: [endedByAccountId], references: [id], onDelete: Restrict)
+
+  @@index([teamId, endsAt], map: "operational_team_members_team_ends_idx")
+  @@index([employeeId, endsAt], map: "operational_team_members_employee_ends_idx")
+  @@index([assignedByAccountId, createdAt], map: "operational_team_members_assigned_by_created_idx")
+  @@index([endedByAccountId, endsAt], map: "operational_team_members_ended_by_ended_idx")
+  @@index([startsAt, endsAt], map: "operational_team_members_period_idx")
+  @@map("operational_team_members")
+}
+
+model OperationalTeamLeadAssignment {
+  id                  String              @id @default(uuid()) @db.Uuid
+  teamId              String              @map("team_id") @db.Uuid
+  employeeId          String              @map("employee_id") @db.Uuid
+  assignmentSource    OrgAssignmentSource @default(MANUAL) @map("assignment_source")
+  isActing            Boolean             @default(false) @map("is_acting")
+  effectiveFrom       DateTime            @default(now()) @map("effective_from") @db.Timestamptz(3)
+  effectiveUntil      DateTime?           @map("effective_until") @db.Timestamptz(3)
+  assignedByAccountId String?             @map("assigned_by_account_id") @db.Uuid
+  endedByAccountId    String?             @map("ended_by_account_id") @db.Uuid
+  assignmentReason    String?             @map("assignment_reason") @db.VarChar(500)
+  endReason           String?             @map("end_reason") @db.VarChar(500)
+  createdAt           DateTime            @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt           DateTime            @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  team       OperationalTeam @relation(fields: [teamId], references: [id], onDelete: Restrict)
+  employee   Employee        @relation(fields: [employeeId], references: [id], onDelete: Restrict)
+  assignedBy Account?        @relation("OperationalTeamLeadsAssignedBy", fields: [assignedByAccountId], references: [id], onDelete: Restrict)
+  endedBy    Account?        @relation("OperationalTeamLeadsEndedBy", fields: [endedByAccountId], references: [id], onDelete: Restrict)
+
+  @@index([teamId, effectiveUntil, isActing], map: "operational_team_leads_team_effective_idx")
+  @@index([employeeId, effectiveUntil], map: "operational_team_leads_employee_effective_idx")
+  @@index([assignedByAccountId, createdAt], map: "operational_team_leads_assigned_by_created_idx")
+  @@index([endedByAccountId, effectiveUntil], map: "operational_team_leads_ended_by_ended_idx")
+  @@index([effectiveFrom, effectiveUntil], map: "operational_team_leads_period_idx")
+  @@map("operational_team_lead_assignments")
 }
 
 model AccountRequest {
