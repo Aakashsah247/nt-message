@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { Link, useNavigate } from "react-router";
 
 import { useAuth } from "../context/AuthContext";
@@ -20,10 +21,8 @@ import type {
   WorkRuntimeV3CreateWorkType,
 } from "../types/work-runtime-v3";
 
-function getErrorMessage(error: unknown): string {
-  return error instanceof Error
-    ? error.message
-    : "The Work could not be created.";
+function getErrorMessage(error: unknown, fallback: string): string {
+  return error instanceof Error ? error.message : fallback;
 }
 
 function flattenOrganizationTree(nodes: OrganizationUnitNode[]): OrganizationUnitNode[] {
@@ -63,6 +62,7 @@ function inputType(field: WorkRuntimeV3CreateFieldDefinition): string {
 export function WorkRuntimeV3CreatePage() {
   const navigate = useNavigate();
   const { accessToken, account } = useAuth();
+  const { t } = useTranslation("workspace");
   const [offices, setOffices] = useState<Array<{ id: string; code: string; name: string }>>([]);
   const [officeId, setOfficeId] = useState("");
   const [workTypes, setWorkTypes] = useState<WorkRuntimeV3CreateWorkType[]>([]);
@@ -75,6 +75,8 @@ export function WorkRuntimeV3CreatePage() {
   const [dueAt, setDueAt] = useState("");
   const [fieldValues, setFieldValues] = useState<Record<string, string>>({});
   const [requestId] = useState(() => crypto.randomUUID());
+  const [loadingOffices, setLoadingOffices] = useState(Boolean(accessToken));
+  const [loadingContext, setLoadingContext] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
 
@@ -89,6 +91,9 @@ export function WorkRuntimeV3CreatePage() {
   useEffect(() => {
     if (!accessToken) return;
     let active = true;
+    const loadingTimer = window.setTimeout(() => {
+      if (active) setLoadingOffices(true);
+    }, 0);
     getOrganizationOffices(accessToken)
       .then((response) => {
         if (!active) return;
@@ -101,14 +106,23 @@ export function WorkRuntimeV3CreatePage() {
           : visible[0]?.id ?? "");
       })
       .catch((requestError: unknown) => {
-        if (active) setError(getErrorMessage(requestError));
+        if (active) setError(getErrorMessage(requestError, t("work.create.loadOfficesError")));
+      })
+      .finally(() => {
+        if (active) setLoadingOffices(false);
       });
-    return () => { active = false; };
-  }, [accessToken]);
+    return () => {
+      active = false;
+      window.clearTimeout(loadingTimer);
+    };
+  }, [accessToken, t]);
 
   useEffect(() => {
     if (!accessToken || !officeId || isSuperAdmin) return;
     let active = true;
+    const loadingTimer = window.setTimeout(() => {
+      if (active) setLoadingContext(true);
+    }, 0);
     Promise.all([
       getWorkRuntimeV3CreateContext(accessToken, officeId),
       getOrganizationTree(accessToken, officeId),
@@ -128,10 +142,16 @@ export function WorkRuntimeV3CreatePage() {
         if (!active) return;
         setWorkTypes([]);
         setSelectedVersionId("");
-        setError(getErrorMessage(requestError));
+        setError(getErrorMessage(requestError, t("work.create.loadContextError")));
+      })
+      .finally(() => {
+        if (active) setLoadingContext(false);
       });
-    return () => { active = false; };
-  }, [accessToken, isSuperAdmin, officeId]);
+    return () => {
+      active = false;
+      window.clearTimeout(loadingTimer);
+    };
+  }, [accessToken, isSuperAdmin, officeId, t]);
 
   function updateField(code: string, value: string): void {
     setFieldValues((current) => ({ ...current, [code]: value }));
@@ -145,7 +165,7 @@ export function WorkRuntimeV3CreatePage() {
       return (fieldValues[field.code] ?? "").trim().length === 0;
     });
     if (missing) {
-      setError(`${missing.label} is required.`);
+      setError(t("work.create.requiredField", { field: missing.label }));
       return;
     }
 
@@ -169,9 +189,9 @@ export function WorkRuntimeV3CreatePage() {
         fields,
       });
 
-      navigate(`/work-runtime-v3/offices/${officeId}/work-items/${created.id}`);
+      navigate(`/work/${officeId}/${created.id}`);
     } catch (requestError: unknown) {
-      setError(getErrorMessage(requestError));
+      setError(getErrorMessage(requestError, t("work.create.submitError")));
     } finally {
       setSubmitting(false);
     }
@@ -182,17 +202,17 @@ export function WorkRuntimeV3CreatePage() {
       <section className="rounded-3xl border border-slate-200 bg-gradient-to-br from-sky-50 via-white to-emerald-50 p-5 shadow-sm sm:p-7">
         <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
           <div>
-            <p className="text-xs font-bold uppercase tracking-[0.18em] text-sky-700">Work Runtime V3</p>
-            <h1 className="mt-2 text-2xl font-bold text-slate-950 sm:text-3xl">Create Work</h1>
+            <p className="text-xs font-bold uppercase tracking-[0.18em] text-sky-700">{t("work.create.eyebrow")}</p>
+            <h1 className="mt-2 text-2xl font-bold text-slate-950 sm:text-3xl">{t("work.create.title")}</h1>
             <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-600">
-              Only Work Types the backend allows you to create are shown. Ownership, stages and routing are applied automatically.
+              {t("work.create.description")}
             </p>
           </div>
           <Link
-            to="/work-runtime-v3"
+            to="/work"
             className="inline-flex items-center justify-center rounded-xl border border-slate-300 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 hover:bg-slate-50"
           >
-            Back to workspace
+            {t("work.create.back")}
           </Link>
         </div>
       </section>
@@ -205,20 +225,29 @@ export function WorkRuntimeV3CreatePage() {
 
       {isSuperAdmin ? (
         <section className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
-          <h2 className="text-lg font-bold text-slate-950">Read-only operational access</h2>
+          <h2 className="text-lg font-bold text-slate-950">{t("work.create.readOnlyTitle")}</h2>
           <p className="mt-2 text-sm leading-6 text-slate-600">
-            Super Admin can inspect Work for system oversight but cannot create operational Work.
+            {t("work.create.readOnlyDescription")}
           </p>
+        </section>
+      ) : loadingOffices ? (
+        <section className="rounded-3xl border border-slate-200 bg-white p-10 text-center text-sm text-slate-500 shadow-sm" aria-live="polite">
+          {t("work.create.loadingOffices")}
+        </section>
+      ) : offices.length === 0 ? (
+        <section className="rounded-3xl border border-amber-200 bg-amber-50 p-8 text-center text-sm font-medium text-amber-900">
+          {t("work.create.noOffice")}
         </section>
       ) : (
         <section className="space-y-5 rounded-3xl border border-slate-200 bg-white p-5 shadow-sm sm:p-7">
           <div className="grid gap-4 md:grid-cols-2">
             <label className="grid gap-1.5 text-sm font-semibold text-slate-700">
-              Office
+              {t("work.create.office")}
               <select
                 className="rounded-xl border border-slate-300 bg-white px-3 py-2.5 text-sm text-slate-900 outline-none focus:border-sky-500"
                 value={officeId}
                 onChange={(event) => setOfficeId(event.target.value)}
+                disabled={loadingOffices || offices.length === 0}
               >
                 {offices.map((office) => (
                   <option key={office.id} value={office.id}>{office.name}</option>
@@ -227,10 +256,11 @@ export function WorkRuntimeV3CreatePage() {
             </label>
 
             <label className="grid gap-1.5 text-sm font-semibold text-slate-700">
-              Work Type
+              {t("work.create.workType")}
               <select
                 className="rounded-xl border border-slate-300 bg-white px-3 py-2.5 text-sm text-slate-900 outline-none focus:border-sky-500"
                 value={selectedVersionId}
+                disabled={loadingContext || workTypes.length === 0}
                 onChange={(event) => {
                   setSelectedVersionId(event.target.value);
                   setFieldValues({});
@@ -249,18 +279,18 @@ export function WorkRuntimeV3CreatePage() {
             <div className="rounded-2xl border border-sky-100 bg-sky-50/60 p-4">
               <p className="text-sm font-bold text-slate-900">{selectedWorkType.name}</p>
               <p className="mt-1 text-sm text-slate-600">
-                Primary Owner: {selectedWorkType.primaryOwnerOrgUnit.name} · Version {selectedWorkType.version}
+                {t("work.create.primaryOwner")}: {selectedWorkType.primaryOwnerOrgUnit.name} · {t("work.create.version")} {selectedWorkType.version}
               </p>
             </div>
           ) : (
             <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800">
-              No published Work Type currently allows you to create Work in this Office.
+              {loadingContext ? t("work.create.loadingWorkTypes") : t("work.create.noWorkTypes")}
             </div>
           )}
 
           <div className="grid gap-4 md:grid-cols-2">
             <label className="grid gap-1.5 text-sm font-semibold text-slate-700 md:col-span-2">
-              Title
+              {t("work.create.workTitle")}
               <input
                 className="rounded-xl border border-slate-300 px-3 py-2.5 text-sm outline-none focus:border-sky-500"
                 value={title}
@@ -271,7 +301,7 @@ export function WorkRuntimeV3CreatePage() {
             </label>
 
             <label className="grid gap-1.5 text-sm font-semibold text-slate-700 md:col-span-2">
-              Description
+              {t("work.create.workDescription")}
               <textarea
                 className="min-h-28 rounded-xl border border-slate-300 px-3 py-2.5 text-sm outline-none focus:border-sky-500"
                 value={description}
@@ -281,7 +311,7 @@ export function WorkRuntimeV3CreatePage() {
             </label>
 
             <label className="grid gap-1.5 text-sm font-semibold text-slate-700">
-              Planned start
+              {t("work.create.plannedStart")}
               <input
                 type="datetime-local"
                 className="rounded-xl border border-slate-300 px-3 py-2.5 text-sm outline-none focus:border-sky-500"
@@ -291,7 +321,7 @@ export function WorkRuntimeV3CreatePage() {
             </label>
 
             <label className="grid gap-1.5 text-sm font-semibold text-slate-700">
-              Due time
+              {t("work.create.dueTime")}
               <input
                 type="datetime-local"
                 className="rounded-xl border border-slate-300 px-3 py-2.5 text-sm outline-none focus:border-sky-500"
@@ -304,8 +334,8 @@ export function WorkRuntimeV3CreatePage() {
           {intakeFields.length > 0 && (
             <div className="space-y-4 border-t border-slate-200 pt-5">
               <div>
-                <h2 className="text-lg font-bold text-slate-950">Work information</h2>
-                <p className="mt-1 text-sm text-slate-600">Fields come from the published Work Type configuration.</p>
+                <h2 className="text-lg font-bold text-slate-950">{t("work.create.information")}</h2>
+                <p className="mt-1 text-sm text-slate-600">{t("work.create.informationDescription")}</p>
               </div>
 
               <div className="grid gap-4 md:grid-cols-2">
@@ -316,7 +346,7 @@ export function WorkRuntimeV3CreatePage() {
                   if (field.fieldType === "IMAGE" || field.fieldType === "FILE") {
                     return (
                       <div key={field.id} className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">
-                        <span className="font-semibold">{field.label}</span>: attachment intake will be enabled in the attachment runtime phase.
+                        <span className="font-semibold">{field.label}</span>: {t("work.create.attachmentLater")}
                       </div>
                     );
                   }
@@ -343,9 +373,9 @@ export function WorkRuntimeV3CreatePage() {
                           value={value}
                           onChange={(event) => updateField(field.code, event.target.value)}
                         >
-                          <option value="">Select</option>
-                          <option value="true">Yes</option>
-                          <option value="false">No</option>
+                          <option value="">{t("work.create.select")}</option>
+                          <option value="true">{t("work.create.yes")}</option>
+                          <option value="false">{t("work.create.no")}</option>
                         </select>
                       </label>
                     );
@@ -366,7 +396,7 @@ export function WorkRuntimeV3CreatePage() {
                             updateField(field.code, next);
                           }}
                         >
-                          {field.fieldType === "SELECT" && <option value="">Select</option>}
+                          {field.fieldType === "SELECT" && <option value="">{t("work.create.select")}</option>}
                           {options.map((option) => <option key={option} value={option}>{option}</option>)}
                         </select>
                       </label>
@@ -382,7 +412,7 @@ export function WorkRuntimeV3CreatePage() {
                           value={value}
                           onChange={(event) => updateField(field.code, event.target.value)}
                         >
-                          <option value="">Select user</option>
+                          <option value="">{t("work.create.selectUser")}</option>
                           {organizationPeople.flatMap((person) => person.employee.account?.isEnabled
                             ? [<option key={person.employee.account.id} value={person.employee.account.id}>{person.employee.empName} ({person.employee.empId})</option>]
                             : [])}
@@ -400,7 +430,7 @@ export function WorkRuntimeV3CreatePage() {
                           value={value}
                           onChange={(event) => updateField(field.code, event.target.value)}
                         >
-                          <option value="">Select OrgUnit</option>
+                          <option value="">{t("work.create.selectOrgUnit")}</option>
                           {flatUnits.filter((unit) => unit.isActive).map((unit) => (
                             <option key={unit.id} value={unit.id}>{unit.name}</option>
                           ))}
@@ -428,10 +458,10 @@ export function WorkRuntimeV3CreatePage() {
 
           <div className="flex flex-col gap-3 border-t border-slate-200 pt-5 sm:flex-row sm:items-center sm:justify-end">
             <Link
-              to="/work-runtime-v3"
+              to="/work"
               className="inline-flex items-center justify-center rounded-xl border border-slate-300 px-4 py-2.5 text-sm font-semibold text-slate-700 hover:bg-slate-50"
             >
-              Cancel
+              {t("work.create.cancel")}
             </Link>
             <button
               type="button"
@@ -439,7 +469,7 @@ export function WorkRuntimeV3CreatePage() {
               disabled={submitting || !selectedWorkType || title.trim().length < 2}
               onClick={() => { void submit(); }}
             >
-              {submitting ? "Creating..." : "Create Work"}
+              {submitting ? t("work.create.creating") : t("work.create.submit")}
             </button>
           </div>
         </section>

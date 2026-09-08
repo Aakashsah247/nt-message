@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Link } from "react-router";
+import { Link, useLocation } from "react-router";
 
 import { useAuth } from "../context/AuthContext";
+import { WorkOverviewPage } from "./WorkOverviewPage";
 import {
   getOrganizationOffices,
   getOrganizationPeople,
@@ -121,6 +122,16 @@ function toRuntimeFieldValue(field: WorkRuntimeV3StageFieldDefinition, raw: stri
 }
 
 export function WorkRuntimeV3Page() {
+  const { pathname } = useLocation();
+
+  if (pathname === "/work") {
+    return <WorkOverviewPage />;
+  }
+
+  return <WorkStageWorkspacePage />;
+}
+
+function WorkStageWorkspacePage() {
   const { accessToken, account } = useAuth();
   const [offices, setOffices] = useState<Array<{ id: string; code: string; name: string }>>([]);
   const [officeId, setOfficeId] = useState("");
@@ -353,7 +364,7 @@ export function WorkRuntimeV3Page() {
           <div className="flex flex-col gap-3 sm:flex-row sm:items-end">
             {!isSuperAdmin && (
               <Link
-                to="/work-runtime-v3/create"
+                to="/work/create"
                 className="inline-flex items-center justify-center rounded-xl bg-sky-700 px-4 py-2.5 text-sm font-bold text-white hover:bg-sky-800"
               >
                 Create Work
@@ -467,7 +478,7 @@ export function WorkRuntimeV3Page() {
                   <div className="flex flex-wrap gap-2">
                     <Link
                       className="rounded-full border border-slate-300 bg-white px-3 py-1.5 text-xs font-bold text-slate-700 hover:bg-slate-50"
-                      to={`/work-runtime-v3/offices/${officeId}/work-items/${selectedStage.workItemId}`}
+                      to={`/work/${officeId}/${selectedStage.workItemId}`}
                     >
                       Work detail
                     </Link>
