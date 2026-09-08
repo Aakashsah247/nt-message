@@ -70,9 +70,21 @@ const MANAGEMENT_OPERATIONS_SECTION: ManagementNavigationSection = {
   items: [
     {
       icon: "work",
-      label: "Work Management",
-      labelKey: "navigation.items.workManagement",
-      path: "/work-management",
+      label: "Work Overview",
+      labelKey: "navigation.items.workOverview",
+      path: "/work",
+    },
+    {
+      icon: "work",
+      label: "My Work",
+      labelKey: "navigation.items.myWork",
+      path: "/my-work",
+    },
+    {
+      icon: "work",
+      label: "Incoming Work",
+      labelKey: "navigation.items.incomingWork",
+      path: "/incoming-work",
     },
     {
       icon: "duty",
@@ -93,6 +105,22 @@ const MANAGEMENT_OPERATIONS_SECTION: ManagementNavigationSection = {
       path: "/work-reports",
     },
   ],
+};
+
+const SUPER_ADMIN_OPERATIONS_SECTION: ManagementNavigationSection = {
+  ...MANAGEMENT_OPERATIONS_SECTION,
+  items: MANAGEMENT_OPERATIONS_SECTION.items
+    .map((item) =>
+      item.path === "/work"
+        ? {
+            ...item,
+            label: "Work Oversight",
+            labelKey: "navigation.items.workOversight",
+            path: "/work-oversight",
+          }
+        : item,
+    )
+    .filter((item) => item.path !== "/my-work" && item.path !== "/incoming-work"),
 };
 
 const SUPER_ADMIN_NAVIGATION: ManagementNavigationSection[] = [
@@ -134,7 +162,7 @@ const SUPER_ADMIN_NAVIGATION: ManagementNavigationSection[] = [
       },
     ],
   },
-  MANAGEMENT_OPERATIONS_SECTION,
+  SUPER_ADMIN_OPERATIONS_SECTION,
   {
     id: "governance",
     label: "Governance",
@@ -207,7 +235,7 @@ const EMPLOYEE_NAVIGATION: ManagementNavigationSection[] = [
         icon: "work",
         label: "My Work",
         labelKey: "navigation.items.myWork",
-        path: "/employee/work",
+        path: "/my-work",
       },
       {
         icon: "duty",
@@ -275,16 +303,19 @@ function getManagerNavigation(
     {
       ...MANAGEMENT_OPERATIONS_SECTION,
       // My Duty is personal schedule access; Duty Management remains the planning workspace.
-      items: [
-        ...MANAGEMENT_OPERATIONS_SECTION.items.slice(0, 2),
-        {
-          icon: "duty",
-          label: "My Duty",
-          labelKey: "navigation.items.myDuty",
-          path: "/my-duty",
-        },
-        ...MANAGEMENT_OPERATIONS_SECTION.items.slice(2),
-      ],
+      items: MANAGEMENT_OPERATIONS_SECTION.items.flatMap((item) =>
+        item.path === "/duty-management"
+          ? [
+              item,
+              {
+                icon: "duty" as const,
+                label: "My Duty",
+                labelKey: "navigation.items.myDuty",
+                path: "/my-duty",
+              },
+            ]
+          : [item],
+      ),
     },
     {
       id: "communication",

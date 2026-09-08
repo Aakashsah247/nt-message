@@ -212,6 +212,87 @@ export default function App() {
         }
       />
 
+      {/* Phase 9 canonical Work routes. Legacy Work routes remain temporarily
+          available until the V3 frontend cutover is fully validated. */}
+      <Route
+        path="/work"
+        element={
+          <ProtectedRoute
+            roles={["SENIOR_MANAGEMENT", "TEAM_MANAGER", "EMPLOYEE"]}
+          >
+            <ManagementLayout>
+              <WorkRuntimeV3Page />
+            </ManagementLayout>
+          </ProtectedRoute>
+        }
+      />
+
+      <Route
+        path="/work/create"
+        element={
+          <ProtectedRoute
+            roles={["SENIOR_MANAGEMENT", "TEAM_MANAGER", "EMPLOYEE"]}
+          >
+            <ManagementLayout>
+              <WorkRuntimeV3CreatePage />
+            </ManagementLayout>
+          </ProtectedRoute>
+        }
+      />
+
+      <Route
+        path="/work/:officeId/:workItemId"
+        element={
+          <ProtectedRoute
+            roles={[
+              "SUPER_ADMIN",
+              "SENIOR_MANAGEMENT",
+              "TEAM_MANAGER",
+              "EMPLOYEE",
+            ]}
+          >
+            <ManagementLayout>
+              <WorkRuntimeV3DetailPage />
+            </ManagementLayout>
+          </ProtectedRoute>
+        }
+      />
+
+      <Route
+        path="/my-work"
+        element={
+          <ProtectedRoute
+            roles={["SENIOR_MANAGEMENT", "TEAM_MANAGER", "EMPLOYEE"]}
+          >
+            <ManagementLayout>
+              <WorkRuntimeV3Page />
+            </ManagementLayout>
+          </ProtectedRoute>
+        }
+      />
+
+      <Route
+        path="/incoming-work"
+        element={
+          <ProtectedRoute roles={["SENIOR_MANAGEMENT", "TEAM_MANAGER"]}>
+            <ManagementLayout>
+              <WorkRuntimeV3Page />
+            </ManagementLayout>
+          </ProtectedRoute>
+        }
+      />
+
+      <Route
+        path="/work-oversight"
+        element={
+          <ProtectedRoute roles={["SUPER_ADMIN"]}>
+            <ManagementLayout>
+              <WorkRuntimeV3Page />
+            </ManagementLayout>
+          </ProtectedRoute>
+        }
+      />
+
       <Route
         path="/work-runtime-v3"
         element={
@@ -288,12 +369,11 @@ export default function App() {
         element={
           <ProtectedRoute
             roles={[
-              "SUPER_ADMIN",
               "SENIOR_MANAGEMENT",
               "TEAM_MANAGER",
             ]}
           >
-            <Navigate replace to="/work-runtime-v3/create" />
+            <Navigate replace to="/work/create" />
           </ProtectedRoute>
         }
       />

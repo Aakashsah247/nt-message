@@ -85,6 +85,28 @@ export class WorkRuntimeV3Controller {
     return this.workRuntime.create(user, officeId, dto);
   }
 
+  @Get('work-items')
+  async listWork(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('officeId', new ParseUUIDPipe({ version: '4' })) officeId: string,
+    @Query() query: WorkRuntimeV3QueueQueryDto,
+  ) {
+    const result = await this.workRuntime.listWork(user, officeId, query.take);
+    return {
+      ...result,
+      data: await Promise.all(
+        result.data.map(async (work) => ({
+          ...work,
+          availableActions: await this.stageRuntime.getWorkAvailableActions(
+            user,
+            officeId,
+            work.id,
+          ),
+        })),
+      ),
+    };
+  }
+
   @Get('work-items/:workItemId')
   getWork(
     @CurrentUser() user: AuthenticatedUser,

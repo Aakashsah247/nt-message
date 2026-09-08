@@ -309,6 +309,139 @@ export class WorkRuntimeV3Service {
     private readonly notifications: WorkRuntimeV3NotificationsService,
   ) {}
 
+  async listWork(
+    user: AuthenticatedUser,
+    officeId: string,
+    take = 50,
+  ) {
+    const office = await this.prisma.office.findUnique({
+      where: { id: officeId },
+      select: { id: true, code: true, name: true, isActive: true },
+    });
+    if (!office || !office.isActive) {
+      throw new NotFoundException('An active Office was not found.');
+    }
+
+    const where: Prisma.WorkItemWhereInput = {
+      officeId,
+      runtimeStatus: { not: null },
+      workTypeVersionId: { not: null },
+      primaryOwnerOrgUnitId: { not: null },
+    };
+
+    if (user.role !== AccountRole.SUPER_ADMIN) {
+      const visibleOrgUnitIds = await this.authorization.visibleOrgUnitIds(
+        user,
+        CAPABILITIES.WORK_VIEW,
+        officeId,
+      );
+      const now = new Date();
+      const memberships = await this.prisma.orgMembership.findMany({
+        where: {
+          employee: { account: { id: user.accountId, isEnabled: true } },
+          officeId,
+          startsAt: { lte: now },
+          OR: [{ endsAt: null }, { endsAt: { gt: now } }],
+        },
+        select: { orgUnitId: true },
+      });
+      const membershipOrgUnitIds = memberships
+        .map((membership) => membership.orgUnitId)
+        .filter((orgUnitId): orgUnitId is string => Boolean(orgUnitId));
+
+      const visibility: Prisma.WorkItemWhereInput[] = [
+        { createdByAccountId: user.accountId },
+        {
+          runtimeStages: {
+            some: {
+              assignments: {
+                some: {
+                  endsAt: null,
+                  assignmentRole: WorkStageAssignmentRole.PRIMARY,
+                  OR: [
+                    {
+                      targetType: WorkStageAssignmentTargetType.ACCOUNT,
+                      targetAccountId: user.accountId,
+                    },
+                    ...(membershipOrgUnitIds.length > 0
+                      ? [
+                          {
+                            targetType: WorkStageAssignmentTargetType.TEAM,
+                            targetOrgUnitId: { in: membershipOrgUnitIds },
+                          },
+                        ]
+                      : []),
+                  ],
+                },
+              },
+            },
+          },
+        },
+      ];
+
+      if (visibleOrgUnitIds.length > 0) {
+        visibility.push(
+          { primaryOwnerOrgUnitId: { in: visibleOrgUnitIds } },
+          {
+            orgUnitParticipants: {
+              some: { orgUnitId: { in: visibleOrgUnitIds } },
+            },
+          },
+        );
+      }
+
+      where.OR = visibility;
+    }
+
+    const data = await this.prisma.workItem.findMany({
+      where,
+      orderBy: [{ updatedAt: 'desc' }, { id: 'desc' }],
+      take: Math.min(Math.max(Math.trunc(take), 1), 100),
+      select: {
+        id: true,
+        ticketNumber: true,
+        title: true,
+        officeId: true,
+        runtimeStatus: true,
+        openedAt: true,
+        plannedStartAt: true,
+        dueAt: true,
+        version: true,
+        createdByAccountId: true,
+        createdAt: true,
+        updatedAt: true,
+        workTypeVersion: {
+          select: {
+            id: true,
+            version: true,
+            name: true,
+            workTypeDefinition: {
+              select: { id: true, code: true },
+            },
+          },
+        },
+        primaryOwnerOrgUnit: {
+          select: { id: true, code: true, name: true },
+        },
+        runtimeStages: {
+          orderBy: [{ sortOrder: 'asc' }, { id: 'asc' }],
+          select: {
+            id: true,
+            code: true,
+            name: true,
+            status: true,
+            dueAt: true,
+            responsibleOrgUnit: {
+              select: { id: true, code: true, name: true },
+            },
+          },
+        },
+      },
+    });
+
+    return { office, data };
+  }
+
   async getCreateContext(user: AuthenticatedUser, officeId: string) {
     await this.authorization.assertCan(
       user,

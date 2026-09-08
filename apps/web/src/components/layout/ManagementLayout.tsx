@@ -77,6 +77,10 @@ function isItemActive(
 ): boolean {
   const pathMatches =
     pathname === item.path ||
+    (item.path === "/work" &&
+      (pathname === "/work/create" || pathname.startsWith("/work/"))) ||
+    (item.path === "/work-oversight" &&
+      pathname.startsWith("/work/")) ||
     (item.path === "/work-management" &&
       pathname.startsWith("/work-management/")) ||
     (item.path === "/settings" && pathname.startsWith("/settings/"));

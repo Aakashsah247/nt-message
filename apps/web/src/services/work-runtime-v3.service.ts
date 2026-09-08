@@ -10,6 +10,7 @@ import type {
   ReturnWorkRuntimeV3StageInput,
   SubmitWorkRuntimeV3StageInput,
   WorkRuntimeV3CreateContext,
+  WorkRuntimeV3OverviewResponse,
   WorkRuntimeV3Work,
   WorkRuntimeV3WorkAction,
   WorkRuntimeV3Stage,
@@ -49,6 +50,18 @@ export function createWorkRuntimeV3(
     headers: authHeader(accessToken),
     body: JSON.stringify(input),
   });
+}
+
+export function listWorkRuntimeV3(
+  accessToken: string,
+  officeId: string,
+  take = 50,
+): Promise<WorkRuntimeV3OverviewResponse> {
+  const params = new URLSearchParams({ take: String(take) });
+  return apiRequest<WorkRuntimeV3OverviewResponse>(
+    `${officePath(officeId)}/work-items?${params.toString()}`,
+    { headers: authHeader(accessToken) },
+  );
 }
 
 export function getWorkRuntimeV3(

@@ -309,6 +309,60 @@ export interface WorkRuntimeV3Event {
   } | null;
 }
 
+export interface WorkRuntimeV3OverviewStage {
+  id: string;
+  code: string;
+  name: string;
+  status: WorkRuntimeV3StageStatus;
+  dueAt: string | null;
+  responsibleOrgUnit: {
+    id: string;
+    code: string;
+    name: string;
+  };
+}
+
+export interface WorkRuntimeV3OverviewWork {
+  id: string;
+  ticketNumber: string;
+  title: string;
+  officeId: string;
+  runtimeStatus: WorkRuntimeV3Status;
+  openedAt: string | null;
+  plannedStartAt: string | null;
+  dueAt: string;
+  version: number;
+  createdByAccountId: string;
+  createdAt: string;
+  updatedAt: string;
+  workTypeVersion: {
+    id: string;
+    version: number;
+    name: string;
+    workTypeDefinition: {
+      id: string;
+      code: string;
+    };
+  };
+  primaryOwnerOrgUnit: {
+    id: string;
+    code: string;
+    name: string;
+  };
+  runtimeStages: WorkRuntimeV3OverviewStage[];
+  availableActions: WorkRuntimeV3WorkAction[];
+}
+
+export interface WorkRuntimeV3OverviewResponse {
+  office: {
+    id: string;
+    code: string;
+    name: string;
+    isActive: boolean;
+  };
+  data: WorkRuntimeV3OverviewWork[];
+}
+
 export interface WorkRuntimeV3Work {
   id: string;
   ticketNumber: string;
