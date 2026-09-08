@@ -177,6 +177,97 @@
       "BLOCKED": "Blocked",
       "COMPLETED": "Completed",
       "CANCELLED": "Cancelled"
+    },
+    "myWork": {
+      "title": "My Work",
+      "description": "See work assigned to you or your current Team and continue the stage that needs attention."
+    },
+    "incomingWork": {
+      "title": "Incoming Work",
+      "description": "Review stages waiting for your OrgUnit and coordinate the next action."
+    },
+    "stageWorkspace": {
+      "eyebrow": "Work",
+      "title": "Work execution",
+      "description": "Open the stage that needs attention. Available actions come from the backend for your current assignment.",
+      "createWork": "Create Work",
+      "office": "Office",
+      "readOnlyTitle": "Operational oversight is read-only",
+      "readOnlyDescription": "Super Admin can inspect Work for oversight but cannot execute operational stage actions.",
+      "activeStages_one": "{{count}} active stage",
+      "activeStages_other": "{{count}} active stages",
+      "loading": "Loading...",
+      "refresh": "Refresh",
+      "emptyQueue": "No active stages are available in this queue.",
+      "selectStage": "Select a stage to view its details.",
+      "workDetail": "Work detail",
+      "due": "Due",
+      "stage": "Stage",
+      "work": "Work",
+      "assignmentMode": "Assignment mode",
+      "approval": "Approval",
+      "stageVersion": "Stage version",
+      "currentBlocker": "Current blocker",
+      "currentAssignment": "Current assignment",
+      "notAssigned": "Not assigned",
+      "availableActions": "Available actions",
+      "blockReasonPlaceholder": "What is blocking this stage?",
+      "recordBlocker": "Record blocker",
+      "blockSuccess": "Blocker recorded.",
+      "assignStage": "Assign stage",
+      "assignDescription": "The responsible OrgUnit controls who executes this stage. The backend validates every target.",
+      "headResolved": "The current responsible OrgUnit Head is selected automatically.",
+      "assignmentTarget": "Assignment target",
+      "team": "Team",
+      "selectTeam": "Select Team",
+      "employee": "Employee",
+      "selectEmployee": "Select employee",
+      "reassignmentReason": "Reassignment reason",
+      "assignmentNote": "Assignment note (optional)",
+      "assignmentSuccess": "Stage assignment updated.",
+      "reassignStage": "Reassign stage",
+      "submitStage": "Submit stage",
+      "submitDescription": "Complete the required fields. The backend validates them again when you submit.",
+      "select": "Select",
+      "yes": "Yes",
+      "no": "No",
+      "selectOrgUnit": "Select OrgUnit",
+      "attachmentLater": "Attachments for this field will be enabled in the evidence milestone.",
+      "commaSeparated": "Comma-separated values",
+      "submissionNote": "Submission note (optional)",
+      "submitSuccess": "Stage submitted.",
+      "returnReason": "Reason for returning this stage",
+      "approvalNote": "Optional approval note",
+      "approve": "Approve",
+      "approveSuccess": "Stage approved.",
+      "returnForCorrection": "Return for correction",
+      "returnSuccess": "Stage returned for correction.",
+      "startStage": "Start stage",
+      "startSuccess": "Stage started.",
+      "resumeStage": "Resume stage",
+      "resumeSuccess": "Stage resumed.",
+      "noActions": "No stage action is currently available to your account.",
+      "notSet": "Not set",
+      "requestError": "The Work request could not be completed.",
+      "assignmentTargets": {
+        "orgUnitQueue": "OrgUnit incoming queue",
+        "team": "Team",
+        "individual": "Individual"
+      },
+      "queues": {
+        "mine": {
+          "label": "Assigned to me",
+          "description": "Stages assigned directly to you."
+        },
+        "team": {
+          "label": "My Team",
+          "description": "Stages assigned to your current Team."
+        },
+        "incoming": {
+          "label": "Incoming",
+          "description": "Stages waiting for your OrgUnit to coordinate."
+        }
+      }
     }
   },
   "account": {

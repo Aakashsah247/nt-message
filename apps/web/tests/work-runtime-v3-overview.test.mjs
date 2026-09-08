@@ -10,6 +10,10 @@ const runtimeSource = await readFile(
   new URL("../src/pages/WorkRuntimeV3Page.tsx", import.meta.url),
   "utf8",
 );
+const workspaceSource = await readFile(
+  new URL("../src/pages/WorkStageWorkspacePage.tsx", import.meta.url),
+  "utf8",
+);
 
 test("P9-C Work Overview uses the V3 read contract and canonical Work routes", () => {
   assert.match(overviewSource, /listWorkRuntimeV3/);
@@ -25,13 +29,13 @@ test("P9-C Work Overview keeps Work mutation controls backend-driven", () => {
   assert.doesNotMatch(overviewSource, /role ===/);
 });
 
-test("the canonical /work entry renders the dedicated overview while queue routes stay compatible", () => {
+test("the canonical /work entry renders the dedicated overview while stage routes share one workspace", () => {
   assert.match(runtimeSource, /pathname === "\/work"/);
   assert.match(runtimeSource, /<WorkOverviewPage \/>/);
   assert.match(runtimeSource, /<WorkStageWorkspacePage \/>/);
-  assert.match(runtimeSource, /to="\/work\/create"/);
+  assert.match(workspaceSource, /to="\/work\/create"/);
   assert.match(
-    runtimeSource,
+    workspaceSource,
     /to=\{`\/work\/\$\{officeId\}\/\$\{selectedStage\.workItemId\}`\}/,
   );
 });
