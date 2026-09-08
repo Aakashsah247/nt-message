@@ -7,9 +7,13 @@ import {
   EmploymentStatus,
   WorkItemStatus,
   WorkRuntimeStatus,
+  WorkStageAssignmentRole,
   WorkStageAssignmentTargetType,
+  WorkStageStatus,
 } from '../generated/prisma/enums';
 import { CAPABILITIES } from '../organization/organization-capabilities';
+import { WorkReportV3ExportDataset } from './dto/work-report-v3-export-query.dto';
+import { WorkReportV3SlaState } from './dto/work-report-v3-query.dto';
 import { WorkReportsV3Service } from './work-reports-v3.service';
 
 jest.mock('../database/prisma.service', () => ({
@@ -71,6 +75,7 @@ function createHarness() {
   const workOrgUnitParticipantFindMany = jest.fn().mockResolvedValue([]);
   const workStageCount = jest.fn().mockResolvedValue(0);
   const workStageGroupBy = jest.fn().mockResolvedValue([]);
+  const workStageFindMany = jest.fn().mockResolvedValue([]);
   const workStageAssignmentCount = jest.fn().mockResolvedValue(0);
   const workStageAssignmentFindMany = jest.fn().mockResolvedValue([]);
 
@@ -97,7 +102,11 @@ function createHarness() {
       count: workOrgUnitParticipantCount,
       findMany: workOrgUnitParticipantFindMany,
     },
-    workStage: { count: workStageCount, groupBy: workStageGroupBy },
+    workStage: {
+      count: workStageCount,
+      groupBy: workStageGroupBy,
+      findMany: workStageFindMany,
+    },
     workStageAssignment: {
       count: workStageAssignmentCount,
       findMany: workStageAssignmentFindMany,
@@ -125,6 +134,7 @@ function createHarness() {
     workOrgUnitParticipantFindMany,
     workStageCount,
     workStageGroupBy,
+    workStageFindMany,
     workStageAssignmentCount,
     workStageAssignmentFindMany,
     can,
@@ -141,6 +151,45 @@ function user(role: AccountRole = AccountRole.EMPLOYEE): AuthenticatedUser {
     sessionId: 'session-1',
     username: 'tester',
     role,
+  };
+}
+
+function workRecordFixture(index: number) {
+  return {
+    id: `work-export-${index}`,
+    ticketNumber: `NT-PATAN-OUT-2026-${String(index).padStart(6, '0')}`,
+    createdAt: new Date('2026-09-08T10:00:00.000Z'),
+    runtimeStatus: WorkRuntimeStatus.IN_PROGRESS,
+    workTypeVersion: {
+      name: 'New Installation',
+      workTypeDefinition: {
+        id: '88888888-8888-4888-8888-888888888888',
+        code: 'NEW_INSTALLATION',
+      },
+    },
+    primaryOwnerOrgUnit: {
+      id: orgUnitId,
+      code: 'OUT',
+      name: 'Outside Service',
+    },
+    references: [
+      { referenceType: 'SERVICE_NUMBER', value: `01-${index}` },
+      { referenceType: 'TOKEN_NUMBER', value: `TOKEN-${index}` },
+      { referenceType: 'CPC_SERIAL', value: `CPC-${index}` },
+    ],
+    runtimeStages: [
+      {
+        assignments: [
+          {
+            targetOperationalTeam: {
+              id: teamId,
+              code: 'KTM',
+              name: 'KTM Team',
+            },
+          },
+        ],
+      },
+    ],
   };
 }
 
@@ -508,5 +557,492 @@ describe('WorkReportsV3Service — P10-1 report scope and counting foundation', 
     expect(serialized).toContain(teamId);
     expect(serialized).not.toContain('endedAt');
     expect(serialized).not.toContain('endsAt');
+  });
+
+  it('builds the NTC Technical Performance report from V3 Work without Administrative Work or duplicate Team counting', async () => {
+    const harness = createHarness();
+    harness.can.mockResolvedValue(true);
+    const supportAccount = {
+      id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+      username: 'support.one',
+      employee: { empId: 'NTC-S01', empName: 'Support One' },
+    };
+    const salesAccount = {
+      id: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
+      username: 'sales.one',
+      employee: { empId: 'NTC-SALES-01', empName: 'Sales One' },
+    };
+    const executionTeam = { id: teamId, code: 'KTM', name: 'KTM Team' };
+
+    harness.workItemFindMany.mockResolvedValueOnce([
+      {
+        id: 'work-new-installation',
+        ticketNumber: 'NT-PATAN-OUT-2026-000101',
+        createdAt: new Date('2026-09-08T03:00:00.000Z'),
+        completedAt: new Date('2026-09-08T08:00:00.000Z'),
+        cancelledAt: null,
+        runtimeStatus: WorkRuntimeStatus.COMPLETED,
+        workTypeVersion: {
+          name: 'New Installation',
+          workTypeDefinition: { id: 'type-new', code: 'NEW_INSTALLATION' },
+        },
+        primaryOwnerOrgUnit: {
+          id: orgUnitId,
+          code: 'OUT',
+          name: 'Outside Service',
+        },
+        references: [
+          { referenceType: 'SERVICE_NUMBER', value: '01-LEGACY' },
+          { referenceType: 'TOKEN_NUMBER', value: 'TOKEN-101' },
+          { referenceType: 'CPC_SERIAL', value: 'CPC-101' },
+        ],
+        runtimeStages: [
+          {
+            responsibleOrgUnitId: orgUnitId,
+            assignments: [
+              {
+                assignmentRole: WorkStageAssignmentRole.PRIMARY,
+                targetAccountId: null,
+                targetAccount: null,
+                targetOperationalTeam: executionTeam,
+              },
+              {
+                assignmentRole: WorkStageAssignmentRole.SUPPORTING,
+                targetAccountId: supportAccount.id,
+                targetAccount: supportAccount,
+                targetOperationalTeam: null,
+              },
+            ],
+            submissions: [],
+          },
+          {
+            responsibleOrgUnitId: childOrgUnitId,
+            assignments: [
+              {
+                assignmentRole: WorkStageAssignmentRole.PRIMARY,
+                targetAccountId: salesAccount.id,
+                targetAccount: salesAccount,
+                targetOperationalTeam: null,
+              },
+            ],
+            submissions: [
+              {
+                submittedByAccountId: salesAccount.id,
+                submittedBy: salesAccount,
+              },
+            ],
+          },
+        ],
+      },
+      {
+        id: 'work-routine',
+        ticketNumber: 'NT-PATAN-OUT-2026-000102',
+        createdAt: new Date('2026-09-08T04:00:00.000Z'),
+        completedAt: null,
+        cancelledAt: null,
+        runtimeStatus: WorkRuntimeStatus.IN_PROGRESS,
+        workTypeVersion: {
+          name: 'Routine Work',
+          workTypeDefinition: { id: 'type-routine', code: 'ROUTINE_WORK' },
+        },
+        primaryOwnerOrgUnit: {
+          id: orgUnitId,
+          code: 'OUT',
+          name: 'Outside Service',
+        },
+        references: [
+          { referenceType: 'SERVICE_NUMBER', value: 'SERVICE-102' },
+        ],
+        runtimeStages: [
+          {
+            responsibleOrgUnitId: orgUnitId,
+            assignments: [
+              {
+                assignmentRole: WorkStageAssignmentRole.PRIMARY,
+                targetAccountId: null,
+                targetAccount: null,
+                targetOperationalTeam: executionTeam,
+              },
+              {
+                assignmentRole: WorkStageAssignmentRole.SUPPORTING,
+                targetAccountId: supportAccount.id,
+                targetAccount: supportAccount,
+                targetOperationalTeam: null,
+              },
+            ],
+            submissions: [],
+          },
+        ],
+      },
+      {
+        id: 'work-administrative',
+        ticketNumber: 'NT-PATAN-ADM-2026-000103',
+        createdAt: new Date('2026-09-08T05:00:00.000Z'),
+        completedAt: null,
+        cancelledAt: null,
+        runtimeStatus: WorkRuntimeStatus.OPEN,
+        workTypeVersion: {
+          name: 'Administrative Work',
+          workTypeDefinition: {
+            id: 'type-admin',
+            code: 'ADMINISTRATIVE_WORK',
+          },
+        },
+        primaryOwnerOrgUnit: {
+          id: orgUnitId,
+          code: 'OUT',
+          name: 'Outside Service',
+        },
+        references: [],
+        runtimeStages: [],
+      },
+    ]);
+
+    const result = await harness.service.getTechnicalPerformance(
+      user(),
+      officeId,
+      { from: '2026-09-08', to: '2026-09-08' },
+    );
+
+    expect(result.rows).toHaveLength(1);
+    expect(result.rows[0]).toEqual(
+      expect.objectContaining({
+        date: '2026-09-08',
+        orgUnit: { id: orgUnitId, code: 'OUT', name: 'Outside Service' },
+        operationalTeam: executionTeam,
+        supportStaff: [
+          {
+            accountId: supportAccount.id,
+            name: 'Support One',
+            employeeId: 'NTC-S01',
+          },
+        ],
+        otherStaff: [
+          {
+            accountId: salesAccount.id,
+            name: 'Sales One',
+            employeeId: 'NTC-SALES-01',
+          },
+        ],
+        references: ['SERVICE-102', 'Token TOKEN-101 · CPC CPC-101'],
+        total: { tickets: 2, completed: 1, pending: 1 },
+      }),
+    );
+    expect(result.rows[0]?.workTypes.NEW_INSTALLATION).toEqual({
+      tickets: 1,
+      completed: 1,
+      pending: 0,
+    });
+    expect(result.rows[0]?.workTypes.ROUTINE_WORK).toEqual({
+      tickets: 1,
+      completed: 0,
+      pending: 1,
+    });
+    expect(result.totals.total).toEqual({ tickets: 2, completed: 1, pending: 1 });
+    expect(JSON.stringify(result)).not.toContain('01-LEGACY');
+
+    const where = JSON.stringify(harness.workItemFindMany.mock.calls[0]?.[0]?.where);
+    for (const code of [
+      'ROUTINE_WORK',
+      'TROUBLE_TICKET',
+      'NETWORK_MAINTENANCE',
+      'NEW_INSTALLATION',
+      'UPDATE_SERVICES',
+      'INSPECTION',
+      'EMERGENCY_WORK',
+    ]) {
+      expect(where).toContain(code);
+    }
+    expect(where).not.toContain('ADMINISTRATIVE_WORK');
+  });
+
+  it('attributes Stage and SLA delay to the responsible OrgUnit with Operational Team execution and lifecycle durations', async () => {
+    jest.useFakeTimers();
+    jest.setSystemTime(new Date('2026-09-09T00:00:00.000Z'));
+    try {
+      const harness = createHarness();
+      harness.can.mockResolvedValue(true);
+      harness.workStageCount.mockResolvedValueOnce(2);
+      harness.workStageGroupBy
+        .mockResolvedValueOnce([
+          {
+            responsibleOrgUnitId: childOrgUnitId,
+            status: WorkStageStatus.SUBMITTED,
+            _count: { _all: 1 },
+          },
+          {
+            responsibleOrgUnitId: childOrgUnitId,
+            status: WorkStageStatus.COMPLETED,
+            _count: { _all: 1 },
+          },
+        ])
+        .mockResolvedValueOnce([
+          { responsibleOrgUnitId: childOrgUnitId, _count: { _all: 1 } },
+        ]);
+      harness.orgUnitFindMany.mockResolvedValueOnce([
+        { id: childOrgUnitId, code: 'ACC', name: 'Accounts' },
+      ]);
+      harness.workStageFindMany.mockResolvedValueOnce([
+        {
+          id: 'stage-current',
+          code: 'PAYMENT_VERIFY',
+          name: 'Payment Verification',
+          status: WorkStageStatus.SUBMITTED,
+          slaMinutes: 180,
+          dueAt: new Date('2026-09-08T23:00:00.000Z'),
+          blockerReason: null,
+          readyAt: new Date('2026-09-08T20:30:00.000Z'),
+          startedAt: new Date('2026-09-08T21:00:00.000Z'),
+          submittedAt: new Date('2026-09-08T23:30:00.000Z'),
+          completedAt: null,
+          cancelledAt: null,
+          createdAt: new Date('2026-09-08T20:00:00.000Z'),
+          responsibleOrgUnit: {
+            id: childOrgUnitId,
+            code: 'ACC',
+            name: 'Accounts',
+          },
+          workItem: {
+            id: 'work-201',
+            ticketNumber: 'NT-PATAN-OUT-2026-000201',
+            runtimeStatus: WorkRuntimeStatus.IN_PROGRESS,
+            dueAt: new Date('2026-09-08T23:30:00.000Z'),
+            completedAt: null,
+            cancelledAt: null,
+          },
+          assignments: [
+            { targetOperationalTeam: { id: teamId, code: 'KTM', name: 'KTM Team' } },
+          ],
+          events: [
+            {
+              fromStageStatus: WorkStageStatus.PENDING,
+              toStageStatus: WorkStageStatus.READY,
+              createdAt: new Date('2026-09-08T20:30:00.000Z'),
+            },
+            {
+              fromStageStatus: WorkStageStatus.READY,
+              toStageStatus: WorkStageStatus.IN_PROGRESS,
+              createdAt: new Date('2026-09-08T21:00:00.000Z'),
+            },
+            {
+              fromStageStatus: WorkStageStatus.IN_PROGRESS,
+              toStageStatus: WorkStageStatus.BLOCKED,
+              createdAt: new Date('2026-09-08T22:00:00.000Z'),
+            },
+            {
+              fromStageStatus: WorkStageStatus.BLOCKED,
+              toStageStatus: WorkStageStatus.IN_PROGRESS,
+              createdAt: new Date('2026-09-08T22:30:00.000Z'),
+            },
+            {
+              fromStageStatus: WorkStageStatus.IN_PROGRESS,
+              toStageStatus: WorkStageStatus.SUBMITTED,
+              createdAt: new Date('2026-09-08T23:30:00.000Z'),
+            },
+          ],
+        },
+        {
+          id: 'stage-completed-late',
+          code: 'TECH_EXECUTE',
+          name: 'Technical Execution',
+          status: WorkStageStatus.COMPLETED,
+          slaMinutes: 60,
+          dueAt: new Date('2026-09-08T21:00:00.000Z'),
+          blockerReason: null,
+          readyAt: new Date('2026-09-08T20:00:00.000Z'),
+          startedAt: new Date('2026-09-08T20:00:00.000Z'),
+          submittedAt: null,
+          completedAt: new Date('2026-09-08T22:00:00.000Z'),
+          cancelledAt: null,
+          createdAt: new Date('2026-09-08T20:00:00.000Z'),
+          responsibleOrgUnit: {
+            id: childOrgUnitId,
+            code: 'ACC',
+            name: 'Accounts',
+          },
+          workItem: {
+            id: 'work-202',
+            ticketNumber: 'NT-PATAN-OUT-2026-000202',
+            runtimeStatus: WorkRuntimeStatus.COMPLETED,
+            dueAt: new Date('2026-09-08T21:00:00.000Z'),
+            completedAt: new Date('2026-09-08T22:00:00.000Z'),
+            cancelledAt: null,
+          },
+          assignments: [],
+          events: [
+            {
+              fromStageStatus: WorkStageStatus.PENDING,
+              toStageStatus: WorkStageStatus.READY,
+              createdAt: new Date('2026-09-08T20:00:00.000Z'),
+            },
+            {
+              fromStageStatus: WorkStageStatus.READY,
+              toStageStatus: WorkStageStatus.IN_PROGRESS,
+              createdAt: new Date('2026-09-08T20:00:00.000Z'),
+            },
+            {
+              fromStageStatus: WorkStageStatus.IN_PROGRESS,
+              toStageStatus: WorkStageStatus.COMPLETED,
+              createdAt: new Date('2026-09-08T22:00:00.000Z'),
+            },
+          ],
+        },
+      ]);
+
+      const result = await harness.service.getStageAnalysis(user(), officeId, {
+        responsibleOrgUnitId: childOrgUnitId,
+        operationalTeamId: teamId,
+        page: 1,
+        limit: 25,
+      });
+
+      expect(result.summary).toEqual([
+        {
+          orgUnit: { id: childOrgUnitId, code: 'ACC', name: 'Accounts' },
+          stageCount: 2,
+          completedStages: 1,
+          waitingStages: 1,
+          blockedStages: 0,
+          overdueStages: 1,
+        },
+      ]);
+      expect(result.items[0]).toEqual(
+        expect.objectContaining({
+          stage: expect.objectContaining({
+            responsibleOrgUnit: {
+              id: childOrgUnitId,
+              code: 'ACC',
+              name: 'Accounts',
+            },
+            operationalTeams: [{ id: teamId, code: 'KTM', name: 'KTM Team' }],
+            slaState: WorkReportV3SlaState.OVERDUE,
+          }),
+          durations: {
+            elapsedMinutes: 240,
+            activeMinutes: 120,
+            waitingMinutes: 90,
+            blockedMinutes: 30,
+          },
+        }),
+      );
+      expect(result.items[0]?.workItem.workSlaState).toBe(
+        WorkReportV3SlaState.OVERDUE,
+      );
+      expect(result.items[1]?.stage.slaState).toBe(
+        WorkReportV3SlaState.OVERDUE,
+      );
+      expect(result.items[1]?.workItem.workSlaState).toBe(
+        WorkReportV3SlaState.OVERDUE,
+      );
+
+      const stageQuery = JSON.stringify(
+        harness.workStageFindMany.mock.calls[0]?.[0]?.where,
+      );
+      expect(stageQuery).toContain(childOrgUnitId);
+      expect(stageQuery).toContain(teamId);
+      expect(harness.workStageFindMany).toHaveBeenCalledWith(
+        expect.objectContaining({ skip: 0, take: 25 }),
+      );
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+});
+
+describe('WorkReportsV3Service — P10-4 Duty compatibility and complete export payloads', () => {
+  it('keeps Duty on explicit legacy compatibility until the Phase 11 OrgUnit migration', async () => {
+    const harness = createHarness();
+
+    const result = await harness.service.getDutyCompatibility(user(), officeId);
+
+    expect(result).toEqual(
+      expect.objectContaining({
+        mode: 'LEGACY_COMPATIBILITY',
+        migrationPhase: 11,
+        dataRoute: '/work-reports/drilldown',
+        csvRoute: '/work-reports/export',
+        dataset: 'DUTY_ASSIGNMENTS',
+      }),
+    );
+    expect(result.message).toContain('Phase 11');
+  });
+
+  it('exports the complete filtered Work Records dataset instead of only one browser page', async () => {
+    const harness = createHarness();
+    harness.workItemCount.mockResolvedValue(101);
+    harness.workItemFindMany
+      .mockResolvedValueOnce(
+        Array.from({ length: 100 }, (_, index) => workRecordFixture(index + 1)),
+      )
+      .mockResolvedValueOnce([workRecordFixture(101)]);
+
+    const result = await harness.service.exportCsv(user(), officeId, {
+      dataset: WorkReportV3ExportDataset.WORK_RECORDS,
+      from: '2026-09-08',
+      to: '2026-09-08',
+    });
+
+    expect(result.rowCount).toBe(101);
+    expect(result.filename).toBe('work-records-2026-09-08-to-2026-09-08.csv');
+    expect(result.content.split('\r\n')[0]).toBe(
+      '\uFEFF"Ticket","Work Type","Primary Owner","Execution Team","Reference","Date","Status"',
+    );
+    expect(result.content).toContain('Token TOKEN-101 · CPC CPC-101');
+    expect(result.content).not.toContain('01-101');
+    expect(result.content.split('\r\n')[0]).not.toContain('Work Title');
+    expect(harness.workItemFindMany).toHaveBeenNthCalledWith(
+      1,
+      expect.objectContaining({ skip: 0, take: 100 }),
+    );
+    expect(harness.workItemFindMany).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({ skip: 100, take: 100 }),
+    );
+  });
+
+  it('returns complete print data independently from browser pagination', async () => {
+    const harness = createHarness();
+    harness.workItemCount.mockResolvedValue(101);
+    harness.workItemFindMany
+      .mockResolvedValueOnce(
+        Array.from({ length: 100 }, (_, index) => workRecordFixture(index + 1)),
+      )
+      .mockResolvedValueOnce([workRecordFixture(101)]);
+
+    const result = await harness.service.getPrintPayload(user(), officeId, {
+      dataset: WorkReportV3ExportDataset.WORK_RECORDS,
+      from: '2026-09-08',
+      to: '2026-09-08',
+    });
+
+    expect(result).toEqual(
+      expect.objectContaining({
+        dataset: WorkReportV3ExportDataset.WORK_RECORDS,
+        office: { id: officeId, code: 'PATAN', name: 'Patan Telecom Office' },
+        period: { from: '2026-09-08', to: '2026-09-08' },
+        rowCount: 101,
+      }),
+    );
+    expect(Array.isArray(result.content)).toBe(true);
+    expect(result.content).toHaveLength(101);
+  });
+
+  it('denies V3 export when report view is allowed but export capability is denied', async () => {
+    const harness = createHarness();
+    harness.accountFindUnique.mockResolvedValue({
+      id: user(AccountRole.SUPER_ADMIN).accountId,
+      role: AccountRole.SUPER_ADMIN,
+      isEnabled: true,
+      employee: null,
+    });
+    harness.can.mockImplementation(async (_user, capability) =>
+      capability === CAPABILITIES.REPORTS_VIEW,
+    );
+
+    await expect(
+      harness.service.exportCsv(user(AccountRole.SUPER_ADMIN), officeId, {
+        dataset: WorkReportV3ExportDataset.OVERVIEW,
+      }),
+    ).rejects.toBeInstanceOf(ForbiddenException);
   });
 });

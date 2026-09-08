@@ -21,7 +21,9 @@ import { WorkReportQueryDto } from './dto/work-report-query.dto';
 import {
   WorkReportV3QueryDto,
   WorkReportV3RecordsQueryDto,
+  WorkReportV3StageAnalysisQueryDto,
 } from './dto/work-report-v3-query.dto';
+import { WorkReportV3ExportQueryDto } from './dto/work-report-v3-export-query.dto';
 import {
   WorkReportsService,
   type WorkReportDrilldownResponse,
@@ -30,9 +32,13 @@ import {
 import {
   WorkReportsV3Service,
   type WorkReportV3Context,
+  type WorkReportV3DutyCompatibility,
   type WorkReportV3CountResult,
   type WorkReportV3Overview,
+  type WorkReportV3PrintPayload,
   type WorkReportV3Reconciliation,
+  type WorkReportV3StageAnalysis,
+  type WorkReportV3TechnicalPerformance,
   type WorkReportV3WorkRecords,
 } from './work-reports-v3.service';
 
@@ -87,6 +93,67 @@ export class WorkReportsController {
     @Query() query: WorkReportV3RecordsQueryDto,
   ): Promise<WorkReportV3WorkRecords> {
     return this.workReportsV3Service.getWorkRecords(user, officeId, query);
+  }
+
+  @Get('v3/offices/:officeId/technical-performance')
+  getV3TechnicalPerformance(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('officeId', new ParseUUIDPipe({ version: '4' })) officeId: string,
+    @Query() query: WorkReportV3QueryDto,
+  ): Promise<WorkReportV3TechnicalPerformance> {
+    return this.workReportsV3Service.getTechnicalPerformance(
+      user,
+      officeId,
+      query,
+    );
+  }
+
+  @Get('v3/offices/:officeId/stage-sla')
+  getV3StageAnalysis(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('officeId', new ParseUUIDPipe({ version: '4' })) officeId: string,
+    @Query() query: WorkReportV3StageAnalysisQueryDto,
+  ): Promise<WorkReportV3StageAnalysis> {
+    return this.workReportsV3Service.getStageAnalysis(user, officeId, query);
+  }
+
+  @Get('v3/offices/:officeId/export')
+  async exportV3Csv(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('officeId', new ParseUUIDPipe({ version: '4' })) officeId: string,
+    @Query() query: WorkReportV3ExportQueryDto,
+    @Res({ passthrough: true }) response: Response,
+  ): Promise<string> {
+    const report = await this.workReportsV3Service.exportCsv(
+      user,
+      officeId,
+      query,
+    );
+    response.type('text/csv; charset=utf-8');
+    response.setHeader(
+      'Content-Disposition',
+      `attachment; filename="${report.filename}"`,
+    );
+    response.setHeader('X-Report-Row-Count', String(report.rowCount));
+    response.setHeader('X-Report-Truncated', 'false');
+    return report.content;
+  }
+
+  @Get('v3/offices/:officeId/print-data')
+  getV3PrintPayload(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('officeId', new ParseUUIDPipe({ version: '4' })) officeId: string,
+    @Query() query: WorkReportV3ExportQueryDto,
+  ): Promise<WorkReportV3PrintPayload> {
+    return this.workReportsV3Service.getPrintPayload(user, officeId, query);
+  }
+
+  @Get('v3/offices/:officeId/duty-compatibility')
+  getV3DutyCompatibility(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('officeId', new ParseUUIDPipe({ version: '4' })) officeId: string,
+  ): Promise<WorkReportV3DutyCompatibility> {
+    return this.workReportsV3Service.getDutyCompatibility(user, officeId);
   }
 
   @Get('v3/offices/:officeId/reconciliation')

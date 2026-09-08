@@ -14,7 +14,9 @@ import {
   OrgMembershipType,
   WorkItemStatus,
   WorkRuntimeStatus,
+  WorkStageAssignmentRole,
   WorkStageAssignmentTargetType,
+  WorkStageStatus,
   WorkTypeVersionStatus,
 } from '../generated/prisma/client';
 import type { Prisma } from '../generated/prisma/client';
@@ -23,12 +25,41 @@ import { OrganizationAuthorizationService } from '../organization/organization-a
 import {
   WorkReportV3QueryDto,
   WorkReportV3RecordsQueryDto,
+  WorkReportV3StageAnalysisQueryDto,
   WorkReportV3SlaState,
 } from './dto/work-report-v3-query.dto';
+import {
+  WorkReportV3ExportDataset,
+  WorkReportV3ExportQueryDto,
+} from './dto/work-report-v3-export-query.dto';
 
 const MAX_REPORT_DAYS = 366;
 const KATHMANDU_OFFSET_MS = 5.75 * 60 * 60 * 1000;
 const DUE_SOON_MS = 24 * 60 * 60 * 1000;
+const TECHNICAL_WORK_TYPE_CODES = [
+  'ROUTINE_WORK',
+  'TROUBLE_TICKET',
+  'NETWORK_MAINTENANCE',
+  'NEW_INSTALLATION',
+  'UPDATE_SERVICES',
+  'INSPECTION',
+  'EMERGENCY_WORK',
+] as const;
+
+type TechnicalWorkTypeCode = (typeof TECHNICAL_WORK_TYPE_CODES)[number];
+
+const TERMINAL_STAGE_STATUSES = new Set<WorkStageStatus>([
+  WorkStageStatus.COMPLETED,
+  WorkStageStatus.SKIPPED,
+  WorkStageStatus.CANCELLED,
+]);
+
+const WAITING_STAGE_STATUSES = new Set<WorkStageStatus>([
+  WorkStageStatus.PENDING,
+  WorkStageStatus.READY,
+  WorkStageStatus.SUBMITTED,
+  WorkStageStatus.RETURNED,
+]);
 
 export type WorkReportV3ScopeType =
   | 'PERSONAL'
@@ -133,6 +164,124 @@ export interface WorkReportV3WorkRecords {
   total: number;
   totalPages: number;
   items: WorkReportV3WorkRecord[];
+}
+
+export interface WorkReportV3TechnicalPerformanceCounts {
+  tickets: number;
+  completed: number;
+  pending: number;
+}
+
+export interface WorkReportV3TechnicalPerformanceRow {
+  date: string;
+  orgUnit: { id: string; code: string; name: string };
+  operationalTeam: { id: string; code: string; name: string } | null;
+  supportStaff: Array<{
+    accountId: string;
+    name: string;
+    employeeId: string | null;
+  }>;
+  otherStaff: Array<{
+    accountId: string;
+    name: string;
+    employeeId: string | null;
+  }>;
+  references: string[];
+  workTypes: Record<
+    TechnicalWorkTypeCode,
+    WorkReportV3TechnicalPerformanceCounts
+  >;
+  total: WorkReportV3TechnicalPerformanceCounts;
+}
+
+export interface WorkReportV3TechnicalPerformance {
+  generatedAt: string;
+  rows: WorkReportV3TechnicalPerformanceRow[];
+  totals: {
+    workTypes: Record<
+      TechnicalWorkTypeCode,
+      WorkReportV3TechnicalPerformanceCounts
+    >;
+    total: WorkReportV3TechnicalPerformanceCounts;
+  };
+}
+
+export interface WorkReportV3StageAnalysisRow {
+  id: string;
+  workItem: {
+    id: string;
+    ticketNumber: string;
+    status: WorkRuntimeStatus;
+    dueAt: string;
+    workSlaState: WorkReportV3SlaState;
+  };
+  stage: {
+    code: string;
+    name: string;
+    status: WorkStageStatus;
+    responsibleOrgUnit: { id: string; code: string; name: string };
+    operationalTeams: Array<{ id: string; code: string; name: string }>;
+    dueAt: string | null;
+    slaMinutes: number | null;
+    slaState: WorkReportV3SlaState;
+    blockerReason: string | null;
+    readyAt: string | null;
+    startedAt: string | null;
+    submittedAt: string | null;
+    completedAt: string | null;
+  };
+  durations: {
+    elapsedMinutes: number;
+    activeMinutes: number;
+    waitingMinutes: number;
+    blockedMinutes: number;
+  };
+}
+
+export interface WorkReportV3StageAnalysis {
+  generatedAt: string;
+  page: number;
+  limit: number;
+  total: number;
+  totalPages: number;
+  summary: Array<{
+    orgUnit: { id: string; code: string; name: string };
+    stageCount: number;
+    completedStages: number;
+    waitingStages: number;
+    blockedStages: number;
+    overdueStages: number;
+  }>;
+  items: WorkReportV3StageAnalysisRow[];
+}
+
+export interface WorkReportV3CsvExport {
+  filename: string;
+  rowCount: number;
+  content: string;
+}
+
+export interface WorkReportV3PrintPayload {
+  dataset: WorkReportV3ExportDataset;
+  generatedAt: string;
+  office: { id: string; code: string; name: string };
+  period: { from: string | null; to: string | null };
+  rowCount: number;
+  content:
+    | WorkReportV3Overview
+    | WorkReportV3WorkRecord[]
+    | WorkReportV3TechnicalPerformance
+    | WorkReportV3StageAnalysisRow[];
+}
+
+export interface WorkReportV3DutyCompatibility {
+  generatedAt: string;
+  mode: 'LEGACY_COMPATIBILITY';
+  migrationPhase: 11;
+  message: string;
+  dataRoute: '/work-reports/drilldown';
+  csvRoute: '/work-reports/export';
+  dataset: 'DUTY_ASSIGNMENTS';
 }
 
 export interface WorkReportV3Reconciliation {
@@ -592,6 +741,659 @@ export class WorkReportsV3Service {
     };
   }
 
+  async getTechnicalPerformance(
+    user: AuthenticatedUser,
+    officeId: string,
+    query: WorkReportV3QueryDto,
+  ): Promise<WorkReportV3TechnicalPerformance> {
+    await this.requireOffice(officeId);
+    const where = await this.buildScopedWorkWhere(user, officeId, query);
+    const range = this.resolveRange(query);
+    const reportEnd = range?.endExclusive ?? new Date();
+    const workItems = await this.prisma.workItem.findMany({
+      where: {
+        AND: [
+          where,
+          {
+            workTypeVersion: {
+              is: {
+                workTypeDefinition: {
+                  code: { in: [...TECHNICAL_WORK_TYPE_CODES] },
+                },
+              },
+            },
+          },
+        ],
+      },
+      orderBy: [{ createdAt: 'asc' }, { ticketNumber: 'asc' }],
+      select: {
+        id: true,
+        ticketNumber: true,
+        createdAt: true,
+        completedAt: true,
+        cancelledAt: true,
+        runtimeStatus: true,
+        workTypeVersion: {
+          select: {
+            name: true,
+            workTypeDefinition: { select: { id: true, code: true } },
+          },
+        },
+        primaryOwnerOrgUnit: {
+          select: { id: true, code: true, name: true },
+        },
+        references: {
+          orderBy: [{ createdAt: 'asc' }, { referenceType: 'asc' }],
+          select: { referenceType: true, value: true },
+        },
+        runtimeStages: {
+          orderBy: [{ sortOrder: 'asc' }, { createdAt: 'asc' }],
+          select: {
+            responsibleOrgUnitId: true,
+            assignments: {
+              orderBy: { startsAt: 'asc' },
+              select: {
+                assignmentRole: true,
+                targetAccountId: true,
+                targetAccount: {
+                  select: {
+                    id: true,
+                    username: true,
+                    employee: { select: { empId: true, empName: true } },
+                  },
+                },
+                targetOperationalTeam: {
+                  select: { id: true, code: true, name: true },
+                },
+              },
+            },
+            submissions: {
+              orderBy: { createdAt: 'asc' },
+              select: {
+                submittedByAccountId: true,
+                submittedBy: {
+                  select: {
+                    id: true,
+                    username: true,
+                    employee: { select: { empId: true, empName: true } },
+                  },
+                },
+              },
+            },
+          },
+        },
+      },
+    });
+
+    const rows = new Map<
+      string,
+      {
+        row: WorkReportV3TechnicalPerformanceRow;
+        support: Map<
+          string,
+          { accountId: string; name: string; employeeId: string | null }
+        >;
+        other: Map<
+          string,
+          { accountId: string; name: string; employeeId: string | null }
+        >;
+        references: Set<string>;
+      }
+    >();
+
+    for (const item of workItems) {
+      if (
+        !item.runtimeStatus ||
+        !item.workTypeVersion ||
+        !item.primaryOwnerOrgUnit
+      ) {
+        throw new BadRequestException(
+          `Work ${item.ticketNumber} is missing required V3 performance data.`,
+        );
+      }
+
+      const workTypeCode = item.workTypeVersion.workTypeDefinition.code
+        .trim()
+        .toUpperCase();
+      if (!this.isTechnicalWorkTypeCode(workTypeCode)) continue;
+      if (item.cancelledAt && item.cancelledAt < reportEnd) continue;
+
+      const primaryOwner = item.primaryOwnerOrgUnit;
+      const executionTeam = this.primaryExecutionTeam(
+        item.runtimeStages,
+        primaryOwner.id,
+      );
+      const date = this.formatKathmanduDate(item.createdAt);
+      const rowKey = `${date}:${primaryOwner.id}:${executionTeam?.id ?? 'ORG_UNIT'}`;
+      let state = rows.get(rowKey);
+      if (!state) {
+        state = {
+          row: {
+            date,
+            orgUnit: primaryOwner,
+            operationalTeam: executionTeam,
+            supportStaff: [],
+            otherStaff: [],
+            references: [],
+            workTypes: this.zeroTechnicalWorkTypes(),
+            total: this.zeroPerformanceCounts(),
+          },
+          support: new Map(),
+          other: new Map(),
+          references: new Set(),
+        };
+        rows.set(rowKey, state);
+      }
+
+      const completed = Boolean(
+        item.completedAt && item.completedAt < reportEnd,
+      );
+      const typeCounts = state.row.workTypes[workTypeCode];
+      typeCounts.tickets += 1;
+      state.row.total.tickets += 1;
+      if (completed) {
+        typeCounts.completed += 1;
+        state.row.total.completed += 1;
+      } else {
+        typeCounts.pending += 1;
+        state.row.total.pending += 1;
+      }
+
+      for (const stage of item.runtimeStages) {
+        for (const assignment of stage.assignments) {
+          if (
+            assignment.assignmentRole === WorkStageAssignmentRole.SUPPORTING &&
+            assignment.targetAccount
+          ) {
+            const person = this.reportPerson(assignment.targetAccount);
+            state.support.set(person.accountId, person);
+          }
+          if (
+            stage.responsibleOrgUnitId !== primaryOwner.id &&
+            assignment.targetAccount
+          ) {
+            const person = this.reportPerson(assignment.targetAccount);
+            state.other.set(person.accountId, person);
+          }
+        }
+
+        if (stage.responsibleOrgUnitId !== primaryOwner.id) {
+          for (const submission of stage.submissions) {
+            const person = this.reportPerson(submission.submittedBy);
+            state.other.set(person.accountId, person);
+          }
+        }
+      }
+
+      for (const accountId of state.support.keys()) {
+        state.other.delete(accountId);
+      }
+
+      const reference = this.presentWorkReference(
+        workTypeCode,
+        item.references,
+      ).display;
+      if (reference) state.references.add(reference);
+    }
+
+    const reportRows = [...rows.values()]
+      .map((state) => ({
+        ...state.row,
+        supportStaff: [...state.support.values()].sort((left, right) =>
+          left.name.localeCompare(right.name),
+        ),
+        otherStaff: [...state.other.values()].sort((left, right) =>
+          left.name.localeCompare(right.name),
+        ),
+        references: [...state.references].sort((left, right) =>
+          left.localeCompare(right),
+        ),
+      }))
+      .sort((left, right) => {
+        const date = left.date.localeCompare(right.date);
+        if (date !== 0) return date;
+        const unit = left.orgUnit.name.localeCompare(right.orgUnit.name);
+        if (unit !== 0) return unit;
+        return (left.operationalTeam?.name ?? '').localeCompare(
+          right.operationalTeam?.name ?? '',
+        );
+      });
+
+    const totals = {
+      workTypes: this.zeroTechnicalWorkTypes(),
+      total: this.zeroPerformanceCounts(),
+    };
+    for (const row of reportRows) {
+      for (const code of TECHNICAL_WORK_TYPE_CODES) {
+        totals.workTypes[code].tickets += row.workTypes[code].tickets;
+        totals.workTypes[code].completed += row.workTypes[code].completed;
+        totals.workTypes[code].pending += row.workTypes[code].pending;
+      }
+      totals.total.tickets += row.total.tickets;
+      totals.total.completed += row.total.completed;
+      totals.total.pending += row.total.pending;
+    }
+
+    return {
+      generatedAt: new Date().toISOString(),
+      rows: reportRows,
+      totals,
+    };
+  }
+
+  async getStageAnalysis(
+    user: AuthenticatedUser,
+    officeId: string,
+    query: WorkReportV3StageAnalysisQueryDto,
+  ): Promise<WorkReportV3StageAnalysis> {
+    await this.requireOffice(officeId);
+    const workWhere = await this.buildScopedWorkWhere(user, officeId, query);
+    const page = query.page ?? 1;
+    const limit = query.limit ?? 25;
+    const skip = (page - 1) * limit;
+    const now = new Date();
+
+    const stageWhere: Prisma.WorkStageWhereInput = {
+      AND: [
+        { workItem: { is: workWhere } },
+        ...(query.responsibleOrgUnitId
+          ? [{ responsibleOrgUnitId: query.responsibleOrgUnitId }]
+          : []),
+        ...(query.stageStatus ? [{ status: query.stageStatus }] : []),
+        ...(query.operationalTeamId
+          ? [
+              {
+                assignments: {
+                  some: {
+                    targetType: WorkStageAssignmentTargetType.TEAM,
+                    targetOperationalTeamId: query.operationalTeamId,
+                  },
+                },
+              },
+            ]
+          : []),
+      ],
+    };
+
+    const [total, statusGroups, overdueGroups, stages] = await Promise.all([
+      this.prisma.workStage.count({ where: stageWhere }),
+      this.prisma.workStage.groupBy({
+        by: ['responsibleOrgUnitId', 'status'],
+        where: stageWhere,
+        _count: { _all: true },
+      }),
+      this.prisma.workStage.groupBy({
+        by: ['responsibleOrgUnitId'],
+        where: {
+          AND: [stageWhere, this.currentStageOverdueWhere(now)],
+        },
+        _count: { _all: true },
+      }),
+      this.prisma.workStage.findMany({
+        where: stageWhere,
+        orderBy: [{ dueAt: 'asc' }, { createdAt: 'desc' }],
+        skip,
+        take: limit,
+        select: {
+          id: true,
+          code: true,
+          name: true,
+          status: true,
+          slaMinutes: true,
+          dueAt: true,
+          blockerReason: true,
+          readyAt: true,
+          startedAt: true,
+          submittedAt: true,
+          completedAt: true,
+          cancelledAt: true,
+          createdAt: true,
+          responsibleOrgUnit: {
+            select: { id: true, code: true, name: true },
+          },
+          workItem: {
+            select: {
+              id: true,
+              ticketNumber: true,
+              runtimeStatus: true,
+              dueAt: true,
+              completedAt: true,
+              cancelledAt: true,
+            },
+          },
+          assignments: {
+            where: {
+              targetType: WorkStageAssignmentTargetType.TEAM,
+              targetOperationalTeamId: { not: null },
+            },
+            select: {
+              targetOperationalTeam: {
+                select: { id: true, code: true, name: true },
+              },
+            },
+          },
+          events: {
+            where: { toStageStatus: { not: null } },
+            orderBy: { createdAt: 'asc' },
+            select: {
+              fromStageStatus: true,
+              toStageStatus: true,
+              createdAt: true,
+            },
+          },
+        },
+      }),
+    ]);
+
+    const orgUnitIds = new Set<string>(
+      statusGroups.map((group) => group.responsibleOrgUnitId),
+    );
+    for (const group of overdueGroups) orgUnitIds.add(group.responsibleOrgUnitId);
+    const orgUnits =
+      orgUnitIds.size === 0
+        ? []
+        : await this.prisma.orgUnit.findMany({
+            where: {
+              id: { in: [...orgUnitIds] },
+              officeId,
+              orgUnitType: { isTeam: false },
+            },
+            orderBy: [{ sortOrder: 'asc' }, { name: 'asc' }],
+            select: { id: true, code: true, name: true },
+          });
+
+    const statusCounts = new Map<
+      string,
+      Map<WorkStageStatus, number>
+    >();
+    for (const group of statusGroups) {
+      const counts =
+        statusCounts.get(group.responsibleOrgUnitId) ??
+        new Map<WorkStageStatus, number>();
+      counts.set(group.status, group._count._all);
+      statusCounts.set(group.responsibleOrgUnitId, counts);
+    }
+    const overdueCounts = new Map(
+      overdueGroups.map((group) => [
+        group.responsibleOrgUnitId,
+        group._count._all,
+      ]),
+    );
+
+    const items: WorkReportV3StageAnalysisRow[] = stages.map((stage) => {
+      if (!stage.workItem.runtimeStatus) {
+        throw new BadRequestException(
+          `Work ${stage.workItem.ticketNumber} is missing runtime report status.`,
+        );
+      }
+      const teamMap = new Map<
+        string,
+        { id: string; code: string; name: string }
+      >();
+      for (const assignment of stage.assignments) {
+        const team = assignment.targetOperationalTeam;
+        if (team) teamMap.set(team.id, team);
+      }
+
+      return {
+        id: stage.id,
+        workItem: {
+          id: stage.workItem.id,
+          ticketNumber: stage.workItem.ticketNumber,
+          status: stage.workItem.runtimeStatus,
+          dueAt: stage.workItem.dueAt.toISOString(),
+          workSlaState: this.deadlineState(
+            stage.workItem.dueAt,
+            stage.workItem.runtimeStatus,
+            stage.workItem.completedAt,
+            stage.workItem.cancelledAt,
+            now,
+          ),
+        },
+        stage: {
+          code: stage.code,
+          name: stage.name,
+          status: stage.status,
+          responsibleOrgUnit: stage.responsibleOrgUnit,
+          operationalTeams: [...teamMap.values()],
+          dueAt: stage.dueAt?.toISOString() ?? null,
+          slaMinutes: stage.slaMinutes,
+          slaState: this.stageDeadlineState(stage, now),
+          blockerReason: stage.blockerReason,
+          readyAt: stage.readyAt?.toISOString() ?? null,
+          startedAt: stage.startedAt?.toISOString() ?? null,
+          submittedAt: stage.submittedAt?.toISOString() ?? null,
+          completedAt: stage.completedAt?.toISOString() ?? null,
+        },
+        durations: this.calculateStageDurations(stage, now),
+      };
+    });
+
+    return {
+      generatedAt: now.toISOString(),
+      page,
+      limit,
+      total,
+      totalPages: total === 0 ? 0 : Math.ceil(total / limit),
+      summary: orgUnits.map((orgUnit) => {
+        const counts = statusCounts.get(orgUnit.id) ?? new Map();
+        const waitingStages = [...WAITING_STAGE_STATUSES].reduce(
+          (sum, status) => sum + (counts.get(status) ?? 0),
+          0,
+        );
+        return {
+          orgUnit,
+          stageCount: [...counts.values()].reduce(
+            (sum, count) => sum + count,
+            0,
+          ),
+          completedStages: counts.get(WorkStageStatus.COMPLETED) ?? 0,
+          waitingStages,
+          blockedStages: counts.get(WorkStageStatus.BLOCKED) ?? 0,
+          overdueStages: overdueCounts.get(orgUnit.id) ?? 0,
+        };
+      }),
+      items,
+    };
+  }
+
+  async getDutyCompatibility(
+    user: AuthenticatedUser,
+    officeId: string,
+  ): Promise<WorkReportV3DutyCompatibility> {
+    await this.requireOffice(officeId);
+    await this.resolveScope(user, officeId);
+
+    return {
+      generatedAt: new Date().toISOString(),
+      mode: 'LEGACY_COMPATIBILITY',
+      migrationPhase: 11,
+      message:
+        'Duty reporting remains on the existing Duty dataset until the Phase 11 OrgUnit migration. Phase 10 does not rewrite Duty ownership or history.',
+      dataRoute: '/work-reports/drilldown',
+      csvRoute: '/work-reports/export',
+      dataset: 'DUTY_ASSIGNMENTS',
+    };
+  }
+
+  async exportCsv(
+    user: AuthenticatedUser,
+    officeId: string,
+    query: WorkReportV3ExportQueryDto,
+  ): Promise<WorkReportV3CsvExport> {
+    await this.requireOffice(officeId);
+    await this.assertExportAllowed(user, officeId);
+
+    if (query.dataset === WorkReportV3ExportDataset.OVERVIEW) {
+      const overview = await this.getOverview(user, officeId, query);
+      const rows: Array<Array<string | number>> = [];
+      rows.push(['Work', 'Total Work', overview.totalWork]);
+      for (const status of Object.values(WorkRuntimeStatus)) {
+        rows.push(['Work Status', status, overview.statuses[status] ?? 0]);
+      }
+      rows.push(
+        ['SLA', 'Overdue', overview.sla.overdue],
+        ['SLA', 'Due Soon', overview.sla.dueSoon],
+      );
+      for (const row of overview.organizationPerformance) {
+        const label = `${row.orgUnit.code} - ${row.orgUnit.name}`;
+        rows.push(
+          ['OrgUnit', `${label} · Primary Owner Work`, row.primaryOwnerWork],
+          ['OrgUnit', `${label} · Participant Work`, row.participantWork],
+          ['OrgUnit', `${label} · Responsible Stages`, row.responsibleStages],
+          ['OrgUnit', `${label} · Completed Work`, row.completedWork],
+          ['OrgUnit', `${label} · Overdue Work`, row.overdueWork],
+        );
+      }
+      for (const row of overview.teamExecution) {
+        rows.push([
+          'Operational Team',
+          `${row.operationalTeam.code} - ${row.operationalTeam.name} · Work Executed`,
+          row.workCount,
+        ]);
+      }
+      return this.createCsvExport(
+        this.exportFilename('report-overview', query),
+        ['Section', 'Metric', 'Value'],
+        rows,
+      );
+    }
+
+    if (query.dataset === WorkReportV3ExportDataset.WORK_RECORDS) {
+      const rows = await this.collectAllWorkRecords(user, officeId, query);
+      return this.createCsvExport(
+        this.exportFilename('work-records', query),
+        [
+          'Ticket',
+          'Work Type',
+          'Primary Owner',
+          'Execution Team',
+          'Reference',
+          'Date',
+          'Status',
+        ],
+        rows.map((row) => [
+          row.ticketNumber,
+          row.workType.name,
+          `${row.primaryOwner.code} - ${row.primaryOwner.name}`,
+          row.executionTeams.map((team) => team.name).join('; '),
+          row.reference.display ?? '',
+          row.date,
+          row.status,
+        ]),
+      );
+    }
+
+    if (query.dataset === WorkReportV3ExportDataset.TECHNICAL_PERFORMANCE) {
+      const report = await this.getTechnicalPerformance(user, officeId, query);
+      return this.createCsvExport(
+        this.exportFilename('technical-performance', query),
+        [
+          'S.N.',
+          'Date',
+          'OrgUnit',
+          'Team',
+          'Support Staff',
+          'Other Staff / Sales',
+          'Ticket',
+          'Pending',
+          'Completed',
+          'Service / Token',
+        ],
+        report.rows.map((row, index) => [
+          index + 1,
+          row.date,
+          `${row.orgUnit.code} - ${row.orgUnit.name}`,
+          row.operationalTeam?.name ?? '',
+          row.supportStaff
+            .map((person) => this.reportPersonLabel(person))
+            .join('; '),
+          row.otherStaff
+            .map((person) => this.reportPersonLabel(person))
+            .join('; '),
+          row.total.tickets,
+          row.total.pending,
+          row.total.completed,
+          row.references.join('; '),
+        ]),
+      );
+    }
+
+    const rows = await this.collectAllStageAnalysisRows(user, officeId, query);
+    return this.createCsvExport(
+      this.exportFilename('stage-sla', query),
+      [
+        'Ticket',
+        'Work Status',
+        'Work SLA',
+        'Stage',
+        'Stage Status',
+        'Responsible OrgUnit',
+        'Execution Team',
+        'Stage SLA',
+        'Due At',
+        'Elapsed Minutes',
+        'Active Minutes',
+        'Waiting Minutes',
+        'Blocked Minutes',
+        'Blocker',
+      ],
+      rows.map((row) => [
+        row.workItem.ticketNumber,
+        row.workItem.status,
+        row.workItem.workSlaState,
+        row.stage.name,
+        row.stage.status,
+        `${row.stage.responsibleOrgUnit.code} - ${row.stage.responsibleOrgUnit.name}`,
+        row.stage.operationalTeams.map((team) => team.name).join('; '),
+        row.stage.slaState,
+        row.stage.dueAt ?? '',
+        row.durations.elapsedMinutes,
+        row.durations.activeMinutes,
+        row.durations.waitingMinutes,
+        row.durations.blockedMinutes,
+        row.stage.blockerReason ?? '',
+      ]),
+    );
+  }
+
+  async getPrintPayload(
+    user: AuthenticatedUser,
+    officeId: string,
+    query: WorkReportV3ExportQueryDto,
+  ): Promise<WorkReportV3PrintPayload> {
+    const office = await this.requireOffice(officeId);
+    await this.assertExportAllowed(user, officeId);
+
+    let content: WorkReportV3PrintPayload['content'];
+    let rowCount: number;
+
+    if (query.dataset === WorkReportV3ExportDataset.OVERVIEW) {
+      content = await this.getOverview(user, officeId, query);
+      rowCount = content.organizationPerformance.length;
+    } else if (query.dataset === WorkReportV3ExportDataset.WORK_RECORDS) {
+      content = await this.collectAllWorkRecords(user, officeId, query);
+      rowCount = content.length;
+    } else if (
+      query.dataset === WorkReportV3ExportDataset.TECHNICAL_PERFORMANCE
+    ) {
+      content = await this.getTechnicalPerformance(user, officeId, query);
+      rowCount = content.rows.length;
+    } else {
+      content = await this.collectAllStageAnalysisRows(user, officeId, query);
+      rowCount = content.length;
+    }
+
+    return {
+      dataset: query.dataset,
+      generatedAt: new Date().toISOString(),
+      office: { id: office.id, code: office.code, name: office.name },
+      period: { from: query.from ?? null, to: query.to ?? null },
+      rowCount,
+      content,
+    };
+  }
+
   async getReconciliation(
     user: AuthenticatedUser,
     officeId: string,
@@ -778,6 +1580,13 @@ export class WorkReportsV3Service {
         },
       });
     }
+    if (query.responsibleOrgUnitId) {
+      AND.push({
+        runtimeStages: {
+          some: { responsibleOrgUnitId: query.responsibleOrgUnitId },
+        },
+      });
+    }
     if (query.operationalTeamId) {
       AND.push({
         runtimeStages: {
@@ -824,6 +1633,100 @@ export class WorkReportsV3Service {
     }
 
     return { AND };
+  }
+
+  private async assertExportAllowed(
+    user: AuthenticatedUser,
+    officeId: string,
+  ): Promise<void> {
+    const scope = await this.resolveScope(user, officeId);
+    if (!scope.availableActions.export) {
+      throw new ForbiddenException(
+        'You do not have permission to export reports.',
+      );
+    }
+  }
+
+  private async collectAllWorkRecords(
+    user: AuthenticatedUser,
+    officeId: string,
+    query: WorkReportV3QueryDto,
+  ): Promise<WorkReportV3WorkRecord[]> {
+    const first = await this.getWorkRecords(user, officeId, {
+      ...query,
+      page: 1,
+      limit: 100,
+    });
+    const items = [...first.items];
+    for (let page = 2; page <= first.totalPages; page += 1) {
+      const next = await this.getWorkRecords(user, officeId, {
+        ...query,
+        page,
+        limit: 100,
+      });
+      items.push(...next.items);
+    }
+    return items;
+  }
+
+  private async collectAllStageAnalysisRows(
+    user: AuthenticatedUser,
+    officeId: string,
+    query: WorkReportV3QueryDto,
+  ): Promise<WorkReportV3StageAnalysisRow[]> {
+    const first = await this.getStageAnalysis(user, officeId, {
+      ...query,
+      page: 1,
+      limit: 100,
+    });
+    const items = [...first.items];
+    for (let page = 2; page <= first.totalPages; page += 1) {
+      const next = await this.getStageAnalysis(user, officeId, {
+        ...query,
+        page,
+        limit: 100,
+      });
+      items.push(...next.items);
+    }
+    return items;
+  }
+
+  private exportFilename(prefix: string, query: WorkReportV3QueryDto): string {
+    const range =
+      query.from && query.to ? `${query.from}-to-${query.to}` : 'all';
+    return `${prefix}-${range}.csv`;
+  }
+
+  private reportPersonLabel(person: {
+    name: string;
+    employeeId: string | null;
+  }): string {
+    return person.employeeId
+      ? `${person.name} (${person.employeeId})`
+      : person.name;
+  }
+
+  private createCsvExport(
+    filename: string,
+    headers: string[],
+    rows: Array<Array<string | number | boolean | null | undefined>>,
+  ): WorkReportV3CsvExport {
+    const lines = [headers, ...rows].map((row) =>
+      row.map((cell) => this.csvCell(cell)).join(','),
+    );
+    return {
+      filename,
+      rowCount: rows.length,
+      content: `\uFEFF${lines.join('\r\n')}\r\n`,
+    };
+  }
+
+  private csvCell(
+    value: string | number | boolean | null | undefined,
+  ): string {
+    let text = value == null ? '' : String(value);
+    if (/^[=+\-@]/.test(text)) text = `'${text}`;
+    return `"${text.replace(/"/g, '""')}"`;
   }
 
   private async resolveScope(
@@ -1118,9 +2021,11 @@ export class WorkReportsV3Service {
     scope: WorkReportV3Scope,
     query: WorkReportV3QueryDto,
   ): Promise<void> {
-    const orgUnitIds = [query.orgUnitId, query.participantOrgUnitId].filter(
-      (value): value is string => Boolean(value),
-    );
+    const orgUnitIds = [
+      query.orgUnitId,
+      query.participantOrgUnitId,
+      query.responsibleOrgUnitId,
+    ].filter((value): value is string => Boolean(value));
 
     if (scope.type === 'PERSONAL' && orgUnitIds.length > 0) {
       throw new ForbiddenException(
@@ -1240,6 +2145,186 @@ export class WorkReportsV3Service {
     return {
       display: primary?.value ?? null,
       items: normalized,
+    };
+  }
+
+  private zeroPerformanceCounts(): WorkReportV3TechnicalPerformanceCounts {
+    return { tickets: 0, completed: 0, pending: 0 };
+  }
+
+  private zeroTechnicalWorkTypes(): Record<
+    TechnicalWorkTypeCode,
+    WorkReportV3TechnicalPerformanceCounts
+  > {
+    return {
+      ROUTINE_WORK: this.zeroPerformanceCounts(),
+      TROUBLE_TICKET: this.zeroPerformanceCounts(),
+      NETWORK_MAINTENANCE: this.zeroPerformanceCounts(),
+      NEW_INSTALLATION: this.zeroPerformanceCounts(),
+      UPDATE_SERVICES: this.zeroPerformanceCounts(),
+      INSPECTION: this.zeroPerformanceCounts(),
+      EMERGENCY_WORK: this.zeroPerformanceCounts(),
+    };
+  }
+
+  private isTechnicalWorkTypeCode(
+    value: string,
+  ): value is TechnicalWorkTypeCode {
+    return (TECHNICAL_WORK_TYPE_CODES as readonly string[]).includes(value);
+  }
+
+  private reportPerson(account: {
+    id: string;
+    username: string | null;
+    employee: { empId: string; empName: string } | null;
+  }): { accountId: string; name: string; employeeId: string | null } {
+    return {
+      accountId: account.id,
+      name: account.employee?.empName ?? account.username ?? 'Unknown user',
+      employeeId: account.employee?.empId ?? null,
+    };
+  }
+
+  private primaryExecutionTeam(
+    stages: Array<{
+      responsibleOrgUnitId: string;
+      assignments: Array<{
+        targetOperationalTeam: {
+          id: string;
+          code: string;
+          name: string;
+        } | null;
+      }>;
+    }>,
+    primaryOwnerOrgUnitId: string,
+  ): { id: string; code: string; name: string } | null {
+    for (const stage of stages) {
+      if (stage.responsibleOrgUnitId !== primaryOwnerOrgUnitId) continue;
+      for (const assignment of stage.assignments) {
+        if (assignment.targetOperationalTeam) {
+          return assignment.targetOperationalTeam;
+        }
+      }
+    }
+    return null;
+  }
+
+  private currentStageOverdueWhere(now: Date): Prisma.WorkStageWhereInput {
+    return {
+      status: {
+        notIn: [
+          WorkStageStatus.COMPLETED,
+          WorkStageStatus.SKIPPED,
+          WorkStageStatus.CANCELLED,
+        ],
+      },
+      dueAt: { lt: now },
+    };
+  }
+
+  private deadlineState(
+    dueAt: Date,
+    status: WorkRuntimeStatus,
+    completedAt: Date | null,
+    cancelledAt: Date | null,
+    now: Date,
+  ): WorkReportV3SlaState {
+    if (status === WorkRuntimeStatus.CANCELLED || cancelledAt) {
+      return WorkReportV3SlaState.ON_TRACK;
+    }
+    if (status === WorkRuntimeStatus.COMPLETED || completedAt) {
+      return completedAt && completedAt > dueAt
+        ? WorkReportV3SlaState.OVERDUE
+        : WorkReportV3SlaState.ON_TRACK;
+    }
+    if (dueAt < now) return WorkReportV3SlaState.OVERDUE;
+    if (dueAt < new Date(now.getTime() + DUE_SOON_MS)) {
+      return WorkReportV3SlaState.DUE_SOON;
+    }
+    return WorkReportV3SlaState.ON_TRACK;
+  }
+
+  private stageDeadlineState(
+    stage: {
+      status: WorkStageStatus;
+      dueAt: Date | null;
+      completedAt: Date | null;
+      cancelledAt: Date | null;
+    },
+    now: Date,
+  ): WorkReportV3SlaState {
+    if (!stage.dueAt) return WorkReportV3SlaState.ON_TRACK;
+    if (stage.status === WorkStageStatus.CANCELLED || stage.cancelledAt) {
+      return WorkReportV3SlaState.ON_TRACK;
+    }
+    if (
+      stage.status === WorkStageStatus.COMPLETED ||
+      stage.status === WorkStageStatus.SKIPPED ||
+      stage.completedAt
+    ) {
+      return stage.completedAt && stage.completedAt > stage.dueAt
+        ? WorkReportV3SlaState.OVERDUE
+        : WorkReportV3SlaState.ON_TRACK;
+    }
+    if (stage.dueAt < now) return WorkReportV3SlaState.OVERDUE;
+    if (stage.dueAt < new Date(now.getTime() + DUE_SOON_MS)) {
+      return WorkReportV3SlaState.DUE_SOON;
+    }
+    return WorkReportV3SlaState.ON_TRACK;
+  }
+
+  private calculateStageDurations(
+    stage: {
+      createdAt: Date;
+      status: WorkStageStatus;
+      completedAt: Date | null;
+      cancelledAt: Date | null;
+      events: Array<{
+        fromStageStatus: WorkStageStatus | null;
+        toStageStatus: WorkStageStatus | null;
+        createdAt: Date;
+      }>;
+    },
+    now: Date,
+  ): WorkReportV3StageAnalysisRow['durations'] {
+    let currentStatus: WorkStageStatus = WorkStageStatus.PENDING;
+    let cursor = stage.createdAt;
+    let activeMs = 0;
+    let waitingMs = 0;
+    let blockedMs = 0;
+
+    const accumulate = (status: WorkStageStatus, milliseconds: number) => {
+      if (milliseconds <= 0 || TERMINAL_STAGE_STATUSES.has(status)) return;
+      if (status === WorkStageStatus.IN_PROGRESS) {
+        activeMs += milliseconds;
+      } else if (status === WorkStageStatus.BLOCKED) {
+        blockedMs += milliseconds;
+      } else if (WAITING_STAGE_STATUSES.has(status)) {
+        waitingMs += milliseconds;
+      }
+    };
+
+    for (const event of stage.events) {
+      const eventAt = event.createdAt < cursor ? cursor : event.createdAt;
+      const intervalStatus = event.fromStageStatus ?? currentStatus;
+      accumulate(intervalStatus, eventAt.getTime() - cursor.getTime());
+      cursor = eventAt;
+      if (event.toStageStatus) currentStatus = event.toStageStatus;
+    }
+
+    const terminalAt = stage.completedAt ?? stage.cancelledAt;
+    const endAt = terminalAt && terminalAt < now ? terminalAt : now;
+    if (endAt > cursor) {
+      accumulate(currentStatus, endAt.getTime() - cursor.getTime());
+    }
+
+    const minutes = (milliseconds: number) =>
+      Math.round((milliseconds / 60_000) * 10) / 10;
+    return {
+      elapsedMinutes: minutes(activeMs + waitingMs + blockedMs),
+      activeMinutes: minutes(activeMs),
+      waitingMinutes: minutes(waitingMs),
+      blockedMinutes: minutes(blockedMs),
     };
   }
 

@@ -41,6 +41,10 @@ export class WorkReportV3QueryDto {
 
   @IsOptional()
   @IsUUID('4')
+  responsibleOrgUnitId?: string;
+
+  @IsOptional()
+  @IsUUID('4')
   operationalTeamId?: string;
 
   @IsOptional()
@@ -77,3 +81,5 @@ export class WorkReportV3RecordsQueryDto extends WorkReportV3QueryDto {
   @Max(100)
   limit = 25;
 }
+
+export class WorkReportV3StageAnalysisQueryDto extends WorkReportV3RecordsQueryDto {}
