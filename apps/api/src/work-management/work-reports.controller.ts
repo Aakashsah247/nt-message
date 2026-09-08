@@ -1,6 +1,8 @@
 import {
   Controller,
   Get,
+  Param,
+  ParseUUIDPipe,
   Query,
   Res,
   UseGuards,
@@ -16,11 +18,18 @@ import { AccountRole } from '../generated/prisma/client';
 import { ExportWorkReportQueryDto } from './dto/export-work-report-query.dto';
 import { WorkReportDrilldownQueryDto } from './dto/work-report-drilldown-query.dto';
 import { WorkReportQueryDto } from './dto/work-report-query.dto';
+import { WorkReportV3QueryDto } from './dto/work-report-v3-query.dto';
 import {
   WorkReportsService,
   type WorkReportDrilldownResponse,
   type WorkReportSummary,
 } from './work-reports.service';
+import {
+  WorkReportsV3Service,
+  type WorkReportV3Context,
+  type WorkReportV3CountResult,
+  type WorkReportV3Reconciliation,
+} from './work-reports-v3.service';
 
 const MANAGEMENT_REPORT_ROLES = [
   AccountRole.SUPER_ADMIN,
@@ -31,7 +40,39 @@ const MANAGEMENT_REPORT_ROLES = [
 @Controller('work-reports')
 @UseGuards(AccessTokenGuard, RolesGuard)
 export class WorkReportsController {
-  constructor(private readonly workReportsService: WorkReportsService) {}
+  constructor(
+    private readonly workReportsService: WorkReportsService,
+    private readonly workReportsV3Service: WorkReportsV3Service,
+  ) {}
+
+  @Get('v3/offices/:officeId/context')
+  getV3Context(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('officeId', new ParseUUIDPipe({ version: '4' })) officeId: string,
+  ): Promise<WorkReportV3Context> {
+    return this.workReportsV3Service.getContext(user, officeId);
+  }
+
+  @Get('v3/offices/:officeId/count')
+  getV3Count(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('officeId', new ParseUUIDPipe({ version: '4' })) officeId: string,
+    @Query() query: WorkReportV3QueryDto,
+  ): Promise<WorkReportV3CountResult> {
+    return this.workReportsV3Service.getDistinctWorkCount(
+      user,
+      officeId,
+      query,
+    );
+  }
+
+  @Get('v3/offices/:officeId/reconciliation')
+  getV3Reconciliation(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('officeId', new ParseUUIDPipe({ version: '4' })) officeId: string,
+  ): Promise<WorkReportV3Reconciliation> {
+    return this.workReportsV3Service.getReconciliation(user, officeId);
+  }
 
   @Get('summary')
   @Roles(...MANAGEMENT_REPORT_ROLES)

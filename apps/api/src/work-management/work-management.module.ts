@@ -15,6 +15,7 @@ import { WorkLifecycleService } from './work-lifecycle.service';
 import { WorkManagementQueryService } from './work-management-query.service';
 import { WorkReportsController } from './work-reports.controller';
 import { WorkReportsService } from './work-reports.service';
+import { WorkReportsV3Service } from './work-reports-v3.service';
 import { WorkRuntimeV3Controller } from './work-runtime-v3.controller';
 import { WorkRuntimeV3CollaborationService } from './work-runtime-v3-collaboration.service';
 import { WorkRuntimeV3EscalationService } from './work-runtime-v3-escalation.service';
@@ -49,6 +50,7 @@ import { WorkTypeV3Service } from './work-type-v3.service';
     WorkManagementQueryService,
     WorkNotificationsService,
     WorkReportsService,
+    WorkReportsV3Service,
     WorkRetentionService,
     WorkRuntimeV3Service,
     WorkRuntimeV3CollaborationService,
@@ -70,6 +72,7 @@ import { WorkTypeV3Service } from './work-type-v3.service';
     WorkManagementQueryService,
     WorkNotificationsService,
     WorkReportsService,
+    WorkReportsV3Service,
     WorkRetentionService,
     WorkRuntimeV3Service,
     WorkRuntimeV3CollaborationService,

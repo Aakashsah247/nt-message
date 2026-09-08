@@ -162,6 +162,22 @@ describe('OrganizationAuthorizationService', () => {
         'office-1',
       ),
     ).resolves.toBe(false);
+
+    await expect(
+      service.can(
+        superAdmin,
+        CAPABILITIES.REPORTS_VIEW,
+        'office-1',
+      ),
+    ).resolves.toBe(true);
+
+    await expect(
+      service.can(
+        superAdmin,
+        CAPABILITIES.REPORTS_EXPORT,
+        'office-1',
+      ),
+    ).resolves.toBe(true);
   });
 
   it('grants Work lifecycle capabilities only through current leadership scope', async () => {
@@ -253,6 +269,65 @@ describe('OrganizationAuthorizationService', () => {
         'outside-scope',
       ),
     ).resolves.toBe(false);
+
+    await expect(
+      service.can(
+        employeeUser,
+        CAPABILITIES.REPORTS_VIEW,
+        'office-1',
+        'child-1',
+      ),
+    ).resolves.toBe(true);
+
+    await expect(
+      service.can(
+        employeeUser,
+        CAPABILITIES.REPORTS_EXPORT,
+        'office-1',
+        'child-1',
+      ),
+    ).resolves.toBe(true);
+
+    await expect(
+      service.can(
+        employeeUser,
+        CAPABILITIES.REPORTS_VIEW,
+        'office-1',
+        'outside-scope',
+      ),
+    ).resolves.toBe(false);
+  });
+
+  it('gives an Office Head Office-wide report view and export capability', async () => {
+    const prisma = createPrisma();
+    prisma.orgLeadershipAssignment.findMany.mockResolvedValue([
+      {
+        leadershipType: OrgLeadershipType.OFFICE_HEAD,
+        orgUnitId: null,
+      },
+    ]);
+
+    const service = new OrganizationAuthorizationService(
+      prisma as unknown as PrismaService,
+    );
+
+    await expect(
+      service.can(
+        employeeUser,
+        CAPABILITIES.REPORTS_VIEW,
+        'office-1',
+        null,
+      ),
+    ).resolves.toBe(true);
+
+    await expect(
+      service.can(
+        employeeUser,
+        CAPABILITIES.REPORTS_EXPORT,
+        'office-1',
+        null,
+      ),
+    ).resolves.toBe(true);
   });
 
   it('allows an active Office member to reach the Work Type creation policy gate', async () => {
@@ -1049,6 +1124,32 @@ describe('OrganizationAuthorizationService', () => {
     expect(
       prisma.orgLeadershipAssignment.findFirst,
     ).not.toHaveBeenCalled();
+  });
+
+  it('resolves reports.view to the current Org Unit Head subtree', async () => {
+    const prisma = createPrisma();
+    prisma.orgLeadershipAssignment.findMany.mockResolvedValue([
+      {
+        leadershipType: OrgLeadershipType.ORG_UNIT_HEAD,
+        orgUnitId: 'unit-1',
+      },
+    ]);
+    prisma.orgUnitClosure.findMany.mockResolvedValue([
+      { descendantOrgUnitId: 'unit-1' },
+      { descendantOrgUnitId: 'child-1' },
+    ]);
+
+    const service = new OrganizationAuthorizationService(
+      prisma as unknown as PrismaService,
+    );
+
+    await expect(
+      service.visibleOrgUnitIds(
+        employeeUser,
+        CAPABILITIES.REPORTS_VIEW,
+        'office-1',
+      ),
+    ).resolves.toEqual(['unit-1', 'child-1']);
   });
 
   it('does not expose scoped OrgUnits for an inactive employee account', async () => {
