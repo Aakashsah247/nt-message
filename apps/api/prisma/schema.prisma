@@ -1327,8 +1327,9 @@ model OperationalTeam {
   updatedBy            Account?        @relation("OperationalTeamsUpdatedBy", fields: [updatedByAccountId], references: [id], onDelete: Restrict)
   archivedBy           Account?        @relation("OperationalTeamsArchivedBy", fields: [archivedByAccountId], references: [id], onDelete: Restrict)
 
-  members         OperationalTeamMember[]
-  leadAssignments OperationalTeamLeadAssignment[]
+  members              OperationalTeamMember[]
+  leadAssignments      OperationalTeamLeadAssignment[]
+  workStageAssignments WorkStageAssignment[]           @relation("WorkStageAssignmentsTargetOperationalTeam")
 
   @@unique([orgUnitId, code], map: "operational_teams_org_unit_code_key")
   @@unique([orgUnitId, nameKey], map: "operational_teams_org_unit_name_key")
@@ -2543,11 +2544,12 @@ model WorkStage {
 model WorkStageAssignment {
   id String @id @default(uuid()) @db.Uuid
 
-  workStageId     String                        @map("work_stage_id") @db.Uuid
-  targetType      WorkStageAssignmentTargetType @map("target_type")
-  targetOrgUnitId String?                       @map("target_org_unit_id") @db.Uuid
-  targetAccountId String?                       @map("target_account_id") @db.Uuid
-  assignmentRole  WorkStageAssignmentRole       @default(PRIMARY) @map("assignment_role")
+  workStageId             String                        @map("work_stage_id") @db.Uuid
+  targetType              WorkStageAssignmentTargetType @map("target_type")
+  targetOrgUnitId         String?                       @map("target_org_unit_id") @db.Uuid
+  targetAccountId         String?                       @map("target_account_id") @db.Uuid
+  targetOperationalTeamId String?                       @map("target_operational_team_id") @db.Uuid
+  assignmentRole          WorkStageAssignmentRole       @default(PRIMARY) @map("assignment_role")
 
   assignedByAccountId String? @map("assigned_by_account_id") @db.Uuid
   endedByAccountId    String? @map("ended_by_account_id") @db.Uuid
@@ -2560,15 +2562,17 @@ model WorkStageAssignment {
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
 
-  workStage     WorkStage @relation(fields: [workStageId], references: [id], onDelete: Cascade)
-  targetOrgUnit OrgUnit?  @relation("WorkStageAssignmentsTargetOrgUnit", fields: [targetOrgUnitId], references: [id], onDelete: Restrict)
-  targetAccount Account?  @relation("WorkStageAssignmentsTargetAccount", fields: [targetAccountId], references: [id], onDelete: Restrict)
-  assignedBy    Account?  @relation("WorkStageAssignmentsAssignedBy", fields: [assignedByAccountId], references: [id], onDelete: Restrict)
-  endedBy       Account?  @relation("WorkStageAssignmentsEndedBy", fields: [endedByAccountId], references: [id], onDelete: Restrict)
+  workStage             WorkStage        @relation(fields: [workStageId], references: [id], onDelete: Cascade)
+  targetOrgUnit         OrgUnit?         @relation("WorkStageAssignmentsTargetOrgUnit", fields: [targetOrgUnitId], references: [id], onDelete: Restrict)
+  targetAccount         Account?         @relation("WorkStageAssignmentsTargetAccount", fields: [targetAccountId], references: [id], onDelete: Restrict)
+  targetOperationalTeam OperationalTeam? @relation("WorkStageAssignmentsTargetOperationalTeam", fields: [targetOperationalTeamId], references: [id], onDelete: Restrict)
+  assignedBy            Account?         @relation("WorkStageAssignmentsAssignedBy", fields: [assignedByAccountId], references: [id], onDelete: Restrict)
+  endedBy               Account?         @relation("WorkStageAssignmentsEndedBy", fields: [endedByAccountId], references: [id], onDelete: Restrict)
 
   @@index([workStageId, endsAt, assignmentRole], map: "work_stage_assignments_stage_active_role_idx")
   @@index([targetOrgUnitId, endsAt], map: "work_stage_assignments_target_unit_active_idx")
   @@index([targetAccountId, endsAt], map: "work_stage_assignments_target_account_active_idx")
+  @@index([targetOperationalTeamId, endsAt], map: "work_stage_assignments_target_operational_team_active_idx")
   @@index([assignedByAccountId, createdAt], map: "work_stage_assignments_assigned_by_created_idx")
   @@index([endedByAccountId, endsAt], map: "work_stage_assignments_ended_by_ended_idx")
   @@map("work_stage_assignments")
