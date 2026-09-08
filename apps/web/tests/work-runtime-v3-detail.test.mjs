@@ -10,7 +10,10 @@ const detailSource = await readFile(
 test("P9-C Work Detail uses canonical Work navigation and V3 detail contracts", () => {
   assert.match(detailSource, /getWorkRuntimeV3/);
   assert.match(detailSource, /getWorkRuntimeV3Actions/);
-  assert.match(detailSource, /to="\/work"/);
+  assert.match(
+    detailSource,
+    /fromOversight \? "\/work-oversight" : "\/work"/,
+  );
   assert.doesNotMatch(detailSource, /to="\/work-runtime-v3"/);
   assert.doesNotMatch(detailSource, /work-management\.service/);
 });

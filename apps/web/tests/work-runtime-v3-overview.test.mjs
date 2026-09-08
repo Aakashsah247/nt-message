@@ -17,7 +17,7 @@ const workspaceSource = await readFile(
 
 test("P9-C Work Overview uses the V3 read contract and canonical Work routes", () => {
   assert.match(overviewSource, /listWorkRuntimeV3/);
-  assert.match(overviewSource, /to=\{`\/work\/\$\{work\.officeId\}\/\$\{work\.id\}`\}/);
+  assert.match(overviewSource, /`\/work\/\$\{work\.officeId\}\/\$\{work\.id\}`/);
   assert.match(overviewSource, /to="\/work\/create"/);
   assert.doesNotMatch(overviewSource, /work-management\.service/);
   assert.doesNotMatch(overviewSource, /\/work-runtime-v3\/offices\//);

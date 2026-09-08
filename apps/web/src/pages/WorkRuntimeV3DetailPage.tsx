@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { Link, useParams } from "react-router";
+import { Link, useParams, useSearchParams } from "react-router";
 
 import { useAuth } from "../context/AuthContext";
 import {
@@ -62,8 +62,11 @@ export function WorkRuntimeV3DetailPage() {
   const { accessToken } = useAuth();
   const { t, i18n } = useTranslation("workspace");
   const { officeId = "", workItemId = "" } = useParams();
+  const [searchParams] = useSearchParams();
   const language = i18n.resolvedLanguage ?? i18n.language;
   const notSet = t("work.detail.notSet");
+  const fromOversight = searchParams.get("source") === "oversight";
+  const backPath = fromOversight ? "/work-oversight" : "/work";
   const [work, setWork] = useState<WorkRuntimeV3Work | null>(null);
   const [availableActions, setAvailableActions] = useState<WorkRuntimeV3WorkAction[]>([]);
   const [loading, setLoading] = useState(true);
@@ -211,7 +214,9 @@ export function WorkRuntimeV3DetailPage() {
             <p className="mt-2 text-sm text-slate-600">{t("work.detail.description")}</p>
           </div>
           <div className="flex flex-wrap gap-2">
-            <Link className="rounded-xl border border-slate-300 bg-white px-4 py-2.5 text-sm font-bold text-slate-700 hover:bg-slate-50" to="/work">{t("work.detail.back")}</Link>
+            <Link className="rounded-xl border border-slate-300 bg-white px-4 py-2.5 text-sm font-bold text-slate-700 hover:bg-slate-50" to={backPath}>
+              {fromOversight ? t("work.detail.backToOversight") : t("work.detail.back")}
+            </Link>
           </div>
         </div>
       </section>

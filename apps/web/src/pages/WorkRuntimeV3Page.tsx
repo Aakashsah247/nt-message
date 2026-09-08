@@ -3,6 +3,7 @@ import { useLocation } from "react-router";
 import { IncomingWorkPage } from "./IncomingWorkPage";
 import { MyWorkPage } from "./MyWorkPage";
 import { WorkOverviewPage } from "./WorkOverviewPage";
+import { WorkOversightPage } from "./WorkOversightPage";
 import { WorkStageWorkspacePage } from "./WorkStageWorkspacePage";
 
 export function WorkRuntimeV3Page() {
@@ -18,6 +19,10 @@ export function WorkRuntimeV3Page() {
 
   if (pathname === "/incoming-work") {
     return <IncomingWorkPage />;
+  }
+
+  if (pathname === "/work-oversight") {
+    return <WorkOversightPage />;
   }
 
   return <WorkStageWorkspacePage />;

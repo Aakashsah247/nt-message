@@ -13,6 +13,11 @@ import type {
 const BRANCH_TIME_ZONE = "Asia/Kathmandu";
 
 type OverviewStatusFilter = "ALL" | WorkRuntimeV3Status;
+export type WorkOverviewVariant = "OPERATIONAL" | "OVERSIGHT";
+
+interface WorkOverviewPageProps {
+  variant?: WorkOverviewVariant;
+}
 
 const STATUS_FILTERS: WorkRuntimeV3Status[] = [
   "OPEN",
@@ -72,7 +77,9 @@ function matchesSearch(work: WorkRuntimeV3OverviewWork, query: string): boolean 
   return searchable.includes(query);
 }
 
-export function WorkOverviewPage() {
+export function WorkOverviewPage({
+  variant = "OPERATIONAL",
+}: WorkOverviewPageProps = {}) {
   const { accessToken } = useAuth();
   const { t, i18n } = useTranslation("workspace");
   const [offices, setOffices] = useState<
@@ -86,6 +93,7 @@ export function WorkOverviewPage() {
   const [loadingOffices, setLoadingOffices] = useState(Boolean(accessToken));
   const [loadingWork, setLoadingWork] = useState(false);
   const [error, setError] = useState("");
+  const isOversight = variant === "OVERSIGHT";
 
   useEffect(() => {
     if (!accessToken) {
@@ -200,22 +208,28 @@ export function WorkOverviewPage() {
         <div className="flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between">
           <div>
             <p className="text-xs font-bold uppercase tracking-[0.18em] text-sky-700">
-              {t("work.overview.eyebrow")}
+              {t(isOversight ? "work.oversight.eyebrow" : "work.overview.eyebrow")}
             </p>
             <h1 className="mt-2 text-2xl font-bold text-slate-950 sm:text-3xl">
-              {t("work.overview.title")}
+              {t(isOversight ? "work.oversight.title" : "work.overview.title")}
             </h1>
             <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-600">
-              {t("work.overview.description")}
+              {t(
+                isOversight
+                  ? "work.oversight.description"
+                  : "work.overview.description",
+              )}
             </p>
           </div>
 
-          <Link
-            to="/work/create"
-            className="inline-flex min-h-11 items-center justify-center rounded-xl bg-sky-700 px-5 py-2.5 text-sm font-bold text-white transition hover:bg-sky-800 focus:outline-none focus:ring-2 focus:ring-sky-500 focus:ring-offset-2"
-          >
-            {t("work.overview.create")}
-          </Link>
+          {!isOversight ? (
+            <Link
+              to="/work/create"
+              className="inline-flex min-h-11 items-center justify-center rounded-xl bg-sky-700 px-5 py-2.5 text-sm font-bold text-white transition hover:bg-sky-800 focus:outline-none focus:ring-2 focus:ring-sky-500 focus:ring-offset-2"
+            >
+              {t("work.overview.create")}
+            </Link>
+          ) : null}
         </div>
       </section>
 
@@ -351,7 +365,7 @@ export function WorkOverviewPage() {
                           <span className="rounded-full bg-slate-100 px-2.5 py-1 text-xs font-bold text-slate-700">
                             {t(`work.status.${work.runtimeStatus}`)}
                           </span>
-                          {work.availableActions.length > 0 ? (
+                          {!isOversight && work.availableActions.length > 0 ? (
                             <span className="rounded-full bg-emerald-50 px-2.5 py-1 text-xs font-bold text-emerald-800">
                               {t("work.overview.actionsAvailable", {
                                 count: work.availableActions.length,
@@ -416,7 +430,11 @@ export function WorkOverviewPage() {
                       </div>
 
                       <Link
-                        to={`/work/${work.officeId}/${work.id}`}
+                        to={
+                          isOversight
+                            ? `/work/${work.officeId}/${work.id}?source=oversight`
+                            : `/work/${work.officeId}/${work.id}`
+                        }
                         className="inline-flex min-h-11 shrink-0 items-center justify-center rounded-xl border border-sky-200 bg-sky-50 px-4 py-2.5 text-sm font-bold text-sky-800 transition hover:bg-sky-100 focus:outline-none focus:ring-2 focus:ring-sky-500 focus:ring-offset-2"
                       >
                         {t("work.overview.open")}
