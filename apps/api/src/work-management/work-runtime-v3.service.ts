@@ -336,18 +336,11 @@ export class WorkRuntimeV3Service {
         officeId,
       );
       const now = new Date();
-      const memberships = await this.prisma.orgMembership.findMany({
-        where: {
-          employee: { account: { id: user.accountId, isEnabled: true } },
-          officeId,
-          startsAt: { lte: now },
-          OR: [{ endsAt: null }, { endsAt: { gt: now } }],
-        },
-        select: { orgUnitId: true },
-      });
-      const membershipOrgUnitIds = memberships
-        .map((membership) => membership.orgUnitId)
-        .filter((orgUnitId): orgUnitId is string => Boolean(orgUnitId));
+      const operationalTeamIds = await this.activeOperationalTeamIdsForAccount(
+        user.accountId,
+        officeId,
+        now,
+      );
 
       const visibility: Prisma.WorkItemWhereInput[] = [
         { createdByAccountId: user.accountId },
@@ -363,11 +356,13 @@ export class WorkRuntimeV3Service {
                       targetType: WorkStageAssignmentTargetType.ACCOUNT,
                       targetAccountId: user.accountId,
                     },
-                    ...(membershipOrgUnitIds.length > 0
+                    ...(operationalTeamIds.length > 0
                       ? [
                           {
                             targetType: WorkStageAssignmentTargetType.TEAM,
-                            targetOrgUnitId: { in: membershipOrgUnitIds },
+                            targetOperationalTeamId: {
+                              in: operationalTeamIds,
+                            },
                           },
                         ]
                       : []),
@@ -877,18 +872,11 @@ export class WorkRuntimeV3Service {
     }
 
     const now = new Date();
-    const memberships = await this.prisma.orgMembership.findMany({
-      where: {
-        employee: { account: { id: user.accountId, isEnabled: true } },
-        officeId: work.officeId,
-        startsAt: { lte: now },
-        OR: [{ endsAt: null }, { endsAt: { gt: now } }],
-      },
-      select: { orgUnitId: true },
-    });
-    const orgUnitIds = memberships
-      .map((membership) => membership.orgUnitId)
-      .filter((orgUnitId): orgUnitId is string => Boolean(orgUnitId));
+    const operationalTeamIds = await this.activeOperationalTeamIdsForAccount(
+      user.accountId,
+      work.officeId,
+      now,
+    );
 
     return Boolean(
       await this.prisma.workStageAssignment.findFirst({
@@ -898,11 +886,13 @@ export class WorkRuntimeV3Service {
           assignmentRole: WorkStageAssignmentRole.PRIMARY,
           OR: [
             { targetAccountId: user.accountId },
-            ...(orgUnitIds.length > 0
+            ...(operationalTeamIds.length > 0
               ? [
                   {
                     targetType: WorkStageAssignmentTargetType.TEAM,
-                    targetOrgUnitId: { in: orgUnitIds },
+                    targetOperationalTeamId: {
+                      in: operationalTeamIds,
+                    },
                   },
                 ]
               : []),
@@ -911,6 +901,64 @@ export class WorkRuntimeV3Service {
         select: { id: true },
       }),
     );
+  }
+
+  private async activeOperationalTeamIdsForAccount(
+    accountId: string,
+    officeId: string,
+    at = new Date(),
+  ): Promise<string[]> {
+    const teams = await this.prisma.operationalTeam.findMany({
+      where: {
+        isActive: true,
+        archivedAt: null,
+        orgUnit: { officeId, isActive: true },
+        OR: [
+          {
+            members: {
+              some: {
+                startsAt: { lte: at },
+                OR: [{ endsAt: null }, { endsAt: { gt: at } }],
+                employee: {
+                  status: EmployeeStatus.ACTIVE,
+                  employmentStatus: EmploymentStatus.ACTIVE,
+                  archivedAt: null,
+                  account: {
+                    id: accountId,
+                    isEnabled: true,
+                    role: { not: AccountRole.SUPER_ADMIN },
+                  },
+                },
+              },
+            },
+          },
+          {
+            leadAssignments: {
+              some: {
+                effectiveFrom: { lte: at },
+                OR: [
+                  { effectiveUntil: null },
+                  { effectiveUntil: { gt: at } },
+                ],
+                employee: {
+                  status: EmployeeStatus.ACTIVE,
+                  employmentStatus: EmploymentStatus.ACTIVE,
+                  archivedAt: null,
+                  account: {
+                    id: accountId,
+                    isEnabled: true,
+                    role: { not: AccountRole.SUPER_ADMIN },
+                  },
+                },
+              },
+            },
+          },
+        ],
+      },
+      select: { id: true },
+    });
+
+    return teams.map((team) => team.id);
   }
 
   private async getActorContext(
@@ -949,6 +997,25 @@ export class WorkRuntimeV3Service {
               },
               select: { leadershipType: true, orgUnitId: true },
             },
+            operationalTeamLeadAssignments: {
+              where: {
+                effectiveFrom: { lte: at },
+                OR: [{ effectiveUntil: null }, { effectiveUntil: { gt: at } }],
+                team: {
+                  isActive: true,
+                  archivedAt: null,
+                  orgUnit: { officeId, isActive: true },
+                },
+              },
+              select: {
+                team: {
+                  select: {
+                    id: true,
+                    orgUnitId: true,
+                  },
+                },
+              },
+            },
           },
         },
       },
@@ -982,6 +1049,8 @@ export class WorkRuntimeV3Service {
       accountId: account.id,
       primaryOrgUnitId,
       leadership: account.employee.orgLeadershipAssignments,
+      operationalTeamLeadership:
+        account.employee.operationalTeamLeadAssignments,
     };
   }
 
@@ -1016,12 +1085,11 @@ export class WorkRuntimeV3Service {
       ) {
         candidateOrgUnits.push(assignment.orgUnitId);
       }
-      if (
-        assignment.leadershipType === OrgLeadershipType.TEAM_LEAD &&
-        categorySet.has(WorkTypeCreatorCategory.TEAM_LEAD) &&
-        assignment.orgUnitId
-      ) {
-        candidateOrgUnits.push(assignment.orgUnitId);
+    }
+
+    if (categorySet.has(WorkTypeCreatorCategory.TEAM_LEAD)) {
+      for (const assignment of actor.operationalTeamLeadership) {
+        candidateOrgUnits.push(assignment.team.orgUnitId);
       }
     }
 

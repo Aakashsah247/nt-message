@@ -541,6 +541,18 @@ export class WorkRuntimeV3NotificationsService
           id: true,
           name: true,
           status: true,
+          assignments: {
+            where: {
+              endsAt: null,
+              assignmentRole: 'PRIMARY',
+            },
+            orderBy: { startsAt: 'desc' },
+            take: 1,
+            select: {
+              targetType: true,
+              targetOperationalTeamId: true,
+            },
+          },
           workItem: {
             select: {
               id: true,
@@ -554,11 +566,26 @@ export class WorkRuntimeV3NotificationsService
     ]);
     if (!stage?.workItem.runtimeStatus) return;
 
-    const rawRecipients = input.fullEscalation
+    let rawRecipients = input.fullEscalation
       ? escalation.recipientAccountIds
       : input.recipientScope === 'ASSIGNED'
         ? this.assignmentRecipients(escalation.steps)
         : this.immediateEscalationRecipients(escalation.steps);
+
+    const assignment = stage.assignments[0] ?? null;
+    if (
+      input.recipientScope === 'ASSIGNED' &&
+      assignment?.targetType === 'TEAM' &&
+      assignment.targetOperationalTeamId
+    ) {
+      rawRecipients = [
+        ...rawRecipients,
+        ...(await this.resolveOperationalTeamRecipients(
+          input.officeId,
+          assignment.targetOperationalTeamId,
+        )),
+      ];
+    }
     const recipientAccountIds = await this.filterOperationalRecipients(
       rawRecipients,
     );
@@ -645,6 +672,72 @@ export class WorkRuntimeV3NotificationsService
     ]);
   }
 
+  private async resolveOperationalTeamRecipients(
+    officeId: string,
+    teamId: string,
+    at = new Date(),
+  ): Promise<string[]> {
+    const team = await this.prisma.operationalTeam.findFirst({
+      where: {
+        id: teamId,
+        isActive: true,
+        archivedAt: null,
+        orgUnit: { officeId, isActive: true },
+      },
+      select: {
+        members: {
+          where: {
+            startsAt: { lte: at },
+            OR: [{ endsAt: null }, { endsAt: { gt: at } }],
+          },
+          select: {
+            employee: {
+              select: {
+                status: true,
+                employmentStatus: true,
+                archivedAt: true,
+                account: {
+                  select: { id: true, role: true, isEnabled: true },
+                },
+              },
+            },
+          },
+        },
+        leadAssignments: {
+          where: {
+            effectiveFrom: { lte: at },
+            OR: [{ effectiveUntil: null }, { effectiveUntil: { gt: at } }],
+          },
+          orderBy: [
+            { isActing: 'desc' },
+            { effectiveFrom: 'desc' },
+            { id: 'asc' },
+          ],
+          take: 1,
+          select: {
+            employee: {
+              select: {
+                status: true,
+                employmentStatus: true,
+                archivedAt: true,
+                account: {
+                  select: { id: true, role: true, isEnabled: true },
+                },
+              },
+            },
+          },
+        },
+      },
+    });
+    if (!team) return [];
+
+    const accountIds = [
+      ...team.members.map((item) => item.employee.account?.id ?? ''),
+      ...team.leadAssignments.map((item) => item.employee.account?.id ?? ''),
+    ];
+    return this.filterOperationalRecipients(accountIds);
+  }
+
   private async resolveOrgUnitRecipients(
     officeId: string,
     orgUnitId: string,
@@ -662,7 +755,6 @@ export class WorkRuntimeV3NotificationsService
         ancestorOrgUnit: {
           select: {
             id: true,
-            orgUnitType: { select: { isTeam: true } },
           },
         },
       },
@@ -683,12 +775,7 @@ export class WorkRuntimeV3NotificationsService
                 orgUnitId: null,
               },
               {
-                leadershipType: {
-                  in: [
-                    OrgLeadershipType.ORG_UNIT_HEAD,
-                    OrgLeadershipType.TEAM_LEAD,
-                  ],
-                },
+                leadershipType: OrgLeadershipType.ORG_UNIT_HEAD,
                 orgUnitId: { in: orgUnitIds },
               },
             ],
@@ -721,22 +808,12 @@ export class WorkRuntimeV3NotificationsService
 
     const recipients: string[] = [];
     for (const item of ancestry) {
-      const local: string[] = [];
-      if (item.ancestorOrgUnit.orgUnitType.isTeam) {
-        const teamLead = this.pickLeader(
-          leadership,
-          OrgLeadershipType.TEAM_LEAD,
-          item.ancestorOrgUnit.id,
-        );
-        if (teamLead) local.push(teamLead);
-      }
       const unitHead = this.pickLeader(
         leadership,
         OrgLeadershipType.ORG_UNIT_HEAD,
         item.ancestorOrgUnit.id,
       );
-      if (unitHead) local.push(unitHead);
-      recipients.push(...local);
+      if (unitHead) recipients.push(unitHead);
       if (!fullEscalation && recipients.length > 0) break;
     }
 

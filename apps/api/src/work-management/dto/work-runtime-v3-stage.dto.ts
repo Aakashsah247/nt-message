@@ -53,6 +53,10 @@ export class AssignWorkRuntimeV3StageDto extends WorkRuntimeV3StageMutationDto {
 
   @IsOptional()
   @IsUUID('4')
+  targetOperationalTeamId?: string;
+
+  @IsOptional()
+  @IsUUID('4')
   targetAccountId?: string;
 
   @Transform(({ value }: { value: unknown }) => trimText(value))

@@ -51,6 +51,7 @@ export interface WorkRuntimeV3StageAssignment {
   id: string;
   targetType: WorkRuntimeV3AssignmentTargetType;
   targetOrgUnitId: string | null;
+  targetOperationalTeamId: string | null;
   targetAccountId: string | null;
   assignmentRole: string;
   assignmentReason: string | null;
@@ -59,6 +60,12 @@ export interface WorkRuntimeV3StageAssignment {
     id: string;
     code: string;
     name: string;
+  } | null;
+  targetOperationalTeam: {
+    id: string;
+    code: string;
+    name: string;
+    orgUnitId: string;
   } | null;
   targetAccount: {
     id: string;
@@ -174,8 +181,37 @@ export interface AssignWorkRuntimeV3StageInput {
   expectedStageVersion: number;
   targetType?: WorkRuntimeV3AssignmentTargetType;
   targetOrgUnitId?: string;
+  targetOperationalTeamId?: string;
   targetAccountId?: string;
   reason?: string;
+}
+
+export interface WorkRuntimeV3OperationalTeamPerson {
+  accountId: string;
+  employeeId: string;
+  employeeCode: string;
+  employeeName: string;
+}
+
+export interface WorkRuntimeV3OperationalTeam {
+  id: string;
+  code: string;
+  name: string;
+  orgUnitId: string;
+  lead: (WorkRuntimeV3OperationalTeamPerson & {
+    assignmentId: string;
+    isActing: boolean;
+  }) | null;
+  members: Array<WorkRuntimeV3OperationalTeamPerson & {
+    membershipId: string;
+  }>;
+}
+
+export interface WorkRuntimeV3StageAssignmentContext {
+  stageId: string;
+  responsibleOrgUnitId: string;
+  assignmentMode: WorkStageAssignmentMode;
+  operationalTeams: WorkRuntimeV3OperationalTeam[];
 }
 
 export interface WorkRuntimeV3StageMutationInput {

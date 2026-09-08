@@ -46,7 +46,7 @@ describe('OrganizationAuthorityService', () => {
     ).rejects.toBeInstanceOf(ForbiddenException);
   });
 
-  it('allows Team Lead to manage only the exact Team scope', async () => {
+  it('does not grant formal organization mutation from legacy Team Lead rows', async () => {
     const leadershipFindFirst = jest.fn(
       async (input: {
         where?: Record<string, unknown>;
@@ -58,17 +58,6 @@ describe('OrganizationAuthorityService', () => {
           OrgLeadershipType.OFFICE_HEAD
         ) {
           return null;
-        }
-
-        const serialized = JSON.stringify(where);
-
-        if (
-          serialized.includes(
-            `"leadershipType":"${OrgLeadershipType.TEAM_LEAD}"`,
-          ) &&
-          serialized.includes('"orgUnitId":"team-1"')
-        ) {
-          return { id: 'team-lead-assignment' };
         }
 
         return null;
@@ -92,7 +81,7 @@ describe('OrganizationAuthorityService', () => {
         'office-1',
         'team-1',
       ),
-    ).resolves.toBeUndefined();
+    ).rejects.toBeInstanceOf(ForbiddenException);
 
     await expect(
       service.assertCanManageOrgUnit(

@@ -131,6 +131,50 @@ describe('OrganizationHierarchyService', () => {
     });
   });
 
+  it('rejects creating a new formal OrgUnit from a legacy Team OrgUnit type', async () => {
+    const transaction = {
+      orgUnitType: {
+        findFirst: jest.fn().mockResolvedValue({
+          id: 'legacy-team-type',
+          isTeam: true,
+        }),
+      },
+      orgUnit: {
+        findFirst: jest.fn(),
+        create: jest.fn(),
+      },
+    };
+    const prisma = {
+      $transaction: jest.fn(
+        async (callback: (tx: typeof transaction) => Promise<unknown>) =>
+          callback(transaction),
+      ),
+    } as unknown as PrismaService;
+    const authority = {
+      assertCanManageOrgUnit: jest.fn(),
+      assertOfficeHead: jest.fn(),
+    } as unknown as OrganizationAuthorityService;
+    const authorization = {
+      assertCan: jest.fn().mockResolvedValue(undefined),
+    } as unknown as OrganizationAuthorizationService;
+    const service = new OrganizationHierarchyService(
+      prisma,
+      authority,
+      authorization,
+    );
+
+    await expect(
+      service.createOrgUnit(user, 'office-1', {
+        orgUnitTypeId: 'legacy-team-type',
+        parentOrgUnitId: 'formal-unit-1',
+        code: 'TEAM-NEW',
+        name: 'New Team',
+      }),
+    ).rejects.toBeInstanceOf(BadRequestException);
+
+    expect(transaction.orgUnit.create).not.toHaveBeenCalled();
+  });
+
   it('rejects a move beneath one of the unit descendants', async () => {
     const orgUnitFindFirst = jest
       .fn()

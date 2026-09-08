@@ -163,6 +163,14 @@ describe('WorkTypeV3Service', () => {
     });
 
     expect(prisma.orgMembership.findMany).toHaveBeenCalledTimes(1);
+    expect(prisma.orgUnit.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: {
+          officeId: office.id,
+          orgUnitType: { isTeam: false },
+        },
+      }),
+    );
   });
 
   it('keeps creator-account candidates hidden from read-only viewers', async () => {

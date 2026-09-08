@@ -11,7 +11,6 @@ import {
   EmployeeStatus,
   EmploymentStatus,
   OrgLeadershipType,
-  OrgMembershipType,
   WorkStageAssignmentRole,
   WorkStageAssignmentTargetType,
   WorkStageStatus,
@@ -124,9 +123,6 @@ export class WorkRuntimeV3EscalationService {
             id: true,
             code: true,
             name: true,
-            orgUnitType: {
-              select: { isTeam: true },
-            },
           },
         },
         assignments: {
@@ -138,16 +134,14 @@ export class WorkRuntimeV3EscalationService {
           take: 1,
           select: {
             targetType: true,
-            targetOrgUnitId: true,
+            targetOperationalTeamId: true,
             targetAccountId: true,
-            targetOrgUnit: {
+            targetOperationalTeam: {
               select: {
                 id: true,
                 code: true,
                 name: true,
-                orgUnitType: {
-                  select: { isTeam: true },
-                },
+                orgUnitId: true,
               },
             },
             targetAccount: {
@@ -176,7 +170,7 @@ export class WorkRuntimeV3EscalationService {
     }
 
     const assignment = stage.assignments[0] ?? null;
-    let teamOrgUnitId: string | null = null;
+    let operationalTeamId: string | null = null;
     const steps: EscalationStep[] = [];
 
     if (
@@ -201,53 +195,31 @@ export class WorkRuntimeV3EscalationService {
         isActing: false,
       });
 
-      const primaryMembership = await this.prisma.orgMembership.findFirst({
+      const operationalMembership = await this.prisma.operationalTeamMember.findFirst({
         where: {
-          officeId,
-          membershipType: OrgMembershipType.PRIMARY,
+          employeeId: assignment.targetAccount.employee.id,
           startsAt: { lte: at },
           OR: [{ endsAt: null }, { endsAt: { gt: at } }],
-          employee: {
-            account: {
-              id: assignment.targetAccount.id,
-              isEnabled: true,
-            },
-          },
-          orgUnit: {
-            ancestorLinks: {
-              some: {
-                ancestorOrgUnitId: stage.responsibleOrgUnitId,
-              },
+          team: {
+            orgUnitId: stage.responsibleOrgUnitId,
+            isActive: true,
+            archivedAt: null,
+            orgUnit: {
+              officeId,
+              isActive: true,
             },
           },
         },
         select: {
-          orgUnitId: true,
-          orgUnit: {
-            select: {
-              id: true,
-              orgUnitType: {
-                select: { isTeam: true },
-              },
-            },
-          },
+          teamId: true,
         },
       });
-
-      if (primaryMembership?.orgUnit?.orgUnitType.isTeam) {
-        teamOrgUnitId = primaryMembership.orgUnit.id;
-      }
+      operationalTeamId = operationalMembership?.teamId ?? null;
     } else if (
-      assignment?.targetOrgUnit?.orgUnitType.isTeam &&
-      (assignment.targetType === WorkStageAssignmentTargetType.TEAM ||
-        assignment.targetType ===
-          WorkStageAssignmentTargetType.ORG_UNIT_QUEUE)
+      assignment?.targetType === WorkStageAssignmentTargetType.TEAM &&
+      assignment.targetOperationalTeamId
     ) {
-      teamOrgUnitId = assignment.targetOrgUnit.id;
-    }
-
-    if (!teamOrgUnitId && stage.responsibleOrgUnit.orgUnitType.isTeam) {
-      teamOrgUnitId = stage.responsibleOrgUnit.id;
+      operationalTeamId = assignment.targetOperationalTeamId;
     }
 
     const ancestry = await this.prisma.orgUnitClosure.findMany({
@@ -268,12 +240,7 @@ export class WorkRuntimeV3EscalationService {
       },
     });
 
-    const orgUnitIds = new Set(
-      ancestry.map((item) => item.ancestorOrgUnit.id),
-    );
-    if (teamOrgUnitId) {
-      orgUnitIds.add(teamOrgUnitId);
-    }
+    const orgUnitIds = new Set(ancestry.map((item) => item.ancestorOrgUnit.id));
 
     const leadership = await this.prisma.orgLeadershipAssignment.findMany({
       where: {
@@ -291,12 +258,7 @@ export class WorkRuntimeV3EscalationService {
                 orgUnitId: null,
               },
               {
-                leadershipType: {
-                  in: [
-                    OrgLeadershipType.ORG_UNIT_HEAD,
-                    OrgLeadershipType.TEAM_LEAD,
-                  ],
-                },
+                leadershipType: OrgLeadershipType.ORG_UNIT_HEAD,
                 orgUnitId: { in: [...orgUnitIds] },
               },
             ],
@@ -333,29 +295,62 @@ export class WorkRuntimeV3EscalationService {
       },
     });
 
-    if (teamOrgUnitId) {
-      const team =
-        assignment?.targetOrgUnit?.id === teamOrgUnitId
-          ? {
-              id: assignment.targetOrgUnit.id,
-              code: assignment.targetOrgUnit.code,
-              name: assignment.targetOrgUnit.name,
-            }
-          : await this.prisma.orgUnit.findFirst({
-              where: { id: teamOrgUnitId, officeId },
-              select: { id: true, code: true, name: true },
-            });
+    if (operationalTeamId) {
+      const teamLead = await this.prisma.operationalTeamLeadAssignment.findFirst({
+        where: {
+          teamId: operationalTeamId,
+          effectiveFrom: { lte: at },
+          OR: [{ effectiveUntil: null }, { effectiveUntil: { gt: at } }],
+          team: {
+            orgUnitId: stage.responsibleOrgUnitId,
+            isActive: true,
+            archivedAt: null,
+            orgUnit: { officeId, isActive: true },
+          },
+          employee: {
+            status: EmployeeStatus.ACTIVE,
+            employmentStatus: EmploymentStatus.ACTIVE,
+            archivedAt: null,
+            account: {
+              isEnabled: true,
+              role: { not: AccountRole.SUPER_ADMIN },
+            },
+          },
+        },
+        orderBy: [{ isActing: 'desc' }, { effectiveFrom: 'desc' }, { id: 'asc' }],
+        select: {
+          id: true,
+          isActing: true,
+          team: { select: { id: true, code: true, name: true } },
+          employee: {
+            select: {
+              id: true,
+              empId: true,
+              empName: true,
+              account: { select: { id: true } },
+            },
+          },
+        },
+      });
 
-      if (team) {
-        this.appendLeadershipStep(
-          steps,
-          leadership,
-          OrgLeadershipType.TEAM_LEAD,
-          teamOrgUnitId,
-          'TEAM_LEAD',
-          team,
-          null,
-        );
+      if (teamLead?.employee.account) {
+        steps.push({
+          level: steps.length,
+          kind: 'TEAM_LEAD',
+          accountId: teamLead.employee.account.id,
+          employeeId: teamLead.employee.id,
+          employeeCode: teamLead.employee.empId,
+          employeeName: teamLead.employee.empName,
+          orgUnit: {
+            id: teamLead.team.id,
+            code: teamLead.team.code,
+            name: teamLead.team.name,
+          },
+          hierarchyDepth: null,
+          leadershipAssignmentId: teamLead.id,
+          leadershipType: OrgLeadershipType.TEAM_LEAD,
+          isActing: teamLead.isActing,
+        });
       }
     }
 
@@ -465,7 +460,7 @@ export class WorkRuntimeV3EscalationService {
           take: 1,
           select: {
             targetType: true,
-            targetOrgUnitId: true,
+            targetOperationalTeamId: true,
             targetAccountId: true,
           },
         },
@@ -479,11 +474,11 @@ export class WorkRuntimeV3EscalationService {
     }
     if (
       assignment?.targetType === WorkStageAssignmentTargetType.TEAM &&
-      assignment.targetOrgUnitId &&
-      (await this.accountHasExactMembership(
+      assignment.targetOperationalTeamId &&
+      (await this.accountBelongsToOperationalTeam(
         user.accountId,
         officeId,
-        assignment.targetOrgUnitId,
+        assignment.targetOperationalTeamId,
       ))
     ) {
       return true;
@@ -504,33 +499,60 @@ export class WorkRuntimeV3EscalationService {
     return false;
   }
 
-  private async accountHasExactMembership(
+  private async accountBelongsToOperationalTeam(
     accountId: string,
     officeId: string,
-    orgUnitId: string,
+    teamId: string,
   ): Promise<boolean> {
     const now = new Date();
     return Boolean(
-      await this.prisma.account.findFirst({
+      await this.prisma.operationalTeam.findFirst({
         where: {
-          id: accountId,
-          isEnabled: true,
-          role: { not: AccountRole.SUPER_ADMIN },
-          employee: {
-            is: {
-              status: EmployeeStatus.ACTIVE,
-              employmentStatus: EmploymentStatus.ACTIVE,
-              archivedAt: null,
-              orgMemberships: {
+          id: teamId,
+          isActive: true,
+          archivedAt: null,
+          orgUnit: { officeId, isActive: true },
+          OR: [
+            {
+              members: {
                 some: {
-                  officeId,
-                  orgUnitId,
                   startsAt: { lte: now },
                   OR: [{ endsAt: null }, { endsAt: { gt: now } }],
+                  employee: {
+                    status: EmployeeStatus.ACTIVE,
+                    employmentStatus: EmploymentStatus.ACTIVE,
+                    archivedAt: null,
+                    account: {
+                      id: accountId,
+                      isEnabled: true,
+                      role: { not: AccountRole.SUPER_ADMIN },
+                    },
+                  },
                 },
               },
             },
-          },
+            {
+              leadAssignments: {
+                some: {
+                  effectiveFrom: { lte: now },
+                  OR: [
+                    { effectiveUntil: null },
+                    { effectiveUntil: { gt: now } },
+                  ],
+                  employee: {
+                    status: EmployeeStatus.ACTIVE,
+                    employmentStatus: EmploymentStatus.ACTIVE,
+                    archivedAt: null,
+                    account: {
+                      id: accountId,
+                      isEnabled: true,
+                      role: { not: AccountRole.SUPER_ADMIN },
+                    },
+                  },
+                },
+              },
+            },
+          ],
         },
         select: { id: true },
       }),

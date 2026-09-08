@@ -71,18 +71,6 @@ const ORG_UNIT_HEAD_CAPABILITIES = new Set<Capability>([
   CAPABILITIES.WORK_REOPEN,
 ]);
 
-const TEAM_LEAD_CAPABILITIES = new Set<Capability>([
-  CAPABILITIES.ORGANIZATION_VIEW,
-  CAPABILITIES.MEMBERSHIP_VIEW,
-  CAPABILITIES.LEADERSHIP_VIEW,
-  CAPABILITIES.WORK_VIEW,
-  CAPABILITIES.WORK_ASSIGN,
-  CAPABILITIES.WORK_START_STAGE,
-  CAPABILITIES.WORK_SUBMIT_STAGE,
-  CAPABILITIES.WORK_APPROVE_STAGE,
-  CAPABILITIES.WORK_RETURN_STAGE,
-]);
-
 const SUPER_ADMIN_CAPABILITIES = new Set<Capability>([
   CAPABILITIES.ORGANIZATION_VIEW,
   CAPABILITIES.MEMBERSHIP_VIEW,
@@ -228,20 +216,6 @@ export class OrganizationAuthorizationService {
           orgUnitId,
           true,
         ))
-      ) {
-        return true;
-      }
-
-      /*
-       * Team Lead scope is the Team itself, not the full descendant tree.
-       */
-      if (
-        assignment.leadershipType ===
-          OrgLeadershipType.TEAM_LEAD &&
-        TEAM_LEAD_CAPABILITIES.has(capability) &&
-        assignment.orgUnitId !== null &&
-        orgUnitId !== null &&
-        assignment.orgUnitId === orgUnitId
       ) {
         return true;
       }
@@ -588,14 +562,6 @@ export class OrganizationAuthorizationService {
         );
       }
 
-      if (
-        assignment.leadershipType ===
-          OrgLeadershipType.TEAM_LEAD &&
-        assignment.orgUnitId &&
-        TEAM_LEAD_CAPABILITIES.has(capability)
-      ) {
-        ids.add(assignment.orgUnitId);
-      }
     }
 
     const delegated =

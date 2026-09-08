@@ -25,6 +25,9 @@ const unitHeadAccountId = '66666666-6666-4666-8666-666666666666';
 const superAdminAccountId = '77777777-7777-4777-8777-777777777777';
 const orgUnitId = '88888888-8888-4888-8888-888888888888';
 const requesterAccountId = '99999999-9999-4999-8999-999999999999';
+const operationalTeamId = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
+const teamLeadAccountId = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
+const teamMemberAccountId = 'cccccccc-cccc-4ccc-8ccc-cccccccccccc';
 
 function createHarness() {
   const prisma = {
@@ -34,6 +37,7 @@ function createHarness() {
         id: stageId,
         name: 'Accounts verification',
         status: WorkStageStatus.READY,
+        assignments: [],
         workItem: {
           id: workItemId,
           ticketNumber: 'WRK-1001',
@@ -52,6 +56,7 @@ function createHarness() {
     workCollaborationRequest: { findFirst: jest.fn() },
     orgUnitClosure: { findMany: jest.fn().mockResolvedValue([]) },
     orgLeadershipAssignment: { findMany: jest.fn().mockResolvedValue([]) },
+    operationalTeam: { findFirst: jest.fn() },
     account: {
       findMany: jest.fn().mockImplementation(({ where }: any) =>
         (where.id.in as string[])
@@ -128,6 +133,100 @@ describe('WorkRuntimeV3NotificationsService', () => {
         where: expect.objectContaining({
           role: { not: AccountRole.SUPER_ADMIN },
         }),
+      }),
+    );
+  });
+
+  it('publishes TEAM assignment to Operational Team members and the current Team Lead', async () => {
+    const harness = createHarness();
+    harness.prisma.workStage.findFirst.mockResolvedValue({
+      id: stageId,
+      name: 'Field execution',
+      status: WorkStageStatus.READY,
+      assignments: [
+        {
+          targetType: 'TEAM',
+          targetOperationalTeamId: operationalTeamId,
+        },
+      ],
+      workItem: {
+        id: workItemId,
+        ticketNumber: 'WRK-1001',
+        title: 'New installation',
+        runtimeStatus: WorkRuntimeStatus.OPEN,
+      },
+    });
+    harness.prisma.operationalTeam.findFirst.mockResolvedValue({
+      members: [
+        {
+          employee: {
+            status: EmployeeStatus.ACTIVE,
+            employmentStatus: EmploymentStatus.ACTIVE,
+            archivedAt: null,
+            account: {
+              id: teamMemberAccountId,
+              role: AccountRole.EMPLOYEE,
+              isEnabled: true,
+            },
+          },
+        },
+      ],
+      leadAssignments: [
+        {
+          employee: {
+            status: EmployeeStatus.ACTIVE,
+            employmentStatus: EmploymentStatus.ACTIVE,
+            archivedAt: null,
+            account: {
+              id: teamLeadAccountId,
+              role: AccountRole.EMPLOYEE,
+              isEnabled: true,
+            },
+          },
+        },
+      ],
+    });
+    harness.escalation.resolveStageEscalation.mockResolvedValue({
+      workItemId,
+      ticketNumber: 'WRK-1001',
+      createdByAccountId: actorAccountId,
+      workStatus: WorkRuntimeStatus.OPEN,
+      responsibleOrgUnit: { id: orgUnitId, code: 'TECH', name: 'Technical' },
+      recipientAccountIds: [teamLeadAccountId, unitHeadAccountId],
+      steps: [
+        {
+          kind: 'TEAM_LEAD',
+          accountId: teamLeadAccountId,
+          hierarchyDepth: null,
+        },
+        {
+          kind: 'ORG_UNIT_HEAD',
+          accountId: unitHeadAccountId,
+          hierarchyDepth: 0,
+        },
+      ],
+    });
+
+    await harness.service.publishStageAssigned(
+      officeId,
+      stageId,
+      actorAccountId,
+    );
+
+    expect(harness.prisma.operationalTeam.findFirst).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          id: operationalTeamId,
+          isActive: true,
+          archivedAt: null,
+          orgUnit: { officeId, isActive: true },
+        }),
+      }),
+    );
+    expect(harness.workNotifications.publishWorkUpdate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: 'V3_STAGE_ASSIGNED',
+        recipientAccountIds: [teamLeadAccountId, teamMemberAccountId],
       }),
     );
   });
@@ -256,6 +355,26 @@ describe('WorkRuntimeV3NotificationsService', () => {
       expect.objectContaining({
         action: 'V3_COLLABORATION_REQUESTED',
         recipientAccountIds: [unitHeadAccountId],
+      }),
+    );
+    expect(harness.prisma.orgLeadershipAssignment.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          AND: [
+            {
+              OR: [
+                {
+                  leadershipType: OrgLeadershipType.OFFICE_HEAD,
+                  orgUnitId: null,
+                },
+                {
+                  leadershipType: OrgLeadershipType.ORG_UNIT_HEAD,
+                  orgUnitId: { in: [orgUnitId] },
+                },
+              ],
+            },
+          ],
+        }),
       }),
     );
   });

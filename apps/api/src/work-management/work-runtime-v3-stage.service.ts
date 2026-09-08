@@ -132,6 +132,7 @@ const STAGE_RUNTIME_SELECT = {
       id: true,
       targetType: true,
       targetOrgUnitId: true,
+      targetOperationalTeamId: true,
       targetAccountId: true,
       assignmentRole: true,
       assignmentReason: true,
@@ -141,6 +142,14 @@ const STAGE_RUNTIME_SELECT = {
           id: true,
           code: true,
           name: true,
+        },
+      },
+      targetOperationalTeam: {
+        select: {
+          id: true,
+          code: true,
+          name: true,
+          orgUnitId: true,
         },
       },
       targetAccount: {
@@ -179,6 +188,7 @@ type PrimaryAssignment = RuntimeStage['assignments'][number];
 type AssignmentTarget = {
   targetType: WorkStageAssignmentTargetType;
   targetOrgUnitId: string | null;
+  targetOperationalTeamId: string | null;
   targetAccountId: string | null;
 };
 
@@ -242,6 +252,7 @@ export class WorkRuntimeV3StageService {
           workStageId: stage.id,
           targetType: target.targetType,
           targetOrgUnitId: target.targetOrgUnitId,
+          targetOperationalTeamId: target.targetOperationalTeamId,
           targetAccountId: target.targetAccountId,
           assignmentRole: WorkStageAssignmentRole.PRIMARY,
           assignedByAccountId: user.accountId,
@@ -262,6 +273,7 @@ export class WorkRuntimeV3StageService {
             previousAssignmentId: current?.id ?? null,
             targetType: target.targetType,
             targetOrgUnitId: target.targetOrgUnitId,
+            targetOperationalTeamId: target.targetOperationalTeamId,
             targetAccountId: target.targetAccountId,
             reason,
           },
@@ -657,12 +669,14 @@ export class WorkRuntimeV3StageService {
     await this.prisma.$transaction(async (tx) => {
       const stage = await this.requireStage(tx, officeId, stageId);
       affectedWorkItemId = stage.workItemId;
-      await this.authorization.assertCan(
-        user,
-        CAPABILITIES.WORK_APPROVE_STAGE,
-        officeId,
-        stage.responsibleOrgUnitId,
-      );
+      if (stage.approvalMode !== WorkStageApprovalMode.TEAM_LEAD) {
+        await this.authorization.assertCan(
+          user,
+          CAPABILITIES.WORK_APPROVE_STAGE,
+          officeId,
+          stage.responsibleOrgUnitId,
+        );
+      }
       this.assertWorkOperational(stage);
       this.assertExpectedVersion(stage, dto.expectedStageVersion);
       this.assertStageCanBeReviewed(stage);
@@ -748,12 +762,14 @@ export class WorkRuntimeV3StageService {
   ) {
     await this.prisma.$transaction(async (tx) => {
       const stage = await this.requireStage(tx, officeId, stageId);
-      await this.authorization.assertCan(
-        user,
-        CAPABILITIES.WORK_RETURN_STAGE,
-        officeId,
-        stage.responsibleOrgUnitId,
-      );
+      if (stage.approvalMode !== WorkStageApprovalMode.TEAM_LEAD) {
+        await this.authorization.assertCan(
+          user,
+          CAPABILITIES.WORK_RETURN_STAGE,
+          officeId,
+          stage.responsibleOrgUnitId,
+        );
+      }
       this.assertWorkOperational(stage);
       this.assertExpectedVersion(stage, dto.expectedStageVersion);
       this.assertStageCanBeReviewed(stage);
@@ -1430,6 +1446,152 @@ export class WorkRuntimeV3StageService {
     };
   }
 
+  async getStageAssignmentContext(
+    user: AuthenticatedUser,
+    officeId: string,
+    stageId: string,
+  ) {
+    const stage = await this.prisma.workStage.findFirst({
+      where: {
+        id: stageId,
+        workItem: { officeId },
+      },
+      select: {
+        id: true,
+        responsibleOrgUnitId: true,
+        assignmentMode: true,
+      },
+    });
+    if (!stage) {
+      throw new NotFoundException('Work stage was not found.');
+    }
+
+    if (
+      !(await this.authorization.can(
+        user,
+        CAPABILITIES.WORK_ASSIGN,
+        officeId,
+        stage.responsibleOrgUnitId,
+      )) &&
+      !(await this.canAccessOperationalTeamContext(
+        user.accountId,
+        officeId,
+        stage.responsibleOrgUnitId,
+      ))
+    ) {
+      throw new ForbiddenException(
+        'You do not have access to assignment options for this Work stage.',
+      );
+    }
+
+    const now = new Date();
+    const teams = await this.prisma.operationalTeam.findMany({
+      where: {
+        orgUnitId: stage.responsibleOrgUnitId,
+        isActive: true,
+        archivedAt: null,
+        orgUnit: {
+          officeId,
+          isActive: true,
+        },
+      },
+      orderBy: [{ sortOrder: 'asc' }, { name: 'asc' }, { id: 'asc' }],
+      select: {
+        id: true,
+        code: true,
+        name: true,
+        orgUnitId: true,
+        leadAssignments: {
+          where: {
+            effectiveFrom: { lte: now },
+            OR: [{ effectiveUntil: null }, { effectiveUntil: { gt: now } }],
+          },
+          orderBy: [{ isActing: 'desc' }, { effectiveFrom: 'desc' }, { id: 'asc' }],
+          select: {
+            id: true,
+            isActing: true,
+            employee: {
+              select: {
+                id: true,
+                empId: true,
+                empName: true,
+                status: true,
+                employmentStatus: true,
+                archivedAt: true,
+                account: {
+                  select: {
+                    id: true,
+                    isEnabled: true,
+                    role: true,
+                  },
+                },
+              },
+            },
+          },
+        },
+        members: {
+          where: {
+            startsAt: { lte: now },
+            OR: [{ endsAt: null }, { endsAt: { gt: now } }],
+          },
+          orderBy: [{ employee: { empName: 'asc' } }, { id: 'asc' }],
+          select: {
+            id: true,
+            employee: {
+              select: {
+                id: true,
+                empId: true,
+                empName: true,
+                status: true,
+                employmentStatus: true,
+                archivedAt: true,
+                account: {
+                  select: {
+                    id: true,
+                    isEnabled: true,
+                    role: true,
+                  },
+                },
+              },
+            },
+          },
+        },
+      },
+    });
+
+    return {
+      stageId: stage.id,
+      responsibleOrgUnitId: stage.responsibleOrgUnitId,
+      assignmentMode: stage.assignmentMode,
+      operationalTeams: teams.map((team) => ({
+        id: team.id,
+        code: team.code,
+        name: team.name,
+        orgUnitId: team.orgUnitId,
+        lead:
+          team.leadAssignments
+            .filter((assignment) => this.isActiveOperationalEmployee(assignment.employee))
+            .map((assignment) => ({
+              assignmentId: assignment.id,
+              isActing: assignment.isActing,
+              accountId: assignment.employee.account!.id,
+              employeeId: assignment.employee.id,
+              employeeCode: assignment.employee.empId,
+              employeeName: assignment.employee.empName,
+            }))[0] ?? null,
+        members: team.members
+          .filter((membership) => this.isActiveOperationalEmployee(membership.employee))
+          .map((membership) => ({
+            membershipId: membership.id,
+            accountId: membership.employee.account!.id,
+            employeeId: membership.employee.id,
+            employeeCode: membership.employee.empId,
+            employeeName: membership.employee.empName,
+          })),
+      })),
+    };
+  }
+
   async listMyStages(
     user: AuthenticatedUser,
     officeId: string,
@@ -1467,22 +1629,10 @@ export class WorkRuntimeV3StageService {
     officeId: string,
     take = 50,
   ) {
-    const membershipOrgUnitIds = await this.activeMembershipOrgUnitIds(user, officeId);
-    if (membershipOrgUnitIds.length === 0) {
-      return [];
-    }
-
-    const teamIds = (
-      await this.prisma.orgUnit.findMany({
-        where: {
-          id: { in: membershipOrgUnitIds },
-          officeId,
-          isActive: true,
-          orgUnitType: { isTeam: true },
-        },
-        select: { id: true },
-      })
-    ).map((item) => item.id);
+    const teamIds = await this.activeOperationalTeamIdsForAccount(
+      user.accountId,
+      officeId,
+    );
 
     if (teamIds.length === 0) {
       return [];
@@ -1497,7 +1647,7 @@ export class WorkRuntimeV3StageService {
             endsAt: null,
             assignmentRole: WorkStageAssignmentRole.PRIMARY,
             targetType: WorkStageAssignmentTargetType.TEAM,
-            targetOrgUnitId: { in: teamIds },
+            targetOperationalTeamId: { in: teamIds },
           },
         },
       },
@@ -1836,6 +1986,44 @@ export class WorkRuntimeV3StageService {
       throw new ForbiddenException('Only an active Office employee can review this stage.');
     }
 
+    if (stage.approvalMode === WorkStageApprovalMode.TEAM_LEAD) {
+      const teamAssignment = stage.assignments[0];
+      if (
+        teamAssignment?.targetType !== WorkStageAssignmentTargetType.TEAM ||
+        !teamAssignment.targetOperationalTeamId
+      ) {
+        throw new ConflictException(
+          'TEAM_LEAD approval requires the stage to be assigned to an Operational Team.',
+        );
+      }
+
+      const teamLead = await tx.operationalTeamLeadAssignment.findFirst({
+        where: {
+          teamId: teamAssignment.targetOperationalTeamId,
+          employeeId,
+          effectiveFrom: { lte: at },
+          OR: [{ effectiveUntil: null }, { effectiveUntil: { gt: at } }],
+          team: {
+            isActive: true,
+            archivedAt: null,
+            orgUnitId: stage.responsibleOrgUnitId,
+            orgUnit: {
+              officeId: stage.workItem.officeId!,
+              isActive: true,
+            },
+          },
+        },
+        select: { id: true },
+      });
+
+      if (!teamLead) {
+        throw new ForbiddenException(
+          'You are not the current Team Lead for the assigned Operational Team.',
+        );
+      }
+      return;
+    }
+
     let leadershipType: OrgLeadershipType;
     let orgUnitId: string | null;
 
@@ -1847,18 +2035,6 @@ export class WorkRuntimeV3StageService {
     ) {
       leadershipType = OrgLeadershipType.ORG_UNIT_HEAD;
       orgUnitId = stage.responsibleOrgUnitId;
-    } else if (stage.approvalMode === WorkStageApprovalMode.TEAM_LEAD) {
-      const teamAssignment = stage.assignments[0];
-      if (
-        teamAssignment?.targetType !== WorkStageAssignmentTargetType.TEAM ||
-        !teamAssignment.targetOrgUnitId
-      ) {
-        throw new ConflictException(
-          'TEAM_LEAD approval requires the stage to be assigned to a Team.',
-        );
-      }
-      leadershipType = OrgLeadershipType.TEAM_LEAD;
-      orgUnitId = teamAssignment.targetOrgUnitId;
     } else {
       if (!stage.approvalLeadershipType) {
         throw new ConflictException(
@@ -2083,7 +2259,12 @@ export class WorkRuntimeV3StageService {
     at: Date,
   ): Promise<AssignmentTarget> {
     if (stage.assignmentMode === WorkStageAssignmentMode.RESPONSIBLE_ORG_UNIT_HEAD) {
-      if (dto.targetType || dto.targetOrgUnitId || dto.targetAccountId) {
+      if (
+        dto.targetType ||
+        dto.targetOrgUnitId ||
+        dto.targetOperationalTeamId ||
+        dto.targetAccountId
+      ) {
         throw new BadRequestException(
           'Responsible OrgUnit Head assignment is resolved by the server; do not supply a target.',
         );
@@ -2091,6 +2272,7 @@ export class WorkRuntimeV3StageService {
       return {
         targetType: WorkStageAssignmentTargetType.ACCOUNT,
         targetOrgUnitId: null,
+        targetOperationalTeamId: null,
         targetAccountId: await this.resolveResponsibleOrgUnitHeadAccountId(
           tx,
           stage,
@@ -2106,7 +2288,7 @@ export class WorkRuntimeV3StageService {
     this.assertTargetTypeAllowed(stage.assignmentMode, dto.targetType);
 
     if (dto.targetType === WorkStageAssignmentTargetType.ORG_UNIT_QUEUE) {
-      if (dto.targetAccountId) {
+      if (dto.targetAccountId || dto.targetOperationalTeamId) {
         throw new BadRequestException('OrgUnit queue assignment cannot contain an account target.');
       }
       if (dto.targetOrgUnitId && dto.targetOrgUnitId !== stage.responsibleOrgUnitId) {
@@ -2115,45 +2297,52 @@ export class WorkRuntimeV3StageService {
       return {
         targetType: dto.targetType,
         targetOrgUnitId: stage.responsibleOrgUnitId,
+        targetOperationalTeamId: null,
         targetAccountId: null,
       };
     }
 
     if (dto.targetType === WorkStageAssignmentTargetType.TEAM) {
-      if (!dto.targetOrgUnitId || dto.targetAccountId) {
-        throw new BadRequestException('Team assignment requires only targetOrgUnitId.');
+      if (
+        !dto.targetOperationalTeamId ||
+        dto.targetOrgUnitId ||
+        dto.targetAccountId
+      ) {
+        throw new BadRequestException(
+          'Team assignment requires only targetOperationalTeamId.',
+        );
       }
-      const team = await tx.orgUnit.findFirst({
+      const team = await tx.operationalTeam.findFirst({
         where: {
-          id: dto.targetOrgUnitId,
-          officeId: stage.workItem.officeId!,
+          id: dto.targetOperationalTeamId,
+          orgUnitId: stage.responsibleOrgUnitId,
           isActive: true,
-          orgUnitType: { isTeam: true },
+          archivedAt: null,
+          orgUnit: {
+            officeId: stage.workItem.officeId!,
+            isActive: true,
+          },
         },
-        select: { id: true },
+        select: { id: true, orgUnitId: true },
       });
       if (!team) {
-        throw new BadRequestException('Assignment target must be an active Team in this Office.');
-      }
-      const insideScope = await tx.orgUnitClosure.count({
-        where: {
-          ancestorOrgUnitId: stage.responsibleOrgUnitId,
-          descendantOrgUnitId: team.id,
-        },
-      });
-      if (insideScope === 0) {
-        throw new ForbiddenException(
-          'The Team must belong to the responsible OrgUnit subtree.',
+        throw new BadRequestException(
+          'Assignment target must be an active Operational Team of the responsible OrgUnit.',
         );
       }
       return {
         targetType: dto.targetType,
-        targetOrgUnitId: team.id,
+        targetOrgUnitId: null,
+        targetOperationalTeamId: team.id,
         targetAccountId: null,
       };
     }
 
-    if (!dto.targetAccountId || dto.targetOrgUnitId) {
+    if (
+      !dto.targetAccountId ||
+      dto.targetOrgUnitId ||
+      dto.targetOperationalTeamId
+    ) {
       throw new BadRequestException('Individual assignment requires only targetAccountId.');
     }
     await this.assertAccountInsideResponsibleScope(
@@ -2165,6 +2354,7 @@ export class WorkRuntimeV3StageService {
     return {
       targetType: WorkStageAssignmentTargetType.ACCOUNT,
       targetOrgUnitId: null,
+      targetOperationalTeamId: null,
       targetAccountId: dto.targetAccountId,
     };
   }
@@ -2295,6 +2485,8 @@ export class WorkRuntimeV3StageService {
     return (
       current.targetType === target.targetType &&
       (current.targetOrgUnitId ?? null) === target.targetOrgUnitId &&
+      (current.targetOperationalTeamId ?? null) ===
+        target.targetOperationalTeamId &&
       (current.targetAccountId ?? null) === target.targetAccountId
     );
   }
@@ -2337,11 +2529,11 @@ export class WorkRuntimeV3StageService {
 
     if (assignment.targetType === WorkStageAssignmentTargetType.TEAM) {
       return Boolean(
-        assignment.targetOrgUnitId &&
-          (await this.accountHasExactMembership(
+        assignment.targetOperationalTeamId &&
+          (await this.accountBelongsToOperationalTeam(
             user.accountId,
             stage.workItem.officeId!,
-            assignment.targetOrgUnitId,
+            assignment.targetOperationalTeamId,
           )),
       );
     }
@@ -2381,12 +2573,12 @@ export class WorkRuntimeV3StageService {
     }
     if (
       assignment?.targetType === WorkStageAssignmentTargetType.TEAM &&
-      assignment.targetOrgUnitId
+      assignment.targetOperationalTeamId
     ) {
-      return this.accountHasExactMembership(
+      return this.accountBelongsToOperationalTeam(
         user.accountId,
         stage.workItem.officeId!,
-        assignment.targetOrgUnitId,
+        assignment.targetOperationalTeamId,
       );
     }
     if (
@@ -2462,6 +2654,7 @@ export class WorkRuntimeV3StageService {
     }
 
     if (
+      stage.approvalMode !== WorkStageApprovalMode.TEAM_LEAD &&
       !(await this.authorization.can(
         user,
         CAPABILITIES.WORK_APPROVE_STAGE,
@@ -2488,29 +2681,97 @@ export class WorkRuntimeV3StageService {
     }
   }
 
-  private async accountHasExactMembership(
+  private async accountBelongsToOperationalTeam(
     accountId: string,
     officeId: string,
-    orgUnitId: string,
+    teamId: string,
+    at = new Date(),
   ): Promise<boolean> {
-    const now = new Date();
     return Boolean(
-      await this.prisma.account.findFirst({
+      await this.prisma.operationalTeam.findFirst({
         where: {
-          id: accountId,
-          isEnabled: true,
-          role: { not: AccountRole.SUPER_ADMIN },
-          employee: {
-            is: {
-              status: EmployeeStatus.ACTIVE,
-              employmentStatus: EmploymentStatus.ACTIVE,
-              archivedAt: null,
-              orgMemberships: {
+          id: teamId,
+          isActive: true,
+          archivedAt: null,
+          orgUnit: {
+            officeId,
+            isActive: true,
+          },
+          OR: [
+            {
+              members: {
                 some: {
-                  officeId,
-                  orgUnitId,
-                  startsAt: { lte: now },
-                  OR: [{ endsAt: null }, { endsAt: { gt: now } }],
+                  startsAt: { lte: at },
+                  OR: [{ endsAt: null }, { endsAt: { gt: at } }],
+                  employee: {
+                    status: EmployeeStatus.ACTIVE,
+                    employmentStatus: EmploymentStatus.ACTIVE,
+                    archivedAt: null,
+                    account: {
+                      id: accountId,
+                      isEnabled: true,
+                      role: { not: AccountRole.SUPER_ADMIN },
+                    },
+                  },
+                },
+              },
+            },
+            {
+              leadAssignments: {
+                some: {
+                  effectiveFrom: { lte: at },
+                  OR: [
+                    { effectiveUntil: null },
+                    { effectiveUntil: { gt: at } },
+                  ],
+                  employee: {
+                    status: EmployeeStatus.ACTIVE,
+                    employmentStatus: EmploymentStatus.ACTIVE,
+                    archivedAt: null,
+                    account: {
+                      id: accountId,
+                      isEnabled: true,
+                      role: { not: AccountRole.SUPER_ADMIN },
+                    },
+                  },
+                },
+              },
+            },
+          ],
+        },
+        select: { id: true },
+      }),
+    );
+  }
+
+  private async canAccessOperationalTeamContext(
+    accountId: string,
+    officeId: string,
+    responsibleOrgUnitId: string,
+    at = new Date(),
+  ): Promise<boolean> {
+    return Boolean(
+      await this.prisma.operationalTeam.findFirst({
+        where: {
+          orgUnitId: responsibleOrgUnitId,
+          isActive: true,
+          archivedAt: null,
+          orgUnit: {
+            officeId,
+            isActive: true,
+          },
+          leadAssignments: {
+            some: {
+              effectiveFrom: { lte: at },
+              OR: [{ effectiveUntil: null }, { effectiveUntil: { gt: at } }],
+              employee: {
+                status: EmployeeStatus.ACTIVE,
+                employmentStatus: EmploymentStatus.ACTIVE,
+                archivedAt: null,
+                account: {
+                  id: accountId,
+                  isEnabled: true,
+                  role: { not: AccountRole.SUPER_ADMIN },
                 },
               },
             },
@@ -2519,6 +2780,82 @@ export class WorkRuntimeV3StageService {
         select: { id: true },
       }),
     );
+  }
+
+  private isActiveOperationalEmployee(employee: {
+    status: EmployeeStatus;
+    employmentStatus: EmploymentStatus;
+    archivedAt: Date | null;
+    account: { id: string; isEnabled: boolean; role: AccountRole } | null;
+  }): boolean {
+    return Boolean(
+      employee.status === EmployeeStatus.ACTIVE &&
+        employee.employmentStatus === EmploymentStatus.ACTIVE &&
+        employee.archivedAt === null &&
+        employee.account?.isEnabled &&
+        employee.account.role !== AccountRole.SUPER_ADMIN,
+    );
+  }
+
+  private async activeOperationalTeamIdsForAccount(
+    accountId: string,
+    officeId: string,
+    at = new Date(),
+  ): Promise<string[]> {
+    const teams = await this.prisma.operationalTeam.findMany({
+      where: {
+        isActive: true,
+        archivedAt: null,
+        orgUnit: {
+          officeId,
+          isActive: true,
+        },
+        OR: [
+          {
+            members: {
+              some: {
+                startsAt: { lte: at },
+                OR: [{ endsAt: null }, { endsAt: { gt: at } }],
+                employee: {
+                  status: EmployeeStatus.ACTIVE,
+                  employmentStatus: EmploymentStatus.ACTIVE,
+                  archivedAt: null,
+                  account: {
+                    id: accountId,
+                    isEnabled: true,
+                    role: { not: AccountRole.SUPER_ADMIN },
+                  },
+                },
+              },
+            },
+          },
+          {
+            leadAssignments: {
+              some: {
+                effectiveFrom: { lte: at },
+                OR: [
+                  { effectiveUntil: null },
+                  { effectiveUntil: { gt: at } },
+                ],
+                employee: {
+                  status: EmployeeStatus.ACTIVE,
+                  employmentStatus: EmploymentStatus.ACTIVE,
+                  archivedAt: null,
+                  account: {
+                    id: accountId,
+                    isEnabled: true,
+                    role: { not: AccountRole.SUPER_ADMIN },
+                  },
+                },
+              },
+            },
+          },
+        ],
+      },
+      select: { id: true },
+    });
+
+    return teams.map((team) => team.id);
   }
 
   private async accountHasMembershipInsideScope(

@@ -147,9 +147,6 @@ export class OrganizationPeopleService {
   private async validateOrgUnit(
     officeId: string,
     orgUnitId: string | null,
-    options: {
-      requireTeam?: boolean;
-    } = {},
   ) {
     if (!orgUnitId) {
       return null;
@@ -189,9 +186,9 @@ export class OrganizationPeopleService {
       );
     }
 
-    if (options.requireTeam && !orgUnit.orgUnitType.isTeam) {
+    if (orgUnit.orgUnitType.isTeam) {
       throw new BadRequestException(
-        'Team Lead can only be assigned to an organization type marked as a Team.',
+        'Legacy Team OrgUnits are historical only. Use Operational Team membership and leadership for current Team operations.',
       );
     }
 
@@ -1285,15 +1282,9 @@ export class OrganizationPeopleService {
     } else if (
       dto.leadershipType === OrgLeadershipType.TEAM_LEAD
     ) {
-      if (!orgUnitId) {
-        throw new BadRequestException(
-          'Team Lead requires a Team organizational unit.',
-        );
-      }
-
-      await this.validateOrgUnit(officeId, orgUnitId, {
-        requireTeam: true,
-      });
+      throw new BadRequestException(
+        'Team Lead is managed through Operational Team leadership, not formal OrgUnit leadership.',
+      );
     } else {
       await this.validateOrgUnit(officeId, orgUnitId);
     }

@@ -17,7 +17,7 @@ const stageId = '22222222-2222-4222-8222-222222222222';
 const workItemId = '33333333-3333-4333-8333-333333333333';
 const responsibleOrgUnitId = '44444444-4444-4444-8444-444444444444';
 const parentOrgUnitId = '55555555-5555-4555-8555-555555555555';
-const teamOrgUnitId = '66666666-6666-4666-8666-666666666666';
+const operationalTeamId = '66666666-6666-4666-8666-666666666666';
 const assigneeAccountId = '77777777-7777-4777-8777-777777777777';
 
 const user: AuthenticatedUser = {
@@ -56,10 +56,11 @@ function leadership(
 describe('WorkRuntimeV3EscalationService', () => {
   const prisma = {
     workStage: { findFirst: jest.fn() },
-    orgMembership: { findFirst: jest.fn() },
+    operationalTeamMember: { findFirst: jest.fn() },
+    operationalTeamLeadAssignment: { findFirst: jest.fn() },
     orgUnitClosure: { findMany: jest.fn() },
     orgLeadershipAssignment: { findMany: jest.fn() },
-    orgUnit: { findFirst: jest.fn() },
+    operationalTeam: { findFirst: jest.fn() },
   } as any;
   const authorization = { can: jest.fn() } as any;
   const service = new WorkRuntimeV3EscalationService(prisma, authorization);
@@ -84,14 +85,13 @@ describe('WorkRuntimeV3EscalationService', () => {
         id: responsibleOrgUnitId,
         code: 'ACCOUNTS',
         name: 'Accounts',
-        orgUnitType: { isTeam: false },
       },
       assignments: [
         {
           targetType: WorkStageAssignmentTargetType.ACCOUNT,
-          targetOrgUnitId: null,
+          targetOperationalTeamId: null,
           targetAccountId: assigneeAccountId,
-          targetOrgUnit: null,
+          targetOperationalTeam: null,
           targetAccount: {
             id: assigneeAccountId,
             isEnabled: true,
@@ -107,12 +107,8 @@ describe('WorkRuntimeV3EscalationService', () => {
         },
       ],
     });
-    prisma.orgMembership.findFirst.mockResolvedValue({
-      orgUnitId: teamOrgUnitId,
-      orgUnit: {
-        id: teamOrgUnitId,
-        orgUnitType: { isTeam: true },
-      },
+    prisma.operationalTeamMember.findFirst.mockResolvedValue({
+      teamId: operationalTeamId,
     });
     prisma.orgUnitClosure.findMany.mockResolvedValue([
       {
@@ -132,18 +128,29 @@ describe('WorkRuntimeV3EscalationService', () => {
         },
       },
     ]);
-    prisma.orgUnit.findFirst.mockResolvedValue({
-      id: teamOrgUnitId,
+    prisma.operationalTeamLeadAssignment.findFirst.mockResolvedValue({
+      id: 'team-lead-assignment',
+      isActing: false,
+      team: {
+        id: operationalTeamId,
+        code: 'BILLING_TEAM',
+        name: 'Billing Team',
+      },
+      employee: {
+        id: 'employee-team-lead',
+        empId: 'NTC-TL',
+        empName: 'Team Lead',
+        account: {
+          id: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
+        },
+      },
+    });
+    prisma.operationalTeam.findFirst.mockResolvedValue({
+      id: operationalTeamId,
       code: 'BILLING_TEAM',
       name: 'Billing Team',
     });
     prisma.orgLeadershipAssignment.findMany.mockResolvedValue([
-      leadership(
-        'team-lead',
-        OrgLeadershipType.TEAM_LEAD,
-        teamOrgUnitId,
-        'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
-      ),
       leadership(
         'unit-head',
         OrgLeadershipType.ORG_UNIT_HEAD,
@@ -189,6 +196,40 @@ describe('WorkRuntimeV3EscalationService', () => {
       'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee',
     ]);
     expect(result.officeHeadResolved).toBe(true);
+    expect(prisma.operationalTeamLeadAssignment.findFirst).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          teamId: operationalTeamId,
+          team: expect.objectContaining({
+            orgUnitId: responsibleOrgUnitId,
+            isActive: true,
+            archivedAt: null,
+          }),
+        }),
+      }),
+    );
+    expect(prisma.orgLeadershipAssignment.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          AND: [
+            {
+              OR: [
+                {
+                  leadershipType: OrgLeadershipType.OFFICE_HEAD,
+                  orgUnitId: null,
+                },
+                {
+                  leadershipType: OrgLeadershipType.ORG_UNIT_HEAD,
+                  orgUnitId: {
+                    in: [responsibleOrgUnitId, parentOrgUnitId],
+                  },
+                },
+              ],
+            },
+          ],
+        }),
+      }),
+    );
   });
 
   it('prefers the active Acting leader over the primary leader for the same scope', async () => {

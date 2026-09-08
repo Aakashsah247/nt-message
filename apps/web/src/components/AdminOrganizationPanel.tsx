@@ -152,7 +152,6 @@ export function AdminOrganizationPanel({
   }, [allUnits, selectedUnit]);
 
   const activeUnitCount = allUnits.filter((unit) => unit.isActive).length;
-  const teamCount = allUnits.filter((unit) => unit.orgUnitType.isTeam).length;
   const peopleCount = office?._count.memberships ?? 0;
   const leadershipCount = office?._count.leadershipAssignments ?? 0;
   const forceExpanded = normalizedSearch.length > 0 || statusFilter !== "ALL";
@@ -669,11 +668,6 @@ export function AdminOrganizationPanel({
           <span>{t("summary.leadership")}</span>
           <strong>{leadershipCount}</strong>
           <small>{t("summary.leadershipDetail")}</small>
-        </article>
-        <article className="organization-summary-card">
-          <span>{t("summary.teams")}</span>
-          <strong>{teamCount}</strong>
-          <small>{t("summary.teamsDetail")}</small>
         </article>
       </section>
 

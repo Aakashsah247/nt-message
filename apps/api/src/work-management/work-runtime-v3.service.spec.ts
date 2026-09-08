@@ -116,6 +116,7 @@ function actorRecord() {
         },
       ],
       orgLeadershipAssignments: [],
+      operationalTeamLeadAssignments: [],
     },
   };
 }

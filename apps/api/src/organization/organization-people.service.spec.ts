@@ -298,7 +298,64 @@ describe('OrganizationPeopleService', () => {
     );
   });
 
-  it('rejects Team Lead assignment on a non-Team unit', async () => {
+  it('rejects new membership placement into a legacy Team OrgUnit', async () => {
+    const prisma = {
+      office: {
+        findUnique: jest
+          .fn()
+          .mockResolvedValue(activeOffice()),
+      },
+      employee: {
+        findUnique: jest
+          .fn()
+          .mockResolvedValue(activeEmployee),
+      },
+      orgUnit: {
+        findFirst: jest.fn().mockResolvedValue({
+          id: 'legacy-team-unit',
+          officeId: 'office-1',
+          code: 'TEAM-OLD',
+          name: 'Legacy Team',
+          isActive: true,
+          orgUnitType: {
+            id: 'type-team',
+            name: 'Team',
+            isTeam: true,
+            isActive: true,
+          },
+        }),
+      },
+    } as unknown as PrismaService;
+
+    const authority = {} as OrganizationAuthorityService;
+    const authorization = {
+      assertCan: jest.fn().mockResolvedValue(undefined),
+    } as unknown as OrganizationAuthorizationService;
+
+    const service =
+      new OrganizationPeopleService(
+        prisma,
+        authority,
+        authorization,
+      );
+
+    await expect(
+      service.assignMembership(
+        officeHeadUser,
+        'office-1',
+        {
+          employeeId: 'employee-1',
+          orgUnitId: 'legacy-team-unit',
+          membershipType: OrgMembershipType.SECONDARY,
+          reason: 'Current Team membership',
+        },
+      ),
+    ).rejects.toThrow(
+      'Legacy Team OrgUnits are historical only.',
+    );
+  });
+
+  it('rejects new Team Lead assignment through formal OrgLeadershipAssignment', async () => {
     const prisma = {
       office: {
         findUnique: jest

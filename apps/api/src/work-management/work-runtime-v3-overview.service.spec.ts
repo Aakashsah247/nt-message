@@ -8,12 +8,14 @@ function createHarness() {
   const officeFindUnique = jest.fn();
   const workItemFindMany = jest.fn();
   const orgMembershipFindMany = jest.fn();
+  const operationalTeamFindMany = jest.fn();
   const visibleOrgUnitIds = jest.fn();
 
   const prisma = {
     office: { findUnique: officeFindUnique },
     workItem: { findMany: workItemFindMany },
     orgMembership: { findMany: orgMembershipFindMany },
+    operationalTeam: { findMany: operationalTeamFindMany },
   };
   const authorization = { visibleOrgUnitIds };
 
@@ -30,6 +32,7 @@ function createHarness() {
     officeFindUnique,
     workItemFindMany,
     orgMembershipFindMany,
+    operationalTeamFindMany,
     visibleOrgUnitIds,
   };
 }
@@ -58,6 +61,7 @@ describe('WorkRuntimeV3Service overview read contract', () => {
     expect(result.data).toEqual([{ id: workItemId }]);
     expect(harness.visibleOrgUnitIds).not.toHaveBeenCalled();
     expect(harness.orgMembershipFindMany).not.toHaveBeenCalled();
+    expect(harness.operationalTeamFindMany).not.toHaveBeenCalled();
 
     const query = harness.workItemFindMany.mock.calls[0]?.[0] as {
       take: number;
@@ -94,6 +98,9 @@ describe('WorkRuntimeV3Service overview read contract', () => {
     harness.orgMembershipFindMany.mockResolvedValue([
       { orgUnitId: '66666666-6666-4666-8666-666666666666' },
     ]);
+    harness.operationalTeamFindMany.mockResolvedValue([
+      { id: '77777777-7777-4777-8777-777777777777' },
+    ]);
     harness.workItemFindMany.mockResolvedValue([]);
 
     await harness.service.listWork(member, officeId, 500);
@@ -103,7 +110,8 @@ describe('WorkRuntimeV3Service overview read contract', () => {
       expect.anything(),
       officeId,
     );
-    expect(harness.orgMembershipFindMany).toHaveBeenCalled();
+    expect(harness.orgMembershipFindMany).not.toHaveBeenCalled();
+    expect(harness.operationalTeamFindMany).toHaveBeenCalled();
 
     const query = harness.workItemFindMany.mock.calls[0]?.[0] as {
       take: number;
@@ -119,8 +127,11 @@ describe('WorkRuntimeV3Service overview read contract', () => {
     expect(serializedVisibility).toContain(
       '55555555-5555-4555-8555-555555555555',
     );
-    expect(serializedVisibility).toContain(
+    expect(serializedVisibility).not.toContain(
       '66666666-6666-4666-8666-666666666666',
+    );
+    expect(serializedVisibility).toContain(
+      '77777777-7777-4777-8777-777777777777',
     );
   });
 });

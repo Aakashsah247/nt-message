@@ -211,6 +211,15 @@ export class WorkRuntimeV3Controller {
     return this.stageRuntime.getStage(user, officeId, stageId);
   }
 
+  @Get('stages/:stageId/assignment-context')
+  getStageAssignmentContext(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('officeId', new ParseUUIDPipe({ version: '4' })) officeId: string,
+    @Param('stageId', new ParseUUIDPipe({ version: '4' })) stageId: string,
+  ) {
+    return this.stageRuntime.getStageAssignmentContext(user, officeId, stageId);
+  }
+
   @Post('stages/:stageId/assign')
   assignStage(
     @CurrentUser() user: AuthenticatedUser,

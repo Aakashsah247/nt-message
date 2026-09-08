@@ -391,6 +391,12 @@ export class OrganizationHierarchyService {
     const code = this.normalizeCode(dto.code);
     const name = this.normalizeName(dto.name);
 
+    if (dto.isTeam) {
+      throw new BadRequestException(
+        'Operational Teams are managed separately and cannot be created as OrgUnit types.',
+      );
+    }
+
     try {
       const unitType = await this.prisma.orgUnitType.create({
         data: {
@@ -483,8 +489,13 @@ export class OrganizationHierarchyService {
       data.nameKey = this.nameKey(name);
     }
 
-    if (dto.isTeam !== undefined) {
-      data.isTeam = dto.isTeam;
+    if (
+      dto.isTeam !== undefined &&
+      dto.isTeam !== existing.isTeam
+    ) {
+      throw new BadRequestException(
+        'Team classification on legacy OrgUnit types is historical and cannot be changed.',
+      );
     }
 
     if (dto.isActive !== undefined) {
@@ -543,12 +554,19 @@ export class OrganizationHierarchyService {
               },
               select: {
                 id: true,
+                isTeam: true,
               },
             });
 
           if (!unitType) {
             throw new BadRequestException(
               'Select an active organization type from this office.',
+            );
+          }
+
+          if (unitType.isTeam) {
+            throw new BadRequestException(
+              'Operational Teams cannot be created as formal OrgUnits.',
             );
           }
 

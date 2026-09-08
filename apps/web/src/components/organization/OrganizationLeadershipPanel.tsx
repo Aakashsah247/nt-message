@@ -158,10 +158,6 @@ export function OrganizationLeadershipPanel({
     () => allUnits.filter((unit) => unit.isActive),
     [allUnits],
   );
-  const teamUnits = useMemo(
-    () => activeUnits.filter((unit) => unit.orgUnitType.isTeam),
-    [activeUnits],
-  );
 
   const [people, setPeople] = useState<OrganizationPersonSummary[]>([]);
   const [assignments, setAssignments] = useState<OrganizationLeadershipRecord[]>([]);
@@ -213,16 +209,10 @@ export function OrganizationLeadershipPanel({
 
     if (scopeActions.assignLeadership) {
       kinds.push("ORG_UNIT_HEAD");
-      if (selectedScopeUnit?.orgUnitType.isTeam) {
-        kinds.push("TEAM_LEAD");
-      }
     }
 
     if (scopeActions.assignActing) {
       kinds.push("ACTING_ORG_UNIT_HEAD");
-      if (selectedScopeUnit?.orgUnitType.isTeam) {
-        kinds.push("ACTING_TEAM_LEAD");
-      }
     }
 
     if (scopeActions.assignDeputy) {
@@ -230,7 +220,7 @@ export function OrganizationLeadershipPanel({
     }
 
     return kinds;
-  }, [isSpecificScope, scopeActions, scopeValue, selectedScopeUnit]);
+  }, [isSpecificScope, scopeActions, scopeValue]);
 
   const normalizedSearch = searchTerm.trim().toLowerCase();
   const currentTime = useCurrentTime();
@@ -935,11 +925,6 @@ export function OrganizationLeadershipPanel({
         )}
       </section>
 
-      {teamUnits.length === 0 && (
-        <div className="organization-people-footnote">
-          {t("leadership.noTeamsNotice")}
-        </div>
-      )}
     </section>
   );
 }

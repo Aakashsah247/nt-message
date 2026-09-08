@@ -14,6 +14,7 @@ import type {
   WorkRuntimeV3Work,
   WorkRuntimeV3WorkAction,
   WorkRuntimeV3Stage,
+  WorkRuntimeV3StageAssignmentContext,
   WorkRuntimeV3StageMutationInput,
 } from "../types/work-runtime-v3";
 
@@ -112,6 +113,17 @@ export function getWorkRuntimeV3Stage(
 ): Promise<WorkRuntimeV3Stage> {
   return apiRequest<WorkRuntimeV3Stage>(
     `${officePath(officeId)}/stages/${stageId}`,
+    { headers: authHeader(accessToken) },
+  );
+}
+
+export function getWorkRuntimeV3StageAssignmentContext(
+  accessToken: string,
+  officeId: string,
+  stageId: string,
+): Promise<WorkRuntimeV3StageAssignmentContext> {
+  return apiRequest<WorkRuntimeV3StageAssignmentContext>(
+    `${officePath(officeId)}/stages/${stageId}/assignment-context`,
     { headers: authHeader(accessToken) },
   );
 }

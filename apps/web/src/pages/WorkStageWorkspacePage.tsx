@@ -12,6 +12,7 @@ import {
   approveWorkRuntimeV3Stage,
   assignWorkRuntimeV3Stage,
   blockWorkRuntimeV3Stage,
+  getWorkRuntimeV3StageAssignmentContext,
   getWorkRuntimeV3Stage,
   listMyWorkRuntimeV3Stages,
   listOrgUnitWorkRuntimeV3Stages,
@@ -25,6 +26,7 @@ import type {
   WorkRuntimeV3AssignmentTargetType,
   WorkRuntimeV3Stage,
   WorkRuntimeV3StageAction,
+  WorkRuntimeV3StageAssignmentContext,
   WorkRuntimeV3StageFieldDefinition,
 } from "../types/work-runtime-v3";
 import type {
@@ -175,6 +177,7 @@ export function WorkStageWorkspacePage({
   const [returnReason, setReturnReason] = useState("");
   const [organizationUnits, setOrganizationUnits] = useState<OrganizationUnitNode[]>([]);
   const [organizationPeople, setOrganizationPeople] = useState<OrganizationPersonSummary[]>([]);
+  const [assignmentContext, setAssignmentContext] = useState<WorkRuntimeV3StageAssignmentContext | null>(null);
   const [assignmentTargetType, setAssignmentTargetType] = useState<WorkRuntimeV3AssignmentTargetType>("ORG_UNIT_QUEUE");
   const [assignmentTargetId, setAssignmentTargetId] = useState("");
   const [assignmentReason, setAssignmentReason] = useState("");
@@ -310,6 +313,39 @@ export function WorkStageWorkspacePage({
     };
   }, [accessToken, isSuperAdmin, officeId, selectedStageId, t]);
 
+  useEffect(() => {
+    if (
+      !accessToken ||
+      !officeId ||
+      !selectedStage ||
+      isSuperAdmin ||
+      !selectedStage.availableActions.includes("ASSIGN")
+    ) {
+      setAssignmentContext(null);
+      return;
+    }
+
+    let active = true;
+    getWorkRuntimeV3StageAssignmentContext(
+      accessToken,
+      officeId,
+      selectedStage.id,
+    )
+      .then((response) => {
+        if (active) setAssignmentContext(response);
+      })
+      .catch((requestError: unknown) => {
+        if (active) {
+          setAssignmentContext(null);
+          setError(getErrorMessage(requestError, t("work.stageWorkspace.requestError")));
+        }
+      });
+
+    return () => {
+      active = false;
+    };
+  }, [accessToken, isSuperAdmin, officeId, selectedStage, t]);
+
   async function runMutation(
     action: () => Promise<WorkRuntimeV3Stage>,
     message: string,
@@ -355,9 +391,10 @@ export function WorkStageWorkspacePage({
     return ids;
   }, [flatOrganizationUnits, selectedStage]);
 
-  const assignmentTeams = useMemo(
-    () => flatOrganizationUnits.filter((unit) => unit.isActive && unit.orgUnitType.isTeam && responsibleUnitIds.has(unit.id)),
-    [flatOrganizationUnits, responsibleUnitIds],
+  const assignmentTeams = assignmentContext?.operationalTeams ?? [];
+  const selectedOperationalTeam = useMemo(
+    () => assignmentTeams.find((team) => team.id === assignmentTargetId) ?? null,
+    [assignmentTargetId, assignmentTeams],
   );
 
   const assignmentPeople = useMemo(
@@ -571,6 +608,7 @@ export function WorkStageWorkspacePage({
                   <h3 className="text-sm font-bold text-slate-950">{t("work.stageWorkspace.currentAssignment")}</h3>
                   <div className="mt-2 rounded-2xl border border-slate-200 p-4 text-sm text-slate-700">
                     {selectedStage.assignments[0]?.targetAccount?.employee?.empName
+                      ?? selectedStage.assignments[0]?.targetOperationalTeam?.name
                       ?? selectedStage.assignments[0]?.targetOrgUnit?.name
                       ?? (selectedStage.assignments[0]?.targetType === "ORG_UNIT_QUEUE" ? t("work.stageWorkspace.assignmentTargets.orgUnitQueue") : t("work.stageWorkspace.notAssigned"))}
                   </div>
@@ -631,13 +669,31 @@ export function WorkStageWorkspacePage({
                             </select>
                           </label>
                           {assignmentTargetType === "TEAM" ? (
-                            <label className="grid gap-1.5 text-xs font-semibold text-slate-600">
-                              {t("work.stageWorkspace.team")}
-                              <select className="rounded-xl border border-slate-300 bg-white px-3 py-2.5 text-sm" value={assignmentTargetId} onChange={(event) => setAssignmentTargetId(event.target.value)}>
-                                <option value="">{t("work.stageWorkspace.selectTeam")}</option>
-                                {assignmentTeams.map((team) => <option key={team.id} value={team.id}>{team.name} ({team.code})</option>)}
-                              </select>
-                            </label>
+                            <div className="grid gap-2">
+                              <label className="grid gap-1.5 text-xs font-semibold text-slate-600">
+                                {t("work.stageWorkspace.team")}
+                                <select className="rounded-xl border border-slate-300 bg-white px-3 py-2.5 text-sm" value={assignmentTargetId} onChange={(event) => setAssignmentTargetId(event.target.value)}>
+                                  <option value="">{t("work.stageWorkspace.selectTeam")}</option>
+                                  {assignmentTeams.map((team) => <option key={team.id} value={team.id}>{team.name} ({team.code})</option>)}
+                                </select>
+                              </label>
+                              {selectedOperationalTeam ? (
+                                <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-600">
+                                  <div>
+                                    <span className="font-semibold text-slate-800">{t("work.stageWorkspace.teamLead")}:</span>{" "}
+                                    {selectedOperationalTeam.lead
+                                      ? `${selectedOperationalTeam.lead.employeeName} (${selectedOperationalTeam.lead.employeeCode})`
+                                      : t("work.stageWorkspace.notSet")}
+                                  </div>
+                                  <div className="mt-1">
+                                    <span className="font-semibold text-slate-800">{t("work.stageWorkspace.teamMembers")}:</span>{" "}
+                                    {selectedOperationalTeam.members.length > 0
+                                      ? selectedOperationalTeam.members.map((member) => member.employeeName).join(", ")
+                                      : t("work.stageWorkspace.noTeamMembers")}
+                                  </div>
+                                </div>
+                              ) : null}
+                            </div>
                           ) : null}
                           {assignmentTargetType === "ACCOUNT" ? (
                             <label className="grid gap-1.5 text-xs font-semibold text-slate-600">
@@ -664,7 +720,7 @@ export function WorkStageWorkspacePage({
                           () => assignWorkRuntimeV3Stage(accessToken!, officeId, selectedStage.id, {
                             expectedStageVersion: selectedStage.version,
                             ...(selectedStage.assignmentMode === "RESPONSIBLE_ORG_UNIT_HEAD" ? {} : { targetType: assignmentTargetType }),
-                            ...(assignmentTargetType === "TEAM" && assignmentTargetId ? { targetOrgUnitId: assignmentTargetId } : {}),
+                            ...(assignmentTargetType === "TEAM" && assignmentTargetId ? { targetOperationalTeamId: assignmentTargetId } : {}),
                             ...(assignmentTargetType === "ACCOUNT" && assignmentTargetId ? { targetAccountId: assignmentTargetId } : {}),
                             reason: assignmentReason.trim() || undefined,
                           }),

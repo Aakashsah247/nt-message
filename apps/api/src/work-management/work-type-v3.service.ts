@@ -235,6 +235,12 @@ export class WorkTypeV3Service {
       );
     }
 
+    if (dto.finalClosureLeadershipType === OrgLeadershipType.TEAM_LEAD) {
+      throw new BadRequestException(
+        'Operational Team Lead cannot be configured as a Work-level final-closure leadership type.',
+      );
+    }
+
     const fieldsByCode = new Map(
       dto.fields.map((field) => [field.code, field]),
     );
@@ -294,13 +300,22 @@ export class WorkTypeV3Service {
           `Stage ${stage.code} may only set a responsible OrgUnit when its rule is SPECIFIC_ORG_UNIT.`,
         );
       }
-
       if (
         approvalMode === WorkStageApprovalMode.SPECIFIC_LEADERSHIP &&
         !stage.approvalLeadershipType
       ) {
         throw new BadRequestException(
           `Stage ${stage.code} requires an approval leadership type.`,
+        );
+      }
+
+
+      if (
+        approvalMode === WorkStageApprovalMode.SPECIFIC_LEADERSHIP &&
+        stage.approvalLeadershipType === OrgLeadershipType.TEAM_LEAD
+      ) {
+        throw new BadRequestException(
+          `Stage ${stage.code} must use TEAM_LEAD approval mode for Operational Team Lead approval.`,
         );
       }
 
@@ -624,6 +639,7 @@ export class WorkTypeV3Service {
         id: { in: uniqueIds },
         officeId,
         isActive: true,
+        orgUnitType: { isTeam: false },
       },
       select: { id: true },
     });
@@ -959,7 +975,7 @@ export class WorkTypeV3Service {
     );
 
     const orgUnits = await this.prisma.orgUnit.findMany({
-      where: { officeId },
+      where: { officeId, orgUnitType: { isTeam: false } },
       orderBy: [{ isActive: 'desc' }, { sortOrder: 'asc' }, { name: 'asc' }],
       select: {
         id: true,

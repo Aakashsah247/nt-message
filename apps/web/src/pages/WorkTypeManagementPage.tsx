@@ -114,7 +114,6 @@ const CLOSURE_MODES: WorkFinalClosureMode[] = [
 const LEADERSHIP_TYPES: WorkLeadershipType[] = [
   "OFFICE_HEAD",
   "ORG_UNIT_HEAD",
-  "TEAM_LEAD",
   "DEPUTY",
 ];
 

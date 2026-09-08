@@ -30,9 +30,7 @@
     "people": "कार्यालय नियुक्ति",
     "peopleDetail": "हालका र ऐतिहासिक सदस्यता अभिलेख",
     "leadership": "नेतृत्व अभिलेख",
-    "leadershipDetail": "कार्यालय र OrgUnit नेतृत्व जिम्मेवारी",
-    "teams": "टिम एकाइ",
-    "teamsDetail": "टिमका रूपमा कन्फिगर गरिएका OrgUnit"
+    "leadershipDetail": "कार्यालय र OrgUnit नेतृत्व जिम्मेवारी"
   },
   "filters": {
     "aria": "संगठन फिल्टर",

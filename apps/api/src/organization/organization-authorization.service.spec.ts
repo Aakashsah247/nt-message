@@ -331,7 +331,7 @@ describe('OrganizationAuthorizationService', () => {
     ).resolves.toBe(true);
   });
 
-  it('limits Team Lead capability to the Team itself', async () => {
+  it('does not grant current authority from historical Team OrgUnit leadership', async () => {
     const prisma = createPrisma();
 
     prisma.orgLeadershipAssignment.findMany.mockResolvedValue([
@@ -353,7 +353,7 @@ describe('OrganizationAuthorizationService', () => {
         'office-1',
         'team-1',
       ),
-    ).resolves.toBe(true);
+    ).resolves.toBe(false);
 
     await expect(
       service.can(

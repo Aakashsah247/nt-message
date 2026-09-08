@@ -175,10 +175,6 @@ export class OrganizationAuthorityService {
                     },
                   },
                 },
-                {
-                  leadershipType: OrgLeadershipType.TEAM_LEAD,
-                  orgUnitId,
-                },
               ],
             },
           ],

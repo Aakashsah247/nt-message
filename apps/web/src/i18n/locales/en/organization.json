@@ -30,9 +30,7 @@
     "people": "Office placements",
     "peopleDetail": "Current and historical membership records",
     "leadership": "Leadership records",
-    "leadershipDetail": "Office and OrgUnit leadership assignments",
-    "teams": "Team units",
-    "teamsDetail": "OrgUnits configured as teams"
+    "leadershipDetail": "Office and OrgUnit leadership assignments"
   },
   "filters": {
     "aria": "Organization filters",

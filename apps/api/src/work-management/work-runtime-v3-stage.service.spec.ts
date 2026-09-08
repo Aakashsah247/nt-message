@@ -39,6 +39,7 @@ const workItemId = '33333333-3333-4333-8333-333333333333';
 const stageId = '44444444-4444-4444-8444-444444444444';
 const stageDefinitionId = '55555555-5555-4555-8555-555555555555';
 const responsibleOrgUnitId = '66666666-6666-4666-8666-666666666666';
+const operationalTeamId = '77777777-7777-4777-8777-777777777771';
 
 function runtimeStage(overrides: Record<string, unknown> = {}) {
   return {
@@ -139,6 +140,12 @@ function createHarness(stage = runtimeStage()) {
     orgUnit: {
       findFirst: jest.fn(),
     },
+    operationalTeam: {
+      findFirst: jest.fn(),
+    },
+    operationalTeamLeadAssignment: {
+      findFirst: jest.fn().mockResolvedValue({ id: 'team-lead-1' }),
+    },
     orgUnitClosure: {
       count: jest.fn().mockResolvedValue(1),
     },
@@ -173,6 +180,10 @@ function createHarness(stage = runtimeStage()) {
       findFirst: jest.fn().mockResolvedValue({ id: user.accountId }),
     },
     orgUnit: {
+      findMany: jest.fn().mockResolvedValue([]),
+    },
+    operationalTeam: {
+      findFirst: jest.fn().mockResolvedValue(null),
       findMany: jest.fn().mockResolvedValue([]),
     },
   };
@@ -275,6 +286,7 @@ describe('WorkRuntimeV3StageService', () => {
           workStageId: stageId,
           targetType: WorkStageAssignmentTargetType.ORG_UNIT_QUEUE,
           targetOrgUnitId: responsibleOrgUnitId,
+          targetOperationalTeamId: null,
           targetAccountId: null,
           assignmentRole: WorkStageAssignmentRole.PRIMARY,
         }),
@@ -284,6 +296,95 @@ describe('WorkRuntimeV3StageService', () => {
       expect.objectContaining({
         where: { id: stageId, version: 1 },
         data: expect.objectContaining({ version: { increment: 1 } }),
+      }),
+    );
+  });
+
+  it('assigns TEAM stages through OperationalTeam instead of a Team OrgUnit', async () => {
+    const stage = runtimeStage({
+      assignmentMode: WorkStageAssignmentMode.TEAM,
+    });
+    const harness = createHarness(stage);
+    harness.tx.operationalTeam.findFirst.mockResolvedValue({
+      id: operationalTeamId,
+      orgUnitId: responsibleOrgUnitId,
+    });
+
+    await harness.service.assign(user, officeId, stageId, {
+      expectedStageVersion: 1,
+      targetType: WorkStageAssignmentTargetType.TEAM,
+      targetOperationalTeamId: operationalTeamId,
+      reason: 'Route to operational team',
+    });
+
+    expect(harness.tx.operationalTeam.findFirst).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          id: operationalTeamId,
+          orgUnitId: responsibleOrgUnitId,
+          isActive: true,
+          archivedAt: null,
+        }),
+      }),
+    );
+    expect(harness.tx.workStageAssignment.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          targetType: WorkStageAssignmentTargetType.TEAM,
+          targetOrgUnitId: null,
+          targetOperationalTeamId: operationalTeamId,
+          targetAccountId: null,
+        }),
+      }),
+    );
+  });
+
+  it('rejects legacy TEAM assignment through targetOrgUnitId', async () => {
+    const stage = runtimeStage({
+      assignmentMode: WorkStageAssignmentMode.TEAM,
+    });
+    const harness = createHarness(stage);
+
+    await expect(
+      harness.service.assign(user, officeId, stageId, {
+        expectedStageVersion: 1,
+        targetType: WorkStageAssignmentTargetType.TEAM,
+        targetOrgUnitId: responsibleOrgUnitId,
+        reason: 'Legacy target',
+      }),
+    ).rejects.toBeInstanceOf(BadRequestException);
+
+    expect(harness.tx.operationalTeam.findFirst).not.toHaveBeenCalled();
+    expect(harness.tx.workStageAssignment.create).not.toHaveBeenCalled();
+  });
+
+  it('builds the TEAM queue from current Operational Team membership or leadership', async () => {
+    const harness = createHarness();
+    harness.prisma.operationalTeam.findMany.mockResolvedValue([
+      { id: operationalTeamId },
+    ]);
+
+    await harness.service.listTeamQueue(user, officeId);
+
+    expect(harness.prisma.operationalTeam.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          isActive: true,
+          archivedAt: null,
+          orgUnit: { officeId, isActive: true },
+        }),
+      }),
+    );
+    expect(harness.prisma.workStage.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          assignments: {
+            some: expect.objectContaining({
+              targetType: WorkStageAssignmentTargetType.TEAM,
+              targetOperationalTeamId: { in: [operationalTeamId] },
+            }),
+          },
+        }),
       }),
     );
   });
@@ -427,6 +528,133 @@ describe('WorkRuntimeV3StageService', () => {
         toStageStatus: WorkStageStatus.COMPLETED,
       }),
     });
+  });
+
+  it('resolves TEAM_LEAD approval from the assigned Operational Team lead', async () => {
+    const stage = runtimeStage({
+      status: WorkStageStatus.SUBMITTED,
+      approvalMode: WorkStageApprovalMode.TEAM_LEAD,
+      assignmentMode: WorkStageAssignmentMode.TEAM,
+      assignments: [
+        {
+          id: 'cccccccc-cccc-4ccc-8ccc-cccccccccccc',
+          targetType: WorkStageAssignmentTargetType.TEAM,
+          targetOrgUnitId: null,
+          targetOperationalTeamId: operationalTeamId,
+          targetAccountId: null,
+          assignmentRole: WorkStageAssignmentRole.PRIMARY,
+          assignmentReason: null,
+          startsAt: new Date(),
+          targetOrgUnit: null,
+          targetOperationalTeam: {
+            id: operationalTeamId,
+            code: 'KTM',
+            name: 'KTM Team',
+            orgUnitId: responsibleOrgUnitId,
+          },
+          targetAccount: null,
+        },
+      ],
+      submissions: [
+        {
+          id: 'dddddddd-dddd-4ddd-8ddd-dddddddddddd',
+          submissionNumber: 1,
+          submittedByAccountId: 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee',
+          stageVersion: 2,
+          note: 'Team work ready for review',
+          createdAt: new Date(),
+        },
+      ],
+    });
+    const harness = createHarness(stage);
+    harness.tx.workStage.findMany.mockResolvedValue([
+      { status: WorkStageStatus.COMPLETED },
+    ]);
+
+    await harness.service.approve(user, officeId, stageId, {
+      expectedStageVersion: 1,
+      note: 'Team Lead approved',
+    });
+
+    expect(harness.authorization.assertCan).not.toHaveBeenCalledWith(
+      user,
+      expect.anything(),
+      officeId,
+      responsibleOrgUnitId,
+    );
+    expect(
+      harness.tx.operationalTeamLeadAssignment.findFirst,
+    ).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          teamId: operationalTeamId,
+          employeeId: 'employee-1',
+          team: expect.objectContaining({
+            isActive: true,
+            archivedAt: null,
+            orgUnitId: responsibleOrgUnitId,
+          }),
+        }),
+      }),
+    );
+    expect(harness.tx.orgLeadershipAssignment.findFirst).not.toHaveBeenCalled();
+    expect(harness.tx.workStageApproval.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        workStageId: stageId,
+        decidedByAccountId: user.accountId,
+        decision: WorkStageApprovalDecision.APPROVED,
+      }),
+    });
+  });
+
+  it('rejects TEAM_LEAD approval when the actor is not the current Operational Team lead', async () => {
+    const stage = runtimeStage({
+      status: WorkStageStatus.SUBMITTED,
+      approvalMode: WorkStageApprovalMode.TEAM_LEAD,
+      assignmentMode: WorkStageAssignmentMode.TEAM,
+      assignments: [
+        {
+          id: 'ffffffff-ffff-4fff-8fff-ffffffffffff',
+          targetType: WorkStageAssignmentTargetType.TEAM,
+          targetOrgUnitId: null,
+          targetOperationalTeamId: operationalTeamId,
+          targetAccountId: null,
+          assignmentRole: WorkStageAssignmentRole.PRIMARY,
+          assignmentReason: null,
+          startsAt: new Date(),
+          targetOrgUnit: null,
+          targetOperationalTeam: {
+            id: operationalTeamId,
+            code: 'KTM',
+            name: 'KTM Team',
+            orgUnitId: responsibleOrgUnitId,
+          },
+          targetAccount: null,
+        },
+      ],
+      submissions: [
+        {
+          id: '12121212-1212-4212-8212-121212121212',
+          submissionNumber: 1,
+          submittedByAccountId: '13131313-1313-4313-8313-131313131313',
+          stageVersion: 2,
+          note: 'Ready',
+          createdAt: new Date(),
+        },
+      ],
+    });
+    const harness = createHarness(stage);
+    harness.tx.operationalTeamLeadAssignment.findFirst.mockResolvedValue(null);
+
+    await expect(
+      harness.service.approve(user, officeId, stageId, {
+        expectedStageVersion: 1,
+        note: 'Attempted approval',
+      }),
+    ).rejects.toBeInstanceOf(ForbiddenException);
+
+    expect(harness.tx.orgLeadershipAssignment.findFirst).not.toHaveBeenCalled();
+    expect(harness.tx.workStageApproval.create).not.toHaveBeenCalled();
   });
 
   it('returns a submitted stage with a mandatory reason and preserves review history', async () => {
