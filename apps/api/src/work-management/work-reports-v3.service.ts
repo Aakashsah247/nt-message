@@ -22,10 +22,12 @@ import { CAPABILITIES } from '../organization/organization-capabilities';
 import { OrganizationAuthorizationService } from '../organization/organization-authorization.service';
 import {
   WorkReportV3QueryDto,
+  WorkReportV3RecordsQueryDto,
   WorkReportV3SlaState,
 } from './dto/work-report-v3-query.dto';
 
 const MAX_REPORT_DAYS = 366;
+const KATHMANDU_OFFSET_MS = 5.75 * 60 * 60 * 1000;
 const DUE_SOON_MS = 24 * 60 * 60 * 1000;
 
 export type WorkReportV3ScopeType =
@@ -85,6 +87,52 @@ export interface WorkReportV3Context {
 export interface WorkReportV3CountResult {
   generatedAt: string;
   distinctWork: number;
+}
+
+export interface WorkReportV3Overview {
+  generatedAt: string;
+  totalWork: number;
+  statuses: Record<WorkRuntimeStatus, number>;
+  sla: {
+    overdue: number;
+    dueSoon: number;
+  };
+  organizationPerformance: Array<{
+    orgUnit: { id: string; code: string; name: string };
+    primaryOwnerWork: number;
+    participantWork: number;
+    responsibleStages: number;
+    completedWork: number;
+    overdueWork: number;
+  }>;
+  teamExecution: Array<{
+    operationalTeam: { id: string; code: string; name: string; orgUnitId: string };
+    workCount: number;
+  }>;
+}
+
+export interface WorkReportV3WorkRecord {
+  id: string;
+  ticketNumber: string;
+  workType: { id: string; code: string; name: string };
+  primaryOwner: { id: string; code: string; name: string };
+  executionTeams: Array<{ id: string; code: string; name: string }>;
+  reference: {
+    display: string | null;
+    items: Array<{ type: string; value: string }>;
+  };
+  date: string;
+  status: WorkRuntimeStatus;
+  availableActions: { view: true };
+}
+
+export interface WorkReportV3WorkRecords {
+  generatedAt: string;
+  page: number;
+  limit: number;
+  total: number;
+  totalPages: number;
+  items: WorkReportV3WorkRecord[];
 }
 
 export interface WorkReportV3Reconciliation {
@@ -241,6 +289,306 @@ export class WorkReportsV3Service {
     return {
       generatedAt: new Date().toISOString(),
       distinctWork: await this.prisma.workItem.count({ where }),
+    };
+  }
+
+  async getOverview(
+    user: AuthenticatedUser,
+    officeId: string,
+    query: WorkReportV3QueryDto,
+  ): Promise<WorkReportV3Overview> {
+    await this.requireOffice(officeId);
+    const scope = await this.resolveScope(user, officeId);
+    const where = await this.buildScopedWorkWhere(user, officeId, query);
+    const now = new Date();
+    const overdueWhere: Prisma.WorkItemWhereInput = {
+      AND: [where, this.slaWhere(WorkReportV3SlaState.OVERDUE, now)],
+    };
+    const dueSoonWhere: Prisma.WorkItemWhereInput = {
+      AND: [where, this.slaWhere(WorkReportV3SlaState.DUE_SOON, now)],
+    };
+
+    const [
+      totalWork,
+      statusGroups,
+      overdue,
+      dueSoon,
+      primaryOwnerGroups,
+      completedPrimaryOwnerGroups,
+      overduePrimaryOwnerGroups,
+      participantPairs,
+      responsibleStageGroups,
+      teamAssignments,
+    ] = await Promise.all([
+      this.prisma.workItem.count({ where }),
+      this.prisma.workItem.groupBy({
+        by: ['runtimeStatus'],
+        where,
+        _count: { _all: true },
+      }),
+      this.prisma.workItem.count({ where: overdueWhere }),
+      this.prisma.workItem.count({ where: dueSoonWhere }),
+      scope.type === 'PERSONAL'
+        ? Promise.resolve([])
+        : this.prisma.workItem.groupBy({
+            by: ['primaryOwnerOrgUnitId'],
+            where,
+            _count: { _all: true },
+          }),
+      scope.type === 'PERSONAL'
+        ? Promise.resolve([])
+        : this.prisma.workItem.groupBy({
+            by: ['primaryOwnerOrgUnitId'],
+            where: {
+              AND: [where, { runtimeStatus: WorkRuntimeStatus.COMPLETED }],
+            },
+            _count: { _all: true },
+          }),
+      scope.type === 'PERSONAL'
+        ? Promise.resolve([])
+        : this.prisma.workItem.groupBy({
+            by: ['primaryOwnerOrgUnitId'],
+            where: overdueWhere,
+            _count: { _all: true },
+          }),
+      scope.type === 'PERSONAL'
+        ? Promise.resolve([])
+        : this.prisma.workOrgUnitParticipant.findMany({
+            where: { workItem: { is: where } },
+            select: { orgUnitId: true, workItemId: true },
+            distinct: ['orgUnitId', 'workItemId'],
+          }),
+      scope.type === 'PERSONAL'
+        ? Promise.resolve([])
+        : this.prisma.workStage.groupBy({
+            by: ['responsibleOrgUnitId'],
+            where: { workItem: { is: where } },
+            _count: { _all: true },
+          }),
+      scope.type === 'PERSONAL'
+        ? Promise.resolve([])
+        : this.prisma.workStageAssignment.findMany({
+            where: {
+              targetType: WorkStageAssignmentTargetType.TEAM,
+              targetOperationalTeamId: { not: null },
+              workStage: { is: { workItem: { is: where } } },
+            },
+            select: {
+              targetOperationalTeamId: true,
+              workStage: { select: { workItemId: true } },
+            },
+          }),
+    ]);
+
+    const statuses = Object.values(WorkRuntimeStatus).reduce(
+      (acc, status) => {
+        acc[status] = 0;
+        return acc;
+      },
+      {} as Record<WorkRuntimeStatus, number>,
+    );
+    for (const group of statusGroups) {
+      if (group.runtimeStatus) statuses[group.runtimeStatus] = group._count._all;
+    }
+
+    const primaryOwnerCounts = new Map<string, number>();
+    const completedCounts = new Map<string, number>();
+    const overdueCounts = new Map<string, number>();
+    for (const group of primaryOwnerGroups) {
+      if (group.primaryOwnerOrgUnitId) {
+        primaryOwnerCounts.set(group.primaryOwnerOrgUnitId, group._count._all);
+      }
+    }
+    for (const group of completedPrimaryOwnerGroups) {
+      if (group.primaryOwnerOrgUnitId) {
+        completedCounts.set(group.primaryOwnerOrgUnitId, group._count._all);
+      }
+    }
+    for (const group of overduePrimaryOwnerGroups) {
+      if (group.primaryOwnerOrgUnitId) {
+        overdueCounts.set(group.primaryOwnerOrgUnitId, group._count._all);
+      }
+    }
+
+    const participantWorkSets = new Map<string, Set<string>>();
+    for (const row of participantPairs) {
+      const set = participantWorkSets.get(row.orgUnitId) ?? new Set<string>();
+      set.add(row.workItemId);
+      participantWorkSets.set(row.orgUnitId, set);
+    }
+
+    const stageCounts = new Map<string, number>();
+    for (const group of responsibleStageGroups) {
+      stageCounts.set(group.responsibleOrgUnitId, group._count._all);
+    }
+
+    const orgUnitIds = new Set<string>([
+      ...primaryOwnerCounts.keys(),
+      ...participantWorkSets.keys(),
+      ...stageCounts.keys(),
+      ...completedCounts.keys(),
+      ...overdueCounts.keys(),
+    ]);
+    const orgUnits =
+      orgUnitIds.size === 0
+        ? []
+        : await this.prisma.orgUnit.findMany({
+            where: {
+              id: { in: [...orgUnitIds] },
+              officeId,
+              orgUnitType: { isTeam: false },
+            },
+            orderBy: [{ sortOrder: 'asc' }, { name: 'asc' }],
+            select: { id: true, code: true, name: true },
+          });
+
+    const teamWorkSets = new Map<string, Set<string>>();
+    for (const row of teamAssignments) {
+      if (!row.targetOperationalTeamId) continue;
+      const set =
+        teamWorkSets.get(row.targetOperationalTeamId) ?? new Set<string>();
+      set.add(row.workStage.workItemId);
+      teamWorkSets.set(row.targetOperationalTeamId, set);
+    }
+    const teams =
+      teamWorkSets.size === 0
+        ? []
+        : await this.prisma.operationalTeam.findMany({
+            where: {
+              id: { in: [...teamWorkSets.keys()] },
+              orgUnit: { officeId },
+            },
+            orderBy: [{ sortOrder: 'asc' }, { name: 'asc' }],
+            select: { id: true, code: true, name: true, orgUnitId: true },
+          });
+
+    return {
+      generatedAt: now.toISOString(),
+      totalWork,
+      statuses,
+      sla: { overdue, dueSoon },
+      organizationPerformance: orgUnits.map((orgUnit) => ({
+        orgUnit,
+        primaryOwnerWork: primaryOwnerCounts.get(orgUnit.id) ?? 0,
+        participantWork: participantWorkSets.get(orgUnit.id)?.size ?? 0,
+        responsibleStages: stageCounts.get(orgUnit.id) ?? 0,
+        completedWork: completedCounts.get(orgUnit.id) ?? 0,
+        overdueWork: overdueCounts.get(orgUnit.id) ?? 0,
+      })),
+      teamExecution: teams.map((operationalTeam) => ({
+        operationalTeam,
+        workCount: teamWorkSets.get(operationalTeam.id)?.size ?? 0,
+      })),
+    };
+  }
+
+  async getWorkRecords(
+    user: AuthenticatedUser,
+    officeId: string,
+    query: WorkReportV3RecordsQueryDto,
+  ): Promise<WorkReportV3WorkRecords> {
+    await this.requireOffice(officeId);
+    const where = await this.buildScopedWorkWhere(user, officeId, query);
+    const page = query.page ?? 1;
+    const limit = query.limit ?? 25;
+    const skip = (page - 1) * limit;
+
+    const [total, records] = await Promise.all([
+      this.prisma.workItem.count({ where }),
+      this.prisma.workItem.findMany({
+        where,
+        orderBy: [{ createdAt: 'desc' }, { ticketNumber: 'desc' }],
+        skip,
+        take: limit,
+        select: {
+          id: true,
+          ticketNumber: true,
+          createdAt: true,
+          runtimeStatus: true,
+          workTypeVersion: {
+            select: {
+              name: true,
+              workTypeDefinition: { select: { id: true, code: true } },
+            },
+          },
+          primaryOwnerOrgUnit: {
+            select: { id: true, code: true, name: true },
+          },
+          references: {
+            orderBy: [{ createdAt: 'asc' }, { referenceType: 'asc' }],
+            select: { referenceType: true, value: true },
+          },
+          runtimeStages: {
+            select: {
+              assignments: {
+                where: {
+                  targetType: WorkStageAssignmentTargetType.TEAM,
+                  targetOperationalTeamId: { not: null },
+                },
+                select: {
+                  targetOperationalTeam: {
+                    select: { id: true, code: true, name: true },
+                  },
+                },
+              },
+            },
+          },
+        },
+      }),
+    ]);
+
+    const items: WorkReportV3WorkRecord[] = records.map((record) => {
+      if (
+        !record.runtimeStatus ||
+        !record.workTypeVersion ||
+        !record.primaryOwnerOrgUnit
+      ) {
+        throw new BadRequestException(
+          `Work ${record.ticketNumber} is missing required V3 report data.`,
+        );
+      }
+
+      const teamMap = new Map<
+        string,
+        { id: string; code: string; name: string }
+      >();
+      for (const stage of record.runtimeStages) {
+        for (const assignment of stage.assignments) {
+          const team = assignment.targetOperationalTeam;
+          if (team) teamMap.set(team.id, team);
+        }
+      }
+
+      const definition = record.workTypeVersion.workTypeDefinition;
+      return {
+        id: record.id,
+        ticketNumber: record.ticketNumber,
+        workType: {
+          id: definition.id,
+          code: definition.code,
+          name: record.workTypeVersion.name,
+        },
+        primaryOwner: record.primaryOwnerOrgUnit,
+        executionTeams: [...teamMap.values()].sort((a, b) =>
+          a.name.localeCompare(b.name),
+        ),
+        reference: this.presentWorkReference(
+          definition.code,
+          record.references,
+        ),
+        date: this.formatKathmanduDate(record.createdAt),
+        status: record.runtimeStatus,
+        availableActions: { view: true },
+      };
+    });
+
+    return {
+      generatedAt: new Date().toISOString(),
+      page,
+      limit,
+      total,
+      totalPages: total === 0 ? 0 : Math.ceil(total / limit),
+      items,
     };
   }
 
@@ -426,7 +774,7 @@ export class WorkReportsV3Service {
     if (query.participantOrgUnitId) {
       AND.push({
         orgUnitParticipants: {
-          some: { orgUnitId: query.participantOrgUnitId, endedAt: null },
+          some: { orgUnitId: query.participantOrgUnitId },
         },
       });
     }
@@ -438,7 +786,6 @@ export class WorkReportsV3Service {
               some: {
                 targetType: WorkStageAssignmentTargetType.TEAM,
                 targetOperationalTeamId: query.operationalTeamId,
-                endsAt: null,
               },
             },
           },
@@ -710,7 +1057,7 @@ export class WorkReportsV3Service {
           { primaryOwnerOrgUnitId: { in: scope.orgUnitIds } },
           {
             orgUnitParticipants: {
-              some: { orgUnitId: { in: scope.orgUnitIds }, endedAt: null },
+              some: { orgUnitId: { in: scope.orgUnitIds } },
             },
           },
           {
@@ -848,6 +1195,52 @@ export class WorkReportsV3Service {
         );
       }
     }
+  }
+
+  private formatKathmanduDate(value: Date): string {
+    const kathmandu = new Date(value.getTime() + KATHMANDU_OFFSET_MS);
+    return [
+      kathmandu.getUTCFullYear(),
+      String(kathmandu.getUTCMonth() + 1).padStart(2, '0'),
+      String(kathmandu.getUTCDate()).padStart(2, '0'),
+    ].join('-');
+  }
+
+  private presentWorkReference(
+    workTypeCode: string,
+    references: Array<{ referenceType: string; value: string }>,
+  ): WorkReportV3WorkRecord['reference'] {
+    const normalized = references.map((reference) => ({
+      type: reference.referenceType.trim().toUpperCase(),
+      value: reference.value,
+    }));
+
+    if (workTypeCode.trim().toUpperCase() === 'NEW_INSTALLATION') {
+      const token = normalized.find((reference) =>
+        ['TOKEN_NUMBER', 'TOKEN', 'REQUEST_NUMBER'].includes(reference.type),
+      );
+      const cpc = normalized.find(
+        (reference) => reference.type === 'CPC_SERIAL',
+      );
+      const items = [token, cpc].filter(
+        (reference): reference is { type: string; value: string } =>
+          Boolean(reference),
+      );
+      const parts = [
+        token ? `Token ${token.value}` : null,
+        cpc ? `CPC ${cpc.value}` : null,
+      ].filter((value): value is string => Boolean(value));
+      return { display: parts.length > 0 ? parts.join(' · ') : null, items };
+    }
+
+    const service = normalized.find(
+      (reference) => reference.type === 'SERVICE_NUMBER',
+    );
+    const primary = service ?? normalized[0] ?? null;
+    return {
+      display: primary?.value ?? null,
+      items: normalized,
+    };
   }
 
   private resolveRange(query: WorkReportV3QueryDto): ReportRange | null {

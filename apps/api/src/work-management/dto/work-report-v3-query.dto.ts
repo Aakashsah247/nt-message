@@ -1,10 +1,14 @@
+import { Type } from 'class-transformer';
 import {
   IsEnum,
+  IsInt,
   IsOptional,
   IsString,
   IsUUID,
   Matches,
+  Max,
   MaxLength,
+  Min,
 } from 'class-validator';
 
 import {
@@ -59,4 +63,17 @@ export class WorkReportV3QueryDto {
   @IsString()
   @MaxLength(160)
   search?: string;
+}
+
+export class WorkReportV3RecordsQueryDto extends WorkReportV3QueryDto {
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  page = 1;
+
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  @Max(100)
+  limit = 25;
 }

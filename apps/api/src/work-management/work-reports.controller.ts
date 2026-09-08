@@ -18,7 +18,10 @@ import { AccountRole } from '../generated/prisma/client';
 import { ExportWorkReportQueryDto } from './dto/export-work-report-query.dto';
 import { WorkReportDrilldownQueryDto } from './dto/work-report-drilldown-query.dto';
 import { WorkReportQueryDto } from './dto/work-report-query.dto';
-import { WorkReportV3QueryDto } from './dto/work-report-v3-query.dto';
+import {
+  WorkReportV3QueryDto,
+  WorkReportV3RecordsQueryDto,
+} from './dto/work-report-v3-query.dto';
 import {
   WorkReportsService,
   type WorkReportDrilldownResponse,
@@ -28,7 +31,9 @@ import {
   WorkReportsV3Service,
   type WorkReportV3Context,
   type WorkReportV3CountResult,
+  type WorkReportV3Overview,
   type WorkReportV3Reconciliation,
+  type WorkReportV3WorkRecords,
 } from './work-reports-v3.service';
 
 const MANAGEMENT_REPORT_ROLES = [
@@ -64,6 +69,24 @@ export class WorkReportsController {
       officeId,
       query,
     );
+  }
+
+  @Get('v3/offices/:officeId/overview')
+  getV3Overview(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('officeId', new ParseUUIDPipe({ version: '4' })) officeId: string,
+    @Query() query: WorkReportV3QueryDto,
+  ): Promise<WorkReportV3Overview> {
+    return this.workReportsV3Service.getOverview(user, officeId, query);
+  }
+
+  @Get('v3/offices/:officeId/work-records')
+  getV3WorkRecords(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('officeId', new ParseUUIDPipe({ version: '4' })) officeId: string,
+    @Query() query: WorkReportV3RecordsQueryDto,
+  ): Promise<WorkReportV3WorkRecords> {
+    return this.workReportsV3Service.getWorkRecords(user, officeId, query);
   }
 
   @Get('v3/offices/:officeId/reconciliation')

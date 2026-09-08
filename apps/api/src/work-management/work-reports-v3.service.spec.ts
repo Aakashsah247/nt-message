@@ -65,9 +65,14 @@ function createHarness() {
   const workTypeDefinitionFindFirst = jest.fn().mockResolvedValue({ id: 'type-1' });
   const workTypeDefinitionCount = jest.fn().mockResolvedValue(8);
   const workItemCount = jest.fn().mockResolvedValue(0);
+  const workItemGroupBy = jest.fn().mockResolvedValue([]);
+  const workItemFindMany = jest.fn().mockResolvedValue([]);
   const workOrgUnitParticipantCount = jest.fn().mockResolvedValue(0);
+  const workOrgUnitParticipantFindMany = jest.fn().mockResolvedValue([]);
   const workStageCount = jest.fn().mockResolvedValue(0);
+  const workStageGroupBy = jest.fn().mockResolvedValue([]);
   const workStageAssignmentCount = jest.fn().mockResolvedValue(0);
+  const workStageAssignmentFindMany = jest.fn().mockResolvedValue([]);
 
   const prisma = {
     account: { findUnique: accountFindUnique },
@@ -83,10 +88,20 @@ function createHarness() {
       findFirst: workTypeDefinitionFindFirst,
       count: workTypeDefinitionCount,
     },
-    workItem: { count: workItemCount },
-    workOrgUnitParticipant: { count: workOrgUnitParticipantCount },
-    workStage: { count: workStageCount },
-    workStageAssignment: { count: workStageAssignmentCount },
+    workItem: {
+      count: workItemCount,
+      groupBy: workItemGroupBy,
+      findMany: workItemFindMany,
+    },
+    workOrgUnitParticipant: {
+      count: workOrgUnitParticipantCount,
+      findMany: workOrgUnitParticipantFindMany,
+    },
+    workStage: { count: workStageCount, groupBy: workStageGroupBy },
+    workStageAssignment: {
+      count: workStageAssignmentCount,
+      findMany: workStageAssignmentFindMany,
+    },
   };
 
   const can = jest.fn().mockResolvedValue(false);
@@ -104,9 +119,14 @@ function createHarness() {
     orgUnitFindMany,
     operationalTeamFindMany,
     workItemCount,
+    workItemGroupBy,
+    workItemFindMany,
     workOrgUnitParticipantCount,
+    workOrgUnitParticipantFindMany,
     workStageCount,
+    workStageGroupBy,
     workStageAssignmentCount,
+    workStageAssignmentFindMany,
     can,
     visibleOrgUnitIds,
   };
@@ -297,5 +317,196 @@ describe('WorkReportsV3Service — P10-1 report scope and counting foundation', 
         targetOperationalTeamId: { not: null },
       },
     });
+  });
+
+
+  it('builds overview totals without multiplying Work through participants, stages, or Team assignments', async () => {
+    const harness = createHarness();
+    harness.can.mockResolvedValue(true);
+    harness.workItemCount
+      .mockResolvedValueOnce(5)
+      .mockResolvedValueOnce(1)
+      .mockResolvedValueOnce(1);
+    harness.workItemGroupBy
+      .mockResolvedValueOnce([
+        { runtimeStatus: WorkRuntimeStatus.OPEN, _count: { _all: 2 } },
+        { runtimeStatus: WorkRuntimeStatus.IN_PROGRESS, _count: { _all: 2 } },
+        { runtimeStatus: WorkRuntimeStatus.COMPLETED, _count: { _all: 1 } },
+      ])
+      .mockResolvedValueOnce([
+        { primaryOwnerOrgUnitId: orgUnitId, _count: { _all: 5 } },
+      ])
+      .mockResolvedValueOnce([
+        { primaryOwnerOrgUnitId: orgUnitId, _count: { _all: 1 } },
+      ])
+      .mockResolvedValueOnce([
+        { primaryOwnerOrgUnitId: orgUnitId, _count: { _all: 1 } },
+      ]);
+    harness.workOrgUnitParticipantFindMany.mockResolvedValue([
+      { orgUnitId: childOrgUnitId, workItemId: 'work-1' },
+      { orgUnitId: childOrgUnitId, workItemId: 'work-1' },
+      { orgUnitId: childOrgUnitId, workItemId: 'work-2' },
+    ]);
+    harness.workStageGroupBy.mockResolvedValue([
+      { responsibleOrgUnitId: childOrgUnitId, _count: { _all: 4 } },
+    ]);
+    harness.workStageAssignmentFindMany.mockResolvedValue([
+      { targetOperationalTeamId: teamId, workStage: { workItemId: 'work-1' } },
+      { targetOperationalTeamId: teamId, workStage: { workItemId: 'work-1' } },
+      { targetOperationalTeamId: teamId, workStage: { workItemId: 'work-2' } },
+    ]);
+    harness.orgUnitFindMany.mockResolvedValueOnce([
+      { id: orgUnitId, code: 'OUT', name: 'Outside Service' },
+      { id: childOrgUnitId, code: 'ACC', name: 'Accounts' },
+    ]);
+    harness.operationalTeamFindMany.mockResolvedValueOnce([
+      { id: teamId, code: 'KTM', name: 'KTM Team', orgUnitId },
+    ]);
+
+    const result = await harness.service.getOverview(
+      user(),
+      officeId,
+      {},
+    );
+
+    expect(result.totalWork).toBe(5);
+    expect(result.statuses.OPEN).toBe(2);
+    expect(result.statuses.IN_PROGRESS).toBe(2);
+    expect(result.statuses.COMPLETED).toBe(1);
+    expect(result.sla).toEqual({ overdue: 1, dueSoon: 1 });
+    expect(result.organizationPerformance).toEqual([
+      {
+        orgUnit: { id: orgUnitId, code: 'OUT', name: 'Outside Service' },
+        primaryOwnerWork: 5,
+        participantWork: 0,
+        responsibleStages: 0,
+        completedWork: 1,
+        overdueWork: 1,
+      },
+      {
+        orgUnit: { id: childOrgUnitId, code: 'ACC', name: 'Accounts' },
+        primaryOwnerWork: 0,
+        participantWork: 2,
+        responsibleStages: 4,
+        completedWork: 0,
+        overdueWork: 0,
+      },
+    ]);
+    expect(result.teamExecution).toEqual([
+      {
+        operationalTeam: {
+          id: teamId,
+          code: 'KTM',
+          name: 'KTM Team',
+          orgUnitId,
+        },
+        workCount: 2,
+      },
+    ]);
+  });
+
+  it('returns compact V3 Work Records and never exposes Service Number for New Installation', async () => {
+    const harness = createHarness();
+    harness.can.mockResolvedValue(true);
+    harness.workItemCount.mockResolvedValueOnce(1);
+    harness.workItemFindMany.mockResolvedValueOnce([
+      {
+        id: 'work-1',
+        ticketNumber: 'NT-PATAN-OUT-2026-000001',
+        createdAt: new Date('2026-09-08T10:00:00.000Z'),
+        runtimeStatus: WorkRuntimeStatus.IN_PROGRESS,
+        workTypeVersion: {
+          name: 'New Installation',
+          workTypeDefinition: {
+            id: '88888888-8888-4888-8888-888888888888',
+            code: 'NEW_INSTALLATION',
+          },
+        },
+        primaryOwnerOrgUnit: {
+          id: orgUnitId,
+          code: 'OUT',
+          name: 'Outside Service',
+        },
+        references: [
+          { referenceType: 'SERVICE_NUMBER', value: '01-5555555' },
+          { referenceType: 'TOKEN_NUMBER', value: 'TOKEN-1001' },
+          { referenceType: 'CPC_SERIAL', value: 'CPC-42' },
+        ],
+        runtimeStages: [
+          {
+            assignments: [
+              {
+                targetOperationalTeam: {
+                  id: teamId,
+                  code: 'KTM',
+                  name: 'KTM Team',
+                },
+              },
+              {
+                targetOperationalTeam: {
+                  id: teamId,
+                  code: 'KTM',
+                  name: 'KTM Team',
+                },
+              },
+            ],
+          },
+        ],
+      },
+    ]);
+
+    const result = await harness.service.getWorkRecords(user(), officeId, {
+      page: 2,
+      limit: 25,
+    });
+
+    expect(result.total).toBe(1);
+    expect(result.page).toBe(2);
+    expect(result.items[0]).toEqual({
+      id: 'work-1',
+      ticketNumber: 'NT-PATAN-OUT-2026-000001',
+      workType: {
+        id: '88888888-8888-4888-8888-888888888888',
+        code: 'NEW_INSTALLATION',
+        name: 'New Installation',
+      },
+      primaryOwner: {
+        id: orgUnitId,
+        code: 'OUT',
+        name: 'Outside Service',
+      },
+      executionTeams: [{ id: teamId, code: 'KTM', name: 'KTM Team' }],
+      reference: {
+        display: 'Token TOKEN-1001 · CPC CPC-42',
+        items: [
+          { type: 'TOKEN_NUMBER', value: 'TOKEN-1001' },
+          { type: 'CPC_SERIAL', value: 'CPC-42' },
+        ],
+      },
+      date: '2026-09-08',
+      status: WorkRuntimeStatus.IN_PROGRESS,
+      availableActions: { view: true },
+    });
+    expect(result.items[0]).not.toHaveProperty('title');
+    expect(JSON.stringify(result.items[0])).not.toContain('01-5555555');
+    expect(harness.workItemFindMany).toHaveBeenCalledWith(
+      expect.objectContaining({ skip: 25, take: 25 }),
+    );
+  });
+
+  it('keeps historical participant and Operational Team execution visible in report filters', async () => {
+    const harness = createHarness();
+    harness.can.mockResolvedValue(true);
+
+    const where = await harness.service.buildScopedWorkWhere(user(), officeId, {
+      participantOrgUnitId: childOrgUnitId,
+      operationalTeamId: teamId,
+    });
+
+    const serialized = JSON.stringify(where);
+    expect(serialized).toContain(childOrgUnitId);
+    expect(serialized).toContain(teamId);
+    expect(serialized).not.toContain('endedAt');
+    expect(serialized).not.toContain('endsAt');
   });
 });
