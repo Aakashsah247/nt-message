@@ -16,7 +16,6 @@ import {
   DutyHolidayType,
   EmployeeStatus,
   EmploymentStatus,
-  ManagementPositionType,
   DutyExceptionType,
   DutyRecurrenceType,
 } from '../generated/prisma/client';
@@ -82,6 +81,7 @@ const dutyAssignmentSelect = {
   createdByAccountId: true,
   officeId: true,
   orgUnitId: true,
+  operationalTeamId: true,
   divisionId: true,
   departmentId: true,
   dutyDate: true,
@@ -103,6 +103,7 @@ const dutyAssignmentSelect = {
   shift: { select: shiftTemplateSelect },
   division: { select: { id: true, code: true, name: true } },
   department: { select: { id: true, code: true, name: true } },
+  operationalTeam: { select: { id: true, code: true, name: true, orgUnitId: true } },
 } satisfies Prisma.DutyAssignmentSelect;
 
 const dutyActivitySelect = {
@@ -509,6 +510,7 @@ export class DutyScheduleService {
             createdByAccountId: actor.accountId,
             officeId: employee.officeId,
             orgUnitId: employee.orgUnitId,
+            operationalTeamId: dto.operationalTeamId ?? null,
             divisionId: employeeDivisionId,
             departmentId: employeeDepartmentId,
             recurrenceType: dto.recurrenceType,
@@ -545,6 +547,7 @@ export class DutyScheduleService {
               createdByAccountId: actor.accountId,
               officeId: employee.officeId,
               orgUnitId: employee.orgUnitId,
+              operationalTeamId: dto.operationalTeamId ?? null,
               divisionId: employeeDivisionId,
               departmentId: employeeDepartmentId,
               dutyDate: this.parseDateOnly(window.date, 'Duty date'),
@@ -602,9 +605,11 @@ export class DutyScheduleService {
     );
 
     const recipientAccountIds = await this.resolveDutyNotificationRecipients({
-      actor,
-      assignee: employee,
+      assigneeAccountId: employee.id,
       supervisorAccountId: supervisor.id,
+      officeId: employee.officeId,
+      orgUnitId: employee.orgUnitId,
+      operationalTeamIds: dto.operationalTeamId ? [dto.operationalTeamId] : [],
     });
     for (const assignment of result.assignments) {
       await this.dutyNotifications.publishDutyUpdate({
@@ -623,6 +628,9 @@ export class DutyScheduleService {
         endsAt: assignment.endsAt,
         metadata: {
           seriesId: result.seriesId,
+          officeId: assignment.officeId,
+          orgUnitId: assignment.orgUnitId,
+          operationalTeamId: assignment.operationalTeamId,
           authority: assignment.authority,
           hierarchyOverride: assignment.hierarchyOverride,
           conflictOverride: assignment.conflictOverride,
@@ -715,6 +723,7 @@ export class DutyScheduleService {
               createdByAccountId: actor.accountId,
               officeId: person.officeId,
               orgUnitId: person.orgUnitId,
+              operationalTeamId: dto.operationalTeamId ?? null,
               divisionId: person.divisionId,
               departmentId: person.departmentId,
               recurrenceType: dto.recurrenceType,
@@ -750,6 +759,7 @@ export class DutyScheduleService {
                 createdByAccountId: actor.accountId,
                 officeId: person.officeId,
                 orgUnitId: person.orgUnitId,
+                operationalTeamId: dto.operationalTeamId ?? null,
                 divisionId: person.divisionId,
                 departmentId: person.departmentId,
                 dutyDate: this.parseDateOnly(window.date, 'Duty date'),
@@ -802,16 +812,16 @@ export class DutyScheduleService {
       },
     );
 
-    const notificationCache = new Map<string, string[]>();
     for (const assignment of created) {
-      const recipientAccountIds = await this.resolveDutyNotificationRecipients(
-        {
-          actor,
-          assignee: assignment.employee,
-          supervisorAccountId: assignment.supervisorAccountId,
-        },
-        notificationCache,
-      );
+      const recipientAccountIds = await this.resolveDutyNotificationRecipients({
+        assigneeAccountId: assignment.employeeAccountId,
+        supervisorAccountId: assignment.supervisorAccountId,
+        officeId: assignment.officeId,
+        orgUnitId: assignment.orgUnitId,
+        operationalTeamIds: assignment.operationalTeamId
+          ? [assignment.operationalTeamId]
+          : [],
+      });
       await this.dutyNotifications.publishDutyUpdate({
         assignmentId: assignment.id,
         employeeAccountId: assignment.employeeAccountId,
@@ -828,6 +838,9 @@ export class DutyScheduleService {
         endsAt: assignment.endsAt,
         metadata: {
           source: 'BULK_ROSTER',
+          officeId: assignment.officeId,
+          orgUnitId: assignment.orgUnitId,
+          operationalTeamId: assignment.operationalTeamId,
           authority: DutyAssignmentAuthority.STANDARD_HIERARCHY,
           holidayOrWeeklyOffWarning: warningCount > 0,
         },
@@ -1361,21 +1374,15 @@ export class DutyScheduleService {
       CAPABILITIES.DUTY_ASSIGN,
     );
     const actor = await this.resolveManager(user);
-    const current = await this.findVisibleAssignmentV3(user, assignmentId);
+    const current = await this.findVisibleAssignmentV3(
+      user,
+      assignmentId,
+      CAPABILITIES.DUTY_ASSIGN,
+    );
 
     if (current.cancelledAt) {
       throw new ConflictException('A cancelled duty assignment cannot be changed.');
     }
-    // Lower management may inspect branch overrides but cannot silently rewrite Super Admin authority.
-    if (
-      current.authority === DutyAssignmentAuthority.SUPER_ADMIN_OVERRIDE &&
-      actor.role !== AccountRole.SUPER_ADMIN
-    ) {
-      throw new ForbiddenException(
-        'Only Super Admin can change a Super Admin duty override.',
-      );
-    }
-
     if (
       dto.shiftTemplateId === undefined &&
       dto.supervisorAccountId === undefined &&
@@ -1438,6 +1445,7 @@ export class DutyScheduleService {
               user,
               [current.employeeAccountId],
               current.orgUnitId ?? undefined,
+              current.operationalTeamId ?? undefined,
             )
           )[0],
         )
@@ -1492,9 +1500,14 @@ export class DutyScheduleService {
               reportingLocation,
               previousShiftName: current.shiftName ?? current.shift?.name ?? 'Shift',
               shiftName: resolvedShift.name,
+              officeId: current.officeId,
+              orgUnitId: current.orgUnitId,
+              operationalTeamId: current.operationalTeamId,
               divisionId: current.divisionId,
               departmentId: current.departmentId,
               supervisorAccountId: supervisor.id,
+              legacySuperAdminOverride:
+                current.authority === DutyAssignmentAuthority.SUPER_ADMIN_OVERRIDE,
               authority: current.authority,
               hierarchyOverride: current.hierarchyOverride,
               conflictOverride: current.conflictOverride,
@@ -1508,9 +1521,13 @@ export class DutyScheduleService {
     );
 
     const recipientAccountIds = await this.resolveDutyNotificationRecipients({
-      actor,
-      assignee: updated.employee,
+      assigneeAccountId: updated.employeeAccountId,
       supervisorAccountId: updated.supervisorAccountId,
+      officeId: updated.officeId,
+      orgUnitId: updated.orgUnitId,
+      operationalTeamIds: updated.operationalTeamId
+        ? [updated.operationalTeamId]
+        : [],
     });
     await this.dutyNotifications.publishDutyUpdate({
       assignmentId: updated.id,
@@ -1527,6 +1544,9 @@ export class DutyScheduleService {
       startsAt: updated.startsAt,
       endsAt: updated.endsAt,
       metadata: {
+        officeId: updated.officeId,
+        orgUnitId: updated.orgUnitId,
+        operationalTeamId: updated.operationalTeamId,
         authority: updated.authority,
         hierarchyOverride: updated.hierarchyOverride,
         conflictOverride: updated.conflictOverride,
@@ -1550,21 +1570,15 @@ export class DutyScheduleService {
       CAPABILITIES.DUTY_ASSIGN,
     );
     const actor = await this.resolveManager(user);
-    const current = await this.findVisibleAssignmentV3(user, assignmentId);
+    const current = await this.findVisibleAssignmentV3(
+      user,
+      assignmentId,
+      CAPABILITIES.DUTY_ASSIGN,
+    );
 
     if (current.cancelledAt) {
       throw new ConflictException('This duty assignment is already cancelled.');
     }
-    // Override cancellation remains with the same branch authority that created the exception.
-    if (
-      current.authority === DutyAssignmentAuthority.SUPER_ADMIN_OVERRIDE &&
-      actor.role !== AccountRole.SUPER_ADMIN
-    ) {
-      throw new ForbiddenException(
-        'Only Super Admin can cancel a Super Admin duty override.',
-      );
-    }
-
     const cancelledAt = new Date();
     const updated = await this.prisma.$transaction(
       async (transaction: Prisma.TransactionClient) => {
@@ -1587,9 +1601,14 @@ export class DutyScheduleService {
             details: {
               reason: dto.reason.trim(),
               shiftName: current.shiftName ?? current.shift?.name ?? 'Shift',
+              officeId: current.officeId,
+              orgUnitId: current.orgUnitId,
+              operationalTeamId: current.operationalTeamId,
               divisionId: current.divisionId,
               departmentId: current.departmentId,
               supervisorAccountId: current.supervisorAccountId,
+              legacySuperAdminOverride:
+                current.authority === DutyAssignmentAuthority.SUPER_ADMIN_OVERRIDE,
               authority: current.authority,
               hierarchyOverride: current.hierarchyOverride,
               conflictOverride: current.conflictOverride,
@@ -1603,9 +1622,13 @@ export class DutyScheduleService {
     );
 
     const recipientAccountIds = await this.resolveDutyNotificationRecipients({
-      actor,
-      assignee: updated.employee,
+      assigneeAccountId: updated.employeeAccountId,
       supervisorAccountId: updated.supervisorAccountId,
+      officeId: updated.officeId,
+      orgUnitId: updated.orgUnitId,
+      operationalTeamIds: updated.operationalTeamId
+        ? [updated.operationalTeamId]
+        : [],
     });
     await this.dutyNotifications.publishDutyUpdate({
       assignmentId: updated.id,
@@ -1623,6 +1646,9 @@ export class DutyScheduleService {
       endsAt: updated.endsAt,
       metadata: {
         cancellationReason: dto.reason.trim(),
+        officeId: updated.officeId,
+        orgUnitId: updated.orgUnitId,
+        operationalTeamId: updated.operationalTeamId,
         authority: updated.authority,
         conflictOverride: updated.conflictOverride,
         overrideReason: updated.overrideReason,
@@ -1742,16 +1768,26 @@ export class DutyScheduleService {
       },
     );
 
+    const leaveRecipientAccountIds = await this.resolveDutyNotificationRecipients({
+      assigneeAccountId: employee.id,
+      supervisorAccountId: actor.accountId,
+      officeId: employee.officeId,
+      orgUnitId: employee.orgUnitId,
+      operationalTeamIds: employee.operationalTeamIds,
+    });
     await this.dutyNotifications.publishDutyUpdate({
       assignmentId: null,
       employeeAccountId: employee.id,
       action: 'LEAVE_RECORDED',
       actorAccountId: actor.accountId,
-      recipientAccountIds: [employee.id, actor.accountId],
+      recipientAccountIds: leaveRecipientAccountIds,
       title: 'Leave recorded',
       body: `${dto.startDate}${dto.endDate !== dto.startDate ? ` – ${dto.endDate}` : ''}${note ? ` • ${note}` : ''}`,
       metadata: {
         exceptionIds: created.map((row) => row.id),
+        officeId: employee.officeId,
+        orgUnitId: employee.orgUnitId,
+        operationalTeamIds: employee.operationalTeamIds,
         type: DutyExceptionType.LEAVE,
       },
     });
@@ -2306,8 +2342,12 @@ export class DutyScheduleService {
   private async findVisibleAssignmentV3(
     user: AuthenticatedUser,
     assignmentId: string,
+    capability: 'duty.view' | 'duty.assign' = CAPABILITIES.DUTY_VIEW,
   ) {
-    const visibleWhere = await this.dutyScopeV3.visibleAssignmentWhere(user);
+    const visibleWhere = await this.dutyScopeV3.visibleAssignmentWhere(
+      user,
+      capability,
+    );
     const assignment = await this.prisma.dutyAssignment.findFirst({
       where: { AND: [{ id: assignmentId }, visibleWhere] },
       select: dutyAssignmentSelect,
@@ -2837,88 +2877,26 @@ export class DutyScheduleService {
     return null;
   }
 
-  private async resolveDutyNotificationRecipients(
-    input: {
-      actor: WorkActorContext;
-      assignee: {
-        id: string;
-        role: AccountRole;
-        employee: {
-          divisionId: string | null;
-          departmentId: string | null;
-        } | null;
-      };
-      supervisorAccountId: string;
-    },
-    cache: Map<string, string[]> = new Map<string, string[]>(),
-  ): Promise<string[]> {
-    const recipients = new Set([
-      input.assignee.id,
+  private async resolveDutyNotificationRecipients(input: {
+    assigneeAccountId: string;
+    supervisorAccountId: string;
+    officeId: string | null;
+    orgUnitId: string | null;
+    operationalTeamIds?: string[];
+  }): Promise<string[]> {
+    const fallback = [...new Set([
+      input.assigneeAccountId,
       input.supervisorAccountId,
-    ]);
-    if (input.actor.role !== AccountRole.SUPER_ADMIN) {
-      return [...recipients];
-    }
+    ])];
+    if (!input.officeId || !input.orgUnitId) return fallback;
 
-    const divisionId = input.assignee.employee?.divisionId;
-    const departmentId = input.assignee.employee?.departmentId ?? null;
-    if (!divisionId || input.assignee.role === AccountRole.SENIOR_MANAGEMENT) {
-      return [...recipients];
-    }
-
-    const cacheKey = `${divisionId}:${departmentId ?? 'division'}:${input.assignee.role}`;
-    const cachedManagerIds = cache.get(cacheKey);
-    let managerIds: string[];
-    if (cachedManagerIds) {
-      managerIds = cachedManagerIds;
-    } else {
-      const positionFilters: Prisma.ManagementPositionWhereInput[] = [
-        {
-          positionType: ManagementPositionType.SENIOR_MANAGEMENT,
-          divisionId,
-          isActive: true,
-        },
-      ];
-      if (
-        input.assignee.role === AccountRole.EMPLOYEE &&
-        departmentId
-      ) {
-        positionFilters.push({
-          positionType: ManagementPositionType.TEAM_MANAGER,
-          divisionId,
-          departmentId,
-          isActive: true,
-        });
-      }
-
-      // Super Admin overrides notify the operational chain without exposing unrelated branch accounts.
-      const assignments = await this.prisma.managementAssignment.findMany({
-        where: {
-          endedAt: null,
-          position: { is: { OR: positionFilters } },
-          employee: {
-            is: {
-              status: EmployeeStatus.ACTIVE,
-              employmentStatus: EmploymentStatus.ACTIVE,
-              archivedAt: null,
-              account: { is: { isEnabled: true } },
-            },
-          },
-        },
-        select: {
-          employee: {
-            select: { account: { select: { id: true } } },
-          },
-        },
-      });
-      managerIds = assignments
-        .map((assignment) => assignment.employee.account?.id)
-        .filter((accountId): accountId is string => Boolean(accountId));
-      cache.set(cacheKey, managerIds);
-    }
-
-    for (const managerId of managerIds) recipients.add(managerId);
-    return [...recipients];
+    return this.dutyScopeV3.notificationRecipientIds({
+      officeId: input.officeId,
+      orgUnitId: input.orgUnitId,
+      assigneeAccountId: input.assigneeAccountId,
+      supervisorAccountId: input.supervisorAccountId,
+      operationalTeamIds: input.operationalTeamIds ?? [],
+    });
   }
 
   private dutyNotificationBody(

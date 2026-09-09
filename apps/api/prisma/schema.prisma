@@ -1342,6 +1342,8 @@ model OperationalTeam {
   members              OperationalTeamMember[]
   leadAssignments      OperationalTeamLeadAssignment[]
   workStageAssignments WorkStageAssignment[]           @relation("WorkStageAssignmentsTargetOperationalTeam")
+  dutyScheduleSeries   DutyScheduleSeries[]            @relation("DutyScheduleSeriesOperationalTeamV3")
+  dutyAssignments      DutyAssignment[]                @relation("DutyAssignmentsOperationalTeamV3")
 
   @@unique([orgUnitId, code], map: "operational_teams_org_unit_code_key")
   @@unique([orgUnitId, nameKey], map: "operational_teams_org_unit_name_key")
@@ -3054,6 +3056,7 @@ model DutyScheduleSeries {
   createdByAccountId  String                  @map("created_by_account_id") @db.Uuid
   officeId            String?                 @map("office_id") @db.Uuid
   orgUnitId           String?                 @map("org_unit_id") @db.Uuid
+  operationalTeamId   String?                 @map("operational_team_id") @db.Uuid
   divisionId          String?                 @map("division_id") @db.Uuid
   departmentId        String?                 @map("department_id") @db.Uuid
   recurrenceType      DutyRecurrenceType      @map("recurrence_type")
@@ -3076,6 +3079,7 @@ model DutyScheduleSeries {
   createdBy   Account            @relation("DutyScheduleSeriesCreatedBy", fields: [createdByAccountId], references: [id], onDelete: Restrict)
   office      Office?            @relation("DutyScheduleSeriesOfficeV3", fields: [officeId], references: [id], onDelete: Restrict)
   orgUnit     OrgUnit?           @relation("DutyScheduleSeriesOrgUnitV3", fields: [orgUnitId], references: [id], onDelete: Restrict)
+  operationalTeam OperationalTeam? @relation("DutyScheduleSeriesOperationalTeamV3", fields: [operationalTeamId], references: [id], onDelete: Restrict)
   division    Division?          @relation(fields: [divisionId], references: [id], onDelete: Restrict)
   department  Department?        @relation(fields: [departmentId], references: [id], onDelete: Restrict)
   assignments DutyAssignment[]
@@ -3084,6 +3088,7 @@ model DutyScheduleSeries {
   @@index([employeeAccountId, startDate, endDate], map: "duty_schedule_series_employee_dates_idx")
   @@index([departmentId, startDate, endDate], map: "duty_schedule_series_department_dates_idx")
   @@index([officeId, orgUnitId, startDate, endDate], map: "duty_schedule_series_v3_scope_dates_idx")
+  @@index([operationalTeamId, startDate, endDate], map: "duty_schedule_series_operational_team_dates_idx")
   @@map("duty_schedule_series")
 }
 
@@ -3101,6 +3106,7 @@ model DutyAssignment {
   createdByAccountId   String                  @map("created_by_account_id") @db.Uuid
   officeId             String?                 @map("office_id") @db.Uuid
   orgUnitId            String?                 @map("org_unit_id") @db.Uuid
+  operationalTeamId    String?                 @map("operational_team_id") @db.Uuid
   divisionId           String?                 @map("division_id") @db.Uuid
   departmentId         String?                 @map("department_id") @db.Uuid
   dutyDate             DateTime                @map("duty_date") @db.Date
@@ -3127,6 +3133,7 @@ model DutyAssignment {
   cancelledBy Account?           @relation("DutyAssignmentsCancelledBy", fields: [cancelledByAccountId], references: [id], onDelete: Restrict)
   office      Office?            @relation("DutyAssignmentsOfficeV3", fields: [officeId], references: [id], onDelete: Restrict)
   orgUnit     OrgUnit?           @relation("DutyAssignmentsOrgUnitV3", fields: [orgUnitId], references: [id], onDelete: Restrict)
+  operationalTeam OperationalTeam? @relation("DutyAssignmentsOperationalTeamV3", fields: [operationalTeamId], references: [id], onDelete: Restrict)
   division    Division?          @relation(fields: [divisionId], references: [id], onDelete: Restrict)
   department  Department?        @relation(fields: [departmentId], references: [id], onDelete: Restrict)
   activities  DutyActivity[]
@@ -3138,6 +3145,7 @@ model DutyAssignment {
   @@index([createdByAccountId, startsAt], map: "duty_assignments_created_by_start_idx")
   @@index([authority, startsAt], map: "duty_assignments_authority_start_idx")
   @@index([officeId, orgUnitId, startsAt, endsAt], map: "duty_assignments_v3_scope_window_idx")
+  @@index([operationalTeamId, startsAt, endsAt], map: "duty_assignments_operational_team_window_idx")
   @@map("duty_assignments")
 }
 

@@ -108,6 +108,7 @@ describe('DutyScheduleService M20 Phase 5', () => {
     visibleAssignmentWhere: jest.fn(),
     visibleExceptionWhere: jest.fn(),
     assertLegacyScopeFilter: jest.fn(),
+    notificationRecipientIds: jest.fn(),
   } as unknown as DutyScopeV3Service;
   const service = new DutyScheduleService(prisma, scope, notifications, dutyScope);
 
@@ -142,6 +143,12 @@ describe('DutyScheduleService M20 Phase 5', () => {
     jest.mocked(dutyScope.visibleAssignmentWhere).mockResolvedValue({});
     jest.mocked(dutyScope.visibleExceptionWhere).mockResolvedValue({});
     jest.mocked(dutyScope.assertLegacyScopeFilter).mockResolvedValue(undefined);
+    jest
+      .mocked(dutyScope.notificationRecipientIds)
+      .mockImplementation(async ({ assigneeAccountId, supervisorAccountId }) => [
+        assigneeAccountId,
+        supervisorAccountId,
+      ]);
     jest.mocked(prisma.dutyAssignment.findMany).mockResolvedValue([] as never);
     jest.mocked(prisma.dutyException.findMany).mockResolvedValue([] as never);
     jest.mocked(prisma.dutyHoliday.findMany).mockResolvedValue([] as never);
@@ -722,19 +729,85 @@ describe('DutyScheduleService M20 Phase 5', () => {
     );
   });
 
-  it('prevents lower management from cancelling a Super Admin override', async () => {
-    jest.mocked(prisma.dutyAssignment.findFirst).mockResolvedValue({
+  it('lets current V3 Duty authority cancel a reconciled historical Super Admin override', async () => {
+    const dutyDate = new Date('2026-09-09T00:00:00.000Z');
+    const startsAt = new Date('2026-09-09T02:00:00.000Z');
+    const endsAt = new Date('2026-09-09T10:00:00.000Z');
+    const current = {
       id: 'override-assignment',
-      cancelledAt: null,
+      seriesId: 'series-1',
+      employeeAccountId: 'employee-account',
+      shiftTemplateId: 'shift-1',
+      shiftName: 'Day',
+      shiftStartMinute: 120,
+      shiftEndMinute: 600,
+      shiftSpansNextDay: false,
+      supervisorAccountId: 'supervisor-account',
+      createdByAccountId: 'legacy-super-admin',
+      officeId: 'office-1',
+      orgUnitId: 'org-unit-a',
+      operationalTeamId: 'team-1',
+      divisionId: 'division-a',
+      departmentId: 'department-a',
+      dutyDate,
+      startsAt,
+      endsAt,
+      reportingLocation: 'NTC Office',
+      notes: null,
       authority: DutyAssignmentAuthority.SUPER_ADMIN_OVERRIDE,
+      overrideReason: 'Legacy emergency override',
+      hierarchyOverride: true,
+      conflictOverride: false,
+      cancelledAt: null,
+      cancellationReason: null,
+      createdAt: startsAt,
+      updatedAt: startsAt,
+      employee: { id: 'employee-account', role: AccountRole.EMPLOYEE, employee: null },
+      supervisor: { id: 'supervisor-account', role: AccountRole.TEAM_MANAGER, employee: null },
+      createdBy: { id: 'legacy-super-admin', role: AccountRole.SUPER_ADMIN, employee: null },
+      shift: null,
+      division: null,
+      department: null,
+      operationalTeam: { id: 'team-1', code: 'TEAM1', name: 'Team 1', orgUnitId: 'org-unit-a' },
+    };
+    jest.mocked(prisma.dutyAssignment.findFirst).mockResolvedValue(current as never);
+    jest.mocked(transaction.dutyAssignment.update).mockResolvedValue({
+      ...current,
+      cancelledAt: new Date('2026-09-08T23:00:00.000Z'),
+      cancellationReason: 'Routine team roster adjustment',
     } as never);
 
     await expect(
       service.cancelAssignment(managerUser, 'override-assignment', {
         reason: 'Routine team roster adjustment',
       }),
-    ).rejects.toBeInstanceOf(ForbiddenException);
-    expect(prisma.$transaction).not.toHaveBeenCalled();
+    ).resolves.toEqual(
+      expect.objectContaining({ message: 'Duty assignment cancelled successfully.' }),
+    );
+
+    expect(transaction.dutyActivity.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          details: expect.objectContaining({
+            legacySuperAdminOverride: true,
+            officeId: 'office-1',
+            orgUnitId: 'org-unit-a',
+            operationalTeamId: 'team-1',
+          }),
+        }),
+      }),
+    );
+    expect(dutyScope.visibleAssignmentWhere).toHaveBeenCalledWith(
+      managerUser,
+      'duty.assign',
+    );
+    expect(dutyScope.notificationRecipientIds).toHaveBeenCalledWith(
+      expect.objectContaining({
+        officeId: 'office-1',
+        orgUnitId: 'org-unit-a',
+        operationalTeamIds: ['team-1'],
+      }),
+    );
   });
   it('rejects a legacy Duty roster division outside V3 Duty scope', async () => {
     jest.mocked(dutyScope.assertLegacyScopeFilter).mockRejectedValueOnce(

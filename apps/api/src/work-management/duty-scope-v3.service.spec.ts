@@ -45,7 +45,7 @@ function createHarness() {
     operationalTeamMember: { findMany: jest.fn() },
     operationalTeam: { findFirst: jest.fn() },
     orgLeadershipAssignment: { findMany: jest.fn() },
-    operationalTeamLeadAssignment: { findFirst: jest.fn() },
+    operationalTeamLeadAssignment: { findFirst: jest.fn(), findMany: jest.fn() },
     orgUnitClosure: { findUnique: jest.fn(), findMany: jest.fn() },
     legacyOrgUnitMapping: { findMany: jest.fn(), findFirst: jest.fn() },
   };
@@ -240,4 +240,94 @@ describe('DutyScopeV3Service', () => {
       departmentId: 'department-1',
     });
   });
+  it('routes Duty notifications to the assigned employee, Team Lead, and nearest OrgUnit Head', async () => {
+    const { service, prisma } = createHarness();
+    prisma.operationalTeamLeadAssignment.findMany.mockResolvedValue([
+      { employee: { account: { id: 'team-lead' } } },
+    ]);
+    prisma.orgUnitClosure.findMany.mockResolvedValue([
+      { ancestorOrgUnitId: 'org-unit-child', depth: 0 },
+      { ancestorOrgUnitId: 'org-unit-parent', depth: 1 },
+    ]);
+    prisma.orgLeadershipAssignment.findMany.mockResolvedValue([
+      {
+        orgUnitId: 'org-unit-parent',
+        employee: { account: { id: 'org-head' } },
+      },
+    ]);
+
+    await expect(
+      service.notificationRecipientIds({
+        officeId: 'office-1',
+        orgUnitId: 'org-unit-child',
+        assigneeAccountId: 'employee-account',
+        supervisorAccountId: 'supervisor-account',
+        operationalTeamIds: ['team-1'],
+      }),
+    ).resolves.toEqual(
+      expect.arrayContaining([
+        'employee-account',
+        'supervisor-account',
+        'team-lead',
+        'org-head',
+      ]),
+    );
+  });
+
+  it('falls back to the Office Head when no OrgUnit Head is active', async () => {
+    const { service, prisma } = createHarness();
+    prisma.orgUnitClosure.findMany.mockResolvedValue([
+      { ancestorOrgUnitId: 'org-unit-child', depth: 0 },
+    ]);
+    prisma.orgLeadershipAssignment.findMany
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([
+        { employee: { account: { id: 'office-head' } } },
+      ]);
+
+    await expect(
+      service.notificationRecipientIds({
+        officeId: 'office-1',
+        orgUnitId: 'org-unit-child',
+        assigneeAccountId: 'employee-account',
+        supervisorAccountId: 'supervisor-account',
+      }),
+    ).resolves.toEqual(
+      expect.arrayContaining([
+        'employee-account',
+        'supervisor-account',
+        'office-head',
+      ]),
+    );
+  });
+
+  it('keeps Team Leads away from assignments explicitly owned by another Operational Team', async () => {
+    const { service, dutyAuthorization, organizationAuthorization } = createHarness();
+    dutyAuthorization.getContext.mockResolvedValue({
+      officeId: 'office-1',
+      primaryOrgUnitId: 'org-unit-parent',
+      operationalTeamLeadIds: ['team-1'],
+      canView: true,
+      canCreate: false,
+      canAssign: true,
+      canManage: true,
+      readOnlyOversight: false,
+    });
+    organizationAuthorization.visibleOrgUnitIds.mockResolvedValue([]);
+
+    const where = await service.visibleAssignmentWhere(managerUser);
+
+    expect(where).toEqual(
+      expect.objectContaining({
+        OR: expect.arrayContaining([
+          expect.objectContaining({
+            OR: expect.arrayContaining([
+              { operationalTeamId: { in: ['team-1'] } },
+            ]),
+          }),
+        ]),
+      }),
+    );
+  });
+
 });

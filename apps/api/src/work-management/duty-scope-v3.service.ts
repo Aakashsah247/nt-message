@@ -7,6 +7,7 @@ import {
 import type { AuthenticatedUser } from '../auth/types/auth.types';
 import { PrismaService } from '../database/prisma.service';
 import {
+  AccountRole,
   EmployeeStatus,
   EmploymentStatus,
   OrgLeadershipType,
@@ -321,8 +322,17 @@ export class DutyScopeV3Service {
     if (orgUnitIds.length) {
       clauses.push({ officeId: context.officeId, orgUnitId: { in: orgUnitIds } });
     }
-    if (teamAccountIds.length) {
-      clauses.push({ employeeAccountId: { in: teamAccountIds } });
+    if (context.operationalTeamLeadIds.length || teamAccountIds.length) {
+      clauses.push({
+        OR: [
+          ...(context.operationalTeamLeadIds.length
+            ? [{ operationalTeamId: { in: context.operationalTeamLeadIds } }]
+            : []),
+          ...(teamAccountIds.length
+            ? [{ operationalTeamId: null, employeeAccountId: { in: teamAccountIds } }]
+            : []),
+        ],
+      });
     }
     clauses.push({ employeeAccountId: user.accountId });
     return { OR: clauses };
@@ -421,6 +431,143 @@ export class DutyScopeV3Service {
     for (const id of await this.accountIdsForTeams(context.operationalTeamLeadIds, at)) ids.add(id);
     ids.add(user.accountId);
     return [...ids];
+  }
+
+  async notificationRecipientIds(
+    input: {
+      officeId: string;
+      orgUnitId: string;
+      assigneeAccountId: string;
+      supervisorAccountId: string;
+      operationalTeamIds?: string[];
+    },
+    at = new Date(),
+  ): Promise<string[]> {
+    const recipients = new Set<string>([
+      input.assigneeAccountId,
+      input.supervisorAccountId,
+    ]);
+    const teamIds = [...new Set(input.operationalTeamIds ?? [])];
+
+    if (teamIds.length) {
+      const teamLeads = await this.prisma.operationalTeamLeadAssignment.findMany({
+        where: {
+          teamId: { in: teamIds },
+          effectiveFrom: { lte: at },
+          OR: [{ effectiveUntil: null }, { effectiveUntil: { gt: at } }],
+          team: {
+            is: {
+              isActive: true,
+              archivedAt: null,
+              orgUnit: { is: { officeId: input.officeId, isActive: true } },
+            },
+          },
+          employee: {
+            is: {
+              status: EmployeeStatus.ACTIVE,
+              employmentStatus: EmploymentStatus.ACTIVE,
+              archivedAt: null,
+              account: {
+                is: {
+                  isEnabled: true,
+                  role: { not: AccountRole.SUPER_ADMIN },
+                },
+              },
+            },
+          },
+        },
+        select: {
+          employee: { select: { account: { select: { id: true } } } },
+        },
+      });
+      for (const lead of teamLeads) {
+        const accountId = lead.employee.account?.id;
+        if (accountId) recipients.add(accountId);
+      }
+    }
+
+    const ancestry = await this.prisma.orgUnitClosure.findMany({
+      where: { descendantOrgUnitId: input.orgUnitId },
+      orderBy: { depth: 'asc' },
+      select: { ancestorOrgUnitId: true, depth: true },
+    });
+    const depthByOrgUnitId = new Map(
+      ancestry.map((row) => [row.ancestorOrgUnitId, row.depth]),
+    );
+    const orgUnitHeads = ancestry.length
+      ? await this.prisma.orgLeadershipAssignment.findMany({
+          where: {
+            officeId: input.officeId,
+            orgUnitId: { in: ancestry.map((row) => row.ancestorOrgUnitId) },
+            leadershipType: OrgLeadershipType.ORG_UNIT_HEAD,
+            effectiveFrom: { lte: at },
+            OR: [{ effectiveUntil: null }, { effectiveUntil: { gt: at } }],
+            employee: {
+              is: {
+                status: EmployeeStatus.ACTIVE,
+                employmentStatus: EmploymentStatus.ACTIVE,
+                archivedAt: null,
+                account: {
+                  is: {
+                    isEnabled: true,
+                    role: { not: AccountRole.SUPER_ADMIN },
+                  },
+                },
+              },
+            },
+          },
+          select: {
+            orgUnitId: true,
+            employee: { select: { account: { select: { id: true } } } },
+          },
+        })
+      : [];
+
+    const nearestDepth = orgUnitHeads.reduce<number | null>((nearest, row) => {
+      if (!row.orgUnitId) return nearest;
+      const depth = depthByOrgUnitId.get(row.orgUnitId);
+      if (depth === undefined) return nearest;
+      return nearest === null || depth < nearest ? depth : nearest;
+    }, null);
+    if (nearestDepth !== null) {
+      for (const head of orgUnitHeads) {
+        if (!head.orgUnitId || depthByOrgUnitId.get(head.orgUnitId) !== nearestDepth) continue;
+        const accountId = head.employee.account?.id;
+        if (accountId) recipients.add(accountId);
+      }
+    } else {
+      const officeHeads = await this.prisma.orgLeadershipAssignment.findMany({
+        where: {
+          officeId: input.officeId,
+          orgUnitId: null,
+          leadershipType: OrgLeadershipType.OFFICE_HEAD,
+          effectiveFrom: { lte: at },
+          OR: [{ effectiveUntil: null }, { effectiveUntil: { gt: at } }],
+          employee: {
+            is: {
+              status: EmployeeStatus.ACTIVE,
+              employmentStatus: EmploymentStatus.ACTIVE,
+              archivedAt: null,
+              account: {
+                is: {
+                  isEnabled: true,
+                  role: { not: AccountRole.SUPER_ADMIN },
+                },
+              },
+            },
+          },
+        },
+        select: {
+          employee: { select: { account: { select: { id: true } } } },
+        },
+      });
+      for (const head of officeHeads) {
+        const accountId = head.employee.account?.id;
+        if (accountId) recipients.add(accountId);
+      }
+    }
+
+    return [...recipients];
   }
 
   async assertLegacyScopeFilter(
