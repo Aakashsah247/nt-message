@@ -3,6 +3,7 @@ import {
   ConflictException,
   ForbiddenException,
   Injectable,
+  Optional,
   NotFoundException,
 } from '@nestjs/common';
 
@@ -13,9 +14,11 @@ import {
   DutyCoverageRequirementAction,
 } from '../generated/prisma/client';
 import type { Prisma } from '../generated/prisma/client';
+import { CAPABILITIES } from '../organization/organization-capabilities';
 import { CreateDutyCoverageRequirementDto } from './dto/create-duty-coverage-requirement.dto';
 import { ListDutyCoverageRequirementsQueryDto } from './dto/list-duty-coverage-requirements-query.dto';
 import { UpdateDutyCoverageRequirementDto } from './dto/update-duty-coverage-requirement.dto';
+import { DutyAuthorizationService } from './duty-authorization.service';
 import { WorkScopeService } from './work-scope.service';
 import type { WorkActorContext } from './work-scope.service';
 
@@ -92,6 +95,8 @@ export class DutyCoverageRequirementsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly workScopeService: WorkScopeService,
+    @Optional()
+    private readonly dutyAuthorizationService?: DutyAuthorizationService,
   ) {}
 
   async listRequirements(
@@ -147,6 +152,10 @@ export class DutyCoverageRequirementsService {
     user: AuthenticatedUser,
     dto: CreateDutyCoverageRequirementDto,
   ): Promise<unknown> {
+    await this.assertDutyManagement(
+      user,
+      CAPABILITIES.DUTY_MANAGE,
+    );
     const actor = await this.resolveManagerActor(user);
     const department = await this.resolveDepartment(actor, dto.departmentId, true);
     await this.resolveShiftForDepartment(
@@ -205,6 +214,10 @@ export class DutyCoverageRequirementsService {
     requirementId: string,
     dto: UpdateDutyCoverageRequirementDto,
   ): Promise<unknown> {
+    await this.assertDutyManagement(
+      user,
+      CAPABILITIES.DUTY_MANAGE,
+    );
     const actor = await this.resolveManagerActor(user);
     const existing = await this.findVisibleRequirement(actor, requirementId);
     const previous = this.toState(existing);
@@ -339,6 +352,20 @@ export class DutyCoverageRequirementsService {
         createdAt: activity.createdAt.toISOString(),
       })),
     };
+  }
+
+  private async assertDutyManagement(
+    user: AuthenticatedUser,
+    capability: 'duty.manage',
+  ): Promise<void> {
+    if (user.role === AccountRole.SUPER_ADMIN) {
+      throw new ForbiddenException(
+        'Super Admin has read-only Duty oversight and cannot perform operational Duty actions.',
+      );
+    }
+    if (this.dutyAuthorizationService) {
+      await this.dutyAuthorizationService.assertCanUseManagement(user, capability);
+    }
   }
 
   private async resolveManagerActor(

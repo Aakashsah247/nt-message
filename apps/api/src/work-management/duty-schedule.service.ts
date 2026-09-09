@@ -3,6 +3,7 @@ import {
   ConflictException,
   ForbiddenException,
   Injectable,
+  Optional,
   NotFoundException,
 } from '@nestjs/common';
 
@@ -37,9 +38,11 @@ import { UpdateDutyAssignmentDto } from './dto/update-duty-assignment.dto';
 import { UpdateDutyHolidayDto } from './dto/update-duty-holiday.dto';
 import { UpdateDutyShiftTemplateDto } from './dto/update-duty-shift-template.dto';
 import { UpdateDutyWeeklyOffDto } from './dto/update-duty-weekly-off.dto';
+import { DutyAuthorizationService } from './duty-authorization.service';
 import { DutyNotificationsService } from './duty-notifications.service';
 import { workAccountSummarySelect } from './work-items.service';
 import { WorkScopeService } from './work-scope.service';
+import { CAPABILITIES } from '../organization/organization-capabilities';
 import type { WorkAccountRecord, WorkActorContext } from './work-scope.service';
 
 const KATHMANDU_OFFSET_MINUTES = 5 * 60 + 45;
@@ -213,12 +216,18 @@ export class DutyScheduleService {
     private readonly prisma: PrismaService,
     private readonly workScopeService: WorkScopeService,
     private readonly dutyNotifications: DutyNotificationsService,
+    @Optional()
+    private readonly dutyAuthorizationService?: DutyAuthorizationService,
   ) {}
 
   async createShiftTemplate(
     user: AuthenticatedUser,
     dto: CreateDutyShiftTemplateDto,
   ) {
+    await this.assertDutyManagement(
+      user,
+      CAPABILITIES.DUTY_MANAGE,
+    );
     const actor = await this.resolveManager(user);
     const startMinute = this.parseTime(dto.startTime, 'Start time');
     const endMinute = this.parseTime(dto.endTime, 'End time');
@@ -274,6 +283,10 @@ export class DutyScheduleService {
     templateId: string,
     dto: UpdateDutyShiftTemplateDto,
   ) {
+    await this.assertDutyManagement(
+      user,
+      CAPABILITIES.DUTY_MANAGE,
+    );
     const actor = await this.resolveManager(user);
     const current = await this.findManageableTemplate(actor, templateId);
     const startMinute =
@@ -350,6 +363,10 @@ export class DutyScheduleService {
   }
 
   async deleteShiftTemplate(user: AuthenticatedUser, templateId: string) {
+    await this.assertDutyManagement(
+      user,
+      CAPABILITIES.DUTY_MANAGE,
+    );
     const actor = await this.resolveManager(user);
     const template = await this.findManageableTemplate(actor, templateId);
     const now = new Date();
@@ -404,6 +421,10 @@ export class DutyScheduleService {
   }
 
   async createSchedule(user: AuthenticatedUser, dto: CreateDutyScheduleDto) {
+    await this.assertDutyManagement(
+      user,
+      CAPABILITIES.DUTY_ASSIGN,
+    );
     const actor = await this.resolveManager(user);
     const [employee] = await this.workScopeService.resolveAssignableAccounts(
       actor,
@@ -612,6 +633,10 @@ export class DutyScheduleService {
     user: AuthenticatedUser,
     dto: CreateBulkDutyScheduleDto,
   ) {
+    await this.assertDutyManagement(
+      user,
+      CAPABILITIES.DUTY_ASSIGN,
+    );
     const actor = await this.resolveManager(user);
     const prepared = await this.prepareBulkSchedule(actor, dto);
     return this.serializeBulkPreview(prepared);
@@ -621,6 +646,10 @@ export class DutyScheduleService {
     user: AuthenticatedUser,
     dto: CreateBulkDutyScheduleDto,
   ) {
+    await this.assertDutyManagement(
+      user,
+      CAPABILITIES.DUTY_ASSIGN,
+    );
     const actor = await this.resolveManager(user);
     // Creation reruns the authoritative preview checks instead of trusting browser state.
     const prepared = await this.prepareBulkSchedule(actor, dto);
@@ -1263,6 +1292,10 @@ export class DutyScheduleService {
     assignmentId: string,
     dto: UpdateDutyAssignmentDto,
   ) {
+    await this.assertDutyManagement(
+      user,
+      CAPABILITIES.DUTY_ASSIGN,
+    );
     const actor = await this.resolveManager(user);
     const current = await this.findVisibleAssignment(actor, assignmentId);
 
@@ -1436,6 +1469,10 @@ export class DutyScheduleService {
     assignmentId: string,
     dto: CancelDutyAssignmentDto,
   ) {
+    await this.assertDutyManagement(
+      user,
+      CAPABILITIES.DUTY_ASSIGN,
+    );
     const actor = await this.resolveManager(user);
     const current = await this.findVisibleAssignment(actor, assignmentId);
 
@@ -1523,6 +1560,10 @@ export class DutyScheduleService {
   }
 
   async createLeave(user: AuthenticatedUser, dto: CreateDutyLeaveDto) {
+    await this.assertDutyManagement(
+      user,
+      CAPABILITIES.DUTY_ASSIGN,
+    );
     const actor = await this.resolveManager(user);
     const [employee] = await this.workScopeService.resolveAssignableAccounts(
       actor,
@@ -1654,6 +1695,9 @@ export class DutyScheduleService {
     query: ListDutyHolidaysQueryDto,
   ) {
     const actor = await this.workScopeService.resolveActorContext(user);
+    const dutyAccess = this.dutyAuthorizationService
+      ? await this.dutyAuthorizationService.getContext(user)
+      : null;
     const fromText = query.from ?? this.localDateString(new Date());
     const toText = query.to ?? this.addDays(fromText, 365);
     const from = this.parseDateOnly(fromText, 'From date');
@@ -1691,13 +1735,13 @@ export class DutyScheduleService {
       period: { from: fromText, to: toText },
       weeklyOffDays: weeklyOff.map((row) => row.dayOfWeek),
       holidays: holidays.map((holiday) => this.serializeHoliday(holiday)),
-      canManage: actor.role === AccountRole.SUPER_ADMIN,
+      canManage: dutyAccess?.canManage ?? false,
     };
   }
 
   async createHoliday(user: AuthenticatedUser, dto: CreateDutyHolidayDto) {
+    await this.assertDutyOfficeConfiguration(user);
     const actor = await this.resolveManager(user);
-    this.assertSuperAdminHolidayManager(actor);
     const startDate = this.parseDateOnly(dto.startDate, 'Holiday start date');
     const endDate = this.parseDateOnly(dto.endDate, 'Holiday end date');
     if (endDate < startDate) {
@@ -1753,8 +1797,8 @@ export class DutyScheduleService {
     holidayId: string,
     dto: UpdateDutyHolidayDto,
   ) {
+    await this.assertDutyOfficeConfiguration(user);
     const actor = await this.resolveManager(user);
-    this.assertSuperAdminHolidayManager(actor);
     const current = await this.prisma.dutyHoliday.findUnique({
       where: { id: holidayId },
       select: dutyHolidaySelect,
@@ -1810,8 +1854,8 @@ export class DutyScheduleService {
   }
 
   async cancelHoliday(user: AuthenticatedUser, holidayId: string) {
+    await this.assertDutyOfficeConfiguration(user);
     const actor = await this.resolveManager(user);
-    this.assertSuperAdminHolidayManager(actor);
     const current = await this.prisma.dutyHoliday.findUnique({
       where: { id: holidayId },
       select: { id: true, cancelledAt: true },
@@ -1836,14 +1880,17 @@ export class DutyScheduleService {
   }
 
   async getWeeklyOff(user: AuthenticatedUser) {
-    const actor = await this.resolveManager(user);
+    await this.resolveManager(user);
+    const dutyAccess = this.dutyAuthorizationService
+      ? await this.dutyAuthorizationService.getContext(user)
+      : null;
     const rows = await this.prisma.dutyWeeklyOffSetting.findMany({
       orderBy: { dayOfWeek: 'asc' },
       select: { dayOfWeek: true, updatedAt: true },
     });
     return {
       days: rows.map((row) => row.dayOfWeek),
-      canManage: actor.role === AccountRole.SUPER_ADMIN,
+      canManage: dutyAccess?.canManage ?? false,
       updatedAt:
         rows.reduce<Date | null>(
           (latest, row) => (!latest || row.updatedAt > latest ? row.updatedAt : latest),
@@ -1856,8 +1903,8 @@ export class DutyScheduleService {
     user: AuthenticatedUser,
     dto: UpdateDutyWeeklyOffDto,
   ) {
+    await this.assertDutyOfficeConfiguration(user);
     const actor = await this.resolveManager(user);
-    this.assertSuperAdminHolidayManager(actor);
     const days = [...new Set(dto.days)].sort((left, right) => left - right);
     await this.prisma.$transaction(async (transaction: Prisma.TransactionClient) => {
       await transaction.dutyWeeklyOffSetting.deleteMany({});
@@ -1873,21 +1920,12 @@ export class DutyScheduleService {
     return { message: 'Weekly off settings updated.', days };
   }
 
-  private assertSuperAdminHolidayManager(actor: WorkActorContext): void {
-    if (actor.role !== AccountRole.SUPER_ADMIN) {
-      throw new ForbiddenException(
-        'Only Super Admin can change the Holiday Calendar or weekly off settings.',
-      );
-    }
-  }
-
   private async resolveHolidayScope(
     actor: WorkActorContext,
     scope: DutyHolidayScope,
     divisionId?: string,
     departmentId?: string,
   ): Promise<{ divisionId: string | null; departmentId: string | null }> {
-    this.assertSuperAdminHolidayManager(actor);
     if (scope === DutyHolidayScope.BRANCH) {
       return { divisionId: null, departmentId: null };
     }
@@ -1954,6 +1992,33 @@ export class DutyScheduleService {
       };
     }
     return { divisionId: null, departmentId: null };
+  }
+
+  private async assertDutyManagement(
+    user: AuthenticatedUser,
+    capability: 'duty.create' | 'duty.assign' | 'duty.manage',
+  ): Promise<void> {
+    if (user.role === AccountRole.SUPER_ADMIN) {
+      throw new ForbiddenException(
+        'Super Admin has read-only Duty oversight and cannot perform operational Duty actions.',
+      );
+    }
+    if (this.dutyAuthorizationService) {
+      await this.dutyAuthorizationService.assertCanUseManagement(user, capability);
+    }
+  }
+
+  private async assertDutyOfficeConfiguration(
+    user: AuthenticatedUser,
+  ): Promise<void> {
+    if (user.role === AccountRole.SUPER_ADMIN) {
+      throw new ForbiddenException(
+        'Super Admin has read-only Duty oversight and cannot change Duty configuration.',
+      );
+    }
+    if (this.dutyAuthorizationService) {
+      await this.dutyAuthorizationService.assertCanManageOfficeConfiguration(user);
+    }
   }
 
   private async resolveManager(user: AuthenticatedUser) {

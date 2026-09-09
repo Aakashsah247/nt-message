@@ -1,0 +1,117 @@
+import { ForbiddenException } from '@nestjs/common';
+
+import type { AuthenticatedUser } from '../auth/types/auth.types';
+import { PrismaService } from '../database/prisma.service';
+import {
+  AccountRole,
+  EmployeeStatus,
+  EmploymentStatus,
+} from '../generated/prisma/client';
+import { OrganizationAuthorizationService } from '../organization/organization-authorization.service';
+import { DutyAuthorizationService } from './duty-authorization.service';
+
+describe('DutyAuthorizationService', () => {
+  const employeeUser = {
+    accountId: 'account-1',
+    role: AccountRole.EMPLOYEE,
+  } as AuthenticatedUser;
+  const superAdmin = {
+    accountId: 'super-admin',
+    role: AccountRole.SUPER_ADMIN,
+  } as AuthenticatedUser;
+
+  function harness() {
+    const prisma = {
+      account: {
+        findUnique: jest.fn().mockResolvedValue({
+          id: 'account-1',
+          role: AccountRole.EMPLOYEE,
+          isEnabled: true,
+          employee: {
+            id: 'employee-1',
+            status: EmployeeStatus.ACTIVE,
+            employmentStatus: EmploymentStatus.ACTIVE,
+            archivedAt: null,
+          },
+        }),
+      },
+      orgMembership: {
+        findFirst: jest.fn().mockResolvedValue({
+          officeId: 'office-1',
+          orgUnitId: 'unit-1',
+        }),
+      },
+      operationalTeamLeadAssignment: {
+        findMany: jest.fn().mockResolvedValue([]),
+      },
+    };
+    const organizationAuthorization = {
+      can: jest.fn().mockResolvedValue(false),
+      assertCan: jest.fn().mockResolvedValue(undefined),
+    };
+    return {
+      prisma,
+      organizationAuthorization,
+      service: new DutyAuthorizationService(
+        prisma as unknown as PrismaService,
+        organizationAuthorization as unknown as OrganizationAuthorizationService,
+      ),
+    };
+  }
+
+  it('keeps Super Admin Duty access strictly read-only', async () => {
+    const h = harness();
+    h.prisma.account.findUnique.mockResolvedValue({
+      id: 'super-admin',
+      role: AccountRole.SUPER_ADMIN,
+      isEnabled: true,
+      employee: null,
+    });
+
+    await expect(h.service.getContext(superAdmin)).resolves.toEqual(
+      expect.objectContaining({
+        canView: true,
+        canCreate: false,
+        canAssign: false,
+        canManage: false,
+        readOnlyOversight: true,
+      }),
+    );
+    await expect(
+      h.service.assertCanUseManagement(superAdmin, 'duty.assign'),
+    ).rejects.toBeInstanceOf(ForbiddenException);
+  });
+
+  it('exposes Office/OrgUnit duty capabilities from central authorization', async () => {
+    const h = harness();
+    h.organizationAuthorization.can.mockImplementation(
+      async (_user, capability: string) => capability !== 'duty.create',
+    );
+
+    await expect(h.service.getContext(employeeUser)).resolves.toEqual(
+      expect.objectContaining({
+        officeId: 'office-1',
+        primaryOrgUnitId: 'unit-1',
+        canView: true,
+        canCreate: false,
+        canAssign: true,
+        canManage: true,
+        readOnlyOversight: false,
+      }),
+    );
+  });
+
+  it('grants Team Lead only Team-scoped Duty assignment/management entry', async () => {
+    const h = harness();
+    h.prisma.operationalTeamLeadAssignment.findMany.mockResolvedValue([
+      { teamId: 'team-1' },
+    ]);
+
+    const context = await h.service.getContext(employeeUser);
+    expect(context.operationalTeamLeadIds).toEqual(['team-1']);
+    expect(context.canView).toBe(true);
+    expect(context.canAssign).toBe(true);
+    expect(context.canManage).toBe(true);
+    expect(context.canCreate).toBe(false);
+  });
+});

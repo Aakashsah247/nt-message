@@ -5,6 +5,7 @@ import { AuthModule } from '../auth/auth.module';
 import { PrismaModule } from '../database/prisma.module';
 import { OrganizationModule } from '../organization/organization.module';
 import { DutyManagementController } from './duty-management.controller';
+import { DutyAuthorizationService } from './duty-authorization.service';
 import { DutyAvailabilityService } from './duty-availability.service';
 import { DutyCoverageRequirementsService } from './duty-coverage-requirements.service';
 import { DutyNotificationsService } from './duty-notifications.service';
@@ -41,6 +42,7 @@ import { WorkTypeV3Service } from './work-type-v3.service';
     WorkTypeV3Controller,
   ],
   providers: [
+    DutyAuthorizationService,
     DutyAvailabilityService,
     DutyCoverageRequirementsService,
     DutyNotificationsService,
@@ -64,6 +66,7 @@ import { WorkTypeV3Service } from './work-type-v3.service';
     WorkTypeV3Service,
   ],
   exports: [
+    DutyAuthorizationService,
     DutyAvailabilityService,
     DutyCoverageRequirementsService,
     DutyScheduleService,

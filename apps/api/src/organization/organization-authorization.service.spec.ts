@@ -178,6 +178,19 @@ describe('OrganizationAuthorizationService', () => {
         'office-1',
       ),
     ).resolves.toBe(true);
+
+    await expect(
+      service.can(superAdmin, CAPABILITIES.DUTY_VIEW, 'office-1'),
+    ).resolves.toBe(true);
+    await expect(
+      service.can(superAdmin, CAPABILITIES.DUTY_CREATE, 'office-1'),
+    ).resolves.toBe(false);
+    await expect(
+      service.can(superAdmin, CAPABILITIES.DUTY_ASSIGN, 'office-1'),
+    ).resolves.toBe(false);
+    await expect(
+      service.can(superAdmin, CAPABILITIES.DUTY_MANAGE, 'office-1'),
+    ).resolves.toBe(false);
   });
 
   it('grants Work lifecycle capabilities only through current leadership scope', async () => {
@@ -214,6 +227,16 @@ describe('OrganizationAuthorizationService', () => {
         'office-1',
         'child-1',
       ),
+    ).resolves.toBe(true);
+
+    await expect(
+      service.can(employeeUser, CAPABILITIES.DUTY_VIEW, 'office-1', 'child-1'),
+    ).resolves.toBe(true);
+    await expect(
+      service.can(employeeUser, CAPABILITIES.DUTY_ASSIGN, 'office-1', 'child-1'),
+    ).resolves.toBe(true);
+    await expect(
+      service.can(employeeUser, CAPABILITIES.DUTY_MANAGE, 'office-1', 'child-1'),
     ).resolves.toBe(true);
 
     await expect(

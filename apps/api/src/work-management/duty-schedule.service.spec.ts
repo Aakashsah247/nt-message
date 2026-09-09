@@ -395,7 +395,7 @@ describe('DutyScheduleService M20 Phase 5', () => {
     expect(transaction.dutyAssignment.create).not.toHaveBeenCalled();
   });
 
-  it('allows Super Admin to plan division-level duty for Senior Management', async () => {
+  it('keeps Super Admin read-only when previewing division-level duty', async () => {
     jest.mocked(scope.resolveActorContext).mockResolvedValue({
       accountId: 'super-admin',
       role: AccountRole.SUPER_ADMIN,
@@ -435,26 +435,28 @@ describe('DutyScheduleService M20 Phase 5', () => {
     jest.mocked(prisma.dutyAssignment.findMany).mockResolvedValue([] as never);
     jest.mocked(prisma.dutyException.findMany).mockResolvedValue([] as never);
 
-    const result = await service.previewBulkSchedule(
-      {
-        ...managerUser,
-        accountId: 'super-admin',
-        role: AccountRole.SUPER_ADMIN,
-      },
-      {
-        employeeAccountIds: ['senior'],
-        shiftTemplateId: 'shift-branch',
-        recurrenceType: DutyRecurrenceType.ONE_TIME,
-        startDate: '2026-07-20',
-        reportingLocation: 'Patan Branch',
-      },
+    await expect(
+      service.previewBulkSchedule(
+        {
+          ...managerUser,
+          accountId: 'super-admin',
+          role: AccountRole.SUPER_ADMIN,
+        },
+        {
+          employeeAccountIds: ['senior'],
+          shiftTemplateId: 'shift-branch',
+          recurrenceType: DutyRecurrenceType.ONE_TIME,
+          startDate: '2026-07-20',
+          reportingLocation: 'Patan Branch',
+        },
+      ),
+    ).rejects.toThrow(
+      'Super Admin has read-only Duty oversight and cannot perform operational Duty actions.',
     );
-
-    expect(result.validAssignments).toBe(1);
-    expect(result.people[0]?.account.role).toBe(AccountRole.SENIOR_MANAGEMENT);
+    expect(scope.resolveAssignableAccounts).not.toHaveBeenCalled();
   });
 
-  it('treats Super Admin assignment to lower staff as normal authorized duty', async () => {
+  it('denies Super Admin assignment to lower staff', async () => {
     const superUser = {
       ...managerUser,
       accountId: 'super-admin',
@@ -502,20 +504,18 @@ describe('DutyScheduleService M20 Phase 5', () => {
       updatedAt: new Date(),
     } as never);
 
-    const result = await service.previewBulkSchedule(superUser, {
-      employeeAccountIds: ['employee'],
-      shiftTemplateId: 'shift-1',
-      recurrenceType: DutyRecurrenceType.ONE_TIME,
-      startDate: '2026-07-20',
-      reportingLocation: 'Patan Branch',
-    });
-
-    expect(result.validAssignments).toBe(1);
-    expect(result.conflictAssignments).toBe(0);
-    expect(result.people[0]?.result).toBe('READY');
-    expect(result.people[0]?.supervisor.superAdminProfile?.fullName).toBe(
-      'Super Admin Name',
+    await expect(
+      service.previewBulkSchedule(superUser, {
+        employeeAccountIds: ['employee'],
+        shiftTemplateId: 'shift-1',
+        recurrenceType: DutyRecurrenceType.ONE_TIME,
+        startDate: '2026-07-20',
+        reportingLocation: 'Patan Branch',
+      }),
+    ).rejects.toThrow(
+      'Super Admin has read-only Duty oversight and cannot perform operational Duty actions.',
     );
+    expect(scope.resolveAssignableAccounts).not.toHaveBeenCalled();
   });
 
   it('shows a holiday as a warning without blocking operational duty', async () => {
