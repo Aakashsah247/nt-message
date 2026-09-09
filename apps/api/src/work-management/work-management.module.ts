@@ -10,6 +10,7 @@ import { DutyAvailabilityService } from './duty-availability.service';
 import { DutyCoverageRequirementsService } from './duty-coverage-requirements.service';
 import { DutyNotificationsService } from './duty-notifications.service';
 import { DutyScheduleService } from './duty-schedule.service';
+import { DutyScopeV3Service } from './duty-scope-v3.service';
 import { WorkItemsController } from './work-items.controller';
 import { WorkItemsService } from './work-items.service';
 import { WorkLifecycleService } from './work-lifecycle.service';
@@ -47,6 +48,7 @@ import { WorkTypeV3Service } from './work-type-v3.service';
     DutyCoverageRequirementsService,
     DutyNotificationsService,
     DutyScheduleService,
+    DutyScopeV3Service,
     WorkItemsService,
     WorkLifecycleService,
     WorkManagementQueryService,
@@ -70,6 +72,7 @@ import { WorkTypeV3Service } from './work-type-v3.service';
     DutyAvailabilityService,
     DutyCoverageRequirementsService,
     DutyScheduleService,
+    DutyScopeV3Service,
     WorkItemsService,
     WorkLifecycleService,
     WorkManagementQueryService,

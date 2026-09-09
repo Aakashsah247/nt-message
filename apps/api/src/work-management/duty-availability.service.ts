@@ -66,6 +66,10 @@ const dutyAssignmentSummarySelect = {
     },
   },
   supervisor: { select: workAccountSummarySelect },
+  officeId: true,
+  orgUnitId: true,
+  office: { select: { id: true, code: true, name: true } },
+  orgUnit: { select: { id: true, code: true, name: true } },
   department: { select: { id: true, code: true, name: true } },
   division: { select: { id: true, code: true, name: true } },
 } satisfies Prisma.DutyAssignmentSelect;
@@ -110,14 +114,14 @@ export class DutyAvailabilityService {
   ) {}
 
   async getMyDutySummary(user: AuthenticatedUser) {
-    const actor = await this.workScopeService.resolveActorContext(user);
+    const accountId = user.accountId;
     const now = new Date();
     const today = this.parseDateOnly(this.localDateString(now));
     const [exception, current, next, upcoming, availability] = await Promise.all([
       this.prisma.dutyException.findUnique({
         where: {
           employeeAccountId_exceptionDate: {
-            employeeAccountId: actor.accountId,
+            employeeAccountId: accountId,
             exceptionDate: today,
           },
         },
@@ -125,7 +129,7 @@ export class DutyAvailabilityService {
       }),
       this.prisma.dutyAssignment.findFirst({
         where: {
-          employeeAccountId: actor.accountId,
+          employeeAccountId: accountId,
           startsAt: { lte: now },
           endsAt: { gt: now },
           cancelledAt: null,
@@ -135,7 +139,7 @@ export class DutyAvailabilityService {
       }),
       this.prisma.dutyAssignment.findFirst({
         where: {
-          employeeAccountId: actor.accountId,
+          employeeAccountId: accountId,
           startsAt: { gt: now },
           cancelledAt: null,
         },
@@ -144,7 +148,7 @@ export class DutyAvailabilityService {
       }),
       this.prisma.dutyAssignment.findMany({
         where: {
-          employeeAccountId: actor.accountId,
+          employeeAccountId: accountId,
           startsAt: { gte: now },
           cancelledAt: null,
         },
@@ -153,7 +157,7 @@ export class DutyAvailabilityService {
         select: dutyAssignmentSummarySelect,
       }),
       this.prisma.employeeWorkAvailability.findUnique({
-        where: { accountId: actor.accountId },
+        where: { accountId },
         select: { preference: true, updatedAt: true },
       }),
     ]);
@@ -198,13 +202,13 @@ export class DutyAvailabilityService {
     user: AuthenticatedUser,
     dto: UpdateWorkAvailabilityDto,
   ) {
-    const actor = await this.workScopeService.resolveActorContext(user);
+    const accountId = user.accountId;
     const availability = await this.prisma.$transaction(
       async (transaction: Prisma.TransactionClient) => {
         const record = await transaction.employeeWorkAvailability.upsert({
-          where: { accountId: actor.accountId },
+          where: { accountId },
           create: {
-            accountId: actor.accountId,
+            accountId,
             preference: dto.preference,
           },
           update: { preference: dto.preference },
@@ -212,8 +216,8 @@ export class DutyAvailabilityService {
         });
         await transaction.dutyActivity.create({
           data: {
-            employeeAccountId: actor.accountId,
-            actorAccountId: actor.accountId,
+            employeeAccountId: accountId,
+            actorAccountId: accountId,
             action: DutyActivityAction.AVAILABILITY_CHANGED,
             details: { preference: dto.preference },
           },
@@ -224,10 +228,10 @@ export class DutyAvailabilityService {
 
     await this.dutyNotifications.publishDutyUpdate({
       assignmentId: null,
-      employeeAccountId: actor.accountId,
+      employeeAccountId: accountId,
       action: 'AVAILABILITY_CHANGED',
-      actorAccountId: actor.accountId,
-      recipientAccountIds: [actor.accountId],
+      actorAccountId: accountId,
+      recipientAccountIds: [accountId],
       title: 'Help availability updated',
       body:
         dto.preference === WorkAvailabilityPreference.AVAILABLE

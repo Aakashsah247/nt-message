@@ -21,6 +21,10 @@ function trimNullableText(value: unknown): unknown {
 export class UpdateDutyCoverageRequirementDto {
   @IsOptional()
   @IsUUID('4')
+  orgUnitId?: string;
+
+  @IsOptional()
+  @IsUUID('4')
   departmentId?: string;
 
   @IsOptional()

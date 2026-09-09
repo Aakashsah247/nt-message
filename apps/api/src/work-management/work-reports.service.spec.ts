@@ -731,6 +731,7 @@ describe('WorkReportsService — final REPORT-V2 contract', () => {
           cancellationReason: null,
           shiftName: 'Day Shift',
           shift: { name: 'Day Shift' },
+          orgUnit: { id: 'org-unit-1', code: 'NET', name: 'Network Unit' },
           division: { id: 'division-1', code: 'TECH', name: 'Technical Division' },
           department: { id: 'department-1', code: 'NET', name: 'Network Department' },
           employee: {
@@ -773,6 +774,51 @@ describe('WorkReportsService — final REPORT-V2 contract', () => {
       }),
     );
     expect(JSON.stringify(prisma.dutyAssignment.findMany.mock.calls[0][0].where)).toContain('Patan');
+  });
+
+  it('keeps Duty report rows readable when V3 Duty has no legacy Division mapping', async () => {
+    const prisma = createPrismaMock();
+    const scopeService = createScopeService(superAdminActor);
+    const service = new WorkReportsService(prisma as never, scopeService as never);
+
+    prisma.dutyAssignment.findMany.mockResolvedValueOnce([
+      {
+        id: 'duty-v3-1',
+        dutyDate: new Date('2026-09-09T00:00:00.000Z'),
+        startsAt: new Date('2026-09-09T02:15:00.000Z'),
+        endsAt: new Date('2026-09-09T10:15:00.000Z'),
+        reportingLocation: 'Patan Exchange',
+        cancelledAt: null,
+        cancellationReason: null,
+        shiftName: 'Day Shift',
+        shift: { name: 'Day Shift' },
+        orgUnit: { id: 'org-unit-v3', code: 'OS', name: 'Outside Service' },
+        division: null,
+        department: null,
+        employee: {
+          role: AccountRole.EMPLOYEE,
+          username: 'employee-v3',
+          employee: { empName: 'Employee V3', empId: 'NTC-EV3' },
+        },
+      },
+    ]);
+    prisma.dutyAssignment.count.mockResolvedValueOnce(1);
+
+    const report = await service.getDrilldown(superAdminUser, {
+      dataset: WorkReportDrilldownDataset.DUTY_ASSIGNMENTS,
+      from: '2026-09-09',
+      to: '2026-09-09',
+      page: 1,
+      limit: 25,
+    });
+
+    expect(report.sections.duty?.rows[0]).toEqual(
+      expect.objectContaining({
+        orgUnit: { id: 'org-unit-v3', code: 'OS', name: 'Outside Service' },
+        division: null,
+        department: null,
+      }),
+    );
   });
 
   it('protects CSV cells from spreadsheet formula execution on Work Records export', async () => {

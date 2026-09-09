@@ -266,7 +266,8 @@ export interface WorkReportLegacyDutyRow {
   employeeId: string | null;
   employeeRole: string;
   shift: string;
-  division: { id: string; code: string; name: string };
+  orgUnit: { id: string; code: string; name: string } | null;
+  division: { id: string; code: string; name: string } | null;
   department: { id: string; code: string; name: string } | null;
   reportingLocation: string;
   cancelledAt: string | null;

@@ -4,6 +4,10 @@ import { IsInt, IsOptional, IsUUID, Matches, Max, Min } from 'class-validator';
 export class ListDutyCoverageRequirementsQueryDto {
   @IsOptional()
   @IsUUID('4')
+  orgUnitId?: string;
+
+  @IsOptional()
+  @IsUUID('4')
   departmentId?: string;
 
   @IsOptional()

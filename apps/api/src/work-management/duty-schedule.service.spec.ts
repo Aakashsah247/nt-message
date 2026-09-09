@@ -13,6 +13,7 @@ import { DutyShiftScope } from './dto/create-duty-shift-template.dto';
 import { DutyAssignmentListView } from './dto/list-duty-assignments-query.dto';
 import { DutyScheduleService } from './duty-schedule.service';
 import type { DutyNotificationsService } from './duty-notifications.service';
+import type { DutyScopeV3Service } from './duty-scope-v3.service';
 import type { WorkScopeService } from './work-scope.service';
 
 jest.mock('../database/prisma.service', () => ({
@@ -99,11 +100,48 @@ describe('DutyScheduleService M20 Phase 5', () => {
   const notifications = {
     publishDutyUpdate: jest.fn(),
   } as unknown as DutyNotificationsService;
-  const service = new DutyScheduleService(prisma, scope, notifications);
+  const dutyScope = {
+    resolveAssignableAccounts: jest.fn(),
+    resolveSupervisor: jest.fn(),
+    resolveLegacyCompatibilityScope: jest.fn(),
+    rosterAccountIds: jest.fn(),
+    visibleAssignmentWhere: jest.fn(),
+    visibleExceptionWhere: jest.fn(),
+    assertLegacyScopeFilter: jest.fn(),
+  } as unknown as DutyScopeV3Service;
+  const service = new DutyScheduleService(prisma, scope, notifications, dutyScope);
 
   beforeEach(() => {
     jest.resetAllMocks();
     jest.mocked(scope.resolveActorContext).mockResolvedValue(actor());
+    jest.mocked(dutyScope.resolveAssignableAccounts).mockImplementation(
+      async () => {
+        const rows = await (scope.resolveAssignableAccounts as jest.Mock)();
+        return rows.map((row: Record<string, unknown>) => ({
+          ...row,
+          officeId: 'office-1',
+          orgUnitId: 'org-unit-a',
+          operationalTeamIds: [],
+        })) as never;
+      },
+    );
+    jest.mocked(dutyScope.resolveSupervisor).mockImplementation(
+      async () =>
+        ({
+          ...(await (scope.resolveResponsibleManager as jest.Mock)()),
+          officeId: 'office-1',
+          orgUnitId: 'org-unit-a',
+          operationalTeamIds: [],
+        }) as never,
+    );
+    jest.mocked(dutyScope.resolveLegacyCompatibilityScope).mockResolvedValue({
+      divisionId: 'division-a',
+      departmentId: 'department-a',
+    });
+    jest.mocked(dutyScope.rosterAccountIds).mockResolvedValue([]);
+    jest.mocked(dutyScope.visibleAssignmentWhere).mockResolvedValue({});
+    jest.mocked(dutyScope.visibleExceptionWhere).mockResolvedValue({});
+    jest.mocked(dutyScope.assertLegacyScopeFilter).mockResolvedValue(undefined);
     jest.mocked(prisma.dutyAssignment.findMany).mockResolvedValue([] as never);
     jest.mocked(prisma.dutyException.findMany).mockResolvedValue([] as never);
     jest.mocked(prisma.dutyHoliday.findMany).mockResolvedValue([] as never);
@@ -292,11 +330,12 @@ describe('DutyScheduleService M20 Phase 5', () => {
     ).rejects.toBeInstanceOf(ConflictException);
   });
 
-  it('prevents senior management from filtering another division department', async () => {
-    jest.mocked(scope.resolveActorContext).mockResolvedValue(
-      actor(AccountRole.SENIOR_MANAGEMENT),
+  it('prevents management from using a legacy department filter outside V3 Duty scope', async () => {
+    jest.mocked(dutyScope.assertLegacyScopeFilter).mockRejectedValueOnce(
+      new ForbiddenException(
+        'The selected legacy Duty scope is outside your Duty visibility.',
+      ),
     );
-    jest.mocked(prisma.department.findFirst).mockResolvedValue(null);
 
     await expect(
       service.listAssignments(
@@ -308,6 +347,11 @@ describe('DutyScheduleService M20 Phase 5', () => {
         },
       ),
     ).rejects.toBeInstanceOf(ForbiddenException);
+
+    expect(dutyScope.assertLegacyScopeFilter).toHaveBeenCalledWith(
+      expect.objectContaining({ accountId: 'manager' }),
+      { departmentId: 'department-outside' },
+    );
   });
 
   it('previews a bulk weekly schedule without writing conflicting rows', async () => {
@@ -692,9 +736,11 @@ describe('DutyScheduleService M20 Phase 5', () => {
     ).rejects.toBeInstanceOf(ForbiddenException);
     expect(prisma.$transaction).not.toHaveBeenCalled();
   });
-  it('rejects a duty roster division outside Senior Management scope', async () => {
-    jest.mocked(scope.resolveActorContext).mockResolvedValue(
-      actor(AccountRole.SENIOR_MANAGEMENT),
+  it('rejects a legacy Duty roster division outside V3 Duty scope', async () => {
+    jest.mocked(dutyScope.assertLegacyScopeFilter).mockRejectedValueOnce(
+      new ForbiddenException(
+        'The selected legacy Duty scope is outside your Duty visibility.',
+      ),
     );
 
     await expect(
@@ -707,6 +753,11 @@ describe('DutyScheduleService M20 Phase 5', () => {
         },
       ),
     ).rejects.toBeInstanceOf(ForbiddenException);
+
+    expect(dutyScope.assertLegacyScopeFilter).toHaveBeenCalledWith(
+      expect.objectContaining({ accountId: 'manager' }),
+      { divisionId: 'division-b', departmentId: undefined },
+    );
   });
 
   it('applies an active Super Admin division filter to duty roster candidates', async () => {

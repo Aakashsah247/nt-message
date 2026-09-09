@@ -3054,7 +3054,7 @@ model DutyScheduleSeries {
   createdByAccountId  String                  @map("created_by_account_id") @db.Uuid
   officeId            String?                 @map("office_id") @db.Uuid
   orgUnitId           String?                 @map("org_unit_id") @db.Uuid
-  divisionId          String                  @map("division_id") @db.Uuid
+  divisionId          String?                 @map("division_id") @db.Uuid
   departmentId        String?                 @map("department_id") @db.Uuid
   recurrenceType      DutyRecurrenceType      @map("recurrence_type")
   startDate           DateTime                @map("start_date") @db.Date
@@ -3076,7 +3076,7 @@ model DutyScheduleSeries {
   createdBy   Account            @relation("DutyScheduleSeriesCreatedBy", fields: [createdByAccountId], references: [id], onDelete: Restrict)
   office      Office?            @relation("DutyScheduleSeriesOfficeV3", fields: [officeId], references: [id], onDelete: Restrict)
   orgUnit     OrgUnit?           @relation("DutyScheduleSeriesOrgUnitV3", fields: [orgUnitId], references: [id], onDelete: Restrict)
-  division    Division           @relation(fields: [divisionId], references: [id], onDelete: Restrict)
+  division    Division?          @relation(fields: [divisionId], references: [id], onDelete: Restrict)
   department  Department?        @relation(fields: [departmentId], references: [id], onDelete: Restrict)
   assignments DutyAssignment[]
   activities  DutyActivity[]
@@ -3101,7 +3101,7 @@ model DutyAssignment {
   createdByAccountId   String                  @map("created_by_account_id") @db.Uuid
   officeId             String?                 @map("office_id") @db.Uuid
   orgUnitId            String?                 @map("org_unit_id") @db.Uuid
-  divisionId           String                  @map("division_id") @db.Uuid
+  divisionId           String?                 @map("division_id") @db.Uuid
   departmentId         String?                 @map("department_id") @db.Uuid
   dutyDate             DateTime                @map("duty_date") @db.Date
   startsAt             DateTime                @map("starts_at") @db.Timestamptz(3)
@@ -3127,7 +3127,7 @@ model DutyAssignment {
   cancelledBy Account?           @relation("DutyAssignmentsCancelledBy", fields: [cancelledByAccountId], references: [id], onDelete: Restrict)
   office      Office?            @relation("DutyAssignmentsOfficeV3", fields: [officeId], references: [id], onDelete: Restrict)
   orgUnit     OrgUnit?           @relation("DutyAssignmentsOrgUnitV3", fields: [orgUnitId], references: [id], onDelete: Restrict)
-  division    Division           @relation(fields: [divisionId], references: [id], onDelete: Restrict)
+  division    Division?          @relation(fields: [divisionId], references: [id], onDelete: Restrict)
   department  Department?        @relation(fields: [departmentId], references: [id], onDelete: Restrict)
   activities  DutyActivity[]
 
@@ -3146,7 +3146,7 @@ model DutyCoverageRequirement {
 
   officeId             String?   @map("office_id") @db.Uuid
   orgUnitId            String?   @map("org_unit_id") @db.Uuid
-  departmentId         String    @map("department_id") @db.Uuid
+  departmentId         String?   @map("department_id") @db.Uuid
   shiftTemplateId      String    @map("shift_template_id") @db.Uuid
   dayOfWeek            Int       @map("day_of_week")
   requiredStaff        Int       @map("required_staff")
@@ -3162,7 +3162,7 @@ model DutyCoverageRequirement {
 
   office     Office?                           @relation("DutyCoverageRequirementsOfficeV3", fields: [officeId], references: [id], onDelete: Restrict)
   orgUnit    OrgUnit?                          @relation("DutyCoverageRequirementsOrgUnitV3", fields: [orgUnitId], references: [id], onDelete: Restrict)
-  department Department                        @relation(fields: [departmentId], references: [id], onDelete: Restrict)
+  department Department?                       @relation(fields: [departmentId], references: [id], onDelete: Restrict)
   shift      DutyShiftTemplate                 @relation(fields: [shiftTemplateId], references: [id], onDelete: Restrict)
   createdBy  Account                           @relation("DutyCoverageRequirementsCreatedBy", fields: [createdByAccountId], references: [id], onDelete: Restrict)
   updatedBy  Account                           @relation("DutyCoverageRequirementsUpdatedBy", fields: [updatedByAccountId], references: [id], onDelete: Restrict)
@@ -3200,7 +3200,7 @@ model DutyException {
   createdByAccountId String            @map("created_by_account_id") @db.Uuid
   officeId           String?           @map("office_id") @db.Uuid
   orgUnitId          String?           @map("org_unit_id") @db.Uuid
-  divisionId         String            @map("division_id") @db.Uuid
+  divisionId         String?           @map("division_id") @db.Uuid
   departmentId       String?           @map("department_id") @db.Uuid
   exceptionDate      DateTime          @map("exception_date") @db.Date
   type               DutyExceptionType
@@ -3213,7 +3213,7 @@ model DutyException {
   createdBy  Account     @relation("DutyExceptionsCreatedBy", fields: [createdByAccountId], references: [id], onDelete: Restrict)
   office     Office?     @relation("DutyExceptionsOfficeV3", fields: [officeId], references: [id], onDelete: Restrict)
   orgUnit    OrgUnit?    @relation("DutyExceptionsOrgUnitV3", fields: [orgUnitId], references: [id], onDelete: Restrict)
-  division   Division    @relation(fields: [divisionId], references: [id], onDelete: Restrict)
+  division   Division?   @relation(fields: [divisionId], references: [id], onDelete: Restrict)
   department Department? @relation(fields: [departmentId], references: [id], onDelete: Restrict)
 
   @@unique([employeeAccountId, exceptionDate], map: "duty_exceptions_employee_date_key")

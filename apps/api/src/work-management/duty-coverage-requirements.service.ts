@@ -3,30 +3,30 @@ import {
   ConflictException,
   ForbiddenException,
   Injectable,
-  Optional,
   NotFoundException,
 } from '@nestjs/common';
 
 import type { AuthenticatedUser } from '../auth/types/auth.types';
 import { PrismaService } from '../database/prisma.service';
 import {
-  AccountRole,
   DutyCoverageRequirementAction,
 } from '../generated/prisma/client';
 import type { Prisma } from '../generated/prisma/client';
 import { CAPABILITIES } from '../organization/organization-capabilities';
+import { OrganizationAuthorizationService } from '../organization/organization-authorization.service';
 import { CreateDutyCoverageRequirementDto } from './dto/create-duty-coverage-requirement.dto';
 import { ListDutyCoverageRequirementsQueryDto } from './dto/list-duty-coverage-requirements-query.dto';
 import { UpdateDutyCoverageRequirementDto } from './dto/update-duty-coverage-requirement.dto';
 import { DutyAuthorizationService } from './duty-authorization.service';
-import { WorkScopeService } from './work-scope.service';
-import type { WorkActorContext } from './work-scope.service';
+import { DutyScopeV3Service } from './duty-scope-v3.service';
 
 const KATHMANDU_OFFSET_MS = 5.75 * 60 * 60 * 1000;
 const FAR_FUTURE_DATE = new Date('9999-12-31T00:00:00.000Z');
 
 const coverageRequirementSelect = {
   id: true,
+  officeId: true,
+  orgUnitId: true,
   departmentId: true,
   shiftTemplateId: true,
   dayOfWeek: true,
@@ -39,6 +39,18 @@ const coverageRequirementSelect = {
   updatedByAccountId: true,
   createdAt: true,
   updatedAt: true,
+  office: { select: { id: true, code: true, name: true } },
+  orgUnit: {
+    select: {
+      id: true,
+      officeId: true,
+      code: true,
+      name: true,
+      isActive: true,
+      parentOrgUnitId: true,
+      orgUnitType: { select: { code: true, name: true, isTeam: true } },
+    },
+  },
   department: {
     select: {
       id: true,
@@ -57,6 +69,8 @@ const coverageRequirementSelect = {
       endMinute: true,
       spansNextDay: true,
       isActive: true,
+      officeId: true,
+      orgUnitId: true,
       divisionId: true,
       departmentId: true,
     },
@@ -80,7 +94,9 @@ type CoverageRequirementRecord = Prisma.DutyCoverageRequirementGetPayload<{
 }>;
 
 interface CoverageRequirementState {
-  departmentId: string;
+  officeId: string;
+  orgUnitId: string;
+  departmentId: string | null;
   shiftTemplateId: string;
   dayOfWeek: number;
   requiredStaff: number;
@@ -94,23 +110,27 @@ interface CoverageRequirementState {
 export class DutyCoverageRequirementsService {
   constructor(
     private readonly prisma: PrismaService,
-    private readonly workScopeService: WorkScopeService,
-    @Optional()
-    private readonly dutyAuthorizationService?: DutyAuthorizationService,
+    private readonly dutyAuthorization: DutyAuthorizationService,
+    private readonly organizationAuthorization: OrganizationAuthorizationService,
+    private readonly dutyScopeV3: DutyScopeV3Service,
   ) {}
 
   async listRequirements(
     user: AuthenticatedUser,
     query: ListDutyCoverageRequirementsQueryDto,
   ): Promise<unknown> {
-    const actor = await this.resolveManagerActor(user);
-    await this.assertOptionalDepartmentInsideScope(actor, query.departmentId);
     const range = this.resolveOptionalRange(query.from, query.to);
+    const visibleWhere = await this.buildVisibleWhere(user);
+
+    if (query.orgUnitId) {
+      await this.assertVisibleOrgUnit(user, query.orgUnitId);
+    }
 
     const records = await this.prisma.dutyCoverageRequirement.findMany({
       where: {
         AND: [
-          this.buildVisibleWhere(actor),
+          visibleWhere,
+          ...(query.orgUnitId ? [{ orgUnitId: query.orgUnitId }] : []),
           ...(query.departmentId ? [{ departmentId: query.departmentId }] : []),
           ...(query.shiftTemplateId
             ? [{ shiftTemplateId: query.shiftTemplateId }]
@@ -132,7 +152,7 @@ export class DutyCoverageRequirementsService {
         ],
       },
       orderBy: [
-        { department: { name: 'asc' } },
+        { orgUnit: { name: 'asc' } },
         { dayOfWeek: 'asc' },
         { shift: { startMinute: 'asc' } },
         { reportingLocationKey: 'asc' },
@@ -152,21 +172,25 @@ export class DutyCoverageRequirementsService {
     user: AuthenticatedUser,
     dto: CreateDutyCoverageRequirementDto,
   ): Promise<unknown> {
-    await this.assertDutyManagement(
+    const scope = await this.resolveManagedScope(
       user,
-      CAPABILITIES.DUTY_MANAGE,
+      dto.orgUnitId,
+      dto.departmentId,
+      true,
     );
-    const actor = await this.resolveManagerActor(user);
-    const department = await this.resolveDepartment(actor, dto.departmentId, true);
-    await this.resolveShiftForDepartment(
+    await this.resolveShiftForOrgUnit(
       dto.shiftTemplateId,
-      department.divisionId,
-      department.id,
+      scope.officeId,
+      scope.orgUnitId,
+      scope.divisionId,
+      scope.departmentId,
       true,
     );
 
     const state: CoverageRequirementState = {
-      departmentId: department.id,
+      officeId: scope.officeId,
+      orgUnitId: scope.orgUnitId,
+      departmentId: scope.departmentId,
       shiftTemplateId: dto.shiftTemplateId,
       dayOfWeek: dto.dayOfWeek,
       requiredStaff: dto.requiredStaff,
@@ -188,8 +212,8 @@ export class DutyCoverageRequirementsService {
       const requirement = await transaction.dutyCoverageRequirement.create({
         data: {
           ...state,
-          createdByAccountId: actor.accountId,
-          updatedByAccountId: actor.accountId,
+          createdByAccountId: user.accountId,
+          updatedByAccountId: user.accountId,
         },
         select: coverageRequirementSelect,
       });
@@ -197,7 +221,7 @@ export class DutyCoverageRequirementsService {
       await transaction.dutyCoverageRequirementActivity.create({
         data: {
           requirementId: requirement.id,
-          actorAccountId: actor.accountId,
+          actorAccountId: user.accountId,
           action: DutyCoverageRequirementAction.CREATED,
           nextState: this.auditState(state),
         },
@@ -214,12 +238,19 @@ export class DutyCoverageRequirementsService {
     requirementId: string,
     dto: UpdateDutyCoverageRequirementDto,
   ): Promise<unknown> {
-    await this.assertDutyManagement(
+    const existing = await this.findVisibleRequirement(user, requirementId);
+    if (!existing.officeId || !existing.orgUnitId) {
+      throw new ConflictException(
+        'This historical coverage requirement has not been reconciled to Office/OrgUnit scope and cannot be changed.',
+      );
+    }
+    await this.organizationAuthorization.assertCan(
       user,
       CAPABILITIES.DUTY_MANAGE,
+      existing.officeId,
+      existing.orgUnitId,
     );
-    const actor = await this.resolveManagerActor(user);
-    const existing = await this.findVisibleRequirement(actor, requirementId);
+
     const previous = this.toState(existing);
     const today = this.currentKathmanduDate();
     const hasStarted = existing.effectiveFrom <= today;
@@ -230,17 +261,25 @@ export class DutyCoverageRequirementsService {
       );
     }
 
-    const nextDepartmentId = dto.departmentId ?? existing.departmentId;
-    const department = await this.resolveDepartment(
-      actor,
-      nextDepartmentId,
+    const requestedDepartmentId =
+      dto.departmentId !== undefined
+        ? dto.departmentId
+        : dto.orgUnitId
+          ? undefined
+          : existing.departmentId ?? undefined;
+    const scope = await this.resolveManagedScope(
+      user,
+      dto.orgUnitId ?? existing.orgUnitId,
+      requestedDepartmentId,
       !hasStarted,
     );
     const nextShiftTemplateId = dto.shiftTemplateId ?? existing.shiftTemplateId;
-    await this.resolveShiftForDepartment(
+    await this.resolveShiftForOrgUnit(
       nextShiftTemplateId,
-      department.divisionId,
-      department.id,
+      scope.officeId,
+      scope.orgUnitId,
+      scope.divisionId,
+      scope.departmentId,
       !hasStarted,
     );
 
@@ -252,7 +291,9 @@ export class DutyCoverageRequirementsService {
           }
         : this.normalizeLocation(dto.reportingLocation ?? undefined);
     const next: CoverageRequirementState = {
-      departmentId: nextDepartmentId,
+      officeId: scope.officeId,
+      orgUnitId: scope.orgUnitId,
+      departmentId: scope.departmentId,
       shiftTemplateId: nextShiftTemplateId,
       dayOfWeek: dto.dayOfWeek ?? existing.dayOfWeek,
       requiredStaff: dto.requiredStaff ?? existing.requiredStaff,
@@ -295,7 +336,7 @@ export class DutyCoverageRequirementsService {
         where: { id: requirementId },
         data: {
           ...next,
-          updatedByAccountId: actor.accountId,
+          updatedByAccountId: user.accountId,
         },
         select: coverageRequirementSelect,
       });
@@ -303,7 +344,7 @@ export class DutyCoverageRequirementsService {
       await transaction.dutyCoverageRequirementActivity.create({
         data: {
           requirementId,
-          actorAccountId: actor.accountId,
+          actorAccountId: user.accountId,
           action,
           previousState: this.auditState(previous),
           nextState: this.auditState(next),
@@ -320,26 +361,24 @@ export class DutyCoverageRequirementsService {
     user: AuthenticatedUser,
     requirementId: string,
   ): Promise<unknown> {
-    const actor = await this.resolveManagerActor(user);
-    const requirement = await this.findVisibleRequirement(actor, requirementId);
-    const activities =
-      await this.prisma.dutyCoverageRequirementActivity.findMany({
-        where: { requirementId },
-        orderBy: { createdAt: 'asc' },
-        select: {
-          id: true,
-          action: true,
-          previousState: true,
-          nextState: true,
-          createdAt: true,
-          actor: {
-            select: {
-              username: true,
-              employee: { select: { empId: true, empName: true } },
-            },
+    const requirement = await this.findVisibleRequirement(user, requirementId);
+    const activities = await this.prisma.dutyCoverageRequirementActivity.findMany({
+      where: { requirementId },
+      orderBy: { createdAt: 'asc' },
+      select: {
+        id: true,
+        action: true,
+        previousState: true,
+        nextState: true,
+        createdAt: true,
+        actor: {
+          select: {
+            username: true,
+            employee: { select: { empId: true, empName: true } },
           },
         },
-      });
+      },
+    });
 
     return {
       requirement: this.presentRequirement(requirement),
@@ -354,105 +393,161 @@ export class DutyCoverageRequirementsService {
     };
   }
 
-  private async assertDutyManagement(
+  private async buildVisibleWhere(
     user: AuthenticatedUser,
-    capability: 'duty.manage',
+  ): Promise<Prisma.DutyCoverageRequirementWhereInput> {
+    const context = await this.dutyAuthorization.getContext(user);
+    if (context.readOnlyOversight) return {};
+    if (!context.officeId || !context.canView) {
+      return { id: '__no_duty_coverage_scope__' };
+    }
+
+    const orgUnitIds = new Set(
+      await this.organizationAuthorization.visibleOrgUnitIds(
+        user,
+        CAPABILITIES.DUTY_VIEW,
+        context.officeId,
+      ),
+    );
+    if (context.operationalTeamLeadIds.length) {
+      const teams = await this.prisma.operationalTeam.findMany({
+        where: {
+          id: { in: context.operationalTeamLeadIds },
+          isActive: true,
+          archivedAt: null,
+          orgUnit: { is: { officeId: context.officeId, isActive: true } },
+        },
+        select: { orgUnitId: true },
+      });
+      for (const team of teams) orgUnitIds.add(team.orgUnitId);
+    }
+
+    return orgUnitIds.size
+      ? { officeId: context.officeId, orgUnitId: { in: [...orgUnitIds] } }
+      : { id: '__no_duty_coverage_scope__' };
+  }
+
+  private async assertVisibleOrgUnit(
+    user: AuthenticatedUser,
+    orgUnitId: string,
   ): Promise<void> {
-    if (user.role === AccountRole.SUPER_ADMIN) {
-      throw new ForbiddenException(
-        'Super Admin has read-only Duty oversight and cannot perform operational Duty actions.',
+    const context = await this.dutyAuthorization.getContext(user);
+    if (context.readOnlyOversight) return;
+    if (!context.officeId) {
+      throw new ForbiddenException('The selected OrgUnit is outside your Duty visibility scope.');
+    }
+
+    const visibleOrgUnitIds = new Set(
+      await this.organizationAuthorization.visibleOrgUnitIds(
+        user,
+        CAPABILITIES.DUTY_VIEW,
+        context.officeId,
+      ),
+    );
+    if (context.operationalTeamLeadIds.length) {
+      const team = await this.prisma.operationalTeam.findFirst({
+        where: {
+          id: { in: context.operationalTeamLeadIds },
+          orgUnitId,
+          isActive: true,
+          archivedAt: null,
+          orgUnit: { is: { officeId: context.officeId, isActive: true } },
+        },
+        select: { id: true },
+      });
+      if (team) visibleOrgUnitIds.add(orgUnitId);
+    }
+    if (!visibleOrgUnitIds.has(orgUnitId)) {
+      throw new ForbiddenException('The selected OrgUnit is outside your Duty visibility scope.');
+    }
+  }
+
+  private async resolveManagedScope(
+    user: AuthenticatedUser,
+    requestedOrgUnitId: string | undefined,
+    requestedDepartmentId: string | undefined,
+    requireActive: boolean,
+  ): Promise<{
+    officeId: string;
+    orgUnitId: string;
+    divisionId: string | null;
+    departmentId: string | null;
+  }> {
+    const context = await this.dutyAuthorization.assertCanUseManagement(
+      user,
+      CAPABILITIES.DUTY_MANAGE,
+    );
+    if (!context.officeId) {
+      throw new ForbiddenException('Duty coverage requires an active Office scope.');
+    }
+
+    let orgUnitId = requestedOrgUnitId;
+    if (!orgUnitId && requestedDepartmentId) {
+      const mapping = await this.prisma.legacyOrgUnitMapping.findFirst({
+        where: {
+          officeId: context.officeId,
+          legacyEntityType: 'DEPARTMENT',
+          legacyEntityId: requestedDepartmentId,
+        },
+        select: { orgUnitId: true },
+      });
+      orgUnitId = mapping?.orgUnitId;
+    }
+    if (!orgUnitId) {
+      throw new BadRequestException('Select an OrgUnit for this coverage requirement.');
+    }
+
+    const orgUnit = await this.prisma.orgUnit.findFirst({
+      where: {
+        id: orgUnitId,
+        officeId: context.officeId,
+        ...(requireActive ? { isActive: true } : {}),
+      },
+      select: { id: true, officeId: true, isActive: true },
+    });
+    if (!orgUnit) {
+      throw new NotFoundException('The selected OrgUnit was not found in this Office.');
+    }
+    if (requireActive && !orgUnit.isActive) {
+      throw new BadRequestException(
+        'Coverage requirements can be managed only for an active OrgUnit.',
       );
     }
-    if (this.dutyAuthorizationService) {
-      await this.dutyAuthorizationService.assertCanUseManagement(user, capability);
-    }
-  }
 
-  private async resolveManagerActor(
-    user: AuthenticatedUser,
-  ): Promise<WorkActorContext> {
-    const actor = await this.workScopeService.resolveActorContext(user);
-    this.workScopeService.assertCanManageWork(actor);
-    return actor;
-  }
+    await this.organizationAuthorization.assertCan(
+      user,
+      CAPABILITIES.DUTY_MANAGE,
+      orgUnit.officeId,
+      orgUnit.id,
+    );
 
-  private buildVisibleWhere(
-    actor: WorkActorContext,
-  ): Prisma.DutyCoverageRequirementWhereInput {
-    if (actor.role === AccountRole.SUPER_ADMIN) return {};
-    if (actor.role === AccountRole.SENIOR_MANAGEMENT) {
-      return {
-        department: {
-          is: { divisionId: actor.divisionId ?? '__missing_division__' },
-        },
-      };
+    const compatibility = await this.dutyScopeV3.resolveLegacyCompatibilityScope(
+      orgUnit.officeId,
+      orgUnit.id,
+    );
+    if (
+      requestedDepartmentId &&
+      compatibility.departmentId !== requestedDepartmentId
+    ) {
+      throw new BadRequestException(
+        'The selected legacy Department does not match the selected OrgUnit.',
+      );
     }
+
     return {
-      departmentId: actor.departmentId ?? '__missing_department__',
+      officeId: orgUnit.officeId,
+      orgUnitId: orgUnit.id,
+      divisionId: compatibility.divisionId,
+      departmentId: compatibility.departmentId,
     };
   }
 
-  private async assertOptionalDepartmentInsideScope(
-    actor: WorkActorContext,
-    departmentId: string | undefined,
-  ): Promise<void> {
-    if (!departmentId) return;
-    await this.resolveDepartment(actor, departmentId, false);
-  }
-
-  private async resolveDepartment(
-    actor: WorkActorContext,
-    departmentId: string,
-    requireActive: boolean,
-  ): Promise<{
-    id: string;
-    divisionId: string;
-    code: string;
-    name: string;
-    isActive: boolean;
-  }> {
-    const department = await this.prisma.department.findUnique({
-      where: { id: departmentId },
-      select: {
-        id: true,
-        divisionId: true,
-        code: true,
-        name: true,
-        isActive: true,
-        division: { select: { isActive: true } },
-      },
-    });
-    if (!department) {
-      throw new NotFoundException('Department was not found.');
-    }
-    if (requireActive && (!department.isActive || !department.division.isActive)) {
-      throw new BadRequestException(
-        'Coverage requirements can be managed only for an active department.',
-      );
-    }
-    if (
-      actor.role === AccountRole.TEAM_MANAGER &&
-      department.id !== actor.departmentId
-    ) {
-      throw new ForbiddenException(
-        'Team Managers can manage coverage only for their own department.',
-      );
-    }
-    if (
-      actor.role === AccountRole.SENIOR_MANAGEMENT &&
-      department.divisionId !== actor.divisionId
-    ) {
-      throw new ForbiddenException(
-        'Senior Management can manage coverage only inside the assigned division.',
-      );
-    }
-    return department;
-  }
-
-  private async resolveShiftForDepartment(
+  private async resolveShiftForOrgUnit(
     shiftTemplateId: string,
-    divisionId: string,
-    departmentId: string,
+    officeId: string,
+    orgUnitId: string,
+    divisionId: string | null,
+    departmentId: string | null,
     requireActive: boolean,
   ): Promise<void> {
     const shift = await this.prisma.dutyShiftTemplate.findUnique({
@@ -460,6 +555,8 @@ export class DutyCoverageRequirementsService {
       select: {
         id: true,
         isActive: true,
+        officeId: true,
+        orgUnitId: true,
         divisionId: true,
         departmentId: true,
       },
@@ -472,24 +569,44 @@ export class DutyCoverageRequirementsService {
         'An inactive shift template cannot receive a coverage requirement.',
       );
     }
-    const matchesDepartment =
+    if (shift.officeId && shift.officeId !== officeId) {
+      throw new ForbiddenException(
+        'The selected shift template belongs to another Office.',
+      );
+    }
+    if (shift.orgUnitId) {
+      const insideScope = await this.prisma.orgUnitClosure.findFirst({
+        where: {
+          ancestorOrgUnitId: shift.orgUnitId,
+          descendantOrgUnitId: orgUnitId,
+        },
+        select: { ancestorOrgUnitId: true },
+      });
+      if (!insideScope) {
+        throw new ForbiddenException(
+          'The selected shift template is outside this OrgUnit scope.',
+        );
+      }
+      return;
+    }
+
+    const legacyMatches =
       (!shift.departmentId || shift.departmentId === departmentId) &&
       (!shift.divisionId || shift.divisionId === divisionId);
-    if (!matchesDepartment) {
+    if (!legacyMatches) {
       throw new ForbiddenException(
-        'The selected shift template is not available to this department.',
+        'The selected legacy shift template is outside this OrgUnit scope.',
       );
     }
   }
 
   private async findVisibleRequirement(
-    actor: WorkActorContext,
+    user: AuthenticatedUser,
     requirementId: string,
   ): Promise<CoverageRequirementRecord> {
+    const visibleWhere = await this.buildVisibleWhere(user);
     const requirement = await this.prisma.dutyCoverageRequirement.findFirst({
-      where: {
-        AND: [{ id: requirementId }, this.buildVisibleWhere(actor)],
-      },
+      where: { AND: [{ id: requirementId }, visibleWhere] },
       select: coverageRequirementSelect,
     });
     if (!requirement) {
@@ -502,7 +619,6 @@ export class DutyCoverageRequirementsService {
     state: CoverageRequirementState,
     excludedRequirementId?: string,
   ): Promise<void> {
-    // A generic location target and a location-specific target cannot coexist for one staffing slot.
     const locationScope: Prisma.DutyCoverageRequirementWhereInput =
       state.reportingLocationKey === null
         ? {}
@@ -516,15 +632,14 @@ export class DutyCoverageRequirementsService {
       where: {
         AND: [
           {
-            departmentId: state.departmentId,
+            officeId: state.officeId,
+            orgUnitId: state.orgUnitId,
             shiftTemplateId: state.shiftTemplateId,
             dayOfWeek: state.dayOfWeek,
             ...(excludedRequirementId
               ? { id: { not: excludedRequirementId } }
               : {}),
-            effectiveFrom: {
-              lte: state.effectiveUntil ?? FAR_FUTURE_DATE,
-            },
+            effectiveFrom: { lte: state.effectiveUntil ?? FAR_FUTURE_DATE },
             OR: [
               { effectiveUntil: null },
               { effectiveUntil: { gte: state.effectiveFrom } },
@@ -537,7 +652,7 @@ export class DutyCoverageRequirementsService {
     });
     if (overlap) {
       throw new ConflictException(
-        'An overlapping coverage requirement already exists for this department, shift, weekday and location scope.',
+        'An overlapping coverage requirement already exists for this OrgUnit, shift, weekday and location scope.',
       );
     }
   }
@@ -603,7 +718,14 @@ export class DutyCoverageRequirementsService {
   }
 
   private toState(record: CoverageRequirementRecord): CoverageRequirementState {
+    if (!record.officeId || !record.orgUnitId) {
+      throw new ConflictException(
+        'This coverage requirement does not have reconciled Office/OrgUnit scope.',
+      );
+    }
     return {
+      officeId: record.officeId,
+      orgUnitId: record.orgUnitId,
       departmentId: record.departmentId,
       shiftTemplateId: record.shiftTemplateId,
       dayOfWeek: record.dayOfWeek,
@@ -620,6 +742,8 @@ export class DutyCoverageRequirementsService {
     next: CoverageRequirementState,
   ): boolean {
     return (
+      previous.officeId !== next.officeId ||
+      previous.orgUnitId !== next.orgUnitId ||
       previous.departmentId !== next.departmentId ||
       previous.shiftTemplateId !== next.shiftTemplateId ||
       previous.dayOfWeek !== next.dayOfWeek ||
@@ -642,6 +766,8 @@ export class DutyCoverageRequirementsService {
 
   private auditState(state: CoverageRequirementState): Prisma.InputJsonValue {
     return {
+      officeId: state.officeId,
+      orgUnitId: state.orgUnitId,
       departmentId: state.departmentId,
       shiftTemplateId: state.shiftTemplateId,
       dayOfWeek: state.dayOfWeek,
@@ -655,13 +781,17 @@ export class DutyCoverageRequirementsService {
   private presentRequirement(record: CoverageRequirementRecord) {
     return {
       id: record.id,
-      department: {
-        id: record.department.id,
-        divisionId: record.department.divisionId,
-        code: record.department.code,
-        name: record.department.name,
-        division: record.department.division,
-      },
+      office: record.office,
+      orgUnit: record.orgUnit,
+      department: record.department
+        ? {
+            id: record.department.id,
+            divisionId: record.department.divisionId,
+            code: record.department.code,
+            name: record.department.name,
+            division: record.department.division,
+          }
+        : null,
       shift: record.shift,
       dayOfWeek: record.dayOfWeek,
       requiredStaff: record.requiredStaff,
@@ -679,9 +809,6 @@ export class DutyCoverageRequirementsService {
     username: string | null;
     employee: { empId: string; empName: string } | null;
   }): string {
-    if (account.employee) {
-      return `${account.employee.empName} (${account.employee.empId})`;
-    }
-    return account.username ?? 'Authorized account';
+    return account.employee?.empName ?? account.username ?? 'Unknown account';
   }
 }

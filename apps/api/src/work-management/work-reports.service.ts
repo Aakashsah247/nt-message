@@ -236,7 +236,8 @@ export interface WorkReportDrilldownDutyRow {
   employeeId: string | null;
   employeeRole: AccountRole;
   shift: string;
-  division: { id: string; code: string; name: string };
+  orgUnit: { id: string; code: string; name: string } | null;
+  division: { id: string; code: string; name: string } | null;
   department: { id: string; code: string; name: string } | null;
   reportingLocation: string;
   cancelledAt: string | null;
@@ -1125,6 +1126,7 @@ export class WorkReportsService {
           cancelledAt: true,
           cancellationReason: true,
           shiftName: true,
+          orgUnit: { select: { id: true, code: true, name: true } },
           division: { select: { id: true, code: true, name: true } },
           department: { select: { id: true, code: true, name: true } },
           shift: { select: { name: true } },
@@ -1152,6 +1154,7 @@ export class WorkReportsService {
         employeeId: record.employee.employee?.empId ?? null,
         employeeRole: record.employee.role,
         shift: record.shift?.name ?? record.shiftName ?? 'Deleted shift',
+        orgUnit: record.orgUnit,
         division: record.division,
         department: record.department,
         reportingLocation: record.reportingLocation,
@@ -1444,6 +1447,7 @@ export class WorkReportsService {
           shift: {
             select: { name: true, startMinute: true, endMinute: true },
           },
+          orgUnit: { select: { code: true, name: true } },
           division: { select: { code: true, name: true } },
           department: { select: { code: true, name: true } },
           employee: {
@@ -1484,7 +1488,11 @@ export class WorkReportsService {
         row.shift?.name ?? row.shiftName ?? 'Deleted shift',
         row.startsAt.toISOString(),
         row.endsAt.toISOString(),
-        `${row.division.code} - ${row.division.name}`,
+        row.division
+          ? `${row.division.code} - ${row.division.name}`
+          : row.orgUnit
+            ? `${row.orgUnit.code} - ${row.orgUnit.name}`
+            : 'OrgUnit-scoped duty',
         row.department
           ? `${row.department.code} - ${row.department.name}`
           : 'Division-level duty',

@@ -24,8 +24,15 @@ function trimText(value: unknown): unknown {
   return typeof value === 'string' ? value.trim() : value;
 }
 
-// Bulk requests are bounded to protect the API from accidental employee-by-day explosions.
 export class CreateBulkDutyScheduleDto {
+  @IsOptional()
+  @IsUUID('4')
+  orgUnitId?: string;
+
+  @IsOptional()
+  @IsUUID('4')
+  operationalTeamId?: string;
+
   @IsArray()
   @ArrayMinSize(1)
   @ArrayMaxSize(100)
@@ -46,17 +53,11 @@ export class CreateBulkDutyScheduleDto {
   @Matches(/^\d{4}-\d{2}-\d{2}$/)
   startDate!: string;
 
-  @ValidateIf(
-    (dto: CreateBulkDutyScheduleDto) =>
-      dto.recurrenceType !== DutyRecurrenceType.ONE_TIME,
-  )
+  @ValidateIf((dto: CreateBulkDutyScheduleDto) => dto.recurrenceType !== DutyRecurrenceType.ONE_TIME)
   @Matches(/^\d{4}-\d{2}-\d{2}$/)
   endDate?: string;
 
-  @ValidateIf(
-    (dto: CreateBulkDutyScheduleDto) =>
-      dto.recurrenceType === DutyRecurrenceType.WEEKLY,
-  )
+  @ValidateIf((dto: CreateBulkDutyScheduleDto) => dto.recurrenceType === DutyRecurrenceType.WEEKLY)
   @IsArray()
   @ArrayUnique()
   @ArrayMaxSize(7)
@@ -78,7 +79,6 @@ export class CreateBulkDutyScheduleDto {
   @MaxLength(1000)
   notes?: string;
 
-  // Managers must explicitly accept skipping conflicts after reviewing the preview.
   @IsOptional()
   @IsBoolean()
   createValidAssignmentsOnly?: boolean;

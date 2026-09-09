@@ -18,8 +18,13 @@ function trimOptionalText(value: unknown): unknown {
 }
 
 export class CreateDutyCoverageRequirementDto {
+  @IsOptional()
   @IsUUID('4')
-  departmentId!: string;
+  orgUnitId?: string;
+
+  @IsOptional()
+  @IsUUID('4')
+  departmentId?: string;
 
   @IsUUID('4')
   shiftTemplateId!: string;

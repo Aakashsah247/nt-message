@@ -1221,12 +1221,14 @@ function EmptyState({ t }: { t: ReturnType<typeof useTranslation>["t"] }) {
 }
 
 function DutyRow({ row, language, t }: { row: WorkReportLegacyDutyRow; language: string; t: ReturnType<typeof useTranslation>["t"] }) {
+  const organizationalLabel = row.department?.name ?? row.orgUnit?.name ?? t("reports:duty.divisionDuty");
+  const organizationalContext = row.division?.name ?? row.orgUnit?.code ?? "—";
   return (
     <tr>
       <td className="px-4 py-3">{formatDate(row.dutyDate, language)}</td>
       <td className="px-4 py-3"><strong className="block text-slate-900">{row.employee}</strong><small className="text-slate-500">{row.employeeId ?? ""}</small></td>
       <td className="px-4 py-3"><strong className="block">{row.shift}</strong><small className="text-slate-500">{formatDateTime(row.startsAt, language)} – {formatDateTime(row.endsAt, language)}</small></td>
-      <td className="px-4 py-3"><strong className="block">{row.department?.name ?? t("reports:duty.divisionDuty")}</strong><small className="text-slate-500">{row.division.name}</small></td>
+      <td className="px-4 py-3"><strong className="block">{organizationalLabel}</strong><small className="text-slate-500">{organizationalContext}</small></td>
       <td className="px-4 py-3">{row.reportingLocation || "—"}</td>
       <td className="px-4 py-3"><StatusPill status={row.cancelledAt ? "CANCELLED" : "OPEN"} label={row.cancelledAt ? t("reports:duty.cancelled") : t("reports:duty.scheduled")} /></td>
     </tr>
@@ -1297,5 +1299,5 @@ function PrintStages({ rows, t }: { rows: WorkReportV3StageAnalysisRow[]; t: Ret
 
 function PrintDuty({ duty, language, t }: { duty: WorkReportLegacyDutyResponse; language: string; t: ReturnType<typeof useTranslation>["t"] }) {
   const rows = duty.sections.duty?.rows ?? [];
-  return <table className="w-full border-collapse"><thead className="print:table-header-group"><tr>{(["date", "employee", "shift", "department", "location", "status"] as ReportColumnKey[]).map((key) => <th key={key} className="border border-slate-400 bg-slate-100 p-1.5 text-left">{columnLabel(key, t)}</th>)}</tr></thead><tbody>{rows.map((row) => <tr key={row.id} className="break-inside-avoid"><td className="border border-slate-300 p-1.5">{formatDate(row.dutyDate, language)}</td><td className="border border-slate-300 p-1.5">{row.employee}</td><td className="border border-slate-300 p-1.5">{row.shift}</td><td className="border border-slate-300 p-1.5">{row.department?.name ?? row.division.name}</td><td className="border border-slate-300 p-1.5">{row.reportingLocation || "—"}</td><td className="border border-slate-300 p-1.5">{row.cancelledAt ? t("reports:duty.cancelled") : t("reports:duty.scheduled")}</td></tr>)}</tbody></table>;
+  return <table className="w-full border-collapse"><thead className="print:table-header-group"><tr>{(["date", "employee", "shift", "department", "location", "status"] as ReportColumnKey[]).map((key) => <th key={key} className="border border-slate-400 bg-slate-100 p-1.5 text-left">{columnLabel(key, t)}</th>)}</tr></thead><tbody>{rows.map((row) => <tr key={row.id} className="break-inside-avoid"><td className="border border-slate-300 p-1.5">{formatDate(row.dutyDate, language)}</td><td className="border border-slate-300 p-1.5">{row.employee}</td><td className="border border-slate-300 p-1.5">{row.shift}</td><td className="border border-slate-300 p-1.5">{row.department?.name ?? row.orgUnit?.name ?? row.division?.name ?? "—"}</td><td className="border border-slate-300 p-1.5">{row.reportingLocation || "—"}</td><td className="border border-slate-300 p-1.5">{row.cancelledAt ? t("reports:duty.cancelled") : t("reports:duty.scheduled")}</td></tr>)}</tbody></table>;
 }

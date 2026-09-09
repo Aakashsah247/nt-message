@@ -40,10 +40,11 @@ import { UpdateDutyShiftTemplateDto } from './dto/update-duty-shift-template.dto
 import { UpdateDutyWeeklyOffDto } from './dto/update-duty-weekly-off.dto';
 import { DutyAuthorizationService } from './duty-authorization.service';
 import { DutyNotificationsService } from './duty-notifications.service';
+import { DutyScopeV3Service, type DutyScopedAccount } from './duty-scope-v3.service';
 import { workAccountSummarySelect } from './work-items.service';
 import { WorkScopeService } from './work-scope.service';
 import { CAPABILITIES } from '../organization/organization-capabilities';
-import type { WorkAccountRecord, WorkActorContext } from './work-scope.service';
+import type { WorkActorContext } from './work-scope.service';
 
 const KATHMANDU_OFFSET_MINUTES = 5 * 60 + 45;
 const MAX_SCHEDULE_DAYS = 93;
@@ -60,6 +61,8 @@ const shiftTemplateSelect = {
   endMinute: true,
   spansNextDay: true,
   isActive: true,
+  officeId: true,
+  orgUnitId: true,
   divisionId: true,
   departmentId: true,
   createdAt: true,
@@ -77,6 +80,8 @@ const dutyAssignmentSelect = {
   shiftSpansNextDay: true,
   supervisorAccountId: true,
   createdByAccountId: true,
+  officeId: true,
+  orgUnitId: true,
   divisionId: true,
   departmentId: true,
   dutyDate: true,
@@ -115,6 +120,8 @@ const dutyActivitySelect = {
 const dutyExceptionSelect = {
   id: true,
   employeeAccountId: true,
+  officeId: true,
+  orgUnitId: true,
   divisionId: true,
   departmentId: true,
   exceptionDate: true,
@@ -130,6 +137,8 @@ const dutyHolidaySelect = {
   type: true,
   startDate: true,
   endDate: true,
+  officeId: true,
+  orgUnitId: true,
   divisionId: true,
   departmentId: true,
   note: true,
@@ -216,6 +225,7 @@ export class DutyScheduleService {
     private readonly prisma: PrismaService,
     private readonly workScopeService: WorkScopeService,
     private readonly dutyNotifications: DutyNotificationsService,
+    private readonly dutyScopeV3: DutyScopeV3Service,
     @Optional()
     private readonly dutyAuthorizationService?: DutyAuthorizationService,
   ) {}
@@ -426,42 +436,36 @@ export class DutyScheduleService {
       CAPABILITIES.DUTY_ASSIGN,
     );
     const actor = await this.resolveManager(user);
-    const [employee] = await this.workScopeService.resolveAssignableAccounts(
-      actor,
+    const [employee] = await this.dutyScopeV3.resolveAssignableAccounts(
+      user,
       [dto.employeeAccountId],
+      dto.orgUnitId,
+      dto.operationalTeamId,
     );
-    const employeeDivisionId = employee.employee?.divisionId;
-    // Normalize the optional employee relation so downstream scope checks receive an explicit nullable department.
-    const employeeDepartmentId = employee.employee?.departmentId ?? null;
-
-    if (!employeeDivisionId) {
-      throw new ForbiddenException(
-        'The selected staff member does not have an active division assignment.',
-      );
-    }
-    if (
-      employee.role !== AccountRole.SENIOR_MANAGEMENT &&
-      !employeeDepartmentId
-    ) {
-      throw new ForbiddenException(
-        'The selected staff member does not have a complete department assignment.',
-      );
-    }
+    const legacyScope = await this.dutyScopeV3.resolveLegacyCompatibilityScope(
+      employee.officeId,
+      employee.orgUnitId,
+    );
+    const employeeDivisionId =
+      legacyScope.divisionId ?? employee.employee?.divisionId ?? null;
+    const employeeDepartmentId =
+      legacyScope.departmentId ?? employee.employee?.departmentId ?? null;
 
     const shift = await this.findVisibleTemplate(actor, dto.shiftTemplateId);
     if (!shift.isActive) {
       throw new ConflictException('This shift is no longer available. Choose another shift.');
     }
-    this.assertTemplateMatchesEmployeeScope(
+    await this.assertTemplateMatchesDutyScope(
       shift,
+      employee.officeId,
+      employee.orgUnitId,
       employeeDivisionId,
       employeeDepartmentId,
     );
-    const supervisor = await this.workScopeService.resolveResponsibleManager(
-      actor,
+    const supervisor = await this.dutyScopeV3.resolveSupervisor(
+      user,
       dto.supervisorAccountId,
-      employeeDivisionId,
-      employeeDepartmentId,
+      employee,
     );
     // Expand recurring rules into concrete rows so conflicts can be reviewed before any write.
     const dates = this.expandScheduleDates(dto);
@@ -503,6 +507,8 @@ export class DutyScheduleService {
             shiftSpansNextDay: shift.spansNextDay,
             supervisorAccountId: supervisor.id,
             createdByAccountId: actor.accountId,
+            officeId: employee.officeId,
+            orgUnitId: employee.orgUnitId,
             divisionId: employeeDivisionId,
             departmentId: employeeDepartmentId,
             recurrenceType: dto.recurrenceType,
@@ -537,6 +543,8 @@ export class DutyScheduleService {
               shiftSpansNextDay: shift.spansNextDay,
               supervisorAccountId: supervisor.id,
               createdByAccountId: actor.accountId,
+              officeId: employee.officeId,
+              orgUnitId: employee.orgUnitId,
               divisionId: employeeDivisionId,
               departmentId: employeeDepartmentId,
               dutyDate: this.parseDateOnly(window.date, 'Duty date'),
@@ -569,6 +577,9 @@ export class DutyScheduleService {
                 reportingLocation,
                 shiftTemplateId: shift.id,
                 shiftName: shift.name,
+                officeId: employee.officeId,
+                orgUnitId: employee.orgUnitId,
+                operationalTeamId: dto.operationalTeamId ?? null,
                 divisionId: employeeDivisionId,
                 departmentId: employeeDepartmentId,
                 supervisorAccountId: supervisor.id,
@@ -638,7 +649,7 @@ export class DutyScheduleService {
       CAPABILITIES.DUTY_ASSIGN,
     );
     const actor = await this.resolveManager(user);
-    const prepared = await this.prepareBulkSchedule(actor, dto);
+    const prepared = await this.prepareBulkSchedule(user, actor, dto);
     return this.serializeBulkPreview(prepared);
   }
 
@@ -652,7 +663,7 @@ export class DutyScheduleService {
     );
     const actor = await this.resolveManager(user);
     // Creation reruns the authoritative preview checks instead of trusting browser state.
-    const prepared = await this.prepareBulkSchedule(actor, dto);
+    const prepared = await this.prepareBulkSchedule(user, actor, dto);
     const conflictCount = prepared.people.reduce(
       (total, person) => total + person.conflicts.length,
       0,
@@ -702,6 +713,8 @@ export class DutyScheduleService {
               shiftSpansNextDay: prepared.shift.spansNextDay,
               supervisorAccountId: person.supervisor.id,
               createdByAccountId: actor.accountId,
+              officeId: person.officeId,
+              orgUnitId: person.orgUnitId,
               divisionId: person.divisionId,
               departmentId: person.departmentId,
               recurrenceType: dto.recurrenceType,
@@ -735,6 +748,8 @@ export class DutyScheduleService {
                 shiftSpansNextDay: prepared.shift.spansNextDay,
                 supervisorAccountId: person.supervisor.id,
                 createdByAccountId: actor.accountId,
+                officeId: person.officeId,
+                orgUnitId: person.orgUnitId,
                 divisionId: person.divisionId,
                 departmentId: person.departmentId,
                 dutyDate: this.parseDateOnly(window.date, 'Duty date'),
@@ -764,12 +779,14 @@ export class DutyScheduleService {
                   reportingLocation,
                   shiftTemplateId: prepared.shift.id,
                   shiftName: prepared.shift.name,
+                  officeId: person.officeId,
+                  orgUnitId: person.orgUnitId,
+                  operationalTeamId: dto.operationalTeamId ?? null,
                   divisionId: person.divisionId,
                   departmentId: person.departmentId,
                   supervisorAccountId: person.supervisor.id,
                   assigneeName:
                     person.account.employee?.empName ??
-                    person.account.superAdminProfile?.fullName ??
                     person.account.username ??
                     person.account.role,
                   authority: DutyAssignmentAuthority.STANDARD_HIERARCHY,
@@ -843,37 +860,76 @@ export class DutyScheduleService {
         `Roster views can cover between 1 and ${MAX_ROSTER_DAYS} calendar days.`,
       );
     }
-    if (query.divisionId) {
-      await this.assertDivisionInsideScope(actor, query.divisionId);
-    }
-    if (query.departmentId) {
-      await this.assertDepartmentInsideScope(actor, query.departmentId);
+    await this.dutyScopeV3.assertLegacyScopeFilter(user, {
+      divisionId: query.divisionId,
+      departmentId: query.departmentId,
+    });
+    const rosterAccountIds = await this.dutyScopeV3.rosterAccountIds(
+      user,
+      query.orgUnitId,
+      query.operationalTeamId,
+    );
+    const search = query.search?.trim();
+    const organizationFilters: Prisma.EmployeeWhereInput[] = [];
+    if (query.divisionId) organizationFilters.push({ divisionId: query.divisionId });
+    if (query.departmentId) organizationFilters.push({ departmentId: query.departmentId });
+    if (search) {
+      organizationFilters.push({
+        OR: [
+          { empName: { contains: search, mode: 'insensitive' } },
+          { empId: { contains: search, mode: 'insensitive' } },
+          { designation: { contains: search, mode: 'insensitive' } },
+        ],
+      });
     }
 
-    const accountWhere = this.buildDutyRosterAccountWhere(actor, query);
-    // Staff visibility follows the same role hierarchy used for duty assignment authority.
     const people = await this.prisma.account.findMany({
-      where: accountWhere,
+      where: {
+        id: { in: rosterAccountIds },
+        isEnabled: true,
+        role: query.role,
+        employee: {
+          is: {
+            status: EmployeeStatus.ACTIVE,
+            employmentStatus: EmploymentStatus.ACTIVE,
+            archivedAt: null,
+            isActivated: true,
+            ...(organizationFilters.length ? { AND: organizationFilters } : {}),
+          },
+        },
+      },
       orderBy: { employee: { empName: 'asc' } },
       take: query.limit ?? 250,
       select: dutyRosterAccountSelect,
     });
     const accountIds = people.map((person) => person.id);
+    const visibleAssignments = await this.dutyScopeV3.visibleAssignmentWhere(user);
+    const visibleExceptions = await this.dutyScopeV3.visibleExceptionWhere(user);
     const assignmentWhere: Prisma.DutyAssignmentWhereInput = {
-      ...this.visibleAssignmentWhere(actor),
-      employeeAccountId: { in: accountIds },
-      dutyDate: { gte: from, lte: to },
-      cancelledAt: null,
-      ...(query.divisionId ? { divisionId: query.divisionId } : {}),
-      ...(query.departmentId ? { departmentId: query.departmentId } : {}),
+      AND: [
+        visibleAssignments,
+        {
+          employeeAccountId: { in: accountIds },
+          dutyDate: { gte: from, lte: to },
+          cancelledAt: null,
+          ...(query.orgUnitId ? { orgUnitId: query.orgUnitId } : {}),
+          ...(query.divisionId ? { divisionId: query.divisionId } : {}),
+          ...(query.departmentId ? { departmentId: query.departmentId } : {}),
+        },
+      ],
     };
     const exceptionWhere: Prisma.DutyExceptionWhereInput = {
-      ...this.visibleExceptionWhere(actor),
-      employeeAccountId: { in: accountIds },
-      exceptionDate: { gte: from, lte: to },
-      ...(query.divisionId ? { divisionId: query.divisionId } : {}),
-      ...(query.departmentId ? { departmentId: query.departmentId } : {}),
-      type: DutyExceptionType.LEAVE,
+      AND: [
+        visibleExceptions,
+        {
+          employeeAccountId: { in: accountIds },
+          exceptionDate: { gte: from, lte: to },
+          ...(query.orgUnitId ? { orgUnitId: query.orgUnitId } : {}),
+          ...(query.divisionId ? { divisionId: query.divisionId } : {}),
+          ...(query.departmentId ? { departmentId: query.departmentId } : {}),
+          type: DutyExceptionType.LEAVE,
+        },
+      ],
     };
     const [assignments, exceptions, departments] = await Promise.all([
       this.prisma.dutyAssignment.findMany({
@@ -1080,10 +1136,19 @@ export class DutyScheduleService {
       throw new BadRequestException('To date must be on or after From date.');
     }
 
+    await this.dutyScopeV3.assertLegacyScopeFilter(user, {
+      departmentId: query.departmentId,
+    });
+    const visibleWhere = await this.dutyScopeV3.visibleAssignmentWhere(user);
     const where: Prisma.DutyAssignmentWhereInput = {
-      ...this.visibleAssignmentWhere(actor),
-      dutyDate: { gte: from, lte: to },
-      cancelledAt: query.includeCancelled ? undefined : null,
+      AND: [
+        visibleWhere,
+        {
+          dutyDate: { gte: from, lte: to },
+          cancelledAt: query.includeCancelled ? undefined : null,
+          ...(query.orgUnitId ? { orgUnitId: query.orgUnitId } : {}),
+        },
+      ],
     };
 
     if (query.employeeAccountId) {
@@ -1099,7 +1164,6 @@ export class DutyScheduleService {
     }
 
     if (query.departmentId) {
-      await this.assertDepartmentInsideScope(actor, query.departmentId);
       where.departmentId = query.departmentId;
     }
 
@@ -1156,6 +1220,7 @@ export class DutyScheduleService {
         from: this.dateOnlyString(from),
         to: this.dateOnlyString(to),
         employeeAccountId: query.employeeAccountId ?? null,
+        orgUnitId: query.orgUnitId ?? null,
         departmentId: query.departmentId ?? null,
         includeCancelled: query.includeCancelled ?? false,
         view,
@@ -1167,8 +1232,7 @@ export class DutyScheduleService {
     user: AuthenticatedUser,
     assignmentId: string,
   ) {
-    const actor = await this.resolveManager(user);
-    const assignment = await this.findVisibleAssignment(actor, assignmentId);
+    const assignment = await this.findVisibleAssignmentV3(user, assignmentId);
     // Audit details stay inside the same role and organization scope as the assignment itself.
     const activities = await this.prisma.dutyActivity.findMany({
       where: { dutyAssignmentId: assignment.id },
@@ -1196,8 +1260,8 @@ export class DutyScheduleService {
       this.addDays(todayText, 30),
       'Oversight end date',
     );
-    const scope = this.visibleAssignmentWhere(actor);
-    const exceptionScope = this.visibleExceptionWhere(actor);
+    const scope = await this.dutyScopeV3.visibleAssignmentWhere(user);
+    const exceptionScope = await this.dutyScopeV3.visibleExceptionWhere(user);
     const managementWhere = this.managementDutyWhere(actor);
     const holidayScope = await this.visibleHolidayWhere(actor);
     const weekday = today.getUTCDay();
@@ -1297,7 +1361,7 @@ export class DutyScheduleService {
       CAPABILITIES.DUTY_ASSIGN,
     );
     const actor = await this.resolveManager(user);
-    const current = await this.findVisibleAssignment(actor, assignmentId);
+    const current = await this.findVisibleAssignmentV3(user, assignmentId);
 
     if (current.cancelledAt) {
       throw new ConflictException('A cancelled duty assignment cannot be changed.');
@@ -1328,8 +1392,15 @@ export class DutyScheduleService {
       throw new ConflictException('This shift is no longer available. Choose another shift.');
     }
     if (selectedShift) {
-      this.assertTemplateMatchesEmployeeScope(
+      if (!current.officeId || !current.orgUnitId) {
+        throw new ConflictException(
+          'This historical duty assignment does not have a V3 Office/OrgUnit scope and cannot be changed until reconciliation is complete.',
+        );
+      }
+      await this.assertTemplateMatchesDutyScope(
         selectedShift,
+        current.officeId,
+        current.orgUnitId,
         current.divisionId,
         current.departmentId,
       );
@@ -1359,11 +1430,16 @@ export class DutyScheduleService {
       spansNextDay: shift.spansNextDay,
     };
     const supervisor = dto.supervisorAccountId
-      ? await this.workScopeService.resolveResponsibleManager(
-          actor,
+      ? await this.dutyScopeV3.resolveSupervisor(
+          user,
           dto.supervisorAccountId,
-          current.divisionId,
-          current.departmentId,
+          (
+            await this.dutyScopeV3.resolveAssignableAccounts(
+              user,
+              [current.employeeAccountId],
+              current.orgUnitId ?? undefined,
+            )
+          )[0],
         )
       : current.supervisor;
     const date = this.dateOnlyString(current.dutyDate);
@@ -1474,7 +1550,7 @@ export class DutyScheduleService {
       CAPABILITIES.DUTY_ASSIGN,
     );
     const actor = await this.resolveManager(user);
-    const current = await this.findVisibleAssignment(actor, assignmentId);
+    const current = await this.findVisibleAssignmentV3(user, assignmentId);
 
     if (current.cancelledAt) {
       throw new ConflictException('This duty assignment is already cancelled.');
@@ -1565,23 +1641,17 @@ export class DutyScheduleService {
       CAPABILITIES.DUTY_ASSIGN,
     );
     const actor = await this.resolveManager(user);
-    const [employee] = await this.workScopeService.resolveAssignableAccounts(
-      actor,
+    const [employee] = await this.dutyScopeV3.resolveAssignableAccounts(
+      user,
       [dto.employeeAccountId],
     );
-    const divisionId = employee.employee?.divisionId;
-    const departmentId = employee.employee?.departmentId ?? null;
-
-    if (!divisionId) {
-      throw new ForbiddenException(
-        'The selected staff member does not have an active division assignment.',
-      );
-    }
-    if (employee.role !== AccountRole.SENIOR_MANAGEMENT && !departmentId) {
-      throw new ForbiddenException(
-        'The selected staff member does not have a complete department assignment.',
-      );
-    }
+    const legacyScope = await this.dutyScopeV3.resolveLegacyCompatibilityScope(
+      employee.officeId,
+      employee.orgUnitId,
+    );
+    const divisionId = legacyScope.divisionId ?? employee.employee?.divisionId ?? null;
+    const departmentId =
+      legacyScope.departmentId ?? employee.employee?.departmentId ?? null;
 
     const startDate = this.parseDateOnly(dto.startDate, 'Leave start date');
     const endDate = this.parseDateOnly(dto.endDate, 'Leave end date');
@@ -1643,6 +1713,8 @@ export class DutyScheduleService {
             data: {
               employeeAccountId: employee.id,
               createdByAccountId: actor.accountId,
+              officeId: employee.officeId,
+              orgUnitId: employee.orgUnitId,
               divisionId,
               departmentId,
               exceptionDate: date,
@@ -2231,14 +2303,13 @@ export class DutyScheduleService {
     return template;
   }
 
-  private async findVisibleAssignment(
-    actor: WorkActorContext,
+  private async findVisibleAssignmentV3(
+    user: AuthenticatedUser,
     assignmentId: string,
   ) {
+    const visibleWhere = await this.dutyScopeV3.visibleAssignmentWhere(user);
     const assignment = await this.prisma.dutyAssignment.findFirst({
-      where: {
-        AND: [{ id: assignmentId }, this.visibleAssignmentWhere(actor)],
-      },
+      where: { AND: [{ id: assignmentId }, visibleWhere] },
       select: dutyAssignmentSelect,
     });
 
@@ -2249,14 +2320,40 @@ export class DutyScheduleService {
     return assignment;
   }
 
-  private assertTemplateMatchesEmployeeScope(
+  private async assertTemplateMatchesDutyScope(
     template: {
+      officeId: string | null;
+      orgUnitId: string | null;
       divisionId: string | null;
       departmentId: string | null;
     },
-    divisionId: string,
+    officeId: string,
+    orgUnitId: string,
+    divisionId: string | null,
     departmentId: string | null,
-  ): void {
+  ): Promise<void> {
+    if (template.officeId && template.officeId !== officeId) {
+      throw new ForbiddenException(
+        'The selected shift template belongs to another Office.',
+      );
+    }
+    if (template.orgUnitId) {
+      const covers = await this.prisma.orgUnitClosure.findUnique({
+        where: {
+          ancestorOrgUnitId_descendantOrgUnitId: {
+            ancestorOrgUnitId: template.orgUnitId,
+            descendantOrgUnitId: orgUnitId,
+          },
+        },
+        select: { depth: true },
+      });
+      if (!covers) {
+        throw new ForbiddenException(
+          'The selected shift template is outside the employee OrgUnit scope.',
+        );
+      }
+      return;
+    }
     if (template.divisionId && template.divisionId !== divisionId) {
       throw new ForbiddenException(
         'The selected shift template belongs to another division.',
@@ -2302,12 +2399,15 @@ export class DutyScheduleService {
 
   // Preview and creation share this method so permission and conflict logic cannot drift.
   private async prepareBulkSchedule(
+    user: AuthenticatedUser,
     actor: WorkActorContext,
     dto: CreateBulkDutyScheduleDto,
   ) {
-    const accounts = await this.workScopeService.resolveAssignableAccounts(
-      actor,
+    const accounts = await this.dutyScopeV3.resolveAssignableAccounts(
+      user,
       dto.employeeAccountIds,
+      dto.orgUnitId,
+      dto.operationalTeamId,
     );
     const shift = await this.findVisibleTemplate(actor, dto.shiftTemplateId);
     if (!shift.isActive) {
@@ -2388,34 +2488,36 @@ export class DutyScheduleService {
     );
 
     const people = [] as Array<{
-      account: WorkAccountRecord;
-      divisionId: string;
+      account: DutyScopedAccount;
+      officeId: string;
+      orgUnitId: string;
+      divisionId: string | null;
       departmentId: string | null;
-      supervisor: WorkAccountRecord;
+      supervisor: DutyScopedAccount;
       validWindows: DutyWindow[];
       conflicts: DutyWindowConflict[];
       warnings: DutyWindowWarning[];
     }>;
 
     for (const account of accounts) {
-      const divisionId = account.employee?.divisionId;
-      const departmentId = account.employee?.departmentId ?? null;
-      if (!divisionId) {
-        throw new ForbiddenException(
-          'Every selected staff member must have an active division assignment.',
-        );
-      }
-      if (account.role !== AccountRole.SENIOR_MANAGEMENT && !departmentId) {
-        throw new ForbiddenException(
-          'Every selected employee or Team Manager must have an active department assignment.',
-        );
-      }
-      this.assertTemplateMatchesEmployeeScope(shift, divisionId, departmentId);
-      const supervisor = await this.workScopeService.resolveResponsibleManager(
-        actor,
-        dto.supervisorAccountId,
+      const legacyScope = await this.dutyScopeV3.resolveLegacyCompatibilityScope(
+        account.officeId,
+        account.orgUnitId,
+      );
+      const divisionId = legacyScope.divisionId ?? account.employee?.divisionId ?? null;
+      const departmentId =
+        legacyScope.departmentId ?? account.employee?.departmentId ?? null;
+      await this.assertTemplateMatchesDutyScope(
+        shift,
+        account.officeId,
+        account.orgUnitId,
         divisionId,
         departmentId,
+      );
+      const supervisor = await this.dutyScopeV3.resolveSupervisor(
+        user,
+        dto.supervisorAccountId,
+        account,
       );
       const conflicts: DutyWindowConflict[] = [];
       const warnings: DutyWindowWarning[] = [];
@@ -2507,6 +2609,8 @@ export class DutyScheduleService {
 
       people.push({
         account,
+        officeId: account.officeId,
+        orgUnitId: account.orgUnitId,
         divisionId,
         departmentId,
         supervisor,
@@ -2698,7 +2802,7 @@ export class DutyScheduleService {
 
   private holidayAppliesToScope(
     holiday: { divisionId: string | null; departmentId: string | null },
-    divisionId: string,
+    divisionId: string | null,
     departmentId: string | null,
   ): boolean {
     if (holiday.departmentId) return holiday.departmentId === departmentId;
@@ -2824,91 +2928,6 @@ export class DutyScheduleService {
   ): string {
     const base = `${this.formatDate(dutyDate)} • ${shiftName}`;
     return overrideReason ? `${base} • Reason: ${overrideReason}` : base;
-  }
-
-  private buildDutyRosterAccountWhere(
-    actor: WorkActorContext,
-    query: DutyRosterQueryDto,
-  ): Prisma.AccountWhereInput {
-    // Team, division and branch rosters expose only roles each manager is authorized to schedule.
-    const allowedRoles: AccountRole[] =
-      actor.role === AccountRole.SUPER_ADMIN
-        ? [
-            AccountRole.SENIOR_MANAGEMENT,
-            AccountRole.TEAM_MANAGER,
-            AccountRole.EMPLOYEE,
-          ]
-        : actor.role === AccountRole.SENIOR_MANAGEMENT
-          ? [AccountRole.TEAM_MANAGER, AccountRole.EMPLOYEE]
-          : [AccountRole.EMPLOYEE];
-    if (query.role && !allowedRoles.includes(query.role)) {
-      throw new ForbiddenException(
-        'The selected staff level is outside your duty assignment scope.',
-      );
-    }
-    const organizationFilters: Prisma.EmployeeWhereInput[] = [
-      {
-        OR: [
-          { departmentUnit: { is: { isActive: true } } },
-          {
-            departmentId: null,
-            managementAssignments: {
-              some: {
-                endedAt: null,
-                position: {
-                  is: {
-                    isActive: true,
-                    positionType: ManagementPositionType.SENIOR_MANAGEMENT,
-                  },
-                },
-              },
-            },
-          },
-        ],
-      },
-    ];
-    if (actor.role === AccountRole.SENIOR_MANAGEMENT) {
-      organizationFilters.push({
-        divisionId: actor.divisionId ?? '__missing_division__',
-      });
-    }
-    if (actor.role === AccountRole.TEAM_MANAGER) {
-      organizationFilters.push({
-        departmentId: actor.departmentId ?? '__missing_department__',
-      });
-    }
-    if (query.divisionId) {
-      organizationFilters.push({ divisionId: query.divisionId });
-    }
-    if (query.departmentId) {
-      organizationFilters.push({ departmentId: query.departmentId });
-    }
-    const search = query.search?.trim();
-    if (search) {
-      organizationFilters.push({
-        OR: [
-          { empName: { contains: search, mode: 'insensitive' } },
-          { empId: { contains: search, mode: 'insensitive' } },
-          { designation: { contains: search, mode: 'insensitive' } },
-        ],
-      });
-    }
-
-    return {
-      id: query.employeeAccountId,
-      isEnabled: true,
-      role: query.role ?? { in: allowedRoles },
-      employee: {
-        is: {
-          status: EmployeeStatus.ACTIVE,
-          employmentStatus: EmploymentStatus.ACTIVE,
-          archivedAt: null,
-          isActivated: true,
-          division: { is: { isActive: true } },
-          AND: organizationFilters,
-        },
-      },
-    };
   }
 
   private async assertDivisionInsideScope(

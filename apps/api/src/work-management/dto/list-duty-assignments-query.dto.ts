@@ -26,6 +26,10 @@ export enum DutyAssignmentListView {
 
 export class ListDutyAssignmentsQueryDto {
   @IsOptional()
+  @IsUUID('4')
+  orgUnitId?: string;
+
+  @IsOptional()
   @Matches(/^\d{4}-\d{2}-\d{2}$/)
   from?: string;
 
@@ -41,7 +45,6 @@ export class ListDutyAssignmentsQueryDto {
   @IsUUID('4')
   departmentId?: string;
 
-  // Views keep personal assignments and management oversight separate from raw history.
   @IsOptional()
   @IsEnum(DutyAssignmentListView)
   view?: DutyAssignmentListView;

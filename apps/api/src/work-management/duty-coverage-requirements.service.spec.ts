@@ -28,6 +28,8 @@ const managerUser = {
 function requirementRecord(overrides: Record<string, unknown> = {}) {
   return {
     id: 'requirement-1',
+    officeId: 'office-1',
+    orgUnitId: 'org-unit-1',
     departmentId: 'department-1',
     shiftTemplateId: 'shift-1',
     dayOfWeek: 1,
@@ -40,6 +42,16 @@ function requirementRecord(overrides: Record<string, unknown> = {}) {
     updatedByAccountId: 'manager-account',
     createdAt: new Date('2026-07-22T00:00:00.000Z'),
     updatedAt: new Date('2026-07-22T00:00:00.000Z'),
+    office: { id: 'office-1', code: 'PATAN', name: 'Patan Office' },
+    orgUnit: {
+      id: 'org-unit-1',
+      officeId: 'office-1',
+      code: 'NET',
+      name: 'Network',
+      isActive: true,
+      parentOrgUnitId: null,
+      orgUnitType: { code: 'DEPARTMENT', name: 'Department', isTeam: false },
+    },
     department: {
       id: 'department-1',
       divisionId: 'division-1',
@@ -60,6 +72,8 @@ function requirementRecord(overrides: Record<string, unknown> = {}) {
       endMinute: 16 * 60,
       spansNextDay: false,
       isActive: true,
+      officeId: 'office-1',
+      orgUnitId: 'org-unit-1',
       divisionId: 'division-1',
       departmentId: 'department-1',
     },
@@ -87,8 +101,18 @@ function createHarness() {
   };
   const prisma = {
     $transaction: jest.fn(),
-    department: {
-      findUnique: jest.fn(),
+    orgUnit: {
+      findFirst: jest.fn(),
+    },
+    operationalTeam: {
+      findMany: jest.fn(),
+      findFirst: jest.fn(),
+    },
+    legacyOrgUnitMapping: {
+      findFirst: jest.fn(),
+    },
+    orgUnitClosure: {
+      findFirst: jest.fn(),
     },
     dutyShiftTemplate: {
       findUnique: jest.fn(),
@@ -101,54 +125,87 @@ function createHarness() {
       findMany: jest.fn(),
     },
   };
-  const scope = {
-    resolveActorContext: jest.fn().mockResolvedValue({
-      accountId: 'manager-account',
-      role: AccountRole.TEAM_MANAGER,
-      divisionId: 'division-1',
-      departmentId: 'department-1',
-    }),
-    assertCanManageWork: jest.fn(),
+  const dutyAuthorization = {
+    getContext: jest.fn(),
+    assertCanUseManagement: jest.fn(),
   };
+  const organizationAuthorization = {
+    visibleOrgUnitIds: jest.fn(),
+    assertCan: jest.fn(),
+  };
+  const dutyScope = {
+    resolveLegacyCompatibilityScope: jest.fn(),
+  };
+
   prisma.$transaction.mockImplementation(async (callback: unknown) =>
     (callback as (client: typeof transaction) => Promise<unknown>)(transaction),
   );
-  prisma.department.findUnique.mockResolvedValue({
-    id: 'department-1',
-    divisionId: 'division-1',
-    code: 'NET',
-    name: 'Network',
+  prisma.orgUnit.findFirst.mockResolvedValue({
+    id: 'org-unit-1',
+    officeId: 'office-1',
     isActive: true,
-    division: { isActive: true },
   });
+  prisma.orgUnitClosure.findFirst.mockResolvedValue({ ancestorOrgUnitId: 'org-unit-1' });
   prisma.dutyShiftTemplate.findUnique.mockResolvedValue({
     id: 'shift-1',
     isActive: true,
+    officeId: 'office-1',
+    orgUnitId: 'org-unit-1',
     divisionId: 'division-1',
     departmentId: 'department-1',
   });
   prisma.dutyCoverageRequirement.findFirst.mockResolvedValue(null);
+  dutyAuthorization.getContext.mockResolvedValue({
+    officeId: 'office-1',
+    primaryOrgUnitId: 'org-unit-1',
+    operationalTeamLeadIds: [],
+    canView: true,
+    canCreate: true,
+    canAssign: true,
+    canManage: true,
+    readOnlyOversight: false,
+  });
+  dutyAuthorization.assertCanUseManagement.mockResolvedValue({
+    officeId: 'office-1',
+    primaryOrgUnitId: 'org-unit-1',
+    operationalTeamLeadIds: [],
+    canView: true,
+    canCreate: true,
+    canAssign: true,
+    canManage: true,
+    readOnlyOversight: false,
+  });
+  organizationAuthorization.visibleOrgUnitIds.mockResolvedValue(['org-unit-1']);
+  organizationAuthorization.assertCan.mockResolvedValue(undefined);
+  dutyScope.resolveLegacyCompatibilityScope.mockResolvedValue({
+    divisionId: 'division-1',
+    departmentId: 'department-1',
+  });
 
   return {
     prisma,
-    scope,
     transaction,
+    dutyAuthorization,
+    organizationAuthorization,
+    dutyScope,
     service: new DutyCoverageRequirementsService(
       prisma as never,
-      scope as never,
+      dutyAuthorization as never,
+      organizationAuthorization as never,
+      dutyScope as never,
     ),
   };
 }
 
 describe('DutyCoverageRequirementsService', () => {
-  it('creates an effective-dated staffing target with an audit record', async () => {
+  it('creates an OrgUnit-scoped effective-dated staffing target with compatibility data', async () => {
     const { service, transaction } = createHarness();
     transaction.dutyCoverageRequirement.create.mockResolvedValue(
       requirementRecord(),
     );
 
     const result = await service.createRequirement(managerUser, {
-      departmentId: 'department-1',
+      orgUnitId: 'org-unit-1',
       shiftTemplateId: 'shift-1',
       dayOfWeek: 1,
       requiredStaff: 5,
@@ -159,6 +216,8 @@ describe('DutyCoverageRequirementsService', () => {
     expect(transaction.dutyCoverageRequirement.create).toHaveBeenCalledWith(
       expect.objectContaining({
         data: expect.objectContaining({
+          officeId: 'office-1',
+          orgUnitId: 'org-unit-1',
           departmentId: 'department-1',
           requiredStaff: 5,
           reportingLocation: 'Patan Office',
@@ -177,13 +236,14 @@ describe('DutyCoverageRequirementsService', () => {
     expect(result).toEqual(
       expect.objectContaining({
         id: 'requirement-1',
+        orgUnit: expect.objectContaining({ id: 'org-unit-1' }),
         requiredStaff: 5,
         effectiveFrom: '2099-08-01',
       }),
     );
   });
 
-  it('rejects overlapping generic and location-specific targets', async () => {
+  it('rejects overlapping targets inside the same OrgUnit staffing slot', async () => {
     const { service, prisma } = createHarness();
     prisma.dutyCoverageRequirement.findFirst.mockResolvedValue({
       id: 'existing-requirement',
@@ -191,7 +251,7 @@ describe('DutyCoverageRequirementsService', () => {
 
     await expect(
       service.createRequirement(managerUser, {
-        departmentId: 'department-1',
+        orgUnitId: 'org-unit-1',
         shiftTemplateId: 'shift-1',
         dayOfWeek: 1,
         requiredStaff: 5,
@@ -201,20 +261,15 @@ describe('DutyCoverageRequirementsService', () => {
     ).rejects.toBeInstanceOf(ConflictException);
   });
 
-  it('prevents a Team Manager from managing another department target', async () => {
-    const { service, prisma } = createHarness();
-    prisma.department.findUnique.mockResolvedValue({
-      id: 'department-2',
-      divisionId: 'division-1',
-      code: 'MNT',
-      name: 'Maintenance',
-      isActive: true,
-      division: { isActive: true },
-    });
+  it('rejects management of an OrgUnit outside the actor duty scope', async () => {
+    const { service, organizationAuthorization } = createHarness();
+    organizationAuthorization.assertCan.mockRejectedValue(
+      new ForbiddenException('outside scope'),
+    );
 
     await expect(
       service.createRequirement(managerUser, {
-        departmentId: 'department-2',
+        orgUnitId: 'org-unit-1',
         shiftTemplateId: 'shift-1',
         dayOfWeek: 1,
         requiredStaff: 3,
@@ -236,5 +291,27 @@ describe('DutyCoverageRequirementsService', () => {
         requiredStaff: 6,
       }),
     ).rejects.toBeInstanceOf(BadRequestException);
+  });
+
+  it('keeps Super Admin coverage access read-only', async () => {
+    const { service, dutyAuthorization } = createHarness();
+    dutyAuthorization.assertCanUseManagement.mockRejectedValue(
+      new ForbiddenException(
+        'Super Admin has read-only Duty oversight and cannot perform operational Duty actions.',
+      ),
+    );
+
+    await expect(
+      service.createRequirement(
+        { ...managerUser, accountId: 'super-admin', role: AccountRole.SUPER_ADMIN },
+        {
+          orgUnitId: 'org-unit-1',
+          shiftTemplateId: 'shift-1',
+          dayOfWeek: 1,
+          requiredStaff: 2,
+          effectiveFrom: '2099-08-01',
+        },
+      ),
+    ).rejects.toBeInstanceOf(ForbiddenException);
   });
 });

@@ -23,6 +23,14 @@ function trimText(value: unknown): unknown {
 }
 
 export class CreateDutyScheduleDto {
+  @IsOptional()
+  @IsUUID('4')
+  orgUnitId?: string;
+
+  @IsOptional()
+  @IsUUID('4')
+  operationalTeamId?: string;
+
   @IsUUID('4')
   employeeAccountId!: string;
 
