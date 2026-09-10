@@ -46,8 +46,8 @@
   --message-chat-background: #eef4f8;
   /* Canonical Message typography: readable without making dense messenger
      surfaces feel oversized. */
-  --message-font-micro: 11px;
-  --message-font-secondary: 12px;
+  --message-font-micro: 12px;
+  --message-font-secondary: 13px;
   --message-font-body: 14px;
   width: 100%;
   height: 100dvh;
@@ -21635,7 +21635,7 @@ body.message-attachment-viewer-open {
 }
 
 .message-app-shell .message-modern-detail-header > div > span {
-  font-size: 11px;
+  font-size: var(--message-font-micro);
   line-height: 1.25;
 }
 
@@ -21674,12 +21674,12 @@ body.message-attachment-viewer-open {
 .message-app-shell .message-modern-profile-hero span,
 .message-app-shell .message-modern-group-hero span,
 .message-app-shell .message-modern-group-hero p {
-  font-size: 13px;
+  font-size: var(--message-font-secondary);
   line-height: 1.45;
 }
 
 .message-app-shell .message-modern-profile-hero small {
-  font-size: 12px;
+  font-size: var(--message-font-micro);
   line-height: 1.4;
 }
 
@@ -21714,7 +21714,7 @@ body.message-attachment-viewer-open {
 .message-app-shell .message-simple-action-row b {
   min-width: 24px;
   min-height: 22px;
-  font-size: 11px;
+  font-size: var(--message-font-micro);
 }
 
 .message-app-shell .message-modern-info-list > div {
@@ -21723,7 +21723,7 @@ body.message-attachment-viewer-open {
 }
 
 .message-app-shell .message-modern-info-list dt {
-  font-size: 12px;
+  font-size: var(--message-font-micro);
   line-height: 1.35;
 }
 
@@ -21747,14 +21747,14 @@ body.message-attachment-viewer-open {
 .message-app-shell .message-simple-member-copy small,
 .message-app-shell .message-simple-group-note,
 .message-app-shell .message-simple-empty-state {
-  font-size: 12px;
+  font-size: var(--message-font-micro);
   line-height: 1.45;
 }
 
 .message-app-shell .message-simple-member-role,
 .message-app-shell .message-simple-expand-button,
 .message-app-shell .message-modern-profile-actions button {
-  font-size: 13px;
+  font-size: var(--message-font-secondary);
 }
 
 .message-app-shell .message-simple-expand-button {
@@ -21802,7 +21802,7 @@ body.message-attachment-viewer-open {
 
 .message-app-shell .message-info-modern-forwarded {
   color: #5b7285;
-  font-size: 11px;
+  font-size: var(--message-font-micro);
   font-style: italic;
   line-height: 1.35;
 }
@@ -21822,7 +21822,7 @@ body.message-attachment-viewer-open {
 
 .message-app-shell .message-info-modern-bubble > small {
   color: #5b7285;
-  font-size: 11.5px;
+  font-size: var(--message-font-micro);
   line-height: 1.4;
 }
 
@@ -21832,7 +21832,7 @@ body.message-attachment-viewer-open {
   justify-content: flex-end;
   gap: 6px;
   color: #5b7285;
-  font-size: 11px;
+  font-size: var(--message-font-micro);
   font-weight: 650;
   line-height: 1.35;
 }
@@ -21863,7 +21863,7 @@ body.message-attachment-viewer-open {
   justify-content: center;
   min-width: 24px;
   color: #5b7285;
-  font-size: 13px;
+  font-size: var(--message-font-secondary);
   font-weight: 900;
   letter-spacing: -3px;
   line-height: 1;
@@ -21888,7 +21888,7 @@ body.message-attachment-viewer-open {
 
 .message-app-shell .message-info-modern-direct-row span:not(.message-info-modern-status-icon) {
   color: #5b7285;
-  font-size: 12px;
+  font-size: var(--message-font-micro);
   line-height: 1.4;
 }
 
@@ -21968,7 +21968,7 @@ body.message-attachment-viewer-open {
 .message-app-shell .message-info-modern-person-copy small {
   overflow: hidden;
   color: #5b7285;
-  font-size: 12px;
+  font-size: var(--message-font-micro);
   line-height: 1.35;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -21977,7 +21977,7 @@ body.message-attachment-viewer-open {
 .message-app-shell .message-info-modern-person > time {
   max-width: 118px;
   color: #5b7285;
-  font-size: 11px;
+  font-size: var(--message-font-micro);
   font-weight: 650;
   line-height: 1.35;
   text-align: right;
@@ -21987,7 +21987,7 @@ body.message-attachment-viewer-open {
   margin: 0;
   padding: 4px 18px 16px 54px;
   color: #5b7285;
-  font-size: 12px;
+  font-size: var(--message-font-micro);
   line-height: 1.45;
 }
 
@@ -22003,7 +22003,7 @@ body.message-attachment-viewer-open {
   border-top: 1px solid #edf2f5;
   color: #0b67b2;
   background: transparent;
-  font-size: 12.5px;
+  font-size: var(--message-font-secondary);
   font-weight: 750;
   text-align: left;
 }
@@ -22024,7 +22024,7 @@ body.message-attachment-viewer-open {
   border-radius: 999px;
   color: #526b7d;
   background: #eaf1f6;
-  font-size: 11px;
+  font-size: var(--message-font-micro);
 }
 
 .message-app-shell .message-info-modern-notes {
@@ -22037,7 +22037,7 @@ body.message-attachment-viewer-open {
 
 .message-app-shell .message-info-modern-notes p {
   margin: 0;
-  font-size: 12px;
+  font-size: var(--message-font-micro);
   line-height: 1.45;
 }
 
@@ -22110,6 +22110,12 @@ body.message-attachment-viewer-open {
   background: #1c2021;
 }
 
+@media (min-width: 1200px) {
+  .message-app-shell {
+    --message-details-width: clamp(360px, 20vw, 420px);
+  }
+}
+
 @media (max-width: 680px) {
   .message-app-shell .message-info-modern-preview {
     padding: 14px;
@@ -22130,7 +22136,7 @@ body.message-attachment-viewer-open {
 
   .message-app-shell .message-info-modern-person > time {
     max-width: 96px;
-    font-size: 11px;
+    font-size: var(--message-font-micro);
   }
 
   .message-app-shell .message-info-modern-empty,
@@ -22141,12 +22147,6 @@ body.message-attachment-viewer-open {
 
   .message-app-shell .message-info-modern-notes {
     padding-inline: 14px;
-  }
-}
-
-@media (min-width: 1200px) {
-  .message-app-shell {
-    --message-details-width: clamp(360px, 20vw, 420px);
   }
 }
 
@@ -22172,7 +22172,7 @@ body.message-attachment-viewer-open {
   }
 
   .message-app-shell .message-modern-detail-header > div > span {
-    font-size: 11px;
+    font-size: var(--message-font-micro);
   }
 
   .message-app-shell .message-modern-detail-header > div > strong {
