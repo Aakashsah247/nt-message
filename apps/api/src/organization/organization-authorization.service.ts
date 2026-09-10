@@ -59,6 +59,8 @@ const OFFICE_HEAD_CAPABILITIES = new Set<Capability>([
   CAPABILITIES.DUTY_MANAGE,
   CAPABILITIES.REPORTS_VIEW,
   CAPABILITIES.REPORTS_EXPORT,
+  CAPABILITIES.OFFICIAL_GROUP_VIEW,
+  CAPABILITIES.OFFICIAL_GROUP_MANAGE,
 ]);
 
 const ORG_UNIT_HEAD_CAPABILITIES = new Set<Capability>([
@@ -81,6 +83,8 @@ const ORG_UNIT_HEAD_CAPABILITIES = new Set<Capability>([
   CAPABILITIES.DUTY_MANAGE,
   CAPABILITIES.REPORTS_VIEW,
   CAPABILITIES.REPORTS_EXPORT,
+  CAPABILITIES.OFFICIAL_GROUP_VIEW,
+  CAPABILITIES.OFFICIAL_GROUP_MANAGE,
 ]);
 
 const SUPER_ADMIN_CAPABILITIES = new Set<Capability>([
@@ -237,6 +241,43 @@ export class OrganizationAuthorizationService {
        * DEPUTY deliberately receives no implicit authority here.
        * A Deputy acts only through an explicit delegated permission.
        */
+    }
+
+    if (
+      orgUnitId &&
+      (capability === CAPABILITIES.OFFICIAL_GROUP_VIEW ||
+        capability === CAPABILITIES.OFFICIAL_GROUP_MANAGE)
+    ) {
+      const currentTeamLead =
+        await this.prisma.operationalTeamLeadAssignment.findFirst({
+          where: {
+            employeeId,
+            effectiveFrom: { lte: at },
+            OR: [
+              { effectiveUntil: null },
+              { effectiveUntil: { gt: at } },
+            ],
+            team: {
+              is: {
+                orgUnitId,
+                isActive: true,
+                archivedAt: null,
+                orgUnit: {
+                  is: {
+                    officeId,
+                    isActive: true,
+                    orgUnitType: { is: { isTeam: true, isActive: true } },
+                  },
+                },
+              },
+            },
+          },
+          select: { id: true },
+        });
+
+      if (currentTeamLead) {
+        return true;
+      }
     }
 
     const delegations =
@@ -575,6 +616,42 @@ export class OrganizationAuthorizationService {
         );
       }
 
+    }
+
+    if (
+      capability === CAPABILITIES.OFFICIAL_GROUP_VIEW ||
+      capability === CAPABILITIES.OFFICIAL_GROUP_MANAGE
+    ) {
+      const teamLeadAssignments =
+        await this.prisma.operationalTeamLeadAssignment.findMany({
+          where: {
+            employeeId: account.employee.id,
+            effectiveFrom: { lte: now },
+            OR: [{ effectiveUntil: null }, { effectiveUntil: { gt: now } }],
+            team: {
+              is: {
+                isActive: true,
+                archivedAt: null,
+                orgUnit: {
+                  is: {
+                    officeId,
+                    isActive: true,
+                    orgUnitType: { is: { isTeam: true, isActive: true } },
+                  },
+                },
+              },
+            },
+          },
+          select: {
+            team: {
+              select: { orgUnitId: true },
+            },
+          },
+        });
+
+      teamLeadAssignments.forEach((assignment) =>
+        ids.add(assignment.team.orgUnitId),
+      );
     }
 
     const delegated =

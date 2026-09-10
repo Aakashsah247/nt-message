@@ -266,6 +266,15 @@ describe('ConversationsService official-group OrgUnit runtime', () => {
         'isActiveOfficeHeadForOffice',
       )
       .mockResolvedValue(true);
+    const authorization = (
+      service as unknown as {
+        organizationAuthorization: {
+          can: () => Promise<boolean>;
+          visibleOrgUnitIds: () => Promise<string[]>;
+        };
+      }
+    ).organizationAuthorization;
+    jest.spyOn(authorization, 'can').mockResolvedValue(true);
     jest.mocked(prisma.orgMembership.findMany).mockResolvedValue([
       {
         officeId,
@@ -322,6 +331,95 @@ describe('ConversationsService official-group OrgUnit runtime', () => {
       ]),
     );
   });
+  it('returns only V3 scopes authorized by leadership or delegation', async () => {
+    jest
+      .spyOn(
+        service as unknown as {
+          getMessagingViewer: () => Promise<unknown>;
+        },
+        'getMessagingViewer',
+      )
+      .mockResolvedValue({
+        accountId,
+        employeeId,
+        role: AccountRole.EMPLOYEE,
+        divisionId: null,
+        departmentId: null,
+      });
+    jest
+      .spyOn(
+        service as unknown as {
+          isActiveOfficeHeadForOffice: () => Promise<boolean>;
+        },
+        'isActiveOfficeHeadForOffice',
+      )
+      .mockResolvedValue(false);
+    const authorization = (
+      service as unknown as {
+        organizationAuthorization: {
+          can: () => Promise<boolean>;
+          visibleOrgUnitIds: () => Promise<string[]>;
+        };
+      }
+    ).organizationAuthorization;
+    jest.spyOn(authorization, 'can').mockResolvedValue(false);
+    jest
+      .spyOn(authorization, 'visibleOrgUnitIds')
+      .mockResolvedValue([orgUnitId]);
+    jest
+      .spyOn(
+        service as unknown as {
+          getOfficialGroupSubtreeManageableOrgUnitIds: () => Promise<
+            Set<string>
+          >;
+        },
+        'getOfficialGroupSubtreeManageableOrgUnitIds',
+      )
+      .mockResolvedValue(new Set<string>());
+    jest.mocked(prisma.orgMembership.findMany).mockResolvedValue([
+      {
+        officeId,
+        office: {
+          id: officeId,
+          code: 'PATAN',
+          name: 'Patan Telecom Office',
+          isActive: true,
+        },
+      },
+    ] as never);
+    jest.mocked(prisma.orgUnit.findMany).mockResolvedValue([
+      {
+        id: orgUnitId,
+        officeId,
+        parentOrgUnitId: null,
+        code: 'TECH',
+        name: 'Technical',
+        isActive: true,
+        orgUnitType: {
+          id: 'type-1',
+          code: 'UNIT',
+          name: 'Unit',
+          isTeam: false,
+        },
+      },
+    ] as never);
+
+    const result = await service.listOfficialGroupScopes({
+      accountId,
+      sessionId: 'session-1',
+    } as never);
+
+    expect(result.canCreate).toBe(true);
+    expect(result.canReconcileAll).toBe(false);
+    expect(result.scopes).toEqual([
+      expect.objectContaining({
+        scopeType: OfficialGroupScopeType.ORG_UNIT,
+        orgUnitId,
+        membershipMode: OfficialGroupMembershipMode.DIRECT_MEMBERS,
+      }),
+    ]);
+  });
+
   it('persists Office/OrgUnit scope and membership mode when creating a V3 official group', async () => {
     jest
       .spyOn(
@@ -364,6 +462,7 @@ describe('ConversationsService official-group OrgUnit runtime', () => {
       .mockResolvedValue({
         accounts: [account],
         officeHeadAccountIds: new Set([accountId]),
+        managerAccountIds: new Set<string>(),
       });
     jest
       .spyOn(
