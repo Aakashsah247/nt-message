@@ -715,7 +715,11 @@
       "organizational": "Official organizational group",
       "organizationWide": "Organization-wide official group",
       "division": "{{name}} official group",
-      "department": "{{name}} official group"
+      "department": "{{name}} official group",
+      "office": "{{name}} office group",
+      "orgUnit": "{{name}} · {{membership}}",
+      "directMembers": "Direct members",
+      "entireSubtree": "Entire subtree"
     },
     "thisGroup": "this group",
     "viewAllMembers_one": "View the member",

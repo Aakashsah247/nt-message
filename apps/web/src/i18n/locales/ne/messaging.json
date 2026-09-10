@@ -715,7 +715,11 @@
       "organizational": "आधिकारिक संगठनात्मक समूह",
       "organizationWide": "संस्थाभरको आधिकारिक समूह",
       "division": "{{name}} आधिकारिक समूह",
-      "department": "{{name}} आधिकारिक समूह"
+      "department": "{{name}} आधिकारिक समूह",
+      "office": "{{name}} कार्यालय समूह",
+      "orgUnit": "{{name}} · {{membership}}",
+      "directMembers": "प्रत्यक्ष सदस्यहरू",
+      "entireSubtree": "सम्पूर्ण उप-शाखा"
     },
     "thisGroup": "यो समूह",
     "viewAllMembers_one": "सदस्य हेर्नुहोस्",

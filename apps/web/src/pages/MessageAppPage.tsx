@@ -3115,6 +3115,24 @@ function officialScopeLabel(
     return t("groupInfo.scope.organizational");
   }
 
+  if (scope.scopeType === "OFFICE") {
+    return t("groupInfo.scope.office", {
+      name: scope.office?.name ?? t("profileDetail.office"),
+    });
+  }
+
+  if (scope.scopeType === "ORG_UNIT") {
+    return t("groupInfo.scope.orgUnit", {
+      name: scope.orgUnit?.name ?? t("profileDetail.orgUnit"),
+      membership:
+        scope.membershipMode === "ENTIRE_SUBTREE"
+          ? t("groupInfo.scope.entireSubtree")
+          : t("groupInfo.scope.directMembers"),
+    });
+  }
+
+  // Phase 13 removes these legacy variants. Keep them readable for historical
+  // conversations while every new official group uses Office/OrgUnit scope.
   if (scope.scopeType === "ORGANIZATION") {
     return t("groupInfo.scope.organizationWide");
   }
@@ -3128,6 +3146,25 @@ function officialScopeLabel(
   return t("groupInfo.scope.department", {
     name: scope.department?.name ?? t("profileDetail.department"),
   });
+}
+
+function employeeOrgContextLabel(
+  employee: MessagingAccount["employee"],
+  fallback: string | null | undefined,
+): string {
+  if (!employee) {
+    return fallback ?? "";
+  }
+
+  const breadcrumb = employee.orgUnitBreadcrumb
+    .map((unit) => unit.name)
+    .filter(Boolean);
+
+  if (breadcrumb.length > 0) {
+    return breadcrumb.join(" › ");
+  }
+
+  return employee.primaryOrgUnit?.name ?? employee.office?.name ?? fallback ?? "";
 }
 
 function officialAuditLabel(entry: OfficialGroupAuditEntry, t: TFunction): string {
@@ -6214,8 +6251,7 @@ export function MessageAppPage() {
         participant.username,
         participant.employee?.empId,
         participant.employee?.designation,
-        participant.employee?.department?.name,
-        participant.employee?.division?.name,
+        employeeOrgContextLabel(participant.employee, null),
       ]
         .filter(Boolean)
         .join(" ")
@@ -6279,8 +6315,7 @@ export function MessageAppPage() {
             participant.username,
             participant.employee?.empId,
             participant.employee?.designation,
-            participant.employee?.department?.name,
-            participant.employee?.division?.name,
+            employeeOrgContextLabel(participant.employee, null),
           ]
             .filter(Boolean)
             .join(" "),
@@ -6365,7 +6400,7 @@ export function MessageAppPage() {
         request.peer.username,
         request.peer.employee?.empId,
         request.peer.employee?.designation,
-        request.peer.employee?.department?.name,
+        employeeOrgContextLabel(request.peer.employee, null),
         requestReasonLabel(request.reason, t),
         requestStatusLabel(request, t),
       ]
@@ -10171,13 +10206,18 @@ export function MessageAppPage() {
           return;
         }
 
-        setOfficialGroupCanCreate(response.canCreate);
+        const v3Scopes = response.scopes.filter(
+          (scope) =>
+            scope.scopeType === "OFFICE" || scope.scopeType === "ORG_UNIT",
+        );
+
+        setOfficialGroupCanCreate(response.canCreate && v3Scopes.length > 0);
         setOfficialGroupCanReconcileAll(response.canReconcileAll);
-        setOfficialGroupScopes(response.scopes);
+        setOfficialGroupScopes(v3Scopes);
         setOfficialGroupScopeKey((current) =>
-          response.scopes.some((scope) => scope.key === current)
+          v3Scopes.some((scope) => scope.key === current)
             ? current
-            : (response.scopes[0]?.key ?? ""),
+            : (v3Scopes[0]?.key ?? ""),
         );
       })
       .catch((error) => {
@@ -10655,15 +10695,13 @@ export function MessageAppPage() {
                   membershipMode: selectedOfficialGroupScope.membershipMode,
                 }
               : {}),
-            ...(selectedOfficialGroupScope.divisionId
-              ? {
-                  divisionId: selectedOfficialGroupScope.divisionId,
-                }
+            ...(selectedOfficialGroupScope.scopeType === "DIVISION" &&
+            selectedOfficialGroupScope.divisionId
+              ? { divisionId: selectedOfficialGroupScope.divisionId }
               : {}),
-            ...(selectedOfficialGroupScope.departmentId
-              ? {
-                  departmentId: selectedOfficialGroupScope.departmentId,
-                }
+            ...(selectedOfficialGroupScope.scopeType === "DEPARTMENT" &&
+            selectedOfficialGroupScope.departmentId
+              ? { departmentId: selectedOfficialGroupScope.departmentId }
               : {}),
           })
           : await createGroupConversation(
@@ -16634,12 +16672,20 @@ export function MessageAppPage() {
               <dd>{profileData.official?.designation ?? "—"}</dd>
             </div>
             <div>
-              <dt>{t("profileDetail.division")}</dt>
-              <dd>{profileData.official?.division?.name ?? "—"}</dd>
+              <dt>{t("profileDetail.office")}</dt>
+              <dd>{profileData.official?.office?.name ?? "—"}</dd>
             </div>
             <div>
-              <dt>{t("profileDetail.department")}</dt>
-              <dd>{profileData.official?.department?.name ?? "—"}</dd>
+              <dt>{t("profileDetail.orgUnit")}</dt>
+              <dd>{profileData.official?.primaryOrgUnit?.name ?? "—"}</dd>
+            </div>
+            <div>
+              <dt>{t("profileDetail.orgPath")}</dt>
+              <dd>
+                {profileData.official?.orgUnitBreadcrumb
+                  .map((unit) => unit.name)
+                  .join(" › ") || "—"}
+              </dd>
             </div>
           </dl>
           <p className="message-profile-locked-note">
@@ -17450,12 +17496,20 @@ export function MessageAppPage() {
                     <dd>{profileData.official?.designation ?? "—"}</dd>
                   </div>
                   <div>
-                    <dt>{t("profileDetail.division")}</dt>
-                    <dd>{profileData.official?.division?.name ?? "—"}</dd>
+                    <dt>{t("profileDetail.office")}</dt>
+                    <dd>{profileData.official?.office?.name ?? "—"}</dd>
                   </div>
                   <div>
-                    <dt>{t("profileDetail.department")}</dt>
-                    <dd>{profileData.official?.department?.name ?? "—"}</dd>
+                    <dt>{t("profileDetail.orgUnit")}</dt>
+                    <dd>{profileData.official?.primaryOrgUnit?.name ?? "—"}</dd>
+                  </div>
+                  <div>
+                    <dt>{t("profileDetail.orgPath")}</dt>
+                    <dd>
+                      {profileData.official?.orgUnitBreadcrumb
+                        .map((unit) => unit.name)
+                        .join(" › ") || "—"}
+                    </dd>
                   </div>
                 </dl>
               </section>
@@ -17604,8 +17658,7 @@ export function MessageAppPage() {
               participant.username,
               participant.employee?.empId,
               participant.employee?.designation,
-              participant.employee?.department?.name,
-              participant.employee?.division?.name,
+              employeeOrgContextLabel(participant.employee, null),
             ]
               .filter((value): value is string => Boolean(value))
               .some((value) => value.toLocaleLowerCase().includes(query)),
@@ -20788,10 +20841,10 @@ export function MessageAppPage() {
                             {contact.employee?.designation ?? roleLabel(contact.role, t)}
                           </small>
                           <em>
-                            {contact.employee?.department?.name ??
-                              contact.employee?.division?.name ??
-                              contact.username ??
-                              roleLabel(contact.role, t)}
+                            {employeeOrgContextLabel(
+                              contact.employee,
+                              contact.username ?? roleLabel(contact.role, t),
+                            )}
                           </em>
                         </span>
                       </div>
@@ -22261,8 +22314,7 @@ export function MessageAppPage() {
                       : [
                         peer?.employee?.designation ??
                         roleLabel(peer?.role ?? "EMPLOYEE", t),
-                        peer?.employee?.department?.name ??
-                        peer?.employee?.division?.name,
+                        employeeOrgContextLabel(peer?.employee ?? null, null),
                       ]
                         .filter(Boolean)
                         .join(" · ")}
