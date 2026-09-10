@@ -937,8 +937,9 @@ export interface MessagingAnalyticsAttachmentItem
 export interface MessagingAnalyticsScope {
   role: AccountRole;
   label: string;
-  division: MessagingOrganizationUnit | null;
-  department: MessagingOrganizationUnit | null;
+  office: MessagingOrganizationUnit | null;
+  orgUnit: MessagingOrganizationUnit | null;
+  visibleOrgUnitCount: number;
 }
 
 export interface MessagingAnalyticsResponse {
@@ -956,8 +957,7 @@ export interface MessagingAnalyticsResponse {
     unreadNotifications: number;
   };
   usersByRole: MessagingAnalyticsCountItem[];
-  usersByDivision: MessagingAnalyticsCountItem[];
-  usersByDepartment: MessagingAnalyticsCountItem[];
+  usersByOrgUnit: MessagingAnalyticsCountItem[];
   conversationsByType: MessagingAnalyticsCountItem[];
   messagesByType: MessagingAnalyticsCountItem[];
   attachmentsByType: MessagingAnalyticsAttachmentItem[];

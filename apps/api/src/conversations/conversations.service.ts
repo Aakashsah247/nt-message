@@ -94,19 +94,15 @@ interface MessagingViewer {
   accountId: string;
   employeeId: string | null;
   role: AccountRole;
-  divisionId: string | null;
-  departmentId: string | null;
+  officeId: string | null;
+  orgUnitId: string | null;
   showOnlineStatus: boolean;
   showReadReceipts: boolean;
   requireMessageRequests: boolean;
 }
 
-
 interface MessagingOrgScopeContext {
-  primaryByEmployeeId: Map<
-    string,
-    { officeId: string; orgUnitId: string }
-  >;
+  primaryByEmployeeId: Map<string, { officeId: string; orgUnitId: string }>;
   relatedOrgUnitPairs: Set<string>;
 }
 
@@ -217,18 +213,19 @@ interface SharedContentLinkItem {
 export interface AnalyticsScopeSummary {
   role: AccountRole;
   label: string;
-  division: {
+  office: {
     id: string;
     name: string;
     code: string;
     isActive: boolean;
   } | null;
-  department: {
+  orgUnit: {
     id: string;
     name: string;
     code: string;
     isActive: boolean;
   } | null;
+  visibleOrgUnitCount: number;
 }
 
 export interface AnalyticsCountItem {
@@ -369,12 +366,12 @@ const messagingAccountSelect = {
       orgMemberships: {
         where: {
           membershipType: OrgMembershipType.PRIMARY,
-          endsAt: null,
         },
         orderBy: { startsAt: 'desc' },
-        take: 5,
+        take: 10,
         select: {
           startsAt: true,
+          endsAt: true,
           office: {
             select: { id: true, code: true, name: true, isActive: true },
           },
@@ -388,7 +385,12 @@ const messagingAccountSelect = {
                 orderBy: { depth: 'desc' },
                 select: {
                   ancestorOrgUnit: {
-                    select: { id: true, code: true, name: true, isActive: true },
+                    select: {
+                      id: true,
+                      code: true,
+                      name: true,
+                      isActive: true,
+                    },
                   },
                 },
               },
@@ -957,13 +959,13 @@ export class ConversationsService {
     private readonly prisma: PrismaService,
     private readonly messagingEventsService: MessagingEventsService,
     private readonly conversationStorageService: ConversationStorageService,
-    private readonly attachmentStorageService: AttachmentStorageService =
-      new AttachmentStorageService(),
-    private readonly attachmentSecurityService: AttachmentSecurityService =
-      new AttachmentSecurityService(),
+    private readonly attachmentStorageService: AttachmentStorageService = new AttachmentStorageService(),
+    private readonly attachmentSecurityService: AttachmentSecurityService = new AttachmentSecurityService(),
     private readonly messagingPushService?: MessagingPushService,
   ) {
-    this.organizationAuthorization = new OrganizationAuthorizationService(prisma);
+    this.organizationAuthorization = new OrganizationAuthorizationService(
+      prisma,
+    );
   }
 
   private usesDetailedMessageReceipts(
@@ -982,29 +984,13 @@ export class ConversationsService {
     );
   }
 
-  private getLegacyMessagingRoleRank(role: AccountRole): number {
-    /*
-     * Phase 12: SUPER_ADMIN is a normal messaging participant. Legacy
-     * management ranks remain only as temporary compatibility behavior until
-     * the generic OrgUnit messaging-scope cutover is complete.
-     */
-    switch (role) {
-      case AccountRole.SENIOR_MANAGEMENT:
-        return 3;
-      case AccountRole.TEAM_MANAGER:
-        return 2;
-      case AccountRole.SUPER_ADMIN:
-      case AccountRole.EMPLOYEE:
-      default:
-        return 1;
-    }
-  }
-
   private async getActiveOfficeHeadEmployeeIds(
     employeeIds: Array<string | null | undefined>,
     at = new Date(),
   ): Promise<Set<string>> {
-    const ids = [...new Set(employeeIds.filter((id): id is string => Boolean(id)))];
+    const ids = [
+      ...new Set(employeeIds.filter((id): id is string => Boolean(id))),
+    ];
 
     if (ids.length === 0) {
       return new Set();
@@ -1032,13 +1018,17 @@ export class ConversationsService {
     ]);
 
     const membershipPairs = new Set(
-      memberships.map((membership) => `${membership.employeeId}:${membership.officeId}`),
+      memberships.map(
+        (membership) => `${membership.employeeId}:${membership.officeId}`,
+      ),
     );
 
     return new Set(
       leadership
         .filter((assignment) =>
-          membershipPairs.has(`${assignment.employeeId}:${assignment.officeId}`),
+          membershipPairs.has(
+            `${assignment.employeeId}:${assignment.officeId}`,
+          ),
         )
         .map((assignment) => assignment.employeeId),
     );
@@ -1051,7 +1041,9 @@ export class ConversationsService {
       return false;
     }
 
-    const officeHeadIds = await this.getActiveOfficeHeadEmployeeIds([employeeId]);
+    const officeHeadIds = await this.getActiveOfficeHeadEmployeeIds([
+      employeeId,
+    ]);
     return officeHeadIds.has(employeeId);
   }
 
@@ -1061,7 +1053,11 @@ export class ConversationsService {
     at = new Date(),
   ): Promise<Set<string>> {
     const candidates = candidateEmployeeIds
-      ? [...new Set(candidateEmployeeIds.filter((id): id is string => Boolean(id)))]
+      ? [
+          ...new Set(
+            candidateEmployeeIds.filter((id): id is string => Boolean(id)),
+          ),
+        ]
       : null;
 
     if (candidates && candidates.length === 0) {
@@ -1102,7 +1098,10 @@ export class ConversationsService {
     );
   }
 
-  private buildOrgUnitRelationKey(firstOrgUnitId: string, secondOrgUnitId: string): string {
+  private buildOrgUnitRelationKey(
+    firstOrgUnitId: string,
+    secondOrgUnitId: string,
+  ): string {
     return firstOrgUnitId <= secondOrgUnitId
       ? `${firstOrgUnitId}:${secondOrgUnitId}`
       : `${secondOrgUnitId}:${firstOrgUnitId}`;
@@ -1112,7 +1111,9 @@ export class ConversationsService {
     employeeIds: Array<string | null | undefined>,
     at = new Date(),
   ): Promise<MessagingOrgScopeContext> {
-    const ids = [...new Set(employeeIds.filter((id): id is string => Boolean(id)))];
+    const ids = [
+      ...new Set(employeeIds.filter((id): id is string => Boolean(id))),
+    ];
     if (ids.length === 0) {
       return { primaryByEmployeeId: new Map(), relatedOrgUnitPairs: new Set() };
     }
@@ -1294,9 +1295,8 @@ export class ConversationsService {
   private async getActiveOfficeHeadAccountsForOffice(
     officeId: string,
   ): Promise<MessagingAccountRecord[]> {
-    const officeHeadEmployeeIds = await this.getActiveOfficeHeadEmployeeIdsForOffice(
-      officeId,
-    );
+    const officeHeadEmployeeIds =
+      await this.getActiveOfficeHeadEmployeeIdsForOffice(officeId);
 
     if (officeHeadEmployeeIds.size === 0) {
       return [];
@@ -1362,7 +1362,8 @@ export class ConversationsService {
       target.employee?.id,
     ]);
     const viewerIsOfficeHead =
-      viewer.employeeId !== null && officeHeadEmployeeIds.has(viewer.employeeId);
+      viewer.employeeId !== null &&
+      officeHeadEmployeeIds.has(viewer.employeeId);
     const targetIsOfficeHead =
       target.employee?.id !== undefined &&
       officeHeadEmployeeIds.has(target.employee.id);
@@ -1370,19 +1371,6 @@ export class ConversationsService {
     if (targetIsOfficeHead && !viewerIsOfficeHead) {
       throw new ForbiddenException(
         'The Office Head cannot be blocked. You can mute private alerts or report the concern.',
-      );
-    }
-
-    const viewerRank = viewerIsOfficeHead
-      ? 4
-      : this.getLegacyMessagingRoleRank(viewer.role);
-    const targetRank = targetIsOfficeHead
-      ? 4
-      : this.getLegacyMessagingRoleRank(target.role);
-
-    if (targetRank > viewerRank) {
-      throw new ForbiddenException(
-        'You cannot block a higher authority account. Use mute/report for personal discomfort; official communication remains available.',
       );
     }
   }
@@ -1811,6 +1799,27 @@ export class ConversationsService {
       : title.slice(0, 150);
   }
 
+  private getCurrentPrimaryMessagingMembership(
+    account: MessagingAccountRecord,
+    at = new Date(),
+  ) {
+    const employee = account.employee;
+
+    if (!employee) {
+      return null;
+    }
+
+    return (
+      employee.orgMemberships.find(
+        (membership) =>
+          membership.startsAt <= at &&
+          (!membership.endsAt || membership.endsAt > at) &&
+          membership.office.isActive &&
+          (!membership.orgUnit || membership.orgUnit.isActive),
+      ) ?? null
+    );
+  }
+
   private isActiveEmployeeAccount(account: MessagingAccountRecord): boolean {
     const employee = account.employee;
 
@@ -1818,25 +1827,13 @@ export class ConversationsService {
       return account.role === AccountRole.SUPER_ADMIN;
     }
 
-    if (
-      employee.status !== EmployeeStatus.ACTIVE ||
-      employee.employmentStatus !== EmploymentStatus.ACTIVE ||
-      employee.archivedAt !== null ||
-      !employee.isActivated ||
-      !employee.division ||
-      !employee.division.isActive
-    ) {
-      return false;
-    }
-
-    if (
-      employee.departmentId &&
-      (!employee.departmentUnit || !employee.departmentUnit.isActive)
-    ) {
-      return false;
-    }
-
-    return true;
+    return Boolean(
+      employee.status === EmployeeStatus.ACTIVE &&
+      employee.employmentStatus === EmploymentStatus.ACTIVE &&
+      employee.archivedAt === null &&
+      employee.isActivated &&
+      this.getCurrentPrimaryMessagingMembership(account),
+    );
   }
 
   private async getMessagingViewer(
@@ -1866,8 +1863,8 @@ export class ConversationsService {
         accountId: account.id,
         employeeId: null,
         role: account.role,
-        divisionId: null,
-        departmentId: null,
+        officeId: null,
+        orgUnitId: null,
         showOnlineStatus: account.showOnlineStatus,
         showReadReceipts: account.showReadReceipts,
         requireMessageRequests: account.requireMessageRequests,
@@ -1882,12 +1879,21 @@ export class ConversationsService {
       );
     }
 
+    const primaryMembership =
+      this.getCurrentPrimaryMessagingMembership(account);
+
+    if (!primaryMembership) {
+      throw new ForbiddenException(
+        'Your account does not have an active Office membership.',
+      );
+    }
+
     return {
       accountId: account.id,
       employeeId: employee.id,
       role: account.role,
-      divisionId: employee.divisionId,
-      departmentId: employee.departmentId,
+      officeId: primaryMembership.office.id,
+      orgUnitId: primaryMembership.orgUnit?.id ?? null,
       showOnlineStatus: account.showOnlineStatus,
       showReadReceipts: account.showReadReceipts,
       requireMessageRequests: account.requireMessageRequests,
@@ -2005,15 +2011,12 @@ export class ConversationsService {
       displayName:
         account.role === AccountRole.SUPER_ADMIN
           ? this.getSuperAdminDisplayName(account)
-          : employee?.empName ?? account.username ?? 'NT Message User',
+          : (employee?.empName ?? account.username ?? 'NT Message User'),
 
       employee: employee
         ? (() => {
-            const now = new Date();
             const primaryMembership =
-              employee.orgMemberships.find(
-                (membership) => membership.startsAt <= now,
-              ) ?? null;
+              this.getCurrentPrimaryMessagingMembership(account);
             return {
               id: employee.id,
               empId: employee.empId,
@@ -2057,6 +2060,9 @@ export class ConversationsService {
     blockDirection: MessagingBlockDirection = null,
   ) {
     const employee = account.employee;
+    const primaryMembership = employee
+      ? this.getCurrentPrimaryMessagingMembership(account)
+      : null;
 
     return {
       ...this.serializeAccount(account),
@@ -2086,27 +2092,17 @@ export class ConversationsService {
                 officialEmail: employee.officialEmail,
                 contactNumber: employee.phoneNumber,
                 designation: employee.designation,
-                office:
-                  employee.orgMemberships.find(
-                    (membership) => membership.startsAt <= new Date(),
-                  )?.office ?? null,
-                primaryOrgUnit: (() => {
-                  const membership = employee.orgMemberships.find(
-                    (item) => item.startsAt <= new Date(),
-                  );
-                  return membership?.orgUnit
-                    ? {
-                        id: membership.orgUnit.id,
-                        code: membership.orgUnit.code,
-                        name: membership.orgUnit.name,
-                        isActive: membership.orgUnit.isActive,
-                      }
-                    : null;
-                })(),
+                office: primaryMembership?.office ?? null,
+                primaryOrgUnit: primaryMembership?.orgUnit
+                  ? {
+                      id: primaryMembership.orgUnit.id,
+                      code: primaryMembership.orgUnit.code,
+                      name: primaryMembership.orgUnit.name,
+                      isActive: primaryMembership.orgUnit.isActive,
+                    }
+                  : null,
                 orgUnitBreadcrumb:
-                  employee.orgMemberships.find(
-                    (membership) => membership.startsAt <= new Date(),
-                  )?.orgUnit?.ancestorLinks.map(
+                  primaryMembership?.orgUnit?.ancestorLinks.map(
                     (link) => link.ancestorOrgUnit,
                   ) ?? [],
                 division: employee.division,
@@ -3400,7 +3396,8 @@ export class ConversationsService {
             ).length,
             read: message.receipts.filter(
               (receipt) =>
-                this.getVisibleReadAt(message, receipt, viewerAccountId) !== null,
+                this.getVisibleReadAt(message, receipt, viewerAccountId) !==
+                null,
             ).length,
           },
 
@@ -3589,95 +3586,107 @@ export class ConversationsService {
     };
   }
 
-  private async ensureAnalyticsViewer(
+  private async getMessagingAnalyticsAuthorizationScope(
     viewer: MessagingViewer,
-  ): Promise<boolean> {
-    const isOfficeHead = await this.isActiveOfficeHeadEmployee(
-      viewer.employeeId,
-    );
-
+  ): Promise<{
+    officeId: string;
+    orgUnitIds: string[];
+    isOfficeWide: boolean;
+  }> {
     if (
       viewer.role === AccountRole.SUPER_ADMIN ||
-      (viewer.role === AccountRole.EMPLOYEE && !isOfficeHead)
+      !viewer.employeeId ||
+      !viewer.officeId
     ) {
       throw new ForbiddenException(
-        'Analytics are available only to management accounts.',
+        'Communication analytics require active Office leadership or delegated report access.',
       );
     }
 
-    return isOfficeHead;
-  }
+    const user = this.toOfficialGroupAuthorizationUser(viewer);
+    const [isOfficeWide, visibleOrgUnitIds] = await Promise.all([
+      this.organizationAuthorization.can(
+        user,
+        CAPABILITIES.REPORTS_VIEW,
+        viewer.officeId,
+        null,
+      ),
+      this.organizationAuthorization.visibleOrgUnitIds(
+        user,
+        CAPABILITIES.REPORTS_VIEW,
+        viewer.officeId,
+      ),
+    ]);
 
-  private getAnalyticsEmployeeScopeWhere(
-    viewer: MessagingViewer,
-    isOfficeHead = false,
-  ): Prisma.EmployeeWhereInput {
-    if (isOfficeHead) {
-      return {};
+    if (!isOfficeWide && visibleOrgUnitIds.length === 0) {
+      throw new ForbiddenException(
+        'Communication analytics require active Office leadership or delegated report access.',
+      );
     }
 
     return {
-      divisionId: viewer.divisionId ?? undefined,
-      ...(viewer.role === AccountRole.TEAM_MANAGER
-        ? { departmentId: viewer.departmentId ?? undefined }
-        : {}),
+      officeId: viewer.officeId,
+      orgUnitIds: visibleOrgUnitIds,
+      isOfficeWide,
     };
   }
 
   private getAnalyticsAccountWhere(
-    viewer: MessagingViewer,
-    isOfficeHead: boolean,
+    scope: {
+      officeId: string;
+      orgUnitIds: string[];
+      isOfficeWide: boolean;
+    },
+    at: Date,
   ): Prisma.AccountWhereInput {
-    if (isOfficeHead) {
-      // Office Head inherits the former office-wide operational analytics
-      // authority. System-only accounts (including SUPER_ADMIN) are excluded
-      // because they are not Office members.
-      return {
-        employee: {
-          isNot: null,
-        },
-      };
-    }
-
-    // Management analytics are scoped by employee assignment, not by editable frontend filters.
     return {
       employee: {
-        is: this.getAnalyticsEmployeeScopeWhere(viewer, false),
+        is: {
+          orgMemberships: {
+            some: {
+              officeId: scope.officeId,
+              membershipType: OrgMembershipType.PRIMARY,
+              startsAt: { lte: at },
+              OR: [{ endsAt: null }, { endsAt: { gt: at } }],
+              ...(scope.isOfficeWide
+                ? {}
+                : { orgUnitId: { in: scope.orgUnitIds } }),
+            },
+          },
+        },
       },
     };
   }
 
   private async buildAnalyticsScopeSummary(
     viewer: MessagingViewer,
-    isOfficeHead: boolean,
+    scope: {
+      officeId: string;
+      orgUnitIds: string[];
+      isOfficeWide: boolean;
+    },
   ): Promise<AnalyticsScopeSummary> {
-    const [division, department] = await Promise.all([
-      viewer.divisionId
-        ? this.prisma.division.findUnique({
-            where: { id: viewer.divisionId },
-            select: { id: true, name: true, code: true, isActive: true },
-          })
-        : null,
-      viewer.departmentId
-        ? this.prisma.department.findUnique({
-            where: { id: viewer.departmentId },
+    const [office, orgUnit] = await Promise.all([
+      this.prisma.office.findUnique({
+        where: { id: scope.officeId },
+        select: { id: true, name: true, code: true, isActive: true },
+      }),
+      !scope.isOfficeWide && scope.orgUnitIds.length === 1
+        ? this.prisma.orgUnit.findUnique({
+            where: { id: scope.orgUnitIds[0] },
             select: { id: true, name: true, code: true, isActive: true },
           })
         : null,
     ]);
 
-    const label =
-      isOfficeHead
-        ? 'Office-wide analytics'
-        : viewer.role === AccountRole.SENIOR_MANAGEMENT
-          ? 'Division analytics'
-          : 'Department analytics';
-
     return {
       role: viewer.role,
-      label,
-      division,
-      department,
+      label: scope.isOfficeWide
+        ? 'Office-wide analytics'
+        : 'OrgUnit-scoped analytics',
+      office,
+      orgUnit,
+      visibleOrgUnitCount: scope.orgUnitIds.length,
     };
   }
 
@@ -4322,7 +4331,9 @@ export class ConversationsService {
     contentType: MessageContentType;
   }> {
     if (!files || files.length === 0) {
-      throw new BadRequestException('At least one attachment file is required.');
+      throw new BadRequestException(
+        'At least one attachment file is required.',
+      );
     }
 
     if (files.length > MAX_MESSAGE_ATTACHMENT_FILES) {
@@ -4599,11 +4610,7 @@ export class ConversationsService {
     }
 
     if (
-      await this.isActiveOfficeHeadForOffice(
-        viewer.employeeId,
-        officeId,
-        at,
-      )
+      await this.isActiveOfficeHeadForOffice(viewer.employeeId, officeId, at)
     ) {
       const orgUnits = await this.prisma.orgUnit.findMany({
         where: { officeId, isActive: true },
@@ -4768,7 +4775,9 @@ export class ConversationsService {
       });
 
       if (!office || !office.isActive) {
-        throw new NotFoundException('The selected active Office was not found.');
+        throw new NotFoundException(
+          'The selected active Office was not found.',
+        );
       }
 
       if (scopeType === OfficialGroupScopeType.OFFICE) {
@@ -5120,7 +5129,8 @@ export class ConversationsService {
     const officeId = await this.resolveOfficialGroupOfficeId(group);
     const orgUnitId = await this.resolveOfficialGroupOrgUnitId(group);
     const membershipMode =
-      group.officialMembershipMode ?? OfficialGroupMembershipMode.ENTIRE_SUBTREE;
+      group.officialMembershipMode ??
+      OfficialGroupMembershipMode.ENTIRE_SUBTREE;
 
     let eligibleOrgUnitIds: string[] | undefined;
 
@@ -5206,12 +5216,12 @@ export class ConversationsService {
   ): boolean {
     return Boolean(
       account.role !== AccountRole.SUPER_ADMIN &&
-        account.isEnabled &&
-        account.employee &&
-        account.employee.status === EmployeeStatus.ACTIVE &&
-        account.employee.employmentStatus === EmploymentStatus.ACTIVE &&
-        account.employee.archivedAt === null &&
-        account.employee.isActivated,
+      account.isEnabled &&
+      account.employee &&
+      account.employee.status === EmployeeStatus.ACTIVE &&
+      account.employee.employmentStatus === EmploymentStatus.ACTIVE &&
+      account.employee.archivedAt === null &&
+      account.employee.isActivated,
     );
   }
 
@@ -5222,7 +5232,8 @@ export class ConversationsService {
     const officeId = await this.resolveOfficialGroupOfficeId(group);
     const orgUnitId = await this.resolveOfficialGroupOrgUnitId(group);
     const membershipMode =
-      group.officialMembershipMode ?? OfficialGroupMembershipMode.ENTIRE_SUBTREE;
+      group.officialMembershipMode ??
+      OfficialGroupMembershipMode.ENTIRE_SUBTREE;
     const candidateIds = new Set<string>();
 
     if (orgUnitId) {
@@ -5383,12 +5394,20 @@ export class ConversationsService {
         continue;
       }
 
+      const currentMembership = this.getCurrentPrimaryMessagingMembership(
+        account,
+        now,
+      );
+      if (!currentMembership) {
+        continue;
+      }
+
       const viewer: MessagingViewer = {
         accountId: account.id,
         employeeId: account.employee.id,
         role: account.role,
-        divisionId: account.employee.divisionId,
-        departmentId: account.employee.departmentId,
+        officeId: currentMembership.office.id,
+        orgUnitId: currentMembership.orgUnit?.id ?? null,
         showOnlineStatus: account.showOnlineStatus,
         showReadReceipts: account.showReadReceipts,
         requireMessageRequests: account.requireMessageRequests,
@@ -5632,8 +5651,7 @@ export class ConversationsService {
               accountId: participant.accountId,
               joinedAt: participant.joinedAt,
               leftAt: now,
-              deliveredThroughMessageId:
-                participant.deliveredThroughMessageId,
+              deliveredThroughMessageId: participant.deliveredThroughMessageId,
               deliveredThroughSentAt: participant.deliveredThroughSentAt,
               deliveredThroughAt: participant.deliveredThroughAt,
               readThroughMessageId: participant.readThroughMessageId,
@@ -5902,8 +5920,8 @@ export class ConversationsService {
 
   async getMessagingAnalytics(user: AuthenticatedUser) {
     const viewer = await this.getMessagingViewer(user);
-
-    const isOfficeHead = await this.ensureAnalyticsViewer(viewer);
+    const analyticsScope =
+      await this.getMessagingAnalyticsAuthorizationScope(viewer);
 
     const now = new Date();
     const todayStart = new Date(now);
@@ -5912,7 +5930,7 @@ export class ConversationsService {
     const weekStart = new Date(now);
     weekStart.setDate(weekStart.getDate() - 7);
 
-    const accountWhere = this.getAnalyticsAccountWhere(viewer, isOfficeHead);
+    const accountWhere = this.getAnalyticsAccountWhere(analyticsScope, now);
 
     const scopedAccounts = await this.prisma.account.findMany({
       where: accountWhere,
@@ -5961,7 +5979,7 @@ export class ConversationsService {
       notificationsToday,
       latestMessageActivity,
     ] = await Promise.all([
-      this.buildAnalyticsScopeSummary(viewer, isOfficeHead),
+      this.buildAnalyticsScopeSummary(viewer, analyticsScope),
       this.prisma.account.count({ where: accountWhere }),
       this.prisma.account.count({
         where: { ...accountWhere, isEnabled: true },
@@ -5971,17 +5989,20 @@ export class ConversationsService {
       }),
       this.prisma.account.count({
         where: {
-          ...accountWhere,
-          isEnabled: true,
-          employee: {
-            is: {
-              ...this.getAnalyticsEmployeeScopeWhere(viewer, isOfficeHead),
-              status: EmployeeStatus.ACTIVE,
-              employmentStatus: EmploymentStatus.ACTIVE,
-              archivedAt: null,
-              isActivated: true,
+          AND: [
+            accountWhere,
+            {
+              isEnabled: true,
+              employee: {
+                is: {
+                  status: EmployeeStatus.ACTIVE,
+                  employmentStatus: EmploymentStatus.ACTIVE,
+                  archivedAt: null,
+                  isActivated: true,
+                },
+              },
             },
-          },
+          ],
         },
       }),
       this.prisma.account.groupBy({
@@ -5998,10 +6019,21 @@ export class ConversationsService {
           },
         },
         select: {
-          divisionId: true,
-          departmentId: true,
-          division: { select: { id: true, name: true, code: true } },
-          departmentUnit: { select: { id: true, name: true, code: true } },
+          orgMemberships: {
+            where: {
+              officeId: analyticsScope.officeId,
+              membershipType: OrgMembershipType.PRIMARY,
+              startsAt: { lte: now },
+              OR: [{ endsAt: null }, { endsAt: { gt: now } }],
+            },
+            orderBy: { startsAt: 'desc' },
+            take: 1,
+            select: {
+              orgUnit: {
+                select: { id: true, name: true, code: true },
+              },
+            },
+          },
         },
       }),
       this.prisma.conversation.count({ where: personalConversationWhere }),
@@ -6069,27 +6101,20 @@ export class ConversationsService {
       messageGroups.map((item) => [item.contentType, item._count._all]),
     );
 
-    const divisionCounts = new Map<string, AnalyticsCountItem>();
-    const departmentCounts = new Map<string, AnalyticsCountItem>();
+    const orgUnitCounts = new Map<string, AnalyticsCountItem>();
 
     for (const employee of scopedEmployees) {
-      if (employee.division) {
-        const current = divisionCounts.get(employee.division.id);
-        divisionCounts.set(employee.division.id, {
-          key: employee.division.id,
-          label: `${employee.division.name} (${employee.division.code})`,
-          count: (current?.count ?? 0) + 1,
-        });
+      const orgUnit = employee.orgMemberships[0]?.orgUnit ?? null;
+      if (!orgUnit) {
+        continue;
       }
 
-      if (employee.departmentUnit) {
-        const current = departmentCounts.get(employee.departmentUnit.id);
-        departmentCounts.set(employee.departmentUnit.id, {
-          key: employee.departmentUnit.id,
-          label: `${employee.departmentUnit.name} (${employee.departmentUnit.code})`,
-          count: (current?.count ?? 0) + 1,
-        });
-      }
+      const current = orgUnitCounts.get(orgUnit.id);
+      orgUnitCounts.set(orgUnit.id, {
+        key: orgUnit.id,
+        label: `${orgUnit.name} (${orgUnit.code})`,
+        count: (current?.count ?? 0) + 1,
+      });
     }
 
     const conversationTypeCounts = new Map<string, number>();
@@ -6142,10 +6167,7 @@ export class ConversationsService {
         Object.values(AccountRole),
         roleCountMap,
       ),
-      usersByDivision: Array.from(divisionCounts.values()).sort(
-        (first, second) => second.count - first.count,
-      ),
-      usersByDepartment: Array.from(departmentCounts.values()).sort(
+      usersByOrgUnit: Array.from(orgUnitCounts.values()).sort(
         (first, second) => second.count - first.count,
       ),
       conversationsByType: this.countMapToItems(
@@ -8486,8 +8508,7 @@ export class ConversationsService {
         contactMode = 'DIRECT';
       } else if (request?.status === MessageRequestStatus.PENDING) {
         contactMode =
-          request.requesterAccountId === viewer.accountId &&
-          !approvalRequired
+          request.requesterAccountId === viewer.accountId && !approvalRequired
             ? 'DIRECT'
             : request.requesterAccountId === viewer.accountId
               ? 'REQUEST_SENT'
@@ -8602,15 +8623,18 @@ export class ConversationsService {
     const participantEmployeeIds = new Map<string, string | null>([
       ...sourceConversation.participants.map(
         (participant) =>
-          [participant.accountId, participant.account.employee?.id ?? null] as const,
+          [
+            participant.accountId,
+            participant.account.employee?.id ?? null,
+          ] as const,
       ),
       ...newMembers.map(
         (member) => [member.id, member.employee?.id ?? null] as const,
       ),
     ]);
-    const officeHeadEmployeeIds = await this.getActiveOfficeHeadEmployeeIds(
-      [...participantEmployeeIds.values()],
-    );
+    const officeHeadEmployeeIds = await this.getActiveOfficeHeadEmployeeIds([
+      ...participantEmployeeIds.values(),
+    ]);
 
     await this.assertNoPersonalGroupBlocks(participantAccountIds);
 
@@ -8690,9 +8714,9 @@ export class ConversationsService {
                     : this.getPersonalGroupMemberRole(
                         Boolean(
                           participantEmployeeIds.get(accountId) &&
-                            officeHeadEmployeeIds.has(
-                              participantEmployeeIds.get(accountId) as string,
-                            ),
+                          officeHeadEmployeeIds.has(
+                            participantEmployeeIds.get(accountId) as string,
+                          ),
                         ),
                       ),
               })),
@@ -8862,7 +8886,7 @@ export class ConversationsService {
                   role: this.getPersonalGroupMemberRole(
                     Boolean(
                       member.employee?.id &&
-                        officeHeadEmployeeIds.has(member.employee.id),
+                      officeHeadEmployeeIds.has(member.employee.id),
                     ),
                   ),
                 })),
@@ -8904,9 +8928,7 @@ export class ConversationsService {
     );
 
     if (access.conversation.groupKind === GroupKind.PERSONAL) {
-      if (
-        access.viewerParticipant.role !== ConversationParticipantRole.OWNER
-      ) {
+      if (access.viewerParticipant.role !== ConversationParticipantRole.OWNER) {
         throw new ForbiddenException(
           'Only the personal group owner can delete this group.',
         );
@@ -8938,7 +8960,9 @@ export class ConversationsService {
         );
       }
     } else {
-      throw new ConflictException('This conversation is not a deletable group.');
+      throw new ConflictException(
+        'This conversation is not a deletable group.',
+      );
     }
 
     const attachmentRows = await this.prisma.messageAttachment.findMany({
@@ -9356,7 +9380,7 @@ export class ConversationsService {
             role: this.getPersonalGroupMemberRole(
               Boolean(
                 member.employee?.id &&
-                  officeHeadEmployeeIds.has(member.employee.id),
+                officeHeadEmployeeIds.has(member.employee.id),
               ),
             ),
             isArchived: false,
@@ -9368,7 +9392,7 @@ export class ConversationsService {
             role: this.getPersonalGroupMemberRole(
               Boolean(
                 member.employee?.id &&
-                  officeHeadEmployeeIds.has(member.employee.id),
+                officeHeadEmployeeIds.has(member.employee.id),
               ),
             ),
           },
@@ -10865,9 +10889,7 @@ export class ConversationsService {
         limit: query.limit,
         hasMore,
         nextCursor:
-          hasMore && page.length > 0
-            ? page[page.length - 1].accountId
-            : null,
+          hasMore && page.length > 0 ? page[page.length - 1].accountId : null,
       },
     };
   }
@@ -10982,15 +11004,14 @@ export class ConversationsService {
         ? pageDescending[pageDescending.length - 1].id
         : null;
 
-    const officialReceiptAggregates =
-      !usesDetailedReceipts
-        ? await this.getOfficialMessageReceiptAggregates(
-            conversationId,
-            pageDescending
-              .filter((message) => message.senderAccountId === viewer.accountId)
-              .map((message) => message.id),
-          )
-        : new Map<string, MessageReceiptAggregate>();
+    const officialReceiptAggregates = !usesDetailedReceipts
+      ? await this.getOfficialMessageReceiptAggregates(
+          conversationId,
+          pageDescending
+            .filter((message) => message.senderAccountId === viewer.accountId)
+            .map((message) => message.id),
+        )
+      : new Map<string, MessageReceiptAggregate>();
 
     return {
       data: [...pageDescending]
@@ -12137,7 +12158,8 @@ export class ConversationsService {
     const attachments = this.validateMessageAttachments(files);
     const caption = dto.caption?.trim() || null;
     const attachmentKind = dto.attachmentKind ?? null;
-    const messageContentType = this.getAttachmentMessageContentType(attachments);
+    const messageContentType =
+      this.getAttachmentMessageContentType(attachments);
 
     if (
       attachmentKind === 'VOICE_NOTE' &&
@@ -12286,7 +12308,9 @@ export class ConversationsService {
     for (const attachment of attachments) {
       // Scan sequentially so one multi-file message cannot monopolize the NTC scanner.
       scanStatuses.push(
-        await this.attachmentSecurityService.scanValidatedUpload(attachment.file),
+        await this.attachmentSecurityService.scanValidatedUpload(
+          attachment.file,
+        ),
       );
     }
 
@@ -12322,7 +12346,8 @@ export class ConversationsService {
           mimeType: attachment.file.mimetype,
           fileSizeBytes: attachment.file.size,
           contentType: attachment.contentType,
-          scanStatus: scanStatuses[storedAttachments.length] ?? 'FORMAT_VALIDATED',
+          scanStatus:
+            scanStatuses[storedAttachments.length] ?? 'FORMAT_VALIDATED',
         });
 
         await this.writeAttachmentFile(storageKey, attachment.file);
@@ -12534,10 +12559,7 @@ export class ConversationsService {
     }
 
     if (
-      isAttachmentReferenceExpired(
-        attachment.expiresAt,
-        attachment.expiredAt,
-      )
+      isAttachmentReferenceExpired(attachment.expiresAt, attachment.expiredAt)
     ) {
       throw new NotFoundException(
         'This attachment has expired and is no longer available.',
@@ -12559,7 +12581,12 @@ export class ConversationsService {
       attachment.storageKey,
     );
 
-    if (!(await this.attachmentStorageService.exists('messages', attachment.storageKey))) {
+    if (
+      !(await this.attachmentStorageService.exists(
+        'messages',
+        attachment.storageKey,
+      ))
+    ) {
       throw new NotFoundException(
         'This file is currently unavailable. Please contact technical support.',
       );
@@ -13308,10 +13335,7 @@ export class ConversationsService {
         },
       },
 
-      orderBy: [
-        { starredAt: 'desc' },
-        { messageId: 'desc' },
-      ],
+      orderBy: [{ starredAt: 'desc' }, { messageId: 'desc' }],
 
       take: query.limit + 1,
 
@@ -13325,7 +13349,9 @@ export class ConversationsService {
     });
 
     const hasMore = starredMessages.length > query.limit;
-    const page = hasMore ? starredMessages.slice(0, query.limit) : starredMessages;
+    const page = hasMore
+      ? starredMessages.slice(0, query.limit)
+      : starredMessages;
     const lastStar = page[page.length - 1] ?? null;
     const conversationIds = [
       ...new Set(page.map((star) => star.message.conversationId)),
@@ -13378,13 +13404,19 @@ export class ConversationsService {
         hasMore,
         nextCursor:
           hasMore && lastStar
-            ? this.encodeStarredMessagesCursor(lastStar.starredAt, lastStar.messageId)
+            ? this.encodeStarredMessagesCursor(
+                lastStar.starredAt,
+                lastStar.messageId,
+              )
             : null,
       },
     };
   }
 
-  private encodeStarredMessagesCursor(starredAt: Date, messageId: string): string {
+  private encodeStarredMessagesCursor(
+    starredAt: Date,
+    messageId: string,
+  ): string {
     return Buffer.from(
       JSON.stringify({ starredAt: starredAt.toISOString(), messageId }),
       'utf8',
@@ -15106,7 +15138,10 @@ export class ConversationsService {
     };
   }
 
-  async reorderChatFolders(viewer: AuthenticatedUser, dto: ReorderChatFoldersDto) {
+  async reorderChatFolders(
+    viewer: AuthenticatedUser,
+    dto: ReorderChatFoldersDto,
+  ) {
     const ownedFolders = await this.prisma.chatFolder.findMany({
       where: {
         accountId: viewer.accountId,

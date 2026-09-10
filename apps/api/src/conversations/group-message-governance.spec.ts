@@ -228,35 +228,49 @@ describe('ConversationsService group governance', () => {
     ).rejects.toThrow(ForbiddenException);
   });
 
-  it('transfers messaging analytics authority from Super Admin to Office Head', async () => {
-    const ensureAnalytics = (viewer: unknown) =>
+  it('keeps communication analytics on V3 Office authorization and outside Super Admin', async () => {
+    const authorization = (
+      service as unknown as {
+        organizationAuthorization: {
+          can: jest.Mock;
+          visibleOrgUnitIds: jest.Mock;
+        };
+      }
+    ).organizationAuthorization;
+    jest.spyOn(authorization, 'can').mockResolvedValue(true);
+    jest
+      .spyOn(authorization, 'visibleOrgUnitIds')
+      .mockResolvedValue(['unit-1']);
+
+    const authorizeAnalytics = (viewer: unknown) =>
       (
         service as unknown as {
-          ensureAnalyticsViewer: (viewer: unknown) => Promise<boolean>;
+          getMessagingAnalyticsAuthorizationScope: (
+            viewer: unknown,
+          ) => Promise<unknown>;
         }
-      ).ensureAnalyticsViewer(viewer);
-    const officeHeadSpy = jest.spyOn(
-      service as unknown as {
-        isActiveOfficeHeadEmployee: () => Promise<boolean>;
-      },
-      'isActiveOfficeHeadEmployee',
-    );
+      ).getMessagingAnalyticsAuthorizationScope(viewer);
 
-    officeHeadSpy.mockResolvedValueOnce(true);
     await expect(
-      ensureAnalytics({
+      authorizeAnalytics({
         accountId: 'office-head-account',
         employeeId: 'office-head-employee',
         role: AccountRole.EMPLOYEE,
+        officeId: 'office-1',
+        orgUnitId: 'unit-1',
       }),
-    ).resolves.toBe(true);
+    ).resolves.toMatchObject({
+      officeId: 'office-1',
+      isOfficeWide: true,
+    });
 
-    officeHeadSpy.mockResolvedValueOnce(false);
     await expect(
-      ensureAnalytics({
+      authorizeAnalytics({
         accountId: 'super-admin-account',
         employeeId: null,
         role: AccountRole.SUPER_ADMIN,
+        officeId: null,
+        orgUnitId: null,
       }),
     ).rejects.toThrow(ForbiddenException);
   });

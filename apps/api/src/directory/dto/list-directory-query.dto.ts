@@ -4,7 +4,6 @@ import {
   IsInt,
   IsOptional,
   IsString,
-  IsUUID,
   Max,
   MaxLength,
   Min,
@@ -61,18 +60,6 @@ export class ListDirectoryQueryDto {
   @IsOptional()
   @IsEnum(DirectoryActivationStatus)
   activationStatus?: DirectoryActivationStatus;
-
-  @IsOptional()
-  @IsUUID('4', {
-    message: 'Division ID must be a valid UUID.',
-  })
-  divisionId?: string;
-
-  @IsOptional()
-  @IsUUID('4', {
-    message: 'Department ID must be a valid UUID.',
-  })
-  departmentId?: string;
 
   @IsOptional()
   @Type(() => Number)

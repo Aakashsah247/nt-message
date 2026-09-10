@@ -83,15 +83,15 @@ const directoryEmployeeSelect = {
   orgMemberships: {
     where: {
       membershipType: OrgMembershipType.PRIMARY,
-      endsAt: null,
     },
     orderBy: {
       startsAt: 'desc',
     },
-    take: 5,
+    take: 10,
     select: {
       id: true,
       startsAt: true,
+      endsAt: true,
       office: {
         select: {
           id: true,
@@ -128,13 +128,10 @@ const directoryEmployeeSelect = {
   },
 
   orgLeadershipAssignments: {
-    where: {
-      effectiveUntil: null,
-    },
     orderBy: {
       effectiveFrom: 'desc',
     },
-    take: 20,
+    take: 50,
     select: {
       id: true,
       leadershipType: true,
@@ -161,9 +158,8 @@ const directoryEmployeeSelect = {
   },
 
   operationalTeamLeadAssignments: {
-    where: { effectiveUntil: null },
     orderBy: { effectiveFrom: 'desc' },
-    take: 20,
+    take: 50,
     select: {
       id: true,
       isActing: true,
@@ -320,7 +316,8 @@ export class DirectoryService {
       employee.status !== EmployeeStatus.ACTIVE ||
       !employee.isActivated ||
       !primaryMembership ||
-      !primaryMembership.office.isActive
+      !primaryMembership.office.isActive ||
+      (primaryMembership.orgUnit && !primaryMembership.orgUnit.isActive)
     ) {
       throw new ForbiddenException(
         'Your account does not have an active Office membership.',
@@ -343,7 +340,9 @@ export class DirectoryService {
     _query: ListDirectoryQueryDto,
   ): Promise<void> {
     if (viewer.role !== AccountRole.SUPER_ADMIN && !viewer.officeId) {
-      throw new ForbiddenException('Your directory scope has no active Office.');
+      throw new ForbiddenException(
+        'Your directory scope has no active Office.',
+      );
     }
   }
 
@@ -441,20 +440,31 @@ export class DirectoryService {
     }
 
     const now = new Date();
-    const primaryMembership = employee.orgMemberships.find(
-      (membership) => membership.startsAt <= now,
-    ) ?? null;
+    const primaryMembership =
+      employee.orgMemberships.find(
+        (membership) =>
+          membership.startsAt <= now &&
+          (!membership.endsAt || membership.endsAt > now) &&
+          membership.office.isActive &&
+          (!membership.orgUnit || membership.orgUnit.isActive),
+      ) ?? null;
 
     const breadcrumb = primaryMembership?.orgUnit
       ? primaryMembership.orgUnit.ancestorLinks
           .map((link) => link.ancestorOrgUnit)
-          .filter((unit, index, units) =>
-            units.findIndex((candidate) => candidate.id === unit.id) === index,
+          .filter(
+            (unit, index, units) =>
+              units.findIndex((candidate) => candidate.id === unit.id) ===
+              index,
           )
       : [];
 
     const leadership = employee.orgLeadershipAssignments
-      .filter((assignment) => assignment.effectiveFrom <= now)
+      .filter(
+        (assignment) =>
+          assignment.effectiveFrom <= now &&
+          (!assignment.effectiveUntil || assignment.effectiveUntil > now),
+      )
       .map((assignment) => ({
         id: assignment.id,
         type: assignment.leadershipType,
@@ -466,14 +476,24 @@ export class DirectoryService {
       }));
 
     for (const assignment of employee.operationalTeamLeadAssignments) {
-      if (assignment.effectiveFrom > now) continue;
+      if (
+        assignment.effectiveFrom > now ||
+        (assignment.effectiveUntil && assignment.effectiveUntil <= now)
+      ) {
+        continue;
+      }
       leadership.push({
         id: assignment.id,
         type: OrgLeadershipType.TEAM_LEAD,
         isActing: assignment.isActing,
         effectiveFrom: assignment.effectiveFrom,
         effectiveUntil: assignment.effectiveUntil,
-        office: primaryMembership?.office ?? { id: '', code: '', name: '', isActive: false },
+        office: primaryMembership?.office ?? {
+          id: '',
+          code: '',
+          name: '',
+          isActive: false,
+        },
         orgUnit: assignment.team.orgUnit,
       });
     }
@@ -652,6 +672,7 @@ export class DirectoryService {
     }
 
     const search = query.search?.trim();
+    const searchAt = new Date();
 
     if (search) {
       const searchConditions: Prisma.EmployeeWhereInput[] = [
@@ -674,42 +695,47 @@ export class DirectoryService {
           },
         },
         {
-          division: {
-            is: {
-              name: {
-                contains: search,
-                mode: 'insensitive',
-              },
-            },
-          },
-        },
-        {
-          division: {
-            is: {
-              code: {
-                contains: search,
-                mode: 'insensitive',
-              },
-            },
-          },
-        },
-        {
-          departmentUnit: {
-            is: {
-              name: {
-                contains: search,
-                mode: 'insensitive',
-              },
-            },
-          },
-        },
-        {
-          departmentUnit: {
-            is: {
-              code: {
-                contains: search,
-                mode: 'insensitive',
-              },
+          orgMemberships: {
+            some: {
+              membershipType: OrgMembershipType.PRIMARY,
+              startsAt: { lte: searchAt },
+              AND: [
+                {
+                  OR: [{ endsAt: null }, { endsAt: { gt: searchAt } }],
+                },
+                {
+                  OR: [
+                    {
+                      office: {
+                        is: {
+                          name: { contains: search, mode: 'insensitive' },
+                        },
+                      },
+                    },
+                    {
+                      office: {
+                        is: {
+                          code: { contains: search, mode: 'insensitive' },
+                        },
+                      },
+                    },
+                    {
+                      orgUnit: {
+                        is: {
+                          name: { contains: search, mode: 'insensitive' },
+                        },
+                      },
+                    },
+                    {
+                      orgUnit: {
+                        is: {
+                          code: { contains: search, mode: 'insensitive' },
+                        },
+                      },
+                    },
+                  ],
+                },
+              ],
             },
           },
         },
@@ -792,10 +818,6 @@ export class DirectoryService {
         accountStatus: query.accountStatus ?? null,
 
         activationStatus: query.activationStatus ?? null,
-
-        divisionId: null,
-
-        departmentId: null,
       },
 
       pagination: {
