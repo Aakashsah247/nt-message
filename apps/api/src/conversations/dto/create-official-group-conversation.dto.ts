@@ -18,13 +18,8 @@ export class CreateOfficialGroupConversationDto {
   @MaxLength(500)
   description?: string;
 
-  @IsIn(['ORGANIZATION', 'DIVISION', 'DEPARTMENT', 'OFFICE', 'ORG_UNIT'])
-  scopeType!:
-    | 'ORGANIZATION'
-    | 'DIVISION'
-    | 'DEPARTMENT'
-    | 'OFFICE'
-    | 'ORG_UNIT';
+  @IsIn(['OFFICE', 'ORG_UNIT'])
+  scopeType!: 'OFFICE' | 'ORG_UNIT';
 
   @IsOptional()
   @IsUUID('4', {
@@ -41,16 +36,4 @@ export class CreateOfficialGroupConversationDto {
   @IsOptional()
   @IsIn(['DIRECT_MEMBERS', 'ENTIRE_SUBTREE'])
   membershipMode?: 'DIRECT_MEMBERS' | 'ENTIRE_SUBTREE';
-
-  @IsOptional()
-  @IsUUID('4', {
-    message: 'Official group division ID must be a valid UUID.',
-  })
-  divisionId?: string;
-
-  @IsOptional()
-  @IsUUID('4', {
-    message: 'Official group department ID must be a valid UUID.',
-  })
-  departmentId?: string;
 }

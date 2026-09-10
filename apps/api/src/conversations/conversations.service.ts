@@ -4575,20 +4575,9 @@ export class ConversationsService {
   private parseOfficialScopeType(
     scopeType: CreateOfficialGroupConversationDto['scopeType'],
   ): OfficialGroupScopeType {
-    switch (scopeType) {
-      case 'ORGANIZATION':
-        return OfficialGroupScopeType.ORGANIZATION;
-      case 'DIVISION':
-        return OfficialGroupScopeType.DIVISION;
-      case 'DEPARTMENT':
-        return OfficialGroupScopeType.DEPARTMENT;
-      case 'OFFICE':
-        return OfficialGroupScopeType.OFFICE;
-      case 'ORG_UNIT':
-        return OfficialGroupScopeType.ORG_UNIT;
-      default:
-        throw new BadRequestException('Official group scope type is invalid.');
-    }
+    return scopeType === 'OFFICE'
+      ? OfficialGroupScopeType.OFFICE
+      : OfficialGroupScopeType.ORG_UNIT;
   }
 
   private parseOfficialMembershipMode(
@@ -4956,9 +4945,9 @@ export class ConversationsService {
       },
     });
 
-    if (!division || !division.isActive) {
+    if (!division) {
       throw new NotFoundException(
-        'The selected active division was not found.',
+        'The historical official-group division was not found.',
       );
     }
 
@@ -5045,13 +5034,9 @@ export class ConversationsService {
       },
     });
 
-    if (
-      !department ||
-      !department.isActive ||
-      department.divisionId !== division.id
-    ) {
+    if (!department || department.divisionId !== division.id) {
       throw new NotFoundException(
-        'The selected active department was not found in this division.',
+        'The historical official-group department was not found in this division.',
       );
     }
 
@@ -6507,8 +6492,8 @@ export class ConversationsService {
     const scope = await this.getAuthorizedOfficialGroupScope(
       viewer,
       scopeType,
-      dto.divisionId,
-      dto.departmentId,
+      null,
+      null,
       dto.officeId,
       dto.orgUnitId,
       requestedMembershipMode,

@@ -44,6 +44,19 @@ describe('announcement DTO validation', () => {
     expect(validateSync(dto)).toHaveLength(0);
   });
 
+  it('rejects legacy hierarchy audiences for new announcement writes', () => {
+    for (const audienceType of [
+      AnnouncementAudienceType.ORGANIZATION,
+      AnnouncementAudienceType.DIVISION,
+      AnnouncementAudienceType.DEPARTMENT,
+    ]) {
+      const dto = Object.assign(validCreateDto(), { audienceType });
+      expect(
+        validateSync(dto).some((error) => error.property === 'audienceType'),
+      ).toBe(true);
+    }
+  });
+
   it('rejects unknown audience and priority values', () => {
     const dto = Object.assign(validCreateDto(), {
       audienceType: 'UNKNOWN',

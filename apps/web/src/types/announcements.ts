@@ -212,10 +212,13 @@ export interface AnnouncementMutationInput {
   expiresAt?: string | null;
 }
 
+export type AnnouncementCreateAudienceType = Extract<
+  AnnouncementAudienceType,
+  "OFFICE" | "ORG_UNIT" | "OFFICIAL_GROUP"
+>;
+
 export interface CreateAnnouncementInput extends AnnouncementMutationInput {
-  audienceType: AnnouncementAudienceType;
-  divisionId?: string;
-  departmentId?: string;
+  audienceType: AnnouncementCreateAudienceType;
   officeId?: string;
   orgUnitId?: string;
   includeDescendants?: boolean;

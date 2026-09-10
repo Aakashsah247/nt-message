@@ -26,7 +26,8 @@
     "db:seed": "prisma db seed",
     "db:studio": "prisma studio",
     "db:verify-work-v3-cutover": "node scripts/verify_work_v3_cutover.js",
-    "db:verify-communication-v3-foundation": "node scripts/verify_communication_orgunit_foundation.js"
+    "db:verify-communication-v3-foundation": "node scripts/verify_communication_orgunit_foundation.js",
+    "db:verify-communication-v3-cutover": "node scripts/verify_communication_v3_cutover.js"
   },
   "dependencies": {
     "@nestjs/common": "^11.0.1",

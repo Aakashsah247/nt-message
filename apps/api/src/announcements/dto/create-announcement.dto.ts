@@ -3,6 +3,7 @@ import {
   IsBoolean,
   IsDateString,
   IsEnum,
+  IsIn,
   IsOptional,
   IsString,
   IsUUID,
@@ -23,7 +24,11 @@ function emptyStringToNull(value: unknown): unknown {
 }
 
 export class CreateAnnouncementDto {
-  @IsEnum(AnnouncementAudienceType)
+  @IsIn([
+    AnnouncementAudienceType.OFFICE,
+    AnnouncementAudienceType.ORG_UNIT,
+    AnnouncementAudienceType.OFFICIAL_GROUP,
+  ])
   audienceType!: AnnouncementAudienceType;
 
   @IsOptional()

@@ -414,8 +414,6 @@ export function createOfficialGroupConversation(
     officeId?: string;
     orgUnitId?: string;
     membershipMode?: "DIRECT_MEMBERS" | "ENTIRE_SUBTREE";
-    divisionId?: string;
-    departmentId?: string;
   },
 ): Promise<GroupConversationResponse> {
   return apiRequest<GroupConversationResponse>(

@@ -10695,14 +10695,6 @@ export function MessageAppPage() {
                   membershipMode: selectedOfficialGroupScope.membershipMode,
                 }
               : {}),
-            ...(selectedOfficialGroupScope.scopeType === "DIVISION" &&
-            selectedOfficialGroupScope.divisionId
-              ? { divisionId: selectedOfficialGroupScope.divisionId }
-              : {}),
-            ...(selectedOfficialGroupScope.scopeType === "DEPARTMENT" &&
-            selectedOfficialGroupScope.departmentId
-              ? { departmentId: selectedOfficialGroupScope.departmentId }
-              : {}),
           })
           : await createGroupConversation(
             accessToken,
