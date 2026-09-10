@@ -6,7 +6,14 @@ export type GroupKind = "PERSONAL" | "OFFICIAL";
 
 export type ConversationParticipantRole = "OWNER" | "ADMIN" | "MEMBER";
 
-export type OfficialGroupScopeType = "ORGANIZATION" | "DIVISION" | "DEPARTMENT";
+export type OfficialGroupScopeType =
+  | "ORGANIZATION"
+  | "DIVISION"
+  | "DEPARTMENT"
+  | "OFFICE"
+  | "ORG_UNIT";
+
+export type OfficialGroupMembershipMode = "DIRECT_MEMBERS" | "ENTIRE_SUBTREE";
 
 export type OfficialGroupAuditAction =
   | "CREATED"
@@ -268,8 +275,24 @@ export interface MessagingOfficialGroupScope {
   scopeType: OfficialGroupScopeType;
   divisionId: string | null;
   departmentId: string | null;
+  officeId: string | null;
+  orgUnitId: string | null;
+  membershipMode: OfficialGroupMembershipMode | null;
   division: MessagingOrganizationUnit | null;
   department: MessagingOrganizationUnit | null;
+  office: MessagingOrganizationUnit | null;
+  orgUnit:
+    | (MessagingOrganizationUnit & {
+        officeId: string;
+        parentOrgUnitId: string | null;
+        orgUnitType: {
+          id: string;
+          code: string;
+          name: string;
+          isTeam: boolean;
+        };
+      })
+    | null;
 }
 
 export interface MessagingConversation {
@@ -412,6 +435,22 @@ export interface OfficialGroupScopeOption {
   scopeType: OfficialGroupScopeType;
   label: string;
   defaultTitle: string;
+  officeId: string | null;
+  orgUnitId: string | null;
+  membershipMode: OfficialGroupMembershipMode | null;
+  office: MessagingOrganizationUnit | null;
+  orgUnit:
+    | (MessagingOrganizationUnit & {
+        officeId: string;
+        parentOrgUnitId: string | null;
+        orgUnitType: {
+          id: string;
+          code: string;
+          name: string;
+          isTeam: boolean;
+        };
+      })
+    | null;
   divisionId: string | null;
   departmentId: string | null;
   division: MessagingOrganizationUnit | null;

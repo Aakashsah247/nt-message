@@ -10636,15 +10636,30 @@ export function MessageAppPage() {
             title: groupTitle.trim(),
             description: groupDescription.trim(),
             scopeType: selectedOfficialGroupScope.scopeType,
+            ...(selectedOfficialGroupScope.officeId
+              ? {
+                  officeId: selectedOfficialGroupScope.officeId,
+                }
+              : {}),
+            ...(selectedOfficialGroupScope.orgUnitId
+              ? {
+                  orgUnitId: selectedOfficialGroupScope.orgUnitId,
+                }
+              : {}),
+            ...(selectedOfficialGroupScope.membershipMode
+              ? {
+                  membershipMode: selectedOfficialGroupScope.membershipMode,
+                }
+              : {}),
             ...(selectedOfficialGroupScope.divisionId
               ? {
-                divisionId: selectedOfficialGroupScope.divisionId,
-              }
+                  divisionId: selectedOfficialGroupScope.divisionId,
+                }
               : {}),
             ...(selectedOfficialGroupScope.departmentId
               ? {
-                departmentId: selectedOfficialGroupScope.departmentId,
-              }
+                  departmentId: selectedOfficialGroupScope.departmentId,
+                }
               : {}),
           })
           : await createGroupConversation(

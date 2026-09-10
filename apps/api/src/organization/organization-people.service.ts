@@ -7,6 +7,7 @@ import {
 } from '@nestjs/common';
 
 import type { AuthenticatedUser } from '../auth/types/auth.types';
+import { ConversationsService } from '../conversations/conversations.service';
 import { PrismaService } from '../database/prisma.service';
 import {
   AccountRole,
@@ -33,7 +34,24 @@ export class OrganizationPeopleService {
     private readonly prisma: PrismaService,
     private readonly authority: OrganizationAuthorityService,
     private readonly authorization: OrganizationAuthorizationService,
+    private readonly conversationsService?: ConversationsService,
   ) {}
+
+  private async synchronizeOfficialGroupsForAccount(
+    accountId: string | null | undefined,
+    actorAccountId: string,
+    reason: string,
+  ): Promise<void> {
+    if (!this.conversationsService || !accountId) {
+      return;
+    }
+
+    await this.conversationsService.synchronizeOfficialGroupsForAccountSafely(
+      accountId,
+      actorAccountId,
+      reason,
+    );
+  }
 
   private normalizeReason(value: string): string {
     const reason = value.trim().replace(/\s+/g, ' ');
@@ -735,6 +753,14 @@ export class OrganizationPeopleService {
       },
     });
 
+    if (dto.membershipType === OrgMembershipType.PRIMARY) {
+      await this.synchronizeOfficialGroupsForAccount(
+        employee.account?.id,
+        user.accountId,
+        'ORG_PRIMARY_MEMBERSHIP_ASSIGNED',
+      );
+    }
+
     return {
       message: 'Employee placement added successfully.',
       membership,
@@ -878,6 +904,12 @@ export class OrganizationPeopleService {
           membership,
         };
       },
+    );
+
+    await this.synchronizeOfficialGroupsForAccount(
+      employee.account?.id,
+      user.accountId,
+      'ORG_PRIMARY_MEMBERSHIP_TRANSFERRED',
     );
 
     return {
@@ -1189,6 +1221,11 @@ export class OrganizationPeopleService {
       },
     );
 
+    await this.conversationsService?.synchronizeAllOfficialGroupsSafely(
+      user.accountId,
+      'OFFICE_HEAD_ASSIGNED',
+    );
+
     return {
       message: 'Office Head assigned successfully.',
       ...result,
@@ -1351,6 +1388,13 @@ export class OrganizationPeopleService {
         },
       });
 
+    if (dto.leadershipType === OrgLeadershipType.OFFICE_HEAD) {
+      await this.conversationsService?.synchronizeAllOfficialGroupsSafely(
+        user.accountId,
+        'OFFICE_HEAD_ACTING_ASSIGNMENT_CHANGED',
+      );
+    }
+
     return {
       message: isActing
         ? 'Acting leadership assigned successfully.'
@@ -1439,6 +1483,13 @@ export class OrganizationPeopleService {
           endReason: this.normalizeReason(dto.reason),
         },
       });
+
+    if (assignment.leadershipType === OrgLeadershipType.OFFICE_HEAD) {
+      await this.conversationsService?.synchronizeAllOfficialGroupsSafely(
+        user.accountId,
+        'OFFICE_HEAD_ASSIGNMENT_ENDED',
+      );
+    }
 
     return {
       message: 'Leadership assignment ended successfully.',

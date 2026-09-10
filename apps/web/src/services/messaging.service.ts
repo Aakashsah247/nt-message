@@ -411,6 +411,9 @@ export function createOfficialGroupConversation(
     title: string;
     description: string;
     scopeType: OfficialGroupScopeType;
+    officeId?: string;
+    orgUnitId?: string;
+    membershipMode?: "DIRECT_MEMBERS" | "ENTIRE_SUBTREE";
     divisionId?: string;
     departmentId?: string;
   },

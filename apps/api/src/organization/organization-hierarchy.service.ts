@@ -6,6 +6,7 @@ import {
 } from '@nestjs/common';
 
 import type { AuthenticatedUser } from '../auth/types/auth.types';
+import { ConversationsService } from '../conversations/conversations.service';
 import { PrismaService } from '../database/prisma.service';
 import { AccountRole, type Prisma } from '../generated/prisma/client';
 
@@ -26,6 +27,7 @@ export class OrganizationHierarchyService {
     private readonly prisma: PrismaService,
     private readonly authority: OrganizationAuthorityService,
     private readonly authorization: OrganizationAuthorizationService,
+    private readonly conversationsService?: ConversationsService,
   ) {}
 
   private normalizeCode(value: string): string {
@@ -876,6 +878,11 @@ export class OrganizationHierarchyService {
       },
     );
 
+    await this.conversationsService?.synchronizeAllOfficialGroupsSafely(
+      user.accountId,
+      'ORG_UNIT_MOVED',
+    );
+
     return {
       message: 'Organizational unit moved successfully.',
       orgUnit,
@@ -988,6 +995,11 @@ export class OrganizationHierarchyService {
         isActive: dto.isActive,
       },
     });
+
+    await this.conversationsService?.synchronizeAllOfficialGroupsSafely(
+      user.accountId,
+      dto.isActive ? 'ORG_UNIT_ACTIVATED' : 'ORG_UNIT_DEACTIVATED',
+    );
 
     return {
       message: dto.isActive

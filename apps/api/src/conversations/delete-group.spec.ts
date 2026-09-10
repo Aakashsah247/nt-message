@@ -128,9 +128,9 @@ describe('ConversationsService group deletion governance', () => {
     jest
       .spyOn(
         service as unknown as {
-          resolveLegacyOfficialGroupOfficeId: () => Promise<string>;
+          resolveOfficialGroupOfficeId: () => Promise<string>;
         },
-        'resolveLegacyOfficialGroupOfficeId',
+        'resolveOfficialGroupOfficeId',
       )
       .mockResolvedValue('office-1');
     officeHeadSpy = jest

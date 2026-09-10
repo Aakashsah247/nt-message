@@ -29,6 +29,7 @@ import {
   MessagingNotificationType,
   MessageRequestStatus,
   OfficialGroupAuditAction,
+  OfficialGroupMembershipMode,
   OfficialGroupScopeType,
   OrgLeadershipType,
   OrgMembershipType,
@@ -104,6 +105,9 @@ interface OfficialGroupScopeRecord {
   officialScopeType: OfficialGroupScopeType;
   officialDivisionId: string | null;
   officialDepartmentId: string | null;
+  officialOfficeId: string | null;
+  officialOrgUnitId: string | null;
+  officialMembershipMode: OfficialGroupMembershipMode | null;
 }
 
 interface OfficialGroupParticipantSyncRecord {
@@ -354,6 +358,30 @@ const messagingAccountSelect = {
   },
 } satisfies Prisma.AccountSelect;
 
+const officialGroupOfficeSelect = {
+  id: true,
+  code: true,
+  name: true,
+  isActive: true,
+} satisfies Prisma.OfficeSelect;
+
+const officialGroupOrgUnitSelect = {
+  id: true,
+  officeId: true,
+  parentOrgUnitId: true,
+  code: true,
+  name: true,
+  isActive: true,
+  orgUnitType: {
+    select: {
+      id: true,
+      code: true,
+      name: true,
+      isTeam: true,
+    },
+  },
+} satisfies Prisma.OrgUnitSelect;
+
 type MessagingAccountRecord = Prisma.AccountGetPayload<{
   select: typeof messagingAccountSelect;
 }>;
@@ -585,6 +613,9 @@ const conversationListConversationSelect = {
   officialScopeType: true,
   officialDivisionId: true,
   officialDepartmentId: true,
+  officialOfficeId: true,
+  officialOrgUnitId: true,
+  officialMembershipMode: true,
   privateParticipantKey: true,
   createdByAccountId: true,
   lastMessageAt: true,
@@ -608,6 +639,14 @@ const conversationListConversationSelect = {
       name: true,
       isActive: true,
     },
+  },
+
+  officialOffice: {
+    select: officialGroupOfficeSelect,
+  },
+
+  officialOrgUnit: {
+    select: officialGroupOrgUnitSelect,
   },
 } satisfies Prisma.ConversationSelect;
 
@@ -672,6 +711,9 @@ const conversationSelect = {
   officialScopeType: true,
   officialDivisionId: true,
   officialDepartmentId: true,
+  officialOfficeId: true,
+  officialOrgUnitId: true,
+  officialMembershipMode: true,
   privateParticipantKey: true,
   createdByAccountId: true,
   lastMessageAt: true,
@@ -695,6 +737,14 @@ const conversationSelect = {
       name: true,
       isActive: true,
     },
+  },
+
+  officialOffice: {
+    select: officialGroupOfficeSelect,
+  },
+
+  officialOrgUnit: {
+    select: officialGroupOrgUnitSelect,
   },
 
   participants: {
@@ -1050,6 +1100,59 @@ export class ConversationsService {
     }
 
     return office.id;
+  }
+
+  private async resolveOfficialGroupOfficeId(group: {
+    officialScopeType: OfficialGroupScopeType;
+    officialDivisionId: string | null;
+    officialDepartmentId: string | null;
+    officialOfficeId?: string | null;
+  }): Promise<string> {
+    if (group.officialOfficeId) {
+      return group.officialOfficeId;
+    }
+
+    return this.resolveLegacyOfficialGroupOfficeId(group);
+  }
+
+  private async resolveOfficialGroupOrgUnitId(group: {
+    officialScopeType: OfficialGroupScopeType;
+    officialDivisionId: string | null;
+    officialDepartmentId: string | null;
+    officialOrgUnitId?: string | null;
+  }): Promise<string | null> {
+    if (group.officialOrgUnitId) {
+      return group.officialOrgUnitId;
+    }
+
+    const mappingInput = group.officialDepartmentId
+      ? {
+          legacyEntityType: 'DEPARTMENT',
+          legacyEntityId: group.officialDepartmentId,
+        }
+      : group.officialDivisionId
+        ? {
+            legacyEntityType: 'DIVISION',
+            legacyEntityId: group.officialDivisionId,
+          }
+        : null;
+
+    if (!mappingInput) {
+      return null;
+    }
+
+    const mapping = await this.prisma.legacyOrgUnitMapping.findFirst({
+      where: mappingInput,
+      select: { orgUnitId: true },
+    });
+
+    if (!mapping) {
+      throw new ConflictException(
+        'The legacy official-group scope is not mapped to a V3 OrgUnit.',
+      );
+    }
+
+    return mapping.orgUnitId;
   }
 
   private async isActiveOfficeHeadForOffice(
@@ -3262,8 +3365,13 @@ export class ConversationsService {
             scopeType: conversation.officialScopeType,
             divisionId: conversation.officialDivisionId,
             departmentId: conversation.officialDepartmentId,
+            officeId: conversation.officialOfficeId,
+            orgUnitId: conversation.officialOrgUnitId,
+            membershipMode: conversation.officialMembershipMode,
             division: conversation.officialDivision,
             department: conversation.officialDepartment,
+            office: conversation.officialOffice,
+            orgUnit: conversation.officialOrgUnit,
           }
         : null,
       createdByAccountId: conversation.createdByAccountId,
@@ -4143,6 +4251,9 @@ export class ConversationsService {
         officialScopeType: true,
         officialDivisionId: true,
         officialDepartmentId: true,
+        officialOfficeId: true,
+        officialOrgUnitId: true,
+        officialMembershipMode: true,
         createdByAccountId: true,
         participants: {
           where: {
@@ -4296,9 +4407,29 @@ export class ConversationsService {
         return OfficialGroupScopeType.DIVISION;
       case 'DEPARTMENT':
         return OfficialGroupScopeType.DEPARTMENT;
+      case 'OFFICE':
+        return OfficialGroupScopeType.OFFICE;
+      case 'ORG_UNIT':
+        return OfficialGroupScopeType.ORG_UNIT;
       default:
         throw new BadRequestException('Official group scope type is invalid.');
     }
+  }
+
+  private parseOfficialMembershipMode(
+    membershipMode: CreateOfficialGroupConversationDto['membershipMode'],
+  ): OfficialGroupMembershipMode {
+    if (membershipMode === 'DIRECT_MEMBERS') {
+      return OfficialGroupMembershipMode.DIRECT_MEMBERS;
+    }
+
+    if (membershipMode === 'ENTIRE_SUBTREE') {
+      return OfficialGroupMembershipMode.ENTIRE_SUBTREE;
+    }
+
+    throw new BadRequestException(
+      'Official group membership mode is required for Office/OrgUnit groups.',
+    );
   }
 
   private async getAuthorizedOfficialGroupScope(
@@ -4306,7 +4437,116 @@ export class ConversationsService {
     scopeType: OfficialGroupScopeType,
     divisionId?: string | null,
     departmentId?: string | null,
+    officeId?: string | null,
+    orgUnitId?: string | null,
+    membershipMode?: OfficialGroupMembershipMode | null,
   ) {
+    if (viewer.role === AccountRole.SUPER_ADMIN) {
+      throw new ForbiddenException(
+        'System administrators do not have operational official-group authority.',
+      );
+    }
+
+    if (
+      scopeType === OfficialGroupScopeType.OFFICE ||
+      scopeType === OfficialGroupScopeType.ORG_UNIT
+    ) {
+      if (divisionId || departmentId) {
+        throw new BadRequestException(
+          'Office/OrgUnit official groups must not use legacy division or department targets.',
+        );
+      }
+
+      if (!officeId) {
+        throw new BadRequestException(
+          'An Office is required for this official group scope.',
+        );
+      }
+
+      if (!membershipMode) {
+        throw new BadRequestException(
+          'A membership mode is required for this official group scope.',
+        );
+      }
+
+      const office = await this.prisma.office.findUnique({
+        where: { id: officeId },
+        select: officialGroupOfficeSelect,
+      });
+
+      if (!office || !office.isActive) {
+        throw new NotFoundException('The selected active Office was not found.');
+      }
+
+      const isOfficeHead = await this.isActiveOfficeHeadForOffice(
+        viewer.employeeId,
+        office.id,
+      );
+
+      if (!isOfficeHead) {
+        throw new ForbiddenException(
+          'Only the Office Head can create V3 official groups during this cutover.',
+        );
+      }
+
+      if (scopeType === OfficialGroupScopeType.OFFICE) {
+        if (orgUnitId) {
+          throw new BadRequestException(
+            'An Office-wide official group must not specify an OrgUnit.',
+          );
+        }
+
+        if (membershipMode !== OfficialGroupMembershipMode.ENTIRE_SUBTREE) {
+          throw new BadRequestException(
+            'Office-wide official groups must use ENTIRE_SUBTREE membership.',
+          );
+        }
+
+        return {
+          scopeType,
+          officeId: office.id,
+          orgUnitId: null,
+          membershipMode,
+          office,
+          orgUnit: null,
+          division: null,
+          department: null,
+        };
+      }
+
+      if (!orgUnitId) {
+        throw new BadRequestException(
+          'An OrgUnit is required for this official group scope.',
+        );
+      }
+
+      const orgUnit = await this.prisma.orgUnit.findFirst({
+        where: {
+          id: orgUnitId,
+          officeId: office.id,
+          isActive: true,
+        },
+        select: officialGroupOrgUnitSelect,
+      });
+
+      if (!orgUnit) {
+        throw new NotFoundException(
+          'The selected active OrgUnit was not found in this Office.',
+        );
+      }
+
+      return {
+        scopeType,
+        officeId: office.id,
+        orgUnitId: orgUnit.id,
+        membershipMode,
+        office,
+        orgUnit,
+        division: null,
+        department: null,
+      };
+    }
+
     if (scopeType === OfficialGroupScopeType.ORGANIZATION) {
       if (divisionId || departmentId) {
         throw new BadRequestException(
@@ -4314,14 +4554,32 @@ export class ConversationsService {
         );
       }
 
-      const officeId = await this.resolveLegacyOfficialGroupOfficeId({
+      const resolvedOfficeId = await this.resolveLegacyOfficialGroupOfficeId({
         officialScopeType: scopeType,
         officialDivisionId: null,
         officialDepartmentId: null,
       });
+      if (officeId && officeId !== resolvedOfficeId) {
+        throw new ConflictException(
+          'The official-group Office binding does not match its legacy scope.',
+        );
+      }
+      if (orgUnitId) {
+        throw new ConflictException(
+          'An organization-wide legacy group cannot be bound to one OrgUnit.',
+        );
+      }
+      if (
+        membershipMode &&
+        membershipMode !== OfficialGroupMembershipMode.ENTIRE_SUBTREE
+      ) {
+        throw new ConflictException(
+          'Legacy organization-wide groups must retain ENTIRE_SUBTREE membership.',
+        );
+      }
       const authorized = await this.isActiveOfficeHeadForOffice(
         viewer.employeeId,
-        officeId,
+        resolvedOfficeId,
       );
 
       if (!authorized) {
@@ -4332,7 +4590,11 @@ export class ConversationsService {
 
       return {
         scopeType,
-        officeId,
+        officeId: resolvedOfficeId,
+        orgUnitId: null,
+        membershipMode: OfficialGroupMembershipMode.ENTIRE_SUBTREE,
+        office: null,
+        orgUnit: null,
         division: null,
         department: null,
       };
@@ -4367,14 +4629,37 @@ export class ConversationsService {
         );
       }
 
-      const officeId = await this.resolveLegacyOfficialGroupOfficeId({
+      const resolvedOfficeId = await this.resolveLegacyOfficialGroupOfficeId({
         officialScopeType: scopeType,
         officialDivisionId: division.id,
         officialDepartmentId: null,
       });
+      const resolvedOrgUnitId = await this.resolveOfficialGroupOrgUnitId({
+        officialScopeType: scopeType,
+        officialDivisionId: division.id,
+        officialDepartmentId: null,
+      });
+      if (officeId && officeId !== resolvedOfficeId) {
+        throw new ConflictException(
+          'The official-group Office binding does not match its legacy scope.',
+        );
+      }
+      if (orgUnitId && orgUnitId !== resolvedOrgUnitId) {
+        throw new ConflictException(
+          'The official-group OrgUnit binding does not match its legacy scope.',
+        );
+      }
+      if (
+        membershipMode &&
+        membershipMode !== OfficialGroupMembershipMode.ENTIRE_SUBTREE
+      ) {
+        throw new ConflictException(
+          'Legacy Division groups must retain ENTIRE_SUBTREE membership.',
+        );
+      }
       const officeHeadAuthorized = await this.isActiveOfficeHeadForOffice(
         viewer.employeeId,
-        officeId,
+        resolvedOfficeId,
       );
       const authorized =
         officeHeadAuthorized ||
@@ -4389,7 +4674,11 @@ export class ConversationsService {
 
       return {
         scopeType,
-        officeId,
+        officeId: resolvedOfficeId,
+        orgUnitId: resolvedOrgUnitId,
+        membershipMode: OfficialGroupMembershipMode.ENTIRE_SUBTREE,
+        office: null,
+        orgUnit: null,
         division,
         department: null,
       };
@@ -4422,14 +4711,37 @@ export class ConversationsService {
       );
     }
 
-    const officeId = await this.resolveLegacyOfficialGroupOfficeId({
+    const resolvedOfficeId = await this.resolveLegacyOfficialGroupOfficeId({
       officialScopeType: scopeType,
       officialDivisionId: division.id,
       officialDepartmentId: department.id,
     });
+    const resolvedOrgUnitId = await this.resolveOfficialGroupOrgUnitId({
+      officialScopeType: scopeType,
+      officialDivisionId: division.id,
+      officialDepartmentId: department.id,
+    });
+    if (officeId && officeId !== resolvedOfficeId) {
+      throw new ConflictException(
+        'The official-group Office binding does not match its legacy scope.',
+      );
+    }
+    if (orgUnitId && orgUnitId !== resolvedOrgUnitId) {
+      throw new ConflictException(
+        'The official-group OrgUnit binding does not match its legacy scope.',
+      );
+    }
+    if (
+      membershipMode &&
+      membershipMode !== OfficialGroupMembershipMode.ENTIRE_SUBTREE
+    ) {
+      throw new ConflictException(
+        'Legacy Department groups must retain ENTIRE_SUBTREE membership.',
+      );
+    }
     const officeHeadAuthorized = await this.isActiveOfficeHeadForOffice(
       viewer.employeeId,
-      officeId,
+      resolvedOfficeId,
     );
     const authorized =
       officeHeadAuthorized ||
@@ -4447,7 +4759,11 @@ export class ConversationsService {
 
     return {
       scopeType,
-      officeId,
+      officeId: resolvedOfficeId,
+      orgUnitId: resolvedOrgUnitId,
+      membershipMode: OfficialGroupMembershipMode.ENTIRE_SUBTREE,
+      office: null,
+      orgUnit: null,
       division,
       department,
     };
@@ -4460,6 +4776,9 @@ export class ConversationsService {
       officialScopeType: OfficialGroupScopeType | null;
       officialDivisionId: string | null;
       officialDepartmentId: string | null;
+      officialOfficeId?: string | null;
+      officialOrgUnitId?: string | null;
+      officialMembershipMode?: OfficialGroupMembershipMode | null;
     },
   ): Promise<void> {
     if (
@@ -4476,57 +4795,82 @@ export class ConversationsService {
       conversation.officialScopeType,
       conversation.officialDivisionId,
       conversation.officialDepartmentId,
+      conversation.officialOfficeId,
+      conversation.officialOrgUnitId,
+      conversation.officialMembershipMode,
     );
   }
 
-  private buildOfficialGroupMembershipWhere(
+  private async getV3OfficialGroupMembershipAccounts(
     group: OfficialGroupScopeRecord,
-  ): Prisma.AccountWhereInput {
-    const employeeWhere: Prisma.EmployeeWhereInput = {
-      status: EmployeeStatus.ACTIVE,
-      employmentStatus: EmploymentStatus.ACTIVE,
-      archivedAt: null,
-      isActivated: true,
-      division: {
-        is: {
-          isActive: true,
-        },
-      },
-    };
+  ): Promise<MessagingAccountRecord[]> {
+    const now = new Date();
+    const officeId = await this.resolveOfficialGroupOfficeId(group);
+    const orgUnitId = await this.resolveOfficialGroupOrgUnitId(group);
+    const membershipMode =
+      group.officialMembershipMode ?? OfficialGroupMembershipMode.ENTIRE_SUBTREE;
 
-    if (group.officialScopeType === OfficialGroupScopeType.DIVISION) {
-      employeeWhere.divisionId = group.officialDivisionId;
+    let eligibleOrgUnitIds: string[] | undefined;
+
+    if (orgUnitId) {
+      if (membershipMode === OfficialGroupMembershipMode.DIRECT_MEMBERS) {
+        eligibleOrgUnitIds = [orgUnitId];
+      } else {
+        const descendants = await this.prisma.orgUnitClosure.findMany({
+          where: { ancestorOrgUnitId: orgUnitId },
+          select: { descendantOrgUnitId: true },
+        });
+        eligibleOrgUnitIds = descendants.map(
+          (link) => link.descendantOrgUnitId,
+        );
+      }
     }
 
-    if (group.officialScopeType === OfficialGroupScopeType.DEPARTMENT) {
-      employeeWhere.divisionId = group.officialDivisionId;
-      employeeWhere.departmentId = group.officialDepartmentId;
-      employeeWhere.departmentUnit = {
-        is: {
-          isActive: true,
-        },
-      };
-    } else {
-      employeeWhere.OR = [
-        {
-          departmentId: null,
-        },
-        {
-          departmentUnit: {
-            is: {
-              isActive: true,
+    const memberships = await this.prisma.orgMembership.findMany({
+      where: {
+        officeId,
+        membershipType: OrgMembershipType.PRIMARY,
+        startsAt: { lte: now },
+        OR: [{ endsAt: null }, { endsAt: { gt: now } }],
+        ...(eligibleOrgUnitIds
+          ? { orgUnitId: { in: eligibleOrgUnitIds } }
+          : {}),
+        employee: {
+          is: {
+            status: EmployeeStatus.ACTIVE,
+            employmentStatus: EmploymentStatus.ACTIVE,
+            archivedAt: null,
+            isActivated: true,
+            account: {
+              is: {
+                isEnabled: true,
+              },
             },
           },
         },
-      ];
+      },
+      select: {
+        employee: {
+          select: {
+            account: {
+              select: messagingAccountSelect,
+            },
+          },
+        },
+      },
+    });
+
+    const accounts = new Map<string, MessagingAccountRecord>();
+    for (const membership of memberships) {
+      const account = membership.employee.account;
+      if (account) {
+        accounts.set(account.id, account);
+      }
     }
 
-    return {
-      isEnabled: true,
-      employee: {
-        is: employeeWhere,
-      },
-    };
+    return [...accounts.values()].sort((left, right) =>
+      left.id.localeCompare(right.id),
+    );
   }
 
   private getOfficialGroupParticipantRole(
@@ -4571,13 +4915,9 @@ export class ConversationsService {
     accounts: MessagingAccountRecord[];
     officeHeadAccountIds: Set<string>;
   }> {
-    const officeId = await this.resolveLegacyOfficialGroupOfficeId(group);
+    const officeId = await this.resolveOfficialGroupOfficeId(group);
     const [scopedAccounts, officeHeadAccounts] = await Promise.all([
-      this.prisma.account.findMany({
-        where: this.buildOfficialGroupMembershipWhere(group),
-        orderBy: [{ role: 'asc' }, { id: 'asc' }],
-        select: messagingAccountSelect,
-      }),
+      this.getV3OfficialGroupMembershipAccounts(group),
       this.getActiveOfficeHeadAccountsForOffice(officeId),
     ]);
 
@@ -4617,6 +4957,9 @@ export class ConversationsService {
         officialScopeType: true,
         officialDivisionId: true,
         officialDepartmentId: true,
+        officialOfficeId: true,
+        officialOrgUnitId: true,
+        officialMembershipMode: true,
         participants: {
           select: {
             accountId: true,
@@ -4649,6 +4992,9 @@ export class ConversationsService {
       officialScopeType: conversation.officialScopeType,
       officialDivisionId: conversation.officialDivisionId,
       officialDepartmentId: conversation.officialDepartmentId,
+      officialOfficeId: conversation.officialOfficeId,
+      officialOrgUnitId: conversation.officialOrgUnitId,
+      officialMembershipMode: conversation.officialMembershipMode,
     };
     const {
       accounts: desiredAccounts,
@@ -4852,44 +5198,38 @@ export class ConversationsService {
 
     try {
       const account = await this.prisma.account.findUnique({
-        where: {
-          id: accountId,
-        },
+        where: { id: accountId },
         select: {
-          id: true,
           employee: {
-            select: {
-              divisionId: true,
-              departmentId: true,
-            },
+            select: { id: true },
           },
         },
       });
-
+      const now = new Date();
+      const memberships = account?.employee
+        ? await this.prisma.orgMembership.findMany({
+            where: {
+              employeeId: account.employee.id,
+              membershipType: OrgMembershipType.PRIMARY,
+              startsAt: { lte: now },
+              OR: [{ endsAt: null }, { endsAt: { gt: now } }],
+            },
+            select: { officeId: true },
+            distinct: ['officeId'],
+          })
+        : [];
+      const officeIds = memberships.map((membership) => membership.officeId);
       const scopeConditions: Prisma.ConversationWhereInput[] = [
         {
           participants: {
-            some: {
-              accountId,
-            },
+            some: { accountId },
           },
-        },
-        {
-          officialScopeType: OfficialGroupScopeType.ORGANIZATION,
         },
       ];
 
-      if (account?.employee?.divisionId) {
+      if (officeIds.length > 0) {
         scopeConditions.push({
-          officialScopeType: OfficialGroupScopeType.DIVISION,
-          officialDivisionId: account.employee.divisionId,
-        });
-      }
-
-      if (account?.employee?.departmentId) {
-        scopeConditions.push({
-          officialScopeType: OfficialGroupScopeType.DEPARTMENT,
-          officialDepartmentId: account.employee.departmentId,
+          officialOfficeId: { in: officeIds },
         });
       }
 
@@ -4899,9 +5239,7 @@ export class ConversationsService {
           groupKind: GroupKind.OFFICIAL,
           OR: scopeConditions,
         },
-        select: {
-          id: true,
-        },
+        select: { id: true },
       });
 
       for (const group of groups) {
@@ -5436,20 +5774,8 @@ export class ConversationsService {
 
   async listOfficialGroupScopes(user: AuthenticatedUser) {
     const viewer = await this.getMessagingViewer(user);
-    const legacyOfficeId = await this.resolveLegacyOfficialGroupOfficeId({
-      officialScopeType: OfficialGroupScopeType.ORGANIZATION,
-      officialDivisionId: null,
-      officialDepartmentId: null,
-    });
-    const isOfficeHead = await this.isActiveOfficeHeadForOffice(
-      viewer.employeeId,
-      legacyOfficeId,
-    );
 
-    if (
-      viewer.role === AccountRole.SUPER_ADMIN ||
-      (viewer.role === AccountRole.EMPLOYEE && !isOfficeHead)
-    ) {
+    if (viewer.role === AccountRole.SUPER_ADMIN) {
       return {
         canCreate: false,
         canReconcileAll: false,
@@ -5457,7 +5783,104 @@ export class ConversationsService {
       };
     }
 
-    if (!isOfficeHead && !viewer.divisionId) {
+    if (viewer.employeeId) {
+      const now = new Date();
+      const memberships = await this.prisma.orgMembership.findMany({
+        where: {
+          employeeId: viewer.employeeId,
+          membershipType: OrgMembershipType.PRIMARY,
+          startsAt: { lte: now },
+          OR: [{ endsAt: null }, { endsAt: { gt: now } }],
+        },
+        select: {
+          officeId: true,
+          office: {
+            select: officialGroupOfficeSelect,
+          },
+        },
+        distinct: ['officeId'],
+      });
+
+      for (const membership of memberships) {
+        if (
+          membership.office.isActive &&
+          (await this.isActiveOfficeHeadForOffice(
+            viewer.employeeId,
+            membership.officeId,
+          ))
+        ) {
+          const orgUnits = await this.prisma.orgUnit.findMany({
+            where: {
+              officeId: membership.officeId,
+              isActive: true,
+            },
+            orderBy: [{ sortOrder: 'asc' }, { name: 'asc' }],
+            select: officialGroupOrgUnitSelect,
+          });
+          const scopes = [
+            {
+              key: `OFFICE:${membership.officeId}`,
+              scopeType: OfficialGroupScopeType.OFFICE,
+              label: `${membership.office.name} · entire Office`,
+              defaultTitle: `${membership.office.name} Official Group`,
+              officeId: membership.officeId,
+              orgUnitId: null,
+              membershipMode: OfficialGroupMembershipMode.ENTIRE_SUBTREE,
+              office: membership.office,
+              orgUnit: null,
+              divisionId: null,
+              departmentId: null,
+              division: null,
+              department: null,
+            },
+            ...orgUnits.flatMap((orgUnit) => [
+              {
+                key: `ORG_UNIT:${orgUnit.id}:DIRECT_MEMBERS`,
+                scopeType: OfficialGroupScopeType.ORG_UNIT,
+                label: `${orgUnit.name} (${orgUnit.code}) · direct members`,
+                defaultTitle: `${orgUnit.name} Official Group`,
+                officeId: membership.officeId,
+                orgUnitId: orgUnit.id,
+                membershipMode: OfficialGroupMembershipMode.DIRECT_MEMBERS,
+                office: membership.office,
+                orgUnit,
+                divisionId: null,
+                departmentId: null,
+                division: null,
+                department: null,
+              },
+              {
+                key: `ORG_UNIT:${orgUnit.id}:ENTIRE_SUBTREE`,
+                scopeType: OfficialGroupScopeType.ORG_UNIT,
+                label: `${orgUnit.name} (${orgUnit.code}) · entire subtree`,
+                defaultTitle: `${orgUnit.name} Official Group`,
+                officeId: membership.officeId,
+                orgUnitId: orgUnit.id,
+                membershipMode: OfficialGroupMembershipMode.ENTIRE_SUBTREE,
+                office: membership.office,
+                orgUnit,
+                divisionId: null,
+                departmentId: null,
+                division: null,
+                department: null,
+              },
+            ]),
+          ];
+
+          return {
+            canCreate: scopes.length > 0,
+            canReconcileAll: true,
+            scopes,
+          };
+        }
+      }
+    }
+
+    /*
+     * Temporary compatibility path for lower legacy management roles. P12-E
+     * replaces this with leadership + OrgUnit capability authorization.
+     */
+    if (viewer.role === AccountRole.EMPLOYEE || !viewer.divisionId) {
       return {
         canCreate: false,
         canReconcileAll: false,
@@ -5468,7 +5891,7 @@ export class ConversationsService {
     const divisions = await this.prisma.division.findMany({
       where: {
         isActive: true,
-        ...(isOfficeHead ? {} : { id: viewer.divisionId ?? undefined }),
+        id: viewer.divisionId,
       },
       orderBy: { name: 'asc' },
       select: {
@@ -5479,7 +5902,7 @@ export class ConversationsService {
         departments: {
           where: {
             isActive: true,
-            ...(!isOfficeHead && viewer.role === AccountRole.TEAM_MANAGER
+            ...(viewer.role === AccountRole.TEAM_MANAGER
               ? { id: viewer.departmentId ?? undefined }
               : {}),
           },
@@ -5494,12 +5917,16 @@ export class ConversationsService {
         },
       },
     });
-
     const scopes: Array<{
       key: string;
       scopeType: OfficialGroupScopeType;
       label: string;
       defaultTitle: string;
+      officeId: null;
+      orgUnitId: null;
+      membershipMode: null;
+      office: null;
+      orgUnit: null;
       divisionId: string | null;
       departmentId: string | null;
       division: {
@@ -5517,26 +5944,18 @@ export class ConversationsService {
       } | null;
     }> = [];
 
-    if (isOfficeHead) {
-      scopes.push({
-        key: 'ORGANIZATION',
-        scopeType: OfficialGroupScopeType.ORGANIZATION,
-        label: 'All office employees',
-        defaultTitle: 'All Employees',
-        divisionId: null,
-        departmentId: null,
-        division: null,
-        department: null,
-      });
-    }
-
     for (const division of divisions) {
-      if (isOfficeHead || viewer.role === AccountRole.SENIOR_MANAGEMENT) {
+      if (viewer.role === AccountRole.SENIOR_MANAGEMENT) {
         scopes.push({
           key: `DIVISION:${division.id}`,
           scopeType: OfficialGroupScopeType.DIVISION,
           label: `${division.name} division`,
           defaultTitle: `${division.name} Division`,
+          officeId: null,
+          orgUnitId: null,
+          membershipMode: null,
+          office: null,
+          orgUnit: null,
           divisionId: division.id,
           departmentId: null,
           division: {
@@ -5550,7 +5969,6 @@ export class ConversationsService {
       }
 
       if (
-        isOfficeHead ||
         viewer.role === AccountRole.SENIOR_MANAGEMENT ||
         viewer.role === AccountRole.TEAM_MANAGER
       ) {
@@ -5560,6 +5978,11 @@ export class ConversationsService {
             scopeType: OfficialGroupScopeType.DEPARTMENT,
             label: `${department.name} department`,
             defaultTitle: `${department.name} Department`,
+            officeId: null,
+            orgUnitId: null,
+            membershipMode: null,
+            office: null,
+            orgUnit: null,
             divisionId: division.id,
             departmentId: department.id,
             division: {
@@ -5576,7 +5999,7 @@ export class ConversationsService {
 
     return {
       canCreate: scopes.length > 0,
-      canReconcileAll: isOfficeHead,
+      canReconcileAll: false,
       scopes,
     };
   }
@@ -5594,11 +6017,19 @@ export class ConversationsService {
     }
 
     const scopeType = this.parseOfficialScopeType(dto.scopeType);
+    const requestedMembershipMode =
+      scopeType === OfficialGroupScopeType.OFFICE ||
+      scopeType === OfficialGroupScopeType.ORG_UNIT
+        ? this.parseOfficialMembershipMode(dto.membershipMode)
+        : null;
     const scope = await this.getAuthorizedOfficialGroupScope(
       viewer,
       scopeType,
       dto.divisionId,
       dto.departmentId,
+      dto.officeId,
+      dto.orgUnitId,
+      requestedMembershipMode,
     );
     const group: OfficialGroupScopeRecord = {
       id: '',
@@ -5606,6 +6037,9 @@ export class ConversationsService {
       officialScopeType: scope.scopeType,
       officialDivisionId: scope.division?.id ?? null,
       officialDepartmentId: scope.department?.id ?? null,
+      officialOfficeId: scope.officeId,
+      officialOrgUnitId: scope.orgUnitId,
+      officialMembershipMode: scope.membershipMode,
     };
     const {
       accounts: members,
@@ -5630,6 +6064,9 @@ export class ConversationsService {
             officialScopeType: scope.scopeType,
             officialDivisionId: scope.division?.id ?? null,
             officialDepartmentId: scope.department?.id ?? null,
+            officialOfficeId: scope.officeId,
+            officialOrgUnitId: scope.orgUnitId,
+            officialMembershipMode: scope.membershipMode,
             createdByAccountId: viewer.accountId,
           },
           select: {
@@ -5663,6 +6100,9 @@ export class ConversationsService {
               scopeType: scope.scopeType,
               divisionId: scope.division?.id ?? null,
               departmentId: scope.department?.id ?? null,
+              officeId: scope.officeId,
+              orgUnitId: scope.orgUnitId,
+              membershipMode: scope.membershipMode,
               memberCount: members.length,
             },
           },
@@ -5733,18 +6173,38 @@ export class ConversationsService {
 
   async reconcileOfficialGroups(user: AuthenticatedUser) {
     const viewer = await this.getMessagingViewer(user);
-    const legacyOfficeId = await this.resolveLegacyOfficialGroupOfficeId({
-      officialScopeType: OfficialGroupScopeType.ORGANIZATION,
-      officialDivisionId: null,
-      officialDepartmentId: null,
-    });
 
-    if (
-      !(await this.isActiveOfficeHeadForOffice(
-        viewer.employeeId,
-        legacyOfficeId,
-      ))
-    ) {
+    if (!viewer.employeeId || viewer.role === AccountRole.SUPER_ADMIN) {
+      throw new ForbiddenException(
+        'Only an active Office Head can reconcile official groups.',
+      );
+    }
+
+    const now = new Date();
+    const memberships = await this.prisma.orgMembership.findMany({
+      where: {
+        employeeId: viewer.employeeId,
+        membershipType: OrgMembershipType.PRIMARY,
+        startsAt: { lte: now },
+        OR: [{ endsAt: null }, { endsAt: { gt: now } }],
+      },
+      select: { officeId: true },
+      distinct: ['officeId'],
+    });
+    const officeIds: string[] = [];
+
+    for (const membership of memberships) {
+      if (
+        await this.isActiveOfficeHeadForOffice(
+          viewer.employeeId,
+          membership.officeId,
+        )
+      ) {
+        officeIds.push(membership.officeId);
+      }
+    }
+
+    if (officeIds.length === 0) {
       throw new ForbiddenException(
         'Only the Office Head can reconcile every official group in the office.',
       );
@@ -5754,10 +6214,9 @@ export class ConversationsService {
       where: {
         type: ConversationType.GROUP,
         groupKind: GroupKind.OFFICIAL,
+        officialOfficeId: { in: officeIds },
       },
-      select: {
-        id: true,
-      },
+      select: { id: true },
     });
     const results: OfficialGroupSyncResult[] = [];
 
@@ -8015,10 +8474,11 @@ export class ConversationsService {
         );
       }
 
-      const officeId = await this.resolveLegacyOfficialGroupOfficeId({
+      const officeId = await this.resolveOfficialGroupOfficeId({
         officialScopeType: access.conversation.officialScopeType,
         officialDivisionId: access.conversation.officialDivisionId,
         officialDepartmentId: access.conversation.officialDepartmentId,
+        officialOfficeId: access.conversation.officialOfficeId,
       });
       const isOfficeHead = await this.isActiveOfficeHeadForOffice(
         viewer.employeeId,
