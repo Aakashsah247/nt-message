@@ -373,6 +373,7 @@ export interface MessagingContactsResponse {
 export interface MessagingGroupMember extends MessagingAccount {
   joinedAt: string;
   participantRole: ConversationParticipantRole;
+  isOfficeHead: boolean;
 }
 
 export interface ConversationListResponse {
@@ -419,6 +420,7 @@ export interface OfficialGroupScopeOption {
 
 export interface OfficialGroupScopesResponse {
   canCreate: boolean;
+  canReconcileAll: boolean;
   scopes: OfficialGroupScopeOption[];
 }
 

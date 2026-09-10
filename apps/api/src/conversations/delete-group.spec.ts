@@ -6,6 +6,7 @@ import {
   AnnouncementStatus,
   ConversationParticipantRole,
   GroupKind,
+  OfficialGroupScopeType,
 } from '../generated/prisma/client';
 import type { MessagingEventsService } from '../realtime/messaging-events.service';
 import { ConversationStorageService } from './conversation-storage.service';
@@ -50,6 +51,7 @@ describe('ConversationsService group deletion governance', () => {
   let service: ConversationsService;
   let viewerSpy: jest.SpyInstance;
   let accessSpy: jest.SpyInstance;
+  let officeHeadSpy: jest.SpyInstance;
 
   const personalOwnerAccess = {
     conversation: {
@@ -77,9 +79,12 @@ describe('ConversationsService group deletion governance', () => {
       id: 'official-1',
       groupKind: GroupKind.OFFICIAL,
       groupPhotoKey: null,
+      officialScopeType: OfficialGroupScopeType.ORGANIZATION,
+      officialDivisionId: null,
+      officialDepartmentId: null,
       participants: [
         {
-          accountId: 'super-admin-1',
+          accountId: 'office-head-1',
           role: ConversationParticipantRole.OWNER,
         },
         {
@@ -109,6 +114,7 @@ describe('ConversationsService group deletion governance', () => {
       )
       .mockResolvedValue({
         accountId: 'owner-1',
+        employeeId: 'employee-owner-1',
         role: AccountRole.EMPLOYEE,
       });
 
@@ -118,6 +124,23 @@ describe('ConversationsService group deletion governance', () => {
         'getActiveGroupAccess',
       )
       .mockResolvedValue(personalOwnerAccess);
+
+    jest
+      .spyOn(
+        service as unknown as {
+          resolveLegacyOfficialGroupOfficeId: () => Promise<string>;
+        },
+        'resolveLegacyOfficialGroupOfficeId',
+      )
+      .mockResolvedValue('office-1');
+    officeHeadSpy = jest
+      .spyOn(
+        service as unknown as {
+          isActiveOfficeHeadForOffice: () => Promise<boolean>;
+        },
+        'isActiveOfficeHeadForOffice',
+      )
+      .mockResolvedValue(true);
 
     jest.mocked(prisma.messageAttachment.findMany).mockResolvedValue([
       { storageKey: 'message/file-a' },
@@ -191,14 +214,15 @@ describe('ConversationsService group deletion governance', () => {
     expect(prisma.messageAttachment.findMany).not.toHaveBeenCalled();
   });
 
-  it('allows the Super Admin OWNER to delete an official group without touching organization records', async () => {
+  it('allows the Office Head OWNER to delete an official group without touching organization records', async () => {
     viewerSpy.mockResolvedValue({
-      accountId: 'super-admin-1',
-      role: AccountRole.SUPER_ADMIN,
+      accountId: 'office-head-1',
+      employeeId: 'employee-office-head-1',
+      role: AccountRole.EMPLOYEE,
     });
     accessSpy.mockResolvedValue(officialOwnerAccess);
     const response = await service.deleteGroupConversation(
-      { accountId: 'super-admin-1', sessionId: 'session-1' } as never,
+      { accountId: 'office-head-1', sessionId: 'session-1' } as never,
       'official-1',
     );
 
@@ -222,12 +246,14 @@ describe('ConversationsService group deletion governance', () => {
     );
   });
 
-  it('rejects an official-group OWNER who is not the Super Admin account', async () => {
+  it('rejects an official-group OWNER who is not the Office Head', async () => {
     viewerSpy.mockResolvedValue({
       accountId: 'management-1',
+      employeeId: 'employee-management-1',
       role: AccountRole.SENIOR_MANAGEMENT,
     });
     accessSpy.mockResolvedValue(officialOwnerAccess);
+    officeHeadSpy.mockResolvedValue(false);
 
     await expect(
       service.deleteGroupConversation(
@@ -239,10 +265,41 @@ describe('ConversationsService group deletion governance', () => {
     expect(prisma.messageAttachment.findMany).not.toHaveBeenCalled();
   });
 
-  it('rejects an official-group administrator even when the account is Super Admin', async () => {
+  it('rejects the Super Admin OWNER because system administration has no official-group deletion authority', async () => {
     viewerSpy.mockResolvedValue({
       accountId: 'super-admin-1',
+      employeeId: null,
       role: AccountRole.SUPER_ADMIN,
+    });
+    accessSpy.mockResolvedValue({
+      ...officialOwnerAccess,
+      conversation: {
+        ...officialOwnerAccess.conversation,
+        participants: [
+          {
+            accountId: 'super-admin-1',
+            role: ConversationParticipantRole.OWNER,
+          },
+        ],
+      },
+    });
+    officeHeadSpy.mockResolvedValue(false);
+
+    await expect(
+      service.deleteGroupConversation(
+        { accountId: 'super-admin-1', sessionId: 'session-1' } as never,
+        'official-1',
+      ),
+    ).rejects.toThrow(ForbiddenException);
+
+    expect(prisma.messageAttachment.findMany).not.toHaveBeenCalled();
+  });
+
+  it('rejects an official-group administrator even when the account is Office Head', async () => {
+    viewerSpy.mockResolvedValue({
+      accountId: 'office-head-1',
+      employeeId: 'employee-office-head-1',
+      role: AccountRole.EMPLOYEE,
     });
     accessSpy.mockResolvedValue({
       ...officialOwnerAccess,
@@ -251,7 +308,7 @@ describe('ConversationsService group deletion governance', () => {
 
     await expect(
       service.deleteGroupConversation(
-        { accountId: 'super-admin-1', sessionId: 'session-1' } as never,
+        { accountId: 'office-head-1', sessionId: 'session-1' } as never,
         'official-1',
       ),
     ).rejects.toThrow(ForbiddenException);
@@ -259,15 +316,16 @@ describe('ConversationsService group deletion governance', () => {
 
   it('blocks official group deletion while a linked announcement is publishing', async () => {
     viewerSpy.mockResolvedValue({
-      accountId: 'super-admin-1',
-      role: AccountRole.SUPER_ADMIN,
+      accountId: 'office-head-1',
+      employeeId: 'employee-office-head-1',
+      role: AccountRole.EMPLOYEE,
     });
     accessSpy.mockResolvedValue(officialOwnerAccess);
     transaction.announcement.count.mockResolvedValue(1);
 
     await expect(
       service.deleteGroupConversation(
-        { accountId: 'super-admin-1', sessionId: 'session-1' } as never,
+        { accountId: 'office-head-1', sessionId: 'session-1' } as never,
         'official-1',
       ),
     ).rejects.toThrow(ConflictException);

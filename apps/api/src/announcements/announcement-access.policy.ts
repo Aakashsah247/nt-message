@@ -8,6 +8,7 @@ import {
 export interface AnnouncementPolicyViewer {
   accountId: string;
   role: AccountRole;
+  isOfficeHead: boolean;
   divisionId: string | null;
   departmentId: string | null;
 }
@@ -28,26 +29,34 @@ export interface AnnouncementCreatorPolicySubject {
 }
 
 /**
- * Announcement mutations are creator-owned. Super Admin may override an
- * announcement created by management, but management can never modify an
- * Owner/Super Admin announcement or another manager's announcement.
+ * Phase 12 authority: Office Head owns Office operational communication.
+ * SUPER_ADMIN remains a normal/read-only participant in this domain and has
+ * no announcement mutation override.
  */
 export function canModifyAnnouncementByCreator(
-  viewer: Pick<AnnouncementPolicyViewer, 'accountId' | 'role'>,
+  viewer: Pick<
+    AnnouncementPolicyViewer,
+    'accountId' | 'role' | 'isOfficeHead'
+  >,
   creator: AnnouncementCreatorPolicySubject,
 ): boolean {
+  if (viewer.role === AccountRole.SUPER_ADMIN) {
+    return false;
+  }
+
+  if (viewer.isOfficeHead) {
+    return true;
+  }
+
   if (viewer.role === AccountRole.EMPLOYEE) {
     return false;
   }
 
   if (creator.role === AccountRole.SUPER_ADMIN) {
-    return viewer.accountId === creator.id;
+    return false;
   }
 
-  return (
-    viewer.accountId === creator.id ||
-    viewer.role === AccountRole.SUPER_ADMIN
-  );
+  return viewer.accountId === creator.id;
 }
 
 export type AnnouncementAudiencePolicyViolation =
@@ -62,7 +71,7 @@ export function getAnnouncementAudiencePolicyViolation(
   viewer: AnnouncementPolicyViewer,
   audience: AnnouncementPolicyAudience,
 ): AnnouncementAudiencePolicyViolation | null {
-  if (viewer.role === AccountRole.EMPLOYEE) {
+  if (viewer.role === AccountRole.SUPER_ADMIN) {
     return 'ROLE_NOT_AUTHORIZED';
   }
 
@@ -79,8 +88,12 @@ export function getAnnouncementAudiencePolicyViolation(
     }
   }
 
-  if (viewer.role === AccountRole.SUPER_ADMIN) {
+  if (viewer.isOfficeHead) {
     return null;
+  }
+
+  if (viewer.role === AccountRole.EMPLOYEE) {
+    return 'ROLE_NOT_AUTHORIZED';
   }
 
   if (audience.audienceType === AnnouncementAudienceType.ORGANIZATION) {

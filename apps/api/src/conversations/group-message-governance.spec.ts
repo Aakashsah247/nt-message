@@ -5,6 +5,8 @@ import {
   AccountRole,
   ConversationParticipantRole,
   ConversationType,
+  MessageRequestReason,
+  OfficialGroupScopeType,
 } from '../generated/prisma/client';
 import { ConversationsService } from './conversations.service';
 
@@ -59,31 +61,206 @@ describe('ConversationsService group governance', () => {
     );
   });
 
-  it('assigns Super Admin as ADMIN when explicitly added to a personal group', () => {
+  it('assigns an active Office Head as ADMIN when explicitly added to a personal group', () => {
     const role = (
       service as unknown as {
         getPersonalGroupMemberRole: (
-          accountRole: AccountRole,
+          isOfficeHead: boolean,
         ) => ConversationParticipantRole;
       }
-    ).getPersonalGroupMemberRole(AccountRole.SUPER_ADMIN);
+    ).getPersonalGroupMemberRole(true);
 
     expect(role).toBe(ConversationParticipantRole.ADMIN);
   });
 
-  it('keeps normal selected personal-group members as MEMBER', () => {
+  it('keeps Super Admin and other normal personal-group participants as MEMBER', () => {
     const role = (
       service as unknown as {
         getPersonalGroupMemberRole: (
-          accountRole: AccountRole,
+          isOfficeHead: boolean,
         ) => ConversationParticipantRole;
       }
-    ).getPersonalGroupMemberRole(AccountRole.EMPLOYEE);
+    ).getPersonalGroupMemberRole(false);
 
     expect(role).toBe(ConversationParticipantRole.MEMBER);
   });
 
-  it('prevents the personal-group owner from demoting an active Super Admin participant', async () => {
+  it('makes the active Office Head OWNER of an official group and leaves Super Admin as a normal member', () => {
+    const getOfficialRole = (
+      account: unknown,
+      officeHeadAccountIds: ReadonlySet<string>,
+    ) =>
+      (
+        service as unknown as {
+          getOfficialGroupParticipantRole: (
+            account: unknown,
+            group: unknown,
+            officeHeadAccountIds: ReadonlySet<string>,
+          ) => ConversationParticipantRole;
+        }
+      ).getOfficialGroupParticipantRole(
+        account,
+        {
+          officialScopeType: OfficialGroupScopeType.ORGANIZATION,
+          officialDivisionId: null,
+          officialDepartmentId: null,
+        },
+        officeHeadAccountIds,
+      );
+
+    expect(
+      getOfficialRole(
+        { id: 'office-head-1', role: AccountRole.EMPLOYEE, employee: null },
+        new Set(['office-head-1']),
+      ),
+    ).toBe(ConversationParticipantRole.OWNER);
+    expect(
+      getOfficialRole(
+        { id: 'super-admin-1', role: AccountRole.SUPER_ADMIN, employee: null },
+        new Set(),
+      ),
+    ).toBe(ConversationParticipantRole.MEMBER);
+  });
+
+  it('transfers first-contact privilege from Super Admin to Office Head', () => {
+    const getReason = (
+      viewer: unknown,
+      target: unknown,
+      officeHeadEmployeeIds: ReadonlySet<string>,
+    ) =>
+      (
+        service as unknown as {
+          getMessageRequestReason: (
+            viewer: unknown,
+            target: unknown,
+            officeHeadEmployeeIds: ReadonlySet<string>,
+          ) => MessageRequestReason | null;
+        }
+      ).getMessageRequestReason(viewer, target, officeHeadEmployeeIds);
+
+    const employeeTarget = {
+      id: 'employee-account-1',
+      role: AccountRole.EMPLOYEE,
+      employee: {
+        id: 'employee-1',
+        divisionId: 'division-1',
+        departmentId: 'department-1',
+      },
+    };
+
+    expect(
+      getReason(
+        {
+          accountId: 'office-head-account',
+          employeeId: 'office-head-employee',
+          role: AccountRole.EMPLOYEE,
+          divisionId: 'division-2',
+          departmentId: null,
+        },
+        employeeTarget,
+        new Set(['office-head-employee']),
+      ),
+    ).toBeNull();
+
+    expect(
+      getReason(
+        {
+          accountId: 'super-admin-account',
+          employeeId: null,
+          role: AccountRole.SUPER_ADMIN,
+          divisionId: null,
+          departmentId: null,
+        },
+        employeeTarget,
+        new Set(),
+      ),
+    ).toBe(MessageRequestReason.CROSS_DEPARTMENT);
+  });
+
+  it('allows Super Admin to be blocked as a normal participant and protects the active Office Head', async () => {
+    const assertCanBlock = (viewer: unknown, target: unknown) =>
+      (
+        service as unknown as {
+          assertCanBlockAccount: (
+            viewer: unknown,
+            target: unknown,
+          ) => Promise<void>;
+        }
+      ).assertCanBlockAccount(viewer, target);
+    const officeHeadIdsSpy = jest.spyOn(
+      service as unknown as {
+        getActiveOfficeHeadEmployeeIds: () => Promise<Set<string>>;
+      },
+      'getActiveOfficeHeadEmployeeIds',
+    );
+
+    officeHeadIdsSpy.mockResolvedValueOnce(new Set());
+    await expect(
+      assertCanBlock(
+        {
+          accountId: 'employee-account',
+          employeeId: 'employee-1',
+          role: AccountRole.EMPLOYEE,
+        },
+        {
+          id: 'super-admin-account',
+          role: AccountRole.SUPER_ADMIN,
+          employee: null,
+        },
+      ),
+    ).resolves.toBeUndefined();
+
+    officeHeadIdsSpy.mockResolvedValueOnce(new Set(['office-head-employee']));
+    await expect(
+      assertCanBlock(
+        {
+          accountId: 'employee-account',
+          employeeId: 'employee-1',
+          role: AccountRole.EMPLOYEE,
+        },
+        {
+          id: 'office-head-account',
+          role: AccountRole.EMPLOYEE,
+          employee: { id: 'office-head-employee' },
+        },
+      ),
+    ).rejects.toThrow(ForbiddenException);
+  });
+
+  it('transfers messaging analytics authority from Super Admin to Office Head', async () => {
+    const ensureAnalytics = (viewer: unknown) =>
+      (
+        service as unknown as {
+          ensureAnalyticsViewer: (viewer: unknown) => Promise<boolean>;
+        }
+      ).ensureAnalyticsViewer(viewer);
+    const officeHeadSpy = jest.spyOn(
+      service as unknown as {
+        isActiveOfficeHeadEmployee: () => Promise<boolean>;
+      },
+      'isActiveOfficeHeadEmployee',
+    );
+
+    officeHeadSpy.mockResolvedValueOnce(true);
+    await expect(
+      ensureAnalytics({
+        accountId: 'office-head-account',
+        employeeId: 'office-head-employee',
+        role: AccountRole.EMPLOYEE,
+      }),
+    ).resolves.toBe(true);
+
+    officeHeadSpy.mockResolvedValueOnce(false);
+    await expect(
+      ensureAnalytics({
+        accountId: 'super-admin-account',
+        employeeId: null,
+        role: AccountRole.SUPER_ADMIN,
+      }),
+    ).rejects.toThrow(ForbiddenException);
+  });
+
+  it('prevents the personal-group owner from demoting an active Office Head participant', async () => {
     jest
       .spyOn(
         service as unknown as { getMessagingViewer: () => Promise<unknown> },
@@ -104,7 +281,7 @@ describe('ConversationsService group governance', () => {
               role: ConversationParticipantRole.OWNER,
             },
             {
-              accountId: 'super-admin-1',
+              accountId: 'office-head-1',
               role: ConversationParticipantRole.ADMIN,
             },
           ],
@@ -114,14 +291,22 @@ describe('ConversationsService group governance', () => {
         },
       });
     jest.mocked(prisma.account.findUnique).mockResolvedValue({
-      role: AccountRole.SUPER_ADMIN,
+      employeeId: 'employee-office-head-1',
     } as never);
+    jest
+      .spyOn(
+        service as unknown as {
+          isActiveOfficeHeadEmployee: () => Promise<boolean>;
+        },
+        'isActiveOfficeHeadEmployee',
+      )
+      .mockResolvedValue(true);
 
     await expect(
       service.updateGroupMemberRole(
         { accountId: 'owner-1', sessionId: 'session-1' } as never,
         'group-1',
-        'super-admin-1',
+        'office-head-1',
         { role: 'MEMBER' },
       ),
     ).rejects.toThrow(ForbiddenException);

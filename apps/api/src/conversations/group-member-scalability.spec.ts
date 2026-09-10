@@ -24,6 +24,12 @@ describe('ConversationsService group-member scalability', () => {
     conversationParticipant: {
       findMany: jest.fn(),
     },
+    orgLeadershipAssignment: {
+      findMany: jest.fn(),
+    },
+    orgMembership: {
+      findMany: jest.fn(),
+    },
   } as unknown as PrismaService;
 
   let service: ConversationsService;
@@ -35,6 +41,7 @@ describe('ConversationsService group-member scalability', () => {
     Object.defineProperty(service, 'getMessagingViewer', {
       value: jest.fn().mockResolvedValue({
         accountId: viewerAccountId,
+        employeeId: null,
         role: 'SUPER_ADMIN',
         divisionId: null,
         departmentId: null,
@@ -59,6 +66,8 @@ describe('ConversationsService group-member scalability', () => {
     jest.mocked(prisma.conversation.findUnique).mockResolvedValue({
       type: 'GROUP',
     } as never);
+    jest.mocked(prisma.orgLeadershipAssignment.findMany).mockResolvedValue([] as never);
+    jest.mocked(prisma.orgMembership.findMany).mockResolvedValue([] as never);
   });
 
   function member(index: number) {

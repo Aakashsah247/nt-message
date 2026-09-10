@@ -4012,6 +4012,9 @@ export function MessageAppPage() {
   const [officialGroupScopes, setOfficialGroupScopes] = useState<
     OfficialGroupScopeOption[]
   >([]);
+  const [officialGroupCanCreate, setOfficialGroupCanCreate] = useState(false);
+  const [officialGroupCanReconcileAll, setOfficialGroupCanReconcileAll] =
+    useState(false);
   const [officialGroupScopeKey, setOfficialGroupScopeKey] = useState("");
   const [officialGroupScopesLoading, setOfficialGroupScopesLoading] =
     useState(false);
@@ -6141,10 +6144,7 @@ export function MessageAppPage() {
     [],
   );
 
-  const canCreateOfficialGroup =
-    account?.role === "SUPER_ADMIN" ||
-    account?.role === "SENIOR_MANAGEMENT" ||
-    account?.role === "TEAM_MANAGER";
+  const canCreateOfficialGroup = officialGroupCanCreate;
 
   const selectedOfficialGroupScope = useMemo(
     () =>
@@ -10151,11 +10151,10 @@ export function MessageAppPage() {
   }, [accessToken, privateGroupDialogOpen, privateGroupSearch, t]);
 
   useEffect(() => {
-    if (
-      groupDialogMode !== "CREATE" ||
-      !accessToken ||
-      !canCreateOfficialGroup
-    ) {
+    if (!accessToken) {
+      setOfficialGroupScopes([]);
+      setOfficialGroupCanCreate(false);
+      setOfficialGroupCanReconcileAll(false);
       return undefined;
     }
 
@@ -10168,6 +10167,8 @@ export function MessageAppPage() {
           return;
         }
 
+        setOfficialGroupCanCreate(response.canCreate);
+        setOfficialGroupCanReconcileAll(response.canReconcileAll);
         setOfficialGroupScopes(response.scopes);
         setOfficialGroupScopeKey((current) =>
           response.scopes.some((scope) => scope.key === current)
@@ -10177,11 +10178,16 @@ export function MessageAppPage() {
       })
       .catch((error) => {
         if (active) {
-          setGroupError(
-            error instanceof Error
-              ? error.message
-              : t("feedback.officialScopesLoadError"),
-          );
+          setOfficialGroupCanCreate(false);
+          setOfficialGroupCanReconcileAll(false);
+          setOfficialGroupScopes([]);
+          if (groupDialogMode === "CREATE") {
+            setGroupError(
+              error instanceof Error
+                ? error.message
+                : t("feedback.officialScopesLoadError"),
+            );
+          }
         }
       })
       .finally(() => {
@@ -10193,7 +10199,7 @@ export function MessageAppPage() {
     return () => {
       active = false;
     };
-  }, [accessToken, canCreateOfficialGroup, groupDialogMode, t]);
+  }, [accessToken, groupDialogMode, t]);
 
   useEffect(() => {
     if (
@@ -10711,7 +10717,7 @@ export function MessageAppPage() {
   async function handleReconcileOfficialGroups(): Promise<void> {
     if (
       !accessToken ||
-      account?.role !== "SUPER_ADMIN" ||
+      !officialGroupCanReconcileAll ||
       officialGroupReconciling
     ) {
       return;
@@ -17853,7 +17859,7 @@ export function MessageAppPage() {
               <p className="message-simple-group-note">
                 {t("privateGroup.officialMembershipSync")}
               </p>
-              {account?.role === "SUPER_ADMIN" &&
+              {officialGroupCanReconcileAll &&
                 groupInfoConversation.viewerParticipantRole === "OWNER" && (
                   <section className="message-simple-detail-section message-simple-group-actions">
                     <button
@@ -18101,7 +18107,7 @@ export function MessageAppPage() {
                       groupInfoConversation.groupKind === "PERSONAL" &&
                       viewerRole === "OWNER" &&
                       participant.participantRole !== "OWNER" &&
-                      participant.role !== "SUPER_ADMIN" &&
+                      !participant.isOfficeHead &&
                       !isViewer;
                     const canRemove =
                       groupInfoConversation.groupKind === "PERSONAL" &&
@@ -18424,7 +18430,7 @@ export function MessageAppPage() {
                 <section className="message-modern-detail-section">
                   <div className="message-modern-section-heading">
                     <h3>{t("groupManagement.auditTitle")}</h3>
-                    {account?.role === "SUPER_ADMIN" && (
+                    {officialGroupCanReconcileAll && (
                       <button
                         type="button"
                         onClick={() => void handleReconcileOfficialGroups()}

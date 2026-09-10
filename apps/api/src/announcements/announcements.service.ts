@@ -31,6 +31,8 @@ import {
   GroupKind,
   MessagingNotificationType,
   OfficialGroupScopeType,
+  OrgLeadershipType,
+  OrgMembershipType,
 } from '../generated/prisma/client';
 import type { Prisma } from '../generated/prisma/client';
 import { MessagingEventsService } from '../realtime/messaging-events.service';
@@ -98,6 +100,7 @@ const announcementAccountSelect = {
   },
   employee: {
     select: {
+      id: true,
       empName: true,
       designation: true,
       status: true,
@@ -249,13 +252,47 @@ export class AnnouncementsService implements OnModuleInit, OnModuleDestroy {
     }
   }
 
+  private async isActiveOfficeHeadEmployee(
+    employeeId: string | null | undefined,
+    at = new Date(),
+  ): Promise<boolean> {
+    if (!employeeId) {
+      return false;
+    }
+
+    const [leadership, membership] = await Promise.all([
+      this.prisma.orgLeadershipAssignment.findFirst({
+        where: {
+          employeeId,
+          leadershipType: OrgLeadershipType.OFFICE_HEAD,
+          effectiveFrom: { lte: at },
+          OR: [{ effectiveUntil: null }, { effectiveUntil: { gt: at } }],
+        },
+        select: { officeId: true },
+      }),
+      this.prisma.orgMembership.findFirst({
+        where: {
+          employeeId,
+          membershipType: OrgMembershipType.PRIMARY,
+          startsAt: { lte: at },
+          OR: [{ endsAt: null }, { endsAt: { gt: at } }],
+        },
+        select: { officeId: true },
+      }),
+    ]);
+
+    return Boolean(
+      leadership && membership && leadership.officeId === membership.officeId,
+    );
+  }
+
   async listAvailableAudiences(user: AuthenticatedUser) {
     const viewer = await this.getViewer(user.accountId);
     this.assertPublisherRole(viewer);
 
     const divisionWhere: Prisma.DivisionWhereInput = {
       isActive: true,
-      ...(viewer.role === AccountRole.SUPER_ADMIN
+      ...(viewer.isOfficeHead
         ? {}
         : { id: viewer.divisionId ?? undefined }),
     };
@@ -266,7 +303,7 @@ export class AnnouncementsService implements OnModuleInit, OnModuleDestroy {
           isActive: true,
         },
       },
-      ...(viewer.role === AccountRole.SUPER_ADMIN
+      ...(viewer.isOfficeHead
         ? {}
         : viewer.role === AccountRole.SENIOR_MANAGEMENT
           ? { divisionId: viewer.divisionId ?? undefined }
@@ -313,7 +350,7 @@ export class AnnouncementsService implements OnModuleInit, OnModuleDestroy {
 
     return {
       data: {
-        canTargetOrganization: viewer.role === AccountRole.SUPER_ADMIN,
+        canTargetOrganization: viewer.isOfficeHead,
         divisions,
         departments,
         officialGroups: officialGroups.map((group) => ({
@@ -2036,24 +2073,19 @@ export class AnnouncementsService implements OnModuleInit, OnModuleDestroy {
   private buildEligibleAccountWhere(): Prisma.AccountWhereInput {
     return {
       isEnabled: true,
-      OR: [
-        { role: AccountRole.SUPER_ADMIN },
-        {
-          employee: {
-            is: {
-              status: EmployeeStatus.ACTIVE,
-              employmentStatus: EmploymentStatus.ACTIVE,
-              archivedAt: null,
-              isActivated: true,
-              division: { is: { isActive: true } },
-              OR: [
-                { departmentId: null },
-                { departmentUnit: { is: { isActive: true } } },
-              ],
-            },
-          },
+      employee: {
+        is: {
+          status: EmployeeStatus.ACTIVE,
+          employmentStatus: EmploymentStatus.ACTIVE,
+          archivedAt: null,
+          isActivated: true,
+          division: { is: { isActive: true } },
+          OR: [
+            { departmentId: null },
+            { departmentUnit: { is: { isActive: true } } },
+          ],
         },
-      ],
+      },
     };
   }
 
@@ -2078,7 +2110,7 @@ export class AnnouncementsService implements OnModuleInit, OnModuleDestroy {
       },
     };
 
-    if (viewer.role === AccountRole.SUPER_ADMIN) {
+    if (viewer.isOfficeHead) {
       return base;
     }
 
@@ -2135,7 +2167,7 @@ export class AnnouncementsService implements OnModuleInit, OnModuleDestroy {
       },
     };
 
-    if (viewer.role === AccountRole.SUPER_ADMIN) {
+    if (viewer.isOfficeHead) {
       managementScope = {
         OR: [
           { audienceType: { not: AnnouncementAudienceType.OFFICIAL_GROUP } },
@@ -2298,6 +2330,10 @@ export class AnnouncementsService implements OnModuleInit, OnModuleDestroy {
       }
     }
 
+    const isOfficeHead = await this.isActiveOfficeHeadEmployee(
+      account.employee?.id,
+    );
+
     if (
       account.role === AccountRole.SENIOR_MANAGEMENT &&
       !account.employee?.divisionId
@@ -2319,6 +2355,7 @@ export class AnnouncementsService implements OnModuleInit, OnModuleDestroy {
     return {
       accountId: account.id,
       role: account.role,
+      isOfficeHead,
       divisionId: account.employee?.divisionId ?? null,
       departmentId: account.employee?.departmentId ?? null,
       displayName: this.displayName(account),
@@ -2327,9 +2364,12 @@ export class AnnouncementsService implements OnModuleInit, OnModuleDestroy {
   }
 
   private assertPublisherRole(viewer: AnnouncementViewer): void {
-    if (viewer.role === AccountRole.EMPLOYEE) {
+    if (
+      viewer.role === AccountRole.SUPER_ADMIN ||
+      (viewer.role === AccountRole.EMPLOYEE && !viewer.isOfficeHead)
+    ) {
       throw new ForbiddenException(
-        'Employees can view and acknowledge announcements but cannot publish them.',
+        'Only authorized Office management can publish announcements.',
       );
     }
   }
@@ -2362,7 +2402,10 @@ export class AnnouncementsService implements OnModuleInit, OnModuleDestroy {
     viewer: AnnouncementViewer,
     announcement: AnnouncementDetailRecord,
   ): Promise<boolean> {
-    if (viewer.role === AccountRole.EMPLOYEE) {
+    if (
+      viewer.role === AccountRole.SUPER_ADMIN ||
+      (viewer.role === AccountRole.EMPLOYEE && !viewer.isOfficeHead)
+    ) {
       return false;
     }
 

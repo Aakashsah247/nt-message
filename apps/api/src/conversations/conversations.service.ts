@@ -30,6 +30,8 @@ import {
   MessageRequestStatus,
   OfficialGroupAuditAction,
   OfficialGroupScopeType,
+  OrgLeadershipType,
+  OrgMembershipType,
 } from '../generated/prisma/client';
 
 import type { Prisma } from '../generated/prisma/client';
@@ -87,6 +89,7 @@ import {
 
 interface MessagingViewer {
   accountId: string;
+  employeeId: string | null;
   role: AccountRole;
   divisionId: string | null;
   departmentId: string | null;
@@ -247,6 +250,7 @@ const MESSAGE_REQUEST_COOLDOWN_MS = 24 * 60 * 60 * 1000;
 const MESSAGE_EDIT_WINDOW_MS = 20 * 60 * 1000;
 const GROUP_INVITATION_TOKEN_BYTES = 32;
 const MAX_IMAGE_ATTACHMENT_BYTES = 20 * 1024 * 1024;
+const LEGACY_OFFICE_CODE = 'PATAN';
 const MAX_DOCUMENT_ATTACHMENT_BYTES = 50 * 1024 * 1024;
 const MAX_AUDIO_ATTACHMENT_BYTES = 25 * 1024 * 1024;
 const MAX_VIDEO_ATTACHMENT_BYTES = 200 * 1024 * 1024;
@@ -882,18 +886,205 @@ export class ConversationsService {
     );
   }
 
-  private getRoleRank(role: AccountRole): number {
+  private getLegacyMessagingRoleRank(role: AccountRole): number {
+    /*
+     * Phase 12: SUPER_ADMIN is a normal messaging participant. Legacy
+     * management ranks remain only as temporary compatibility behavior until
+     * the generic OrgUnit messaging-scope cutover is complete.
+     */
     switch (role) {
-      case AccountRole.SUPER_ADMIN:
-        return 4;
       case AccountRole.SENIOR_MANAGEMENT:
         return 3;
       case AccountRole.TEAM_MANAGER:
         return 2;
+      case AccountRole.SUPER_ADMIN:
       case AccountRole.EMPLOYEE:
       default:
         return 1;
     }
+  }
+
+  private async getActiveOfficeHeadEmployeeIds(
+    employeeIds: Array<string | null | undefined>,
+    at = new Date(),
+  ): Promise<Set<string>> {
+    const ids = [...new Set(employeeIds.filter((id): id is string => Boolean(id)))];
+
+    if (ids.length === 0) {
+      return new Set();
+    }
+
+    const [leadership, memberships] = await Promise.all([
+      this.prisma.orgLeadershipAssignment.findMany({
+        where: {
+          employeeId: { in: ids },
+          leadershipType: OrgLeadershipType.OFFICE_HEAD,
+          effectiveFrom: { lte: at },
+          OR: [{ effectiveUntil: null }, { effectiveUntil: { gt: at } }],
+        },
+        select: { employeeId: true, officeId: true },
+      }),
+      this.prisma.orgMembership.findMany({
+        where: {
+          employeeId: { in: ids },
+          membershipType: OrgMembershipType.PRIMARY,
+          startsAt: { lte: at },
+          OR: [{ endsAt: null }, { endsAt: { gt: at } }],
+        },
+        select: { employeeId: true, officeId: true },
+      }),
+    ]);
+
+    const membershipPairs = new Set(
+      memberships.map((membership) => `${membership.employeeId}:${membership.officeId}`),
+    );
+
+    return new Set(
+      leadership
+        .filter((assignment) =>
+          membershipPairs.has(`${assignment.employeeId}:${assignment.officeId}`),
+        )
+        .map((assignment) => assignment.employeeId),
+    );
+  }
+
+  private async isActiveOfficeHeadEmployee(
+    employeeId: string | null | undefined,
+  ): Promise<boolean> {
+    if (!employeeId) {
+      return false;
+    }
+
+    const officeHeadIds = await this.getActiveOfficeHeadEmployeeIds([employeeId]);
+    return officeHeadIds.has(employeeId);
+  }
+
+  private async getActiveOfficeHeadEmployeeIdsForOffice(
+    officeId: string,
+    candidateEmployeeIds?: Array<string | null | undefined>,
+    at = new Date(),
+  ): Promise<Set<string>> {
+    const candidates = candidateEmployeeIds
+      ? [...new Set(candidateEmployeeIds.filter((id): id is string => Boolean(id)))]
+      : null;
+
+    if (candidates && candidates.length === 0) {
+      return new Set();
+    }
+
+    const [leadership, memberships] = await Promise.all([
+      this.prisma.orgLeadershipAssignment.findMany({
+        where: {
+          officeId,
+          ...(candidates ? { employeeId: { in: candidates } } : {}),
+          leadershipType: OrgLeadershipType.OFFICE_HEAD,
+          effectiveFrom: { lte: at },
+          OR: [{ effectiveUntil: null }, { effectiveUntil: { gt: at } }],
+        },
+        select: { employeeId: true },
+      }),
+      this.prisma.orgMembership.findMany({
+        where: {
+          officeId,
+          ...(candidates ? { employeeId: { in: candidates } } : {}),
+          membershipType: OrgMembershipType.PRIMARY,
+          startsAt: { lte: at },
+          OR: [{ endsAt: null }, { endsAt: { gt: at } }],
+        },
+        select: { employeeId: true },
+      }),
+    ]);
+
+    const primaryMemberIds = new Set(
+      memberships.map((membership) => membership.employeeId),
+    );
+
+    return new Set(
+      leadership
+        .map((assignment) => assignment.employeeId)
+        .filter((employeeId) => primaryMemberIds.has(employeeId)),
+    );
+  }
+
+  private async resolveLegacyOfficialGroupOfficeId(group: {
+    officialScopeType: OfficialGroupScopeType;
+    officialDivisionId: string | null;
+    officialDepartmentId: string | null;
+  }): Promise<string> {
+    const mappingInput = group.officialDepartmentId
+      ? {
+          legacyEntityType: 'DEPARTMENT',
+          legacyEntityId: group.officialDepartmentId,
+        }
+      : group.officialDivisionId
+        ? {
+            legacyEntityType: 'DIVISION',
+            legacyEntityId: group.officialDivisionId,
+          }
+        : null;
+
+    if (mappingInput) {
+      const mapping = await this.prisma.legacyOrgUnitMapping.findFirst({
+        where: mappingInput,
+        select: { officeId: true },
+      });
+
+      if (!mapping) {
+        throw new ConflictException(
+          'The legacy official-group scope is not mapped to the V3 office hierarchy.',
+        );
+      }
+
+      return mapping.officeId;
+    }
+
+    const office = await this.prisma.office.findUnique({
+      where: { code: LEGACY_OFFICE_CODE },
+      select: { id: true },
+    });
+
+    if (!office) {
+      throw new ConflictException(
+        'The legacy organization-wide official-group office mapping is missing.',
+      );
+    }
+
+    return office.id;
+  }
+
+  private async isActiveOfficeHeadForOffice(
+    employeeId: string | null | undefined,
+    officeId: string,
+  ): Promise<boolean> {
+    if (!employeeId) {
+      return false;
+    }
+
+    const officeHeadIds = await this.getActiveOfficeHeadEmployeeIdsForOffice(
+      officeId,
+      [employeeId],
+    );
+    return officeHeadIds.has(employeeId);
+  }
+
+  private async getActiveOfficeHeadAccountsForOffice(
+    officeId: string,
+  ): Promise<MessagingAccountRecord[]> {
+    const officeHeadEmployeeIds = await this.getActiveOfficeHeadEmployeeIdsForOffice(
+      officeId,
+    );
+
+    if (officeHeadEmployeeIds.size === 0) {
+      return [];
+    }
+
+    return this.prisma.account.findMany({
+      where: {
+        isEnabled: true,
+        employeeId: { in: [...officeHeadEmployeeIds] },
+      },
+      select: messagingAccountSelect,
+    });
   }
 
   private getBlockDirection(
@@ -934,24 +1125,38 @@ export class ConversationsService {
     };
   }
 
-  private assertCanBlockAccount(
+  private async assertCanBlockAccount(
     viewer: MessagingViewer,
     target: MessagingAccountRecord,
-  ): void {
+  ): Promise<void> {
     if (viewer.accountId === target.id) {
       throw new BadRequestException('You cannot block your own account.');
     }
 
-    if (
-      target.role === AccountRole.SUPER_ADMIN &&
-      viewer.role !== AccountRole.SUPER_ADMIN
-    ) {
+    const officeHeadEmployeeIds = await this.getActiveOfficeHeadEmployeeIds([
+      viewer.employeeId,
+      target.employee?.id,
+    ]);
+    const viewerIsOfficeHead =
+      viewer.employeeId !== null && officeHeadEmployeeIds.has(viewer.employeeId);
+    const targetIsOfficeHead =
+      target.employee?.id !== undefined &&
+      officeHeadEmployeeIds.has(target.employee.id);
+
+    if (targetIsOfficeHead && !viewerIsOfficeHead) {
       throw new ForbiddenException(
-        'Super Admin cannot be blocked. You can mute private alerts or report the concern.',
+        'The Office Head cannot be blocked. You can mute private alerts or report the concern.',
       );
     }
 
-    if (this.getRoleRank(target.role) > this.getRoleRank(viewer.role)) {
+    const viewerRank = viewerIsOfficeHead
+      ? 4
+      : this.getLegacyMessagingRoleRank(viewer.role);
+    const targetRank = targetIsOfficeHead
+      ? 4
+      : this.getLegacyMessagingRoleRank(target.role);
+
+    if (targetRank > viewerRank) {
       throw new ForbiddenException(
         'You cannot block a higher authority account. Use mute/report for personal discomfort; official communication remains available.',
       );
@@ -1185,7 +1390,7 @@ export class ConversationsService {
       );
     }
 
-    this.assertCanBlockAccount(viewer, target);
+    await this.assertCanBlockAccount(viewer, target);
 
     const block = await this.prisma.messagingAccountBlock.upsert({
       where: {
@@ -1435,6 +1640,7 @@ export class ConversationsService {
     if (account.role === AccountRole.SUPER_ADMIN) {
       return {
         accountId: account.id,
+        employeeId: null,
         role: account.role,
         divisionId: null,
         departmentId: null,
@@ -1472,6 +1678,7 @@ export class ConversationsService {
 
     return {
       accountId: account.id,
+      employeeId: employee.id,
       role: account.role,
       divisionId: employee.divisionId,
       departmentId: employee.departmentId,
@@ -1838,7 +2045,15 @@ export class ConversationsService {
       return 'DIRECT';
     }
 
-    const requestReason = this.getMessageRequestReason(viewer, target);
+    const officeHeadEmployeeIds = await this.getActiveOfficeHeadEmployeeIds([
+      viewer.employeeId,
+      target.employee?.id,
+    ]);
+    const requestReason = this.getMessageRequestReason(
+      viewer,
+      target,
+      officeHeadEmployeeIds,
+    );
     const approvalRequired = requiresMessageRequestApproval(
       requestReason,
       target.requireMessageRequests,
@@ -3114,17 +3329,33 @@ export class ConversationsService {
     };
   }
 
-  private ensureAnalyticsViewer(viewer: MessagingViewer): void {
-    if (viewer.role === AccountRole.EMPLOYEE) {
+  private async ensureAnalyticsViewer(
+    viewer: MessagingViewer,
+  ): Promise<boolean> {
+    const isOfficeHead = await this.isActiveOfficeHeadEmployee(
+      viewer.employeeId,
+    );
+
+    if (
+      viewer.role === AccountRole.SUPER_ADMIN ||
+      (viewer.role === AccountRole.EMPLOYEE && !isOfficeHead)
+    ) {
       throw new ForbiddenException(
         'Analytics are available only to management accounts.',
       );
     }
+
+    return isOfficeHead;
   }
 
   private getAnalyticsEmployeeScopeWhere(
     viewer: MessagingViewer,
+    isOfficeHead = false,
   ): Prisma.EmployeeWhereInput {
+    if (isOfficeHead) {
+      return {};
+    }
+
     return {
       divisionId: viewer.divisionId ?? undefined,
       ...(viewer.role === AccountRole.TEAM_MANAGER
@@ -3135,21 +3366,30 @@ export class ConversationsService {
 
   private getAnalyticsAccountWhere(
     viewer: MessagingViewer,
+    isOfficeHead: boolean,
   ): Prisma.AccountWhereInput {
-    if (viewer.role === AccountRole.SUPER_ADMIN) {
-      return {};
+    if (isOfficeHead) {
+      // Office Head inherits the former office-wide operational analytics
+      // authority. System-only accounts (including SUPER_ADMIN) are excluded
+      // because they are not Office members.
+      return {
+        employee: {
+          isNot: null,
+        },
+      };
     }
 
     // Management analytics are scoped by employee assignment, not by editable frontend filters.
     return {
       employee: {
-        is: this.getAnalyticsEmployeeScopeWhere(viewer),
+        is: this.getAnalyticsEmployeeScopeWhere(viewer, false),
       },
     };
   }
 
   private async buildAnalyticsScopeSummary(
     viewer: MessagingViewer,
+    isOfficeHead: boolean,
   ): Promise<AnalyticsScopeSummary> {
     const [division, department] = await Promise.all([
       viewer.divisionId
@@ -3167,8 +3407,8 @@ export class ConversationsService {
     ]);
 
     const label =
-      viewer.role === AccountRole.SUPER_ADMIN
-        ? 'Organization-wide analytics'
+      isOfficeHead
+        ? 'Office-wide analytics'
         : viewer.role === AccountRole.SENIOR_MANAGEMENT
           ? 'Division analytics'
           : 'Department analytics';
@@ -3950,15 +4190,14 @@ export class ConversationsService {
   }
 
   /**
-   * Personal groups keep the creator as OWNER. A Super Admin who is explicitly
-   * added to the group receives ADMIN authority, but is never auto-added.
-   * This preserves private-group membership boundaries while applying the
-   * approved governance rule once the account becomes a participant.
+   * Personal groups keep the creator as OWNER. During the Phase 12 authority
+   * cutover, an active Office Head who is explicitly added receives ADMIN
+   * authority. SUPER_ADMIN is intentionally treated as a normal participant.
    */
   private getPersonalGroupMemberRole(
-    accountRole: AccountRole,
+    isOfficeHead: boolean,
   ): ConversationParticipantRole {
-    return accountRole === AccountRole.SUPER_ADMIN
+    return isOfficeHead
       ? ConversationParticipantRole.ADMIN
       : ConversationParticipantRole.MEMBER;
   }
@@ -3996,7 +4235,15 @@ export class ConversationsService {
       );
     }
 
-    if (viewer.role === AccountRole.SUPER_ADMIN) {
+    const officeHeadEmployeeIds = await this.getActiveOfficeHeadEmployeeIds([
+      viewer.employeeId,
+      ...accounts.map((account) => account.employee?.id),
+    ]);
+
+    if (
+      viewer.employeeId !== null &&
+      officeHeadEmployeeIds.has(viewer.employeeId)
+    ) {
       return accounts;
     }
 
@@ -4023,7 +4270,11 @@ export class ConversationsService {
       const key = this.buildPrivateParticipantKey(viewer.accountId, account.id);
 
       if (
-        this.getMessageRequestReason(viewer, account) !== null &&
+        this.getMessageRequestReason(
+          viewer,
+          account,
+          officeHeadEmployeeIds,
+        ) !== null &&
         !directKeys.has(key)
       ) {
         throw new ForbiddenException(
@@ -4063,14 +4314,25 @@ export class ConversationsService {
         );
       }
 
-      if (viewer.role !== AccountRole.SUPER_ADMIN) {
+      const officeId = await this.resolveLegacyOfficialGroupOfficeId({
+        officialScopeType: scopeType,
+        officialDivisionId: null,
+        officialDepartmentId: null,
+      });
+      const authorized = await this.isActiveOfficeHeadForOffice(
+        viewer.employeeId,
+        officeId,
+      );
+
+      if (!authorized) {
         throw new ForbiddenException(
-          'Only the Super Admin can manage organization-wide official groups.',
+          'Only the Office Head can manage office-wide official groups.',
         );
       }
 
       return {
         scopeType,
+        officeId,
         division: null,
         department: null,
       };
@@ -4083,9 +4345,7 @@ export class ConversationsService {
     }
 
     const division = await this.prisma.division.findUnique({
-      where: {
-        id: divisionId,
-      },
+      where: { id: divisionId },
       select: {
         id: true,
         code: true,
@@ -4107,19 +4367,29 @@ export class ConversationsService {
         );
       }
 
+      const officeId = await this.resolveLegacyOfficialGroupOfficeId({
+        officialScopeType: scopeType,
+        officialDivisionId: division.id,
+        officialDepartmentId: null,
+      });
+      const officeHeadAuthorized = await this.isActiveOfficeHeadForOffice(
+        viewer.employeeId,
+        officeId,
+      );
       const authorized =
-        viewer.role === AccountRole.SUPER_ADMIN ||
+        officeHeadAuthorized ||
         (viewer.role === AccountRole.SENIOR_MANAGEMENT &&
           viewer.divisionId === division.id);
 
       if (!authorized) {
         throw new ForbiddenException(
-          'You can create or manage official groups only inside your assigned division.',
+          'You can create or manage official groups only inside your authorized office scope.',
         );
       }
 
       return {
         scopeType,
+        officeId,
         division,
         department: null,
       };
@@ -4132,9 +4402,7 @@ export class ConversationsService {
     }
 
     const department = await this.prisma.department.findUnique({
-      where: {
-        id: departmentId,
-      },
+      where: { id: departmentId },
       select: {
         id: true,
         divisionId: true,
@@ -4154,8 +4422,17 @@ export class ConversationsService {
       );
     }
 
+    const officeId = await this.resolveLegacyOfficialGroupOfficeId({
+      officialScopeType: scopeType,
+      officialDivisionId: division.id,
+      officialDepartmentId: department.id,
+    });
+    const officeHeadAuthorized = await this.isActiveOfficeHeadForOffice(
+      viewer.employeeId,
+      officeId,
+    );
     const authorized =
-      viewer.role === AccountRole.SUPER_ADMIN ||
+      officeHeadAuthorized ||
       (viewer.role === AccountRole.SENIOR_MANAGEMENT &&
         viewer.divisionId === division.id) ||
       (viewer.role === AccountRole.TEAM_MANAGER &&
@@ -4164,12 +4441,13 @@ export class ConversationsService {
 
     if (!authorized) {
       throw new ForbiddenException(
-        'You can create or manage official groups only inside your assigned organizational scope.',
+        'You can create or manage official groups only inside your authorized office scope.',
       );
     }
 
     return {
       scopeType,
+      officeId,
       division,
       department,
     };
@@ -4245,24 +4523,18 @@ export class ConversationsService {
 
     return {
       isEnabled: true,
-      OR: [
-        {
-          role: AccountRole.SUPER_ADMIN,
-        },
-        {
-          employee: {
-            is: employeeWhere,
-          },
-        },
-      ],
+      employee: {
+        is: employeeWhere,
+      },
     };
   }
 
   private getOfficialGroupParticipantRole(
     account: MessagingAccountRecord,
     group: OfficialGroupScopeRecord,
+    officeHeadAccountIds: ReadonlySet<string>,
   ): ConversationParticipantRole {
-    if (account.role === AccountRole.SUPER_ADMIN) {
+    if (officeHeadAccountIds.has(account.id)) {
       return ConversationParticipantRole.OWNER;
     }
 
@@ -4293,21 +4565,38 @@ export class ConversationsService {
     return ConversationParticipantRole.MEMBER;
   }
 
-  private async getDesiredOfficialGroupAccounts(
+  private async getDesiredOfficialGroupMembership(
     group: OfficialGroupScopeRecord,
-  ): Promise<MessagingAccountRecord[]> {
-    return this.prisma.account.findMany({
-      where: this.buildOfficialGroupMembershipWhere(group),
-      orderBy: [
-        {
-          role: 'asc',
-        },
-        {
-          id: 'asc',
-        },
-      ],
-      select: messagingAccountSelect,
-    });
+  ): Promise<{
+    accounts: MessagingAccountRecord[];
+    officeHeadAccountIds: Set<string>;
+  }> {
+    const officeId = await this.resolveLegacyOfficialGroupOfficeId(group);
+    const [scopedAccounts, officeHeadAccounts] = await Promise.all([
+      this.prisma.account.findMany({
+        where: this.buildOfficialGroupMembershipWhere(group),
+        orderBy: [{ role: 'asc' }, { id: 'asc' }],
+        select: messagingAccountSelect,
+      }),
+      this.getActiveOfficeHeadAccountsForOffice(officeId),
+    ]);
+
+    const merged = new Map<string, MessagingAccountRecord>();
+    for (const account of scopedAccounts) {
+      merged.set(account.id, account);
+    }
+    for (const account of officeHeadAccounts) {
+      merged.set(account.id, account);
+    }
+
+    return {
+      accounts: [...merged.values()].sort((left, right) =>
+        left.id.localeCompare(right.id),
+      ),
+      officeHeadAccountIds: new Set(
+        officeHeadAccounts.map((account) => account.id),
+      ),
+    };
   }
 
   private async synchronizeOfficialGroup(
@@ -4361,7 +4650,10 @@ export class ConversationsService {
       officialDivisionId: conversation.officialDivisionId,
       officialDepartmentId: conversation.officialDepartmentId,
     };
-    const desiredAccounts = await this.getDesiredOfficialGroupAccounts(group);
+    const {
+      accounts: desiredAccounts,
+      officeHeadAccountIds,
+    } = await this.getDesiredOfficialGroupMembership(group);
     const currentByAccountId = new Map<
       string,
       OfficialGroupParticipantSyncRecord
@@ -4380,7 +4672,11 @@ export class ConversationsService {
 
     for (const account of desiredAccounts) {
       const current = currentByAccountId.get(account.id);
-      const role = this.getOfficialGroupParticipantRole(account, group);
+      const role = this.getOfficialGroupParticipantRole(
+        account,
+        group,
+        officeHeadAccountIds,
+      );
 
       if (!current || current.leftAt !== null) {
         addedAccountIds.push(account.id);
@@ -4417,7 +4713,11 @@ export class ConversationsService {
     await this.prisma.$transaction(async (transaction) => {
       for (const account of desiredAccounts) {
         const current = currentByAccountId.get(account.id);
-        const role = this.getOfficialGroupParticipantRole(account, group);
+        const role = this.getOfficialGroupParticipantRole(
+          account,
+          group,
+          officeHeadAccountIds,
+        );
 
         if (current?.leftAt === null && current.role === role) {
           continue;
@@ -4748,7 +5048,7 @@ export class ConversationsService {
   async getMessagingAnalytics(user: AuthenticatedUser) {
     const viewer = await this.getMessagingViewer(user);
 
-    this.ensureAnalyticsViewer(viewer);
+    const isOfficeHead = await this.ensureAnalyticsViewer(viewer);
 
     const now = new Date();
     const todayStart = new Date(now);
@@ -4757,7 +5057,7 @@ export class ConversationsService {
     const weekStart = new Date(now);
     weekStart.setDate(weekStart.getDate() - 7);
 
-    const accountWhere = this.getAnalyticsAccountWhere(viewer);
+    const accountWhere = this.getAnalyticsAccountWhere(viewer, isOfficeHead);
 
     const scopedAccounts = await this.prisma.account.findMany({
       where: accountWhere,
@@ -4806,7 +5106,7 @@ export class ConversationsService {
       notificationsToday,
       latestMessageActivity,
     ] = await Promise.all([
-      this.buildAnalyticsScopeSummary(viewer),
+      this.buildAnalyticsScopeSummary(viewer, isOfficeHead),
       this.prisma.account.count({ where: accountWhere }),
       this.prisma.account.count({
         where: { ...accountWhere, isEnabled: true },
@@ -4820,7 +5120,7 @@ export class ConversationsService {
           isEnabled: true,
           employee: {
             is: {
-              ...this.getAnalyticsEmployeeScopeWhere(viewer),
+              ...this.getAnalyticsEmployeeScopeWhere(viewer, isOfficeHead),
               status: EmployeeStatus.ACTIVE,
               employmentStatus: EmploymentStatus.ACTIVE,
               archivedAt: null,
@@ -5136,10 +5436,31 @@ export class ConversationsService {
 
   async listOfficialGroupScopes(user: AuthenticatedUser) {
     const viewer = await this.getMessagingViewer(user);
+    const legacyOfficeId = await this.resolveLegacyOfficialGroupOfficeId({
+      officialScopeType: OfficialGroupScopeType.ORGANIZATION,
+      officialDivisionId: null,
+      officialDepartmentId: null,
+    });
+    const isOfficeHead = await this.isActiveOfficeHeadForOffice(
+      viewer.employeeId,
+      legacyOfficeId,
+    );
 
-    if (viewer.role === AccountRole.EMPLOYEE) {
+    if (
+      viewer.role === AccountRole.SUPER_ADMIN ||
+      (viewer.role === AccountRole.EMPLOYEE && !isOfficeHead)
+    ) {
       return {
         canCreate: false,
+        canReconcileAll: false,
+        scopes: [],
+      };
+    }
+
+    if (!isOfficeHead && !viewer.divisionId) {
+      return {
+        canCreate: false,
+        canReconcileAll: false,
         scopes: [],
       };
     }
@@ -5147,15 +5468,9 @@ export class ConversationsService {
     const divisions = await this.prisma.division.findMany({
       where: {
         isActive: true,
-        ...(viewer.role === AccountRole.SUPER_ADMIN
-          ? {}
-          : {
-              id: viewer.divisionId ?? undefined,
-            }),
+        ...(isOfficeHead ? {} : { id: viewer.divisionId ?? undefined }),
       },
-      orderBy: {
-        name: 'asc',
-      },
+      orderBy: { name: 'asc' },
       select: {
         id: true,
         code: true,
@@ -5164,15 +5479,11 @@ export class ConversationsService {
         departments: {
           where: {
             isActive: true,
-            ...(viewer.role === AccountRole.TEAM_MANAGER
-              ? {
-                  id: viewer.departmentId ?? undefined,
-                }
+            ...(!isOfficeHead && viewer.role === AccountRole.TEAM_MANAGER
+              ? { id: viewer.departmentId ?? undefined }
               : {}),
           },
-          orderBy: {
-            name: 'asc',
-          },
+          orderBy: { name: 'asc' },
           select: {
             id: true,
             divisionId: true,
@@ -5206,11 +5517,11 @@ export class ConversationsService {
       } | null;
     }> = [];
 
-    if (viewer.role === AccountRole.SUPER_ADMIN) {
+    if (isOfficeHead) {
       scopes.push({
         key: 'ORGANIZATION',
         scopeType: OfficialGroupScopeType.ORGANIZATION,
-        label: 'All Nepal Telecom employees',
+        label: 'All office employees',
         defaultTitle: 'All Employees',
         divisionId: null,
         departmentId: null,
@@ -5220,10 +5531,7 @@ export class ConversationsService {
     }
 
     for (const division of divisions) {
-      if (
-        viewer.role === AccountRole.SUPER_ADMIN ||
-        viewer.role === AccountRole.SENIOR_MANAGEMENT
-      ) {
+      if (isOfficeHead || viewer.role === AccountRole.SENIOR_MANAGEMENT) {
         scopes.push({
           key: `DIVISION:${division.id}`,
           scopeType: OfficialGroupScopeType.DIVISION,
@@ -5242,7 +5550,8 @@ export class ConversationsService {
       }
 
       if (
-        viewer.role === AccountRole.SUPER_ADMIN ||
+        isOfficeHead ||
+        viewer.role === AccountRole.SENIOR_MANAGEMENT ||
         viewer.role === AccountRole.TEAM_MANAGER
       ) {
         for (const department of division.departments) {
@@ -5267,6 +5576,7 @@ export class ConversationsService {
 
     return {
       canCreate: scopes.length > 0,
+      canReconcileAll: isOfficeHead,
       scopes,
     };
   }
@@ -5297,7 +5607,10 @@ export class ConversationsService {
       officialDivisionId: scope.division?.id ?? null,
       officialDepartmentId: scope.department?.id ?? null,
     };
-    const members = await this.getDesiredOfficialGroupAccounts(group);
+    const {
+      accounts: members,
+      officeHeadAccountIds,
+    } = await this.getDesiredOfficialGroupMembership(group);
 
     if (!members.some((member) => member.id === viewer.accountId)) {
       throw new ForbiddenException(
@@ -5333,7 +5646,11 @@ export class ConversationsService {
             conversationId: conversation.id,
             accountId: member.id,
             joinedAt: now,
-            role: this.getOfficialGroupParticipantRole(member, createdGroup),
+            role: this.getOfficialGroupParticipantRole(
+              member,
+              createdGroup,
+              officeHeadAccountIds,
+            ),
           })),
         });
 
@@ -5416,10 +5733,20 @@ export class ConversationsService {
 
   async reconcileOfficialGroups(user: AuthenticatedUser) {
     const viewer = await this.getMessagingViewer(user);
+    const legacyOfficeId = await this.resolveLegacyOfficialGroupOfficeId({
+      officialScopeType: OfficialGroupScopeType.ORGANIZATION,
+      officialDivisionId: null,
+      officialDepartmentId: null,
+    });
 
-    if (viewer.role !== AccountRole.SUPER_ADMIN) {
+    if (
+      !(await this.isActiveOfficeHeadForOffice(
+        viewer.employeeId,
+        legacyOfficeId,
+      ))
+    ) {
       throw new ForbiddenException(
-        'Only the Super Admin can reconcile every official group.',
+        'Only the Office Head can reconcile every official group in the office.',
       );
     }
 
@@ -5736,15 +6063,28 @@ export class ConversationsService {
   private getMessageRequestReason(
     viewer: MessagingViewer,
     target: MessagingAccountRecord,
+    activeOfficeHeadEmployeeIds: ReadonlySet<string>,
   ): MessageRequestReason | null {
-    if (viewer.role === AccountRole.SUPER_ADMIN) {
+    const viewerIsOfficeHead =
+      viewer.employeeId !== null &&
+      activeOfficeHeadEmployeeIds.has(viewer.employeeId);
+    const targetIsOfficeHead =
+      target.employee?.id !== undefined &&
+      activeOfficeHeadEmployeeIds.has(target.employee.id);
+
+    if (viewerIsOfficeHead) {
       return null;
     }
 
-    if (target.role === AccountRole.SUPER_ADMIN) {
+    if (targetIsOfficeHead) {
       return MessageRequestReason.PROTECTED_RECIPIENT;
     }
 
+    /*
+     * SUPER_ADMIN is intentionally not special in messaging. If it has no
+     * employee placement, it follows the same generic first-contact request
+     * path as any participant outside the viewer's current legacy scope.
+     */
     if (
       target.role === AccountRole.SENIOR_MANAGEMENT &&
       viewer.role !== AccountRole.SENIOR_MANAGEMENT
@@ -6226,7 +6566,9 @@ export class ConversationsService {
     ]);
 
     const now = new Date();
-    const joiningRole = this.getPersonalGroupMemberRole(viewer.role);
+    const joiningRole = this.getPersonalGroupMemberRole(
+      await this.isActiveOfficeHeadEmployee(viewer.employeeId),
+    );
 
     await this.prisma.$transaction([
       this.prisma.conversationParticipant.upsert({
@@ -7201,13 +7543,22 @@ export class ConversationsService {
       existingRequests.map((request) => [request.participantKey, request]),
     );
 
+    const officeHeadEmployeeIds = await this.getActiveOfficeHeadEmployeeIds([
+      viewer.employeeId,
+      ...selectedCandidates.map((candidate) => candidate.employee?.id),
+    ]);
+
     const data = selectedCandidates.map((candidate) => {
       const participantKey = this.buildPrivateParticipantKey(
         viewer.accountId,
         candidate.id,
       );
       const request = requestsByKey.get(participantKey);
-      const requestReason = this.getMessageRequestReason(viewer, candidate);
+      const requestReason = this.getMessageRequestReason(
+        viewer,
+        candidate,
+        officeHeadEmployeeIds,
+      );
       const approvalRequired = requiresMessageRequestApproval(
         requestReason,
         candidate.requireMessageRequests,
@@ -7345,13 +7696,18 @@ export class ConversationsService {
       ...originalAccountIds,
       ...newMembers.map((member) => member.id),
     ];
-    const participantGlobalRoles = new Map<string, AccountRole>([
+    const participantEmployeeIds = new Map<string, string | null>([
       ...sourceConversation.participants.map(
         (participant) =>
-          [participant.accountId, participant.account.role] as const,
+          [participant.accountId, participant.account.employee?.id ?? null] as const,
       ),
-      ...newMembers.map((member) => [member.id, member.role] as const),
+      ...newMembers.map(
+        (member) => [member.id, member.employee?.id ?? null] as const,
+      ),
     ]);
+    const officeHeadEmployeeIds = await this.getActiveOfficeHeadEmployeeIds(
+      [...participantEmployeeIds.values()],
+    );
 
     await this.assertNoPersonalGroupBlocks(participantAccountIds);
 
@@ -7429,8 +7785,12 @@ export class ConversationsService {
                   accountId === viewer.accountId
                     ? ConversationParticipantRole.OWNER
                     : this.getPersonalGroupMemberRole(
-                        participantGlobalRoles.get(accountId) ??
-                          AccountRole.EMPLOYEE,
+                        Boolean(
+                          participantEmployeeIds.get(accountId) &&
+                            officeHeadEmployeeIds.has(
+                              participantEmployeeIds.get(accountId) as string,
+                            ),
+                        ),
                       ),
               })),
             },
@@ -7573,6 +7933,9 @@ export class ConversationsService {
       viewer.accountId,
       ...members.map((member) => member.id),
     ];
+    const officeHeadEmployeeIds = await this.getActiveOfficeHeadEmployeeIds(
+      members.map((member) => member.employee?.id),
+    );
 
     await this.assertNoPersonalGroupBlocks(participantAccountIds);
 
@@ -7593,7 +7956,12 @@ export class ConversationsService {
                 },
                 ...members.map((member) => ({
                   accountId: member.id,
-                  role: this.getPersonalGroupMemberRole(member.role),
+                  role: this.getPersonalGroupMemberRole(
+                    Boolean(
+                      member.employee?.id &&
+                        officeHeadEmployeeIds.has(member.employee.id),
+                    ),
+                  ),
                 })),
               ],
             },
@@ -7641,17 +8009,28 @@ export class ConversationsService {
         );
       }
     } else if (access.conversation.groupKind === GroupKind.OFFICIAL) {
-      /*
-       * Official organization/division/department groups are synchronized with
-       * the Super Admin as OWNER. Deletion is therefore a Super Admin owner-only
-       * governance action and never mutates the underlying organization tree.
-       */
+      if (!access.conversation.officialScopeType) {
+        throw new ConflictException(
+          'This official group does not have a valid organizational scope.',
+        );
+      }
+
+      const officeId = await this.resolveLegacyOfficialGroupOfficeId({
+        officialScopeType: access.conversation.officialScopeType,
+        officialDivisionId: access.conversation.officialDivisionId,
+        officialDepartmentId: access.conversation.officialDepartmentId,
+      });
+      const isOfficeHead = await this.isActiveOfficeHeadForOffice(
+        viewer.employeeId,
+        officeId,
+      );
+
       if (
-        viewer.role !== AccountRole.SUPER_ADMIN ||
+        !isOfficeHead ||
         access.viewerParticipant.role !== ConversationParticipantRole.OWNER
       ) {
         throw new ForbiddenException(
-          'Only the Super Admin owner can delete an official group.',
+          'Only the Office Head owner can delete an official group.',
         );
       }
     } else {
@@ -8045,6 +8424,9 @@ export class ConversationsService {
       viewer,
       requestedAccountIds,
     );
+    const officeHeadEmployeeIds = await this.getActiveOfficeHeadEmployeeIds(
+      members.map((member) => member.employee?.id),
+    );
 
     await this.assertNoPersonalGroupBlocks([
       ...access.conversation.participants.map(
@@ -8067,14 +8449,24 @@ export class ConversationsService {
           update: {
             joinedAt: now,
             leftAt: null,
-            role: this.getPersonalGroupMemberRole(member.role),
+            role: this.getPersonalGroupMemberRole(
+              Boolean(
+                member.employee?.id &&
+                  officeHeadEmployeeIds.has(member.employee.id),
+              ),
+            ),
             isArchived: false,
           },
           create: {
             conversationId,
             accountId: member.id,
             joinedAt: now,
-            role: this.getPersonalGroupMemberRole(member.role),
+            role: this.getPersonalGroupMemberRole(
+              Boolean(
+                member.employee?.id &&
+                  officeHeadEmployeeIds.has(member.employee.id),
+              ),
+            ),
           },
         });
       }
@@ -8149,20 +8541,16 @@ export class ConversationsService {
     }
 
     const targetAccount = await this.prisma.account.findUnique({
-      where: {
-        id: accountId,
-      },
-      select: {
-        role: true,
-      },
+      where: { id: accountId },
+      select: { employeeId: true },
     });
 
     if (
-      targetAccount?.role === AccountRole.SUPER_ADMIN &&
-      dto.role !== 'ADMIN'
+      dto.role !== 'ADMIN' &&
+      (await this.isActiveOfficeHeadEmployee(targetAccount?.employeeId))
     ) {
       throw new ForbiddenException(
-        'The Super Admin remains a group administrator while they are a member.',
+        'The Office Head remains a group administrator while they are a member.',
       );
     }
 
@@ -8498,7 +8886,15 @@ export class ConversationsService {
       );
     }
 
-    const requestReason = this.getMessageRequestReason(viewer, target);
+    const officeHeadEmployeeIds = await this.getActiveOfficeHeadEmployeeIds([
+      viewer.employeeId,
+      target.employee?.id,
+    ]);
+    const requestReason = this.getMessageRequestReason(
+      viewer,
+      target,
+      officeHeadEmployeeIds,
+    );
     const approvalRequired = requiresMessageRequestApproval(
       requestReason,
       target.requireMessageRequests,
@@ -8841,7 +9237,7 @@ export class ConversationsService {
       );
     }
 
-    this.assertCanBlockAccount(viewer, request.requester);
+    await this.assertCanBlockAccount(viewer, request.requester);
 
     const now = new Date();
     const updatedRequest = await this.prisma.$transaction(
@@ -9546,12 +9942,18 @@ export class ConversationsService {
 
     const hasMore = rows.length > query.limit;
     const page = hasMore ? rows.slice(0, query.limit) : rows;
+    const officeHeadEmployeeIds = await this.getActiveOfficeHeadEmployeeIds(
+      page.map((participant) => participant.account.employee?.id),
+    );
 
     return {
       data: page.map((participant) => ({
         ...this.serializeAccount(participant.account),
         joinedAt: participant.joinedAt,
         participantRole: participant.role,
+        isOfficeHead: participant.account.employee?.id
+          ? officeHeadEmployeeIds.has(participant.account.employee.id)
+          : false,
       })),
       pagination: {
         limit: query.limit,

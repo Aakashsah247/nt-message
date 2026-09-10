@@ -47,6 +47,7 @@ function createAccount(id: string, role: AccountRole) {
     employee: isOwner
       ? null
       : {
+          id: `${id}-employee`,
           empName: 'Team Manager',
           designation: 'Department Manager',
           status: EmployeeStatus.ACTIVE,
@@ -69,6 +70,24 @@ function createAccount(id: string, role: AccountRole) {
             isActive: true,
           },
         },
+  };
+}
+
+function organizationAuthorityMocks(
+  employeeId: string | null,
+  isOfficeHead = false,
+) {
+  return {
+    orgLeadershipAssignment: {
+      findFirst: jest.fn().mockResolvedValue(
+        isOfficeHead && employeeId ? { officeId: 'office-patan' } : null,
+      ),
+    },
+    orgMembership: {
+      findFirst: jest.fn().mockResolvedValue(
+        isOfficeHead && employeeId ? { officeId: 'office-patan' } : null,
+      ),
+    },
   };
 }
 
@@ -168,6 +187,7 @@ describe('AnnouncementsService', () => {
     const prisma = {
       account: { findUnique: jest.fn().mockResolvedValue(manager) },
       announcement: { findUnique: jest.fn().mockResolvedValue(announcement) },
+      ...organizationAuthorityMocks(manager.employee?.id ?? null),
     } as unknown as PrismaService;
     const service = new AnnouncementsService(
       prisma,
@@ -188,8 +208,8 @@ describe('AnnouncementsService', () => {
     });
   });
 
-  it('allows the Owner to permanently delete an Admin-created announcement', async () => {
-    const owner = createAccount(OWNER_ID, AccountRole.SUPER_ADMIN);
+  it('allows the Office Head to permanently delete a management announcement', async () => {
+    const owner = createAccount(OWNER_ID, AccountRole.EMPLOYEE);
     const creator = createAccount(MANAGER_ID, AccountRole.TEAM_MANAGER);
     const announcement = createAnnouncement(creator);
     const deleteMany = jest.fn().mockResolvedValue({ count: 1 });
@@ -201,6 +221,7 @@ describe('AnnouncementsService', () => {
         findUnique: jest.fn().mockResolvedValue(announcement),
         deleteMany,
       },
+      ...organizationAuthorityMocks(owner.employee?.id ?? null, true),
     } as unknown as PrismaService;
     const events = {
       emitAnnouncementDeleted,
@@ -209,7 +230,7 @@ describe('AnnouncementsService', () => {
 
     try {
       const response = await service.deleteAnnouncement(
-        authenticatedUser(OWNER_ID, AccountRole.SUPER_ADMIN),
+        authenticatedUser(OWNER_ID, AccountRole.EMPLOYEE),
         ANNOUNCEMENT_ID,
       );
 
@@ -244,6 +265,34 @@ describe('AnnouncementsService', () => {
     }
   });
 
+  it('denies Super Admin operational announcement deletion', async () => {
+    const superAdmin = createAccount(OWNER_ID, AccountRole.SUPER_ADMIN);
+    const creator = createAccount(MANAGER_ID, AccountRole.TEAM_MANAGER);
+    const announcement = createAnnouncement(creator);
+    const deleteMany = jest.fn();
+    const prisma = {
+      account: { findUnique: jest.fn().mockResolvedValue(superAdmin) },
+      announcement: {
+        findUnique: jest.fn().mockResolvedValue(announcement),
+        deleteMany,
+      },
+    } as unknown as PrismaService;
+    const service = new AnnouncementsService(
+      prisma,
+      {} as MessagingEventsService,
+    );
+
+    await expect(
+      service.deleteAnnouncement(
+        authenticatedUser(OWNER_ID, AccountRole.SUPER_ADMIN),
+        ANNOUNCEMENT_ID,
+      ),
+    ).rejects.toThrow(
+      'You cannot manage this announcement outside your authorized scope.',
+    );
+    expect(deleteMany).not.toHaveBeenCalled();
+  });
+
   it('does not delete an announcement while publication is in progress', async () => {
     const manager = createAccount(MANAGER_ID, AccountRole.TEAM_MANAGER);
     const announcement = createAnnouncement(
@@ -257,6 +306,7 @@ describe('AnnouncementsService', () => {
         findUnique: jest.fn().mockResolvedValue(announcement),
         deleteMany,
       },
+      ...organizationAuthorityMocks(manager.employee?.id ?? null),
     } as unknown as PrismaService;
     const service = new AnnouncementsService(
       prisma,

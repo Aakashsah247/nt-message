@@ -12,13 +12,23 @@ import {
 const superAdmin = {
   accountId: 'super-admin',
   role: AccountRole.SUPER_ADMIN,
+  isOfficeHead: false,
   divisionId: null,
+  departmentId: null,
+};
+
+const officeHead = {
+  accountId: 'office-head',
+  role: AccountRole.EMPLOYEE,
+  isOfficeHead: true,
+  divisionId: 'division-a',
   departmentId: null,
 };
 
 const seniorManager = {
   accountId: 'senior-manager',
   role: AccountRole.SENIOR_MANAGEMENT,
+  isOfficeHead: false,
   divisionId: 'division-a',
   departmentId: null,
 };
@@ -26,17 +36,35 @@ const seniorManager = {
 const teamManager = {
   accountId: 'team-manager',
   role: AccountRole.TEAM_MANAGER,
+  isOfficeHead: false,
   divisionId: 'division-a',
   departmentId: 'department-a',
 };
 
 describe('announcement audience policy', () => {
-  it('allows Super Admin across every audience type', () => {
+  it('denies Super Admin operational announcement audiences', () => {
     expect(
       getAnnouncementAudiencePolicyViolation(superAdmin, {
         audienceType: AnnouncementAudienceType.ORGANIZATION,
         divisionId: null,
         departmentId: null,
+      }),
+    ).toBe('ROLE_NOT_AUTHORIZED');
+  });
+
+  it('allows the active Office Head across Office announcement audiences', () => {
+    expect(
+      getAnnouncementAudiencePolicyViolation(officeHead, {
+        audienceType: AnnouncementAudienceType.ORGANIZATION,
+        divisionId: null,
+        departmentId: null,
+      }),
+    ).toBeNull();
+    expect(
+      getAnnouncementAudiencePolicyViolation(officeHead, {
+        audienceType: AnnouncementAudienceType.DEPARTMENT,
+        divisionId: 'division-b',
+        departmentId: 'department-b',
       }),
     ).toBeNull();
   });
@@ -103,7 +131,6 @@ describe('announcement audience policy', () => {
     ).toBe('OFFICIAL_GROUP_OUT_OF_SCOPE');
   });
 
-
   it('requires an active official-group owner or admin role', () => {
     const audience = {
       audienceType: AnnouncementAudienceType.OFFICIAL_GROUP,
@@ -140,9 +167,9 @@ describe('announcement audience policy', () => {
     ).toBe('OFFICIAL_GROUP_ROLE_REQUIRED');
   });
 
-  it('does not let organizational authority bypass official-group membership role', () => {
+  it('does not let Office Head authority bypass official-group membership role', () => {
     expect(
-      getAnnouncementAudiencePolicyViolation(superAdmin, {
+      getAnnouncementAudiencePolicyViolation(officeHead, {
         audienceType: AnnouncementAudienceType.OFFICIAL_GROUP,
         divisionId: null,
         departmentId: null,
@@ -154,12 +181,13 @@ describe('announcement audience policy', () => {
     ).toBe('OFFICIAL_GROUP_ROLE_REQUIRED');
   });
 
-  it('rejects Employee publishing for every audience', () => {
+  it('rejects a normal Employee publisher for every audience', () => {
     expect(
       getAnnouncementAudiencePolicyViolation(
         {
           accountId: 'employee',
           role: AccountRole.EMPLOYEE,
+          isOfficeHead: false,
           divisionId: 'division-a',
           departmentId: 'department-a',
         },
@@ -174,17 +202,26 @@ describe('announcement audience policy', () => {
 });
 
 describe('announcement creator mutation policy', () => {
-  it('allows an Admin creator and the Owner to modify an Admin-created announcement', () => {
+  it('lets the creator or Office Head modify a management announcement', () => {
     const creator = {
       id: 'team-manager',
       role: AccountRole.TEAM_MANAGER,
     };
 
     expect(canModifyAnnouncementByCreator(teamManager, creator)).toBe(true);
-    expect(canModifyAnnouncementByCreator(superAdmin, creator)).toBe(true);
+    expect(canModifyAnnouncementByCreator(officeHead, creator)).toBe(true);
   });
 
-  it('blocks another Admin from modifying an Admin-created announcement', () => {
+  it('blocks Super Admin from modifying an Office announcement', () => {
+    expect(
+      canModifyAnnouncementByCreator(superAdmin, {
+        id: 'team-manager',
+        role: AccountRole.TEAM_MANAGER,
+      }),
+    ).toBe(false);
+  });
+
+  it('blocks another manager from modifying a management announcement', () => {
     expect(
       canModifyAnnouncementByCreator(seniorManager, {
         id: 'team-manager',
@@ -193,14 +230,14 @@ describe('announcement creator mutation policy', () => {
     ).toBe(false);
   });
 
-  it('allows only the Owner creator to modify an Owner-created announcement', () => {
+  it('lets Office Head take over a historical Super Admin announcement', () => {
     const creator = {
       id: 'super-admin',
       role: AccountRole.SUPER_ADMIN,
     };
 
-    expect(canModifyAnnouncementByCreator(superAdmin, creator)).toBe(true);
+    expect(canModifyAnnouncementByCreator(officeHead, creator)).toBe(true);
+    expect(canModifyAnnouncementByCreator(superAdmin, creator)).toBe(false);
     expect(canModifyAnnouncementByCreator(seniorManager, creator)).toBe(false);
-    expect(canModifyAnnouncementByCreator(teamManager, creator)).toBe(false);
   });
 });
