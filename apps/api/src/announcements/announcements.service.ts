@@ -30,12 +30,14 @@ import {
   EmploymentStatus,
   GroupKind,
   MessagingNotificationType,
+  OfficialGroupMembershipMode,
   OfficialGroupScopeType,
-  OrgLeadershipType,
   OrgMembershipType,
 } from '../generated/prisma/client';
 import type { Prisma } from '../generated/prisma/client';
 import { MessagingEventsService } from '../realtime/messaging-events.service';
+import { OrganizationAuthorizationService } from '../organization/organization-authorization.service';
+import { CAPABILITIES } from '../organization/organization-capabilities';
 import type { UploadedMessageAttachmentFile } from '../conversations/types/uploaded-message-attachment-file';
 import {
   canModifyAnnouncementByCreator,
@@ -77,6 +79,10 @@ const DOCUMENT_MIME_TYPES = new Set([
 type AnnouncementAttachmentCategory = 'IMAGE' | 'DOCUMENT' | 'VIDEO';
 
 interface AnnouncementViewer extends AnnouncementPolicyViewer {
+  username: string | null;
+  employeeId: string | null;
+  officeId: string | null;
+  primaryOrgUnitId: string | null;
   displayName: string;
   isEnabled: boolean;
 }
@@ -84,7 +90,11 @@ interface AnnouncementViewer extends AnnouncementPolicyViewer {
 interface ResolvedAnnouncementAudience extends AnnouncementPolicyAudience {
   divisionId: string | null;
   departmentId: string | null;
+  officeId: string;
+  orgUnitId: string | null;
+  includeDescendants: boolean;
   officialConversationId: string | null;
+  officialMembershipMode?: OfficialGroupMembershipMode | null;
   label: string;
 }
 
@@ -151,6 +161,24 @@ const announcementDetailInclude = {
       isActive: true,
     },
   },
+  office: {
+    select: {
+      id: true,
+      code: true,
+      name: true,
+      isActive: true,
+    },
+  },
+  orgUnit: {
+    select: {
+      id: true,
+      officeId: true,
+      parentOrgUnitId: true,
+      code: true,
+      name: true,
+      isActive: true,
+    },
+  },
   officialConversation: {
     select: {
       id: true,
@@ -159,6 +187,9 @@ const announcementDetailInclude = {
       officialScopeType: true,
       officialDivisionId: true,
       officialDepartmentId: true,
+      officialOfficeId: true,
+      officialOrgUnitId: true,
+      officialMembershipMode: true,
     },
   },
   attachments: {
@@ -214,6 +245,8 @@ export class AnnouncementsService implements OnModuleInit, OnModuleDestroy {
   constructor(
     private readonly prisma: PrismaService,
     private readonly messagingEventsService: MessagingEventsService,
+    private readonly organizationAuthorization: OrganizationAuthorizationService =
+      new OrganizationAuthorizationService(prisma),
     private readonly attachmentStorageService: AttachmentStorageService =
       new AttachmentStorageService(),
     private readonly attachmentSecurityService: AttachmentSecurityService =
@@ -252,91 +285,79 @@ export class AnnouncementsService implements OnModuleInit, OnModuleDestroy {
     }
   }
 
-  private async isActiveOfficeHeadEmployee(
-    employeeId: string | null | undefined,
-    at = new Date(),
-  ): Promise<boolean> {
-    if (!employeeId) {
-      return false;
-    }
-
-    const [leadership, membership] = await Promise.all([
-      this.prisma.orgLeadershipAssignment.findFirst({
-        where: {
-          employeeId,
-          leadershipType: OrgLeadershipType.OFFICE_HEAD,
-          effectiveFrom: { lte: at },
-          OR: [{ effectiveUntil: null }, { effectiveUntil: { gt: at } }],
-        },
-        select: { officeId: true },
-      }),
-      this.prisma.orgMembership.findFirst({
-        where: {
-          employeeId,
-          membershipType: OrgMembershipType.PRIMARY,
-          startsAt: { lte: at },
-          OR: [{ endsAt: null }, { endsAt: { gt: at } }],
-        },
-        select: { officeId: true },
-      }),
-    ]);
-
-    return Boolean(
-      leadership && membership && leadership.officeId === membership.officeId,
-    );
-  }
-
   async listAvailableAudiences(user: AuthenticatedUser) {
     const viewer = await this.getViewer(user.accountId);
     this.assertPublisherRole(viewer);
+    const officeId = this.requireViewerOffice(viewer);
+    const authorizationUser = this.toAuthorizationUser(viewer);
+    const [canTargetOffice, manageableOrgUnitIds] = await Promise.all([
+      this.organizationAuthorization.can(
+        authorizationUser,
+        CAPABILITIES.ANNOUNCEMENT_PUBLISH,
+        officeId,
+        null,
+      ),
+      this.organizationAuthorization.visibleOrgUnitIds(
+        authorizationUser,
+        CAPABILITIES.ANNOUNCEMENT_PUBLISH,
+        officeId,
+      ),
+    ]);
 
-    const divisionWhere: Prisma.DivisionWhereInput = {
-      isActive: true,
-      ...(viewer.isOfficeHead
-        ? {}
-        : { id: viewer.divisionId ?? undefined }),
-    };
-    const departmentWhere: Prisma.DepartmentWhereInput = {
-      isActive: true,
-      division: {
-        is: {
-          isActive: true,
-        },
-      },
-      ...(viewer.isOfficeHead
-        ? {}
-        : viewer.role === AccountRole.SENIOR_MANAGEMENT
-          ? { divisionId: viewer.divisionId ?? undefined }
-          : { id: viewer.departmentId ?? undefined }),
-    };
-    const officialGroupWhere = this.buildOfficialGroupAudienceWhere(viewer);
+    if (!canTargetOffice && manageableOrgUnitIds.length === 0) {
+      throw new ForbiddenException(
+        'You do not have announcement publishing authority in this Office.',
+      );
+    }
 
-    const [divisions, departments, officialGroups] = await Promise.all([
-      this.prisma.division.findMany({
-        where: divisionWhere,
-        orderBy: { name: 'asc' },
+    const [office, orgUnits, officialGroups] = await Promise.all([
+      this.prisma.office.findFirst({
+        where: { id: officeId, isActive: true },
         select: { id: true, code: true, name: true },
       }),
-      this.prisma.department.findMany({
-        where: departmentWhere,
-        orderBy: [{ divisionId: 'asc' }, { name: 'asc' }],
+      this.prisma.orgUnit.findMany({
+        where: {
+          officeId,
+          isActive: true,
+          ...(canTargetOffice
+            ? {}
+            : { id: { in: manageableOrgUnitIds } }),
+        },
+        orderBy: [{ sortOrder: 'asc' }, { name: 'asc' }],
         select: {
           id: true,
-          divisionId: true,
           code: true,
           name: true,
-          division: { select: { name: true } },
+          parentOrgUnitId: true,
+          orgUnitType: { select: { name: true, isTeam: true } },
         },
       }),
       this.prisma.conversation.findMany({
-        where: officialGroupWhere,
+        where: {
+          type: 'GROUP',
+          groupKind: GroupKind.OFFICIAL,
+          officialOfficeId: officeId,
+          participants: {
+            some: {
+              accountId: viewer.accountId,
+              leftAt: null,
+              role: {
+                in: [
+                  ConversationParticipantRole.OWNER,
+                  ConversationParticipantRole.ADMIN,
+                ],
+              },
+            },
+          },
+        },
         orderBy: { title: 'asc' },
         select: {
           id: true,
           title: true,
           officialScopeType: true,
-          officialDivisionId: true,
-          officialDepartmentId: true,
+          officialOfficeId: true,
+          officialOrgUnitId: true,
+          officialMembershipMode: true,
           _count: {
             select: {
               participants: {
@@ -348,17 +369,42 @@ export class AnnouncementsService implements OnModuleInit, OnModuleDestroy {
       }),
     ]);
 
+    if (!office) {
+      throw new ConflictException('The active announcement Office was not found.');
+    }
+
+    const officialGroupAuthorization = await Promise.all(
+      officialGroups.map((group) =>
+        this.canPublishScope(
+          viewer,
+          officeId,
+          group.officialOrgUnitId,
+          group.officialMembershipMode ===
+            OfficialGroupMembershipMode.ENTIRE_SUBTREE,
+        ),
+      ),
+    );
+    const authorizedOfficialGroups = officialGroups.filter(
+      (_group, index) => officialGroupAuthorization[index],
+    );
+
     return {
       data: {
-        canTargetOrganization: viewer.isOfficeHead,
-        divisions,
-        departments,
-        officialGroups: officialGroups.map((group) => ({
+        canTargetOrganization: canTargetOffice,
+        canTargetOffice,
+        office,
+        orgUnits,
+        // Legacy arrays remain in the response contract until P12-I removes the
+        // old client surface. New announcement creation uses Office/OrgUnit.
+        divisions: [],
+        departments: [],
+        officialGroups: authorizedOfficialGroups.map((group) => ({
           id: group.id,
           title: group.title ?? 'Official group',
           scopeType: group.officialScopeType,
-          divisionId: group.officialDivisionId,
-          departmentId: group.officialDepartmentId,
+          officeId: group.officialOfficeId,
+          orgUnitId: group.officialOrgUnitId,
+          membershipMode: group.officialMembershipMode,
           activeMemberCount: group._count.participants,
         })),
       },
@@ -386,6 +432,9 @@ export class AnnouncementsService implements OnModuleInit, OnModuleDestroy {
           audienceType: audience.audienceType,
           divisionId: audience.divisionId,
           departmentId: audience.departmentId,
+          officeId: audience.officeId,
+          orgUnitId: audience.orgUnitId,
+          includeDescendants: audience.includeDescendants,
           officialConversationId: audience.officialConversationId,
           title,
           body,
@@ -693,7 +742,7 @@ export class AnnouncementsService implements OnModuleInit, OnModuleDestroy {
 
   async list(user: AuthenticatedUser, query: ListAnnouncementsQueryDto) {
     const viewer = await this.getViewer(user.accountId);
-    const where = this.buildAnnouncementListWhere(viewer, query.filter);
+    const where = await this.buildAnnouncementListWhere(viewer, query.filter);
     const searchText = query.search?.trim();
 
     if (query.officialConversationId) {
@@ -734,6 +783,16 @@ export class AnnouncementsService implements OnModuleInit, OnModuleDestroy {
         division: { select: { id: true, code: true, name: true } },
         department: {
           select: { id: true, divisionId: true, code: true, name: true },
+        },
+        office: { select: { id: true, code: true, name: true } },
+        orgUnit: {
+          select: {
+            id: true,
+            officeId: true,
+            parentOrgUnitId: true,
+            code: true,
+            name: true,
+          },
         },
         officialConversation: { select: { id: true, title: true } },
         recipients: {
@@ -1719,7 +1778,18 @@ export class AnnouncementsService implements OnModuleInit, OnModuleDestroy {
     this.validatePublishable(announcement);
     await this.assertPinCapacity(announcement);
     const publisher = await this.getViewer(announcement.createdByAccountId);
-    await this.assertCanManageAnnouncement(publisher, announcement);
+    if (publisher.role === AccountRole.SUPER_ADMIN && sessionId === null) {
+      // P12-F compatibility: Super Admin cannot create, edit or manually publish
+      // announcements anymore. A record already scheduled before the cutover may
+      // still complete through the system worker after P12-A bound it to V3 scope.
+      if (!announcement.officeId) {
+        throw new ConflictException(
+          'Historical scheduled announcement is missing its V3 Office binding.',
+        );
+      }
+    } else {
+      await this.assertCanManageAnnouncement(publisher, announcement);
+    }
     const recipientAccountIds = await this.resolveRecipientAccountIds(
       announcement,
     );
@@ -1863,13 +1933,32 @@ export class AnnouncementsService implements OnModuleInit, OnModuleDestroy {
       audienceType: AnnouncementAudienceType;
       divisionId?: string;
       departmentId?: string;
+      officeId?: string;
+      orgUnitId?: string;
+      includeDescendants?: boolean;
       officialConversationId?: string;
     },
   ): Promise<ResolvedAnnouncementAudience> {
-    const audience = await this.resolveAudience(input, viewer.accountId);
+    const audience = await this.resolveAudience(input, viewer);
     const violation = getAnnouncementAudiencePolicyViolation(viewer, audience);
 
     if (violation) {
+      throw new ForbiddenException(
+        'You cannot publish announcements outside your assigned organizational scope.',
+      );
+    }
+
+    if (
+      !(await this.canPublishScope(
+        viewer,
+        audience.officeId,
+        audience.orgUnitId,
+        audience.audienceType === AnnouncementAudienceType.OFFICIAL_GROUP
+          ? audience.officialMembershipMode ===
+            OfficialGroupMembershipMode.ENTIRE_SUBTREE
+          : audience.includeDescendants,
+      ))
+    ) {
       throw new ForbiddenException(
         'You cannot publish announcements outside your assigned organizational scope.',
       );
@@ -1883,12 +1972,98 @@ export class AnnouncementsService implements OnModuleInit, OnModuleDestroy {
       audienceType: AnnouncementAudienceType;
       divisionId?: string;
       departmentId?: string;
+      officeId?: string;
+      orgUnitId?: string;
+      includeDescendants?: boolean;
       officialConversationId?: string;
     },
-    viewerAccountId: string,
+    viewer: AnnouncementViewer,
   ): Promise<ResolvedAnnouncementAudience> {
+    if (input.audienceType === AnnouncementAudienceType.OFFICE) {
+      if (
+        !input.officeId ||
+        input.divisionId ||
+        input.departmentId ||
+        input.orgUnitId ||
+        input.officialConversationId ||
+        input.includeDescendants
+      ) {
+        throw new BadRequestException(
+          'An Office announcement requires exactly one Office.',
+        );
+      }
+
+      const office = await this.prisma.office.findFirst({
+        where: { id: input.officeId, isActive: true },
+        select: { id: true, name: true },
+      });
+      if (!office) {
+        throw new NotFoundException('Active announcement Office was not found.');
+      }
+
+      return {
+        audienceType: input.audienceType,
+        divisionId: null,
+        departmentId: null,
+        officeId: office.id,
+        orgUnitId: null,
+        includeDescendants: false,
+        officialConversationId: null,
+        label: office.name,
+      };
+    }
+
+    if (input.audienceType === AnnouncementAudienceType.ORG_UNIT) {
+      if (
+        !input.officeId ||
+        !input.orgUnitId ||
+        input.divisionId ||
+        input.departmentId ||
+        input.officialConversationId
+      ) {
+        throw new BadRequestException(
+          'An OrgUnit announcement requires exactly one Office and OrgUnit.',
+        );
+      }
+
+      const orgUnit = await this.prisma.orgUnit.findFirst({
+        where: {
+          id: input.orgUnitId,
+          officeId: input.officeId,
+          isActive: true,
+          office: { is: { isActive: true } },
+        },
+        select: {
+          id: true,
+          officeId: true,
+          name: true,
+        },
+      });
+      if (!orgUnit) {
+        throw new NotFoundException('Active announcement OrgUnit was not found.');
+      }
+
+      return {
+        audienceType: input.audienceType,
+        divisionId: null,
+        departmentId: null,
+        officeId: orgUnit.officeId,
+        orgUnitId: orgUnit.id,
+        includeDescendants: input.includeDescendants ?? false,
+        officialConversationId: null,
+        label: orgUnit.name,
+      };
+    }
+
     if (input.audienceType === AnnouncementAudienceType.ORGANIZATION) {
-      if (input.divisionId || input.departmentId || input.officialConversationId) {
+      if (
+        input.divisionId ||
+        input.departmentId ||
+        input.officeId ||
+        input.orgUnitId ||
+        input.officialConversationId ||
+        input.includeDescendants
+      ) {
         throw new BadRequestException(
           'Organization announcements must not specify another audience target.',
         );
@@ -1898,31 +2073,60 @@ export class AnnouncementsService implements OnModuleInit, OnModuleDestroy {
         audienceType: input.audienceType,
         divisionId: null,
         departmentId: null,
+        officeId: this.requireViewerOffice(viewer),
+        orgUnitId: null,
+        includeDescendants: true,
         officialConversationId: null,
-        label: 'Entire organization',
+        label: 'Entire Office',
       };
     }
 
     if (input.audienceType === AnnouncementAudienceType.DIVISION) {
-      if (!input.divisionId || input.departmentId || input.officialConversationId) {
+      if (
+        !input.divisionId ||
+        input.departmentId ||
+        input.officeId ||
+        input.orgUnitId ||
+        input.officialConversationId ||
+        input.includeDescendants
+      ) {
         throw new BadRequestException(
           'A division announcement requires exactly one division.',
         );
       }
 
-      const division = await this.prisma.division.findFirst({
-        where: { id: input.divisionId, isActive: true },
-        select: { id: true, name: true },
-      });
+      const [division, mapping] = await Promise.all([
+        this.prisma.division.findFirst({
+          where: { id: input.divisionId, isActive: true },
+          select: { id: true, name: true },
+        }),
+        this.prisma.legacyOrgUnitMapping.findFirst({
+          where: {
+            legacyEntityType: 'DIVISION',
+            legacyEntityId: input.divisionId,
+          },
+          select: { officeId: true, orgUnitId: true },
+        }),
+      ]);
 
       if (!division) {
         throw new NotFoundException('Active announcement division was not found.');
       }
+      if (!mapping) {
+        throw new ConflictException(
+          'The legacy announcement division is not mapped to the V3 hierarchy.',
+        );
+      }
+
+      await this.assertActiveV3Scope(mapping.officeId, mapping.orgUnitId);
 
       return {
         audienceType: input.audienceType,
         divisionId: division.id,
         departmentId: null,
+        officeId: mapping.officeId,
+        orgUnitId: mapping.orgUnitId,
+        includeDescendants: true,
         officialConversationId: null,
         label: division.name,
       };
@@ -1932,36 +2136,58 @@ export class AnnouncementsService implements OnModuleInit, OnModuleDestroy {
       if (
         !input.divisionId ||
         !input.departmentId ||
-        input.officialConversationId
+        input.officeId ||
+        input.orgUnitId ||
+        input.officialConversationId ||
+        input.includeDescendants
       ) {
         throw new BadRequestException(
           'A department announcement requires its division and department.',
         );
       }
 
-      const department = await this.prisma.department.findFirst({
-        where: {
-          id: input.departmentId,
-          divisionId: input.divisionId,
-          isActive: true,
-          division: { is: { isActive: true } },
-        },
-        select: {
-          id: true,
-          divisionId: true,
-          name: true,
-          division: { select: { name: true } },
-        },
-      });
+      const [department, mapping] = await Promise.all([
+        this.prisma.department.findFirst({
+          where: {
+            id: input.departmentId,
+            divisionId: input.divisionId,
+            isActive: true,
+            division: { is: { isActive: true } },
+          },
+          select: {
+            id: true,
+            divisionId: true,
+            name: true,
+            division: { select: { name: true } },
+          },
+        }),
+        this.prisma.legacyOrgUnitMapping.findFirst({
+          where: {
+            legacyEntityType: 'DEPARTMENT',
+            legacyEntityId: input.departmentId,
+          },
+          select: { officeId: true, orgUnitId: true },
+        }),
+      ]);
 
       if (!department) {
         throw new NotFoundException('Active announcement department was not found.');
       }
+      if (!mapping) {
+        throw new ConflictException(
+          'The legacy announcement department is not mapped to the V3 hierarchy.',
+        );
+      }
+
+      await this.assertActiveV3Scope(mapping.officeId, mapping.orgUnitId);
 
       return {
         audienceType: input.audienceType,
         divisionId: department.divisionId,
         departmentId: department.id,
+        officeId: mapping.officeId,
+        orgUnitId: mapping.orgUnitId,
+        includeDescendants: true,
         officialConversationId: null,
         label: `${department.division.name} / ${department.name}`,
       };
@@ -1970,7 +2196,10 @@ export class AnnouncementsService implements OnModuleInit, OnModuleDestroy {
     if (
       !input.officialConversationId ||
       input.divisionId ||
-      input.departmentId
+      input.departmentId ||
+      input.officeId ||
+      input.orgUnitId ||
+      input.includeDescendants
     ) {
       throw new BadRequestException(
         'An official-group announcement requires exactly one official group.',
@@ -1990,8 +2219,11 @@ export class AnnouncementsService implements OnModuleInit, OnModuleDestroy {
         officialScopeType: true,
         officialDivisionId: true,
         officialDepartmentId: true,
+        officialOfficeId: true,
+        officialOrgUnitId: true,
+        officialMembershipMode: true,
         participants: {
-          where: { accountId: viewerAccountId, leftAt: null },
+          where: { accountId: viewer.accountId, leftAt: null },
           select: { role: true },
           take: 1,
         },
@@ -2001,23 +2233,111 @@ export class AnnouncementsService implements OnModuleInit, OnModuleDestroy {
     if (!group || !group.officialScopeType) {
       throw new NotFoundException('Official announcement group was not found.');
     }
+    if (!group.officialOfficeId) {
+      throw new ConflictException(
+        'The official group is not bound to the V3 Office hierarchy.',
+      );
+    }
+
+    if (group.officialOrgUnitId) {
+      await this.assertActiveV3Scope(
+        group.officialOfficeId,
+        group.officialOrgUnitId,
+      );
+    }
 
     return {
       audienceType: input.audienceType,
       divisionId: null,
       departmentId: null,
+      officeId: group.officialOfficeId,
+      orgUnitId: group.officialOrgUnitId,
+      // Official-group recipients come from the synchronized group membership.
+      // The group membership mode is kept separately for authorization scope.
+      includeDescendants: false,
       officialConversationId: group.id,
       officialScopeType: group.officialScopeType,
       officialDivisionId: group.officialDivisionId,
       officialDepartmentId: group.officialDepartmentId,
+      officialOfficeId: group.officialOfficeId,
+      officialOrgUnitId: group.officialOrgUnitId,
       officialParticipantRole: group.participants[0]?.role ?? null,
+      officialMembershipMode: group.officialMembershipMode,
       label: group.title ?? 'Official group',
     };
+  }
+
+  private async assertActiveV3Scope(
+    officeId: string,
+    orgUnitId: string,
+  ): Promise<void> {
+    const orgUnit = await this.prisma.orgUnit.findFirst({
+      where: {
+        id: orgUnitId,
+        officeId,
+        isActive: true,
+        office: { is: { isActive: true } },
+      },
+      select: { id: true },
+    });
+    if (!orgUnit) {
+      throw new ConflictException(
+        'The announcement scope is no longer active in the V3 hierarchy.',
+      );
+    }
+  }
+
+  private async canPublishScope(
+    viewer: AnnouncementViewer,
+    officeId: string,
+    orgUnitId: string | null,
+    includeDescendants: boolean,
+    at = new Date(),
+  ): Promise<boolean> {
+    if (viewer.role === AccountRole.SUPER_ADMIN) {
+      return false;
+    }
+
+    const authorizationUser = this.toAuthorizationUser(viewer);
+    const allowed = await this.organizationAuthorization.can(
+      authorizationUser,
+      CAPABILITIES.ANNOUNCEMENT_PUBLISH,
+      officeId,
+      orgUnitId,
+      at,
+    );
+    if (!allowed) {
+      return false;
+    }
+
+    if (!orgUnitId || !includeDescendants) {
+      return true;
+    }
+
+    const [visibleIds, descendants] = await Promise.all([
+      this.organizationAuthorization.visibleOrgUnitIds(
+        authorizationUser,
+        CAPABILITIES.ANNOUNCEMENT_PUBLISH,
+        officeId,
+      ),
+      this.prisma.orgUnitClosure.findMany({
+        where: { ancestorOrgUnitId: orgUnitId },
+        select: { descendantOrgUnitId: true },
+      }),
+    ]);
+    const visible = new Set(visibleIds);
+    visible.add(orgUnitId);
+
+    return descendants.every((link) =>
+      visible.has(link.descendantOrgUnitId),
+    );
   }
 
   private async resolveRecipientAccountIds(
     announcement: AnnouncementDetailRecord,
   ): Promise<string[]> {
+    const now = new Date();
+
     if (
       announcement.audienceType === AnnouncementAudienceType.OFFICIAL_GROUP
     ) {
@@ -2025,7 +2345,7 @@ export class AnnouncementsService implements OnModuleInit, OnModuleDestroy {
         where: {
           conversationId: announcement.officialConversationId ?? undefined,
           leftAt: null,
-          account: this.buildEligibleAccountWhere(),
+          account: this.buildEligibleAccountWhere(now),
         },
         orderBy: { accountId: 'asc' },
         select: { accountId: true },
@@ -2034,35 +2354,36 @@ export class AnnouncementsService implements OnModuleInit, OnModuleDestroy {
       return participants.map((participant) => participant.accountId);
     }
 
-    const employeeScope: Prisma.EmployeeWhereInput = {
-      status: EmployeeStatus.ACTIVE,
-      employmentStatus: EmploymentStatus.ACTIVE,
-      archivedAt: null,
-      isActivated: true,
-      division: { is: { isActive: true } },
-      OR: [
-        { departmentId: null },
-        { departmentUnit: { is: { isActive: true } } },
-      ],
-    };
-
-    if (announcement.audienceType === AnnouncementAudienceType.DIVISION) {
-      employeeScope.divisionId = announcement.divisionId ?? undefined;
+    if (!announcement.officeId) {
+      throw new ConflictException(
+        'The announcement is not bound to a V3 Office audience.',
+      );
     }
 
-    if (announcement.audienceType === AnnouncementAudienceType.DEPARTMENT) {
-      employeeScope.divisionId = announcement.divisionId ?? undefined;
-      employeeScope.departmentId = announcement.departmentId ?? undefined;
+    let orgUnitIds: string[] | null = null;
+    if (announcement.orgUnitId) {
+      if (announcement.includeDescendants) {
+        const descendants = await this.prisma.orgUnitClosure.findMany({
+          where: { ancestorOrgUnitId: announcement.orgUnitId },
+          select: { descendantOrgUnitId: true },
+        });
+        orgUnitIds = [
+          ...new Set([
+            announcement.orgUnitId,
+            ...descendants.map((item) => item.descendantOrgUnitId),
+          ]),
+        ];
+      } else {
+        orgUnitIds = [announcement.orgUnitId];
+      }
     }
 
     const accounts = await this.prisma.account.findMany({
-      where:
-        announcement.audienceType === AnnouncementAudienceType.ORGANIZATION
-          ? this.buildEligibleAccountWhere()
-          : {
-              isEnabled: true,
-              employee: { is: employeeScope },
-            },
+      where: this.buildEligibleAccountWhere(
+        now,
+        announcement.officeId,
+        orgUnitIds,
+      ),
       orderBy: { id: 'asc' },
       select: { id: true },
     });
@@ -2070,7 +2391,11 @@ export class AnnouncementsService implements OnModuleInit, OnModuleDestroy {
     return accounts.map((account) => account.id);
   }
 
-  private buildEligibleAccountWhere(): Prisma.AccountWhereInput {
+  private buildEligibleAccountWhere(
+    at = new Date(),
+    officeId?: string,
+    orgUnitIds?: string[] | null,
+  ): Prisma.AccountWhereInput {
     return {
       isEnabled: true,
       employee: {
@@ -2079,117 +2404,108 @@ export class AnnouncementsService implements OnModuleInit, OnModuleDestroy {
           employmentStatus: EmploymentStatus.ACTIVE,
           archivedAt: null,
           isActivated: true,
-          division: { is: { isActive: true } },
-          OR: [
-            { departmentId: null },
-            { departmentUnit: { is: { isActive: true } } },
-          ],
+          orgMemberships: {
+            some: {
+              ...(officeId ? { officeId } : {}),
+              membershipType: OrgMembershipType.PRIMARY,
+              startsAt: { lte: at },
+              OR: [{ endsAt: null }, { endsAt: { gt: at } }],
+              ...(orgUnitIds
+                ? { orgUnitId: { in: orgUnitIds } }
+                : {}),
+            },
+          },
         },
       },
     };
   }
 
-  private buildOfficialGroupAudienceWhere(
-    viewer: AnnouncementViewer,
-  ): Prisma.ConversationWhereInput {
-    const base: Prisma.ConversationWhereInput = {
-      type: 'GROUP',
-      groupKind: GroupKind.OFFICIAL,
-      officialScopeType: { not: null },
-      participants: {
-        some: {
-          accountId: viewer.accountId,
-          leftAt: null,
-          role: {
-            in: [
-              ConversationParticipantRole.OWNER,
-              ConversationParticipantRole.ADMIN,
-            ],
-          },
-        },
-      },
-    };
-
-    if (viewer.isOfficeHead) {
-      return base;
-    }
-
-    if (viewer.role === AccountRole.SENIOR_MANAGEMENT) {
-      return {
-        ...base,
-        OR: [
-          {
-            officialScopeType: OfficialGroupScopeType.DIVISION,
-            officialDivisionId: viewer.divisionId,
-          },
-          {
-            officialScopeType: OfficialGroupScopeType.DEPARTMENT,
-            officialDivisionId: viewer.divisionId,
-          },
-        ],
-      };
-    }
-
-    return {
-      ...base,
-      officialScopeType: OfficialGroupScopeType.DEPARTMENT,
-      officialDivisionId: viewer.divisionId,
-      officialDepartmentId: viewer.departmentId,
-    };
-  }
-
-  private buildAnnouncementListWhere(
+  private async buildAnnouncementListWhere(
     viewer: AnnouncementViewer,
     filter: AnnouncementListFilter,
-  ): Prisma.AnnouncementWhereInput {
+  ): Promise<Prisma.AnnouncementWhereInput> {
     const received: Prisma.AnnouncementWhereInput = {
       recipients: { some: { accountId: viewer.accountId } },
     };
     let managementScope: Prisma.AnnouncementWhereInput | null = null;
 
-    const managedOfficialGroup: Prisma.AnnouncementWhereInput = {
-      audienceType: AnnouncementAudienceType.OFFICIAL_GROUP,
-      officialConversation: {
-        is: {
-          participants: {
-            some: {
-              accountId: viewer.accountId,
-              leftAt: null,
-              role: {
-                in: [
-                  ConversationParticipantRole.OWNER,
-                  ConversationParticipantRole.ADMIN,
-                ],
+    if (viewer.role !== AccountRole.SUPER_ADMIN && viewer.officeId) {
+      const authorizationUser = this.toAuthorizationUser(viewer);
+      const [canTargetOffice, manageableOrgUnitIds] = await Promise.all([
+        this.organizationAuthorization.can(
+          authorizationUser,
+          CAPABILITIES.ANNOUNCEMENT_PUBLISH,
+          viewer.officeId,
+          null,
+        ),
+        this.organizationAuthorization.visibleOrgUnitIds(
+          authorizationUser,
+          CAPABILITIES.ANNOUNCEMENT_PUBLISH,
+          viewer.officeId,
+        ),
+      ]);
+      const subtreeManageableOrgUnitIds: string[] = [];
+
+      if (!canTargetOffice) {
+        for (const orgUnitId of manageableOrgUnitIds) {
+          if (
+            await this.canPublishScope(
+              viewer,
+              viewer.officeId,
+              orgUnitId,
+              true,
+            )
+          ) {
+            subtreeManageableOrgUnitIds.push(orgUnitId);
+          }
+        }
+      }
+
+      const managedOfficialGroupBase: Prisma.AnnouncementWhereInput = {
+        audienceType: AnnouncementAudienceType.OFFICIAL_GROUP,
+        officialConversation: {
+          is: {
+            officialOfficeId: viewer.officeId,
+            participants: {
+              some: {
+                accountId: viewer.accountId,
+                leftAt: null,
+                role: {
+                  in: [
+                    ConversationParticipantRole.OWNER,
+                    ConversationParticipantRole.ADMIN,
+                  ],
+                },
               },
             },
           },
         },
-      },
-    };
+      };
 
-    if (viewer.isOfficeHead) {
-      managementScope = {
-        OR: [
-          { audienceType: { not: AnnouncementAudienceType.OFFICIAL_GROUP } },
-          managedOfficialGroup,
-        ],
-      };
-    } else if (viewer.role === AccountRole.SENIOR_MANAGEMENT) {
-      managementScope = {
-        OR: [
-          { createdByAccountId: viewer.accountId },
+      if (canTargetOffice) {
+        managementScope = {
+          officeId: viewer.officeId,
+          OR: [
+            { audienceType: { not: AnnouncementAudienceType.OFFICIAL_GROUP } },
+            managedOfficialGroupBase,
+          ],
+        };
+      } else if (manageableOrgUnitIds.length > 0) {
+        const scoped: Prisma.AnnouncementWhereInput[] = [
           {
-            audienceType: AnnouncementAudienceType.DIVISION,
-            divisionId: viewer.divisionId,
+            officeId: viewer.officeId,
+            orgUnitId: { in: manageableOrgUnitIds },
+            includeDescendants: false,
+            audienceType: { not: AnnouncementAudienceType.OFFICIAL_GROUP },
           },
           {
-            audienceType: AnnouncementAudienceType.DEPARTMENT,
-            divisionId: viewer.divisionId,
-          },
-          {
-            ...managedOfficialGroup,
+            audienceType: AnnouncementAudienceType.OFFICIAL_GROUP,
             officialConversation: {
               is: {
+                officialOfficeId: viewer.officeId,
+                officialOrgUnitId: { in: manageableOrgUnitIds },
+                officialMembershipMode:
+                  OfficialGroupMembershipMode.DIRECT_MEMBERS,
                 participants: {
                   some: {
                     accountId: viewer.accountId,
@@ -2202,65 +2518,50 @@ export class AnnouncementsService implements OnModuleInit, OnModuleDestroy {
                     },
                   },
                 },
-                OR: [
-                  {
-                    officialScopeType: OfficialGroupScopeType.DIVISION,
-                    officialDivisionId: viewer.divisionId,
-                  },
-                  {
-                    officialScopeType: OfficialGroupScopeType.DEPARTMENT,
-                    officialDivisionId: viewer.divisionId,
-                  },
-                ],
               },
             },
           },
-        ],
-      };
-    } else if (viewer.role === AccountRole.TEAM_MANAGER) {
-      managementScope = {
-        OR: [
-          { createdByAccountId: viewer.accountId },
-          {
-            audienceType: AnnouncementAudienceType.DEPARTMENT,
-            divisionId: viewer.divisionId,
-            departmentId: viewer.departmentId,
-          },
-          {
-            ...managedOfficialGroup,
-            officialConversation: {
-              is: {
-                participants: {
-                  some: {
-                    accountId: viewer.accountId,
-                    leftAt: null,
-                    role: {
-                      in: [
-                        ConversationParticipantRole.OWNER,
-                        ConversationParticipantRole.ADMIN,
-                      ],
+        ];
+
+        if (subtreeManageableOrgUnitIds.length > 0) {
+          scoped.push(
+            {
+              officeId: viewer.officeId,
+              orgUnitId: { in: subtreeManageableOrgUnitIds },
+              includeDescendants: true,
+              audienceType: { not: AnnouncementAudienceType.OFFICIAL_GROUP },
+            },
+            {
+              audienceType: AnnouncementAudienceType.OFFICIAL_GROUP,
+              officialConversation: {
+                is: {
+                  officialOfficeId: viewer.officeId,
+                  officialOrgUnitId: { in: subtreeManageableOrgUnitIds },
+                  officialMembershipMode:
+                    OfficialGroupMembershipMode.ENTIRE_SUBTREE,
+                  participants: {
+                    some: {
+                      accountId: viewer.accountId,
+                      leftAt: null,
+                      role: {
+                        in: [
+                          ConversationParticipantRole.OWNER,
+                          ConversationParticipantRole.ADMIN,
+                        ],
+                      },
                     },
                   },
                 },
-                officialScopeType: OfficialGroupScopeType.DEPARTMENT,
-                officialDivisionId: viewer.divisionId,
-                officialDepartmentId: viewer.departmentId,
               },
             },
-          },
-        ],
-      };
+          );
+        }
+
+        managementScope = { OR: scoped };
+      }
     }
 
-    /*
-     * Employees can see only announcements for which publication created a
-     * recipient snapshot. Management scopes are optional application state,
-     * not fabricated UUID values used to force an empty database branch.
-     */
-    const visible = buildAnnouncementVisibilityWhere(
-      received,
-      managementScope,
-    );
+    const visible = buildAnnouncementVisibilityWhere(received, managementScope);
 
     switch (filter) {
       case 'UNREAD':
@@ -2287,10 +2588,14 @@ export class AnnouncementsService implements OnModuleInit, OnModuleDestroy {
           },
         };
       case 'DRAFTS':
-        return {
-          createdByAccountId: viewer.accountId,
-          status: AnnouncementStatus.DRAFT,
-        };
+        return managementScope
+          ? {
+              AND: [managementScope, { status: AnnouncementStatus.DRAFT }],
+            }
+          : {
+              createdByAccountId: viewer.accountId,
+              status: AnnouncementStatus.DRAFT,
+            };
       case 'SCHEDULED':
         return { ...visible, status: AnnouncementStatus.SCHEDULED };
       case 'PUBLISHED':
@@ -2313,48 +2618,63 @@ export class AnnouncementsService implements OnModuleInit, OnModuleDestroy {
       throw new ForbiddenException('Your account cannot access announcements.');
     }
 
+    let primaryMembership: {
+      officeId: string;
+      orgUnitId: string | null;
+    } | null = null;
+
     if (account.role !== AccountRole.SUPER_ADMIN) {
       if (
         !account.employee ||
         account.employee.status !== EmployeeStatus.ACTIVE ||
         account.employee.employmentStatus !== EmploymentStatus.ACTIVE ||
         account.employee.archivedAt ||
-        !account.employee.isActivated ||
-        !account.employee.division?.isActive ||
-        (account.employee.departmentId !== null &&
-          !account.employee.departmentUnit?.isActive)
+        !account.employee.isActivated
       ) {
         throw new ForbiddenException(
           'Your active employment record is required for announcements.',
         );
       }
+
+      const now = new Date();
+      primaryMembership = await this.prisma.orgMembership.findFirst({
+        where: {
+          employeeId: account.employee.id,
+          membershipType: OrgMembershipType.PRIMARY,
+          startsAt: { lte: now },
+          OR: [{ endsAt: null }, { endsAt: { gt: now } }],
+          office: { is: { isActive: true } },
+        },
+        select: { officeId: true, orgUnitId: true },
+      });
+
+      if (!primaryMembership) {
+        throw new ForbiddenException(
+          'Your active Office placement is required for announcements.',
+        );
+      }
     }
 
-    const isOfficeHead = await this.isActiveOfficeHeadEmployee(
-      account.employee?.id,
-    );
-
-    if (
-      account.role === AccountRole.SENIOR_MANAGEMENT &&
-      !account.employee?.divisionId
-    ) {
-      throw new ForbiddenException(
-        'Senior Management announcement access requires an assigned division.',
-      );
-    }
-
-    if (
-      account.role === AccountRole.TEAM_MANAGER &&
-      (!account.employee?.divisionId || !account.employee.departmentId)
-    ) {
-      throw new ForbiddenException(
-        'Team Manager announcement access requires an assigned department.',
-      );
-    }
+    const authorizationUser: AuthenticatedUser = {
+      accountId: account.id,
+      sessionId: '',
+      username: account.username,
+      role: account.role,
+    };
+    const isOfficeHead = primaryMembership
+      ? await this.organizationAuthorization.isOfficeHead(
+          authorizationUser,
+          primaryMembership.officeId,
+        )
+      : false;
 
     return {
       accountId: account.id,
+      username: account.username,
       role: account.role,
+      employeeId: account.employee?.id ?? null,
+      officeId: primaryMembership?.officeId ?? null,
+      primaryOrgUnitId: primaryMembership?.orgUnitId ?? null,
       isOfficeHead,
       divisionId: account.employee?.divisionId ?? null,
       departmentId: account.employee?.departmentId ?? null,
@@ -2363,13 +2683,28 @@ export class AnnouncementsService implements OnModuleInit, OnModuleDestroy {
     };
   }
 
-  private assertPublisherRole(viewer: AnnouncementViewer): void {
-    if (
-      viewer.role === AccountRole.SUPER_ADMIN ||
-      (viewer.role === AccountRole.EMPLOYEE && !viewer.isOfficeHead)
-    ) {
+  private toAuthorizationUser(viewer: AnnouncementViewer): AuthenticatedUser {
+    return {
+      accountId: viewer.accountId,
+      sessionId: '',
+      username: viewer.username,
+      role: viewer.role,
+    };
+  }
+
+  private requireViewerOffice(viewer: AnnouncementViewer): string {
+    if (!viewer.officeId) {
       throw new ForbiddenException(
-        'Only authorized Office management can publish announcements.',
+        'An active Office placement is required for announcement publishing.',
+      );
+    }
+    return viewer.officeId;
+  }
+
+  private assertPublisherRole(viewer: AnnouncementViewer): void {
+    if (viewer.role === AccountRole.SUPER_ADMIN || !viewer.officeId) {
+      throw new ForbiddenException(
+        'Only authorized Office members can publish announcements.',
       );
     }
   }
@@ -2404,7 +2739,9 @@ export class AnnouncementsService implements OnModuleInit, OnModuleDestroy {
   ): Promise<boolean> {
     if (
       viewer.role === AccountRole.SUPER_ADMIN ||
-      (viewer.role === AccountRole.EMPLOYEE && !viewer.isOfficeHead)
+      !viewer.officeId ||
+      !announcement.officeId ||
+      viewer.officeId !== announcement.officeId
     ) {
       return false;
     }
@@ -2423,15 +2760,32 @@ export class AnnouncementsService implements OnModuleInit, OnModuleDestroy {
       audienceType: announcement.audienceType,
       divisionId: announcement.divisionId,
       departmentId: announcement.departmentId,
+      officeId: announcement.officeId,
+      orgUnitId: announcement.orgUnitId,
+      includeDescendants: announcement.includeDescendants,
       officialScopeType: announcement.officialConversation?.officialScopeType,
       officialDivisionId:
         announcement.officialConversation?.officialDivisionId,
       officialDepartmentId:
         announcement.officialConversation?.officialDepartmentId,
+      officialOfficeId: announcement.officialConversation?.officialOfficeId,
+      officialOrgUnitId: announcement.officialConversation?.officialOrgUnitId,
       officialParticipantRole: officialParticipant?.role ?? null,
     };
 
-    return getAnnouncementAudiencePolicyViolation(viewer, policyAudience) === null;
+    if (getAnnouncementAudiencePolicyViolation(viewer, policyAudience)) {
+      return false;
+    }
+
+    return this.canPublishScope(
+      viewer,
+      announcement.officeId,
+      announcement.orgUnitId,
+      announcement.audienceType === AnnouncementAudienceType.OFFICIAL_GROUP
+        ? announcement.officialConversation?.officialMembershipMode ===
+          OfficialGroupMembershipMode.ENTIRE_SUBTREE
+        : announcement.includeDescendants,
+    );
   }
 
   private async assertCanViewAnnouncement(
@@ -2643,10 +2997,19 @@ export class AnnouncementsService implements OnModuleInit, OnModuleDestroy {
 
   private serializeAudience(announcement: {
     audienceType: AnnouncementAudienceType;
+    includeDescendants: boolean;
     division: { id: string; code: string; name: string } | null;
     department: {
       id: string;
       divisionId: string;
+      code: string;
+      name: string;
+    } | null;
+    office: { id: string; code: string; name: string } | null;
+    orgUnit: {
+      id: string;
+      officeId: string;
+      parentOrgUnitId: string | null;
       code: string;
       name: string;
     } | null;
@@ -2656,6 +3019,9 @@ export class AnnouncementsService implements OnModuleInit, OnModuleDestroy {
       type: announcement.audienceType,
       division: announcement.division,
       department: announcement.department,
+      office: announcement.office,
+      orgUnit: announcement.orgUnit,
+      includeDescendants: announcement.includeDescendants,
       officialGroup: announcement.officialConversation
         ? {
             id: announcement.officialConversation.id,
@@ -2739,6 +3105,9 @@ export class AnnouncementsService implements OnModuleInit, OnModuleDestroy {
     audienceType: AnnouncementAudienceType;
     divisionId: string | null;
     departmentId: string | null;
+    officeId: string | null;
+    orgUnitId: string | null;
+    includeDescendants: boolean;
     officialConversationId: string | null;
     priority: AnnouncementPriority;
     currentRevision: number;
@@ -2757,6 +3126,13 @@ export class AnnouncementsService implements OnModuleInit, OnModuleDestroy {
     }
     if (announcement.departmentId) {
       metadata.departmentId = announcement.departmentId;
+    }
+    if (announcement.officeId) {
+      metadata.officeId = announcement.officeId;
+    }
+    if (announcement.orgUnitId) {
+      metadata.orgUnitId = announcement.orgUnitId;
+      metadata.includeDescendants = announcement.includeDescendants;
     }
     if (announcement.officialConversationId) {
       metadata.officialConversationId = announcement.officialConversationId;

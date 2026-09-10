@@ -18,6 +18,10 @@ function trimOptionalString(value: unknown): unknown {
   return typeof value === 'string' ? value.trim() : value;
 }
 
+function emptyStringToNull(value: unknown): unknown {
+  return value === '' ? null : value;
+}
+
 export class CreateAnnouncementDto {
   @IsEnum(AnnouncementAudienceType)
   audienceType!: AnnouncementAudienceType;
@@ -29,6 +33,18 @@ export class CreateAnnouncementDto {
   @IsOptional()
   @IsUUID('4')
   departmentId?: string;
+
+  @IsOptional()
+  @IsUUID('4')
+  officeId?: string;
+
+  @IsOptional()
+  @IsUUID('4')
+  orgUnitId?: string;
+
+  @IsOptional()
+  @IsBoolean()
+  includeDescendants?: boolean;
 
   @IsOptional()
   @IsUUID('4')
@@ -63,12 +79,12 @@ export class CreateAnnouncementDto {
   isPinned?: boolean;
 
   @IsOptional()
-  @Transform(({ value }) => (value === '' ? null : value))
+  @Transform(({ value }) => emptyStringToNull(value))
   @IsDateString()
   scheduledAt?: string | null;
 
   @IsOptional()
-  @Transform(({ value }) => (value === '' ? null : value))
+  @Transform(({ value }) => emptyStringToNull(value))
   @IsDateString()
   expiresAt?: string | null;
 }

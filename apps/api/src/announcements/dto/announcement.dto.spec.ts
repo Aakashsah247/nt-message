@@ -31,6 +31,19 @@ describe('announcement DTO validation', () => {
     expect(validateSync(validCreateDto())).toHaveLength(0);
   });
 
+  it('accepts native Office/OrgUnit audience fields', () => {
+    const dto = Object.assign(new CreateAnnouncementDto(), {
+      audienceType: AnnouncementAudienceType.ORG_UNIT,
+      officeId: '22222222-2222-4222-8222-222222222222',
+      orgUnitId: '33333333-3333-4333-8333-333333333333',
+      includeDescendants: true,
+      title: 'Technical maintenance',
+      body: 'Maintenance is planned for the selected organizational subtree.',
+    });
+
+    expect(validateSync(dto)).toHaveLength(0);
+  });
+
   it('rejects unknown audience and priority values', () => {
     const dto = Object.assign(validCreateDto(), {
       audienceType: 'UNKNOWN',
@@ -38,7 +51,9 @@ describe('announcement DTO validation', () => {
     });
 
     const errors = validateSync(dto);
-    expect(errors.some((error) => error.property === 'audienceType')).toBe(true);
+    expect(errors.some((error) => error.property === 'audienceType')).toBe(
+      true,
+    );
     expect(errors.some((error) => error.property === 'priority')).toBe(true);
   });
 

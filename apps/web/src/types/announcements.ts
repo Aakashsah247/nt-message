@@ -4,7 +4,9 @@ export type AnnouncementAudienceType =
   | "ORGANIZATION"
   | "DIVISION"
   | "DEPARTMENT"
-  | "OFFICIAL_GROUP";
+  | "OFFICIAL_GROUP"
+  | "OFFICE"
+  | "ORG_UNIT";
 
 export type AnnouncementPriority =
   | "NORMAL"
@@ -50,6 +52,21 @@ export interface AnnouncementDepartment {
   name: string;
 }
 
+
+export interface AnnouncementOffice {
+  id: string;
+  code: string;
+  name: string;
+}
+
+export interface AnnouncementOrgUnit {
+  id: string;
+  officeId: string;
+  parentOrgUnitId: string | null;
+  code: string;
+  name: string;
+}
+
 export interface AnnouncementOfficialGroup {
   id: string;
   title: string;
@@ -59,6 +76,9 @@ export interface AnnouncementAudience {
   type: AnnouncementAudienceType;
   division: AnnouncementDivision | null;
   department: AnnouncementDepartment | null;
+  office: AnnouncementOffice | null;
+  orgUnit: AnnouncementOrgUnit | null;
+  includeDescendants: boolean;
   officialGroup: AnnouncementOfficialGroup | null;
 }
 
@@ -143,6 +163,13 @@ export interface AnnouncementReport {
 
 export interface AnnouncementAudienceOptions {
   canTargetOrganization: boolean;
+  canTargetOffice: boolean;
+  office: AnnouncementOffice;
+  orgUnits: Array<
+    AnnouncementOrgUnit & {
+      orgUnitType: { name: string; isTeam: boolean };
+    }
+  >;
   divisions: AnnouncementDivision[];
   departments: Array<
     AnnouncementDepartment & {
@@ -153,8 +180,9 @@ export interface AnnouncementAudienceOptions {
     id: string;
     title: string;
     scopeType: string | null;
-    divisionId: string | null;
-    departmentId: string | null;
+    officeId: string | null;
+    orgUnitId: string | null;
+    membershipMode: "DIRECT_MEMBERS" | "ENTIRE_SUBTREE" | null;
     activeMemberCount: number;
   }>;
 }
@@ -188,6 +216,9 @@ export interface CreateAnnouncementInput extends AnnouncementMutationInput {
   audienceType: AnnouncementAudienceType;
   divisionId?: string;
   departmentId?: string;
+  officeId?: string;
+  orgUnitId?: string;
+  includeDescendants?: boolean;
   officialConversationId?: string;
 }
 

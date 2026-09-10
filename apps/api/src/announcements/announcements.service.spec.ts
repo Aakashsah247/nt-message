@@ -11,6 +11,7 @@ import {
   EmploymentStatus,
 } from '../generated/prisma/enums';
 import { MessagingEventsService } from '../realtime/messaging-events.service';
+import { OrganizationAuthorizationService } from '../organization/organization-authorization.service';
 import { AnnouncementsService } from './announcements.service';
 
 jest.mock('../database/prisma.service', () => ({
@@ -29,6 +30,8 @@ jest.mock('../generated/prisma/client', () =>
 
 const DIVISION_ID = '22222222-2222-4222-8222-222222222222';
 const DEPARTMENT_ID = '33333333-3333-4333-8333-333333333333';
+const OFFICE_ID = '44444444-4444-4444-8444-444444444444';
+const ORG_UNIT_ID = '99999999-9999-4999-8999-999999999999';
 const ANNOUNCEMENT_ID = '55555555-5555-4555-8555-555555555555';
 const MANAGER_ID = '11111111-1111-4111-8111-111111111111';
 const OWNER_ID = '77777777-7777-4777-8777-777777777777';
@@ -73,22 +76,29 @@ function createAccount(id: string, role: AccountRole) {
   };
 }
 
-function organizationAuthorityMocks(
-  employeeId: string | null,
-  isOfficeHead = false,
-) {
+function organizationAuthorityMocks(employeeId: string | null) {
   return {
-    orgLeadershipAssignment: {
-      findFirst: jest.fn().mockResolvedValue(
-        isOfficeHead && employeeId ? { officeId: 'office-patan' } : null,
-      ),
-    },
     orgMembership: {
-      findFirst: jest.fn().mockResolvedValue(
-        isOfficeHead && employeeId ? { officeId: 'office-patan' } : null,
-      ),
+      findFirst: jest
+        .fn()
+        .mockResolvedValue(
+          employeeId ? { officeId: OFFICE_ID, orgUnitId: ORG_UNIT_ID } : null,
+        ),
     },
   };
+}
+
+function authorizationStub(
+  input: {
+    isOfficeHead?: boolean;
+    canPublish?: boolean;
+  } = {},
+): OrganizationAuthorizationService {
+  return {
+    isOfficeHead: jest.fn().mockResolvedValue(input.isOfficeHead ?? false),
+    can: jest.fn().mockResolvedValue(input.canPublish ?? true),
+    visibleOrgUnitIds: jest.fn().mockResolvedValue([ORG_UNIT_ID]),
+  } as unknown as OrganizationAuthorizationService;
 }
 
 function createAnnouncement(
@@ -98,9 +108,12 @@ function createAnnouncement(
   return {
     id: ANNOUNCEMENT_ID,
     createdByAccountId: creator.id,
-    audienceType: AnnouncementAudienceType.DEPARTMENT,
-    divisionId: DIVISION_ID,
-    departmentId: DEPARTMENT_ID,
+    audienceType: AnnouncementAudienceType.ORG_UNIT,
+    divisionId: null,
+    departmentId: null,
+    officeId: OFFICE_ID,
+    orgUnitId: ORG_UNIT_ID,
+    includeDescendants: false,
     officialConversationId: null,
     title: 'Planned maintenance',
     body: 'Maintenance starts at 10:00 PM.',
@@ -113,8 +126,7 @@ function createAnnouncement(
     scheduledAt: null,
     publishedAt: status === AnnouncementStatus.PUBLISHED ? NOW : null,
     expiresAt: null,
-    publishClaimedAt:
-      status === AnnouncementStatus.PUBLISHING ? NOW : null,
+    publishClaimedAt: status === AnnouncementStatus.PUBLISHING ? NOW : null,
     nextPublishAttemptAt: null,
     publishAttempts: 0,
     publishFailureReason: null,
@@ -127,11 +139,19 @@ function createAnnouncement(
       name: 'Division A',
       isActive: true,
     },
-    department: {
-      id: DEPARTMENT_ID,
-      divisionId: DIVISION_ID,
-      code: 'DEP-A',
-      name: 'Department A',
+    department: null,
+    office: {
+      id: OFFICE_ID,
+      code: 'PATAN',
+      name: 'Patan Office',
+      isActive: true,
+    },
+    orgUnit: {
+      id: ORG_UNIT_ID,
+      officeId: OFFICE_ID,
+      parentOrgUnitId: null,
+      code: 'TECH',
+      name: 'Technical',
       isActive: true,
     },
     officialConversation: null,
@@ -171,7 +191,10 @@ function createAnnouncement(
   };
 }
 
-function authenticatedUser(accountId: string, role: AccountRole): AuthenticatedUser {
+function authenticatedUser(
+  accountId: string,
+  role: AccountRole,
+): AuthenticatedUser {
   return {
     accountId,
     sessionId: '66666666-6666-4666-8666-666666666666',
@@ -192,6 +215,7 @@ describe('AnnouncementsService', () => {
     const service = new AnnouncementsService(
       prisma,
       {} as MessagingEventsService,
+      authorizationStub(),
     );
 
     const response = await service.getById(
@@ -221,12 +245,16 @@ describe('AnnouncementsService', () => {
         findUnique: jest.fn().mockResolvedValue(announcement),
         deleteMany,
       },
-      ...organizationAuthorityMocks(owner.employee?.id ?? null, true),
+      ...organizationAuthorityMocks(owner.employee?.id ?? null),
     } as unknown as PrismaService;
     const events = {
       emitAnnouncementDeleted,
     } as unknown as MessagingEventsService;
-    const service = new AnnouncementsService(prisma, events);
+    const service = new AnnouncementsService(
+      prisma,
+      events,
+      authorizationStub({ isOfficeHead: true }),
+    );
 
     try {
       const response = await service.deleteAnnouncement(
@@ -311,6 +339,7 @@ describe('AnnouncementsService', () => {
     const service = new AnnouncementsService(
       prisma,
       {} as MessagingEventsService,
+      authorizationStub(),
     );
 
     await expect(
@@ -427,5 +456,4 @@ describe('AnnouncementsService', () => {
       unlink.mockRestore();
     }
   });
-
 });

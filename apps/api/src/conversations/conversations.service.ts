@@ -1164,6 +1164,7 @@ export class ConversationsService {
   private async isActiveOfficeHeadForOffice(
     employeeId: string | null | undefined,
     officeId: string,
+    at = new Date(),
   ): Promise<boolean> {
     if (!employeeId) {
       return false;
@@ -1172,6 +1173,7 @@ export class ConversationsService {
     const officeHeadIds = await this.getActiveOfficeHeadEmployeeIdsForOffice(
       officeId,
       [employeeId],
+      at,
     );
     return officeHeadIds.has(employeeId);
   }

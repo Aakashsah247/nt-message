@@ -2,7 +2,6 @@ import {
   AccountRole,
   AnnouncementAudienceType,
   ConversationParticipantRole,
-  OfficialGroupScopeType,
 } from '../generated/prisma/enums';
 import {
   canModifyAnnouncementByCreator,
@@ -21,114 +20,42 @@ const officeHead = {
   accountId: 'office-head',
   role: AccountRole.EMPLOYEE,
   isOfficeHead: true,
-  divisionId: 'division-a',
+  divisionId: null,
   departmentId: null,
 };
 
-const seniorManager = {
-  accountId: 'senior-manager',
-  role: AccountRole.SENIOR_MANAGEMENT,
+const delegatedEmployee = {
+  accountId: 'delegated-employee',
+  role: AccountRole.EMPLOYEE,
   isOfficeHead: false,
-  divisionId: 'division-a',
+  divisionId: null,
   departmentId: null,
-};
-
-const teamManager = {
-  accountId: 'team-manager',
-  role: AccountRole.TEAM_MANAGER,
-  isOfficeHead: false,
-  divisionId: 'division-a',
-  departmentId: 'department-a',
 };
 
 describe('announcement audience policy', () => {
   it('denies Super Admin operational announcement audiences', () => {
     expect(
       getAnnouncementAudiencePolicyViolation(superAdmin, {
-        audienceType: AnnouncementAudienceType.ORGANIZATION,
+        audienceType: AnnouncementAudienceType.OFFICE,
         divisionId: null,
         departmentId: null,
+        officeId: 'office-a',
+        orgUnitId: null,
       }),
     ).toBe('ROLE_NOT_AUTHORIZED');
   });
 
-  it('allows the active Office Head across Office announcement audiences', () => {
+  it('leaves Office/OrgUnit scope authorization to the canonical V3 service', () => {
     expect(
-      getAnnouncementAudiencePolicyViolation(officeHead, {
-        audienceType: AnnouncementAudienceType.ORGANIZATION,
+      getAnnouncementAudiencePolicyViolation(delegatedEmployee, {
+        audienceType: AnnouncementAudienceType.ORG_UNIT,
         divisionId: null,
         departmentId: null,
+        officeId: 'office-a',
+        orgUnitId: 'unit-a',
+        includeDescendants: true,
       }),
     ).toBeNull();
-    expect(
-      getAnnouncementAudiencePolicyViolation(officeHead, {
-        audienceType: AnnouncementAudienceType.DEPARTMENT,
-        divisionId: 'division-b',
-        departmentId: 'department-b',
-      }),
-    ).toBeNull();
-  });
-
-  it('allows Senior Management only inside the assigned division', () => {
-    expect(
-      getAnnouncementAudiencePolicyViolation(seniorManager, {
-        audienceType: AnnouncementAudienceType.DEPARTMENT,
-        divisionId: 'division-a',
-        departmentId: 'department-b',
-      }),
-    ).toBeNull();
-
-    expect(
-      getAnnouncementAudiencePolicyViolation(seniorManager, {
-        audienceType: AnnouncementAudienceType.DIVISION,
-        divisionId: 'division-b',
-        departmentId: null,
-      }),
-    ).toBe('DIVISION_OUT_OF_SCOPE');
-  });
-
-  it('allows Team Manager only for the assigned department', () => {
-    expect(
-      getAnnouncementAudiencePolicyViolation(teamManager, {
-        audienceType: AnnouncementAudienceType.DEPARTMENT,
-        divisionId: 'division-a',
-        departmentId: 'department-a',
-      }),
-    ).toBeNull();
-
-    expect(
-      getAnnouncementAudiencePolicyViolation(teamManager, {
-        audienceType: AnnouncementAudienceType.DEPARTMENT,
-        divisionId: 'division-a',
-        departmentId: 'department-b',
-      }),
-    ).toBe('DEPARTMENT_OUT_OF_SCOPE');
-  });
-
-  it('uses the server-owned official-group scope', () => {
-    expect(
-      getAnnouncementAudiencePolicyViolation(teamManager, {
-        audienceType: AnnouncementAudienceType.OFFICIAL_GROUP,
-        divisionId: null,
-        departmentId: null,
-        officialScopeType: OfficialGroupScopeType.DEPARTMENT,
-        officialDivisionId: 'division-a',
-        officialDepartmentId: 'department-a',
-        officialParticipantRole: ConversationParticipantRole.ADMIN,
-      }),
-    ).toBeNull();
-
-    expect(
-      getAnnouncementAudiencePolicyViolation(teamManager, {
-        audienceType: AnnouncementAudienceType.OFFICIAL_GROUP,
-        divisionId: null,
-        departmentId: null,
-        officialScopeType: OfficialGroupScopeType.ORGANIZATION,
-        officialDivisionId: null,
-        officialDepartmentId: null,
-        officialParticipantRole: ConversationParticipantRole.ADMIN,
-      }),
-    ).toBe('OFFICIAL_GROUP_OUT_OF_SCOPE');
   });
 
   it('requires an active official-group owner or admin role', () => {
@@ -136,108 +63,68 @@ describe('announcement audience policy', () => {
       audienceType: AnnouncementAudienceType.OFFICIAL_GROUP,
       divisionId: null,
       departmentId: null,
-      officialScopeType: OfficialGroupScopeType.DEPARTMENT,
-      officialDivisionId: 'division-a',
-      officialDepartmentId: 'department-a',
+      officeId: 'office-a',
+      orgUnitId: 'unit-a',
     };
 
     expect(
-      getAnnouncementAudiencePolicyViolation(teamManager, {
+      getAnnouncementAudiencePolicyViolation(delegatedEmployee, {
         ...audience,
         officialParticipantRole: ConversationParticipantRole.OWNER,
       }),
     ).toBeNull();
     expect(
-      getAnnouncementAudiencePolicyViolation(teamManager, {
+      getAnnouncementAudiencePolicyViolation(delegatedEmployee, {
         ...audience,
         officialParticipantRole: ConversationParticipantRole.ADMIN,
       }),
     ).toBeNull();
     expect(
-      getAnnouncementAudiencePolicyViolation(teamManager, {
+      getAnnouncementAudiencePolicyViolation(delegatedEmployee, {
         ...audience,
         officialParticipantRole: ConversationParticipantRole.MEMBER,
       }),
     ).toBe('OFFICIAL_GROUP_ROLE_REQUIRED');
     expect(
-      getAnnouncementAudiencePolicyViolation(teamManager, {
+      getAnnouncementAudiencePolicyViolation(officeHead, {
         ...audience,
         officialParticipantRole: null,
       }),
     ).toBe('OFFICIAL_GROUP_ROLE_REQUIRED');
   });
-
-  it('does not let Office Head authority bypass official-group membership role', () => {
-    expect(
-      getAnnouncementAudiencePolicyViolation(officeHead, {
-        audienceType: AnnouncementAudienceType.OFFICIAL_GROUP,
-        divisionId: null,
-        departmentId: null,
-        officialScopeType: OfficialGroupScopeType.ORGANIZATION,
-        officialDivisionId: null,
-        officialDepartmentId: null,
-        officialParticipantRole: ConversationParticipantRole.MEMBER,
-      }),
-    ).toBe('OFFICIAL_GROUP_ROLE_REQUIRED');
-  });
-
-  it('rejects a normal Employee publisher for every audience', () => {
-    expect(
-      getAnnouncementAudiencePolicyViolation(
-        {
-          accountId: 'employee',
-          role: AccountRole.EMPLOYEE,
-          isOfficeHead: false,
-          divisionId: 'division-a',
-          departmentId: 'department-a',
-        },
-        {
-          audienceType: AnnouncementAudienceType.DEPARTMENT,
-          divisionId: 'division-a',
-          departmentId: 'department-a',
-        },
-      ),
-    ).toBe('ROLE_NOT_AUTHORIZED');
-  });
 });
 
 describe('announcement creator mutation policy', () => {
-  it('lets the creator or Office Head modify a management announcement', () => {
-    const creator = {
-      id: 'team-manager',
-      role: AccountRole.TEAM_MANAGER,
-    };
-
-    expect(canModifyAnnouncementByCreator(teamManager, creator)).toBe(true);
-    expect(canModifyAnnouncementByCreator(officeHead, creator)).toBe(true);
+  it('lets the creator modify an announcement when current scope authorization passes', () => {
+    expect(
+      canModifyAnnouncementByCreator(delegatedEmployee, {
+        id: delegatedEmployee.accountId,
+        role: AccountRole.EMPLOYEE,
+      }),
+    ).toBe(true);
   });
 
-  it('blocks Super Admin from modifying an Office announcement', () => {
+  it('lets Office Head take over historical announcements', () => {
+    expect(
+      canModifyAnnouncementByCreator(officeHead, {
+        id: 'legacy-manager',
+        role: AccountRole.TEAM_MANAGER,
+      }),
+    ).toBe(true);
+    expect(
+      canModifyAnnouncementByCreator(officeHead, {
+        id: 'super-admin',
+        role: AccountRole.SUPER_ADMIN,
+      }),
+    ).toBe(true);
+  });
+
+  it('never grants Super Admin announcement mutation authority', () => {
     expect(
       canModifyAnnouncementByCreator(superAdmin, {
-        id: 'team-manager',
-        role: AccountRole.TEAM_MANAGER,
+        id: superAdmin.accountId,
+        role: AccountRole.SUPER_ADMIN,
       }),
     ).toBe(false);
-  });
-
-  it('blocks another manager from modifying a management announcement', () => {
-    expect(
-      canModifyAnnouncementByCreator(seniorManager, {
-        id: 'team-manager',
-        role: AccountRole.TEAM_MANAGER,
-      }),
-    ).toBe(false);
-  });
-
-  it('lets Office Head take over a historical Super Admin announcement', () => {
-    const creator = {
-      id: 'super-admin',
-      role: AccountRole.SUPER_ADMIN,
-    };
-
-    expect(canModifyAnnouncementByCreator(officeHead, creator)).toBe(true);
-    expect(canModifyAnnouncementByCreator(superAdmin, creator)).toBe(false);
-    expect(canModifyAnnouncementByCreator(seniorManager, creator)).toBe(false);
   });
 });
