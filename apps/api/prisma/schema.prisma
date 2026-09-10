@@ -145,6 +145,13 @@ enum OfficialGroupScopeType {
   ORGANIZATION
   DIVISION
   DEPARTMENT
+  OFFICE
+  ORG_UNIT
+}
+
+enum OfficialGroupMembershipMode {
+  DIRECT_MEMBERS
+  ENTIRE_SUBTREE
 }
 
 enum OfficialGroupAuditAction {
@@ -159,6 +166,8 @@ enum AnnouncementAudienceType {
   DIVISION
   DEPARTMENT
   OFFICIAL_GROUP
+  OFFICE
+  ORG_UNIT
 }
 
 enum AnnouncementPriority {
@@ -599,6 +608,8 @@ model Office {
   dutyCoverageV3        DutyCoverageRequirement[] @relation("DutyCoverageRequirementsOfficeV3")
   dutyExceptionsV3      DutyException[]           @relation("DutyExceptionsOfficeV3")
   dutyHolidaysV3        DutyHoliday[]             @relation("DutyHolidaysOfficeV3")
+  officialGroupsV3      Conversation[]            @relation("OfficialGroupOfficeV3")
+  announcementsV3       Announcement[]            @relation("AnnouncementOfficeV3")
 
   @@index([isActive, sortOrder], map: "offices_active_sort_idx")
   @@map("offices")
@@ -719,6 +730,8 @@ model OrgUnit {
   dutyCoverageV3             DutyCoverageRequirement[]  @relation("DutyCoverageRequirementsOrgUnitV3")
   dutyExceptionsV3           DutyException[]            @relation("DutyExceptionsOrgUnitV3")
   dutyHolidaysV3             DutyHoliday[]              @relation("DutyHolidaysOrgUnitV3")
+  officialGroupsV3           Conversation[]             @relation("OfficialGroupOrgUnitV3")
+  announcementsV3            Announcement[]             @relation("AnnouncementOrgUnitV3")
 
   @@unique([officeId, code], map: "org_units_office_code_key")
   @@index([officeId, parentOrgUnitId, isActive, sortOrder], map: "org_units_parent_active_sort_idx")
@@ -1607,14 +1620,17 @@ model Conversation {
 
   type ConversationType @default(PRIVATE)
 
-  title                 String?                 @db.VarChar(150)
-  description           String?                 @db.VarChar(500)
-  groupPhotoKey         String?                 @map("group_photo_key") @db.VarChar(500)
-  groupKind             GroupKind?              @map("group_kind")
-  officialScopeType     OfficialGroupScopeType? @map("official_scope_type")
-  officialDivisionId    String?                 @map("official_division_id") @db.Uuid
-  officialDepartmentId  String?                 @map("official_department_id") @db.Uuid
-  privateParticipantKey String?                 @unique(map: "conversations_private_participant_key_key") @map("private_participant_key") @db.VarChar(73)
+  title                  String?                      @db.VarChar(150)
+  description            String?                      @db.VarChar(500)
+  groupPhotoKey          String?                      @map("group_photo_key") @db.VarChar(500)
+  groupKind              GroupKind?                   @map("group_kind")
+  officialScopeType      OfficialGroupScopeType?      @map("official_scope_type")
+  officialDivisionId     String?                      @map("official_division_id") @db.Uuid
+  officialDepartmentId   String?                      @map("official_department_id") @db.Uuid
+  officialOfficeId       String?                      @map("official_office_id") @db.Uuid
+  officialOrgUnitId      String?                      @map("official_org_unit_id") @db.Uuid
+  officialMembershipMode OfficialGroupMembershipMode? @map("official_membership_mode")
+  privateParticipantKey  String?                      @unique(map: "conversations_private_participant_key_key") @map("private_participant_key") @db.VarChar(73)
 
   createdByAccountId String @map("created_by_account_id") @db.Uuid
 
@@ -1625,6 +1641,8 @@ model Conversation {
   createdBy                Account                        @relation("ConversationsCreatedBy", fields: [createdByAccountId], references: [id], onDelete: Restrict)
   officialDivision         Division?                      @relation("OfficialGroupDivision", fields: [officialDivisionId], references: [id], onDelete: Restrict)
   officialDepartment       Department?                    @relation("OfficialGroupDepartment", fields: [officialDepartmentId], references: [id], onDelete: Restrict)
+  officialOffice           Office?                        @relation("OfficialGroupOfficeV3", fields: [officialOfficeId], references: [id], onDelete: Restrict)
+  officialOrgUnit          OrgUnit?                       @relation("OfficialGroupOrgUnitV3", fields: [officialOrgUnitId], references: [id], onDelete: Restrict)
   participants             ConversationParticipant[]
   officialReceiptIntervals OfficialGroupReceiptInterval[]
   messages                 Message[]
@@ -1640,6 +1658,7 @@ model Conversation {
   @@index([groupKind, updatedAt], map: "conversations_group_kind_idx")
   @@index([groupPhotoKey], map: "conversations_group_photo_key_idx")
   @@index([officialScopeType, officialDivisionId, officialDepartmentId], map: "conversations_official_scope_idx")
+  @@index([officialOfficeId, officialOrgUnitId, officialMembershipMode], map: "conversations_official_v3_scope_idx")
   @@index([createdByAccountId], map: "conversations_created_by_idx")
   @@index([lastMessageAt], map: "conversations_last_message_idx")
   @@map("conversations")
@@ -1993,6 +2012,9 @@ model Announcement {
   audienceType           AnnouncementAudienceType @map("audience_type")
   divisionId             String?                  @map("division_id") @db.Uuid
   departmentId           String?                  @map("department_id") @db.Uuid
+  officeId               String?                  @map("office_id") @db.Uuid
+  orgUnitId              String?                  @map("org_unit_id") @db.Uuid
+  includeDescendants     Boolean                  @default(false) @map("include_descendants")
   officialConversationId String?                  @map("official_conversation_id") @db.Uuid
 
   title    String               @default("") @db.VarChar(160)
@@ -2019,6 +2041,8 @@ model Announcement {
   createdBy            Account       @relation("AnnouncementsCreatedBy", fields: [createdByAccountId], references: [id], onDelete: Restrict)
   division             Division?     @relation("AnnouncementDivision", fields: [divisionId], references: [id], onDelete: Restrict)
   department           Department?   @relation("AnnouncementDepartment", fields: [departmentId], references: [id], onDelete: Restrict)
+  office               Office?       @relation("AnnouncementOfficeV3", fields: [officeId], references: [id], onDelete: Restrict)
+  orgUnit              OrgUnit?      @relation("AnnouncementOrgUnitV3", fields: [orgUnitId], references: [id], onDelete: Restrict)
   officialConversation Conversation? @relation("AnnouncementOfficialConversation", fields: [officialConversationId], references: [id], onDelete: Restrict)
 
   revisions        AnnouncementRevision[]
@@ -2030,6 +2054,7 @@ model Announcement {
   @@index([createdByAccountId, status, updatedAt], map: "announcements_creator_status_updated_idx")
   @@index([status, scheduledAt, nextPublishAttemptAt], map: "announcements_publish_queue_idx")
   @@index([audienceType, divisionId, departmentId], map: "announcements_audience_scope_idx")
+  @@index([officeId, orgUnitId, audienceType, includeDescendants], map: "announcements_v3_audience_scope_idx")
   @@index([officialConversationId, status, publishedAt], map: "announcements_official_conversation_idx")
   @@index([publishedAt], map: "announcements_published_idx")
   @@index([expiresAt], map: "announcements_expires_idx")
@@ -3073,17 +3098,17 @@ model DutyScheduleSeries {
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
 
-  employee    Account            @relation("DutyScheduleSeriesEmployee", fields: [employeeAccountId], references: [id], onDelete: Restrict)
-  shift       DutyShiftTemplate? @relation(fields: [shiftTemplateId], references: [id], onDelete: SetNull)
-  supervisor  Account            @relation("DutyScheduleSeriesSupervisor", fields: [supervisorAccountId], references: [id], onDelete: Restrict)
-  createdBy   Account            @relation("DutyScheduleSeriesCreatedBy", fields: [createdByAccountId], references: [id], onDelete: Restrict)
-  office      Office?            @relation("DutyScheduleSeriesOfficeV3", fields: [officeId], references: [id], onDelete: Restrict)
-  orgUnit     OrgUnit?           @relation("DutyScheduleSeriesOrgUnitV3", fields: [orgUnitId], references: [id], onDelete: Restrict)
-  operationalTeam OperationalTeam? @relation("DutyScheduleSeriesOperationalTeamV3", fields: [operationalTeamId], references: [id], onDelete: Restrict)
-  division    Division?          @relation(fields: [divisionId], references: [id], onDelete: Restrict)
-  department  Department?        @relation(fields: [departmentId], references: [id], onDelete: Restrict)
-  assignments DutyAssignment[]
-  activities  DutyActivity[]
+  employee        Account            @relation("DutyScheduleSeriesEmployee", fields: [employeeAccountId], references: [id], onDelete: Restrict)
+  shift           DutyShiftTemplate? @relation(fields: [shiftTemplateId], references: [id], onDelete: SetNull)
+  supervisor      Account            @relation("DutyScheduleSeriesSupervisor", fields: [supervisorAccountId], references: [id], onDelete: Restrict)
+  createdBy       Account            @relation("DutyScheduleSeriesCreatedBy", fields: [createdByAccountId], references: [id], onDelete: Restrict)
+  office          Office?            @relation("DutyScheduleSeriesOfficeV3", fields: [officeId], references: [id], onDelete: Restrict)
+  orgUnit         OrgUnit?           @relation("DutyScheduleSeriesOrgUnitV3", fields: [orgUnitId], references: [id], onDelete: Restrict)
+  operationalTeam OperationalTeam?   @relation("DutyScheduleSeriesOperationalTeamV3", fields: [operationalTeamId], references: [id], onDelete: Restrict)
+  division        Division?          @relation(fields: [divisionId], references: [id], onDelete: Restrict)
+  department      Department?        @relation(fields: [departmentId], references: [id], onDelete: Restrict)
+  assignments     DutyAssignment[]
+  activities      DutyActivity[]
 
   @@index([employeeAccountId, startDate, endDate], map: "duty_schedule_series_employee_dates_idx")
   @@index([departmentId, startDate, endDate], map: "duty_schedule_series_department_dates_idx")
@@ -3125,18 +3150,18 @@ model DutyAssignment {
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
 
-  series      DutyScheduleSeries @relation(fields: [seriesId], references: [id], onDelete: Cascade)
-  employee    Account            @relation("DutyAssignmentsEmployee", fields: [employeeAccountId], references: [id], onDelete: Restrict)
-  shift       DutyShiftTemplate? @relation(fields: [shiftTemplateId], references: [id], onDelete: SetNull)
-  supervisor  Account            @relation("DutyAssignmentsSupervisor", fields: [supervisorAccountId], references: [id], onDelete: Restrict)
-  createdBy   Account            @relation("DutyAssignmentsCreatedBy", fields: [createdByAccountId], references: [id], onDelete: Restrict)
-  cancelledBy Account?           @relation("DutyAssignmentsCancelledBy", fields: [cancelledByAccountId], references: [id], onDelete: Restrict)
-  office      Office?            @relation("DutyAssignmentsOfficeV3", fields: [officeId], references: [id], onDelete: Restrict)
-  orgUnit     OrgUnit?           @relation("DutyAssignmentsOrgUnitV3", fields: [orgUnitId], references: [id], onDelete: Restrict)
-  operationalTeam OperationalTeam? @relation("DutyAssignmentsOperationalTeamV3", fields: [operationalTeamId], references: [id], onDelete: Restrict)
-  division    Division?          @relation(fields: [divisionId], references: [id], onDelete: Restrict)
-  department  Department?        @relation(fields: [departmentId], references: [id], onDelete: Restrict)
-  activities  DutyActivity[]
+  series          DutyScheduleSeries @relation(fields: [seriesId], references: [id], onDelete: Cascade)
+  employee        Account            @relation("DutyAssignmentsEmployee", fields: [employeeAccountId], references: [id], onDelete: Restrict)
+  shift           DutyShiftTemplate? @relation(fields: [shiftTemplateId], references: [id], onDelete: SetNull)
+  supervisor      Account            @relation("DutyAssignmentsSupervisor", fields: [supervisorAccountId], references: [id], onDelete: Restrict)
+  createdBy       Account            @relation("DutyAssignmentsCreatedBy", fields: [createdByAccountId], references: [id], onDelete: Restrict)
+  cancelledBy     Account?           @relation("DutyAssignmentsCancelledBy", fields: [cancelledByAccountId], references: [id], onDelete: Restrict)
+  office          Office?            @relation("DutyAssignmentsOfficeV3", fields: [officeId], references: [id], onDelete: Restrict)
+  orgUnit         OrgUnit?           @relation("DutyAssignmentsOrgUnitV3", fields: [orgUnitId], references: [id], onDelete: Restrict)
+  operationalTeam OperationalTeam?   @relation("DutyAssignmentsOperationalTeamV3", fields: [operationalTeamId], references: [id], onDelete: Restrict)
+  division        Division?          @relation(fields: [divisionId], references: [id], onDelete: Restrict)
+  department      Department?        @relation(fields: [departmentId], references: [id], onDelete: Restrict)
+  activities      DutyActivity[]
 
   @@unique([employeeAccountId, startsAt, endsAt], map: "duty_assignments_employee_window_key")
   @@index([employeeAccountId, startsAt, endsAt], map: "duty_assignments_employee_window_idx")
