@@ -11,6 +11,8 @@ import {
   AccountRole,
   EmployeeStatus,
   ManagementPositionType,
+  OrgLeadershipType,
+  OrgMembershipType,
 } from '../generated/prisma/client';
 
 import type { Prisma } from '../generated/prisma/client';
@@ -22,7 +24,7 @@ import {
   ListDirectoryQueryDto,
 } from './dto/list-directory-query.dto';
 
-export type DirectoryScopeType = 'ORGANIZATION' | 'DIVISION' | 'DEPARTMENT';
+export type DirectoryScopeType = 'OFFICE' | 'ORG_UNIT';
 
 export interface DirectoryOrganizationUnit {
   id: string;
@@ -34,10 +36,10 @@ export interface DirectoryOrganizationUnit {
 interface DirectoryViewer {
   role: AccountRole;
   scopeType: DirectoryScopeType;
-  divisionId: string | null;
-  departmentId: string | null;
-  division: DirectoryOrganizationUnit | null;
-  department: DirectoryOrganizationUnit | null;
+  officeId: string | null;
+  orgUnitId: string | null;
+  office: DirectoryOrganizationUnit | null;
+  orgUnit: DirectoryOrganizationUnit | null;
   canViewContactDetails: boolean;
 }
 
@@ -75,6 +77,114 @@ const directoryEmployeeSelect = {
       code: true,
       name: true,
       isActive: true,
+    },
+  },
+
+  orgMemberships: {
+    where: {
+      membershipType: OrgMembershipType.PRIMARY,
+      endsAt: null,
+    },
+    orderBy: {
+      startsAt: 'desc',
+    },
+    take: 5,
+    select: {
+      id: true,
+      startsAt: true,
+      office: {
+        select: {
+          id: true,
+          code: true,
+          name: true,
+          isActive: true,
+        },
+      },
+      orgUnit: {
+        select: {
+          id: true,
+          code: true,
+          name: true,
+          isActive: true,
+          ancestorLinks: {
+            orderBy: {
+              depth: 'desc',
+            },
+            select: {
+              depth: true,
+              ancestorOrgUnit: {
+                select: {
+                  id: true,
+                  code: true,
+                  name: true,
+                  isActive: true,
+                },
+              },
+            },
+          },
+        },
+      },
+    },
+  },
+
+  orgLeadershipAssignments: {
+    where: {
+      effectiveUntil: null,
+    },
+    orderBy: {
+      effectiveFrom: 'desc',
+    },
+    take: 20,
+    select: {
+      id: true,
+      leadershipType: true,
+      isActing: true,
+      effectiveFrom: true,
+      effectiveUntil: true,
+      office: {
+        select: {
+          id: true,
+          code: true,
+          name: true,
+          isActive: true,
+        },
+      },
+      orgUnit: {
+        select: {
+          id: true,
+          code: true,
+          name: true,
+          isActive: true,
+        },
+      },
+    },
+  },
+
+  operationalTeamLeadAssignments: {
+    where: { effectiveUntil: null },
+    orderBy: { effectiveFrom: 'desc' },
+    take: 20,
+    select: {
+      id: true,
+      isActing: true,
+      effectiveFrom: true,
+      effectiveUntil: true,
+      team: {
+        select: {
+          id: true,
+          code: true,
+          name: true,
+          isActive: true,
+          orgUnit: {
+            select: {
+              id: true,
+              code: true,
+              name: true,
+              isActive: true,
+            },
+          },
+        },
+      },
     },
   },
 
@@ -149,71 +259,34 @@ export class DirectoryService {
   constructor(private readonly prisma: PrismaService) {}
 
   private async getViewer(user: AuthenticatedUser): Promise<DirectoryViewer> {
+    const now = new Date();
     const account = await this.prisma.account.findUnique({
-      where: {
-        id: user.accountId,
-      },
-
+      where: { id: user.accountId },
       select: {
         id: true,
         role: true,
         isEnabled: true,
-
         employee: {
           select: {
             id: true,
             status: true,
             isActivated: true,
-            divisionId: true,
-            departmentId: true,
-
-            division: {
-              select: {
-                id: true,
-                code: true,
-                name: true,
-                isActive: true,
-              },
-            },
-
-            departmentUnit: {
-              select: {
-                id: true,
-                divisionId: true,
-                code: true,
-                name: true,
-                isActive: true,
-              },
-            },
-
-            managementAssignments: {
+            orgMemberships: {
               where: {
-                endedAt: null,
-
-                position: {
-                  is: {
-                    isActive: true,
-                  },
-                },
+                membershipType: OrgMembershipType.PRIMARY,
+                startsAt: { lte: now },
+                OR: [{ endsAt: null }, { endsAt: { gt: now } }],
               },
-
+              orderBy: { startsAt: 'desc' },
               take: 1,
-
-              orderBy: {
-                startedAt: 'desc',
-              },
-
               select: {
-                id: true,
-
-                position: {
-                  select: {
-                    id: true,
-                    positionType: true,
-                    divisionId: true,
-                    departmentId: true,
-                    isActive: true,
-                  },
+                officeId: true,
+                orgUnitId: true,
+                office: {
+                  select: { id: true, code: true, name: true, isActive: true },
+                },
+                orgUnit: {
+                  select: { id: true, code: true, name: true, isActive: true },
                 },
               },
             },
@@ -231,174 +304,46 @@ export class DirectoryService {
     if (account.role === AccountRole.SUPER_ADMIN) {
       return {
         role: account.role,
-        scopeType: 'ORGANIZATION',
-        divisionId: null,
-        departmentId: null,
-        division: null,
-        department: null,
+        scopeType: 'OFFICE',
+        officeId: null,
+        orgUnitId: null,
+        office: null,
+        orgUnit: null,
         canViewContactDetails: true,
       };
     }
 
     const employee = account.employee;
-
+    const primaryMembership = employee?.orgMemberships[0] ?? null;
     if (
       !employee ||
       employee.status !== EmployeeStatus.ACTIVE ||
-      !employee.isActivated
+      !employee.isActivated ||
+      !primaryMembership ||
+      !primaryMembership.office.isActive
     ) {
       throw new ForbiddenException(
-        'Your account does not have an active employee identity.',
+        'Your account does not have an active Office membership.',
       );
     }
 
-    if (
-      !employee.divisionId ||
-      !employee.division ||
-      !employee.division.isActive
-    ) {
-      throw new ForbiddenException(
-        'Your account does not have an active division assignment.',
-      );
-    }
-
-    const activeManagementAssignment =
-      employee.managementAssignments[0] ?? null;
-
-    if (account.role === AccountRole.SENIOR_MANAGEMENT) {
-      if (
-        !activeManagementAssignment ||
-        activeManagementAssignment.position.positionType !==
-          ManagementPositionType.SENIOR_MANAGEMENT ||
-        activeManagementAssignment.position.divisionId !==
-          employee.divisionId ||
-        activeManagementAssignment.position.departmentId !== null
-      ) {
-        throw new ForbiddenException(
-          'Your Senior Management role does not have a valid active position assignment.',
-        );
-      }
-      return {
-        role: account.role,
-        scopeType: 'DIVISION',
-        divisionId: employee.divisionId,
-        departmentId: null,
-        division: employee.division,
-        department: null,
-        canViewContactDetails: true,
-      };
-    }
-
-    if (
-      !employee.departmentId ||
-      !employee.departmentUnit ||
-      !employee.departmentUnit.isActive ||
-      employee.departmentUnit.divisionId !== employee.divisionId
-    ) {
-      throw new ForbiddenException(
-        'Your account does not have a valid active department assignment.',
-      );
-    }
-
-    if (account.role === AccountRole.TEAM_MANAGER) {
-      if (
-        !activeManagementAssignment ||
-        activeManagementAssignment.position.positionType !==
-          ManagementPositionType.TEAM_MANAGER ||
-        activeManagementAssignment.position.divisionId !==
-          employee.divisionId ||
-        activeManagementAssignment.position.departmentId !==
-          employee.departmentId
-      ) {
-        throw new ForbiddenException(
-          'Your Team Manager role does not have a valid active position assignment.',
-        );
-      }
-
-      return {
-        role: account.role,
-        scopeType: 'DEPARTMENT',
-        divisionId: employee.divisionId,
-        departmentId: employee.departmentId,
-        division: employee.division,
-        department: employee.departmentUnit,
-        canViewContactDetails: true,
-      };
-    }
-
-    if (account.role === AccountRole.EMPLOYEE) {
-      return {
-        role: account.role,
-        scopeType: 'ORGANIZATION',
-        divisionId: employee.divisionId,
-        departmentId: employee.departmentId,
-        division: employee.division,
-        department: employee.departmentUnit,
-        canViewContactDetails: false,
-      };
-    }
-
-    throw new ForbiddenException(
-      'Your role cannot access the employee directory.',
-    );
+    return {
+      role: account.role,
+      scopeType: 'OFFICE',
+      officeId: primaryMembership.officeId,
+      orgUnitId: primaryMembership.orgUnitId,
+      office: primaryMembership.office,
+      orgUnit: primaryMembership.orgUnit,
+      canViewContactDetails: account.role !== AccountRole.EMPLOYEE,
+    };
   }
 
   private async validateRequestedScope(
     viewer: DirectoryViewer,
-    query: ListDirectoryQueryDto,
+    _query: ListDirectoryQueryDto,
   ): Promise<void> {
-    if (
-      viewer.scopeType === 'DIVISION' &&
-      query.divisionId &&
-      query.divisionId !== viewer.divisionId
-    ) {
-      throw new ForbiddenException(
-        'You can view employees only inside your assigned division.',
-      );
-    }
-
-    if (
-      viewer.scopeType === 'DEPARTMENT' &&
-      query.divisionId &&
-      query.divisionId !== viewer.divisionId
-    ) {
-      throw new ForbiddenException(
-        'You can view employees only inside your assigned division.',
-      );
-    }
-
-    if (
-      viewer.scopeType === 'DEPARTMENT' &&
-      query.departmentId &&
-      query.departmentId !== viewer.departmentId
-    ) {
-      throw new ForbiddenException(
-        'You can view employees only inside your assigned department.',
-      );
-    }
-
-    if (viewer.scopeType === 'DIVISION' && query.departmentId) {
-      const department = await this.prisma.department.findUnique({
-        where: {
-          id: query.departmentId,
-        },
-
-        select: {
-          id: true,
-          divisionId: true,
-          isActive: true,
-        },
-      });
-
-      if (!department) {
-        throw new NotFoundException('Department was not found.');
-      }
-
-      if (department.divisionId !== viewer.divisionId) {
-        throw new ForbiddenException(
-          'You can view departments only inside your assigned division.',
-        );
-      }
+    if (viewer.role !== AccountRole.SUPER_ADMIN && !viewer.officeId) {
+      throw new ForbiddenException('Your directory scope has no active Office.');
     }
   }
 
@@ -406,37 +351,26 @@ export class DirectoryService {
     viewer: DirectoryViewer,
   ): Prisma.EmployeeWhereInput[] {
     const conditions: Prisma.EmployeeWhereInput[] = [];
+    const now = new Date();
 
-    if (viewer.scopeType === 'DIVISION') {
+    if (viewer.officeId) {
       conditions.push({
-        divisionId: viewer.divisionId,
+        orgMemberships: {
+          some: {
+            officeId: viewer.officeId,
+            membershipType: OrgMembershipType.PRIMARY,
+            startsAt: { lte: now },
+            OR: [{ endsAt: null }, { endsAt: { gt: now } }],
+          },
+        },
       });
     }
 
-    if (viewer.scopeType === 'DEPARTMENT') {
-      conditions.push({
-        divisionId: viewer.divisionId,
-
-        departmentId: viewer.departmentId,
-      });
-    }
-
-    /*
-     * Regular employees can view only active,
-     * activated and enabled directory members.
-     * Contact information is removed later.
-     */
     if (viewer.role === AccountRole.EMPLOYEE) {
       conditions.push({
         status: EmployeeStatus.ACTIVE,
-
         isActivated: true,
-
-        account: {
-          is: {
-            isEnabled: true,
-          },
-        },
+        account: { is: { isEnabled: true } },
       });
     }
 
@@ -506,6 +440,44 @@ export class DirectoryService {
       }
     }
 
+    const now = new Date();
+    const primaryMembership = employee.orgMemberships.find(
+      (membership) => membership.startsAt <= now,
+    ) ?? null;
+
+    const breadcrumb = primaryMembership?.orgUnit
+      ? primaryMembership.orgUnit.ancestorLinks
+          .map((link) => link.ancestorOrgUnit)
+          .filter((unit, index, units) =>
+            units.findIndex((candidate) => candidate.id === unit.id) === index,
+          )
+      : [];
+
+    const leadership = employee.orgLeadershipAssignments
+      .filter((assignment) => assignment.effectiveFrom <= now)
+      .map((assignment) => ({
+        id: assignment.id,
+        type: assignment.leadershipType,
+        isActing: assignment.isActing,
+        effectiveFrom: assignment.effectiveFrom,
+        effectiveUntil: assignment.effectiveUntil,
+        office: assignment.office,
+        orgUnit: assignment.orgUnit,
+      }));
+
+    for (const assignment of employee.operationalTeamLeadAssignments) {
+      if (assignment.effectiveFrom > now) continue;
+      leadership.push({
+        id: assignment.id,
+        type: OrgLeadershipType.TEAM_LEAD,
+        isActing: assignment.isActing,
+        effectiveFrom: assignment.effectiveFrom,
+        effectiveUntil: assignment.effectiveUntil,
+        office: primaryMembership?.office ?? { id: '', code: '', name: '', isActive: false },
+        orgUnit: assignment.team.orgUnit,
+      });
+    }
+
     return {
       id: employee.id,
       empId: employee.empId,
@@ -518,6 +490,18 @@ export class DirectoryService {
         : null,
 
       designation: employee.designation,
+
+      office: primaryMembership?.office ?? null,
+      primaryOrgUnit: primaryMembership?.orgUnit
+        ? {
+            id: primaryMembership.orgUnit.id,
+            code: primaryMembership.orgUnit.code,
+            name: primaryMembership.orgUnit.name,
+            isActive: primaryMembership.orgUnit.isActive,
+          }
+        : null,
+      orgUnitBreadcrumb: breadcrumb,
+      leadership,
 
       status: employee.status,
 
@@ -575,9 +559,10 @@ export class DirectoryService {
     return {
       role: viewer.role,
       type: viewer.scopeType,
-      division: viewer.division,
-      department: viewer.department,
-
+      office: viewer.office,
+      orgUnit: viewer.orgUnit,
+      division: null,
+      department: null,
       contactVisibility: viewer.canViewContactDetails ? 'FULL' : 'LIMITED',
     };
   }
@@ -611,24 +596,6 @@ export class DirectoryService {
     } else {
       conditions.push({
         archivedAt: null,
-      });
-    }
-
-    if (viewer.scopeType === 'ORGANIZATION' && query.divisionId) {
-      conditions.push({
-        divisionId: query.divisionId,
-      });
-    }
-
-    if (viewer.scopeType !== 'DEPARTMENT' && query.departmentId) {
-      conditions.push({
-        departmentId: query.departmentId,
-      });
-    }
-
-    if (viewer.scopeType === 'DIVISION' && query.departmentId) {
-      conditions.push({
-        departmentId: query.departmentId,
       });
     }
 
@@ -826,9 +793,9 @@ export class DirectoryService {
 
         activationStatus: query.activationStatus ?? null,
 
-        divisionId: query.divisionId ?? null,
+        divisionId: null,
 
-        departmentId: query.departmentId ?? null,
+        departmentId: null,
       },
 
       pagination: {

@@ -23,7 +23,6 @@ import type {
 } from "../types/auth";
 
 import type {
-  DirectoryEmployee,
   DirectoryEmployeeDetailResponse,
   DirectoryEmployeeStatus,
   DirectoryEmploymentStatus,
@@ -165,32 +164,6 @@ function getStatusClass(value: string): string {
     .toLowerCase()
     .replaceAll("_", "-");
 }
-
-function getCurrentPositionLabel(
-  employee: DirectoryEmployee,
-  t: TFunction<"directory">,
-): string {
-  const position = employee.currentPosition;
-
-  if (!position) {
-    return t("position.none", { ns: "directory" });
-  }
-
-  if (position.positionType === "SENIOR_MANAGEMENT") {
-    return t("position.seniorManagement", {
-      ns: "directory",
-      division: position.division.name,
-    });
-  }
-
-  return t("position.teamManager", {
-    ns: "directory",
-    department:
-      position.department?.name ??
-        t("common.department", { ns: "directory" }),
-  });
-}
-
 
 export function EmployeeDirectoryDetailPanel({
   accessToken,
@@ -1166,70 +1139,50 @@ export function EmployeeDirectoryDetailPanel({
 
               <dl className="directory-detail-list">
                 <div>
-                  <dt>{t("detail.organization.division")}</dt>
+                  <dt>{t("detail.organization.office")}</dt>
+                  <dd>{employee.office?.name ?? t("common.notAssigned")}</dd>
+                </div>
 
+                <div>
+                  <dt>{t("detail.organization.primaryOrgUnit")}</dt>
                   <dd>
-                    {employee.division
-                      ?.name ??
-                      t("common.notAssigned")}
+                    {employee.primaryOrgUnit?.name ?? t("common.notAssigned")}
                   </dd>
                 </div>
 
                 <div>
-                  <dt>{t("detail.organization.divisionCode")}</dt>
-
+                  <dt>{t("detail.organization.breadcrumb")}</dt>
                   <dd>
-                    {employee.division
-                      ?.code ??
-                      t("common.notAvailable")}
+                    {employee.orgUnitBreadcrumb.length > 0
+                      ? employee.orgUnitBreadcrumb
+                          .map((unit) => unit.name)
+                          .join(" → ")
+                      : t("common.notAvailable")}
                   </dd>
                 </div>
 
                 <div>
-                  <dt>{t("detail.organization.department")}</dt>
-
-                  <dd>
-                    {employee.department
-                      ?.name ??
-                      t("common.notAssigned")}
-                  </dd>
+                  <dt>{t("detail.organization.position")}</dt>
+                  <dd>{employee.designation ?? t("common.notAssigned")}</dd>
                 </div>
 
                 <div>
-                  <dt>{t("detail.organization.departmentCode")}</dt>
-
+                  <dt>{t("detail.organization.leadership")}</dt>
                   <dd>
-                    {employee.department
-                      ?.code ??
-                      t("common.notAvailable")}
-                  </dd>
-                </div>
-
-                <div>
-                  <dt>{t("detail.organization.currentPosition")}</dt>
-
-                  <dd>
-                    {getCurrentPositionLabel(employee, t)}
-                  </dd>
-                </div>
-
-                <div>
-                  <dt>{t("detail.organization.positionStatus")}</dt>
-
-                  <dd>
-                    {employee.currentPosition
-                      ? formatValue(employee.currentPosition.status, t)
-                      : t("position.noCurrentAssignment")}
-                  </dd>
-                </div>
-
-                <div>
-                  <dt>{t("detail.organization.positionStarted")}</dt>
-
-                  <dd>
-                    {employee.currentPosition
-                      ? formatDate(employee.currentPosition.startedAt, i18n.language, t)
-                      : t("common.notApplicable")}
+                    {employee.leadership.length > 0
+                      ? employee.leadership
+                          .map((assignment) =>
+                            t(`leadership.${assignment.type}`, {
+                              acting: assignment.isActing
+                                ? t("leadership.actingSuffix")
+                                : "",
+                              unit:
+                                assignment.orgUnit?.name ??
+                                assignment.office.name,
+                            }),
+                          )
+                          .join(", ")
+                      : t("leadership.none")}
                   </dd>
                 </div>
               </dl>

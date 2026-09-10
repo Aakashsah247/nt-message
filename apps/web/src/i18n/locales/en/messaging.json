@@ -689,7 +689,10 @@
     "viewAllSharedGroups_other": "View all {{count}} shared groups",
     "profileImageAlt": "{{name}} profile",
     "alsoInGroup": "{{name}} is also in this group",
-    "blockPrivateContact": "Block private contact"
+    "blockPrivateContact": "Block private contact",
+    "office": "Office",
+    "orgUnit": "OrgUnit",
+    "orgPath": "Organization path"
   },
   "groupInfo": {
     "conversation": "Conversation",

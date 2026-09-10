@@ -43,6 +43,7 @@ describe('ConversationsService messaging profile serialization', () => {
           name: 'Network Department',
           isActive: true,
         },
+        orgMemberships: [],
       },
     };
 

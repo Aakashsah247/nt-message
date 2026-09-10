@@ -65,6 +65,9 @@ export interface MessagingEmployeeIdentity {
   designation: string | null;
   profilePhotoKey: string | null;
   profileBio: string | null;
+  office: MessagingOrganizationUnit | null;
+  primaryOrgUnit: MessagingOrganizationUnit | null;
+  orgUnitBreadcrumb: MessagingOrganizationUnit[];
   division: MessagingOrganizationUnit | null;
   department: MessagingOrganizationUnit | null;
 }
@@ -112,6 +115,9 @@ export interface MessagingUserProfile extends MessagingAccount {
     officialEmail: string | null;
     contactNumber: string | null;
     designation: string | null;
+    office: MessagingOrganizationUnit | null;
+    primaryOrgUnit: MessagingOrganizationUnit | null;
+    orgUnitBreadcrumb: MessagingOrganizationUnit[];
     division: MessagingOrganizationUnit | null;
     department: MessagingOrganizationUnit | null;
   } | null;

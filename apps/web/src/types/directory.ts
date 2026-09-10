@@ -1,9 +1,8 @@
 import type { AccountRole } from "./auth";
 
 export type DirectoryScopeType =
-  | "ORGANIZATION"
-  | "DIVISION"
-  | "DEPARTMENT";
+  | "OFFICE"
+  | "ORG_UNIT";
 
 export type DirectoryContactVisibility =
   | "FULL"
@@ -38,6 +37,23 @@ export interface DirectoryOrganizationUnit {
   code: string;
   name: string;
   isActive: boolean;
+}
+
+
+export type DirectoryLeadershipType =
+  | "OFFICE_HEAD"
+  | "ORG_UNIT_HEAD"
+  | "TEAM_LEAD"
+  | "DEPUTY";
+
+export interface DirectoryLeadershipAssignment {
+  id: string;
+  type: DirectoryLeadershipType;
+  isActing: boolean;
+  effectiveFrom: string;
+  effectiveUntil: string | null;
+  office: DirectoryOrganizationUnit;
+  orgUnit: DirectoryOrganizationUnit | null;
 }
 
 export type DirectoryManagementPositionType =
@@ -77,6 +93,9 @@ export interface DirectoryScope {
   role: AccountRole;
   type: DirectoryScopeType;
 
+  office: DirectoryOrganizationUnit | null;
+  orgUnit: DirectoryOrganizationUnit | null;
+
   division:
     | DirectoryOrganizationUnit
     | null;
@@ -102,6 +121,11 @@ export interface DirectoryEmployee {
   officialEmail: string | null;
 
   designation: string | null;
+
+  office: DirectoryOrganizationUnit | null;
+  primaryOrgUnit: DirectoryOrganizationUnit | null;
+  orgUnitBreadcrumb: DirectoryOrganizationUnit[];
+  leadership: DirectoryLeadershipAssignment[];
 
   profilePhotoKey: string | null;
 

@@ -140,7 +140,9 @@
       "noDesignation": "पदनाम छैन",
       "noDepartment": "विभाग छैन",
       "noDivision": "डिभिजन छैन",
-      "viewProfileAria": "{{name}} को प्रोफाइल हेर्नुहोस्"
+      "viewProfileAria": "{{name}} को प्रोफाइल हेर्नुहोस्",
+      "noOrgUnit": "OrgUnit छैन",
+      "noOffice": "Office छैन"
     },
     "pagination": {
       "previous": "अघिल्लो",
@@ -166,7 +168,12 @@
       "departmentCode": "विभाग कोड",
       "currentPosition": "हालको पद",
       "positionStatus": "पद स्थिति",
-      "positionStarted": "पद सुरु"
+      "positionStarted": "पद सुरु",
+      "office": "Office",
+      "primaryOrgUnit": "प्राथमिक OrgUnit",
+      "breadcrumb": "संगठन मार्ग",
+      "position": "पद",
+      "leadership": "नेतृत्व"
     },
     "employment": {
       "title": "रोजगारी जानकारी",
@@ -285,5 +292,13 @@
       "created": "सिर्जना मिति",
       "updated": "पछिल्लो अद्यावधिक"
     }
+  },
+  "leadership": {
+    "OFFICE_HEAD": "Office Head — {{unit}}{{acting}}",
+    "ORG_UNIT_HEAD": "Org Unit Head — {{unit}}{{acting}}",
+    "TEAM_LEAD": "Team Lead — {{unit}}{{acting}}",
+    "DEPUTY": "Deputy — {{unit}}{{acting}}",
+    "actingSuffix": " (कार्यवाहक)",
+    "none": "सक्रिय नेतृत्व जिम्मेवारी छैन"
   }
 }

@@ -1151,15 +1151,17 @@ export function EmployeeDirectory({
 
                     <td data-label={t("list.table.organization")}>
                       <strong>
-                        {employee.department
-                          ?.name ??
-                          t("list.table.noDepartment")}
+                        {employee.primaryOrgUnit?.name ??
+                          t("list.table.noOrgUnit")}
                       </strong>
 
                       <small>
-                        {employee.division
-                          ?.name ??
-                          t("list.table.noDivision")}
+                        {employee.orgUnitBreadcrumb.length > 0
+                          ? employee.orgUnitBreadcrumb
+                              .map((unit) => unit.name)
+                              .join(" → ")
+                          : employee.office?.name ??
+                            t("list.table.noOffice")}
                       </small>
                     </td>
 

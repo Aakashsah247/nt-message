@@ -689,7 +689,10 @@
     "viewAllSharedGroups_other": "सबै {{count}} साझा समूह हेर्नुहोस्",
     "profileImageAlt": "{{name}} को प्रोफाइल",
     "alsoInGroup": "{{name}} पनि यस समूहमा छन्",
-    "blockPrivateContact": "निजी सम्पर्क ब्लक गर्नुहोस्"
+    "blockPrivateContact": "निजी सम्पर्क ब्लक गर्नुहोस्",
+    "office": "Office",
+    "orgUnit": "OrgUnit",
+    "orgPath": "संगठन मार्ग"
   },
   "groupInfo": {
     "conversation": "कुराकानी",

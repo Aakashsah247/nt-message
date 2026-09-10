@@ -16510,8 +16510,8 @@ export function MessageAppPage() {
             <strong>{profileData.displayName}</strong>
             <span>{roleLabel(profileData.role, t)}</span>
             <small>
-              {profileData.official?.department?.name ??
-                profileData.official?.division?.name ??
+              {profileData.official?.primaryOrgUnit?.name ??
+                profileData.official?.office?.name ??
                 t("profileDetail.nepalTelecom")}
             </small>
           </div>
@@ -17378,8 +17378,8 @@ export function MessageAppPage() {
                     {[
                       profileData.official?.designation ??
                       roleLabel(profileData.role, t),
-                      profileData.official?.department?.name ??
-                      profileData.official?.division?.name,
+                      profileData.official?.primaryOrgUnit?.name ??
+                      profileData.official?.office?.name,
                     ]
                       .filter(Boolean)
                       .join(" · ")}

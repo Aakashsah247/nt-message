@@ -140,7 +140,9 @@
       "noDesignation": "No designation",
       "noDepartment": "No department",
       "noDivision": "No division",
-      "viewProfileAria": "View {{name}} profile"
+      "viewProfileAria": "View {{name}} profile",
+      "noOrgUnit": "No OrgUnit",
+      "noOffice": "No Office"
     },
     "pagination": {
       "previous": "Previous",
@@ -166,7 +168,12 @@
       "departmentCode": "Department code",
       "currentPosition": "Current position",
       "positionStatus": "Position status",
-      "positionStarted": "Position started"
+      "positionStarted": "Position started",
+      "office": "Office",
+      "primaryOrgUnit": "Primary OrgUnit",
+      "breadcrumb": "Organization path",
+      "position": "Position",
+      "leadership": "Leadership"
     },
     "employment": {
       "title": "Employment information",
@@ -285,5 +292,13 @@
       "created": "Created",
       "updated": "Last updated"
     }
+  },
+  "leadership": {
+    "OFFICE_HEAD": "Office Head — {{unit}}{{acting}}",
+    "ORG_UNIT_HEAD": "Org Unit Head — {{unit}}{{acting}}",
+    "TEAM_LEAD": "Team Lead — {{unit}}{{acting}}",
+    "DEPUTY": "Deputy — {{unit}}{{acting}}",
+    "actingSuffix": " (Acting)",
+    "none": "No active leadership assignment"
   }
 }

@@ -365,6 +365,37 @@ const messagingAccountSelect = {
           isActive: true,
         },
       },
+
+      orgMemberships: {
+        where: {
+          membershipType: OrgMembershipType.PRIMARY,
+          endsAt: null,
+        },
+        orderBy: { startsAt: 'desc' },
+        take: 5,
+        select: {
+          startsAt: true,
+          office: {
+            select: { id: true, code: true, name: true, isActive: true },
+          },
+          orgUnit: {
+            select: {
+              id: true,
+              code: true,
+              name: true,
+              isActive: true,
+              ancestorLinks: {
+                orderBy: { depth: 'desc' },
+                select: {
+                  ancestorOrgUnit: {
+                    select: { id: true, code: true, name: true, isActive: true },
+                  },
+                },
+              },
+            },
+          },
+        },
+      },
     },
   },
 } satisfies Prisma.AccountSelect;
@@ -1995,16 +2026,37 @@ export class ConversationsService {
           : employee?.empName ?? account.username ?? 'NT Message User',
 
       employee: employee
-        ? {
-            id: employee.id,
-            empId: employee.empId,
-            empName: employee.empName,
-            designation: employee.designation,
-            profilePhotoKey,
-            profileBio,
-            division: employee.division,
-            department: employee.departmentUnit,
-          }
+        ? (() => {
+            const now = new Date();
+            const primaryMembership =
+              employee.orgMemberships.find(
+                (membership) => membership.startsAt <= now,
+              ) ?? null;
+            return {
+              id: employee.id,
+              empId: employee.empId,
+              empName: employee.empName,
+              designation: employee.designation,
+              profilePhotoKey,
+              profileBio,
+              office: primaryMembership?.office ?? null,
+              primaryOrgUnit: primaryMembership?.orgUnit
+                ? {
+                    id: primaryMembership.orgUnit.id,
+                    code: primaryMembership.orgUnit.code,
+                    name: primaryMembership.orgUnit.name,
+                    isActive: primaryMembership.orgUnit.isActive,
+                  }
+                : null,
+              orgUnitBreadcrumb: primaryMembership?.orgUnit
+                ? primaryMembership.orgUnit.ancestorLinks.map(
+                    (link) => link.ancestorOrgUnit,
+                  )
+                : [],
+              division: employee.division,
+              department: employee.departmentUnit,
+            };
+          })()
         : null,
     };
   }
@@ -2039,6 +2091,9 @@ export class ConversationsService {
               officialEmail: this.getSuperAdminOfficialEmail(account),
               contactNumber: this.getSuperAdminOfficialPhone(account),
               designation: null,
+              office: null,
+              primaryOrgUnit: null,
+              orgUnitBreadcrumb: [],
               division: null,
               department: null,
             }
@@ -2049,6 +2104,29 @@ export class ConversationsService {
                 officialEmail: employee.officialEmail,
                 contactNumber: employee.phoneNumber,
                 designation: employee.designation,
+                office:
+                  employee.orgMemberships.find(
+                    (membership) => membership.startsAt <= new Date(),
+                  )?.office ?? null,
+                primaryOrgUnit: (() => {
+                  const membership = employee.orgMemberships.find(
+                    (item) => item.startsAt <= new Date(),
+                  );
+                  return membership?.orgUnit
+                    ? {
+                        id: membership.orgUnit.id,
+                        code: membership.orgUnit.code,
+                        name: membership.orgUnit.name,
+                        isActive: membership.orgUnit.isActive,
+                      }
+                    : null;
+                })(),
+                orgUnitBreadcrumb:
+                  employee.orgMemberships.find(
+                    (membership) => membership.startsAt <= new Date(),
+                  )?.orgUnit?.ancestorLinks.map(
+                    (link) => link.ancestorOrgUnit,
+                  ) ?? [],
                 division: employee.division,
                 department: employee.departmentUnit,
               }
