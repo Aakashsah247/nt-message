@@ -1101,7 +1101,8 @@
     "reasons": {
       "protectedRecipient": "सुरक्षित पहिलो सम्पर्क",
       "crossDivision": "फरक डिभिजन",
-      "crossDepartment": "फरक विभाग"
+      "crossDepartment": "फरक विभाग",
+      "outsideOrgScope": "तपाईंको संगठन क्षेत्र बाहिर"
     },
     "pendingAria": "बाँकी सन्देश अनुरोध",
     "pending": "बाँकी",

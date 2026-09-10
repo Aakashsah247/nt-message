@@ -101,6 +101,15 @@ interface MessagingViewer {
   requireMessageRequests: boolean;
 }
 
+
+interface MessagingOrgScopeContext {
+  primaryByEmployeeId: Map<
+    string,
+    { officeId: string; orgUnitId: string }
+  >;
+  relatedOrgUnitPairs: Set<string>;
+}
+
 interface OfficialGroupScopeRecord {
   id: string;
   createdByAccountId: string;
@@ -1060,6 +1069,79 @@ export class ConversationsService {
         .map((assignment) => assignment.employeeId)
         .filter((employeeId) => primaryMemberIds.has(employeeId)),
     );
+  }
+
+  private buildOrgUnitRelationKey(firstOrgUnitId: string, secondOrgUnitId: string): string {
+    return firstOrgUnitId <= secondOrgUnitId
+      ? `${firstOrgUnitId}:${secondOrgUnitId}`
+      : `${secondOrgUnitId}:${firstOrgUnitId}`;
+  }
+
+  private async getMessagingOrgScopeContext(
+    employeeIds: Array<string | null | undefined>,
+    at = new Date(),
+  ): Promise<MessagingOrgScopeContext> {
+    const ids = [...new Set(employeeIds.filter((id): id is string => Boolean(id)))];
+    if (ids.length === 0) {
+      return { primaryByEmployeeId: new Map(), relatedOrgUnitPairs: new Set() };
+    }
+
+    const memberships = await this.prisma.orgMembership.findMany({
+      where: {
+        employeeId: { in: ids },
+        membershipType: OrgMembershipType.PRIMARY,
+        startsAt: { lte: at },
+        OR: [{ endsAt: null }, { endsAt: { gt: at } }],
+      },
+      select: { employeeId: true, officeId: true, orgUnitId: true },
+    });
+
+    const primaryByEmployeeId = new Map<
+      string,
+      { officeId: string; orgUnitId: string }
+    >();
+    for (const membership of memberships) {
+      if (!membership.orgUnitId) {
+        continue;
+      }
+
+      primaryByEmployeeId.set(membership.employeeId, {
+        officeId: membership.officeId,
+        orgUnitId: membership.orgUnitId,
+      });
+    }
+    const orgUnitIds = [
+      ...new Set(
+        [...primaryByEmployeeId.values()].map(
+          (membership) => membership.orgUnitId,
+        ),
+      ),
+    ];
+    if (orgUnitIds.length < 2) {
+      return { primaryByEmployeeId, relatedOrgUnitPairs: new Set() };
+    }
+
+    const closure = await this.prisma.orgUnitClosure.findMany({
+      where: {
+        ancestorOrgUnitId: { in: orgUnitIds },
+        descendantOrgUnitId: { in: orgUnitIds },
+      },
+      select: { ancestorOrgUnitId: true, descendantOrgUnitId: true },
+    });
+
+    return {
+      primaryByEmployeeId,
+      relatedOrgUnitPairs: new Set(
+        closure
+          .filter((link) => link.ancestorOrgUnitId !== link.descendantOrgUnitId)
+          .map((link) =>
+            this.buildOrgUnitRelationKey(
+              link.ancestorOrgUnitId,
+              link.descendantOrgUnitId,
+            ),
+          ),
+      ),
+    };
   }
 
   private async resolveLegacyOfficialGroupOfficeId(group: {
@@ -2156,14 +2238,16 @@ export class ConversationsService {
       return 'DIRECT';
     }
 
-    const officeHeadEmployeeIds = await this.getActiveOfficeHeadEmployeeIds([
-      viewer.employeeId,
-      target.employee?.id,
+    const employeeIds = [viewer.employeeId, target.employee?.id];
+    const [officeHeadEmployeeIds, orgScope] = await Promise.all([
+      this.getActiveOfficeHeadEmployeeIds(employeeIds),
+      this.getMessagingOrgScopeContext(employeeIds),
     ]);
     const requestReason = this.getMessageRequestReason(
       viewer,
       target,
       officeHeadEmployeeIds,
+      orgScope,
     );
     const approvalRequired = requiresMessageRequestApproval(
       requestReason,
@@ -4354,9 +4438,13 @@ export class ConversationsService {
       );
     }
 
-    const officeHeadEmployeeIds = await this.getActiveOfficeHeadEmployeeIds([
+    const employeeIds = [
       viewer.employeeId,
       ...accounts.map((account) => account.employee?.id),
+    ];
+    const [officeHeadEmployeeIds, orgScope] = await Promise.all([
+      this.getActiveOfficeHeadEmployeeIds(employeeIds),
+      this.getMessagingOrgScopeContext(employeeIds),
     ]);
 
     if (
@@ -4393,6 +4481,7 @@ export class ConversationsService {
           viewer,
           account,
           officeHeadEmployeeIds,
+          orgScope,
         ) !== null &&
         !directKeys.has(key)
       ) {
@@ -6834,6 +6923,7 @@ export class ConversationsService {
     viewer: MessagingViewer,
     target: MessagingAccountRecord,
     activeOfficeHeadEmployeeIds: ReadonlySet<string>,
+    orgScope: MessagingOrgScopeContext,
   ): MessageRequestReason | null {
     const viewerIsOfficeHead =
       viewer.employeeId !== null &&
@@ -6850,44 +6940,37 @@ export class ConversationsService {
       return MessageRequestReason.PROTECTED_RECIPIENT;
     }
 
-    /*
-     * SUPER_ADMIN is intentionally not special in messaging. If it has no
-     * employee placement, it follows the same generic first-contact request
-     * path as any participant outside the viewer's current legacy scope.
-     */
-    if (
-      target.role === AccountRole.SENIOR_MANAGEMENT &&
-      viewer.role !== AccountRole.SENIOR_MANAGEMENT
-    ) {
-      return MessageRequestReason.PROTECTED_RECIPIENT;
+    const viewerPlacement = viewer.employeeId
+      ? orgScope.primaryByEmployeeId.get(viewer.employeeId)
+      : undefined;
+    const targetPlacement = target.employee?.id
+      ? orgScope.primaryByEmployeeId.get(target.employee.id)
+      : undefined;
+
+    if (!viewerPlacement || !targetPlacement) {
+      return MessageRequestReason.OUTSIDE_ORG_SCOPE;
     }
 
-    if (
-      viewer.role === AccountRole.SENIOR_MANAGEMENT &&
-      viewer.divisionId &&
-      target.employee?.divisionId === viewer.divisionId
-    ) {
+    if (viewerPlacement.officeId !== targetPlacement.officeId) {
+      return MessageRequestReason.OUTSIDE_ORG_SCOPE;
+    }
+
+    if (viewerPlacement.orgUnitId === targetPlacement.orgUnitId) {
       return null;
     }
 
     if (
-      (viewer.role === AccountRole.TEAM_MANAGER ||
-        viewer.role === AccountRole.EMPLOYEE) &&
-      viewer.departmentId &&
-      target.employee?.departmentId === viewer.departmentId
+      orgScope.relatedOrgUnitPairs.has(
+        this.buildOrgUnitRelationKey(
+          viewerPlacement.orgUnitId,
+          targetPlacement.orgUnitId,
+        ),
+      )
     ) {
       return null;
     }
 
-    if (
-      viewer.divisionId &&
-      target.employee?.divisionId &&
-      viewer.divisionId !== target.employee.divisionId
-    ) {
-      return MessageRequestReason.CROSS_DIVISION;
-    }
-
-    return MessageRequestReason.CROSS_DEPARTMENT;
+    return MessageRequestReason.OUTSIDE_ORG_SCOPE;
   }
 
   private serializeMessageRequest(
@@ -8313,9 +8396,13 @@ export class ConversationsService {
       existingRequests.map((request) => [request.participantKey, request]),
     );
 
-    const officeHeadEmployeeIds = await this.getActiveOfficeHeadEmployeeIds([
+    const candidateEmployeeIds = [
       viewer.employeeId,
       ...selectedCandidates.map((candidate) => candidate.employee?.id),
+    ];
+    const [officeHeadEmployeeIds, orgScope] = await Promise.all([
+      this.getActiveOfficeHeadEmployeeIds(candidateEmployeeIds),
+      this.getMessagingOrgScopeContext(candidateEmployeeIds),
     ]);
 
     const data = selectedCandidates.map((candidate) => {
@@ -8328,6 +8415,7 @@ export class ConversationsService {
         viewer,
         candidate,
         officeHeadEmployeeIds,
+        orgScope,
       );
       const approvalRequired = requiresMessageRequestApproval(
         requestReason,
@@ -9657,14 +9745,16 @@ export class ConversationsService {
       );
     }
 
-    const officeHeadEmployeeIds = await this.getActiveOfficeHeadEmployeeIds([
-      viewer.employeeId,
-      target.employee?.id,
+    const employeeIds = [viewer.employeeId, target.employee?.id];
+    const [officeHeadEmployeeIds, orgScope] = await Promise.all([
+      this.getActiveOfficeHeadEmployeeIds(employeeIds),
+      this.getMessagingOrgScopeContext(employeeIds),
     ]);
     const requestReason = this.getMessageRequestReason(
       viewer,
       target,
       officeHeadEmployeeIds,
+      orgScope,
     );
     const approvalRequired = requiresMessageRequestApproval(
       requestReason,

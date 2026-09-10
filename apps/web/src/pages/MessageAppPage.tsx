@@ -3154,6 +3154,10 @@ function requestReasonLabel(
     return t("requestWorkspace.reasons.protectedRecipient");
   }
 
+  if (reason === "OUTSIDE_ORG_SCOPE") {
+    return t("requestWorkspace.reasons.outsideOrgScope");
+  }
+
   if (reason === "CROSS_DIVISION") {
     return t("requestWorkspace.reasons.crossDivision");
   }

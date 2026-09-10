@@ -6,7 +6,6 @@ import {
   ConversationParticipantRole,
   ConversationType,
   MessageRequestReason,
-  OfficialGroupScopeType,
 } from '../generated/prisma/client';
 import { ConversationsService } from './conversations.service';
 
@@ -54,11 +53,7 @@ describe('ConversationsService group governance', () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
-    service = new ConversationsService(
-      prisma,
-      {} as never,
-      {} as never,
-    );
+    service = new ConversationsService(prisma, {} as never, {} as never);
   });
 
   it('assigns an active Office Head as ADMIN when explicitly added to a personal group', () => {
@@ -94,18 +89,14 @@ describe('ConversationsService group governance', () => {
         service as unknown as {
           getOfficialGroupParticipantRole: (
             account: unknown,
-            group: unknown,
             officeHeadAccountIds: ReadonlySet<string>,
+            managerAccountIds: ReadonlySet<string>,
           ) => ConversationParticipantRole;
         }
       ).getOfficialGroupParticipantRole(
         account,
-        {
-          officialScopeType: OfficialGroupScopeType.ORGANIZATION,
-          officialDivisionId: null,
-          officialDepartmentId: null,
-        },
         officeHeadAccountIds,
+        new Set<string>(),
       );
 
     expect(
@@ -134,9 +125,19 @@ describe('ConversationsService group governance', () => {
             viewer: unknown,
             target: unknown,
             officeHeadEmployeeIds: ReadonlySet<string>,
+            orgScope: {
+              primaryByEmployeeId: Map<
+                string,
+                { officeId: string; orgUnitId: string }
+              >;
+              relatedOrgUnitPairs: Set<string>;
+            },
           ) => MessageRequestReason | null;
         }
-      ).getMessageRequestReason(viewer, target, officeHeadEmployeeIds);
+      ).getMessageRequestReason(viewer, target, officeHeadEmployeeIds, {
+        primaryByEmployeeId: new Map(),
+        relatedOrgUnitPairs: new Set(),
+      });
 
     const employeeTarget = {
       id: 'employee-account-1',
@@ -174,7 +175,7 @@ describe('ConversationsService group governance', () => {
         employeeTarget,
         new Set(),
       ),
-    ).toBe(MessageRequestReason.CROSS_DEPARTMENT);
+    ).toBe(MessageRequestReason.OUTSIDE_ORG_SCOPE);
   });
 
   it('allows Super Admin to be blocked as a normal participant and protects the active Office Head', async () => {
@@ -311,7 +312,6 @@ describe('ConversationsService group governance', () => {
       ),
     ).rejects.toThrow(ForbiddenException);
   });
-
 
   it('uses the same moderator delete policy for personal and official group conversations', async () => {
     jest.mocked(prisma.conversation.findFirst).mockResolvedValue({

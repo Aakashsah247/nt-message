@@ -206,6 +206,7 @@ enum MessageRequestReason {
   PROTECTED_RECIPIENT
   CROSS_DEPARTMENT
   CROSS_DIVISION
+  OUTSIDE_ORG_SCOPE
 }
 
 enum MessagingNotificationType {

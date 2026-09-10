@@ -41,7 +41,8 @@ export type MessageRequestStatus =
 export type MessageRequestReason =
   | "PROTECTED_RECIPIENT"
   | "CROSS_DEPARTMENT"
-  | "CROSS_DIVISION";
+  | "CROSS_DIVISION"
+  | "OUTSIDE_ORG_SCOPE";
 
 export type MessagingContactMode =
   | "DIRECT"

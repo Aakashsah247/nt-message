@@ -1101,7 +1101,8 @@
     "reasons": {
       "protectedRecipient": "Protected first contact",
       "crossDivision": "Different division",
-      "crossDepartment": "Different department"
+      "crossDepartment": "Different department",
+      "outsideOrgScope": "Outside your organization scope"
     },
     "pendingAria": "Pending message request",
     "pending": "Pending",
