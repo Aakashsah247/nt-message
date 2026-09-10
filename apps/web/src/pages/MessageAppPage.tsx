@@ -5170,9 +5170,7 @@ export function MessageAppPage() {
 
   const canManageSelectedAnnouncementGroup = Boolean(
     selectedConversation?.groupKind === "OFFICIAL" &&
-    (selectedConversation.viewerParticipantRole === "OWNER" ||
-      selectedConversation.viewerParticipantRole === "ADMIN") &&
-    account?.role !== "EMPLOYEE",
+    selectedConversation.canManageGroup,
   );
   const destructiveConfirmationSubmitting = Boolean(
     destructiveConfirmation?.kind === "DELETE_MESSAGE_FOR_ME" ||

@@ -27,7 +27,8 @@
     "db:studio": "prisma studio",
     "db:verify-work-v3-cutover": "node scripts/verify_work_v3_cutover.js",
     "db:verify-communication-v3-foundation": "node scripts/verify_communication_orgunit_foundation.js",
-    "db:verify-communication-v3-cutover": "node scripts/verify_communication_v3_cutover.js"
+    "db:verify-communication-v3-cutover": "node scripts/verify_communication_v3_cutover.js",
+    "test:communication-security-v3": "jest communication-security-v3-regression.spec.ts official-group-authorization-v3.spec.ts official-group-orgunit-runtime.spec.ts group-message-governance.spec.ts delete-group.spec.ts message-request-orgunit-scope.spec.ts message-request-policy.spec.ts message-edit-window.spec.ts conversation-visibility.spec.ts announcement-access.policy.spec.ts announcement-list-visibility.spec.ts announcement-orgunit-runtime.spec.ts announcements.service.spec.ts directory-orgunit-runtime.spec.ts communication-historical-compatibility.spec.ts --runInBand"
   },
   "dependencies": {
     "@nestjs/common": "^11.0.1",

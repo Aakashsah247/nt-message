@@ -1882,24 +1882,6 @@ export class ConversationsService {
       );
     }
 
-    if (
-      account.role === AccountRole.SENIOR_MANAGEMENT &&
-      !employee.divisionId
-    ) {
-      throw new ForbiddenException(
-        'Your account does not have an active division assignment.',
-      );
-    }
-
-    if (
-      account.role === AccountRole.TEAM_MANAGER &&
-      (!employee.divisionId || !employee.departmentId)
-    ) {
-      throw new ForbiddenException(
-        'Your account does not have an active department assignment.',
-      );
-    }
-
     return {
       accountId: account.id,
       employeeId: employee.id,
