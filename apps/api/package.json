@@ -35,7 +35,12 @@
     "db:verify-phase13-account-class": "node scripts/verify_phase13_account_class_cutover.js",
     "db:verify-phase13-runtime-cutover": "node scripts/verify_phase13_runtime_cutover.js",
     "db:verify-phase13-data-reconciliation": "node scripts/verify_phase13_data_reconciliation.js",
-    "db:verify-phase13-schema-cleanup": "node scripts/verify_phase13_schema_cleanup.js"
+    "db:verify-phase13-schema-cleanup": "node scripts/verify_phase13_schema_cleanup.js",
+    "phase13:backup-db": "node scripts/phase13_backup_database.js",
+    "phase13:restore-db": "node scripts/phase13_restore_database.js",
+    "db:verify-phase13-cutover-readiness": "node scripts/verify_phase13_cutover_readiness.js",
+    "phase13:cutover-preflight": "prisma validate --schema prisma/schema.prisma && prisma migrate status --schema prisma/schema.prisma && node scripts/audit_phase13_legacy_dependencies.js && node scripts/verify_phase13_schema_cleanup.js && node scripts/verify_phase13_cutover_readiness.js",
+    "phase13:cutover-postflight": "prisma migrate status --schema prisma/schema.prisma && node scripts/verify_phase13_schema_cleanup.js && node scripts/verify_phase13_cutover_readiness.js && node scripts/audit_phase13_legacy_dependencies.js"
   },
   "dependencies": {
     "@nestjs/common": "^11.0.1",
