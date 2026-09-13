@@ -82,9 +82,7 @@ export class OrganizationAuthorityService {
     const visibleOfficeIds = await this.listVisibleOfficeIds(user);
 
     if (!visibleOfficeIds?.includes(officeId)) {
-      throw new ForbiddenException(
-        'You do not have access to this office.',
-      );
+      throw new ForbiddenException('You do not have access to this office.');
     }
   }
 
@@ -101,17 +99,16 @@ export class OrganizationAuthorityService {
     const employeeId = await this.resolveEmployeeId(user);
     const now = new Date();
 
-    const assignment =
-      await this.prisma.orgLeadershipAssignment.findFirst({
-        where: {
-          employeeId,
-          officeId,
-          leadershipType: OrgLeadershipType.OFFICE_HEAD,
-          effectiveFrom: { lte: now },
-          OR: [{ effectiveUntil: null }, { effectiveUntil: { gt: now } }],
-        },
-        select: { id: true },
-      });
+    const assignment = await this.prisma.orgLeadershipAssignment.findFirst({
+      where: {
+        employeeId,
+        officeId,
+        leadershipType: OrgLeadershipType.OFFICE_HEAD,
+        effectiveFrom: { lte: now },
+        OR: [{ effectiveUntil: null }, { effectiveUntil: { gt: now } }],
+      },
+      select: { id: true },
+    });
 
     if (!assignment) {
       throw new ForbiddenException(
@@ -134,53 +131,48 @@ export class OrganizationAuthorityService {
     const employeeId = await this.resolveEmployeeId(user);
     const now = new Date();
 
-    const officeHead =
-      await this.prisma.orgLeadershipAssignment.findFirst({
-        where: {
-          employeeId,
-          officeId,
-          leadershipType: OrgLeadershipType.OFFICE_HEAD,
-          effectiveFrom: { lte: now },
-          OR: [{ effectiveUntil: null }, { effectiveUntil: { gt: now } }],
-        },
-        select: { id: true },
-      });
+    const officeHead = await this.prisma.orgLeadershipAssignment.findFirst({
+      where: {
+        employeeId,
+        officeId,
+        leadershipType: OrgLeadershipType.OFFICE_HEAD,
+        effectiveFrom: { lte: now },
+        OR: [{ effectiveUntil: null }, { effectiveUntil: { gt: now } }],
+      },
+      select: { id: true },
+    });
 
     if (officeHead) {
       return;
     }
 
-    const scopedLeader =
-      await this.prisma.orgLeadershipAssignment.findFirst({
-        where: {
-          employeeId,
-          officeId,
-          effectiveFrom: { lte: now },
-          AND: [
-            {
-              OR: [
-                { effectiveUntil: null },
-                { effectiveUntil: { gt: now } },
-              ],
-            },
-            {
-              OR: [
-                {
-                  leadershipType: OrgLeadershipType.ORG_UNIT_HEAD,
-                  orgUnit: {
-                    descendantLinks: {
-                      some: {
-                        descendantOrgUnitId: orgUnitId,
-                      },
+    const scopedLeader = await this.prisma.orgLeadershipAssignment.findFirst({
+      where: {
+        employeeId,
+        officeId,
+        effectiveFrom: { lte: now },
+        AND: [
+          {
+            OR: [{ effectiveUntil: null }, { effectiveUntil: { gt: now } }],
+          },
+          {
+            OR: [
+              {
+                leadershipType: OrgLeadershipType.ORG_UNIT_HEAD,
+                orgUnit: {
+                  descendantLinks: {
+                    some: {
+                      descendantOrgUnitId: orgUnitId,
                     },
                   },
                 },
-              ],
-            },
-          ],
-        },
-        select: { id: true },
-      });
+              },
+            ],
+          },
+        ],
+      },
+      select: { id: true },
+    });
 
     if (!scopedLeader) {
       throw new ForbiddenException(
@@ -189,9 +181,7 @@ export class OrganizationAuthorityService {
     }
   }
 
-  private async resolveEmployeeId(
-    user: AuthenticatedUser,
-  ): Promise<string> {
+  private async resolveEmployeeId(user: AuthenticatedUser): Promise<string> {
     const account = await this.prisma.account.findUnique({
       where: { id: user.accountId },
       select: {
@@ -214,9 +204,7 @@ export class OrganizationAuthorityService {
       account.employee.employmentStatus !== EmploymentStatus.ACTIVE ||
       account.employee.archivedAt !== null
     ) {
-      throw new ForbiddenException(
-        'Your employee account is not active.',
-      );
+      throw new ForbiddenException('Your employee account is not active.');
     }
 
     return account.employee.id;

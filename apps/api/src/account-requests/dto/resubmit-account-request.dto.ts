@@ -34,8 +34,7 @@ export class ResubmitAccountRequestDto {
   @IsOptional()
   @IsString()
   @Matches(/^(?:9\d{9}|9779\d{9}|\+9779\d{9})$/, {
-    message:
-      'Use 98XXXXXXXX, 97798XXXXXXXX or +97798XXXXXXXX format.',
+    message: 'Use 98XXXXXXXX, 97798XXXXXXXX or +97798XXXXXXXX format.',
   })
   phoneNumber?: string;
 

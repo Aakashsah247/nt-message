@@ -64,13 +64,13 @@ describe('OrganizationHierarchyService navigation context', () => {
       authorization,
     );
 
-    await expect(
-      service.getNavigationContext(superAdminUser),
-    ).resolves.toEqual({
-      mode: 'VIEW',
-      officeIds: ['office-1'],
-      manageableOfficeIds: [],
-    });
+    await expect(service.getNavigationContext(superAdminUser)).resolves.toEqual(
+      {
+        mode: 'VIEW',
+        officeIds: ['office-1'],
+        manageableOfficeIds: [],
+      },
+    );
 
     expect(authorization.can).not.toHaveBeenCalled();
     expect(authorization.visibleOrgUnitIds).not.toHaveBeenCalled();
@@ -82,10 +82,7 @@ describe('OrganizationHierarchyService navigation context', () => {
     const authorization = {
       can: jest.fn().mockResolvedValue(false),
       visibleOrgUnitIds: jest.fn(
-        async (
-          _user: AuthenticatedUser,
-          capability: string,
-        ) =>
+        async (_user: AuthenticatedUser, capability: string) =>
           capability === CAPABILITIES.ORGANIZATION_RENAME_UNIT
             ? ['unit-1']
             : [],
@@ -98,9 +95,7 @@ describe('OrganizationHierarchyService navigation context', () => {
       authorization,
     );
 
-    await expect(
-      service.getNavigationContext(employeeUser),
-    ).resolves.toEqual({
+    await expect(service.getNavigationContext(employeeUser)).resolves.toEqual({
       mode: 'MANAGE',
       officeIds: ['office-1'],
       manageableOfficeIds: ['office-1'],
@@ -128,9 +123,7 @@ describe('OrganizationHierarchyService navigation context', () => {
       authorization,
     );
 
-    await expect(
-      service.getNavigationContext(employeeUser),
-    ).resolves.toEqual({
+    await expect(service.getNavigationContext(employeeUser)).resolves.toEqual({
       mode: 'NONE',
       officeIds: ['office-1'],
       manageableOfficeIds: [],

@@ -58,9 +58,7 @@ describe('MessageAttachmentStreamService', () => {
     const verified = await service.verifyAccessToken(issued.token);
 
     expect(verified.user.accountId).toBe(accountId);
-    expect(verified.attachmentId).toBe(
-      '44444444-4444-4444-8444-444444444444',
-    );
+    expect(verified.attachmentId).toBe('44444444-4444-4444-8444-444444444444');
   });
 
   it('rejects a stream token after the session is revoked', async () => {
@@ -85,9 +83,9 @@ describe('MessageAttachmentStreamService', () => {
       '44444444-4444-4444-8444-444444444444',
     );
 
-    await expect(service.verifyAccessToken(issued.token)).rejects.toBeInstanceOf(
-      UnauthorizedException,
-    );
+    await expect(
+      service.verifyAccessToken(issued.token),
+    ).rejects.toBeInstanceOf(UnauthorizedException);
   });
 });
 

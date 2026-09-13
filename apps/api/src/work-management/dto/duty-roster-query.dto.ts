@@ -1,5 +1,14 @@
 import { Transform, Type } from 'class-transformer';
-import { IsInt, IsOptional, IsString, IsUUID, Matches, Max, MaxLength, Min } from 'class-validator';
+import {
+  IsInt,
+  IsOptional,
+  IsString,
+  IsUUID,
+  Matches,
+  Max,
+  MaxLength,
+  Min,
+} from 'class-validator';
 
 function trimText(value: unknown): unknown {
   return typeof value === 'string' ? value.trim() : value;

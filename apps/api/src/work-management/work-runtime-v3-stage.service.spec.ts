@@ -96,7 +96,9 @@ function createHarness(stage = runtimeStage()) {
     workStage: {
       findFirst: jest.fn().mockResolvedValue(stage),
       updateMany: jest.fn().mockResolvedValue({ count: 1 }),
-      findMany: jest.fn().mockResolvedValue([{ status: WorkStageStatus.IN_PROGRESS }]),
+      findMany: jest
+        .fn()
+        .mockResolvedValue([{ status: WorkStageStatus.IN_PROGRESS }]),
     },
     workStageDependency: {
       findMany: jest.fn().mockResolvedValue([]),
@@ -165,7 +167,9 @@ function createHarness(stage = runtimeStage()) {
   };
 
   const prisma = {
-    $transaction: jest.fn(async (callback: (client: typeof tx) => unknown) => callback(tx)),
+    $transaction: jest.fn(async (callback: (client: typeof tx) => unknown) =>
+      callback(tx),
+    ),
     workStage: {
       findFirst: jest.fn().mockResolvedValue(stage),
       findMany: jest.fn().mockResolvedValue([]),
@@ -196,8 +200,13 @@ function createHarness(stage = runtimeStage()) {
   };
   const sla = {
     resolveDueAt: jest.fn(
-      async (_tx: unknown, _officeId: string, _basis: unknown, startsAt: Date, minutes: number) =>
-        new Date(startsAt.getTime() + minutes * 60_000),
+      async (
+        _tx: unknown,
+        _officeId: string,
+        _basis: unknown,
+        startsAt: Date,
+        minutes: number,
+      ) => new Date(startsAt.getTime() + minutes * 60_000),
     ),
   };
   const notifications = {
@@ -806,7 +815,9 @@ describe('WorkRuntimeV3StageService', () => {
       ],
     });
     const harness = createHarness(stage);
-    harness.tx.workStage.findMany.mockResolvedValue([{ status: WorkStageStatus.SUBMITTED }]);
+    harness.tx.workStage.findMany.mockResolvedValue([
+      { status: WorkStageStatus.SUBMITTED },
+    ]);
 
     await harness.service.submit(user, officeId, stageId, {
       expectedStageVersion: 1,

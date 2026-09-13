@@ -150,8 +150,7 @@ export class ConversationStorageService
 
   constructor(
     private readonly prisma: PrismaService,
-    private readonly attachmentStorageService: AttachmentStorageService =
-      new AttachmentStorageService(),
+    private readonly attachmentStorageService: AttachmentStorageService = new AttachmentStorageService(),
   ) {}
 
   onModuleInit(): void {
@@ -254,8 +253,8 @@ export class ConversationStorageService
     accountId: string,
     limit: number,
   ): Promise<StorageQueryResult> {
-    const [categoryRows, conversationRows, largestFileRows] =
-      await Promise.all([
+    const [categoryRows, conversationRows, largestFileRows] = await Promise.all(
+      [
         this.prisma.$queryRawUnsafe<StorageCategoryDatabaseRow[]>(
           `
             SELECT
@@ -306,7 +305,8 @@ export class ConversationStorageService
           accountId,
           limit,
         ),
-      ]);
+      ],
+    );
 
     return {
       categoryRows,
@@ -516,9 +516,7 @@ export class ConversationStorageService
     };
   }
 
-  async cleanupExpiredAttachmentRetention(
-    now = new Date(),
-  ): Promise<{
+  async cleanupExpiredAttachmentRetention(now = new Date()): Promise<{
     expiredReferenceCount: number;
     purgedObjectCount: number;
     failedObjectCount: number;
@@ -604,33 +602,30 @@ export class ConversationStorageService
       let failedObjectCount = 0;
 
       for (const storageKey of purgeStorageKeys) {
-        const canPurge = await this.prisma.$transaction(
-          async (transaction) => {
-            await this.lockStorageKeys(transaction, [storageKey]);
+        const canPurge = await this.prisma.$transaction(async (transaction) => {
+          await this.lockStorageKeys(transaction, [storageKey]);
 
-            const activeReferenceCount =
-              await transaction.messageAttachment.count({
-                where: {
-                  storageKey: storageKey,
-                  expiredAt: null,
-                  expiresAt: { gt: now },
-                  message: {
-                    deletedAt: null,
-                  },
+          const activeReferenceCount =
+            await transaction.messageAttachment.count({
+              where: {
+                storageKey: storageKey,
+                expiredAt: null,
+                expiresAt: { gt: now },
+                message: {
+                  deletedAt: null,
                 },
-              });
+              },
+            });
 
-            return activeReferenceCount === 0;
-          },
-        );
+          return activeReferenceCount === 0;
+        });
 
         if (!canPurge) {
           continue;
         }
 
-        const removed = await this.deletePhysicalStorageObjectWithResult(
-          storageKey,
-        );
+        const removed =
+          await this.deletePhysicalStorageObjectWithResult(storageKey);
 
         if (!removed) {
           failedObjectCount += 1;

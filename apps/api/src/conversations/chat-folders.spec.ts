@@ -1,7 +1,4 @@
-import {
-  ConflictException,
-  NotFoundException,
-} from '@nestjs/common';
+import { ConflictException, NotFoundException } from '@nestjs/common';
 
 import type { PrismaService } from '../database/prisma.service';
 import { ConversationsService } from './conversations.service';
@@ -79,10 +76,12 @@ describe('ConversationsService custom message lists', () => {
 
   it('creates a private list only from conversations visible to its owner', async () => {
     jest.mocked(prisma.chatFolder.findFirst).mockResolvedValue(null);
-    jest.mocked(prisma.conversationParticipant.findMany).mockResolvedValue([
-      { conversationId: conversationOne },
-      { conversationId: conversationTwo },
-    ] as never);
+    jest
+      .mocked(prisma.conversationParticipant.findMany)
+      .mockResolvedValue([
+        { conversationId: conversationOne },
+        { conversationId: conversationTwo },
+      ] as never);
     jest.mocked(prisma.chatFolder.aggregate).mockResolvedValue({
       _max: { position: 2 },
     } as never);
@@ -95,11 +94,7 @@ describe('ConversationsService custom message lists', () => {
 
     const result = await service.createChatFolder(viewer, {
       name: '  Field   Team  ',
-      conversationIds: [
-        conversationOne,
-        conversationTwo,
-        conversationOne,
-      ],
+      conversationIds: [conversationOne, conversationTwo, conversationOne],
     });
 
     expect(prisma.chatFolder.create).toHaveBeenCalledWith(
@@ -145,9 +140,9 @@ describe('ConversationsService custom message lists', () => {
 
   it('rejects conversations that are not currently visible to the list owner', async () => {
     jest.mocked(prisma.chatFolder.findFirst).mockResolvedValue(null);
-    jest.mocked(prisma.conversationParticipant.findMany).mockResolvedValue([
-      { conversationId: conversationOne },
-    ] as never);
+    jest
+      .mocked(prisma.conversationParticipant.findMany)
+      .mockResolvedValue([{ conversationId: conversationOne }] as never);
 
     await expect(
       service.createChatFolder(viewer, {
@@ -171,12 +166,13 @@ describe('ConversationsService custom message lists', () => {
   });
 
   it('replaces list membership without deleting conversations or messages', async () => {
-    jest.mocked(prisma.chatFolder.findFirst)
+    jest
+      .mocked(prisma.chatFolder.findFirst)
       .mockResolvedValueOnce({ id: folderId } as never)
       .mockResolvedValueOnce(null);
-    jest.mocked(prisma.conversationParticipant.findMany).mockResolvedValue([
-      { conversationId: conversationTwo },
-    ] as never);
+    jest
+      .mocked(prisma.conversationParticipant.findMany)
+      .mockResolvedValue([{ conversationId: conversationTwo }] as never);
     transaction.chatFolderItem.deleteMany.mockResolvedValue({ count: 2 });
     transaction.chatFolderItem.createMany.mockResolvedValue({ count: 1 });
     transaction.chatFolder.update.mockResolvedValue({
@@ -226,14 +222,20 @@ describe('ConversationsService custom message lists', () => {
         requireMessageRequests: false,
       }),
     });
-    Object.defineProperty(service, 'synchronizeOfficialGroupsForAccountSafely', {
-      value: jest.fn().mockResolvedValue(undefined),
-    });
+    Object.defineProperty(
+      service,
+      'synchronizeOfficialGroupsForAccountSafely',
+      {
+        value: jest.fn().mockResolvedValue(undefined),
+      },
+    );
 
     jest.mocked(prisma.chatFolder.findFirst).mockResolvedValue({
       id: folderId,
     } as never);
-    jest.mocked(prisma.conversationParticipant.findMany).mockResolvedValue([] as never);
+    jest
+      .mocked(prisma.conversationParticipant.findMany)
+      .mockResolvedValue([] as never);
 
     const result = await service.listConversations(viewer, {
       limit: 30,
@@ -280,11 +282,17 @@ describe('ConversationsService custom message lists', () => {
         requireMessageRequests: false,
       }),
     });
-    Object.defineProperty(service, 'synchronizeOfficialGroupsForAccountSafely', {
-      value: jest.fn().mockResolvedValue(undefined),
-    });
+    Object.defineProperty(
+      service,
+      'synchronizeOfficialGroupsForAccountSafely',
+      {
+        value: jest.fn().mockResolvedValue(undefined),
+      },
+    );
 
-    jest.mocked(prisma.conversationParticipant.findMany).mockResolvedValue([] as never);
+    jest
+      .mocked(prisma.conversationParticipant.findMany)
+      .mockResolvedValue([] as never);
 
     await service.listConversations(viewer, {
       cursor: conversationOne,
@@ -346,9 +354,13 @@ describe('ConversationsService custom message lists', () => {
         requireMessageRequests: false,
       }),
     });
-    Object.defineProperty(service, 'synchronizeOfficialGroupsForAccountSafely', {
-      value: jest.fn().mockResolvedValue(undefined),
-    });
+    Object.defineProperty(
+      service,
+      'synchronizeOfficialGroupsForAccountSafely',
+      {
+        value: jest.fn().mockResolvedValue(undefined),
+      },
+    );
 
     jest.mocked(prisma.chatFolder.findFirst).mockResolvedValue(null);
 

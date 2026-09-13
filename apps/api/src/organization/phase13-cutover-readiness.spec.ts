@@ -53,9 +53,7 @@ describe('Phase 13 checkpoint 21 cutover and rollback lock', () => {
   it('locks the migration-106 rollback boundary and forbids app-only rollback across it', () => {
     const runbook = source('../../deploy/PHASE13_CUTOVER_ROLLBACK.md');
 
-    expect(runbook).toContain(
-      '20260913032500_remove_phase13_legacy_schema',
-    );
+    expect(runbook).toContain('20260913032500_remove_phase13_legacy_schema');
     expect(runbook).toContain('application rollback alone is forbidden');
     expect(runbook).toContain('prisma migrate deploy');
     expect(runbook).toContain('Never use `prisma migrate dev`');

@@ -20,8 +20,7 @@ export const ANNOUNCEMENT_LIST_FILTERS = [
   'EXPIRED',
 ] as const;
 
-export type AnnouncementListFilter =
-  (typeof ANNOUNCEMENT_LIST_FILTERS)[number];
+export type AnnouncementListFilter = (typeof ANNOUNCEMENT_LIST_FILTERS)[number];
 
 export class ListAnnouncementsQueryDto {
   @IsOptional()

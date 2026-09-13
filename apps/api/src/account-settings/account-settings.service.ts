@@ -16,10 +16,7 @@ export class AccountSettingsService {
     return account;
   }
 
-  async updateLanguage(
-    accountId: string,
-    dto: UpdateAccountLanguageDto,
-  ) {
+  async updateLanguage(accountId: string, dto: UpdateAccountLanguageDto) {
     /*
      * Language is an account-level presentation preference. It never rewrites
      * messages, work descriptions, employee identity or other stored content.

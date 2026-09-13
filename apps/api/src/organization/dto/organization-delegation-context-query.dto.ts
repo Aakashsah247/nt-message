@@ -1,8 +1,4 @@
-import {
-  IsIn,
-  IsOptional,
-  IsUUID,
-} from 'class-validator';
+import { IsIn, IsOptional, IsUUID } from 'class-validator';
 
 export class OrganizationDelegationContextQueryDto {
   @IsOptional()

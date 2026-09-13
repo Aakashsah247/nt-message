@@ -24,11 +24,11 @@ describe('Phase 13 checkpoint 20 runtime/schema cutover', () => {
   });
 
   it('does not write retired Work compatibility columns', () => {
-    expect(source('src/work-management/work-lifecycle.service.ts')).not.toContain(
-      'requestedDepartmentId',
-    );
-    expect(source('src/work-management/work-runtime-v3.service.ts')).not.toMatch(
-      /\btype:\s*null/,
-    );
+    expect(
+      source('src/work-management/work-lifecycle.service.ts'),
+    ).not.toContain('requestedDepartmentId');
+    expect(
+      source('src/work-management/work-runtime-v3.service.ts'),
+    ).not.toMatch(/\btype:\s*null/);
   });
 });

@@ -7,10 +7,6 @@ import {
 } from '@nestjs/common';
 
 import type { AuthenticatedUser } from '../auth/types/auth.types';
-import {
-  normalizeAccountIdentity,
-  normalizeOfficialEmailForLookup,
-} from '../common/normalization/account-identity-normalization';
 import { ConversationsService } from '../conversations/conversations.service';
 import { PrismaService } from '../database/prisma.service';
 import {
@@ -64,8 +60,6 @@ export class EmployeesService {
             status: query.status,
           }
         : {}),
-
-
 
       ...(search
         ? {
@@ -122,7 +116,6 @@ export class EmployeesService {
           profilePhotoKey: true,
           createdAt: true,
           updatedAt: true,
-
         },
       }),
 
@@ -163,7 +156,6 @@ export class EmployeesService {
         createdAt: true,
         updatedAt: true,
 
-
         account: {
           select: {
             id: true,
@@ -197,7 +189,6 @@ export class EmployeesService {
         'Protected identity fields must be changed through the protected identity correction workflow.',
       );
     }
-
 
     if (dto.designation === undefined) {
       throw new BadRequestException(

@@ -12,16 +12,16 @@ import {
   Min,
 } from 'class-validator';
 
-import {
-  AccountRole,
-  ActivityEventType,
-} from '../../generated/prisma/client';
+import { AccountRole, ActivityEventType } from '../../generated/prisma/client';
 
 export class SuperAdminActivityLogQueryDto {
   @IsOptional()
-  @IsISO8601({ strict: true }, {
-    message: 'Date must be in YYYY-MM-DD format.',
-  })
+  @IsISO8601(
+    { strict: true },
+    {
+      message: 'Date must be in YYYY-MM-DD format.',
+    },
+  )
   date?: string;
 
   @IsOptional()

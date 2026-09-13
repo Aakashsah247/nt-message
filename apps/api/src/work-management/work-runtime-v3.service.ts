@@ -309,11 +309,7 @@ export class WorkRuntimeV3Service {
     private readonly notifications: WorkRuntimeV3NotificationsService,
   ) {}
 
-  async listWork(
-    user: AuthenticatedUser,
-    officeId: string,
-    take = 50,
-  ) {
+  async listWork(user: AuthenticatedUser, officeId: string, take = 50) {
     const office = await this.prisma.office.findUnique({
       where: { id: officeId },
       select: { id: true, code: true, name: true, isActive: true },
@@ -583,7 +579,9 @@ export class WorkRuntimeV3Service {
       });
 
       if (!version) {
-        throw new NotFoundException('Work Type Version was not found in this Office.');
+        throw new NotFoundException(
+          'Work Type Version was not found in this Office.',
+        );
       }
       if (
         version.status !== WorkTypeVersionStatus.PUBLISHED ||
@@ -604,10 +602,18 @@ export class WorkRuntimeV3Service {
         );
       }
 
-      const actorContext = await this.getActorContext(tx, user.accountId, officeId, now);
+      const actorContext = await this.getActorContext(
+        tx,
+        user.accountId,
+        officeId,
+        now,
+      );
       await this.assertCreatorPolicy(tx, version, actorContext);
 
-      const validatedFields = validateRuntimeIntakeFields(version.fields, dto.fields);
+      const validatedFields = validateRuntimeIntakeFields(
+        version.fields,
+        dto.fields,
+      );
       await assertRuntimeIdentityFieldValues(
         tx,
         officeId,
@@ -618,9 +624,17 @@ export class WorkRuntimeV3Service {
       const plannedStartAt = dto.plannedStartAt
         ? this.parseDate(dto.plannedStartAt, 'Planned start')
         : null;
-      const dueAt = await this.resolveOverallDueAt(tx, officeId, version, dto, now);
+      const dueAt = await this.resolveOverallDueAt(
+        tx,
+        officeId,
+        version,
+        dto,
+        now,
+      );
       if (plannedStartAt && plannedStartAt.getTime() >= dueAt.getTime()) {
-        throw new BadRequestException('Due time must be later than the planned start time.');
+        throw new BadRequestException(
+          'Due time must be later than the planned start time.',
+        );
       }
 
       const stagePlans = await this.buildInitialStagePlans(
@@ -669,12 +683,14 @@ export class WorkRuntimeV3Service {
           dueAt,
           createdByAccountId: user.accountId,
           orgUnitParticipants: {
-            create: [...participantRoles.entries()].map(([orgUnitId, role]) => ({
-              orgUnitId,
-              role,
-              addedByAccountId: user.accountId,
-              startedAt: now,
-            })),
+            create: [...participantRoles.entries()].map(
+              ([orgUnitId, role]) => ({
+                orgUnitId,
+                role,
+                addedByAccountId: user.accountId,
+                startedAt: now,
+              }),
+            ),
           },
           fieldValues: {
             create: validatedFields.values.map((field) => ({
@@ -685,7 +701,10 @@ export class WorkRuntimeV3Service {
             })),
           },
           references: {
-            create: this.buildReferences(validatedFields.values, user.accountId),
+            create: this.buildReferences(
+              validatedFields.values,
+              user.accountId,
+            ),
           },
         },
         select: { id: true },
@@ -707,9 +726,11 @@ export class WorkRuntimeV3Service {
             activationMode: stage.definition.activationMode,
             activationFieldCode:
               version.fields.find(
-                (field) => field.id === stage.definition.activationFieldDefinitionId,
+                (field) =>
+                  field.id === stage.definition.activationFieldDefinitionId,
               )?.code ?? null,
-            activationExpectedValue: stage.definition.activationExpectedValue ?? undefined,
+            activationExpectedValue:
+              stage.definition.activationExpectedValue ?? undefined,
             slaMinutes: stage.definition.slaMinutes,
             status: stage.status,
             readyAt: stage.readyAt,
@@ -722,7 +743,9 @@ export class WorkRuntimeV3Service {
         where: { workItemId: work.id },
         select: { id: true, code: true, status: true },
       });
-      const stageByCode = new Map(runtimeStages.map((stage) => [stage.code, stage]));
+      const stageByCode = new Map(
+        runtimeStages.map((stage) => [stage.code, stage]),
+      );
 
       await tx.workEvent.create({
         data: {
@@ -785,11 +808,7 @@ export class WorkRuntimeV3Service {
     return created;
   }
 
-  async getWork(
-    user: AuthenticatedUser,
-    officeId: string,
-    workItemId: string,
-  ) {
+  async getWork(user: AuthenticatedUser, officeId: string, workItemId: string) {
     const work = await this.prisma.workItem.findFirst({
       where: {
         id: workItemId,
@@ -819,12 +838,20 @@ export class WorkRuntimeV3Service {
     return this.sla.getWorkSlaSummary(officeId, workItemId);
   }
 
-  private async getCreatedWork(tx: Prisma.TransactionClient, workItemId: string) {
+  private async getCreatedWork(
+    tx: Prisma.TransactionClient,
+    workItemId: string,
+  ) {
     const work = await tx.workItem.findUnique({
       where: { id: workItemId },
       select: CREATED_WORK_SELECT,
     });
-    if (!work || !work.officeId || !work.workTypeVersionId || !work.runtimeStatus) {
+    if (
+      !work ||
+      !work.officeId ||
+      !work.workTypeVersionId ||
+      !work.runtimeStatus
+    ) {
       throw new ConflictException('The V3 Work runtime record is incomplete.');
     }
     return work;
@@ -931,10 +958,7 @@ export class WorkRuntimeV3Service {
             leadAssignments: {
               some: {
                 effectiveFrom: { lte: at },
-                OR: [
-                  { effectiveUntil: null },
-                  { effectiveUntil: { gt: at } },
-                ],
+                OR: [{ effectiveUntil: null }, { effectiveUntil: { gt: at } }],
                 employee: {
                   status: EmployeeStatus.ACTIVE,
                   employmentStatus: EmploymentStatus.ACTIVE,
@@ -1025,7 +1049,9 @@ export class WorkRuntimeV3Service {
       account.employee.employmentStatus !== EmploymentStatus.ACTIVE ||
       account.employee.archivedAt !== null
     ) {
-      throw new ForbiddenException('Only an active Office member can create operational Work.');
+      throw new ForbiddenException(
+        'Only an active Office member can create operational Work.',
+      );
     }
 
     if (account.employee.orgMemberships.length !== 1) {
@@ -1054,7 +1080,9 @@ export class WorkRuntimeV3Service {
     version: RuntimeVersion,
     actor: Awaited<ReturnType<WorkRuntimeV3Service['getActorContext']>>,
   ): Promise<void> {
-    if (version.creatorAccounts.some((item) => item.accountId === actor.accountId)) {
+    if (
+      version.creatorAccounts.some((item) => item.accountId === actor.accountId)
+    ) {
       return;
     }
 
@@ -1090,7 +1118,9 @@ export class WorkRuntimeV3Service {
 
     if (isOfficeHead) return;
     if (candidateOrgUnits.length === 0) {
-      throw new ForbiddenException('This Work Type does not allow your creator category.');
+      throw new ForbiddenException(
+        'This Work Type does not allow your creator category.',
+      );
     }
 
     if (version.creatorScope === WorkTypeCreatorScope.OFFICE_WIDE) {
@@ -1114,7 +1144,13 @@ export class WorkRuntimeV3Service {
 
     for (const rule of version.creatorOrgUnits) {
       if (rule.includeDescendants) {
-        if (await this.anyOrgUnitInsideScope(tx, rule.orgUnitId, candidateOrgUnits)) {
+        if (
+          await this.anyOrgUnitInsideScope(
+            tx,
+            rule.orgUnitId,
+            candidateOrgUnits,
+          )
+        ) {
           return;
         }
       } else if (candidateOrgUnits.includes(rule.orgUnitId)) {
@@ -1122,7 +1158,9 @@ export class WorkRuntimeV3Service {
       }
     }
 
-    throw new ForbiddenException('This Work Type does not allow creation from your OrgUnit scope.');
+    throw new ForbiddenException(
+      'This Work Type does not allow creation from your OrgUnit scope.',
+    );
   }
 
   private async anyOrgUnitInsideScope(
@@ -1174,11 +1212,16 @@ export class WorkRuntimeV3Service {
     tx: Prisma.TransactionClient,
     version: RuntimeVersion,
     officeId: string,
-    valuesByCode: Map<string, string | number | boolean | (string | number | boolean)[]>,
+    valuesByCode: Map<
+      string,
+      string | number | boolean | (string | number | boolean)[]
+    >,
     now: Date,
   ): Promise<InitialStagePlan[]> {
     if (version.stages.length === 0) {
-      throw new ConflictException('The published Work Type has no runtime stages.');
+      throw new ConflictException(
+        'The published Work Type has no runtime stages.',
+      );
     }
 
     const activationFieldById = new Map(
@@ -1194,14 +1237,17 @@ export class WorkRuntimeV3Service {
     const resolvedOrgUnitIds = new Map<string, string>();
     for (const stage of version.stages) {
       const responsibleOrgUnitId =
-        stage.responsibleOrgUnitRule === WorkStageResponsibleOrgUnitRule.PRIMARY_OWNER
+        stage.responsibleOrgUnitRule ===
+        WorkStageResponsibleOrgUnitRule.PRIMARY_OWNER
           ? version.primaryOwnerOrgUnitId!
           : stage.responsibleOrgUnitRule ===
               WorkStageResponsibleOrgUnitRule.RUNTIME_REQUESTED_PARTICIPANT
             ? version.primaryOwnerOrgUnitId!
-          : stage.responsibleOrgUnitId;
+            : stage.responsibleOrgUnitId;
       if (!responsibleOrgUnitId) {
-        throw new ConflictException(`Stage ${stage.code} has no responsible OrgUnit.`);
+        throw new ConflictException(
+          `Stage ${stage.code} has no responsible OrgUnit.`,
+        );
       }
       resolvedOrgUnitIds.set(stage.id, responsibleOrgUnitId);
     }
@@ -1228,7 +1274,9 @@ export class WorkRuntimeV3Service {
     const activationByStageId = new Map<string, Activation>();
     for (const stage of version.stages) {
       let activation: Activation = 'ACTIVE';
-      if (stage.activationMode === WorkStageActivationMode.MANUAL_WHEN_REQUIRED) {
+      if (
+        stage.activationMode === WorkStageActivationMode.MANUAL_WHEN_REQUIRED
+      ) {
         activation = 'DEFERRED';
       } else if (
         stage.activationMode === WorkStageActivationMode.FIELD_TRUE ||
@@ -1238,7 +1286,9 @@ export class WorkRuntimeV3Service {
           ? activationFieldById.get(stage.activationFieldDefinitionId)
           : null;
         if (!field) {
-          throw new ConflictException(`Stage ${stage.code} has an invalid activation field.`);
+          throw new ConflictException(
+            `Stage ${stage.code} has an invalid activation field.`,
+          );
         }
         if (!valuesByCode.has(field.code)) {
           activation = field.stageDefinitionId ? 'DEFERRED' : 'INACTIVE';
@@ -1265,10 +1315,15 @@ export class WorkRuntimeV3Service {
       const existing = statusByStageId.get(stageId);
       if (existing) return existing;
       if (resolving.has(stageId)) {
-        throw new ConflictException('Published Work Type stage dependencies contain a cycle.');
+        throw new ConflictException(
+          'Published Work Type stage dependencies contain a cycle.',
+        );
       }
       const stage = stageById.get(stageId);
-      if (!stage) throw new ConflictException('Published Work Type has an invalid dependency.');
+      if (!stage)
+        throw new ConflictException(
+          'Published Work Type has an invalid dependency.',
+        );
       resolving.add(stageId);
 
       const activation = activationByStageId.get(stageId) ?? 'DEFERRED';
@@ -1280,7 +1335,8 @@ export class WorkRuntimeV3Service {
       } else {
         const prerequisites = prerequisiteIds.get(stageId) ?? [];
         const allSatisfied = prerequisites.every(
-          (prerequisiteId) => resolveStatus(prerequisiteId) === WorkStageStatus.SKIPPED,
+          (prerequisiteId) =>
+            resolveStatus(prerequisiteId) === WorkStageStatus.SKIPPED,
         );
         status = allSatisfied ? WorkStageStatus.READY : WorkStageStatus.PENDING;
       }
@@ -1353,7 +1409,10 @@ export class WorkRuntimeV3Service {
     actorAccountId: string,
   ) {
     return fields.flatMap((field) => {
-      if (field.fieldType !== WorkFieldType.REFERENCE || typeof field.value !== 'string') {
+      if (
+        field.fieldType !== WorkFieldType.REFERENCE ||
+        typeof field.value !== 'string'
+      ) {
         return [];
       }
       return [
@@ -1374,7 +1433,9 @@ export class WorkRuntimeV3Service {
     ownerCode: string,
     year: number,
   ): Promise<string> {
-    const rows = await tx.$queryRaw<Array<{ nextValue: bigint | number | string }>>`
+    const rows = await tx.$queryRaw<
+      Array<{ nextValue: bigint | number | string }>
+    >`
       SELECT nextval('work_ticket_sequence') AS "nextValue"
     `;
     const nextValue = rows[0]?.nextValue;
@@ -1382,7 +1443,10 @@ export class WorkRuntimeV3Service {
       throw new ConflictException('Unable to generate a Work ticket number.');
     }
     const clean = (value: string, fallback: string) =>
-      value.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 8) || fallback;
+      value
+        .toUpperCase()
+        .replace(/[^A-Z0-9]/g, '')
+        .slice(0, 8) || fallback;
     return `NT-${clean(officeCode, 'OFFICE')}-${clean(ownerCode, 'UNIT')}-${year}-${String(
       nextValue,
     ).padStart(6, '0')}`;

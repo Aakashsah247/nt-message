@@ -272,7 +272,9 @@ describe('ConversationsService multi-attachment messages', () => {
         },
         files,
       ),
-    ).rejects.toThrow('Attachments in one message must total 250 MB or smaller.');
+    ).rejects.toThrow(
+      'Attachments in one message must total 250 MB or smaller.',
+    );
 
     expect(writeAttachmentFile).not.toHaveBeenCalled();
   });
@@ -293,7 +295,9 @@ describe('ConversationsService multi-attachment messages', () => {
         },
         files,
       ),
-    ).rejects.toThrow('A voice note must contain exactly one audio attachment.');
+    ).rejects.toThrow(
+      'A voice note must contain exactly one audio attachment.',
+    );
 
     expect(writeAttachmentFile).not.toHaveBeenCalled();
   });

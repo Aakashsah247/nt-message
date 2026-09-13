@@ -110,9 +110,7 @@ export function assertAttachmentFileMatchesDeclaredType(
         (buffer[0] === 0xff && (buffer[1] & 0xe0) === 0xe0);
       break;
     case 'audio/aac':
-      valid =
-        buffer[0] === 0xff &&
-        (buffer[1] === 0xf1 || buffer[1] === 0xf9);
+      valid = buffer[0] === 0xff && (buffer[1] === 0xf1 || buffer[1] === 0xf9);
       break;
     case 'audio/wav':
       valid = ascii(0, 4) === 'RIFF' && ascii(8, 12) === 'WAVE';

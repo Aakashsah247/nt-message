@@ -394,27 +394,25 @@ describe('ConversationStorageService M18 acceptance', () => {
     );
   });
 
-  it.each([
-    'EMPLOYEE',
-    'TEAM_MANAGER',
-    'SENIOR_MANAGEMENT',
-    'SUPER_ADMIN',
-  ])('does not expose infrastructure fields to the %s role', async (role) => {
-    const result = await service.getUserStorageUsage(
-      {
-        ...user,
-        role,
-      } as never,
-      30,
-    );
-    const serialized = JSON.stringify(result);
+  it.each(['EMPLOYEE', 'TEAM_MANAGER', 'SENIOR_MANAGEMENT', 'SUPER_ADMIN'])(
+    'does not expose infrastructure fields to the %s role',
+    async (role) => {
+      const result = await service.getUserStorageUsage(
+        {
+          ...user,
+          role,
+        } as never,
+        30,
+      );
+      const serialized = JSON.stringify(result);
 
-    expect(serialized).not.toContain('physicalStoredBytes');
-    expect(serialized).not.toContain('physicalObjectCount');
-    expect(serialized).not.toContain('missingPhysicalObjectCount');
-    expect(serialized).not.toContain('availability');
-    expect(serialized).not.toContain('storageKey');
-  });
+      expect(serialized).not.toContain('physicalStoredBytes');
+      expect(serialized).not.toContain('physicalObjectCount');
+      expect(serialized).not.toContain('missingPhysicalObjectCount');
+      expect(serialized).not.toContain('availability');
+      expect(serialized).not.toContain('storageKey');
+    },
+  );
 
   it('keeps management storage requests account-scoped and outside monitoring analytics', async () => {
     const managementUser = {
@@ -449,9 +447,7 @@ describe('ConversationStorageService M18 acceptance', () => {
       .mockResolvedValueOnce([
         { id: 'expired-ref', storageKey: 'shared/forwarded-file.pdf' },
       ])
-      .mockResolvedValueOnce([
-        { storageKey: 'shared/forwarded-file.pdf' },
-      ]);
+      .mockResolvedValueOnce([{ storageKey: 'shared/forwarded-file.pdf' }]);
     const transaction = {
       $queryRawUnsafe: jest.fn().mockResolvedValue([{}]),
       messageAttachment: {
@@ -461,7 +457,10 @@ describe('ConversationStorageService M18 acceptance', () => {
     };
     const cleanupPrisma = {
       messageAttachment: { findMany, updateMany: outerUpdateMany },
-      $transaction: jest.fn(async (callback) => callback(transaction)),
+      $transaction: jest.fn(
+        (callback: (tx: typeof transaction) => Promise<unknown>) =>
+          Promise.resolve(callback(transaction)),
+      ),
     } as unknown as PrismaService;
     const cleanupService = new ConversationStorageService(cleanupPrisma);
 
@@ -500,7 +499,10 @@ describe('ConversationStorageService M18 acceptance', () => {
     };
     const cleanupPrisma = {
       messageAttachment: { findMany, updateMany: outerUpdateMany },
-      $transaction: jest.fn(async (callback) => callback(transaction)),
+      $transaction: jest.fn(
+        (callback: (tx: typeof transaction) => Promise<unknown>) =>
+          Promise.resolve(callback(transaction)),
+      ),
     } as unknown as PrismaService;
     const cleanupService = new ConversationStorageService(cleanupPrisma);
 
@@ -530,7 +532,9 @@ describe('ConversationStorageService M18 acceptance', () => {
   });
 
   it('keeps purge tracking pending when physical deletion fails so cleanup can retry', async () => {
-    const storageError = Object.assign(new Error('disk busy'), { code: 'EBUSY' });
+    const storageError = Object.assign(new Error('disk busy'), {
+      code: 'EBUSY',
+    });
     const unlink = jest.spyOn(fs, 'unlink').mockRejectedValue(storageError);
     const outerUpdateMany = jest.fn();
     const findMany = jest
@@ -546,7 +550,10 @@ describe('ConversationStorageService M18 acceptance', () => {
     };
     const cleanupPrisma = {
       messageAttachment: { findMany, updateMany: outerUpdateMany },
-      $transaction: jest.fn(async (callback) => callback(transaction)),
+      $transaction: jest.fn(
+        (callback: (tx: typeof transaction) => Promise<unknown>) =>
+          Promise.resolve(callback(transaction)),
+      ),
     } as unknown as PrismaService;
     const cleanupService = new ConversationStorageService(cleanupPrisma);
     jest
@@ -571,5 +578,4 @@ describe('ConversationStorageService M18 acceptance', () => {
       unlink.mockRestore();
     }
   });
-
 });

@@ -1,7 +1,4 @@
-import {
-  ForbiddenException,
-  Injectable,
-} from '@nestjs/common';
+import { ForbiddenException, Injectable } from '@nestjs/common';
 
 import type { AuthenticatedUser } from '../auth/types/auth.types';
 import { PrismaService } from '../database/prisma.service';
@@ -150,31 +147,30 @@ export class OrganizationAuthorizationService {
 
     const employeeId = account.employee.id;
 
-    const primaryMembership =
-      await this.prisma.orgMembership.findFirst({
-        where: {
-          employeeId,
-          officeId,
-          membershipType: OrgMembershipType.PRIMARY,
-          startsAt: {
-            lte: at,
+    const primaryMembership = await this.prisma.orgMembership.findFirst({
+      where: {
+        employeeId,
+        officeId,
+        membershipType: OrgMembershipType.PRIMARY,
+        startsAt: {
+          lte: at,
+        },
+        OR: [
+          {
+            endsAt: null,
           },
-          OR: [
-            {
-              endsAt: null,
+          {
+            endsAt: {
+              gt: at,
             },
-            {
-              endsAt: {
-                gt: at,
-              },
-            },
-          ],
-        },
-        select: {
-          id: true,
-          orgUnitId: true,
-        },
-      });
+          },
+        ],
+      },
+      select: {
+        id: true,
+        orgUnitId: true,
+      },
+    });
 
     if (!primaryMembership) {
       return false;
@@ -194,49 +190,42 @@ export class OrganizationAuthorizationService {
       return true;
     }
 
-    const leadership =
-      await this.prisma.orgLeadershipAssignment.findMany({
-        where: {
-          employeeId,
-          officeId,
-          effectiveFrom: {
-            lte: at,
+    const leadership = await this.prisma.orgLeadershipAssignment.findMany({
+      where: {
+        employeeId,
+        officeId,
+        effectiveFrom: {
+          lte: at,
+        },
+        OR: [
+          {
+            effectiveUntil: null,
           },
-          OR: [
-            {
-              effectiveUntil: null,
+          {
+            effectiveUntil: {
+              gt: at,
             },
-            {
-              effectiveUntil: {
-                gt: at,
-              },
-            },
-          ],
-        },
-        select: {
-          leadershipType: true,
-          orgUnitId: true,
-        },
-      });
+          },
+        ],
+      },
+      select: {
+        leadershipType: true,
+        orgUnitId: true,
+      },
+    });
 
     for (const assignment of leadership) {
       if (
-        assignment.leadershipType ===
-          OrgLeadershipType.OFFICE_HEAD &&
+        assignment.leadershipType === OrgLeadershipType.OFFICE_HEAD &&
         OFFICE_HEAD_CAPABILITIES.has(capability)
       ) {
         return true;
       }
 
       if (
-        assignment.leadershipType ===
-          OrgLeadershipType.ORG_UNIT_HEAD &&
+        assignment.leadershipType === OrgLeadershipType.ORG_UNIT_HEAD &&
         ORG_UNIT_HEAD_CAPABILITIES.has(capability) &&
-        (await this.orgUnitScopeCovers(
-          assignment.orgUnitId,
-          orgUnitId,
-          true,
-        ))
+        (await this.orgUnitScopeCovers(assignment.orgUnitId, orgUnitId, true))
       ) {
         return true;
       }
@@ -257,10 +246,7 @@ export class OrganizationAuthorizationService {
           where: {
             employeeId,
             effectiveFrom: { lte: at },
-            OR: [
-              { effectiveUntil: null },
-              { effectiveUntil: { gt: at } },
-            ],
+            OR: [{ effectiveUntil: null }, { effectiveUntil: { gt: at } }],
             team: {
               is: {
                 orgUnitId,
@@ -284,32 +270,31 @@ export class OrganizationAuthorizationService {
       }
     }
 
-    const delegations =
-      await this.prisma.delegatedPermission.findMany({
-        where: {
-          granteeAccountId: user.accountId,
-          officeId,
-          capability,
-          revokedAt: null,
-          effectiveFrom: {
-            lte: at,
+    const delegations = await this.prisma.delegatedPermission.findMany({
+      where: {
+        granteeAccountId: user.accountId,
+        officeId,
+        capability,
+        revokedAt: null,
+        effectiveFrom: {
+          lte: at,
+        },
+        OR: [
+          {
+            effectiveUntil: null,
           },
-          OR: [
-            {
-              effectiveUntil: null,
+          {
+            effectiveUntil: {
+              gt: at,
             },
-            {
-              effectiveUntil: {
-                gt: at,
-              },
-            },
-          ],
-        },
-        select: {
-          orgUnitId: true,
-          includeDescendants: true,
-        },
-      });
+          },
+        ],
+      },
+      select: {
+        orgUnitId: true,
+        includeDescendants: true,
+      },
+    });
 
     for (const delegation of delegations) {
       if (
@@ -350,14 +335,7 @@ export class OrganizationAuthorizationService {
     officeId: string,
     orgUnitId: string | null = null,
   ): Promise<void> {
-    if (
-      !(await this.can(
-        user,
-        capability,
-        officeId,
-        orgUnitId,
-      ))
-    ) {
+    if (!(await this.can(user, capability, officeId, orgUnitId))) {
       throw new ForbiddenException(
         'You do not have permission to perform this action in this organizational area.',
       );
@@ -370,11 +348,7 @@ export class OrganizationAuthorizationService {
     at = new Date(),
   ): Promise<boolean> {
     return Boolean(
-      await this.resolveActiveOfficeHeadAssignment(
-        user,
-        officeId,
-        at,
-      ),
+      await this.resolveActiveOfficeHeadAssignment(user, officeId, at),
     );
   }
 
@@ -393,8 +367,7 @@ export class OrganizationAuthorizationService {
 
     if (
       requestedEffectiveUntil &&
-      requestedEffectiveUntil.getTime() <=
-        requestedEffectiveFrom.getTime()
+      requestedEffectiveUntil.getTime() <= requestedEffectiveFrom.getTime()
     ) {
       return false;
     }
@@ -411,12 +384,11 @@ export class OrganizationAuthorizationService {
       return false;
     }
 
-    const officeHead =
-      await this.resolveActiveOfficeHeadAssignment(
-        user,
-        officeId,
-        requestedEffectiveFrom,
-      );
+    const officeHead = await this.resolveActiveOfficeHeadAssignment(
+      user,
+      officeId,
+      requestedEffectiveFrom,
+    );
 
     if (officeHead) {
       if (!OFFICE_HEAD_CAPABILITIES.has(capability)) {
@@ -439,42 +411,40 @@ export class OrganizationAuthorizationService {
       return false;
     }
 
-    const grants =
-      await this.prisma.delegatedPermission.findMany({
-        where: {
-          granteeAccountId: user.accountId,
-          officeId,
-          capability,
-          canRedelegate: true,
-          revokedAt: null,
-          effectiveFrom: {
-            lte: requestedEffectiveFrom,
+    const grants = await this.prisma.delegatedPermission.findMany({
+      where: {
+        granteeAccountId: user.accountId,
+        officeId,
+        capability,
+        canRedelegate: true,
+        revokedAt: null,
+        effectiveFrom: {
+          lte: requestedEffectiveFrom,
+        },
+        OR: [
+          {
+            effectiveUntil: null,
           },
-          OR: [
-            {
-              effectiveUntil: null,
+          {
+            effectiveUntil: {
+              gt: requestedEffectiveFrom,
             },
-            {
-              effectiveUntil: {
-                gt: requestedEffectiveFrom,
-              },
-            },
-          ],
-        },
-        select: {
-          orgUnitId: true,
-          includeDescendants: true,
-          effectiveUntil: true,
-        },
-      });
+          },
+        ],
+      },
+      select: {
+        orgUnitId: true,
+        includeDescendants: true,
+        effectiveUntil: true,
+      },
+    });
 
     for (const grant of grants) {
-      const scopeCovered =
-        await this.orgUnitScopeCovers(
-          grant.orgUnitId,
-          orgUnitId,
-          grant.includeDescendants,
-        );
+      const scopeCovered = await this.orgUnitScopeCovers(
+        grant.orgUnitId,
+        orgUnitId,
+        grant.includeDescendants,
+      );
 
       if (!scopeCovered) {
         continue;
@@ -491,8 +461,7 @@ export class OrganizationAuthorizationService {
       if (
         grant.effectiveUntil &&
         (!requestedEffectiveUntil ||
-          requestedEffectiveUntil.getTime() >
-            grant.effectiveUntil.getTime())
+          requestedEffectiveUntil.getTime() > grant.effectiveUntil.getTime())
       ) {
         continue;
       }
@@ -508,14 +477,7 @@ export class OrganizationAuthorizationService {
     capability: Capability,
     officeId: string,
   ): Promise<string[]> {
-    if (
-      await this.can(
-        user,
-        capability,
-        officeId,
-        null,
-      )
-    ) {
+    if (await this.can(user, capability, officeId, null)) {
       const units = await this.prisma.orgUnit.findMany({
         where: {
           officeId,
@@ -534,8 +496,7 @@ export class OrganizationAuthorizationService {
       !account?.isEnabled ||
       !account.employee ||
       account.employee.status !== EmployeeStatus.ACTIVE ||
-      account.employee.employmentStatus !==
-        EmploymentStatus.ACTIVE ||
+      account.employee.employmentStatus !== EmploymentStatus.ACTIVE ||
       account.employee.archivedAt !== null
     ) {
       return [];
@@ -544,82 +505,75 @@ export class OrganizationAuthorizationService {
     const now = new Date();
     const ids = new Set<string>();
 
-    const primaryMembership =
-      await this.prisma.orgMembership.findFirst({
-        where: {
-          employeeId: account.employee.id,
-          officeId,
-          membershipType: OrgMembershipType.PRIMARY,
-          startsAt: {
-            lte: now,
+    const primaryMembership = await this.prisma.orgMembership.findFirst({
+      where: {
+        employeeId: account.employee.id,
+        officeId,
+        membershipType: OrgMembershipType.PRIMARY,
+        startsAt: {
+          lte: now,
+        },
+        OR: [
+          {
+            endsAt: null,
           },
-          OR: [
-            {
-              endsAt: null,
+          {
+            endsAt: {
+              gt: now,
             },
-            {
-              endsAt: {
-                gt: now,
-              },
-            },
-          ],
-        },
-        select: {
-          orgUnitId: true,
-        },
-      });
+          },
+        ],
+      },
+      select: {
+        orgUnitId: true,
+      },
+    });
 
     if (!primaryMembership) {
       return [];
     }
 
-    const leadership =
-      await this.prisma.orgLeadershipAssignment.findMany({
-        where: {
-          employeeId: account.employee.id,
-          officeId,
-          effectiveFrom: {
-            lte: now,
+    const leadership = await this.prisma.orgLeadershipAssignment.findMany({
+      where: {
+        employeeId: account.employee.id,
+        officeId,
+        effectiveFrom: {
+          lte: now,
+        },
+        OR: [
+          {
+            effectiveUntil: null,
           },
-          OR: [
-            {
-              effectiveUntil: null,
+          {
+            effectiveUntil: {
+              gt: now,
             },
-            {
-              effectiveUntil: {
-                gt: now,
-              },
-            },
-          ],
-        },
-        select: {
-          leadershipType: true,
-          orgUnitId: true,
-        },
-      });
+          },
+        ],
+      },
+      select: {
+        leadershipType: true,
+        orgUnitId: true,
+      },
+    });
 
     for (const assignment of leadership) {
       if (
-        assignment.leadershipType ===
-          OrgLeadershipType.ORG_UNIT_HEAD &&
+        assignment.leadershipType === OrgLeadershipType.ORG_UNIT_HEAD &&
         assignment.orgUnitId &&
         ORG_UNIT_HEAD_CAPABILITIES.has(capability)
       ) {
-        const descendants =
-          await this.prisma.orgUnitClosure.findMany({
-            where: {
-              ancestorOrgUnitId: assignment.orgUnitId,
-            },
-            select: {
-              descendantOrgUnitId: true,
-            },
-          });
+        const descendants = await this.prisma.orgUnitClosure.findMany({
+          where: {
+            ancestorOrgUnitId: assignment.orgUnitId,
+          },
+          select: {
+            descendantOrgUnitId: true,
+          },
+        });
 
-        descendants.forEach((item) =>
-          ids.add(item.descendantOrgUnitId),
-        );
+        descendants.forEach((item) => ids.add(item.descendantOrgUnitId));
       }
-
     }
 
     if (
@@ -658,32 +612,31 @@ export class OrganizationAuthorizationService {
       );
     }
 
-    const delegated =
-      await this.prisma.delegatedPermission.findMany({
-        where: {
-          granteeAccountId: user.accountId,
-          officeId,
-          capability,
-          revokedAt: null,
-          effectiveFrom: {
-            lte: now,
+    const delegated = await this.prisma.delegatedPermission.findMany({
+      where: {
+        granteeAccountId: user.accountId,
+        officeId,
+        capability,
+        revokedAt: null,
+        effectiveFrom: {
+          lte: now,
+        },
+        OR: [
+          {
+            effectiveUntil: null,
           },
-          OR: [
-            {
-              effectiveUntil: null,
+          {
+            effectiveUntil: {
+              gt: now,
             },
-            {
-              effectiveUntil: {
-                gt: now,
-              },
-            },
-          ],
-        },
-        select: {
-          orgUnitId: true,
-          includeDescendants: true,
-        },
-      });
+          },
+        ],
+      },
+      select: {
+        orgUnitId: true,
+        includeDescendants: true,
+      },
+    });
 
     for (const grant of delegated) {
       if (!grant.orgUnitId) {
@@ -703,19 +656,16 @@ export class OrganizationAuthorizationService {
       ids.add(grant.orgUnitId);
 
       if (grant.includeDescendants) {
-        const descendants =
-          await this.prisma.orgUnitClosure.findMany({
-            where: {
-              ancestorOrgUnitId: grant.orgUnitId,
-            },
-            select: {
-              descendantOrgUnitId: true,
-            },
-          });
+        const descendants = await this.prisma.orgUnitClosure.findMany({
+          where: {
+            ancestorOrgUnitId: grant.orgUnitId,
+          },
+          select: {
+            descendantOrgUnitId: true,
+          },
+        });
 
-        descendants.forEach((item) =>
-          ids.add(item.descendantOrgUnitId),
-        );
+        descendants.forEach((item) => ids.add(item.descendantOrgUnitId));
       }
     }
 
@@ -726,25 +676,19 @@ export class OrganizationAuthorizationService {
       ids.add(primaryMembership.orgUnitId);
     }
 
-    if (
-      capability === CAPABILITIES.ORGANIZATION_VIEW &&
-      ids.size > 0
-    ) {
-      const breadcrumb =
-        await this.prisma.orgUnitClosure.findMany({
-          where: {
-            descendantOrgUnitId: {
-              in: [...ids],
-            },
+    if (capability === CAPABILITIES.ORGANIZATION_VIEW && ids.size > 0) {
+      const breadcrumb = await this.prisma.orgUnitClosure.findMany({
+        where: {
+          descendantOrgUnitId: {
+            in: [...ids],
           },
-          select: {
-            ancestorOrgUnitId: true,
-          },
-        });
+        },
+        select: {
+          ancestorOrgUnitId: true,
+        },
+      });
 
-      breadcrumb.forEach((item) =>
-        ids.add(item.ancestorOrgUnitId),
-      );
+      breadcrumb.forEach((item) => ids.add(item.ancestorOrgUnitId));
     }
 
     return [...ids];
@@ -771,18 +715,17 @@ export class OrganizationAuthorizationService {
       return false;
     }
 
-    const relation =
-      await this.prisma.orgUnitClosure.findUnique({
-        where: {
-          ancestorOrgUnitId_descendantOrgUnitId: {
-            ancestorOrgUnitId: authorityOrgUnitId,
-            descendantOrgUnitId: targetOrgUnitId,
-          },
+    const relation = await this.prisma.orgUnitClosure.findUnique({
+      where: {
+        ancestorOrgUnitId_descendantOrgUnitId: {
+          ancestorOrgUnitId: authorityOrgUnitId,
+          descendantOrgUnitId: targetOrgUnitId,
         },
-        select: {
-          depth: true,
-        },
-      });
+      },
+      select: {
+        depth: true,
+      },
+    });
 
     return Boolean(relation);
   }
@@ -799,37 +742,35 @@ export class OrganizationAuthorizationService {
       account.accountClass === AccountClass.SUPER_ADMIN ||
       !account.employee ||
       account.employee.status !== EmployeeStatus.ACTIVE ||
-      account.employee.employmentStatus !==
-        EmploymentStatus.ACTIVE ||
+      account.employee.employmentStatus !== EmploymentStatus.ACTIVE ||
       account.employee.archivedAt !== null
     ) {
       return null;
     }
 
-    const primaryMembership =
-      await this.prisma.orgMembership.findFirst({
-        where: {
-          employeeId: account.employee.id,
-          officeId,
-          membershipType: OrgMembershipType.PRIMARY,
-          startsAt: {
-            lte: at,
+    const primaryMembership = await this.prisma.orgMembership.findFirst({
+      where: {
+        employeeId: account.employee.id,
+        officeId,
+        membershipType: OrgMembershipType.PRIMARY,
+        startsAt: {
+          lte: at,
+        },
+        OR: [
+          {
+            endsAt: null,
           },
-          OR: [
-            {
-              endsAt: null,
+          {
+            endsAt: {
+              gt: at,
             },
-            {
-              endsAt: {
-                gt: at,
-              },
-            },
-          ],
-        },
-        select: {
-          id: true,
-        },
-      });
+          },
+        ],
+      },
+      select: {
+        id: true,
+      },
+    });
 
     if (!primaryMembership) {
       return null;

@@ -1,8 +1,4 @@
-import {
-  Injectable,
-  Logger,
-  UnauthorizedException,
-} from '@nestjs/common';
+import { Injectable, Logger, UnauthorizedException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { createHash } from 'node:crypto';
 import * as webPush from 'web-push';
@@ -22,7 +18,9 @@ interface PushableMessagingNotification {
   announcementId: string | null;
 }
 
-function asPushableNotification(value: unknown): PushableMessagingNotification | null {
+function asPushableNotification(
+  value: unknown,
+): PushableMessagingNotification | null {
   if (!value || typeof value !== 'object') {
     return null;
   }
@@ -60,14 +58,17 @@ export class MessagingPushService {
     private readonly prisma: PrismaService,
     config: ConfigService,
   ) {
-    this.publicKey = config.get<string>('WEB_PUSH_VAPID_PUBLIC_KEY')?.trim() ?? '';
-    this.privateKey = config.get<string>('WEB_PUSH_VAPID_PRIVATE_KEY')?.trim() ?? '';
+    this.publicKey =
+      config.get<string>('WEB_PUSH_VAPID_PUBLIC_KEY')?.trim() ?? '';
+    this.privateKey =
+      config.get<string>('WEB_PUSH_VAPID_PRIVATE_KEY')?.trim() ?? '';
     this.subject = config.get<string>('WEB_PUSH_VAPID_SUBJECT')?.trim() ?? '';
 
     const configuredTtl = Number(config.get<string>('WEB_PUSH_TTL_SECONDS'));
-    this.ttlSeconds = Number.isFinite(configuredTtl) && configuredTtl > 0
-      ? Math.min(Math.floor(configuredTtl), 86_400)
-      : 300;
+    this.ttlSeconds =
+      Number.isFinite(configuredTtl) && configuredTtl > 0
+        ? Math.min(Math.floor(configuredTtl), 86_400)
+        : 300;
 
     if (process.env.NODE_ENV === 'production' && !this.isConfigured()) {
       this.logger.warn(
@@ -107,7 +108,9 @@ export class MessagingPushService {
     });
 
     if (!session) {
-      throw new UnauthorizedException('The current session is no longer active.');
+      throw new UnauthorizedException(
+        'The current session is no longer active.',
+      );
     }
 
     await this.prisma.messagingPushSubscription.upsert({
@@ -153,7 +156,10 @@ export class MessagingPushService {
     return { subscribed: false };
   }
 
-  async sendNotification(accountId: string, notificationValue: unknown): Promise<void> {
+  async sendNotification(
+    accountId: string,
+    notificationValue: unknown,
+  ): Promise<void> {
     if (!this.isConfigured()) {
       return;
     }

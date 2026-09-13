@@ -1,16 +1,10 @@
-import { BadRequestException, ConflictException, ForbiddenException } from '@nestjs/common';
-
 import type { PrismaService } from '../database/prisma.service';
 import {
   AccountRole,
-  WorkActivityAction,
   WorkAssignmentRole,
-  WorkCompletionResult,
-  WorkCompletionReviewStatus,
   WorkHelpReason,
   WorkHelpRequestStatus,
   WorkItemStatus,
-  WorkSalesCoordinationStatus,
 } from '../generated/prisma/enums';
 import type { DutyAvailabilityService } from './duty-availability.service';
 import { WorkLifecycleService } from './work-lifecycle.service';
@@ -30,13 +24,6 @@ const employeeUser = {
   accountId: 'employee',
   sessionId: 'session',
   username: 'employee@ntc.test',
-  role: AccountRole.EMPLOYEE,
-};
-
-const managerUser = {
-  accountId: 'manager',
-  sessionId: 'session',
-  username: 'manager@ntc.test',
   role: AccountRole.EMPLOYEE,
 };
 
@@ -360,5 +347,4 @@ describe('WorkLifecycleService M20 Phase 2', () => {
       }),
     );
   });
-
 });

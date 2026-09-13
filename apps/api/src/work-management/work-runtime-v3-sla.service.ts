@@ -172,7 +172,9 @@ export class WorkRuntimeV3SlaService {
         throw new NotFoundException('Office was not found.');
       }
       if (!office.isActive) {
-        throw new ConflictException('An inactive Office cannot configure an SLA calendar.');
+        throw new ConflictException(
+          'An inactive Office cannot configure an SLA calendar.',
+        );
       }
 
       await tx.$queryRaw`SELECT id FROM "offices" WHERE id = ${officeId}::uuid FOR UPDATE`;
@@ -222,8 +224,12 @@ export class WorkRuntimeV3SlaService {
           );
         }
         calendarId = current.id;
-        await tx.officeWorkingCalendarInterval.deleteMany({ where: { calendarId } });
-        await tx.officeWorkingCalendarClosure.deleteMany({ where: { calendarId } });
+        await tx.officeWorkingCalendarInterval.deleteMany({
+          where: { calendarId },
+        });
+        await tx.officeWorkingCalendarClosure.deleteMany({
+          where: { calendarId },
+        });
       }
 
       if (dto.intervals.length > 0) {
@@ -267,7 +273,9 @@ export class WorkRuntimeV3SlaService {
     slaMinutes: number,
   ): Promise<Date> {
     if (!Number.isInteger(slaMinutes) || slaMinutes <= 0) {
-      throw new BadRequestException('SLA minutes must be a positive whole number.');
+      throw new BadRequestException(
+        'SLA minutes must be a positive whole number.',
+      );
     }
     if (basis === WorkSlaBasis.CALENDAR_DURATION) {
       return new Date(startsAt.getTime() + slaMinutes * 60_000);
@@ -363,26 +371,40 @@ export class WorkRuntimeV3SlaService {
 
   private validateCalendarInput(dto: ReplaceOfficeWorkingCalendarDto): void {
     if (dto.timeZone !== 'Asia/Kathmandu') {
-      throw new BadRequestException('NT Message V1 supports the Asia/Kathmandu Office time zone only.');
+      throw new BadRequestException(
+        'NT Message V1 supports the Asia/Kathmandu Office time zone only.',
+      );
     }
     if (dto.isActive && dto.intervals.length === 0) {
-      throw new BadRequestException('An active Office working calendar requires at least one working interval.');
+      throw new BadRequestException(
+        'An active Office working calendar requires at least one working interval.',
+      );
     }
 
-    const byWeekday = new Map<number, Array<{ startMinute: number; endMinute: number }>>();
+    const byWeekday = new Map<
+      number,
+      Array<{ startMinute: number; endMinute: number }>
+    >();
     for (const interval of dto.intervals) {
       if (interval.startMinute >= interval.endMinute) {
-        throw new BadRequestException('Working interval end time must be after its start time.');
+        throw new BadRequestException(
+          'Working interval end time must be after its start time.',
+        );
       }
       const values = byWeekday.get(interval.weekday) ?? [];
-      values.push({ startMinute: interval.startMinute, endMinute: interval.endMinute });
+      values.push({
+        startMinute: interval.startMinute,
+        endMinute: interval.endMinute,
+      });
       byWeekday.set(interval.weekday, values);
     }
     for (const intervals of byWeekday.values()) {
       intervals.sort((a, b) => a.startMinute - b.startMinute);
       for (let index = 1; index < intervals.length; index += 1) {
         if (intervals[index].startMinute < intervals[index - 1].endMinute) {
-          throw new BadRequestException('Office working intervals cannot overlap on the same day.');
+          throw new BadRequestException(
+            'Office working intervals cannot overlap on the same day.',
+          );
         }
       }
     }
@@ -390,11 +412,18 @@ export class WorkRuntimeV3SlaService {
     const closureDates = new Set<string>();
     for (const closure of dto.closures) {
       const parsed = new Date(`${closure.date}T00:00:00.000Z`);
-      if (Number.isNaN(parsed.getTime()) || this.dateKey(parsed) !== closure.date) {
-        throw new BadRequestException(`Invalid Office closure date ${closure.date}.`);
+      if (
+        Number.isNaN(parsed.getTime()) ||
+        this.dateKey(parsed) !== closure.date
+      ) {
+        throw new BadRequestException(
+          `Invalid Office closure date ${closure.date}.`,
+        );
       }
       if (closureDates.has(closure.date)) {
-        throw new BadRequestException(`Office closure date ${closure.date} is duplicated.`);
+        throw new BadRequestException(
+          `Office closure date ${closure.date} is duplicated.`,
+        );
       }
       closureDates.add(closure.date);
     }
@@ -427,7 +456,9 @@ export class WorkRuntimeV3SlaService {
       );
     }
     if (calendar.timeZone !== 'Asia/Kathmandu') {
-      throw new ConflictException('The Office working calendar time zone is not supported by NT Message V1.');
+      throw new ConflictException(
+        'The Office working calendar time zone is not supported by NT Message V1.',
+      );
     }
     return calendar;
   }
@@ -437,8 +468,13 @@ export class WorkRuntimeV3SlaService {
     startsAt: Date,
     slaMinutes: number,
   ): Date {
-    const closures = new Set(calendar.closures.map((closure) => this.dateKey(closure.closureDate)));
-    const intervalsByWeekday = new Map<number, Array<{ startMinute: number; endMinute: number }>>();
+    const closures = new Set(
+      calendar.closures.map((closure) => this.dateKey(closure.closureDate)),
+    );
+    const intervalsByWeekday = new Map<
+      number,
+      Array<{ startMinute: number; endMinute: number }>
+    >();
     for (const interval of calendar.intervals) {
       const values = intervalsByWeekday.get(interval.weekday) ?? [];
       values.push(interval);
@@ -456,7 +492,7 @@ export class WorkRuntimeV3SlaService {
       const weekday = local.weekday;
       const intervals = closures.has(dateKey)
         ? []
-        : intervalsByWeekday.get(weekday) ?? [];
+        : (intervalsByWeekday.get(weekday) ?? []);
 
       for (const interval of intervals) {
         const intervalStart = this.kathmanduLocalToUtc(
@@ -471,7 +507,9 @@ export class WorkRuntimeV3SlaService {
           local.day,
           interval.endMinute,
         );
-        const effectiveStart = new Date(Math.max(cursor.getTime(), intervalStart.getTime()));
+        const effectiveStart = new Date(
+          Math.max(cursor.getTime(), intervalStart.getTime()),
+        );
         if (effectiveStart.getTime() >= intervalEnd.getTime()) {
           continue;
         }
@@ -505,7 +543,9 @@ export class WorkRuntimeV3SlaService {
       status: WorkStageStatus;
       dueAt: Date | null;
       createdAt: Date;
-      stageDefinition: { responsibleOrgUnitRule: WorkStageResponsibleOrgUnitRule };
+      stageDefinition: {
+        responsibleOrgUnitRule: WorkStageResponsibleOrgUnitRule;
+      };
       collaborationRequests: Array<{ respondedAt: Date | null }>;
       events: Array<{
         createdAt: Date;
@@ -529,7 +569,10 @@ export class WorkRuntimeV3SlaService {
     let cursor = stage.createdAt;
 
     for (const event of stage.events) {
-      if (!event.toStageStatus || event.createdAt.getTime() < cursor.getTime()) {
+      if (
+        !event.toStageStatus ||
+        event.createdAt.getTime() < cursor.getTime()
+      ) {
         continue;
       }
       this.addTimingSegment(
@@ -544,7 +587,10 @@ export class WorkRuntimeV3SlaService {
       cursor = event.createdAt;
     }
 
-    if (!TERMINAL_STAGE_STATUSES.has(currentStatus) && now.getTime() > cursor.getTime()) {
+    if (
+      !TERMINAL_STAGE_STATUSES.has(currentStatus) &&
+      now.getTime() > cursor.getTime()
+    ) {
       this.addTimingSegment(
         buckets,
         currentStatus,
@@ -587,13 +633,20 @@ export class WorkRuntimeV3SlaService {
 
     if (
       status === WorkStageStatus.PENDING &&
-      responsibleRule === WorkStageResponsibleOrgUnitRule.RUNTIME_REQUESTED_PARTICIPANT &&
+      responsibleRule ===
+        WorkStageResponsibleOrgUnitRule.RUNTIME_REQUESTED_PARTICIPANT &&
       acceptedAt &&
       acceptedAt.getTime() > from.getTime() &&
       acceptedAt.getTime() < to.getTime()
     ) {
-      buckets.participantWaitingMinutes += this.minutesBetween(from, acceptedAt);
-      buckets.dependencyOrActivationWaitingMinutes += this.minutesBetween(acceptedAt, to);
+      buckets.participantWaitingMinutes += this.minutesBetween(
+        from,
+        acceptedAt,
+      );
+      buckets.dependencyOrActivationWaitingMinutes += this.minutesBetween(
+        acceptedAt,
+        to,
+      );
       return;
     }
 
@@ -612,7 +665,8 @@ export class WorkRuntimeV3SlaService {
     switch (status) {
       case WorkStageStatus.PENDING:
         if (
-          responsibleRule === WorkStageResponsibleOrgUnitRule.RUNTIME_REQUESTED_PARTICIPANT &&
+          responsibleRule ===
+            WorkStageResponsibleOrgUnitRule.RUNTIME_REQUESTED_PARTICIPANT &&
           (!acceptedAt || acceptedAt.getTime() > at.getTime())
         ) {
           return 'participantWaitingMinutes';
@@ -642,7 +696,9 @@ export class WorkRuntimeV3SlaService {
   }
 
   private toKathmanduLocal(value: Date) {
-    const shifted = new Date(value.getTime() + KATHMANDU_OFFSET_MINUTES * 60_000);
+    const shifted = new Date(
+      value.getTime() + KATHMANDU_OFFSET_MINUTES * 60_000,
+    );
     const jsWeekday = shifted.getUTCDay();
     return {
       year: shifted.getUTCFullYear(),
@@ -652,7 +708,11 @@ export class WorkRuntimeV3SlaService {
     };
   }
 
-  private localDateKey(local: { year: number; month: number; day: number }): string {
+  private localDateKey(local: {
+    year: number;
+    month: number;
+    day: number;
+  }): string {
     return `${String(local.year).padStart(4, '0')}-${String(local.month + 1).padStart(2, '0')}-${String(local.day).padStart(2, '0')}`;
   }
 

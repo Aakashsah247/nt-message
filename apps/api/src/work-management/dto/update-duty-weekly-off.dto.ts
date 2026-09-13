@@ -1,5 +1,12 @@
 import { Type } from 'class-transformer';
-import { ArrayMaxSize, ArrayUnique, IsArray, IsInt, Max, Min } from 'class-validator';
+import {
+  ArrayMaxSize,
+  ArrayUnique,
+  IsArray,
+  IsInt,
+  Max,
+  Min,
+} from 'class-validator';
 
 export class UpdateDutyWeeklyOffDto {
   @IsArray()

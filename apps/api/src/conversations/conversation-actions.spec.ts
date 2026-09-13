@@ -367,5 +367,4 @@ describe('ConversationsService personal history actions', () => {
       }),
     );
   });
-
 });

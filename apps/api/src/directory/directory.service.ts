@@ -172,7 +172,6 @@ const directoryEmployeeSelect = {
       createdAt: true,
     },
   },
-
 } satisfies Prisma.EmployeeSelect;
 
 type DirectoryEmployeeRecord = Prisma.EmployeeGetPayload<{
@@ -236,7 +235,11 @@ export class DirectoryService {
       },
     });
 
-    if (!account || !account.isEnabled || account.accountClass !== user.accountClass) {
+    if (
+      !account ||
+      !account.isEnabled ||
+      account.accountClass !== user.accountClass
+    ) {
       throw new ForbiddenException(
         'Your authenticated account cannot access the employee directory.',
       );
@@ -282,10 +285,11 @@ export class DirectoryService {
     };
   }
 
-  private async validateRequestedScope(
+  private validateRequestedScope(
     viewer: DirectoryViewer,
     _query: ListDirectoryQueryDto,
-  ): Promise<void> {
+  ): void {
+    void _query;
     if (viewer.accountClass !== AccountClass.SUPER_ADMIN && !viewer.officeId) {
       throw new ForbiddenException(
         'Your directory scope has no active Office.',
@@ -311,7 +315,6 @@ export class DirectoryService {
         },
       });
     }
-
 
     return conditions;
   }
@@ -451,7 +454,7 @@ export class DirectoryService {
   async listDirectory(user: AuthenticatedUser, query: ListDirectoryQueryDto) {
     const viewer = await this.getViewer(user);
 
-    await this.validateRequestedScope(viewer, query);
+    this.validateRequestedScope(viewer, query);
 
     const conditions = this.buildScopeConditions(viewer);
 
@@ -479,7 +482,6 @@ export class DirectoryService {
         archivedAt: null,
       });
     }
-
 
     if (query.accountStatus === DirectoryAccountStatus.ENABLED) {
       conditions.push({
@@ -703,7 +705,10 @@ export class DirectoryService {
       );
     }
 
-    if (employee.archivedAt && viewer.accountClass !== AccountClass.SUPER_ADMIN) {
+    if (
+      employee.archivedAt &&
+      viewer.accountClass !== AccountClass.SUPER_ADMIN
+    ) {
       throw new NotFoundException(
         'Archived employee profiles are available only to the Super Admin.',
       );

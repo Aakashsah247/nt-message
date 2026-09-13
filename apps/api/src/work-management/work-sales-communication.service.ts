@@ -127,7 +127,9 @@ export class WorkSalesCommunicationService {
       select: salesMessageSelect,
     });
 
-    return { messages: messages.map((message) => this.serializeMessage(message)) };
+    return {
+      messages: messages.map((message) => this.serializeMessage(message)),
+    };
   }
 
   async createMessage(
@@ -159,9 +161,10 @@ export class WorkSalesCommunicationService {
 
     try {
       for (const attachment of attachments) {
-        const scanStatus = await this.attachmentSecurityService.scanValidatedUpload(
-          attachment.file,
-        );
+        const scanStatus =
+          await this.attachmentSecurityService.scanValidatedUpload(
+            attachment.file,
+          );
         const attachmentId = randomUUID();
         const storageKey = `${workItemId}/sales/${messageId}/${attachmentId}-${attachment.originalFileName}`;
         await this.attachmentStorageService.writeUploadedFile(
@@ -260,11 +263,22 @@ export class WorkSalesCommunicationService {
     if (!attachment) {
       throw new NotFoundException('File not found.');
     }
-    if (!this.attachmentSecurityService.canAccessStoredAttachment(attachment.scanStatus)) {
+    if (
+      !this.attachmentSecurityService.canAccessStoredAttachment(
+        attachment.scanStatus,
+      )
+    ) {
       throw new ForbiddenException('This file is not available yet.');
     }
-    if (!(await this.attachmentStorageService.exists('work', attachment.storageKey))) {
-      throw new ServiceUnavailableException('This file is temporarily unavailable.');
+    if (
+      !(await this.attachmentStorageService.exists(
+        'work',
+        attachment.storageKey,
+      ))
+    ) {
+      throw new ServiceUnavailableException(
+        'This file is temporarily unavailable.',
+      );
     }
 
     return {
@@ -363,8 +377,14 @@ export class WorkSalesCommunicationService {
   }
 
   private assertCanSend(access: SalesAccessContext): void {
-    if (access.isManagementViewer && !access.isPrimaryTeamMember && !access.isSalesMember) {
-      throw new ForbiddenException('Managers can view Sales files but cannot send them.');
+    if (
+      access.isManagementViewer &&
+      !access.isPrimaryTeamMember &&
+      !access.isSalesMember
+    ) {
+      throw new ForbiddenException(
+        'Managers can view Sales files but cannot send them.',
+      );
     }
     if (
       access.workItem.status === WorkItemStatus.CLOSED ||
@@ -372,19 +392,25 @@ export class WorkSalesCommunicationService {
     ) {
       throw new ConflictException('This work is already finished.');
     }
-    if (access.workItem.salesCoordinationStatus === WorkSalesCoordinationStatus.COMPLETED) {
+    if (
+      access.workItem.salesCoordinationStatus ===
+      WorkSalesCoordinationStatus.COMPLETED
+    ) {
       throw new ConflictException('Sales work is already completed.');
     }
     if (
       access.isSalesMember &&
-      access.workItem.salesCoordinationStatus !== WorkSalesCoordinationStatus.READY_FOR_SALES
+      access.workItem.salesCoordinationStatus !==
+        WorkSalesCoordinationStatus.READY_FOR_SALES
     ) {
       throw new ConflictException('Wait until the work is sent to Sales.');
     }
     if (
       access.isPrimaryTeamMember &&
-      access.workItem.salesCoordinationStatus !== WorkSalesCoordinationStatus.WAITING_FOR_DOCUMENTS &&
-      access.workItem.salesCoordinationStatus !== WorkSalesCoordinationStatus.READY_FOR_SALES
+      access.workItem.salesCoordinationStatus !==
+        WorkSalesCoordinationStatus.WAITING_FOR_DOCUMENTS &&
+      access.workItem.salesCoordinationStatus !==
+        WorkSalesCoordinationStatus.READY_FOR_SALES
     ) {
       throw new ConflictException('Sales files cannot be changed now.');
     }
@@ -398,7 +424,9 @@ export class WorkSalesCommunicationService {
     }
     const totalBytes = files.reduce((sum, file) => sum + file.size, 0);
     if (totalBytes > MAX_WORK_SALES_ATTACHMENT_TOTAL_BYTES) {
-      throw new BadRequestException('Files in one send must total 50 MB or smaller.');
+      throw new BadRequestException(
+        'Files in one send must total 50 MB or smaller.',
+      );
     }
 
     return files.map((file) => {
@@ -406,7 +434,9 @@ export class WorkSalesCommunicationService {
         throw new BadRequestException('One of the files is empty.');
       }
       if (file.size > MAX_WORK_SALES_ATTACHMENT_FILE_BYTES) {
-        throw new BadRequestException('Each Sales file must be 25 MB or smaller.');
+        throw new BadRequestException(
+          'Each Sales file must be 25 MB or smaller.',
+        );
       }
       if (!WORK_SALES_ATTACHMENT_MIME_TYPES.has(file.mimetype)) {
         throw new BadRequestException(
@@ -475,7 +505,10 @@ export class WorkSalesCommunicationService {
     }
 
     const activePrimaryIds = access.workItem.assignments
-      .filter((assignment) => assignment.assignmentRole === WorkAssignmentRole.PRIMARY)
+      .filter(
+        (assignment) =>
+          assignment.assignmentRole === WorkAssignmentRole.PRIMARY,
+      )
       .map((assignment) => assignment.assigneeAccountId);
     const notificationRecipients = access.isSalesMember
       ? activePrimaryIds
@@ -489,7 +522,9 @@ export class WorkSalesCommunicationService {
       actorAccountId: access.actorAccountId,
       recipientAccountIds: notificationRecipients,
       notificationRecipientAccountIds: notificationRecipients,
-      title: access.isSalesMember ? 'Sales sent an update' : 'New file for Sales',
+      title: access.isSalesMember
+        ? 'Sales sent an update'
+        : 'New file for Sales',
       body: `${access.workItem.ticketNumber}: ${access.workItem.title}`,
       metadata: { salesMessageId: messageId },
     });

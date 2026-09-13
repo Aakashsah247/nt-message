@@ -131,7 +131,7 @@ export class WorkNotificationsService implements OnModuleInit, OnModuleDestroy {
   }
 
   async publishWorkUpdate(input: PublishWorkUpdateInput): Promise<void> {
-    const relationshipRecipients = await this.resolveRelationshipRecipients(
+    const relationshipRecipients = this.resolveRelationshipRecipients(
       input.workItem,
     );
     const realtimeRecipients = [
@@ -141,8 +141,8 @@ export class WorkNotificationsService implements OnModuleInit, OnModuleDestroy {
     const notificationAudience =
       input.notificationRecipientAccountIds === undefined
         ? realtimeRecipients
-        : [...new Set(input.notificationRecipientAccountIds)].filter((accountId) =>
-            realtimeRecipientSet.has(accountId),
+        : [...new Set(input.notificationRecipientAccountIds)].filter(
+            (accountId) => realtimeRecipientSet.has(accountId),
           );
     const notificationRecipients = notificationAudience.filter(
       (accountId) => accountId !== input.actorAccountId,
@@ -218,10 +218,7 @@ export class WorkNotificationsService implements OnModuleInit, OnModuleDestroy {
           // native V3 Work by its runtime marker; V3 notifications are emitted
           // by the V3 runtime engine.
           status: {
-            notIn: [
-              ...TERMINAL_WORK_STATUSES,
-              WorkItemStatus.V3_RUNTIME,
-            ],
+            notIn: [...TERMINAL_WORK_STATUSES, WorkItemStatus.V3_RUNTIME],
           },
           OR: [
             {
@@ -276,7 +273,9 @@ export class WorkNotificationsService implements OnModuleInit, OnModuleDestroy {
 
         const recipients = [
           workItem.createdByAccountId,
-          ...(workItem.salesMemberAccountId ? [workItem.salesMemberAccountId] : []),
+          ...(workItem.salesMemberAccountId
+            ? [workItem.salesMemberAccountId]
+            : []),
           ...workItem.assignments.map(
             (assignment) => assignment.assigneeAccountId,
           ),
@@ -327,9 +326,9 @@ export class WorkNotificationsService implements OnModuleInit, OnModuleDestroy {
     }
   }
 
-  private async resolveRelationshipRecipients(workItem: {
+  private resolveRelationshipRecipients(workItem: {
     salesMemberAccountId?: string | null;
-  }): Promise<string[]> {
+  }): string[] {
     return workItem.salesMemberAccountId ? [workItem.salesMemberAccountId] : [];
   }
 

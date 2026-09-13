@@ -13,9 +13,9 @@ describe('MailService security messages', () => {
   beforeEach(() => {
     jest.clearAllMocks();
 
-    jest.mocked(nodemailer.createTransport).mockReturnValue({
-      sendMail,
-    } as unknown as nodemailer.Transporter);
+    jest
+      .mocked(nodemailer.createTransport)
+      .mockReturnValue({ sendMail } as never);
   });
 
   function createService(overrides: Record<string, string> = {}): MailService {
@@ -86,7 +86,9 @@ describe('MailService security messages', () => {
   });
 
   it('rejects incomplete SMTP credentials', () => {
-    expect(() => createService({ SMTP_USER: 'nt-message@example.test' })).toThrow(
+    expect(() =>
+      createService({ SMTP_USER: 'nt-message@example.test' }),
+    ).toThrow(
       'SMTP_USER and SMTP_PASSWORD must either both be configured or both be omitted.',
     );
   });
@@ -195,57 +197,58 @@ describe('MailService security messages', () => {
     );
     expect(message.text).toContain('employee id, official email');
     expect(message.text).toContain(correctedAt.toISOString());
-    expect(message.text).toContain('active NT Message sessions were signed out');
+    expect(message.text).toContain(
+      'active NT Message sessions were signed out',
+    );
     expect(message.text).not.toMatch(
       /previous employee|previous email|old employee|old email|password|otp|token/i,
     );
   });
 
-it('sends a one-time password recovery code without password data', async () => {
-  const service = createService();
+  it('sends a one-time password recovery code without password data', async () => {
+    const service = createService();
 
-  await service.sendPasswordResetOtp({
-    to: 'employee@example.test',
-    displayName: 'Employee User',
-    otp: '123456',
-    expiresInMinutes: 10,
+    await service.sendPasswordResetOtp({
+      to: 'employee@example.test',
+      displayName: 'Employee User',
+      otp: '123456',
+      expiresInMinutes: 10,
+    });
+
+    const message = sendMail.mock.calls[0]?.[0] as {
+      subject: string;
+      text: string;
+    };
+
+    expect(message.subject).toBe('NT Message password recovery code');
+    expect(message.text).toContain('Recovery code: 123456');
+    expect(message.text).toContain('expires in 10 minutes');
+    expect(message.text).not.toMatch(
+      /current password:|new password:|password hash|reset token/i,
+    );
   });
 
-  const message = sendMail.mock.calls[0]?.[0] as {
-    subject: string;
-    text: string;
-  };
+  it('sends a privacy-safe password reset confirmation', async () => {
+    const service = createService();
+    const changedAt = new Date('2026-07-17T10:00:00.000Z');
 
-  expect(message.subject).toBe('NT Message password recovery code');
-  expect(message.text).toContain('Recovery code: 123456');
-  expect(message.text).toContain('expires in 10 minutes');
-  expect(message.text).not.toMatch(
-    /current password:|new password:|password hash|reset token/i,
-  );
-});
+    await service.sendPasswordResetNotification({
+      to: 'employee@example.test',
+      displayName: 'Employee User',
+      changedAt,
+    });
 
-it('sends a privacy-safe password reset confirmation', async () => {
-  const service = createService();
-  const changedAt = new Date('2026-07-17T10:00:00.000Z');
+    const message = sendMail.mock.calls[0]?.[0] as {
+      subject: string;
+      text: string;
+    };
 
-  await service.sendPasswordResetNotification({
-    to: 'employee@example.test',
-    displayName: 'Employee User',
-    changedAt,
+    expect(message.subject).toBe('Your NT Message password was reset');
+    expect(message.text).toContain(
+      'All active NT Message sessions were signed out.',
+    );
+    expect(message.text).not.toMatch(
+      /otp:|password:|password hash|reset token/i,
+    );
   });
-
-  const message = sendMail.mock.calls[0]?.[0] as {
-    subject: string;
-    text: string;
-  };
-
-  expect(message.subject).toBe('Your NT Message password was reset');
-  expect(message.text).toContain(
-    'All active NT Message sessions were signed out.',
-  );
-  expect(message.text).not.toMatch(
-    /otp:|password:|password hash|reset token/i,
-  );
-});
-
 });

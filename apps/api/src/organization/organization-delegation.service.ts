@@ -117,10 +117,7 @@ export class OrganizationDelegationService {
             canRedelegate: true,
             revokedAt: null,
             effectiveFrom: { lte: now },
-            OR: [
-              { effectiveUntil: null },
-              { effectiveUntil: { gt: now } },
-            ],
+            OR: [{ effectiveUntil: null }, { effectiveUntil: { gt: now } }],
           },
           select: { id: true },
         });
@@ -132,20 +129,18 @@ export class OrganizationDelegationService {
     const availableCapabilities = hasDelegationAuthority
       ? (
           await Promise.all(
-            ORGANIZATION_UI_DELEGATION_CAPABILITIES.map(
-              async (capability) => ({
+            ORGANIZATION_UI_DELEGATION_CAPABILITIES.map(async (capability) => ({
+              capability,
+              allowed: await this.authorization.canRedelegate(
+                user,
                 capability,
-                allowed: await this.authorization.canRedelegate(
-                  user,
-                  capability,
-                  officeId,
-                  orgUnitId,
-                  includeDescendants,
-                  now,
-                  probeUntil,
-                ),
-              }),
-            ),
+                officeId,
+                orgUnitId,
+                includeDescendants,
+                now,
+                probeUntil,
+              ),
+            })),
           )
         )
           .filter((entry) => entry.allowed)
@@ -158,10 +153,7 @@ export class OrganizationDelegationService {
             officeId,
             membershipType: OrgMembershipType.PRIMARY,
             startsAt: { lte: now },
-            OR: [
-              { endsAt: null },
-              { endsAt: { gt: now } },
-            ],
+            OR: [{ endsAt: null }, { endsAt: { gt: now } }],
             employee: {
               is: {
                 status: EmployeeStatus.ACTIVE,
@@ -219,9 +211,7 @@ export class OrganizationDelegationService {
         designation: membership.employee.designation,
         primaryOrgUnit: membership.orgUnit,
       }))
-      .sort((left, right) =>
-        left.empName.localeCompare(right.empName),
-      );
+      .sort((left, right) => left.empName.localeCompare(right.empName));
 
     return {
       officeId,
@@ -233,30 +223,21 @@ export class OrganizationDelegationService {
     };
   }
 
-  async list(
-    user: AuthenticatedUser,
-    officeId: string,
-  ) {
-    const visibleOrgUnitIds =
-      await this.authorization.visibleOrgUnitIds(
-        user,
-        CAPABILITIES.LEADERSHIP_VIEW,
-        officeId,
-      );
+  async list(user: AuthenticatedUser, officeId: string) {
+    const visibleOrgUnitIds = await this.authorization.visibleOrgUnitIds(
+      user,
+      CAPABILITIES.LEADERSHIP_VIEW,
+      officeId,
+    );
 
-    const officeWide =
-      await this.authorization.can(
-        user,
-        CAPABILITIES.LEADERSHIP_VIEW,
-        officeId,
-        null,
-      );
+    const officeWide = await this.authorization.can(
+      user,
+      CAPABILITIES.LEADERSHIP_VIEW,
+      officeId,
+      null,
+    );
 
-    const officeHead =
-      await this.authorization.isOfficeHead(
-        user,
-        officeId,
-      );
+    const officeHead = await this.authorization.isOfficeHead(user, officeId);
 
     const data = await this.prisma.delegatedPermission.findMany({
       where: {
@@ -329,9 +310,7 @@ export class OrganizationDelegationService {
             permission.revokedAt === null &&
             (permission.effectiveUntil === null ||
               permission.effectiveUntil.getTime() > now) &&
-            (officeHead ||
-              permission.grantedByAccountId ===
-                user.accountId),
+            (officeHead || permission.grantedByAccountId === user.accountId),
         },
       })),
     };
@@ -355,9 +334,7 @@ export class OrganizationDelegationService {
     }
 
     if (!DELEGABLE_CAPABILITIES.has(dto.capability)) {
-      throw new ForbiddenException(
-        'This capability cannot be delegated.',
-      );
+      throw new ForbiddenException('This capability cannot be delegated.');
     }
 
     const orgUnitId = dto.orgUnitId ?? null;
@@ -370,17 +347,10 @@ export class OrganizationDelegationService {
       now,
     );
     const effectiveUntil = dto.effectiveUntil
-      ? this.parseDate(
-          dto.effectiveUntil,
-          'Effective end time',
-          effectiveFrom,
-        )
+      ? this.parseDate(dto.effectiveUntil, 'Effective end time', effectiveFrom)
       : null;
 
-    if (
-      effectiveUntil &&
-      effectiveUntil.getTime() <= effectiveFrom.getTime()
-    ) {
+    if (effectiveUntil && effectiveUntil.getTime() <= effectiveFrom.getTime()) {
       throw new BadRequestException(
         'Effective end time must be later than the start time.',
       );
@@ -434,9 +404,7 @@ export class OrganizationDelegationService {
     });
 
     if (!grantee?.isEnabled || !grantee.employeeId) {
-      throw new ConflictException(
-        'Select an active employee account.',
-      );
+      throw new ConflictException('Select an active employee account.');
     }
 
     if (grantee.accountClass === AccountClass.SUPER_ADMIN) {
@@ -451,30 +419,29 @@ export class OrganizationDelegationService {
       );
     }
 
-    const membership =
-      await this.prisma.orgMembership.findFirst({
-        where: {
-          employeeId: grantee.employeeId,
-          officeId,
-          membershipType: OrgMembershipType.PRIMARY,
-          startsAt: {
-            lte: effectiveFrom,
+    const membership = await this.prisma.orgMembership.findFirst({
+      where: {
+        employeeId: grantee.employeeId,
+        officeId,
+        membershipType: OrgMembershipType.PRIMARY,
+        startsAt: {
+          lte: effectiveFrom,
+        },
+        OR: [
+          {
+            endsAt: null,
           },
-          OR: [
-            {
-              endsAt: null,
+          {
+            endsAt: {
+              gt: effectiveFrom,
             },
-            {
-              endsAt: {
-                gt: effectiveFrom,
-              },
-            },
-          ],
-        },
-        select: {
-          id: true,
-        },
-      });
+          },
+        ],
+      },
+      select: {
+        id: true,
+      },
+    });
 
     if (!membership) {
       throw new ConflictException(
@@ -482,36 +449,35 @@ export class OrganizationDelegationService {
       );
     }
 
-    const duplicate =
-      await this.prisma.delegatedPermission.findFirst({
-        where: {
-          granteeAccountId: grantee.id,
-          officeId,
-          orgUnitId,
-          capability: dto.capability,
-          revokedAt: null,
-          ...(effectiveUntil
-            ? {
-                effectiveFrom: {
-                  lt: effectiveUntil,
-                },
-              }
-            : {}),
-          OR: [
-            {
-              effectiveUntil: null,
-            },
-            {
-              effectiveUntil: {
-                gt: effectiveFrom,
+    const duplicate = await this.prisma.delegatedPermission.findFirst({
+      where: {
+        granteeAccountId: grantee.id,
+        officeId,
+        orgUnitId,
+        capability: dto.capability,
+        revokedAt: null,
+        ...(effectiveUntil
+          ? {
+              effectiveFrom: {
+                lt: effectiveUntil,
               },
+            }
+          : {}),
+        OR: [
+          {
+            effectiveUntil: null,
+          },
+          {
+            effectiveUntil: {
+              gt: effectiveFrom,
             },
-          ],
-        },
-        select: {
-          id: true,
-        },
-      });
+          },
+        ],
+      },
+      select: {
+        id: true,
+      },
+    });
 
     if (duplicate) {
       throw new ConflictException(
@@ -519,21 +485,20 @@ export class OrganizationDelegationService {
       );
     }
 
-    const delegatedPermission =
-      await this.prisma.delegatedPermission.create({
-        data: {
-          granteeAccountId: grantee.id,
-          officeId,
-          orgUnitId,
-          capability: dto.capability,
-          includeDescendants,
-          canRedelegate: dto.canRedelegate ?? false,
-          effectiveFrom,
-          effectiveUntil,
-          grantedByAccountId: user.accountId,
-          grantReason: this.normalizeReason(dto.reason),
-        },
-      });
+    const delegatedPermission = await this.prisma.delegatedPermission.create({
+      data: {
+        granteeAccountId: grantee.id,
+        officeId,
+        orgUnitId,
+        capability: dto.capability,
+        includeDescendants,
+        canRedelegate: dto.canRedelegate ?? false,
+        effectiveFrom,
+        effectiveUntil,
+        grantedByAccountId: user.accountId,
+        grantReason: this.normalizeReason(dto.reason),
+      },
+    });
 
     return {
       message: 'Permission delegated successfully.',
@@ -547,18 +512,15 @@ export class OrganizationDelegationService {
     permissionId: string,
     dto: RevokeDelegatedPermissionDto,
   ) {
-    const permission =
-      await this.prisma.delegatedPermission.findFirst({
-        where: {
-          id: permissionId,
-          officeId,
-        },
-      });
+    const permission = await this.prisma.delegatedPermission.findFirst({
+      where: {
+        id: permissionId,
+        officeId,
+      },
+    });
 
     if (!permission) {
-      throw new NotFoundException(
-        'Delegated permission was not found.',
-      );
+      throw new NotFoundException('Delegated permission was not found.');
     }
 
     if (permission.revokedAt) {
@@ -567,16 +529,9 @@ export class OrganizationDelegationService {
       );
     }
 
-    const officeHead =
-      await this.authorization.isOfficeHead(
-        user,
-        officeId,
-      );
+    const officeHead = await this.authorization.isOfficeHead(user, officeId);
 
-    if (
-      !officeHead &&
-      permission.grantedByAccountId !== user.accountId
-    ) {
+    if (!officeHead && permission.grantedByAccountId !== user.accountId) {
       throw new ForbiddenException(
         'Only the Office Head or original grantor can revoke this delegation.',
       );
@@ -588,31 +543,26 @@ export class OrganizationDelegationService {
       new Date(),
     );
 
-    if (
-      revokedAt.getTime() < permission.effectiveFrom.getTime()
-    ) {
+    if (revokedAt.getTime() < permission.effectiveFrom.getTime()) {
       throw new BadRequestException(
         'Revocation time cannot be earlier than the delegation start time.',
       );
     }
 
     if (revokedAt.getTime() > Date.now() + 60_000) {
-      throw new BadRequestException(
-        'Revocation time cannot be in the future.',
-      );
+      throw new BadRequestException('Revocation time cannot be in the future.');
     }
 
-    const delegatedPermission =
-      await this.prisma.delegatedPermission.update({
-        where: {
-          id: permission.id,
-        },
-        data: {
-          revokedAt,
-          revokedByAccountId: user.accountId,
-          revokeReason: this.normalizeReason(dto.reason),
-        },
-      });
+    const delegatedPermission = await this.prisma.delegatedPermission.update({
+      where: {
+        id: permission.id,
+      },
+      data: {
+        revokedAt,
+        revokedByAccountId: user.accountId,
+        revokeReason: this.normalizeReason(dto.reason),
+      },
+    });
 
     return {
       message: 'Delegated permission revoked successfully.',

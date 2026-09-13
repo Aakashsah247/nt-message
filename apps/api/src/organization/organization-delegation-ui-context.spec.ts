@@ -1,7 +1,4 @@
-import {
-  BadRequestException,
-  ForbiddenException,
-} from '@nestjs/common';
+import { BadRequestException, ForbiddenException } from '@nestjs/common';
 
 import type { AuthenticatedUser } from '../auth/types/auth.types';
 import { PrismaService } from '../database/prisma.service';
@@ -43,10 +40,7 @@ describe('OrganizationDelegationService UI context', () => {
     const authorization = createAuthorization();
     authorization.canRedelegate = jest.fn().mockResolvedValue(true);
 
-    const service = new OrganizationDelegationService(
-      prisma,
-      authorization,
-    );
+    const service = new OrganizationDelegationService(prisma, authorization);
 
     await expect(
       service.create(user, 'office-1', {
@@ -106,22 +100,12 @@ describe('OrganizationDelegationService UI context', () => {
 
     const authorization = createAuthorization();
     authorization.canRedelegate = jest.fn(
-      async (
-        _user,
-        capability,
-      ) => capability === CAPABILITIES.MEMBERSHIP_VIEW,
+      async (_user, capability) => capability === CAPABILITIES.MEMBERSHIP_VIEW,
     );
 
-    const service = new OrganizationDelegationService(
-      prisma,
-      authorization,
-    );
+    const service = new OrganizationDelegationService(prisma, authorization);
 
-    const result = await service.getUiContext(
-      user,
-      'office-1',
-      {},
-    );
+    const result = await service.getUiContext(user, 'office-1', {});
 
     expect(result.hasDelegationAuthority).toBe(true);
     expect(result.availableCapabilities).toEqual([
@@ -184,10 +168,7 @@ describe('OrganizationDelegationService UI context', () => {
     } as unknown as PrismaService;
 
     const authorization = createAuthorization();
-    const service = new OrganizationDelegationService(
-      prisma,
-      authorization,
-    );
+    const service = new OrganizationDelegationService(prisma, authorization);
 
     const result = await service.list(user, 'office-1');
 
@@ -223,21 +204,13 @@ describe('OrganizationDelegationService UI context', () => {
     } as unknown as PrismaService;
 
     const authorization = createAuthorization();
-    const service = new OrganizationDelegationService(
-      prisma,
-      authorization,
-    );
+    const service = new OrganizationDelegationService(prisma, authorization);
 
     await expect(
-      service.revoke(
-        user,
-        'office-1',
-        'permission-1',
-        {
-          effectiveAt: new Date(Date.now() + 3_600_000).toISOString(),
-          reason: 'Revoke later',
-        },
-      ),
+      service.revoke(user, 'office-1', 'permission-1', {
+        effectiveAt: new Date(Date.now() + 3_600_000).toISOString(),
+        reason: 'Revoke later',
+      }),
     ).rejects.toBeInstanceOf(BadRequestException);
 
     expect(update).not.toHaveBeenCalled();

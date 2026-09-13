@@ -60,18 +60,13 @@ describe('OrganizationHierarchyService', () => {
 
     const prisma = {
       $transaction: jest.fn(
-        async (
-          callback: (
-            tx: typeof transaction,
-          ) => Promise<unknown>,
-        ) => callback(transaction),
+        async (callback: (tx: typeof transaction) => Promise<unknown>) =>
+          callback(transaction),
       ),
     } as unknown as PrismaService;
 
     const authority = {
-      assertCanManageOrgUnit: jest
-        .fn()
-        .mockResolvedValue(undefined),
+      assertCanManageOrgUnit: jest.fn().mockResolvedValue(undefined),
       assertOfficeHead: jest.fn(),
     } as unknown as OrganizationAuthorityService;
 
@@ -79,23 +74,18 @@ describe('OrganizationHierarchyService', () => {
       assertCan: jest.fn().mockResolvedValue(undefined),
     } as unknown as OrganizationAuthorizationService;
 
-    const service =
-      new OrganizationHierarchyService(
-        prisma,
-        authority,
-        authorization,
-      );
-
-    await service.createOrgUnit(
-      user,
-      'office-1',
-      {
-        orgUnitTypeId: 'type-1',
-        parentOrgUnitId: 'parent-1',
-        code: 'child',
-        name: 'Child',
-      },
+    const service = new OrganizationHierarchyService(
+      prisma,
+      authority,
+      authorization,
     );
+
+    await service.createOrgUnit(user, 'office-1', {
+      orgUnitTypeId: 'type-1',
+      parentOrgUnitId: 'parent-1',
+      code: 'child',
+      name: 'Child',
+    });
 
     expect(authorization.assertCan).toHaveBeenCalledWith(
       user,
@@ -104,9 +94,7 @@ describe('OrganizationHierarchyService', () => {
       'parent-1',
     );
 
-    expect(
-      transaction.orgUnitClosure.create,
-    ).toHaveBeenCalledWith({
+    expect(transaction.orgUnitClosure.create).toHaveBeenCalledWith({
       data: {
         ancestorOrgUnitId: 'child-1',
         descendantOrgUnitId: 'child-1',
@@ -114,9 +102,7 @@ describe('OrganizationHierarchyService', () => {
       },
     });
 
-    expect(
-      transaction.orgUnitClosure.createMany,
-    ).toHaveBeenCalledWith({
+    expect(transaction.orgUnitClosure.createMany).toHaveBeenCalledWith({
       data: [
         {
           ancestorOrgUnitId: 'root-1',
@@ -203,18 +189,13 @@ describe('OrganizationHierarchyService', () => {
         findFirst: orgUnitFindFirst,
       },
       $transaction: jest.fn(
-        async (
-          callback: (
-            tx: typeof transaction,
-          ) => Promise<unknown>,
-        ) => callback(transaction),
+        async (callback: (tx: typeof transaction) => Promise<unknown>) =>
+          callback(transaction),
       ),
     } as unknown as PrismaService;
 
     const authority = {
-      assertCanManageOrgUnit: jest
-        .fn()
-        .mockResolvedValue(undefined),
+      assertCanManageOrgUnit: jest.fn().mockResolvedValue(undefined),
       assertOfficeHead: jest.fn(),
     } as unknown as OrganizationAuthorityService;
 
@@ -222,22 +203,16 @@ describe('OrganizationHierarchyService', () => {
       assertCan: jest.fn().mockResolvedValue(undefined),
     } as unknown as OrganizationAuthorizationService;
 
-    const service =
-      new OrganizationHierarchyService(
-        prisma,
-        authority,
-        authorization,
-      );
+    const service = new OrganizationHierarchyService(
+      prisma,
+      authority,
+      authorization,
+    );
 
     await expect(
-      service.moveOrgUnit(
-        user,
-        'office-1',
-        'unit-1',
-        {
-          parentOrgUnitId: 'child-1',
-        },
-      ),
+      service.moveOrgUnit(user, 'office-1', 'unit-1', {
+        parentOrgUnitId: 'child-1',
+      }),
     ).rejects.toBeInstanceOf(ConflictException);
   });
 
@@ -256,18 +231,13 @@ describe('OrganizationHierarchyService', () => {
 
     const prisma = {
       $transaction: jest.fn(
-        async (
-          callback: (
-            tx: typeof transaction,
-          ) => Promise<unknown>,
-        ) => callback(transaction),
+        async (callback: (tx: typeof transaction) => Promise<unknown>) =>
+          callback(transaction),
       ),
     } as unknown as PrismaService;
 
     const authority = {
-      assertCanManageOrgUnit: jest
-        .fn()
-        .mockResolvedValue(undefined),
+      assertCanManageOrgUnit: jest.fn().mockResolvedValue(undefined),
       assertOfficeHead: jest.fn(),
     } as unknown as OrganizationAuthorityService;
 
@@ -275,29 +245,22 @@ describe('OrganizationHierarchyService', () => {
       assertCan: jest.fn().mockResolvedValue(undefined),
     } as unknown as OrganizationAuthorizationService;
 
-    const service =
-      new OrganizationHierarchyService(
-        prisma,
-        authority,
-        authorization,
-      );
+    const service = new OrganizationHierarchyService(
+      prisma,
+      authority,
+      authorization,
+    );
 
     await expect(
-      service.createOrgUnit(
-        user,
-        'office-1',
-        {
-          orgUnitTypeId: 'type-1',
-          parentOrgUnitId: 'foreign-office-parent',
-          code: 'child',
-          name: 'Child',
-        },
-      ),
+      service.createOrgUnit(user, 'office-1', {
+        orgUnitTypeId: 'type-1',
+        parentOrgUnitId: 'foreign-office-parent',
+        code: 'child',
+        name: 'Child',
+      }),
     ).rejects.toBeInstanceOf(BadRequestException);
 
-    expect(
-      transaction.orgUnit.create,
-    ).not.toHaveBeenCalled();
+    expect(transaction.orgUnit.create).not.toHaveBeenCalled();
   });
 
   it('rejects moving a unit beneath a parent from another Office', async () => {
@@ -320,9 +283,7 @@ describe('OrganizationHierarchyService', () => {
     } as unknown as PrismaService;
 
     const authority = {
-      assertCanManageOrgUnit: jest
-        .fn()
-        .mockResolvedValue(undefined),
+      assertCanManageOrgUnit: jest.fn().mockResolvedValue(undefined),
       assertOfficeHead: jest.fn(),
     } as unknown as OrganizationAuthorityService;
 
@@ -330,22 +291,16 @@ describe('OrganizationHierarchyService', () => {
       assertCan: jest.fn().mockResolvedValue(undefined),
     } as unknown as OrganizationAuthorizationService;
 
-    const service =
-      new OrganizationHierarchyService(
-        prisma,
-        authority,
-        authorization,
-      );
+    const service = new OrganizationHierarchyService(
+      prisma,
+      authority,
+      authorization,
+    );
 
     await expect(
-      service.moveOrgUnit(
-        user,
-        'office-1',
-        'unit-1',
-        {
-          parentOrgUnitId: 'foreign-office-parent',
-        },
-      ),
+      service.moveOrgUnit(user, 'office-1', 'unit-1', {
+        parentOrgUnitId: 'foreign-office-parent',
+      }),
     ).rejects.toBeInstanceOf(BadRequestException);
 
     expect(prisma.$transaction).not.toHaveBeenCalled();
@@ -357,18 +312,12 @@ describe('OrganizationHierarchyService', () => {
     } as unknown as PrismaService;
 
     const authority = {
-      assertCanManageOrgUnit: jest
-        .fn()
-        .mockResolvedValue(undefined),
-      assertOfficeHead: jest
-        .fn()
-        .mockResolvedValue(undefined),
+      assertCanManageOrgUnit: jest.fn().mockResolvedValue(undefined),
+      assertOfficeHead: jest.fn().mockResolvedValue(undefined),
     } as unknown as OrganizationAuthorityService;
 
     const authorization = {
-      assertCan: jest
-        .fn()
-        .mockRejectedValue(new ForbiddenException()),
+      assertCan: jest.fn().mockRejectedValue(new ForbiddenException()),
     } as unknown as OrganizationAuthorizationService;
 
     const service = new OrganizationHierarchyService(
@@ -460,18 +409,13 @@ describe('OrganizationHierarchyService', () => {
     } as unknown as PrismaService;
 
     const authority = {
-      assertCanViewOffice: jest
-        .fn()
-        .mockResolvedValue(undefined),
+      assertCanViewOffice: jest.fn().mockResolvedValue(undefined),
     } as unknown as OrganizationAuthorityService;
 
     const authorization = {
       visibleOrgUnitIds: jest
         .fn()
-        .mockResolvedValue([
-          'department-1',
-          'team-1',
-        ]),
+        .mockResolvedValue(['department-1', 'team-1']),
     } as unknown as OrganizationAuthorizationService;
 
     const service = new OrganizationHierarchyService(
@@ -480,10 +424,7 @@ describe('OrganizationHierarchyService', () => {
       authorization,
     );
 
-    const result = await service.getTree(
-      user,
-      'office-1',
-    );
+    const result = await service.getTree(user, 'office-1');
 
     expect(authorization.visibleOrgUnitIds).toHaveBeenCalledWith(
       user,

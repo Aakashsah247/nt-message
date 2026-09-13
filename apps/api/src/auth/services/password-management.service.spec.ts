@@ -34,9 +34,8 @@ describe('PasswordManagementService', () => {
       findUnique: jest.fn(),
     },
     $transaction: jest.fn(
-      async (
-        callback: (value: typeof transaction) => Promise<unknown>,
-      ) => callback(transaction),
+      async (callback: (value: typeof transaction) => Promise<unknown>) =>
+        callback(transaction),
     ),
   } as unknown as PrismaService;
 
@@ -170,9 +169,7 @@ describe('PasswordManagementService', () => {
     expect(auditPayload).not.toContain('TestOnlyReplacement#43');
     expect(auditPayload).not.toContain('replacement-hash');
 
-    expect(
-      mailService.sendPasswordChangedNotification,
-    ).toHaveBeenCalledWith({
+    expect(mailService.sendPasswordChangedNotification).toHaveBeenCalledWith({
       to: 'Employee@example.test',
       displayName: 'Employee User',
       changedAt: expect.any(Date),
@@ -203,9 +200,7 @@ describe('PasswordManagementService', () => {
       validRequest(),
     );
 
-    expect(
-      mailService.sendPasswordChangedNotification,
-    ).toHaveBeenCalledWith({
+    expect(mailService.sendPasswordChangedNotification).toHaveBeenCalledWith({
       to: 'Database-Super-Admin@example.test',
       displayName: 'Database Super Admin',
       changedAt: expect.any(Date),
@@ -267,11 +262,7 @@ describe('PasswordManagementService', () => {
     });
 
     await expect(
-      createService().changePassword(
-        'account-1',
-        'session-1',
-        validRequest(),
-      ),
+      createService().changePassword('account-1', 'session-1', validRequest()),
     ).rejects.toThrow(
       'Password changed concurrently. Sign in again and retry.',
     );
@@ -288,11 +279,7 @@ describe('PasswordManagementService', () => {
       .mockRejectedValueOnce(new Error('SMTP unavailable'));
 
     await expect(
-      createService().changePassword(
-        'account-1',
-        'session-1',
-        validRequest(),
-      ),
+      createService().changePassword('account-1', 'session-1', validRequest()),
     ).resolves.toEqual(
       expect.objectContaining({
         revokedSessions: 3,

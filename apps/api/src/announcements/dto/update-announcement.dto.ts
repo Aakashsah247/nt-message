@@ -44,12 +44,12 @@ export class UpdateAnnouncementDto {
   isPinned?: boolean;
 
   @IsOptional()
-  @Transform(({ value }) => (value === '' ? null : value))
+  @Transform(({ value }: { value: unknown }) => (value === '' ? null : value))
   @IsDateString()
   scheduledAt?: string | null;
 
   @IsOptional()
-  @Transform(({ value }) => (value === '' ? null : value))
+  @Transform(({ value }: { value: unknown }) => (value === '' ? null : value))
   @IsDateString()
   expiresAt?: string | null;
 }

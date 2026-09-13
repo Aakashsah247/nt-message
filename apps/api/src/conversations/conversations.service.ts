@@ -261,7 +261,6 @@ const MESSAGE_REQUEST_COOLDOWN_MS = 24 * 60 * 60 * 1000;
 const MESSAGE_EDIT_WINDOW_MS = 20 * 60 * 1000;
 const GROUP_INVITATION_TOKEN_BYTES = 32;
 const MAX_IMAGE_ATTACHMENT_BYTES = 20 * 1024 * 1024;
-const LEGACY_OFFICE_CODE = 'PATAN';
 const MAX_DOCUMENT_ATTACHMENT_BYTES = 50 * 1024 * 1024;
 const MAX_AUDIO_ATTACHMENT_BYTES = 25 * 1024 * 1024;
 const MAX_VIDEO_ATTACHMENT_BYTES = 200 * 1024 * 1024;
@@ -643,8 +642,6 @@ const conversationListConversationSelect = {
   createdAt: true,
   updatedAt: true,
 
-
-
   officialOffice: {
     select: officialGroupOfficeSelect,
   },
@@ -721,8 +718,6 @@ const conversationSelect = {
   lastMessageAt: true,
   createdAt: true,
   updatedAt: true,
-
-
 
   officialOffice: {
     select: officialGroupOfficeSelect,
@@ -1117,9 +1112,9 @@ export class ConversationsService {
     };
   }
 
-  private async resolveOfficialGroupOfficeId(group: {
+  private resolveOfficialGroupOfficeId(group: {
     officialOfficeId?: string | null;
-  }): Promise<string> {
+  }): string {
     if (!group.officialOfficeId) {
       throw new ConflictException(
         'The official group must be reconciled to a V3 Office before it can be used.',
@@ -1129,9 +1124,9 @@ export class ConversationsService {
     return group.officialOfficeId;
   }
 
-  private async resolveOfficialGroupOrgUnitId(group: {
+  private resolveOfficialGroupOrgUnitId(group: {
     officialOrgUnitId?: string | null;
-  }): Promise<string | null> {
+  }): string | null {
     return group.officialOrgUnitId ?? null;
   }
 
@@ -2358,13 +2353,10 @@ export class ConversationsService {
     const payload: Record<string, Prisma.InputJsonValue> = {};
 
     if (mentions.length > 0) {
-      payload.mentions = mentions.map(
-        (mention) =>
-          ({
-            accountId: mention.accountId,
-            displayName: mention.displayName,
-          }) as Prisma.InputJsonObject,
-      ) as Prisma.InputJsonArray;
+      payload.mentions = mentions.map((mention) => ({
+        accountId: mention.accountId,
+        displayName: mention.displayName,
+      }));
     }
 
     if (announcement) {
@@ -2372,7 +2364,7 @@ export class ConversationsService {
       payload.announcement = announcement as unknown as Prisma.InputJsonObject;
     }
 
-    return payload as Prisma.InputJsonObject;
+    return payload;
   }
 
   private roundCoordinate(value: number): number {
@@ -2418,7 +2410,7 @@ export class ConversationsService {
 
     return {
       location: location as unknown as Prisma.InputJsonObject,
-    } as Prisma.InputJsonObject;
+    };
   }
 
   private getLocationPayload(payload: unknown): MessageLocationPayload | null {
@@ -2540,8 +2532,8 @@ export class ConversationsService {
       return payload;
     }
 
-    const { forwardedFrom: _privateForwardProvenance, ...publicPayload } =
-      payload as Record<string, unknown>;
+    const publicPayload = { ...(payload as Record<string, unknown>) };
+    delete publicPayload.forwardedFrom;
 
     return publicPayload;
   }
@@ -4091,7 +4083,7 @@ export class ConversationsService {
   private normalizeAttachmentFileName(fileName: string): string {
     const normalized = fileName
       .normalize('NFKC')
-      .replace(/[\/\0]/g, '_')
+      .replace(/[/\0]/g, '_')
       .replace(/[\r\n]/g, ' ')
       .trim();
 
@@ -4739,8 +4731,8 @@ export class ConversationsService {
     group: OfficialGroupScopeRecord,
   ): Promise<MessagingAccountRecord[]> {
     const now = new Date();
-    const officeId = await this.resolveOfficialGroupOfficeId(group);
-    const orgUnitId = await this.resolveOfficialGroupOrgUnitId(group);
+    const officeId = this.resolveOfficialGroupOfficeId(group);
+    const orgUnitId = this.resolveOfficialGroupOrgUnitId(group);
     const membershipMode =
       group.officialMembershipMode ??
       OfficialGroupMembershipMode.ENTIRE_SUBTREE;
@@ -4842,8 +4834,8 @@ export class ConversationsService {
     group: OfficialGroupScopeRecord,
   ): Promise<Set<string>> {
     const now = new Date();
-    const officeId = await this.resolveOfficialGroupOfficeId(group);
-    const orgUnitId = await this.resolveOfficialGroupOrgUnitId(group);
+    const officeId = this.resolveOfficialGroupOfficeId(group);
+    const orgUnitId = this.resolveOfficialGroupOrgUnitId(group);
     const membershipMode =
       group.officialMembershipMode ??
       OfficialGroupMembershipMode.ENTIRE_SUBTREE;
@@ -5049,7 +5041,7 @@ export class ConversationsService {
     officeHeadAccountIds: Set<string>;
     managerAccountIds: Set<string>;
   }> {
-    const officeId = await this.resolveOfficialGroupOfficeId(group);
+    const officeId = this.resolveOfficialGroupOfficeId(group);
     const [scopedAccounts, officeHeadAccounts, managerAccountIds] =
       await Promise.all([
         this.getV3OfficialGroupMembershipAccounts(group),
@@ -5076,13 +5068,15 @@ export class ConversationsService {
       merged.set(account.id, account);
     }
 
-    const sortedOfficeHeadAccounts = [...officeHeadAccounts].sort((left, right) =>
-      left.id.localeCompare(right.id),
+    const sortedOfficeHeadAccounts = [...officeHeadAccounts].sort(
+      (left, right) => left.id.localeCompare(right.id),
     );
     const ownerOfficeHead =
       sortedOfficeHeadAccounts.find(
         (account) => account.id === group.createdByAccountId,
-      ) ?? sortedOfficeHeadAccounts[0] ?? null;
+      ) ??
+      sortedOfficeHeadAccounts[0] ??
+      null;
     const effectiveManagerAccountIds = new Set(managerAccountIds);
 
     // The database intentionally allows only one active OWNER per conversation.
@@ -8533,7 +8527,7 @@ export class ConversationsService {
         );
       }
 
-      const officeId = await this.resolveOfficialGroupOfficeId({
+      const officeId = this.resolveOfficialGroupOfficeId({
         officialOfficeId: access.conversation.officialOfficeId,
       });
       const isOfficeHead = await this.isActiveOfficeHeadForOffice(

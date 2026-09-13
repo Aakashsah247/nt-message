@@ -83,7 +83,9 @@ describe('WorkReportsController — P10-6 legacy Work report cutover', () => {
     await expect(
       controller.exportCsv(
         user,
-        { dataset: WorkReportDataset.DUTY_ASSIGNMENTS } as ExportWorkReportQueryDto,
+        {
+          dataset: WorkReportDataset.DUTY_ASSIGNMENTS,
+        } as ExportWorkReportQueryDto,
         response,
       ),
     ).resolves.toBe('Duty Date\n2026-09-09');

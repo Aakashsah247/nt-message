@@ -57,7 +57,6 @@ describe('ConversationsService group governance', () => {
     service = new ConversationsService(prisma, {} as never, {} as never);
   });
 
-
   it('uses AccountClass for messaging access independently of the normalized compatibility role', async () => {
     const account = {
       id: 'office-head-account',

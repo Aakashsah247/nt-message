@@ -1,7 +1,4 @@
-import {
-  ConflictException,
-  ForbiddenException,
-} from '@nestjs/common';
+import { ConflictException, ForbiddenException } from '@nestjs/common';
 
 import type { AuthenticatedUser } from '../auth/types/auth.types';
 import type { PrismaService } from '../database/prisma.service';
@@ -127,7 +124,9 @@ describe('EmployeeIdentityCorrectionService', () => {
       ),
     } as unknown as PrismaService;
     const mail = {
-      sendIdentityCorrectionNotification: jest.fn().mockResolvedValue(undefined),
+      sendIdentityCorrectionNotification: jest
+        .fn()
+        .mockResolvedValue(undefined),
     } as unknown as MailService;
     const service = new EmployeeIdentityCorrectionService(prisma, mail);
 
@@ -167,8 +166,8 @@ describe('EmployeeIdentityCorrectionService', () => {
     expect(transaction.passwordResetChallenge.updateMany).toHaveBeenCalled();
     expect(transaction.otpVerification.updateMany).toHaveBeenCalled();
 
-    const auditRows = transaction.identityCorrectionAudit.createMany.mock
-      .calls[0][0].data;
+    const auditRows =
+      transaction.identityCorrectionAudit.createMany.mock.calls[0][0].data;
     expect(auditRows).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
@@ -252,7 +251,9 @@ describe('EmployeeIdentityCorrectionService', () => {
     );
 
     expect(transaction.authSession.updateMany).not.toHaveBeenCalled();
-    expect(transaction.passwordResetChallenge.updateMany).not.toHaveBeenCalled();
+    expect(
+      transaction.passwordResetChallenge.updateMany,
+    ).not.toHaveBeenCalled();
     expect(mail.sendIdentityCorrectionNotification).not.toHaveBeenCalled();
     expect(result.security.revokedSessions).toBe(0);
     expect(result.security.notificationSent).toBeNull();

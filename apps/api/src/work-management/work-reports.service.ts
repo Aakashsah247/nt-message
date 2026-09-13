@@ -29,7 +29,11 @@ const KATHMANDU_OFFSET_MS = 5.75 * 60 * 60 * 1000;
 const DAY_MS = 24 * 60 * 60 * 1000;
 const MAX_REPORT_DAYS = 366;
 
-export type WorkReportScopeType = 'PERSONAL' | 'ORG_UNIT' | 'OFFICE' | 'ORGANIZATION';
+export type WorkReportScopeType =
+  | 'PERSONAL'
+  | 'ORG_UNIT'
+  | 'OFFICE'
+  | 'ORGANIZATION';
 
 export interface WorkReportExport {
   content: string;
@@ -155,7 +159,8 @@ export class WorkReportsService {
         performance: null,
         duty,
       },
-      notice: 'Duty records represent planned schedules, not verified attendance.',
+      notice:
+        'Duty records represent planned schedules, not verified attendance.',
     };
   }
 
@@ -388,7 +393,11 @@ export class WorkReportsService {
         { reportingLocation: { contains: search, mode: 'insensitive' } },
         { shiftName: { contains: search, mode: 'insensitive' } },
         { shift: { is: { name: { contains: search, mode: 'insensitive' } } } },
-        { employee: { is: { username: { contains: search, mode: 'insensitive' } } } },
+        {
+          employee: {
+            is: { username: { contains: search, mode: 'insensitive' } },
+          },
+        },
         {
           employee: {
             is: {
@@ -433,7 +442,11 @@ export class WorkReportsService {
       const search = query.search.trim();
       where.OR = [
         { note: { contains: search, mode: 'insensitive' } },
-        { employee: { is: { username: { contains: search, mode: 'insensitive' } } } },
+        {
+          employee: {
+            is: { username: { contains: search, mode: 'insensitive' } },
+          },
+        },
         {
           employee: {
             is: {
@@ -459,16 +472,28 @@ export class WorkReportsService {
   ): Promise<void> {
     if (!query.officeId && !query.orgUnitId) return;
 
-    if (actor.accountClass !== AccountClass.SUPER_ADMIN && !this.hasV3ManagementAuthority(actor)) {
-      throw new ForbiddenException('Personal reports cannot expand with organization filters.');
+    if (
+      actor.accountClass !== AccountClass.SUPER_ADMIN &&
+      !this.hasV3ManagementAuthority(actor)
+    ) {
+      throw new ForbiddenException(
+        'Personal reports cannot expand with organization filters.',
+      );
     }
 
     const officeId = query.officeId ?? actor.officeId ?? null;
     if (!officeId) {
-      throw new ForbiddenException('The selected Office is outside your authorized report scope.');
+      throw new ForbiddenException(
+        'The selected Office is outside your authorized report scope.',
+      );
     }
-    if (actor.accountClass !== AccountClass.SUPER_ADMIN && actor.officeId !== officeId) {
-      throw new ForbiddenException('The selected Office is outside your authorized report scope.');
+    if (
+      actor.accountClass !== AccountClass.SUPER_ADMIN &&
+      actor.officeId !== officeId
+    ) {
+      throw new ForbiddenException(
+        'The selected Office is outside your authorized report scope.',
+      );
     }
 
     const office = await this.prisma.office.findUnique({
@@ -476,7 +501,9 @@ export class WorkReportsService {
       select: { id: true, isActive: true },
     });
     if (!office?.isActive) {
-      throw new ForbiddenException('The selected Office is outside your authorized report scope.');
+      throw new ForbiddenException(
+        'The selected Office is outside your authorized report scope.',
+      );
     }
 
     if (!query.orgUnitId) return;
@@ -485,13 +512,17 @@ export class WorkReportsService {
       select: { id: true },
     });
     if (!orgUnit) {
-      throw new ForbiddenException('The selected Org Unit is outside your authorized report scope.');
+      throw new ForbiddenException(
+        'The selected Org Unit is outside your authorized report scope.',
+      );
     }
     if (
       actor.accountClass !== AccountClass.SUPER_ADMIN &&
       !(actor.visibleOrgUnitIds ?? []).includes(query.orgUnitId)
     ) {
-      throw new ForbiddenException('The selected Org Unit is outside your authorized report scope.');
+      throw new ForbiddenException(
+        'The selected Org Unit is outside your authorized report scope.',
+      );
     }
   }
 
@@ -522,7 +553,10 @@ export class WorkReportsService {
 
   private hasV3ManagementAuthority(actor: WorkActorContext): boolean {
     if (actor.accountClass === AccountClass.SUPER_ADMIN) return true;
-    return (actor.assignableOrgUnitIds?.length ?? 0) > 0 || (actor.operationalTeamLeadIds?.length ?? 0) > 0;
+    return (
+      (actor.assignableOrgUnitIds?.length ?? 0) > 0 ||
+      (actor.operationalTeamLeadIds?.length ?? 0) > 0
+    );
   }
 
   private getScopeType(actor: WorkActorContext): WorkReportScopeType {
@@ -545,7 +579,8 @@ export class WorkReportsService {
       );
     }
 
-    const days = Math.floor((endStart.getTime() - start.getTime()) / DAY_MS) + 1;
+    const days =
+      Math.floor((endStart.getTime() - start.getTime()) / DAY_MS) + 1;
     if (days > MAX_REPORT_DAYS) {
       throw new BadRequestException(
         `Report date range must not be greater than ${MAX_REPORT_DAYS} days.`,
@@ -634,7 +669,9 @@ export class WorkReportsService {
         ? account.username
         : null;
     const name = account.employee?.empName ?? safeUsername ?? 'NT Message user';
-    return account.employee?.empId ? `${name} (${account.employee.empId})` : name;
+    return account.employee?.empId
+      ? `${name} (${account.employee.empId})`
+      : name;
   }
 
   private createCsvExport(

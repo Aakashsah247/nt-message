@@ -220,5 +220,10 @@ test("P13-D retires WM-V2 mutation routes while preserving help compatibility re
   assert.match(controller, /help-requests\/pending/);
   assert.match(lifecycle, /async requestHelp\(/);
   assert.match(lifecycle, /async respondToHelpRequest\(/);
-  assert.match(lifecycle, /async coordinateHelpRequest\(/);
+  assert.match(lifecycle, /coordinateHelpRequest\(/);
+  assert.match(lifecycle, /Promise<never>/);
+  assert.match(
+    lifecycle,
+    /The legacy cross-department coordination flow is retired\. Use V3 OrgUnit collaboration instead\./,
+  );
 });

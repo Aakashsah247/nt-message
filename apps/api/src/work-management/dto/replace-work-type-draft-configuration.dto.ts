@@ -110,9 +110,7 @@ export class WorkStageDefinitionDto {
   @MaxLength(150)
   name!: string;
 
-  @Transform(({ value }: { value: unknown }) =>
-    normalizeOptionalText(value),
-  )
+  @Transform(({ value }: { value: unknown }) => normalizeOptionalText(value))
   @IsOptional()
   @IsString()
   @MaxLength(1000)

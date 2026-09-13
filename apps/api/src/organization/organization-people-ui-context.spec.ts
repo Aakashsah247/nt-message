@@ -44,10 +44,7 @@ describe('OrganizationPeopleService UI read context', () => {
 
     const authorization = {
       can: jest.fn(
-        async (
-          _user: AuthenticatedUser,
-          capability: string,
-        ) =>
+        async (_user: AuthenticatedUser, capability: string) =>
           capability === CAPABILITIES.MEMBERSHIP_VIEW ||
           capability === CAPABILITIES.LEADERSHIP_VIEW,
       ),
@@ -60,11 +57,7 @@ describe('OrganizationPeopleService UI read context', () => {
     );
 
     await expect(
-      service.getPeopleActionContext(
-        superAdminUser,
-        'office-1',
-        'unit-1',
-      ),
+      service.getPeopleActionContext(superAdminUser, 'office-1', 'unit-1'),
     ).resolves.toEqual({
       officeId: 'office-1',
       orgUnitId: 'unit-1',
@@ -160,10 +153,7 @@ describe('OrganizationPeopleService UI read context', () => {
       authorization,
     );
 
-    const result = await service.listOfficePeople(
-      superAdminUser,
-      'office-1',
-    );
+    const result = await service.listOfficePeople(superAdminUser, 'office-1');
 
     expect(result.scope).toEqual({
       officeWide: true,
@@ -187,10 +177,7 @@ describe('OrganizationPeopleService UI read context', () => {
     const authorization = {
       can: jest.fn().mockResolvedValue(false),
       visibleOrgUnitIds: jest.fn(
-        async (
-          _user: AuthenticatedUser,
-          capability: string,
-        ) =>
+        async (_user: AuthenticatedUser, capability: string) =>
           capability === CAPABILITIES.MEMBERSHIP_VIEW
             ? ['unit-1']
             : ['unit-1', 'unit-2'],
@@ -203,10 +190,7 @@ describe('OrganizationPeopleService UI read context', () => {
       authorization,
     );
 
-    const result = await service.listOfficePeople(
-      employeeUser,
-      'office-1',
-    );
+    const result = await service.listOfficePeople(employeeUser, 'office-1');
 
     expect(result.scope).toEqual({
       officeWide: false,

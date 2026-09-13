@@ -34,10 +34,7 @@ export class OrganizationPeopleController {
     @Param('officeId', new ParseUUIDPipe({ version: '4' }))
     officeId: string,
   ) {
-    return this.organizationPeopleService.listOfficePeople(
-      user,
-      officeId,
-    );
+    return this.organizationPeopleService.listOfficePeople(user, officeId);
   }
 
   @Get('people/actions')
@@ -90,11 +87,7 @@ export class OrganizationPeopleController {
     officeId: string,
     @Body() dto: AssignOrgMembershipDto,
   ) {
-    return this.organizationPeopleService.assignMembership(
-      user,
-      officeId,
-      dto,
-    );
+    return this.organizationPeopleService.assignMembership(user, officeId, dto);
   }
 
   @Post('memberships/transfer-primary')
@@ -134,10 +127,7 @@ export class OrganizationPeopleController {
     @Param('officeId', new ParseUUIDPipe({ version: '4' }))
     officeId: string,
   ) {
-    return this.organizationPeopleService.listLeadership(
-      user,
-      officeId,
-    );
+    return this.organizationPeopleService.listLeadership(user, officeId);
   }
 
   @Post('leadership/office-head')
@@ -147,11 +137,7 @@ export class OrganizationPeopleController {
     officeId: string,
     @Body() dto: AssignOfficeHeadDto,
   ) {
-    return this.organizationPeopleService.assignOfficeHead(
-      user,
-      officeId,
-      dto,
-    );
+    return this.organizationPeopleService.assignOfficeHead(user, officeId, dto);
   }
 
   @Post('leadership')
@@ -161,11 +147,7 @@ export class OrganizationPeopleController {
     officeId: string,
     @Body() dto: AssignOrgLeadershipDto,
   ) {
-    return this.organizationPeopleService.assignLeadership(
-      user,
-      officeId,
-      dto,
-    );
+    return this.organizationPeopleService.assignLeadership(user, officeId, dto);
   }
 
   @Patch('leadership/:assignmentId/end')

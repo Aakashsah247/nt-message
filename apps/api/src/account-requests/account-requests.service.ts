@@ -27,7 +27,6 @@ import {
 
 import type { Prisma } from '../generated/prisma/client';
 
-
 import { getActivationEmailResendPolicyViolation } from './account-request-activation-email-policy';
 import { AccountRequestAuthorityService } from './account-request-authority.service';
 import { AccountRequestLifecycleService } from './account-request-lifecycle.service';
@@ -183,7 +182,6 @@ export class AccountRequestsService {
             status: true,
             employmentStatus: true,
             isActivated: true,
-
           },
         },
       },
@@ -1009,8 +1007,6 @@ export class AccountRequestsService {
           createdAt: true,
           updatedAt: true,
 
-
-
           requestedBy: {
             select: {
               id: true,
@@ -1198,8 +1194,8 @@ export class AccountRequestsService {
   }): boolean {
     return Boolean(
       request.officeId &&
-        request.intendedOrgUnitId &&
-        request.requestedRole === AccountRole.EMPLOYEE,
+      request.intendedOrgUnitId &&
+      request.requestedRole === AccountRole.EMPLOYEE,
     );
   }
 
@@ -1343,8 +1339,7 @@ export class AccountRequestsService {
             ipAddress,
             userAgent,
             metadata: {
-              previousLifecycleState:
-                AccountRequestLifecycleState.UNDER_REVIEW,
+              previousLifecycleState: AccountRequestLifecycleState.UNDER_REVIEW,
               newLifecycleState:
                 AccountRequestLifecycleState.RETURNED_FOR_CORRECTION,
             },
@@ -1598,7 +1593,7 @@ export class AccountRequestsService {
           empName: true,
           phoneNumber: true,
           officialEmail: true,
-              designation: true,
+          designation: true,
           status: true,
           isActivated: true,
           createdAt: true,
@@ -1725,8 +1720,7 @@ export class AccountRequestsService {
         activationEmailStatus: activationEmailDelivery.status,
         activationEmailLastAttemptAt: activationEmailDelivery.attemptedAt,
         activationEmailSentAt: activationEmailDelivery.sentAt,
-        activationEmailFailureCategory:
-          activationEmailDelivery.failureCategory,
+        activationEmailFailureCategory: activationEmailDelivery.failureCategory,
       },
       employee: provisioned.employee,
       membership: provisioned.membership,
@@ -1902,10 +1896,10 @@ export class AccountRequestsService {
 
       const v3OrganizationEligible = Boolean(
         request.officeId &&
-          request.intendedOrgUnitId &&
-          request.office?.isActive &&
-          request.intendedOrgUnit?.isActive &&
-          request.intendedOrgUnit.officeId === request.officeId,
+        request.intendedOrgUnitId &&
+        request.office?.isActive &&
+        request.intendedOrgUnit?.isActive &&
+        request.intendedOrgUnit.officeId === request.officeId,
       );
 
       if (!v3OrganizationEligible) {
@@ -2080,8 +2074,7 @@ export class AccountRequestsService {
 
         if (
           request.lifecycleState !== AccountRequestLifecycleState.REQUESTED &&
-          request.lifecycleState !==
-            AccountRequestLifecycleState.UNDER_REVIEW
+          request.lifecycleState !== AccountRequestLifecycleState.UNDER_REVIEW
         ) {
           throw new ConflictException(
             'Only a requested or under-review account request can be rejected.',
@@ -2100,17 +2093,16 @@ export class AccountRequestsService {
             AccountRequestLifecycleState.UNDER_REVIEW,
           );
 
-          const startReviewClaim =
-            await transaction.accountRequest.updateMany({
-              where: {
-                id: request.id,
-                lifecycleState: AccountRequestLifecycleState.REQUESTED,
-                status: AccountRequestStatus.PENDING_APPROVAL,
-              },
-              data: {
-                lifecycleState: AccountRequestLifecycleState.UNDER_REVIEW,
-              },
-            });
+          const startReviewClaim = await transaction.accountRequest.updateMany({
+            where: {
+              id: request.id,
+              lifecycleState: AccountRequestLifecycleState.REQUESTED,
+              status: AccountRequestStatus.PENDING_APPROVAL,
+            },
+            data: {
+              lifecycleState: AccountRequestLifecycleState.UNDER_REVIEW,
+            },
+          });
 
           if (startReviewClaim.count !== 1) {
             throw new ConflictException(
@@ -2171,8 +2163,7 @@ export class AccountRequestsService {
             metadata: {
               previousStatus: AccountRequestStatus.PENDING_APPROVAL,
               newStatus: AccountRequestStatus.REJECTED,
-              previousLifecycleState:
-                AccountRequestLifecycleState.UNDER_REVIEW,
+              previousLifecycleState: AccountRequestLifecycleState.UNDER_REVIEW,
               newLifecycleState: AccountRequestLifecycleState.REJECTED,
             },
           },
@@ -2513,7 +2504,6 @@ export class AccountRequestsService {
       accountRequest,
     };
   }
-
 
   async listMyRequests(
     user: AuthenticatedUser,

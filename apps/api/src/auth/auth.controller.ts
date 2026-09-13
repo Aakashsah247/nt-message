@@ -195,9 +195,7 @@ export class AuthController {
      * The service returns the same response for eligible and unknown email
      * addresses so this public endpoint cannot enumerate NT accounts.
      */
-    return this.passwordRecoveryService.requestPasswordReset(
-      dto.officialEmail,
-    );
+    return this.passwordRecoveryService.requestPasswordReset(dto.officialEmail);
   }
 
   @Post('forgot-password/verify')
@@ -325,9 +323,7 @@ export class AuthController {
     return {
       // Account display data is resolved by account ID so disabled or duplicate
       // records cannot leak stale header names into the frontend.
-      account: await this.authService.getCurrentAccountResult(
-        user.accountId,
-      ),
+      account: await this.authService.getCurrentAccountResult(user.accountId),
 
       session: {
         id: user.sessionId,

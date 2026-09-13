@@ -19,9 +19,9 @@ describe('password recovery DTOs', () => {
       otp: '12AB',
     });
 
-    expect(
-      validateSync(dto).some((error) => error.property === 'otp'),
-    ).toBe(true);
+    expect(validateSync(dto).some((error) => error.property === 'otp')).toBe(
+      true,
+    );
   });
 
   it('applies the canonical password policy to reset completion', () => {

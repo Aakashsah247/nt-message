@@ -46,7 +46,10 @@ function createHarness() {
     operationalTeamMember: { findMany: jest.fn() },
     operationalTeam: { findFirst: jest.fn() },
     orgLeadershipAssignment: { findMany: jest.fn() },
-    operationalTeamLeadAssignment: { findFirst: jest.fn(), findMany: jest.fn() },
+    operationalTeamLeadAssignment: {
+      findFirst: jest.fn(),
+      findMany: jest.fn(),
+    },
     orgUnitClosure: { findUnique: jest.fn(), findMany: jest.fn() },
   };
   const dutyAuthorization = {
@@ -134,8 +137,12 @@ describe('DutyScopeV3Service', () => {
     const result = await service.listSupervisorOptions(managerUser);
 
     expect(result.data).toEqual([
-      expect.objectContaining({ account: expect.objectContaining({ id: 'manager-account' }) }),
-      expect.objectContaining({ account: expect.objectContaining({ id: 'org-head' }) }),
+      expect.objectContaining({
+        account: expect.objectContaining({ id: 'manager-account' }),
+      }),
+      expect.objectContaining({
+        account: expect.objectContaining({ id: 'org-head' }),
+      }),
     ]);
     expect(prisma.account.findMany).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -164,7 +171,9 @@ describe('DutyScopeV3Service', () => {
       { employee: { account: { id: 'team-lead' } } },
     ]);
 
-    await expect(service.managementDutyAccountIds(managerUser as never)).resolves.toEqual(
+    await expect(
+      service.managementDutyAccountIds(managerUser as never),
+    ).resolves.toEqual(
       expect.arrayContaining(['office-head', 'org-head', 'team-lead']),
     );
     expect(prisma.orgLeadershipAssignment.findMany).toHaveBeenCalledWith(
@@ -257,7 +266,6 @@ describe('DutyScopeV3Service', () => {
     ).rejects.toBeInstanceOf(NotFoundException);
   });
 
-
   it('routes Duty notifications to the assigned employee, Team Lead, and nearest OrgUnit Head', async () => {
     const { service, prisma } = createHarness();
     prisma.operationalTeamLeadAssignment.findMany.mockResolvedValue([
@@ -320,7 +328,8 @@ describe('DutyScopeV3Service', () => {
   });
 
   it('keeps Team Leads away from assignments explicitly owned by another Operational Team', async () => {
-    const { service, dutyAuthorization, organizationAuthorization } = createHarness();
+    const { service, dutyAuthorization, organizationAuthorization } =
+      createHarness();
     dutyAuthorization.getContext.mockResolvedValue({
       officeId: 'office-1',
       primaryOrgUnitId: 'org-unit-parent',
@@ -347,5 +356,4 @@ describe('DutyScopeV3Service', () => {
       }),
     );
   });
-
 });

@@ -162,10 +162,7 @@ export class OrganizationPeopleService {
     return employee;
   }
 
-  private async validateOrgUnit(
-    officeId: string,
-    orgUnitId: string | null,
-  ) {
+  private async validateOrgUnit(officeId: string, orgUnitId: string | null) {
     if (!orgUnitId) {
       return null;
     }
@@ -345,27 +342,23 @@ export class OrganizationPeopleService {
     };
   }
 
-  async listOfficePeople(
-    user: AuthenticatedUser,
-    officeId: string,
-  ) {
+  async listOfficePeople(user: AuthenticatedUser, officeId: string) {
     await this.authority.assertCanViewOffice(user, officeId);
 
-    const [officeWideMemberships, officeWideLeadership] =
-      await Promise.all([
-        this.authorization.can(
-          user,
-          CAPABILITIES.MEMBERSHIP_VIEW,
-          officeId,
-          null,
-        ),
-        this.authorization.can(
-          user,
-          CAPABILITIES.LEADERSHIP_VIEW,
-          officeId,
-          null,
-        ),
-      ]);
+    const [officeWideMemberships, officeWideLeadership] = await Promise.all([
+      this.authorization.can(
+        user,
+        CAPABILITIES.MEMBERSHIP_VIEW,
+        officeId,
+        null,
+      ),
+      this.authorization.can(
+        user,
+        CAPABILITIES.LEADERSHIP_VIEW,
+        officeId,
+        null,
+      ),
+    ]);
 
     const officeWide = officeWideMemberships || officeWideLeadership;
 
@@ -487,9 +480,7 @@ export class OrganizationPeopleService {
 
         return byName !== 0
           ? byName
-          : left.employee.empId.localeCompare(
-              right.employee.empId,
-            );
+          : left.employee.empId.localeCompare(right.employee.empId);
       })
       .map((membership) => ({
         employee: membership.employee,
@@ -631,55 +622,37 @@ export class OrganizationPeopleService {
         ? CAPABILITIES.MEMBERSHIP_TRANSFER_INTERNAL
         : CAPABILITIES.MEMBERSHIP_ASSIGN_SECONDARY;
 
-    await this.authorization.assertCan(
-      user,
-      capability,
-      officeId,
-      orgUnitId,
-    );
+    await this.authorization.assertCan(user, capability, officeId, orgUnitId);
 
     await this.validateOrgUnit(officeId, orgUnitId);
 
-    const startsAt = this.parseDate(
-      dto.startsAt,
-      'Start time',
-      new Date(),
-    );
+    const startsAt = this.parseDate(dto.startsAt, 'Start time', new Date());
 
     const endsAt = dto.endsAt
       ? this.parseDate(dto.endsAt, 'End time', startsAt)
       : null;
 
-    this.validatePeriod(
-      startsAt,
-      endsAt,
-      'start time',
-      'end time',
-    );
+    this.validatePeriod(startsAt, endsAt, 'start time', 'end time');
 
-    if (
-      dto.membershipType === OrgMembershipType.TEMPORARY &&
-      !endsAt
-    ) {
+    if (dto.membershipType === OrgMembershipType.TEMPORARY && !endsAt) {
       throw new BadRequestException(
         'Temporary placement requires an end time.',
       );
     }
 
     if (dto.membershipType === OrgMembershipType.PRIMARY) {
-      const existingPrimary =
-        await this.prisma.orgMembership.findFirst({
-          where: {
-            employeeId: employee.id,
-            membershipType: OrgMembershipType.PRIMARY,
-            endsAt: null,
-          },
-          select: {
-            id: true,
-            officeId: true,
-            orgUnitId: true,
-          },
-        });
+      const existingPrimary = await this.prisma.orgMembership.findFirst({
+        where: {
+          employeeId: employee.id,
+          membershipType: OrgMembershipType.PRIMARY,
+          endsAt: null,
+        },
+        select: {
+          id: true,
+          officeId: true,
+          orgUnitId: true,
+        },
+      });
 
       if (existingPrimary) {
         throw new ConflictException(
@@ -687,35 +660,34 @@ export class OrganizationPeopleService {
         );
       }
     } else {
-      const overlapping =
-        await this.prisma.orgMembership.findFirst({
-          where: {
-            employeeId: employee.id,
-            officeId,
-            orgUnitId,
-            membershipType: dto.membershipType,
-            ...(endsAt
-              ? {
-                  startsAt: {
-                    lt: endsAt,
-                  },
-                }
-              : {}),
-            OR: [
-              {
-                endsAt: null,
-              },
-              {
-                endsAt: {
-                  gt: startsAt,
+      const overlapping = await this.prisma.orgMembership.findFirst({
+        where: {
+          employeeId: employee.id,
+          officeId,
+          orgUnitId,
+          membershipType: dto.membershipType,
+          ...(endsAt
+            ? {
+                startsAt: {
+                  lt: endsAt,
                 },
+              }
+            : {}),
+          OR: [
+            {
+              endsAt: null,
+            },
+            {
+              endsAt: {
+                gt: startsAt,
               },
-            ],
-          },
-          select: {
-            id: true,
-          },
-        });
+            },
+          ],
+        },
+        select: {
+          id: true,
+        },
+      });
 
       if (overlapping) {
         throw new ConflictException(
@@ -818,93 +790,82 @@ export class OrganizationPeopleService {
     );
 
     const now = new Date();
-    const effectiveAt = this.parseDate(
-      dto.effectiveAt,
-      'Transfer time',
-      now,
-    );
+    const effectiveAt = this.parseDate(dto.effectiveAt, 'Transfer time', now);
 
     if (effectiveAt.getTime() < now.getTime() - 60_000) {
-      throw new BadRequestException(
-        'Transfer time cannot be in the past.',
-      );
+      throw new BadRequestException('Transfer time cannot be in the past.');
     }
 
     const reason = this.normalizeReason(dto.reason);
 
-    const result = await this.prisma.$transaction(
-      async (transaction) => {
-        const current =
-          await transaction.orgMembership.findFirst({
-            where: {
-              employeeId: employee.id,
-              membershipType: OrgMembershipType.PRIMARY,
-              endsAt: null,
-            },
-            select: {
-              id: true,
-              officeId: true,
-              orgUnitId: true,
-              startsAt: true,
-            },
-          });
+    const result = await this.prisma.$transaction(async (transaction) => {
+      const current = await transaction.orgMembership.findFirst({
+        where: {
+          employeeId: employee.id,
+          membershipType: OrgMembershipType.PRIMARY,
+          endsAt: null,
+        },
+        select: {
+          id: true,
+          officeId: true,
+          orgUnitId: true,
+          startsAt: true,
+        },
+      });
 
-        if (!current) {
-          throw new ConflictException(
-            'This employee does not have an open primary placement.',
-          );
-        }
+      if (!current) {
+        throw new ConflictException(
+          'This employee does not have an open primary placement.',
+        );
+      }
 
-        if (current.officeId !== officeId) {
-          throw new ConflictException(
-            'Cross-office transfer requires the dedicated office-transfer workflow.',
-          );
-        }
+      if (current.officeId !== officeId) {
+        throw new ConflictException(
+          'Cross-office transfer requires the dedicated office-transfer workflow.',
+        );
+      }
 
-        if (current.orgUnitId === targetOrgUnitId) {
-          throw new ConflictException(
-            'The employee is already assigned to this primary organizational location.',
-          );
-        }
+      if (current.orgUnitId === targetOrgUnitId) {
+        throw new ConflictException(
+          'The employee is already assigned to this primary organizational location.',
+        );
+      }
 
-        if (effectiveAt.getTime() <= current.startsAt.getTime()) {
-          throw new BadRequestException(
-            'Transfer time must be later than the current placement start time.',
-          );
-        }
+      if (effectiveAt.getTime() <= current.startsAt.getTime()) {
+        throw new BadRequestException(
+          'Transfer time must be later than the current placement start time.',
+        );
+      }
 
-        const endedMembership =
-          await transaction.orgMembership.update({
-            where: {
-              id: current.id,
-            },
-            data: {
-              endsAt: effectiveAt,
-              endedByAccountId: user.accountId,
-              endReason: reason,
-            },
-          });
+      const endedMembership = await transaction.orgMembership.update({
+        where: {
+          id: current.id,
+        },
+        data: {
+          endsAt: effectiveAt,
+          endedByAccountId: user.accountId,
+          endReason: reason,
+        },
+      });
 
-        const membership =
-          await transaction.orgMembership.create({
-            data: {
-              employeeId: employee.id,
-              officeId,
-              orgUnitId: targetOrgUnitId,
-              membershipType: OrgMembershipType.PRIMARY,
-              assignmentSource: OrgAssignmentSource.TRANSFER,
-              startsAt: effectiveAt,
-              assignedByAccountId: user.accountId,
-              assignmentReason: reason,
-            },
-          });
+      const membership = await transaction.orgMembership.create({
+        data: {
+          employeeId: employee.id,
+          officeId,
+          orgUnitId: targetOrgUnitId,
+          membershipType: OrgMembershipType.PRIMARY,
+          assignmentSource: OrgAssignmentSource.TRANSFER,
+          startsAt: effectiveAt,
+          assignedByAccountId: user.accountId,
+          assignmentReason: reason,
+        },
+      });
 
-        return {
-          endedMembership,
-          membership,
-        };
-      },
-    );
+      return {
+        endedMembership,
+        membership,
+      };
+    });
 
     await this.synchronizeOfficialGroupsForAccount(
       employee.account?.id,
@@ -956,16 +917,10 @@ export class OrganizationPeopleService {
     }
 
     if (existing.endsAt) {
-      throw new ConflictException(
-        'This employee placement has already ended.',
-      );
+      throw new ConflictException('This employee placement has already ended.');
     }
 
-    const effectiveAt = this.parseDate(
-      dto.effectiveAt,
-      'End time',
-      new Date(),
-    );
+    const effectiveAt = this.parseDate(dto.effectiveAt, 'End time', new Date());
 
     if (effectiveAt.getTime() <= existing.startsAt.getTime()) {
       throw new BadRequestException(
@@ -990,10 +945,7 @@ export class OrganizationPeopleService {
     };
   }
 
-  async listLeadership(
-    user: AuthenticatedUser,
-    officeId: string,
-  ) {
+  async listLeadership(user: AuthenticatedUser, officeId: string) {
     await this.authority.assertCanViewOffice(user, officeId);
 
     const officeWide = await this.authorization.can(
@@ -1017,76 +969,75 @@ export class OrganizationPeopleService {
       );
     }
 
-    const data =
-      await this.prisma.orgLeadershipAssignment.findMany({
-        where: {
-          officeId,
-          ...(officeWide
-            ? {}
-            : {
-                orgUnitId: {
-                  in: visibleOrgUnitIds,
-                },
-              }),
+    const data = await this.prisma.orgLeadershipAssignment.findMany({
+      where: {
+        officeId,
+        ...(officeWide
+          ? {}
+          : {
+              orgUnitId: {
+                in: visibleOrgUnitIds,
+              },
+            }),
+      },
+      orderBy: [
+        {
+          effectiveFrom: 'desc',
         },
-        orderBy: [
-          {
-            effectiveFrom: 'desc',
+        {
+          createdAt: 'desc',
+        },
+      ],
+      select: {
+        id: true,
+        officeId: true,
+        orgUnitId: true,
+        employeeId: true,
+        leadershipType: true,
+        assignmentSource: true,
+        isActing: true,
+        effectiveFrom: true,
+        effectiveUntil: true,
+        assignmentReason: true,
+        endReason: true,
+        createdAt: true,
+        updatedAt: true,
+        employee: {
+          select: {
+            id: true,
+            empId: true,
+            empName: true,
+            designation: true,
           },
-          {
-            createdAt: 'desc',
-          },
-        ],
-        select: {
-          id: true,
-          officeId: true,
-          orgUnitId: true,
-          employeeId: true,
-          leadershipType: true,
-          assignmentSource: true,
-          isActing: true,
-          effectiveFrom: true,
-          effectiveUntil: true,
-          assignmentReason: true,
-          endReason: true,
-          createdAt: true,
-          updatedAt: true,
-          employee: {
-            select: {
-              id: true,
-              empId: true,
-              empName: true,
-              designation: true,
-            },
-          },
-          orgUnit: {
-            select: {
-              id: true,
-              code: true,
-              name: true,
-              isActive: true,
-              orgUnitType: {
-                select: {
-                  name: true,
-                  isTeam: true,
-                },
+        },
+        orgUnit: {
+          select: {
+            id: true,
+            code: true,
+            name: true,
+            isActive: true,
+            orgUnitType: {
+              select: {
+                name: true,
+                isTeam: true,
               },
             },
           },
-          assignedBy: {
-            select: {
-              id: true,
-              username: true,
-            },
-          },
-          endedBy: {
-            select: {
-              id: true,
-              username: true,
-            },
+        },
+        assignedBy: {
+          select: {
+            id: true,
+            username: true,
           },
         },
-      });
+        endedBy: {
+          select: {
+            id: true,
+            username: true,
+          },
+        },
+      },
+    });
 
     return {
       data,
@@ -1111,115 +1062,103 @@ export class OrganizationPeopleService {
 
     const reason = this.normalizeReason(dto.reason);
 
-    const result = await this.prisma.$transaction(
-      async (transaction) => {
-        const currentPrimary =
-          await transaction.orgMembership.findFirst({
-            where: {
-              employeeId: employee.id,
-              membershipType: OrgMembershipType.PRIMARY,
-              endsAt: null,
-            },
-            select: {
-              id: true,
-              officeId: true,
-              orgUnitId: true,
-              startsAt: true,
-            },
-          });
+    const result = await this.prisma.$transaction(async (transaction) => {
+      const currentPrimary = await transaction.orgMembership.findFirst({
+        where: {
+          employeeId: employee.id,
+          membershipType: OrgMembershipType.PRIMARY,
+          endsAt: null,
+        },
+        select: {
+          id: true,
+          officeId: true,
+          orgUnitId: true,
+          startsAt: true,
+        },
+      });
 
-        if (
-          currentPrimary &&
-          currentPrimary.officeId !== officeId
-        ) {
-          throw new ConflictException(
-            'This employee already belongs to another Office. Use the dedicated cross-office transfer workflow.',
-          );
-        }
+      if (currentPrimary && currentPrimary.officeId !== officeId) {
+        throw new ConflictException(
+          'This employee already belongs to another Office. Use the dedicated cross-office transfer workflow.',
+        );
+      }
 
-        if (
-          currentPrimary &&
-          currentPrimary.startsAt.getTime() >
-            effectiveFrom.getTime()
-        ) {
-          throw new BadRequestException(
-            'Office Head start time cannot be earlier than the employee Office membership.',
-          );
-        }
+      if (
+        currentPrimary &&
+        currentPrimary.startsAt.getTime() > effectiveFrom.getTime()
+      ) {
+        throw new BadRequestException(
+          'Office Head start time cannot be earlier than the employee Office membership.',
+        );
+      }
 
-        let bootstrapMembership = currentPrimary;
+      let bootstrapMembership = currentPrimary;
 
-        /*
-         * First-office bootstrap exception:
-         * Super Admin may establish the initial Office membership only
-         * when assigning the protected Office Head.
-         */
-        if (!bootstrapMembership) {
-          bootstrapMembership =
-            await transaction.orgMembership.create({
-              data: {
-                employeeId: employee.id,
-                officeId,
-                orgUnitId: null,
-                membershipType: OrgMembershipType.PRIMARY,
-                assignmentSource: OrgAssignmentSource.SYSTEM,
-                startsAt: effectiveFrom,
-                assignedByAccountId: user.accountId,
-                assignmentReason: reason,
-              },
-              select: {
-                id: true,
-                officeId: true,
-                orgUnitId: true,
-                startsAt: true,
-              },
-            });
-        }
+      /*
+       * First-office bootstrap exception:
+       * Super Admin may establish the initial Office membership only
+       * when assigning the protected Office Head.
+       */
+      if (!bootstrapMembership) {
+        bootstrapMembership = await transaction.orgMembership.create({
+          data: {
+            employeeId: employee.id,
+            officeId,
+            orgUnitId: null,
+            membershipType: OrgMembershipType.PRIMARY,
+            assignmentSource: OrgAssignmentSource.SYSTEM,
+            startsAt: effectiveFrom,
+            assignedByAccountId: user.accountId,
+            assignmentReason: reason,
+          },
+          select: {
+            id: true,
+            officeId: true,
+            orgUnitId: true,
+            startsAt: true,
+          },
+        });
+      }
 
-        const existing =
-          await transaction.orgLeadershipAssignment.findFirst({
-            where: {
-              officeId,
-              orgUnitId: null,
-              leadershipType:
-                OrgLeadershipType.OFFICE_HEAD,
-              isActing: false,
-              effectiveUntil: null,
-            },
-            select: {
-              id: true,
-              employeeId: true,
-            },
-          });
+      const existing = await transaction.orgLeadershipAssignment.findFirst({
+        where: {
+          officeId,
+          orgUnitId: null,
+          leadershipType: OrgLeadershipType.OFFICE_HEAD,
+          isActing: false,
+          effectiveUntil: null,
+        },
+        select: {
+          id: true,
+          employeeId: true,
+        },
+      });
 
-        if (existing) {
-          throw new ConflictException(
-            'This office already has a permanent Office Head. End that assignment before assigning another.',
-          );
-        }
+      if (existing) {
+        throw new ConflictException(
+          'This office already has a permanent Office Head. End that assignment before assigning another.',
+        );
+      }
 
-        const assignment =
-          await transaction.orgLeadershipAssignment.create({
-            data: {
-              employeeId: employee.id,
-              officeId,
-              orgUnitId: null,
-              leadershipType:
-                OrgLeadershipType.OFFICE_HEAD,
-              assignmentSource: OrgAssignmentSource.SYSTEM,
-              isActing: false,
-              effectiveFrom,
-              assignedByAccountId: user.accountId,
-              assignmentReason: reason,
-            },
-          });
+      const assignment = await transaction.orgLeadershipAssignment.create({
+        data: {
+          employeeId: employee.id,
+          officeId,
+          orgUnitId: null,
+          leadershipType: OrgLeadershipType.OFFICE_HEAD,
+          assignmentSource: OrgAssignmentSource.SYSTEM,
+          isActing: false,
+          effectiveFrom,
+          assignedByAccountId: user.accountId,
+          assignmentReason: reason,
+        },
+      });
 
-        return {
-          bootstrapMembership,
-          assignment,
-        };
-      },
-    );
+      return {
+        bootstrapMembership,
+        assignment,
+      };
+    });
 
     await this.conversationsService?.synchronizeAllOfficialGroupsSafely(
       user.accountId,
@@ -1262,11 +1201,7 @@ export class OrganizationPeopleService {
     );
 
     const effectiveUntil = dto.effectiveUntil
-      ? this.parseDate(
-          dto.effectiveUntil,
-          'Effective end time',
-          effectiveFrom,
-        )
+      ? this.parseDate(dto.effectiveUntil, 'Effective end time', effectiveFrom)
       : null;
 
     this.validatePeriod(
@@ -1276,28 +1211,20 @@ export class OrganizationPeopleService {
       'effective end time',
     );
 
-    if (
-      dto.leadershipType === OrgLeadershipType.OFFICE_HEAD &&
-      !isActing
-    ) {
+    if (dto.leadershipType === OrgLeadershipType.OFFICE_HEAD && !isActing) {
       throw new ForbiddenException(
         'Permanent Office Head assignment is a protected system action.',
       );
     }
 
-    if (
-      isActing &&
-      dto.leadershipType === OrgLeadershipType.DEPUTY
-    ) {
+    if (isActing && dto.leadershipType === OrgLeadershipType.DEPUTY) {
       throw new BadRequestException(
         'Deputy and Acting Head are separate leadership assignments.',
       );
     }
 
     if (isActing && !effectiveUntil) {
-      throw new BadRequestException(
-        'Acting leadership requires an end time.',
-      );
+      throw new BadRequestException('Acting leadership requires an end time.');
     }
 
     if (dto.leadershipType === OrgLeadershipType.OFFICE_HEAD) {
@@ -1306,9 +1233,7 @@ export class OrganizationPeopleService {
           'Office Head applies to the Office and cannot be linked to an organizational unit.',
         );
       }
-    } else if (
-      dto.leadershipType === OrgLeadershipType.ORG_UNIT_HEAD
-    ) {
+    } else if (dto.leadershipType === OrgLeadershipType.ORG_UNIT_HEAD) {
       if (!orgUnitId) {
         throw new BadRequestException(
           'Org Unit Head requires an organizational unit.',
@@ -1316,9 +1241,7 @@ export class OrganizationPeopleService {
       }
 
       await this.validateOrgUnit(officeId, orgUnitId);
-    } else if (
-      dto.leadershipType === OrgLeadershipType.TEAM_LEAD
-    ) {
+    } else if (dto.leadershipType === OrgLeadershipType.TEAM_LEAD) {
       throw new BadRequestException(
         'Team Lead is managed through Operational Team leadership, not formal OrgUnit leadership.',
       );
@@ -1333,35 +1256,34 @@ export class OrganizationPeopleService {
     );
 
     if (dto.leadershipType !== OrgLeadershipType.DEPUTY) {
-      const overlapping =
-        await this.prisma.orgLeadershipAssignment.findFirst({
-          where: {
-            officeId,
-            orgUnitId,
-            leadershipType: dto.leadershipType,
-            isActing,
-            ...(effectiveUntil
-              ? {
-                  effectiveFrom: {
-                    lt: effectiveUntil,
-                  },
-                }
-              : {}),
-            OR: [
-              {
-                effectiveUntil: null,
-              },
-              {
-                effectiveUntil: {
-                  gt: effectiveFrom,
+      const overlapping = await this.prisma.orgLeadershipAssignment.findFirst({
+        where: {
+          officeId,
+          orgUnitId,
+          leadershipType: dto.leadershipType,
+          isActing,
+          ...(effectiveUntil
+            ? {
+                effectiveFrom: {
+                  lt: effectiveUntil,
                 },
+              }
+            : {}),
+          OR: [
+            {
+              effectiveUntil: null,
+            },
+            {
+              effectiveUntil: {
+                gt: effectiveFrom,
               },
-            ],
-          },
-          select: {
-            id: true,
-          },
-        });
+            },
+          ],
+        },
+        select: {
+          id: true,
+        },
+      });
 
       if (overlapping) {
         throw new ConflictException(
@@ -1372,21 +1294,20 @@ export class OrganizationPeopleService {
       }
     }
 
-    const assignment =
-      await this.prisma.orgLeadershipAssignment.create({
-        data: {
-          employeeId: employee.id,
-          officeId,
-          orgUnitId,
-          leadershipType: dto.leadershipType,
-          assignmentSource: OrgAssignmentSource.MANUAL,
-          isActing,
-          effectiveFrom,
-          effectiveUntil,
-          assignedByAccountId: user.accountId,
-          assignmentReason: this.normalizeReason(dto.reason),
-        },
-      });
+    const assignment = await this.prisma.orgLeadershipAssignment.create({
+      data: {
+        employeeId: employee.id,
+        officeId,
+        orgUnitId,
+        leadershipType: dto.leadershipType,
+        assignmentSource: OrgAssignmentSource.MANUAL,
+        isActing,
+        effectiveFrom,
+        effectiveUntil,
+        assignedByAccountId: user.accountId,
+        assignmentReason: this.normalizeReason(dto.reason),
+      },
+    });
 
     if (dto.leadershipType === OrgLeadershipType.OFFICE_HEAD) {
       await this.conversationsService?.synchronizeAllOfficialGroupsSafely(
@@ -1409,27 +1330,24 @@ export class OrganizationPeopleService {
     assignmentId: string,
     dto: EndOrgLeadershipDto,
   ) {
-    const assignment =
-      await this.prisma.orgLeadershipAssignment.findFirst({
-        where: {
-          id: assignmentId,
-          officeId,
-        },
-        select: {
-          id: true,
-          employeeId: true,
-          orgUnitId: true,
-          leadershipType: true,
-          isActing: true,
-          effectiveFrom: true,
-          effectiveUntil: true,
-        },
-      });
+    const assignment = await this.prisma.orgLeadershipAssignment.findFirst({
+      where: {
+        id: assignmentId,
+        officeId,
+      },
+      select: {
+        id: true,
+        employeeId: true,
+        orgUnitId: true,
+        leadershipType: true,
+        isActing: true,
+        effectiveFrom: true,
+        effectiveUntil: true,
+      },
+    });
 
     if (!assignment) {
-      throw new NotFoundException(
-        'Leadership assignment was not found.',
-      );
+      throw new NotFoundException('Leadership assignment was not found.');
     }
 
     if (
@@ -1458,31 +1376,24 @@ export class OrganizationPeopleService {
       );
     }
 
-    const effectiveAt = this.parseDate(
-      dto.effectiveAt,
-      'End time',
-      new Date(),
-    );
+    const effectiveAt = this.parseDate(dto.effectiveAt, 'End time', new Date());
 
-    if (
-      effectiveAt.getTime() <= assignment.effectiveFrom.getTime()
-    ) {
+    if (effectiveAt.getTime() <= assignment.effectiveFrom.getTime()) {
       throw new BadRequestException(
         'End time must be later than the leadership start time.',
       );
     }
 
-    const updated =
-      await this.prisma.orgLeadershipAssignment.update({
-        where: {
-          id: assignment.id,
-        },
-        data: {
-          effectiveUntil: effectiveAt,
-          endedByAccountId: user.accountId,
-          endReason: this.normalizeReason(dto.reason),
-        },
-      });
+    const updated = await this.prisma.orgLeadershipAssignment.update({
+      where: {
+        id: assignment.id,
+      },
+      data: {
+        effectiveUntil: effectiveAt,
+        endedByAccountId: user.accountId,
+        endReason: this.normalizeReason(dto.reason),
+      },
+    });
 
     if (assignment.leadershipType === OrgLeadershipType.OFFICE_HEAD) {
       await this.conversationsService?.synchronizeAllOfficialGroupsSafely(

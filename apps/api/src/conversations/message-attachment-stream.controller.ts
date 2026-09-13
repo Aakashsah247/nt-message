@@ -65,10 +65,7 @@ export class MessageAttachmentStreamController {
       return new StreamableFile(createReadStream(attachment.absolutePath));
     }
 
-    const range = parseSingleByteRange(
-      rangeHeader,
-      attachment.fileSizeBytes,
-    );
+    const range = parseSingleByteRange(rangeHeader, attachment.fileSizeBytes);
 
     if (!range) {
       response.setHeader(

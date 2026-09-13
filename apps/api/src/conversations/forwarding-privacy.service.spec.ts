@@ -40,7 +40,6 @@ describe('ConversationsService forwarded-message privacy', () => {
     expect(result).not.toHaveProperty('originalTextContent');
   });
 
-
   it('removes private forward provenance from the public message payload', () => {
     const result = presentation.getPublicMessagePayload({
       attachmentCount: 1,

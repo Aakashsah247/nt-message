@@ -90,8 +90,7 @@ export class PasswordRecoveryService {
     private readonly mailService: MailService,
     configService: ConfigService,
   ) {
-    this.otpHashSecret =
-      configService.getOrThrow<string>('OTP_HASH_SECRET');
+    this.otpHashSecret = configService.getOrThrow<string>('OTP_HASH_SECRET');
 
     this.otpTtlMinutes = this.readPositiveInteger(
       configService,
@@ -142,9 +141,7 @@ export class PasswordRecoveryService {
     }
 
     const now = new Date();
-    const expiresAt = new Date(
-      now.getTime() + this.otpTtlMinutes * 60 * 1000,
-    );
+    const expiresAt = new Date(now.getTime() + this.otpTtlMinutes * 60 * 1000);
     const cooldownStart = new Date(
       now.getTime() - this.resendCooldownSeconds * 1000,
     );
@@ -161,62 +158,58 @@ export class PasswordRecoveryService {
     let challengeCreated = false;
 
     try {
-      challengeCreated = await this.prisma.$transaction(
-        async (transaction) => {
-          const recentChallenge =
-            await transaction.passwordResetChallenge.findFirst({
-              where: {
-                accountId: account.id,
-                consumedAt: null,
-                createdAt: {
-                  gte: cooldownStart,
-                },
-              },
-              select: {
-                id: true,
-              },
-            });
-
-          if (recentChallenge) {
-            return false;
-          }
-
-          /*
-           * Resend invalidates both the previous OTP and any reset token
-           * derived from it. The partial unique index blocks concurrent
-           * creation of multiple active challenges.
-           */
-          await transaction.passwordResetChallenge.updateMany({
+      challengeCreated = await this.prisma.$transaction(async (transaction) => {
+        const recentChallenge =
+          await transaction.passwordResetChallenge.findFirst({
             where: {
               accountId: account.id,
               consumedAt: null,
+              createdAt: {
+                gte: cooldownStart,
+              },
             },
-            data: {
-              consumedAt: now,
-            },
-          });
-
-          await transaction.passwordResetChallenge.create({
-            data: {
-              id: challengeId,
-              accountId: account.id,
-              otpHash,
-              maxAttempts: this.maxAttempts,
-              expiresAt,
+            select: {
+              id: true,
             },
           });
 
-          return true;
-        },
-      );
+        if (recentChallenge) {
+          return false;
+        }
+
+        /*
+         * Resend invalidates both the previous OTP and any reset token
+         * derived from it. The partial unique index blocks concurrent
+         * creation of multiple active challenges.
+         */
+        await transaction.passwordResetChallenge.updateMany({
+          where: {
+            accountId: account.id,
+            consumedAt: null,
+          },
+          data: {
+            consumedAt: now,
+          },
+        });
+
+        await transaction.passwordResetChallenge.create({
+          data: {
+            id: challengeId,
+            accountId: account.id,
+            otpHash,
+            maxAttempts: this.maxAttempts,
+            expiresAt,
+          },
+        });
+
+        return true;
+      });
     } catch {
       /*
        * Public recovery requests deliberately return a generic response.
        * Database/provider details stay in server operations, not the UI.
        */
-      this.logger.warn(
-        'Password recovery request could not be prepared.',
-      );
+      this.logger.warn('Password recovery request could not be prepared.');
 
       return genericResponse;
     }
@@ -277,129 +270,125 @@ export class PasswordRecoveryService {
       now.getTime() + this.otpTtlMinutes * 60 * 1000,
     );
 
-    const verified = await this.prisma.$transaction(
-      async (transaction) => {
-        const challenge =
-          await transaction.passwordResetChallenge.findFirst({
-            where: {
-              accountId: account.id,
-              consumedAt: null,
-              verifiedAt: null,
-            },
-            orderBy: {
-              createdAt: 'desc',
-            },
-          });
+    const verified = await this.prisma.$transaction(async (transaction) => {
+      const challenge = await transaction.passwordResetChallenge.findFirst({
+        where: {
+          accountId: account.id,
+          consumedAt: null,
+          verifiedAt: null,
+        },
+        orderBy: {
+          createdAt: 'desc',
+        },
+      });
 
-        if (!challenge) {
-          return false;
-        }
+      if (!challenge) {
+        return false;
+      }
 
-        if (
-          challenge.expiresAt <= now ||
-          challenge.attemptCount >= challenge.maxAttempts
-        ) {
+      if (
+        challenge.expiresAt <= now ||
+        challenge.attemptCount >= challenge.maxAttempts
+      ) {
+        await transaction.passwordResetChallenge.updateMany({
+          where: {
+            id: challenge.id,
+            consumedAt: null,
+          },
+          data: {
+            consumedAt: now,
+          },
+        });
+
+        return false;
+      }
+
+      const incomingHash = hashPasswordResetOtp(
+        challenge.id,
+        account.id,
+        otp,
+        this.otpHashSecret,
+      );
+
+      if (!secureHexHashesMatch(challenge.otpHash, incomingHash)) {
+        /*
+         * Increment inside PostgreSQL rather than calculating from the
+         * previously read value. Parallel wrong attempts are serialized
+         * by the row update and cannot bypass the maximum-attempt limit.
+         */
+        const attemptUpdate =
           await transaction.passwordResetChallenge.updateMany({
             where: {
               id: challenge.id,
+              attemptCount: {
+                lt: challenge.maxAttempts,
+              },
               consumedAt: null,
+              verifiedAt: null,
             },
             data: {
-              consumedAt: now,
+              attemptCount: {
+                increment: 1,
+              },
             },
           });
 
-          return false;
-        }
+        if (attemptUpdate.count === 1) {
+          const updatedChallenge =
+            await transaction.passwordResetChallenge.findUnique({
+              where: {
+                id: challenge.id,
+              },
+              select: {
+                attemptCount: true,
+                maxAttempts: true,
+              },
+            });
 
-        const incomingHash = hashPasswordResetOtp(
-          challenge.id,
-          account.id,
-          otp,
-          this.otpHashSecret,
-        );
-
-        if (!secureHexHashesMatch(challenge.otpHash, incomingHash)) {
-          /*
-           * Increment inside PostgreSQL rather than calculating from the
-           * previously read value. Parallel wrong attempts are serialized
-           * by the row update and cannot bypass the maximum-attempt limit.
-           */
-          const attemptUpdate =
+          if (
+            updatedChallenge &&
+            updatedChallenge.attemptCount >= updatedChallenge.maxAttempts
+          ) {
             await transaction.passwordResetChallenge.updateMany({
               where: {
                 id: challenge.id,
-                attemptCount: {
-                  lt: challenge.maxAttempts,
-                },
                 consumedAt: null,
                 verifiedAt: null,
               },
               data: {
-                attemptCount: {
-                  increment: 1,
-                },
+                consumedAt: now,
               },
             });
-
-          if (attemptUpdate.count === 1) {
-            const updatedChallenge =
-              await transaction.passwordResetChallenge.findUnique({
-                where: {
-                  id: challenge.id,
-                },
-                select: {
-                  attemptCount: true,
-                  maxAttempts: true,
-                },
-              });
-
-            if (
-              updatedChallenge &&
-              updatedChallenge.attemptCount >=
-                updatedChallenge.maxAttempts
-            ) {
-              await transaction.passwordResetChallenge.updateMany({
-                where: {
-                  id: challenge.id,
-                  consumedAt: null,
-                  verifiedAt: null,
-                },
-                data: {
-                  consumedAt: now,
-                },
-              });
-            }
           }
-
-          return false;
         }
 
-        /*
-         * OTP becomes single-use at verification. Only a hash of the new
-         * opaque reset token is persisted; the raw token is returned once.
-         */
-        const claim = await transaction.passwordResetChallenge.updateMany({
-          where: {
-            id: challenge.id,
-            otpHash: challenge.otpHash,
-            attemptCount: challenge.attemptCount,
-            consumedAt: null,
-            verifiedAt: null,
-            expiresAt: {
-              gt: now,
-            },
-          },
-          data: {
-            verifiedAt: now,
-            resetTokenHash,
-            resetTokenExpiresAt,
-          },
-        });
+        return false;
+      }
 
-        return claim.count === 1;
-      },
-    );
+      /*
+       * OTP becomes single-use at verification. Only a hash of the new
+       * opaque reset token is persisted; the raw token is returned once.
+       */
+      const claim = await transaction.passwordResetChallenge.updateMany({
+        where: {
+          id: challenge.id,
+          otpHash: challenge.otpHash,
+          attemptCount: challenge.attemptCount,
+          consumedAt: null,
+          verifiedAt: null,
+          expiresAt: {
+            gt: now,
+          },
+        },
+        data: {
+          verifiedAt: now,
+          resetTokenHash,
+          resetTokenExpiresAt,
+        },
+      });
+
+      return claim.count === 1;
+    });
 
     if (!verified) {
       throw new BadRequestException(GENERIC_INVALID_CODE_MESSAGE);
@@ -416,28 +405,25 @@ export class PasswordRecoveryService {
     dto: CompletePasswordResetDto,
   ): Promise<PasswordResetCompletionResult> {
     if (dto.newPassword !== dto.confirmPassword) {
-      throw new BadRequestException(
-        'Password confirmation does not match.',
-      );
+      throw new BadRequestException('Password confirmation does not match.');
     }
 
     const resetTokenHash = hashPasswordResetToken(dto.resetToken);
     const now = new Date();
 
-    const challenge =
-      await this.prisma.passwordResetChallenge.findUnique({
-        where: {
-          resetTokenHash,
-        },
-        include: {
-          account: {
-            include: {
-              employee: true,
-              superAdminProfile: true,
-            },
+    const challenge = await this.prisma.passwordResetChallenge.findUnique({
+      where: {
+        resetTokenHash,
+      },
+      include: {
+        account: {
+          include: {
+            employee: true,
+            superAdminProfile: true,
           },
         },
-      });
+      },
+    });
 
     if (
       !challenge ||
@@ -469,104 +455,100 @@ export class PasswordRecoveryService {
       type: argon2.argon2id,
     });
 
-    const completion = await this.prisma.$transaction(
-      async (transaction) => {
-        const challengeClaim =
-          await transaction.passwordResetChallenge.updateMany({
-            where: {
-              id: challenge.id,
-              resetTokenHash,
-              verifiedAt: {
-                not: null,
-              },
-              consumedAt: null,
-              resetTokenExpiresAt: {
-                gt: now,
-              },
-            },
-            data: {
-              consumedAt: now,
-            },
-          });
-
-        if (challengeClaim.count !== 1) {
-          throw new ConflictException(
-            GENERIC_INVALID_TOKEN_MESSAGE,
-          );
-        }
-
-        /*
-         * Previous hash is part of the condition. Concurrent password
-         * changes cannot silently overwrite each other.
-         */
-        const passwordUpdate = await transaction.account.updateMany({
-          where: {
-            id: challenge.account.id,
-            passwordHash: challenge.account.passwordHash,
-            isEnabled: true,
-          },
-          data: {
-            passwordHash: replacementHash,
-            passwordChangedAt: now,
-            failedLoginAttempts: 0,
-            lockedUntil: null,
-          },
-        });
-
-        if (passwordUpdate.count !== 1) {
-          throw new ConflictException(
-            'The account changed during recovery. Request a new code.',
-          );
-        }
-
-        const sessionUpdate = await transaction.authSession.updateMany({
-          where: {
-            accountId: challenge.account.id,
-            revokedAt: null,
-          },
-          data: {
-            revokedAt: now,
-          },
-        });
-
-        /*
-         * Consume every outstanding challenge so an older OTP or reset
-         * token cannot be used after the password has changed.
-         */
+    const completion = await this.prisma.$transaction(async (transaction) => {
+      const challengeClaim =
         await transaction.passwordResetChallenge.updateMany({
           where: {
-            accountId: challenge.account.id,
+            id: challenge.id,
+            resetTokenHash,
+            verifiedAt: {
+              not: null,
+            },
             consumedAt: null,
+            resetTokenExpiresAt: {
+              gt: now,
+            },
           },
           data: {
             consumedAt: now,
           },
         });
 
-        /*
-         * Audit contains only the recovery method and session count.
-         * Email, OTP, token, password and hash values are excluded.
-         */
-        await transaction.activityEvent.create({
-          data: {
-            accountId: challenge.account.id,
-            sessionId: null,
-            eventType: ActivityEventType.PASSWORD_RESET_COMPLETED,
-            pagePath: 'Password recovery',
-            elementLabel: 'Password reset completed',
-            metadata: {
-              recoveryMethod: 'EMAIL_OTP',
-              revokedSessions: sessionUpdate.count,
-            },
-            occurredAt: now,
-          },
-        });
+      if (challengeClaim.count !== 1) {
+        throw new ConflictException(GENERIC_INVALID_TOKEN_MESSAGE);
+      }
 
-        return {
-          revokedSessions: sessionUpdate.count,
-        };
-      },
-    );
+      /*
+       * Previous hash is part of the condition. Concurrent password
+       * changes cannot silently overwrite each other.
+       */
+      const passwordUpdate = await transaction.account.updateMany({
+        where: {
+          id: challenge.account.id,
+          passwordHash: challenge.account.passwordHash,
+          isEnabled: true,
+        },
+        data: {
+          passwordHash: replacementHash,
+          passwordChangedAt: now,
+          failedLoginAttempts: 0,
+          lockedUntil: null,
+        },
+      });
+
+      if (passwordUpdate.count !== 1) {
+        throw new ConflictException(
+          'The account changed during recovery. Request a new code.',
+        );
+      }
+
+      const sessionUpdate = await transaction.authSession.updateMany({
+        where: {
+          accountId: challenge.account.id,
+          revokedAt: null,
+        },
+        data: {
+          revokedAt: now,
+        },
+      });
+
+      /*
+       * Consume every outstanding challenge so an older OTP or reset
+       * token cannot be used after the password has changed.
+       */
+      await transaction.passwordResetChallenge.updateMany({
+        where: {
+          accountId: challenge.account.id,
+          consumedAt: null,
+        },
+        data: {
+          consumedAt: now,
+        },
+      });
+
+      /*
+       * Audit contains only the recovery method and session count.
+       * Email, OTP, token, password and hash values are excluded.
+       */
+      await transaction.activityEvent.create({
+        data: {
+          accountId: challenge.account.id,
+          sessionId: null,
+          eventType: ActivityEventType.PASSWORD_RESET_COMPLETED,
+          pagePath: 'Password recovery',
+          elementLabel: 'Password reset completed',
+          metadata: {
+            recoveryMethod: 'EMAIL_OTP',
+            revokedSessions: sessionUpdate.count,
+          },
+          occurredAt: now,
+        },
+      });
+
+      return {
+        revokedSessions: sessionUpdate.count,
+      };
+    });
 
     try {
       /*
@@ -652,9 +634,7 @@ export class PasswordRecoveryService {
       },
     });
 
-    return account && this.isEligibleAccount(account)
-      ? account
-      : null;
+    return account && this.isEligibleAccount(account) ? account : null;
   }
 
   private isEligibleAccount(account: RecoveryAccount): boolean {
@@ -663,17 +643,15 @@ export class PasswordRecoveryService {
     }
 
     if (account.accountClass === AccountClass.SUPER_ADMIN) {
-      return Boolean(
-        account.superAdminProfile?.email ?? account.username,
-      );
+      return Boolean(account.superAdminProfile?.email ?? account.username);
     }
 
     return Boolean(
       account.employee &&
-        account.employee.status === EmployeeStatus.ACTIVE &&
-        account.employee.employmentStatus === EmploymentStatus.ACTIVE &&
-        account.employee.isActivated &&
-        account.employee.archivedAt === null,
+      account.employee.status === EmployeeStatus.ACTIVE &&
+      account.employee.employmentStatus === EmploymentStatus.ACTIVE &&
+      account.employee.isActivated &&
+      account.employee.archivedAt === null,
     );
   }
 

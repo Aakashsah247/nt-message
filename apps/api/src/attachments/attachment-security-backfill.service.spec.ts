@@ -1,4 +1,7 @@
-import { BadRequestException, ServiceUnavailableException } from '@nestjs/common';
+import {
+  BadRequestException,
+  ServiceUnavailableException,
+} from '@nestjs/common';
 
 import { AttachmentSecurityBackfillService } from './attachment-security-backfill.service';
 
@@ -6,7 +9,9 @@ describe('AttachmentSecurityBackfillService', () => {
   function createFixture() {
     const prisma = {
       messageAttachment: {
-        findMany: jest.fn().mockResolvedValue([{ storageKey: 'shared-object' }]),
+        findMany: jest
+          .fn()
+          .mockResolvedValue([{ storageKey: 'shared-object' }]),
         updateMany: jest.fn().mockResolvedValue({ count: 2 }),
       },
       announcementAttachment: {
@@ -41,7 +46,9 @@ describe('AttachmentSecurityBackfillService', () => {
 
     await service.processBackfillBatch();
 
-    expect(security.scanStoredFile).toHaveBeenCalledWith('/private/shared-object');
+    expect(security.scanStoredFile).toHaveBeenCalledWith(
+      '/private/shared-object',
+    );
     expect(prisma.messageAttachment.updateMany).toHaveBeenCalledWith({
       where: { storageKey: 'shared-object' },
       data: { scanStatus: 'CLEAN' },
@@ -56,7 +63,10 @@ describe('AttachmentSecurityBackfillService', () => {
 
     await service.processBackfillBatch();
 
-    expect(storage.deleteFile).toHaveBeenCalledWith('messages', 'shared-object');
+    expect(storage.deleteFile).toHaveBeenCalledWith(
+      'messages',
+      'shared-object',
+    );
     expect(prisma.messageAttachment.updateMany).toHaveBeenCalledWith(
       expect.objectContaining({
         where: { storageKey: 'shared-object' },

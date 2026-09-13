@@ -24,10 +24,7 @@ describe('ConversationsService starred-message pagination', () => {
   };
   const conversation = { id: conversationId };
 
-  function star(
-    messageId: string,
-    starredAt: string,
-  ) {
+  function star(messageId: string, starredAt: string) {
     return {
       messageId,
       starredAt: new Date(starredAt),
@@ -135,7 +132,8 @@ describe('ConversationsService starred-message pagination', () => {
       cursor: firstPage.pagination.nextCursor ?? undefined,
     });
 
-    const secondQuery = jest.mocked(prisma.messageStar.findMany).mock.calls[1]?.[0];
+    const secondQuery = jest.mocked(prisma.messageStar.findMany).mock
+      .calls[1]?.[0];
     expect(secondQuery).toEqual(
       expect.objectContaining({
         where: expect.objectContaining({

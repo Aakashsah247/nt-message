@@ -1,4 +1,9 @@
-import { Injectable, Logger, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
+import {
+  Injectable,
+  Logger,
+  OnModuleDestroy,
+  OnModuleInit,
+} from '@nestjs/common';
 
 import type { AuthenticatedUser } from '../auth/types/auth.types';
 import { PrismaService } from '../database/prisma.service';
@@ -148,9 +153,12 @@ export class MonitoringService implements OnModuleInit, OnModuleDestroy {
   onModuleInit(): void {
     void this.cleanupOldMonitoringRecords();
 
-    this.cleanupTimer = setInterval(() => {
-      void this.cleanupOldMonitoringRecords();
-    }, 60 * 60 * 1000);
+    this.cleanupTimer = setInterval(
+      () => {
+        void this.cleanupOldMonitoringRecords();
+      },
+      60 * 60 * 1000,
+    );
   }
 
   onModuleDestroy(): void {
@@ -167,7 +175,11 @@ export class MonitoringService implements OnModuleInit, OnModuleDestroy {
     const activityDate = this.getKathmanduDateOnly(occurredAt);
     const counters = this.getSummaryCounters(dto.eventType, occurredAt);
     const safePage = this.toSafePageName(dto.pagePath);
-    const safeLabel = this.toSafeElementLabel(dto.eventType, safePage, dto.elementLabel);
+    const safeLabel = this.toSafeElementLabel(
+      dto.eventType,
+      safePage,
+      dto.elementLabel,
+    );
 
     // Monitoring records only safe metadata, never message content or private recipients.
     await this.prisma.$transaction(async (transaction) => {
@@ -282,8 +294,7 @@ export class MonitoringService implements OnModuleInit, OnModuleDestroy {
         activeMinutes: current.activeMinutes + row.totalActiveMinutesToday,
         idleMinutes: current.idleMinutes + row.idleMinutesToday,
         actions: current.actions + row.actionsCount,
-        emergencyAlerts:
-          current.emergencyAlerts + row.emergencyAlertsSent,
+        emergencyAlerts: current.emergencyAlerts + row.emergencyAlertsSent,
       }),
       {
         active: 0,
@@ -476,7 +487,9 @@ export class MonitoringService implements OnModuleInit, OnModuleDestroy {
       occurredAt: record.occurredAt.toISOString(),
       accountId: record.account.id,
       employeeName:
-        record.account.employee?.empName ?? record.account.username ?? 'Unknown account',
+        record.account.employee?.empName ??
+        record.account.username ??
+        'Unknown account',
       role: record.account.accountClass,
       designation: record.account.employee?.designation ?? null,
       department:
@@ -486,7 +499,11 @@ export class MonitoringService implements OnModuleInit, OnModuleDestroy {
       pageName,
       eventType: record.eventType,
       actionLabel: this.toEventActionLabel(record.eventType),
-      details: this.toSafeActivityDetails(record.eventType, pageName, record.elementLabel),
+      details: this.toSafeActivityDetails(
+        record.eventType,
+        pageName,
+        record.elementLabel,
+      ),
       status: 'SUCCESS',
       sessionLabel: this.toSessionLabel(record.sessionId),
       isOfficeHours: this.isOfficeHoursKathmandu(record.occurredAt),
@@ -566,7 +583,8 @@ export class MonitoringService implements OnModuleInit, OnModuleDestroy {
     occurredAt: Date,
   ): SummaryCounters {
     const afterHoursLoginCount =
-      eventType === ActivityEventType.LOGIN && this.isAfterSixPmKathmandu(occurredAt)
+      eventType === ActivityEventType.LOGIN &&
+      this.isAfterSixPmKathmandu(occurredAt)
         ? 1
         : 0;
 
@@ -605,7 +623,8 @@ export class MonitoringService implements OnModuleInit, OnModuleDestroy {
       case ActivityEventType.ACTIVE_RESUMED:
         return {
           lastActiveAt: occurredAt,
-          activeMinutes: eventType === ActivityEventType.ACTIVE_HEARTBEAT ? 1 : 0,
+          activeMinutes:
+            eventType === ActivityEventType.ACTIVE_HEARTBEAT ? 1 : 0,
         };
       case ActivityEventType.IDLE_STARTED:
       case ActivityEventType.IDLE_HEARTBEAT:
@@ -637,11 +656,17 @@ export class MonitoringService implements OnModuleInit, OnModuleDestroy {
     elementLabel: string | null,
   ): string {
     if (pageName === 'Messages') {
-      if (elementLabel === 'Send message' || elementLabel === 'Retry message upload') {
+      if (
+        elementLabel === 'Send message' ||
+        elementLabel === 'Retry message upload'
+      ) {
         return 'Private message activity recorded. Content, recipients and conversation hidden.';
       }
 
-      if (elementLabel?.toLowerCase().includes('file') || elementLabel?.toLowerCase().includes('upload')) {
+      if (
+        elementLabel?.toLowerCase().includes('file') ||
+        elementLabel?.toLowerCase().includes('upload')
+      ) {
         return 'Private file activity recorded. File name, content and recipients hidden.';
       }
 
@@ -697,11 +722,17 @@ export class MonitoringService implements OnModuleInit, OnModuleDestroy {
       return 'User logged out.';
     }
 
-    if (eventType === ActivityEventType.IDLE_STARTED || eventType === ActivityEventType.IDLE_HEARTBEAT) {
+    if (
+      eventType === ActivityEventType.IDLE_STARTED ||
+      eventType === ActivityEventType.IDLE_HEARTBEAT
+    ) {
       return 'User was idle during the monitoring interval.';
     }
 
-    if (eventType === ActivityEventType.ACTIVE_RESUMED || eventType === ActivityEventType.ACTIVE_HEARTBEAT) {
+    if (
+      eventType === ActivityEventType.ACTIVE_RESUMED ||
+      eventType === ActivityEventType.ACTIVE_HEARTBEAT
+    ) {
       return 'User activity heartbeat recorded.';
     }
 
@@ -734,7 +765,10 @@ export class MonitoringService implements OnModuleInit, OnModuleDestroy {
       return 'Directory';
     }
 
-    if (rawValue === 'Management Positions' || rawValue.startsWith('/management-positions')) {
+    if (
+      rawValue === 'Management Positions' ||
+      rawValue.startsWith('/management-positions')
+    ) {
       return 'Management Positions';
     }
 
@@ -769,7 +803,10 @@ export class MonitoringService implements OnModuleInit, OnModuleDestroy {
         return 'Send message';
       }
 
-      if (cleaned?.toLowerCase().includes('upload') || cleaned?.toLowerCase().includes('attach')) {
+      if (
+        cleaned?.toLowerCase().includes('upload') ||
+        cleaned?.toLowerCase().includes('attach')
+      ) {
         return 'Attachment action';
       }
 
@@ -788,7 +825,9 @@ export class MonitoringService implements OnModuleInit, OnModuleDestroy {
   }
 
   private toSessionLabel(sessionId: string | null): string {
-    return sessionId ? `S-${sessionId.slice(0, 8).toUpperCase()}` : 'No session';
+    return sessionId
+      ? `S-${sessionId.slice(0, 8).toUpperCase()}`
+      : 'No session';
   }
 
   private getKathmanduOfficeRange(query: SuperAdminActivityLogQueryDto) {
@@ -835,7 +874,8 @@ export class MonitoringService implements OnModuleInit, OnModuleDestroy {
     const kathmanduDate = new Date(
       value.getTime() + KATHMANDU_OFFSET_MINUTES * 60 * 1000,
     );
-    const totalMinutes = kathmanduDate.getUTCHours() * 60 + kathmanduDate.getUTCMinutes();
+    const totalMinutes =
+      kathmanduDate.getUTCHours() * 60 + kathmanduDate.getUTCMinutes();
 
     return totalMinutes >= 9 * 60 && totalMinutes <= 18 * 60;
   }
@@ -914,7 +954,10 @@ export class MonitoringService implements OnModuleInit, OnModuleDestroy {
     return kathmanduDate.getUTCHours() >= 18;
   }
 
-  private cleanText(value: string | undefined | null, maxLength: number): string | null {
+  private cleanText(
+    value: string | undefined | null,
+    maxLength: number,
+  ): string | null {
     const cleaned = value?.trim().replace(/\s+/g, ' ') ?? '';
 
     return cleaned ? cleaned.slice(0, maxLength) : null;

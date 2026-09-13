@@ -51,16 +51,24 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
-function configRecord(config: Prisma.JsonValue | null): Record<string, unknown> {
+function configRecord(
+  config: Prisma.JsonValue | null,
+): Record<string, unknown> {
   return isRecord(config) ? config : {};
 }
 
-function optionalNumber(config: Record<string, unknown>, key: string): number | null {
+function optionalNumber(
+  config: Record<string, unknown>,
+  key: string,
+): number | null {
   const value = config[key];
   return typeof value === 'number' && Number.isFinite(value) ? value : null;
 }
 
-function optionalInteger(config: Record<string, unknown>, key: string): number | null {
+function optionalInteger(
+  config: Record<string, unknown>,
+  key: string,
+): number | null {
   const value = optionalNumber(config, key);
   return value !== null && Number.isInteger(value) ? value : null;
 }
@@ -154,7 +162,9 @@ function normalizeSingleValue(
         Number.isNaN(parsed.getTime()) ||
         parsed.toISOString().slice(0, 10) !== rawValue
       ) {
-        throw new BadRequestException(`Field ${code} contains an invalid date.`);
+        throw new BadRequestException(
+          `Field ${code} contains an invalid date.`,
+        );
       }
       return rawValue;
     }
@@ -170,7 +180,9 @@ function normalizeSingleValue(
       }
       const parsed = new Date(rawValue);
       if (Number.isNaN(parsed.getTime())) {
-        throw new BadRequestException(`Field ${code} contains an invalid date and time.`);
+        throw new BadRequestException(
+          `Field ${code} contains an invalid date and time.`,
+        );
       }
       return parsed.toISOString();
     }
@@ -183,32 +195,44 @@ function normalizeSingleValue(
 
     case WorkFieldType.SELECT: {
       if (typeof rawValue !== 'string') {
-        throw new BadRequestException(`Field ${code} must use one configured option.`);
+        throw new BadRequestException(
+          `Field ${code} must use one configured option.`,
+        );
       }
       const value = rawValue.trim();
       const options = configuredOptions(config);
       if (!options.includes(value)) {
-        throw new BadRequestException(`Field ${code} contains an unsupported option.`);
+        throw new BadRequestException(
+          `Field ${code} contains an unsupported option.`,
+        );
       }
       return value;
     }
 
     case WorkFieldType.MULTI_SELECT: {
       if (!Array.isArray(rawValue)) {
-        throw new BadRequestException(`Field ${code} must be a list of configured options.`);
+        throw new BadRequestException(
+          `Field ${code} must be a list of configured options.`,
+        );
       }
       const values = rawValue.map((item) => {
         if (typeof item !== 'string' || item.trim().length === 0) {
-          throw new BadRequestException(`Field ${code} contains an invalid option.`);
+          throw new BadRequestException(
+            `Field ${code} contains an invalid option.`,
+          );
         }
         return item.trim();
       });
       if (new Set(values).size !== values.length) {
-        throw new BadRequestException(`Field ${code} must not contain duplicate options.`);
+        throw new BadRequestException(
+          `Field ${code} must not contain duplicate options.`,
+        );
       }
       const options = configuredOptions(config);
       if (values.some((value) => !options.includes(value))) {
-        throw new BadRequestException(`Field ${code} contains an unsupported option.`);
+        throw new BadRequestException(
+          `Field ${code} contains an unsupported option.`,
+        );
       }
       const minSelections = optionalInteger(config, 'minSelections');
       const maxSelections = optionalInteger(config, 'maxSelections');
@@ -228,7 +252,9 @@ function normalizeSingleValue(
     case WorkFieldType.USER:
     case WorkFieldType.ORG_UNIT:
       if (typeof rawValue !== 'string' || !UUID_V4.test(rawValue)) {
-        throw new BadRequestException(`Field ${code} must contain a valid UUID.`);
+        throw new BadRequestException(
+          `Field ${code} must contain a valid UUID.`,
+        );
       }
       return rawValue.toLowerCase();
 
@@ -259,7 +285,9 @@ function validateRuntimeFieldsForStage(
 
   for (const input of inputs) {
     if (inputByCode.has(input.code)) {
-      throw new BadRequestException(`Field ${input.code} was supplied more than once.`);
+      throw new BadRequestException(
+        `Field ${input.code} was supplied more than once.`,
+      );
     }
 
     const definition = allByCode.get(input.code);

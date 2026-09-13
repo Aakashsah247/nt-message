@@ -140,21 +140,27 @@ describe('ConversationsService group deletion governance', () => {
       )
       .mockResolvedValue(true);
 
-    jest.mocked(prisma.messageAttachment.findMany).mockResolvedValue([
-      { storageKey: 'message/file-a' },
-      { storageKey: 'message/file-b' },
-    ] as never);
+    jest
+      .mocked(prisma.messageAttachment.findMany)
+      .mockResolvedValue([
+        { storageKey: 'message/file-a' },
+        { storageKey: 'message/file-b' },
+      ] as never);
     transaction.announcement.count.mockResolvedValue(0);
-    jest.mocked(prisma.$transaction).mockImplementation(async (callback) =>
-      (callback as (tx: typeof transaction) => Promise<unknown>)(transaction),
-    );
+    jest
+      .mocked(prisma.$transaction)
+      .mockImplementation(async (callback) =>
+        (callback as (tx: typeof transaction) => Promise<unknown>)(transaction),
+      );
     jest
       .mocked(conversationStorageService.findUnreferencedStorageKeys)
       .mockResolvedValue(['message/file-a']);
     jest
       .spyOn(
         service as unknown as {
-          deleteGroupPhotoIfExists: (storageKey: string | null) => Promise<void>;
+          deleteGroupPhotoIfExists: (
+            storageKey: string | null,
+          ) => Promise<void>;
         },
         'deleteGroupPhotoIfExists',
       )

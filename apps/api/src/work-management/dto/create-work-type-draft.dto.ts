@@ -11,9 +11,7 @@ function normalizeOptionalText(value: unknown): unknown {
 }
 
 export class CreateWorkTypeDraftDto {
-  @Transform(({ value }: { value: unknown }) =>
-    normalizeOptionalText(value),
-  )
+  @Transform(({ value }: { value: unknown }) => normalizeOptionalText(value))
   @IsOptional()
   @IsString()
   @MaxLength(500)

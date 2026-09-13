@@ -13,15 +13,15 @@ export class MockSmsProvider implements SmsProvider {
 
   private readonly logger = new Logger(MockSmsProvider.name);
 
-  async send(input: SmsProviderSendInput): Promise<SmsProviderSendResult> {
+  send(input: SmsProviderSendInput): Promise<SmsProviderSendResult> {
     // Mock provider keeps local development safe while preserving real SMS flow.
     this.logger.log(`Mock SMS sent to ${this.maskPhone(input.to)}`);
 
-    return {
+    return Promise.resolve({
       status: 'SENT',
       providerMessageId: `mock-${randomUUID()}`,
       error: null,
-    };
+    });
   }
 
   private maskPhone(phoneNumber: string): string {

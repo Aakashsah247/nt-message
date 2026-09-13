@@ -73,7 +73,6 @@ import {
   MAX_MESSAGE_ATTACHMENT_TOTAL_BYTES,
 } from './message-attachment-upload.constants';
 
-
 @Controller('conversations')
 @UseGuards(AccessTokenGuard)
 export class ConversationsController {
@@ -1296,7 +1295,9 @@ export class ConversationsController {
     );
   }
 
-  @Post(':conversationId/messages/:messageId/attachments/:attachmentId/stream-access')
+  @Post(
+    ':conversationId/messages/:messageId/attachments/:attachmentId/stream-access',
+  )
   async createMessageAttachmentStreamAccess(
     @CurrentUser()
     user: AuthenticatedUser,

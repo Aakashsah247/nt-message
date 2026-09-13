@@ -18,7 +18,8 @@ describe('activation identity DTO validation', () => {
   });
 
   it('does not expose legacy Division or Department fields', () => {
-    const dto = buildRequestDto() as RequestActivationOtpDto & Record<string, unknown>;
+    const dto = buildRequestDto() as RequestActivationOtpDto &
+      Record<string, unknown>;
 
     expect('divisionId' in dto).toBe(false);
     expect('departmentId' in dto).toBe(false);

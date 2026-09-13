@@ -101,11 +101,7 @@ export function createBoundedAttachmentTempStorage(
         const nextTotal = currentTotal + chunk.length;
 
         if (nextTotal > maxTotalBytes) {
-          cleanupAndFail(
-            new PayloadTooLargeException(
-              aggregateLimitMessage,
-            ),
-          );
+          cleanupAndFail(new PayloadTooLargeException(aggregateLimitMessage));
           return;
         }
 

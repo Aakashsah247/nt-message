@@ -133,9 +133,8 @@ describe('AccountRequestsService V3 review/provision flow', () => {
         }),
       },
       $transaction: jest.fn(
-        async (
-          callback: (value: typeof transaction) => Promise<unknown>,
-        ) => callback(transaction),
+        async (callback: (value: typeof transaction) => Promise<unknown>) =>
+          callback(transaction),
       ),
     };
 
@@ -231,8 +230,7 @@ describe('AccountRequestsService V3 review/provision flow', () => {
         updateMany: jest.fn().mockResolvedValue({ count: 1 }),
         findUniqueOrThrow: jest.fn().mockResolvedValue({
           id: 'request-2',
-          lifecycleState:
-            AccountRequestLifecycleState.RETURNED_FOR_CORRECTION,
+          lifecycleState: AccountRequestLifecycleState.RETURNED_FOR_CORRECTION,
           status: AccountRequestStatus.REJECTED,
           rejectionReason: 'Correct the organization placement',
           reviewedAt: new Date(),
@@ -246,9 +244,8 @@ describe('AccountRequestsService V3 review/provision flow', () => {
 
     const prisma = {
       $transaction: jest.fn(
-        async (
-          callback: (value: typeof transaction) => Promise<unknown>,
-        ) => callback(transaction),
+        async (callback: (value: typeof transaction) => Promise<unknown>) =>
+          callback(transaction),
       ),
     };
     const lifecycle = lifecycleMock();
@@ -273,8 +270,7 @@ describe('AccountRequestsService V3 review/provision flow', () => {
     expect(transaction.accountRequest.updateMany).toHaveBeenCalledWith(
       expect.objectContaining({
         data: expect.objectContaining({
-          lifecycleState:
-            AccountRequestLifecycleState.RETURNED_FOR_CORRECTION,
+          lifecycleState: AccountRequestLifecycleState.RETURNED_FOR_CORRECTION,
           status: AccountRequestStatus.REJECTED,
         }),
       }),
@@ -303,9 +299,8 @@ describe('AccountRequestsService V3 review/provision flow', () => {
 
     const prisma = {
       $transaction: jest.fn(
-        async (
-          callback: (value: typeof transaction) => Promise<unknown>,
-        ) => callback(transaction),
+        async (callback: (value: typeof transaction) => Promise<unknown>) =>
+          callback(transaction),
       ),
     };
     const lifecycle = lifecycleMock();

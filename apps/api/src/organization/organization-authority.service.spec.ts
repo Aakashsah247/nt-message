@@ -51,15 +51,10 @@ describe('OrganizationAuthorityService', () => {
 
   it('does not grant formal organization mutation from legacy Team Lead rows', async () => {
     const leadershipFindFirst = jest.fn(
-      async (input: {
-        where?: Record<string, unknown>;
-      }) => {
+      async (input: { where?: Record<string, unknown> }) => {
         const where = input.where ?? {};
 
-        if (
-          where.leadershipType ===
-          OrgLeadershipType.OFFICE_HEAD
-        ) {
+        if (where.leadershipType === OrgLeadershipType.OFFICE_HEAD) {
           return null;
         }
 
@@ -79,33 +74,20 @@ describe('OrganizationAuthorityService', () => {
     const service = new OrganizationAuthorityService(prisma);
 
     await expect(
-      service.assertCanManageOrgUnit(
-        employeeUser,
-        'office-1',
-        'team-1',
-      ),
+      service.assertCanManageOrgUnit(employeeUser, 'office-1', 'team-1'),
     ).rejects.toBeInstanceOf(ForbiddenException);
 
     await expect(
-      service.assertCanManageOrgUnit(
-        employeeUser,
-        'office-1',
-        'team-child',
-      ),
+      service.assertCanManageOrgUnit(employeeUser, 'office-1', 'team-child'),
     ).rejects.toBeInstanceOf(ForbiddenException);
   });
 
   it('allows Org Unit Head authority through the descendant closure', async () => {
     const leadershipFindFirst = jest.fn(
-      async (input: {
-        where?: Record<string, unknown>;
-      }) => {
+      async (input: { where?: Record<string, unknown> }) => {
         const where = input.where ?? {};
 
-        if (
-          where.leadershipType ===
-          OrgLeadershipType.OFFICE_HEAD
-        ) {
+        if (where.leadershipType === OrgLeadershipType.OFFICE_HEAD) {
           return null;
         }
 
@@ -115,9 +97,7 @@ describe('OrganizationAuthorityService', () => {
           serialized.includes(
             `"leadershipType":"${OrgLeadershipType.ORG_UNIT_HEAD}"`,
           ) &&
-          serialized.includes(
-            '"descendantOrgUnitId":"child-unit"',
-          )
+          serialized.includes('"descendantOrgUnitId":"child-unit"')
         ) {
           return { id: 'unit-head-assignment' };
         }
@@ -138,11 +118,7 @@ describe('OrganizationAuthorityService', () => {
     const service = new OrganizationAuthorityService(prisma);
 
     await expect(
-      service.assertCanManageOrgUnit(
-        employeeUser,
-        'office-1',
-        'child-unit',
-      ),
+      service.assertCanManageOrgUnit(employeeUser, 'office-1', 'child-unit'),
     ).resolves.toBeUndefined();
   });
 });

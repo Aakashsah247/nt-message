@@ -334,9 +334,9 @@ export class EmergencyAlertsService {
 
     return Boolean(
       account.employee &&
-        account.employee.status === EmployeeStatus.ACTIVE &&
-        account.employee.employmentStatus === EmploymentStatus.ACTIVE &&
-        !account.employee.archivedAt,
+      account.employee.status === EmployeeStatus.ACTIVE &&
+      account.employee.employmentStatus === EmploymentStatus.ACTIVE &&
+      !account.employee.archivedAt,
     );
   }
 
@@ -533,7 +533,9 @@ export class EmergencyAlertsService {
       id: notification.id,
       recipientAccountId: notification.recipientAccountId,
       actorAccountId: notification.actorAccountId,
-      actor: notification.actor ? this.toPublicAccount(notification.actor) : null,
+      actor: notification.actor
+        ? this.toPublicAccount(notification.actor)
+        : null,
       conversationId: notification.conversationId,
       messageId: notification.messageId,
       type: notification.type,
@@ -550,7 +552,8 @@ export class EmergencyAlertsService {
   private toPublicAccount(account: EmergencyAccountRecord) {
     const profilePhotoKey =
       account.profilePhotoKey ?? account.employee?.profilePhotoKey ?? null;
-    const profileBio = account.profileBio ?? account.employee?.profileBio ?? null;
+    const profileBio =
+      account.profileBio ?? account.employee?.profileBio ?? null;
 
     return {
       accountId: account.id,

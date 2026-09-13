@@ -43,9 +43,8 @@ describe('AccountRequestsService V3 create flow', () => {
         findFirst: jest.fn().mockResolvedValue(null),
       },
       $transaction: jest.fn(
-        async (
-          callback: (value: typeof transaction) => Promise<unknown>,
-        ) => callback(transaction),
+        async (callback: (value: typeof transaction) => Promise<unknown>) =>
+          callback(transaction),
       ),
     };
 
@@ -89,13 +88,10 @@ describe('AccountRequestsService V3 create flow', () => {
       },
     );
 
-    expect(requestAuthority.resolveCreateTarget).toHaveBeenCalledWith(
-      user,
-      {
-        officeId: 'office-1',
-        intendedOrgUnitId: 'org-unit-1',
-      },
-    );
+    expect(requestAuthority.resolveCreateTarget).toHaveBeenCalledWith(user, {
+      officeId: 'office-1',
+      intendedOrgUnitId: 'org-unit-1',
+    });
 
     expect(transaction.accountRequest.create).toHaveBeenCalledWith(
       expect.objectContaining({

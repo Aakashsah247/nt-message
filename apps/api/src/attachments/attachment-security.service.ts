@@ -24,9 +24,8 @@ export class AttachmentSecurityService implements OnModuleInit {
   private readonly clamAvTimeoutMs: number;
 
   constructor() {
-    const configuredMode = process.env.ATTACHMENT_SCAN_MODE
-      ?.trim()
-      .toLowerCase();
+    const configuredMode =
+      process.env.ATTACHMENT_SCAN_MODE?.trim().toLowerCase();
     this.scanMode = configuredMode === 'clamav' ? 'clamav' : 'disabled';
     this.clamAvHost = process.env.CLAMAV_HOST?.trim() || '127.0.0.1';
     this.clamAvPort = this.parsePositiveInteger(process.env.CLAMAV_PORT, 3310);
@@ -45,9 +44,8 @@ export class AttachmentSecurityService implements OnModuleInit {
       const temporaryExternalStaging =
         process.env.DEPLOYMENT_PROFILE?.trim() ===
           'temporary_external_staging' &&
-        process.env.ALLOW_UNSCANNED_STAGING_ATTACHMENTS
-          ?.trim()
-          .toLowerCase() === 'true';
+        process.env.ALLOW_UNSCANNED_STAGING_ATTACHMENTS?.trim().toLowerCase() ===
+          'true';
 
       if (!temporaryExternalStaging) {
         throw new Error(
@@ -272,5 +270,4 @@ export class AttachmentSecurityService implements OnModuleInit {
       });
     });
   }
-
 }

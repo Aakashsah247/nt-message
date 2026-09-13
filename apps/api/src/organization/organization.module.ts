@@ -2,7 +2,6 @@ import { Module } from '@nestjs/common';
 
 import { AuthModule } from '../auth/auth.module';
 
-
 import { OrganizationAuthorityService } from './organization-authority.service';
 import { OrganizationDelegationService } from './organization-delegation.service';
 import { OrganizationDelegationController } from './organization-delegation.controller';

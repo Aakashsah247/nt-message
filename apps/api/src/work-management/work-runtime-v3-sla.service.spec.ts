@@ -112,7 +112,9 @@ describe('WorkRuntimeV3SlaService', () => {
     };
     const tx = {
       office: {
-        findUnique: jest.fn().mockResolvedValue({ id: officeId, isActive: true }),
+        findUnique: jest
+          .fn()
+          .mockResolvedValue({ id: officeId, isActive: true }),
       },
       $queryRaw: jest.fn().mockResolvedValue([]),
       officeWorkingCalendar: {
@@ -129,7 +131,9 @@ describe('WorkRuntimeV3SlaService', () => {
       },
     };
     const prisma = {
-      $transaction: jest.fn(async (callback: (client: typeof tx) => unknown) => callback(tx)),
+      $transaction: jest.fn(async (callback: (client: typeof tx) => unknown) =>
+        callback(tx),
+      ),
       office: {
         findUnique: jest.fn().mockResolvedValue({
           id: officeId,

@@ -58,11 +58,9 @@ export const CAPABILITIES = {
   SYSTEM_AUDIT: 'system.audit',
 } as const;
 
-export type Capability =
-  (typeof CAPABILITIES)[keyof typeof CAPABILITIES];
+export type Capability = (typeof CAPABILITIES)[keyof typeof CAPABILITIES];
 
-export const ALL_CAPABILITIES =
-  Object.values(CAPABILITIES) as Capability[];
+export const ALL_CAPABILITIES = Object.values(CAPABILITIES) as Capability[];
 
 const CAPABILITY_SET = new Set<string>(ALL_CAPABILITIES);
 

@@ -1,4 +1,4 @@
-import { ForbiddenException, NotFoundException } from '@nestjs/common';
+import { ForbiddenException } from '@nestjs/common';
 
 import type { PrismaService } from '../database/prisma.service';
 import {
@@ -171,7 +171,9 @@ describe('WorkScopeService', () => {
     jest.clearAllMocks();
     jest.mocked(prisma.orgUnit.findMany).mockResolvedValue([] as never);
     jest.mocked(prisma.orgUnitClosure.findMany).mockResolvedValue([] as never);
-    jest.mocked(prisma.delegatedPermission.findMany).mockResolvedValue([] as never);
+    jest
+      .mocked(prisma.delegatedPermission.findMany)
+      .mockResolvedValue([] as never);
   });
 
   it('resolves Office Head Work scope from active V3 Office leadership', async () => {
@@ -180,11 +182,12 @@ describe('WorkScopeService', () => {
       role: AccountRole.EMPLOYEE,
       leadershipType: OrgLeadershipType.OFFICE_HEAD,
     });
-    jest.mocked(prisma.account.findUnique).mockResolvedValue(officeHead as never);
-    jest.mocked(prisma.orgUnit.findMany).mockResolvedValue([
-      { id: 'org-a' },
-      { id: 'org-b' },
-    ] as never);
+    jest
+      .mocked(prisma.account.findUnique)
+      .mockResolvedValue(officeHead as never);
+    jest
+      .mocked(prisma.orgUnit.findMany)
+      .mockResolvedValue([{ id: 'org-a' }, { id: 'org-b' }] as never);
 
     await expect(
       service.resolveActorContext({
@@ -214,9 +217,9 @@ describe('WorkScopeService', () => {
       leadershipType: OrgLeadershipType.ORG_UNIT_HEAD,
     });
     jest.mocked(prisma.account.findUnique).mockResolvedValue(head as never);
-    jest.mocked(prisma.orgUnitClosure.findMany).mockResolvedValue([
-      { descendantOrgUnitId: 'org-child' },
-    ] as never);
+    jest
+      .mocked(prisma.orgUnitClosure.findMany)
+      .mockResolvedValue([{ descendantOrgUnitId: 'org-child' }] as never);
 
     const resolved = await service.resolveActorContext({
       accountId: head.id,
@@ -232,7 +235,10 @@ describe('WorkScopeService', () => {
   });
 
   it('adds delegated work.assign descendants to V3 assignment scope', async () => {
-    const employee = createAccount({ id: 'delegate', role: AccountRole.EMPLOYEE });
+    const employee = createAccount({
+      id: 'delegate',
+      role: AccountRole.EMPLOYEE,
+    });
     jest.mocked(prisma.account.findUnique).mockResolvedValue(employee as never);
     jest.mocked(prisma.delegatedPermission.findMany).mockResolvedValue([
       {
@@ -241,9 +247,11 @@ describe('WorkScopeService', () => {
         includeDescendants: true,
       },
     ] as never);
-    jest.mocked(prisma.orgUnitClosure.findMany).mockResolvedValue([
-      { descendantOrgUnitId: 'org-delegated-child' },
-    ] as never);
+    jest
+      .mocked(prisma.orgUnitClosure.findMany)
+      .mockResolvedValue([
+        { descendantOrgUnitId: 'org-delegated-child' },
+      ] as never);
 
     const resolved = await service.resolveActorContext({
       accountId: employee.id,
@@ -361,7 +369,10 @@ describe('WorkScopeService', () => {
     });
 
     expect(() =>
-      service.assertAdministrativeIndividualAssignee(officeHead, manager as never),
+      service.assertAdministrativeIndividualAssignee(
+        officeHead,
+        manager as never,
+      ),
     ).not.toThrow();
     expect(() =>
       service.assertAdministrativeIndividualAssignee(
@@ -473,5 +484,4 @@ describe('WorkScopeService', () => {
       ),
     ).toThrow(ForbiddenException);
   });
-
 });

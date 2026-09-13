@@ -242,25 +242,28 @@ export class WorkRuntimeV3NotificationsService
     actorAccountId: string,
     since: Date,
   ): Promise<void> {
-    await this.bestEffort('collaboration stage-ready notification', async () => {
-      const request = await this.prisma.workCollaborationRequest.findFirst({
-        where: {
-          id: requestId,
-          workItem: {
-            officeId,
-            status: WorkItemStatus.V3_RUNTIME,
+    await this.bestEffort(
+      'collaboration stage-ready notification',
+      async () => {
+        const request = await this.prisma.workCollaborationRequest.findFirst({
+          where: {
+            id: requestId,
+            workItem: {
+              officeId,
+              status: WorkItemStatus.V3_RUNTIME,
+            },
           },
-        },
-        select: { workItemId: true },
-      });
-      if (!request) return;
-      await this.publishReadyStageEvents(
-        officeId,
-        request.workItemId,
-        actorAccountId,
-        since,
-      );
-    });
+          select: { workItemId: true },
+        });
+        if (!request) return;
+        await this.publishReadyStageEvents(
+          officeId,
+          request.workItemId,
+          actorAccountId,
+          since,
+        );
+      },
+    );
   }
 
   async publishWorkLifecycle(
@@ -314,7 +317,9 @@ export class WorkRuntimeV3NotificationsService
       const participantOrgUnitIds = [
         ...new Set([
           work.primaryOwnerOrgUnitId,
-          ...work.orgUnitParticipants.map((participant) => participant.orgUnitId),
+          ...work.orgUnitParticipants.map(
+            (participant) => participant.orgUnitId,
+          ),
         ]),
       ];
       for (const orgUnitId of participantOrgUnitIds) {
@@ -402,7 +407,11 @@ export class WorkRuntimeV3NotificationsService
     });
 
     for (const work of candidates) {
-      if (!work.officeId || !work.runtimeStatus || !work.primaryOwnerOrgUnitId) {
+      if (
+        !work.officeId ||
+        !work.runtimeStatus ||
+        !work.primaryOwnerOrgUnitId
+      ) {
         continue;
       }
       const overdue = work.dueAt.getTime() <= now.getTime();
@@ -442,9 +451,7 @@ export class WorkRuntimeV3NotificationsService
             ? { overdueNotifiedAt: null }
             : { dueSoonNotifiedAt: null }),
         },
-        data: overdue
-          ? { overdueNotifiedAt: now }
-          : { dueSoonNotifiedAt: now },
+        data: overdue ? { overdueNotifiedAt: now } : { dueSoonNotifiedAt: now },
       });
     }
   }
@@ -510,9 +517,7 @@ export class WorkRuntimeV3NotificationsService
             ? { overdueNotifiedAt: null }
             : { dueSoonNotifiedAt: null }),
         },
-        data: overdue
-          ? { overdueNotifiedAt: now }
-          : { dueSoonNotifiedAt: now },
+        data: overdue ? { overdueNotifiedAt: now } : { dueSoonNotifiedAt: now },
       });
     }
   }
@@ -586,9 +591,8 @@ export class WorkRuntimeV3NotificationsService
         )),
       ];
     }
-    const recipientAccountIds = await this.filterOperationalRecipients(
-      rawRecipients,
-    );
+    const recipientAccountIds =
+      await this.filterOperationalRecipients(rawRecipients);
     if (recipientAccountIds.length === 0) return;
 
     await this.workNotifications.publishWorkUpdate({
@@ -640,15 +644,12 @@ export class WorkRuntimeV3NotificationsService
     }>,
   ): string[] {
     const assigned = steps
-      .filter(
-        (step) => step.kind === 'ASSIGNEE' || step.kind === 'TEAM_LEAD',
-      )
+      .filter((step) => step.kind === 'ASSIGNEE' || step.kind === 'TEAM_LEAD')
       .map((step) => step.accountId);
     if (assigned.length > 0) return [...new Set(assigned)];
 
     const responsibleLeader = steps.find(
-      (step) =>
-        step.kind === 'ORG_UNIT_HEAD' && step.hierarchyDepth === 0,
+      (step) => step.kind === 'ORG_UNIT_HEAD' && step.hierarchyDepth === 0,
     );
     if (responsibleLeader) return [responsibleLeader.accountId];
 
@@ -782,11 +783,7 @@ export class WorkRuntimeV3NotificationsService
           },
         ],
       },
-      orderBy: [
-        { isActing: 'desc' },
-        { effectiveFrom: 'desc' },
-        { id: 'asc' },
-      ],
+      orderBy: [{ isActing: 'desc' }, { effectiveFrom: 'desc' }, { id: 'asc' }],
       select: {
         id: true,
         orgUnitId: true,
@@ -844,7 +841,8 @@ export class WorkRuntimeV3NotificationsService
         assignment.employee.account?.isEnabled &&
         assignment.employee.account.accountClass !== AccountClass.SUPER_ADMIN,
     );
-    const selected = matches.find((assignment) => assignment.isActing) ?? matches[0];
+    const selected =
+      matches.find((assignment) => assignment.isActing) ?? matches[0];
     return selected?.employee.account?.id ?? null;
   }
 
@@ -885,7 +883,7 @@ export class WorkRuntimeV3NotificationsService
 
   private jsonObject(value: Prisma.JsonValue | null): Record<string, unknown> {
     return value && typeof value === 'object' && !Array.isArray(value)
-      ? (value as Record<string, unknown>)
+      ? value
       : {};
   }
 
@@ -903,6 +901,8 @@ export class WorkRuntimeV3NotificationsService
   }
 
   private safeErrorMessage(error: unknown): string {
-    return error instanceof Error ? error.message : 'Unknown notification error';
+    return error instanceof Error
+      ? error.message
+      : 'Unknown notification error';
   }
 }

@@ -1,7 +1,4 @@
-import {
-  BadRequestException,
-  ForbiddenException,
-} from '@nestjs/common';
+import { BadRequestException, ForbiddenException } from '@nestjs/common';
 
 import type { AuthenticatedUser } from '../auth/types/auth.types';
 import { PrismaService } from '../database/prisma.service';
@@ -73,29 +70,21 @@ describe('OrganizationPeopleService', () => {
         findFirst: jest.fn().mockResolvedValue(null),
         create: jest.fn().mockResolvedValue({
           id: 'leadership-1',
-          leadershipType:
-            OrgLeadershipType.OFFICE_HEAD,
+          leadershipType: OrgLeadershipType.OFFICE_HEAD,
         }),
       },
     };
 
     const prisma = {
       office: {
-        findUnique: jest
-          .fn()
-          .mockResolvedValue(activeOffice()),
+        findUnique: jest.fn().mockResolvedValue(activeOffice()),
       },
       employee: {
-        findUnique: jest
-          .fn()
-          .mockResolvedValue(activeEmployee),
+        findUnique: jest.fn().mockResolvedValue(activeEmployee),
       },
       $transaction: jest.fn(
-        async (
-          callback: (
-            tx: typeof transaction,
-          ) => Promise<unknown>,
-        ) => callback(transaction),
+        async (callback: (tx: typeof transaction) => Promise<unknown>) =>
+          callback(transaction),
       ),
     } as unknown as PrismaService;
 
@@ -107,25 +96,18 @@ describe('OrganizationPeopleService', () => {
       assertCan: jest.fn().mockResolvedValue(undefined),
     } as unknown as OrganizationAuthorizationService;
 
-    const service =
-      new OrganizationPeopleService(
-        prisma,
-        authority,
-        authorization,
-      );
-
-    const result = await service.assignOfficeHead(
-      superAdmin,
-      'office-1',
-      {
-        employeeId: 'employee-1',
-        reason: 'Initial Office Head bootstrap',
-      },
+    const service = new OrganizationPeopleService(
+      prisma,
+      authority,
+      authorization,
     );
 
-    expect(
-      transaction.orgMembership.create,
-    ).toHaveBeenCalledWith({
+    const result = await service.assignOfficeHead(superAdmin, 'office-1', {
+      employeeId: 'employee-1',
+      reason: 'Initial Office Head bootstrap',
+    });
+
+    expect(transaction.orgMembership.create).toHaveBeenCalledWith({
       data: expect.objectContaining({
         employeeId: 'employee-1',
         officeId: 'office-1',
@@ -137,15 +119,12 @@ describe('OrganizationPeopleService', () => {
       select: expect.any(Object),
     });
 
-    expect(
-      transaction.orgLeadershipAssignment.create,
-    ).toHaveBeenCalledWith({
+    expect(transaction.orgLeadershipAssignment.create).toHaveBeenCalledWith({
       data: expect.objectContaining({
         employeeId: 'employee-1',
         officeId: 'office-1',
         orgUnitId: null,
-        leadershipType:
-          OrgLeadershipType.OFFICE_HEAD,
+        leadershipType: OrgLeadershipType.OFFICE_HEAD,
         assignmentSource: OrgAssignmentSource.SYSTEM,
         isActing: false,
         assignedByAccountId: 'super-admin',
@@ -158,9 +137,7 @@ describe('OrganizationPeopleService', () => {
   it('does not allow a Super Admin employee identity inside office membership', async () => {
     const prisma = {
       office: {
-        findUnique: jest
-          .fn()
-          .mockResolvedValue(activeOffice()),
+        findUnique: jest.fn().mockResolvedValue(activeOffice()),
       },
       employee: {
         findUnique: jest.fn().mockResolvedValue({
@@ -176,32 +153,25 @@ describe('OrganizationPeopleService', () => {
     } as unknown as PrismaService;
 
     const authority = {
-      assertOfficeHead: jest
-        .fn()
-        .mockResolvedValue(undefined),
+      assertOfficeHead: jest.fn().mockResolvedValue(undefined),
     } as unknown as OrganizationAuthorityService;
 
     const authorization = {
       assertCan: jest.fn().mockResolvedValue(undefined),
     } as unknown as OrganizationAuthorizationService;
 
-    const service =
-      new OrganizationPeopleService(
-        prisma,
-        authority,
-        authorization,
-      );
+    const service = new OrganizationPeopleService(
+      prisma,
+      authority,
+      authorization,
+    );
 
     await expect(
-      service.assignMembership(
-        officeHeadUser,
-        'office-1',
-        {
-          employeeId: 'employee-1',
-          membershipType: OrgMembershipType.SECONDARY,
-          reason: 'Temporary support placement',
-        },
-      ),
+      service.assignMembership(officeHeadUser, 'office-1', {
+        employeeId: 'employee-1',
+        membershipType: OrgMembershipType.SECONDARY,
+        reason: 'Temporary support placement',
+      }),
     ).rejects.toBeInstanceOf(ForbiddenException);
   });
 
@@ -213,31 +183,22 @@ describe('OrganizationPeopleService', () => {
     } as unknown as PrismaService;
 
     const authority = {
-      assertCanViewOffice: jest
-        .fn()
-        .mockResolvedValue(undefined),
+      assertCanViewOffice: jest.fn().mockResolvedValue(undefined),
     } as unknown as OrganizationAuthorityService;
 
     const authorization = {
       can: jest.fn().mockResolvedValue(false),
-      visibleOrgUnitIds: jest
-        .fn()
-        .mockResolvedValue([]),
+      visibleOrgUnitIds: jest.fn().mockResolvedValue([]),
     } as unknown as OrganizationAuthorizationService;
 
-    const service =
-      new OrganizationPeopleService(
-        prisma,
-        authority,
-        authorization,
-      );
+    const service = new OrganizationPeopleService(
+      prisma,
+      authority,
+      authorization,
+    );
 
     await expect(
-      service.listEmployeeMemberships(
-        officeHeadUser,
-        'office-1',
-        'employee-1',
-      ),
+      service.listEmployeeMemberships(officeHeadUser, 'office-1', 'employee-1'),
     ).rejects.toBeInstanceOf(ForbiddenException);
 
     expect(authorization.can).toHaveBeenCalledWith(
@@ -257,41 +218,29 @@ describe('OrganizationPeopleService', () => {
     } as unknown as PrismaService;
 
     const authority = {
-      assertCanViewOffice: jest
-        .fn()
-        .mockResolvedValue(undefined),
+      assertCanViewOffice: jest.fn().mockResolvedValue(undefined),
     } as unknown as OrganizationAuthorityService;
 
     const authorization = {
       can: jest.fn().mockResolvedValue(false),
-      visibleOrgUnitIds: jest
-        .fn()
-        .mockResolvedValue(['unit-1', 'child-1']),
+      visibleOrgUnitIds: jest.fn().mockResolvedValue(['unit-1', 'child-1']),
     } as unknown as OrganizationAuthorizationService;
 
-    const service =
-      new OrganizationPeopleService(
-        prisma,
-        authority,
-        authorization,
-      );
-
-    await service.listLeadership(
-      officeHeadUser,
-      'office-1',
+    const service = new OrganizationPeopleService(
+      prisma,
+      authority,
+      authorization,
     );
 
-    expect(
-      authorization.visibleOrgUnitIds,
-    ).toHaveBeenCalledWith(
+    await service.listLeadership(officeHeadUser, 'office-1');
+
+    expect(authorization.visibleOrgUnitIds).toHaveBeenCalledWith(
       officeHeadUser,
       CAPABILITIES.LEADERSHIP_VIEW,
       'office-1',
     );
 
-    expect(
-      prisma.orgLeadershipAssignment.findMany,
-    ).toHaveBeenCalledWith(
+    expect(prisma.orgLeadershipAssignment.findMany).toHaveBeenCalledWith(
       expect.objectContaining({
         where: {
           officeId: 'office-1',
@@ -306,14 +255,10 @@ describe('OrganizationPeopleService', () => {
   it('rejects new membership placement into a legacy Team OrgUnit', async () => {
     const prisma = {
       office: {
-        findUnique: jest
-          .fn()
-          .mockResolvedValue(activeOffice()),
+        findUnique: jest.fn().mockResolvedValue(activeOffice()),
       },
       employee: {
-        findUnique: jest
-          .fn()
-          .mockResolvedValue(activeEmployee),
+        findUnique: jest.fn().mockResolvedValue(activeEmployee),
       },
       orgUnit: {
         findFirst: jest.fn().mockResolvedValue({
@@ -337,40 +282,29 @@ describe('OrganizationPeopleService', () => {
       assertCan: jest.fn().mockResolvedValue(undefined),
     } as unknown as OrganizationAuthorizationService;
 
-    const service =
-      new OrganizationPeopleService(
-        prisma,
-        authority,
-        authorization,
-      );
+    const service = new OrganizationPeopleService(
+      prisma,
+      authority,
+      authorization,
+    );
 
     await expect(
-      service.assignMembership(
-        officeHeadUser,
-        'office-1',
-        {
-          employeeId: 'employee-1',
-          orgUnitId: 'legacy-team-unit',
-          membershipType: OrgMembershipType.SECONDARY,
-          reason: 'Current Team membership',
-        },
-      ),
-    ).rejects.toThrow(
-      'Legacy Team OrgUnits are historical only.',
-    );
+      service.assignMembership(officeHeadUser, 'office-1', {
+        employeeId: 'employee-1',
+        orgUnitId: 'legacy-team-unit',
+        membershipType: OrgMembershipType.SECONDARY,
+        reason: 'Current Team membership',
+      }),
+    ).rejects.toThrow('Legacy Team OrgUnits are historical only.');
   });
 
   it('rejects new Team Lead assignment through formal OrgLeadershipAssignment', async () => {
     const prisma = {
       office: {
-        findUnique: jest
-          .fn()
-          .mockResolvedValue(activeOffice()),
+        findUnique: jest.fn().mockResolvedValue(activeOffice()),
       },
       employee: {
-        findUnique: jest
-          .fn()
-          .mockResolvedValue(activeEmployee),
+        findUnique: jest.fn().mockResolvedValue(activeEmployee),
       },
       orgUnit: {
         findFirst: jest.fn().mockResolvedValue({
@@ -390,48 +324,36 @@ describe('OrganizationPeopleService', () => {
     } as unknown as PrismaService;
 
     const authority = {
-      assertOfficeHead: jest
-        .fn()
-        .mockResolvedValue(undefined),
+      assertOfficeHead: jest.fn().mockResolvedValue(undefined),
     } as unknown as OrganizationAuthorityService;
 
     const authorization = {
       assertCan: jest.fn().mockResolvedValue(undefined),
     } as unknown as OrganizationAuthorizationService;
 
-    const service =
-      new OrganizationPeopleService(
-        prisma,
-        authority,
-        authorization,
-      );
+    const service = new OrganizationPeopleService(
+      prisma,
+      authority,
+      authorization,
+    );
 
     await expect(
-      service.assignLeadership(
-        officeHeadUser,
-        'office-1',
-        {
-          employeeId: 'employee-1',
-          orgUnitId: 'unit-1',
-          leadershipType:
-            OrgLeadershipType.TEAM_LEAD,
-          reason: 'Assign Team Lead',
-        },
-      ),
+      service.assignLeadership(officeHeadUser, 'office-1', {
+        employeeId: 'employee-1',
+        orgUnitId: 'unit-1',
+        leadershipType: OrgLeadershipType.TEAM_LEAD,
+        reason: 'Assign Team Lead',
+      }),
     ).rejects.toBeInstanceOf(BadRequestException);
   });
 
   it('requires an expiry for Acting leadership', async () => {
     const prisma = {
       office: {
-        findUnique: jest
-          .fn()
-          .mockResolvedValue(activeOffice()),
+        findUnique: jest.fn().mockResolvedValue(activeOffice()),
       },
       employee: {
-        findUnique: jest
-          .fn()
-          .mockResolvedValue(activeEmployee),
+        findUnique: jest.fn().mockResolvedValue(activeEmployee),
       },
     } as unknown as PrismaService;
 
@@ -441,26 +363,20 @@ describe('OrganizationPeopleService', () => {
       assertCan: jest.fn().mockResolvedValue(undefined),
     } as unknown as OrganizationAuthorizationService;
 
-    const service =
-      new OrganizationPeopleService(
-        prisma,
-        authority,
-        authorization,
-      );
+    const service = new OrganizationPeopleService(
+      prisma,
+      authority,
+      authorization,
+    );
 
     await expect(
-      service.assignLeadership(
-        officeHeadUser,
-        'office-1',
-        {
-          employeeId: 'employee-1',
-          orgUnitId: 'unit-1',
-          leadershipType:
-            OrgLeadershipType.ORG_UNIT_HEAD,
-          isActing: true,
-          reason: 'Temporary Acting Head assignment',
-        },
-      ),
+      service.assignLeadership(officeHeadUser, 'office-1', {
+        employeeId: 'employee-1',
+        orgUnitId: 'unit-1',
+        leadershipType: OrgLeadershipType.ORG_UNIT_HEAD,
+        isActing: true,
+        reason: 'Temporary Acting Head assignment',
+      }),
     ).rejects.toBeInstanceOf(BadRequestException);
 
     expect(authorization.assertCan).toHaveBeenCalledWith(
@@ -474,14 +390,10 @@ describe('OrganizationPeopleService', () => {
   it('keeps Deputy and Acting leadership as separate assignments', async () => {
     const prisma = {
       office: {
-        findUnique: jest
-          .fn()
-          .mockResolvedValue(activeOffice()),
+        findUnique: jest.fn().mockResolvedValue(activeOffice()),
       },
       employee: {
-        findUnique: jest
-          .fn()
-          .mockResolvedValue(activeEmployee),
+        findUnique: jest.fn().mockResolvedValue(activeEmployee),
       },
     } as unknown as PrismaService;
 
@@ -491,27 +403,21 @@ describe('OrganizationPeopleService', () => {
       assertCan: jest.fn().mockResolvedValue(undefined),
     } as unknown as OrganizationAuthorizationService;
 
-    const service =
-      new OrganizationPeopleService(
-        prisma,
-        authority,
-        authorization,
-      );
+    const service = new OrganizationPeopleService(
+      prisma,
+      authority,
+      authorization,
+    );
 
     await expect(
-      service.assignLeadership(
-        officeHeadUser,
-        'office-1',
-        {
-          employeeId: 'employee-1',
-          orgUnitId: 'unit-1',
-          leadershipType: OrgLeadershipType.DEPUTY,
-          isActing: true,
-          effectiveUntil:
-            '2026-09-04T00:00:00.000Z',
-          reason: 'Invalid combined Deputy and Acting assignment',
-        },
-      ),
+      service.assignLeadership(officeHeadUser, 'office-1', {
+        employeeId: 'employee-1',
+        orgUnitId: 'unit-1',
+        leadershipType: OrgLeadershipType.DEPUTY,
+        isActing: true,
+        effectiveUntil: '2026-09-04T00:00:00.000Z',
+        reason: 'Invalid combined Deputy and Acting assignment',
+      }),
     ).rejects.toBeInstanceOf(BadRequestException);
 
     expect(authorization.assertCan).toHaveBeenCalledWith(
@@ -523,9 +429,7 @@ describe('OrganizationPeopleService', () => {
   });
 
   it('preserves the old primary placement when transferring internally', async () => {
-    const oldStart = new Date(
-      Date.now() - 24 * 60 * 60 * 1000,
-    );
+    const oldStart = new Date(Date.now() - 24 * 60 * 60 * 1000);
 
     const transaction = {
       orgMembership: {
@@ -548,14 +452,10 @@ describe('OrganizationPeopleService', () => {
 
     const prisma = {
       office: {
-        findUnique: jest
-          .fn()
-          .mockResolvedValue(activeOffice()),
+        findUnique: jest.fn().mockResolvedValue(activeOffice()),
       },
       employee: {
-        findUnique: jest
-          .fn()
-          .mockResolvedValue(activeEmployee),
+        findUnique: jest.fn().mockResolvedValue(activeEmployee),
       },
       orgUnit: {
         findFirst: jest.fn().mockResolvedValue({
@@ -579,40 +479,30 @@ describe('OrganizationPeopleService', () => {
         }),
       },
       $transaction: jest.fn(
-        async (
-          callback: (
-            tx: typeof transaction,
-          ) => Promise<unknown>,
-        ) => callback(transaction),
+        async (callback: (tx: typeof transaction) => Promise<unknown>) =>
+          callback(transaction),
       ),
     } as unknown as PrismaService;
 
     const authority = {
-      assertOfficeHead: jest
-        .fn()
-        .mockResolvedValue(undefined),
+      assertOfficeHead: jest.fn().mockResolvedValue(undefined),
     } as unknown as OrganizationAuthorityService;
 
     const authorization = {
       assertCan: jest.fn().mockResolvedValue(undefined),
     } as unknown as OrganizationAuthorizationService;
 
-    const service =
-      new OrganizationPeopleService(
-        prisma,
-        authority,
-        authorization,
-      );
-
-    await service.transferPrimaryMembership(
-      officeHeadUser,
-      'office-1',
-      {
-        employeeId: 'employee-1',
-        orgUnitId: 'new-unit',
-        reason: 'Internal organizational transfer',
-      },
+    const service = new OrganizationPeopleService(
+      prisma,
+      authority,
+      authorization,
     );
+
+    await service.transferPrimaryMembership(officeHeadUser, 'office-1', {
+      employeeId: 'employee-1',
+      orgUnitId: 'new-unit',
+      reason: 'Internal organizational transfer',
+    });
 
     expect(authorization.assertCan).toHaveBeenNthCalledWith(
       1,
@@ -630,32 +520,25 @@ describe('OrganizationPeopleService', () => {
       'new-unit',
     );
 
-    expect(
-      transaction.orgMembership.update,
-    ).toHaveBeenCalledWith({
+    expect(transaction.orgMembership.update).toHaveBeenCalledWith({
       where: {
         id: 'old-membership',
       },
       data: expect.objectContaining({
         endsAt: expect.any(Date),
-        endedByAccountId:
-          'office-head-account',
-        endReason:
-          'Internal organizational transfer',
+        endedByAccountId: 'office-head-account',
+        endReason: 'Internal organizational transfer',
       }),
     });
 
-    expect(
-      transaction.orgMembership.create,
-    ).toHaveBeenCalledWith({
+    expect(transaction.orgMembership.create).toHaveBeenCalledWith({
       data: expect.objectContaining({
         employeeId: 'employee-1',
         officeId: 'office-1',
         orgUnitId: 'new-unit',
         membershipType: OrgMembershipType.PRIMARY,
         assignmentSource: OrgAssignmentSource.TRANSFER,
-        assignedByAccountId:
-          'office-head-account',
+        assignedByAccountId: 'office-head-account',
       }),
     });
   });

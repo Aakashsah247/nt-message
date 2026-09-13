@@ -1,5 +1,4 @@
 import {
-  BadRequestException,
   ConflictException,
   ForbiddenException,
   Injectable,
@@ -10,7 +9,6 @@ import type { AuthenticatedUser } from '../auth/types/auth.types';
 import { PrismaService } from '../database/prisma.service';
 import {
   AccountClass,
-  OrgLeadershipType,
   DutyActivityAction,
   DutyExceptionType,
   EmployeeStatus,
@@ -70,7 +68,9 @@ const dutyAssignmentSummarySelect = {
   orgUnitId: true,
   operationalTeamId: true,
   office: { select: { id: true, code: true, name: true } },
-  operationalTeam: { select: { id: true, code: true, name: true, orgUnitId: true } },
+  operationalTeam: {
+    select: { id: true, code: true, name: true, orgUnitId: true },
+  },
   orgUnit: { select: { id: true, code: true, name: true } },
 } satisfies Prisma.DutyAssignmentSelect;
 
@@ -88,10 +88,6 @@ const recommendationAccountSelect = {
     },
   },
 } satisfies Prisma.AccountSelect;
-
-type RecommendationAccount = Prisma.AccountGetPayload<{
-  select: typeof recommendationAccountSelect;
-}>;
 
 export type DutyEffectiveStatus =
   | 'ON_DUTY'
@@ -115,50 +111,51 @@ export class DutyAvailabilityService {
     const accountId = user.accountId;
     const now = new Date();
     const today = this.parseDateOnly(this.localDateString(now));
-    const [exception, current, next, upcoming, availability] = await Promise.all([
-      this.prisma.dutyException.findUnique({
-        where: {
-          employeeAccountId_exceptionDate: {
-            employeeAccountId: accountId,
-            exceptionDate: today,
+    const [exception, current, next, upcoming, availability] =
+      await Promise.all([
+        this.prisma.dutyException.findUnique({
+          where: {
+            employeeAccountId_exceptionDate: {
+              employeeAccountId: accountId,
+              exceptionDate: today,
+            },
           },
-        },
-        select: { id: true, type: true, note: true, exceptionDate: true },
-      }),
-      this.prisma.dutyAssignment.findFirst({
-        where: {
-          employeeAccountId: accountId,
-          startsAt: { lte: now },
-          endsAt: { gt: now },
-          cancelledAt: null,
-        },
-        orderBy: { startsAt: 'asc' },
-        select: dutyAssignmentSummarySelect,
-      }),
-      this.prisma.dutyAssignment.findFirst({
-        where: {
-          employeeAccountId: accountId,
-          startsAt: { gt: now },
-          cancelledAt: null,
-        },
-        orderBy: { startsAt: 'asc' },
-        select: dutyAssignmentSummarySelect,
-      }),
-      this.prisma.dutyAssignment.findMany({
-        where: {
-          employeeAccountId: accountId,
-          startsAt: { gte: now },
-          cancelledAt: null,
-        },
-        orderBy: { startsAt: 'asc' },
-        take: 14,
-        select: dutyAssignmentSummarySelect,
-      }),
-      this.prisma.employeeWorkAvailability.findUnique({
-        where: { accountId },
-        select: { preference: true, updatedAt: true },
-      }),
-    ]);
+          select: { id: true, type: true, note: true, exceptionDate: true },
+        }),
+        this.prisma.dutyAssignment.findFirst({
+          where: {
+            employeeAccountId: accountId,
+            startsAt: { lte: now },
+            endsAt: { gt: now },
+            cancelledAt: null,
+          },
+          orderBy: { startsAt: 'asc' },
+          select: dutyAssignmentSummarySelect,
+        }),
+        this.prisma.dutyAssignment.findFirst({
+          where: {
+            employeeAccountId: accountId,
+            startsAt: { gt: now },
+            cancelledAt: null,
+          },
+          orderBy: { startsAt: 'asc' },
+          select: dutyAssignmentSummarySelect,
+        }),
+        this.prisma.dutyAssignment.findMany({
+          where: {
+            employeeAccountId: accountId,
+            startsAt: { gte: now },
+            cancelledAt: null,
+          },
+          orderBy: { startsAt: 'asc' },
+          take: 14,
+          select: dutyAssignmentSummarySelect,
+        }),
+        this.prisma.employeeWorkAvailability.findUnique({
+          where: { accountId },
+          select: { preference: true, updatedAt: true },
+        }),
+      ]);
 
     // Leave and holiday records override a scheduled window without deleting roster history.
     const effectiveStatus: DutyEffectiveStatus = exception
@@ -167,7 +164,8 @@ export class DutyAvailabilityService {
         : 'HOLIDAY'
       : current
         ? 'ON_DUTY'
-        : next && this.dateOnlyString(next.dutyDate) === this.dateOnlyString(today)
+        : next &&
+            this.dateOnlyString(next.dutyDate) === this.dateOnlyString(today)
           ? 'UPCOMING'
           : 'OFF_DUTY';
     const preference =
@@ -201,7 +199,7 @@ export class DutyAvailabilityService {
     dto: UpdateWorkAvailabilityDto,
   ) {
     const accountId = user.accountId;
-    const availability = await this.prisma.$transaction(
+    await this.prisma.$transaction(
       async (transaction: Prisma.TransactionClient) => {
         const record = await transaction.employeeWorkAvailability.upsert({
           where: { accountId },
@@ -245,10 +243,7 @@ export class DutyAvailabilityService {
     };
   }
 
-  async listHelpRecommendations(
-    user: AuthenticatedUser,
-    workItemId: string,
-  ) {
+  async listHelpRecommendations(user: AuthenticatedUser, workItemId: string) {
     const actor = await this.workScopeService.resolveActorContext(user);
     const workItem = await this.prisma.workItem.findFirst({
       where: {
@@ -538,7 +533,7 @@ export class DutyAvailabilityService {
       const presence = presenceByAccount.get(candidate.id);
       // Respect each employee's presence privacy while still exposing duty availability.
       const isOnline = candidate.showOnlineStatus
-        ? presence?.isOnline ?? false
+        ? (presence?.isOnline ?? false)
         : null;
       const workload = workloadByAccount.get(candidate.id) ?? {
         active: 0,
@@ -574,7 +569,8 @@ export class DutyAvailabilityService {
       const onlineDifference =
         onlineRank(first.isOnline) - onlineRank(second.isOnline);
       if (onlineDifference !== 0) return onlineDifference;
-      const overdueDifference = first.workload.overdue - second.workload.overdue;
+      const overdueDifference =
+        first.workload.overdue - second.workload.overdue;
       if (overdueDifference !== 0) return overdueDifference;
       const activeDifference = first.workload.active - second.workload.active;
       if (activeDifference !== 0) return activeDifference;
@@ -595,7 +591,8 @@ export class DutyAvailabilityService {
   ) {
     const startMinute =
       assignment.shiftStartMinute ?? assignment.shift?.startMinute ?? 0;
-    const endMinute = assignment.shiftEndMinute ?? assignment.shift?.endMinute ?? 0;
+    const endMinute =
+      assignment.shiftEndMinute ?? assignment.shift?.endMinute ?? 0;
 
     return {
       ...assignment,
@@ -611,7 +608,9 @@ export class DutyAvailabilityService {
         startTime: this.minuteLabel(startMinute),
         endTime: this.minuteLabel(endMinute),
         spansNextDay:
-          assignment.shiftSpansNextDay ?? assignment.shift?.spansNextDay ?? false,
+          assignment.shiftSpansNextDay ??
+          assignment.shift?.spansNextDay ??
+          false,
         deleted: assignment.shift === null,
       },
     };
@@ -639,10 +638,7 @@ export class DutyAvailabilityService {
     now: Date,
   ) {
     const map = new Map(
-      accountIds.map((accountId) => [
-        accountId,
-        { active: 0, overdue: 0 },
-      ]),
+      accountIds.map((accountId) => [accountId, { active: 0, overdue: 0 }]),
     );
 
     for (const row of rows) {

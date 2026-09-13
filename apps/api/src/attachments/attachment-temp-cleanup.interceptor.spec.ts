@@ -7,7 +7,9 @@ import { AttachmentTempCleanupInterceptor } from './attachment-temp-cleanup.inte
 
 describe('AttachmentTempCleanupInterceptor', () => {
   it('removes request temporary files after the handler completes', async () => {
-    const directory = await fs.mkdtemp(path.join(os.tmpdir(), 'nt-message-cleanup-'));
+    const directory = await fs.mkdtemp(
+      path.join(os.tmpdir(), 'nt-message-cleanup-'),
+    );
     const tempPath = path.join(directory, 'upload');
     await fs.writeFile(tempPath, 'content');
 

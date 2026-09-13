@@ -80,10 +80,11 @@ describe('WorkRetentionService', () => {
     jest.mocked(scope.buildVisibleWorkWhere).mockReturnValue({});
     jest
       .mocked(prisma.$transaction)
-      .mockImplementation(async (callback: unknown) =>
-        (callback as (client: typeof transaction) => Promise<unknown>)(
-          transaction,
-        ) as never,
+      .mockImplementation(
+        async (callback: unknown) =>
+          (callback as (client: typeof transaction) => Promise<unknown>)(
+            transaction,
+          ) as never,
       );
     transaction.workItem.updateMany.mockResolvedValue({ count: 1 });
     transaction.workItem.findUniqueOrThrow.mockResolvedValue({

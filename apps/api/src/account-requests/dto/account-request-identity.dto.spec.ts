@@ -18,25 +18,23 @@ function buildCreateDto(
 }
 
 describe('account request identity DTO validation', () => {
-  it.each([
-    '9801234567',
-    '9779801234567',
-    '+9779801234567',
-  ])('accepts the approved Nepal phone format %s', (phoneNumber: string) => {
-    expect(validateSync(buildCreateDto(phoneNumber))).toHaveLength(0);
-  });
+  it.each(['9801234567', '9779801234567', '+9779801234567'])(
+    'accepts the approved Nepal phone format %s',
+    (phoneNumber: string) => {
+      expect(validateSync(buildCreateDto(phoneNumber))).toHaveLength(0);
+    },
+  );
 
-  it.each([
-    '009779801234567',
-    '+977 980-123-4567',
-    '+977 (980) 123-4567',
-  ])('rejects the unsupported Nepal phone format %s', (phoneNumber: string) => {
-    const errors = validateSync(buildCreateDto(phoneNumber));
+  it.each(['009779801234567', '+977 980-123-4567', '+977 (980) 123-4567'])(
+    'rejects the unsupported Nepal phone format %s',
+    (phoneNumber: string) => {
+      const errors = validateSync(buildCreateDto(phoneNumber));
 
-    expect(errors.some((error) => error.property === 'phoneNumber')).toBe(
-      true,
-    );
-  });
+      expect(errors.some((error) => error.property === 'phoneNumber')).toBe(
+        true,
+      );
+    },
+  );
 
   it('accepts a valid mixed-case email address', () => {
     expect(
@@ -45,9 +43,7 @@ describe('account request identity DTO validation', () => {
   });
 
   it('rejects an invalid email address', () => {
-    const errors = validateSync(
-      buildCreateDto('9801234567', 'not-an-email'),
-    );
+    const errors = validateSync(buildCreateDto('9801234567', 'not-an-email'));
 
     expect(errors.some((error) => error.property === 'officialEmail')).toBe(
       true,
@@ -72,9 +68,9 @@ describe('account request identity DTO validation', () => {
     const errors = validateSync(dto);
 
     expect(errors.some((error) => error.property === 'officeId')).toBe(true);
-    expect(
-      errors.some((error) => error.property === 'intendedOrgUnitId'),
-    ).toBe(true);
+    expect(errors.some((error) => error.property === 'intendedOrgUnitId')).toBe(
+      true,
+    );
   });
 
   it('keeps every resubmission field optional', () => {

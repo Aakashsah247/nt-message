@@ -1,5 +1,4 @@
 import {
-  BadRequestException,
   ForbiddenException,
   Injectable,
   NotFoundException,
@@ -377,6 +376,7 @@ export class WorkScopeService {
     requestedHelperAccountId: string,
     _workOrgUnitId: string | null,
   ): Promise<WorkAccountRecord> {
+    void _workOrgUnitId;
     if (requestedHelperAccountId === requester.accountId) {
       throw new ForbiddenException(
         'You cannot send a help request to yourself.',
@@ -455,7 +455,11 @@ export class WorkScopeService {
     if (actor.accountClass === AccountClass.SUPER_ADMIN) return;
 
     const membership = this.currentPrimaryMembership(target);
-    if (!actor.officeId || !membership || membership.officeId !== actor.officeId) {
+    if (
+      !actor.officeId ||
+      !membership ||
+      membership.officeId !== actor.officeId
+    ) {
       throw new ForbiddenException(
         `${label} must have an active PRIMARY membership in your Office.`,
       );
@@ -532,7 +536,11 @@ export class WorkScopeService {
     if (actor.accountClass === AccountClass.SUPER_ADMIN) return;
 
     const membership = this.currentPrimaryMembership(target);
-    if (!actor.officeId || !membership || membership.officeId !== actor.officeId) {
+    if (
+      !actor.officeId ||
+      !membership ||
+      membership.officeId !== actor.officeId
+    ) {
       throw new ForbiddenException(
         'The selected employee is outside your authorized Office scope.',
       );
@@ -583,7 +591,10 @@ export class WorkScopeService {
     account: WorkAccountRecord,
     at = new Date(),
   ): boolean {
-    if (account.accountClass !== AccountClass.OFFICE_USER || !account.employee) {
+    if (
+      account.accountClass !== AccountClass.OFFICE_USER ||
+      !account.employee
+    ) {
       return false;
     }
 
@@ -774,7 +785,10 @@ export class WorkScopeService {
     );
   }
 
-  private currentPrimaryMembership(account: WorkAccountRecord, at = new Date()) {
+  private currentPrimaryMembership(
+    account: WorkAccountRecord,
+    at = new Date(),
+  ) {
     return (
       account.employee?.orgMemberships.find(
         (membership) =>
@@ -785,5 +799,4 @@ export class WorkScopeService {
       ) ?? null
     );
   }
-
 }

@@ -9,7 +9,9 @@ import { EmergencyAlertsService } from './emergency-alerts.service';
 @Controller('emergency-alerts')
 @UseGuards(AccessTokenGuard)
 export class EmergencyAlertsController {
-  constructor(private readonly emergencyAlertsService: EmergencyAlertsService) {}
+  constructor(
+    private readonly emergencyAlertsService: EmergencyAlertsService,
+  ) {}
 
   @Get('contacts')
   listEmergencyContacts(@CurrentUser() user: AuthenticatedUser) {

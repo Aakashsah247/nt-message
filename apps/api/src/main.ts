@@ -17,8 +17,7 @@ async function bootstrap(): Promise<void> {
       '4000',
   );
 
-  const host =
-    configService.get<string>('API_HOST')?.trim() || '127.0.0.1';
+  const host = configService.get<string>('API_HOST')?.trim() || '127.0.0.1';
 
   const webOrigin =
     configService.get<string>('WEB_ORIGIN') ?? 'http://localhost:5173';
@@ -73,7 +72,9 @@ async function bootstrap(): Promise<void> {
 
   await app.listen(port, host);
 
-  console.log(`NT Message API is running on ${host}:${port} with prefix /api/v1`);
+  console.log(
+    `NT Message API is running on ${host}:${port} with prefix /api/v1`,
+  );
 }
 
 void bootstrap();

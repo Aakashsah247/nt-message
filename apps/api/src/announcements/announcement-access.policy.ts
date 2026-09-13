@@ -33,10 +33,7 @@ export interface AnnouncementCreatorPolicySubject {
  * and the Office Head takeover rule for historical records.
  */
 export function canModifyAnnouncementByCreator(
-  viewer: Pick<
-    AnnouncementPolicyViewer,
-    'accountId' | 'role' | 'isOfficeHead'
-  >,
+  viewer: Pick<AnnouncementPolicyViewer, 'accountId' | 'role' | 'isOfficeHead'>,
   creator: AnnouncementCreatorPolicySubject,
 ): boolean {
   if (viewer.role === AccountRole.SUPER_ADMIN) {

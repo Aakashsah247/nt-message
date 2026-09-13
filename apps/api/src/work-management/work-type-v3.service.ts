@@ -309,7 +309,6 @@ export class WorkTypeV3Service {
         );
       }
 
-
       if (
         approvalMode === WorkStageApprovalMode.SPECIFIC_LEADERSHIP &&
         stage.approvalLeadershipType === OrgLeadershipType.TEAM_LEAD

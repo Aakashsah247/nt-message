@@ -12,7 +12,6 @@ import { AccessTokenGuard } from '../auth/guards/access-token.guard';
 
 import type { AuthenticatedUser } from '../auth/types/auth.types';
 
-
 import { DirectoryService } from './directory.service';
 import { ListDirectoryQueryDto } from './dto/list-directory-query.dto';
 

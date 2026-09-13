@@ -24,7 +24,9 @@ interface AttachmentUploadRequest {
 @Injectable()
 export class AttachmentTempCleanupInterceptor implements NestInterceptor {
   intercept(context: ExecutionContext, next: CallHandler): Observable<unknown> {
-    const request = context.switchToHttp().getRequest<AttachmentUploadRequest>();
+    const request = context
+      .switchToHttp()
+      .getRequest<AttachmentUploadRequest>();
 
     return next.handle().pipe(
       // `finalize` cannot await an async callback. Materializing the terminal
@@ -33,9 +35,7 @@ export class AttachmentTempCleanupInterceptor implements NestInterceptor {
       concatMap((notification) => {
         if (notification.kind === 'N') return [notification];
 
-        return from(this.cleanupFiles(request)).pipe(
-          map(() => notification),
-        );
+        return from(this.cleanupFiles(request)).pipe(map(() => notification));
       }),
       dematerialize(),
     );

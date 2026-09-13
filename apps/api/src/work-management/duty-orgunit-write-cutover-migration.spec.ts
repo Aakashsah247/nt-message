@@ -18,11 +18,14 @@ describe('Phase 11 Duty V3 write-scope migration', () => {
     ['duty_assignments', 'division_id'],
     ['duty_coverage_requirements', 'department_id'],
     ['duty_exceptions', 'division_id'],
-  ])('makes %s.%s compatibility-only instead of a required write target', (table, column) => {
-    expect(normalizedMigration).toContain(
-      `ALTER TABLE "${table}" ALTER COLUMN "${column}" DROP NOT NULL;`,
-    );
-  });
+  ])(
+    'makes %s.%s compatibility-only instead of a required write target',
+    (table, column) => {
+      expect(normalizedMigration).toContain(
+        `ALTER TABLE "${table}" ALTER COLUMN "${column}" DROP NOT NULL;`,
+      );
+    },
+  );
 
   it('does not remove legacy Duty compatibility columns or tables', () => {
     expect(migration).not.toMatch(/DROP\s+COLUMN/i);

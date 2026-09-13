@@ -42,11 +42,7 @@ export class OrganizationDelegationController {
     officeId: string,
     @Query() query: OrganizationDelegationContextQueryDto,
   ) {
-    return this.delegationService.getUiContext(
-      user,
-      officeId,
-      query,
-    );
+    return this.delegationService.getUiContext(user, officeId, query);
   }
 
   @Post()
@@ -56,11 +52,7 @@ export class OrganizationDelegationController {
     officeId: string,
     @Body() dto: CreateDelegatedPermissionDto,
   ) {
-    return this.delegationService.create(
-      user,
-      officeId,
-      dto,
-    );
+    return this.delegationService.create(user, officeId, dto);
   }
 
   @Patch(':permissionId/revoke')
@@ -72,11 +64,6 @@ export class OrganizationDelegationController {
     permissionId: string,
     @Body() dto: RevokeDelegatedPermissionDto,
   ) {
-    return this.delegationService.revoke(
-      user,
-      officeId,
-      permissionId,
-      dto,
-    );
+    return this.delegationService.revoke(user, officeId, permissionId, dto);
   }
 }

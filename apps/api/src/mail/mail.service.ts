@@ -51,9 +51,7 @@ export interface IdentityCorrectionNotificationEmail {
 export type MailDeliveryFailureCategory = 'SMTP_DELIVERY_FAILED';
 
 export class MailDeliveryError extends Error {
-  constructor(
-    public readonly category: MailDeliveryFailureCategory,
-  ) {
+  constructor(public readonly category: MailDeliveryFailureCategory) {
     super('The email provider could not deliver the message.');
     this.name = 'MailDeliveryError';
   }
@@ -253,9 +251,7 @@ export class MailService {
       throw new MailDeliveryError('SMTP_DELIVERY_FAILED');
     }
   }
-  async sendPasswordResetOtp(
-    email: PasswordResetOtpEmail,
-  ): Promise<void> {
+  async sendPasswordResetOtp(email: PasswordResetOtpEmail): Promise<void> {
     try {
       await this.transporter.sendMail({
         from: this.fromAddress,

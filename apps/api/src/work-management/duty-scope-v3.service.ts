@@ -80,7 +80,9 @@ export class DutyScopeV3Service {
       CAPABILITIES.DUTY_ASSIGN,
     );
     if (!context.officeId) {
-      throw new ForbiddenException('Duty assignment requires an active Office scope.');
+      throw new ForbiddenException(
+        'Duty assignment requires an active Office scope.',
+      );
     }
 
     const uniqueIds = [...new Set(accountIds)];
@@ -119,7 +121,16 @@ export class DutyScopeV3Service {
       },
     });
 
-    const byAccountId = new Map<string, { account: Prisma.AccountGetPayload<{ select: typeof scopedAccountSelect }>; officeId: string; orgUnitId: string }>();
+    const byAccountId = new Map<
+      string,
+      {
+        account: Prisma.AccountGetPayload<{
+          select: typeof scopedAccountSelect;
+        }>;
+        officeId: string;
+        orgUnitId: string;
+      }
+    >();
     for (const placement of placements) {
       const account = placement.employee.account;
       if (account && placement.orgUnitId) {
@@ -175,7 +186,9 @@ export class DutyScopeV3Service {
         select: { id: true, orgUnitId: true },
       });
       if (!team) {
-        throw new NotFoundException('The selected Operational Team is not active in this Office.');
+        throw new NotFoundException(
+          'The selected Operational Team is not active in this Office.',
+        );
       }
       if (
         !context.operationalTeamLeadIds.includes(team.id) &&
@@ -187,7 +200,9 @@ export class DutyScopeV3Service {
           at,
         ))
       ) {
-        throw new ForbiddenException('The selected Operational Team is outside your Duty scope.');
+        throw new ForbiddenException(
+          'The selected Operational Team is outside your Duty scope.',
+        );
       }
     }
 
@@ -205,7 +220,7 @@ export class DutyScopeV3Service {
         officeId: placement.officeId,
         orgUnitId: placement.orgUnitId,
         operationalTeamIds: memberTeamIds,
-      } as DutyScopedAccount;
+      };
     });
     await this.assertAssignableAccountsAuthorized(user, resolved, at);
     return resolved;
@@ -243,11 +258,12 @@ export class DutyScopeV3Service {
     }
 
     const accountIds = new Set<string>([user.accountId]);
-    const visibleOrgUnitIds = await this.organizationAuthorization.visibleOrgUnitIds(
-      user,
-      CAPABILITIES.DUTY_ASSIGN,
-      context.officeId,
-    );
+    const visibleOrgUnitIds =
+      await this.organizationAuthorization.visibleOrgUnitIds(
+        user,
+        CAPABILITIES.DUTY_ASSIGN,
+        context.officeId,
+      );
 
     const leadership = await this.prisma.orgLeadershipAssignment.findMany({
       where: {
@@ -260,7 +276,10 @@ export class DutyScopeV3Service {
         AND: [
           {
             OR: [
-              { leadershipType: OrgLeadershipType.OFFICE_HEAD, orgUnitId: null },
+              {
+                leadershipType: OrgLeadershipType.OFFICE_HEAD,
+                orgUnitId: null,
+              },
               ...(visibleOrgUnitIds.length
                 ? [
                     {
@@ -319,32 +338,35 @@ export class DutyScopeV3Service {
     ];
 
     if (teamScope.length) {
-      const teamLeads = await this.prisma.operationalTeamLeadAssignment.findMany({
-        where: {
-          OR: teamScope,
-          effectiveFrom: { lte: at },
-          AND: [
-            { OR: [{ effectiveUntil: null }, { effectiveUntil: { gt: at } }] },
-          ],
-          employee: {
-            is: {
-              status: EmployeeStatus.ACTIVE,
-              employmentStatus: EmploymentStatus.ACTIVE,
-              archivedAt: null,
-              isActivated: true,
-              account: {
-                is: {
-                  isEnabled: true,
-                  accountClass: AccountClass.OFFICE_USER,
+      const teamLeads =
+        await this.prisma.operationalTeamLeadAssignment.findMany({
+          where: {
+            OR: teamScope,
+            effectiveFrom: { lte: at },
+            AND: [
+              {
+                OR: [{ effectiveUntil: null }, { effectiveUntil: { gt: at } }],
+              },
+            ],
+            employee: {
+              is: {
+                status: EmployeeStatus.ACTIVE,
+                employmentStatus: EmploymentStatus.ACTIVE,
+                archivedAt: null,
+                isActivated: true,
+                account: {
+                  is: {
+                    isEnabled: true,
+                    accountClass: AccountClass.OFFICE_USER,
+                  },
                 },
               },
             },
           },
-        },
-        select: {
-          employee: { select: { account: { select: { id: true } } } },
-        },
-      });
+          select: {
+            employee: { select: { account: { select: { id: true } } } },
+          },
+        });
       for (const assignment of teamLeads) {
         const accountId = assignment.employee.account?.id;
         if (accountId) accountIds.add(accountId);
@@ -387,9 +409,15 @@ export class DutyScopeV3Service {
     at = new Date(),
   ): Promise<DutyScopedAccount> {
     const supervisorId = requestedAccountId ?? user.accountId;
-    const [supervisor] = await this.resolveActiveAccounts([supervisorId], target.officeId, at);
+    const [supervisor] = await this.resolveActiveAccounts(
+      [supervisorId],
+      target.officeId,
+      at,
+    );
     if (!supervisor) {
-      throw new NotFoundException('Duty supervisor was not found in the target Office.');
+      throw new NotFoundException(
+        'Duty supervisor was not found in the target Office.',
+      );
     }
 
     if (supervisor.id === user.accountId) {
@@ -411,14 +439,17 @@ export class DutyScopeV3Service {
       where: {
         employeeId: supervisor.employee!.id,
         officeId: target.officeId,
-        leadershipType: { in: [OrgLeadershipType.OFFICE_HEAD, OrgLeadershipType.ORG_UNIT_HEAD] },
+        leadershipType: {
+          in: [OrgLeadershipType.OFFICE_HEAD, OrgLeadershipType.ORG_UNIT_HEAD],
+        },
         effectiveFrom: { lte: at },
         OR: [{ effectiveUntil: null }, { effectiveUntil: { gt: at } }],
       },
       select: { leadershipType: true, orgUnitId: true },
     });
     for (const assignment of leadership) {
-      if (assignment.leadershipType === OrgLeadershipType.OFFICE_HEAD) return supervisor;
+      if (assignment.leadershipType === OrgLeadershipType.OFFICE_HEAD)
+        return supervisor;
       if (assignment.orgUnitId) {
         const covers = await this.prisma.orgUnitClosure.findUnique({
           where: {
@@ -434,15 +465,16 @@ export class DutyScopeV3Service {
     }
 
     if (target.operationalTeamIds.length) {
-      const teamLead = await this.prisma.operationalTeamLeadAssignment.findFirst({
-        where: {
-          employeeId: supervisor.employee!.id,
-          effectiveFrom: { lte: at },
-          OR: [{ effectiveUntil: null }, { effectiveUntil: { gt: at } }],
-          teamId: { in: target.operationalTeamIds },
-        },
-        select: { id: true },
-      });
+      const teamLead =
+        await this.prisma.operationalTeamLeadAssignment.findFirst({
+          where: {
+            employeeId: supervisor.employee!.id,
+            effectiveFrom: { lte: at },
+            OR: [{ effectiveUntil: null }, { effectiveUntil: { gt: at } }],
+            teamId: { in: target.operationalTeamIds },
+          },
+          select: { id: true },
+        });
       if (teamLead) return supervisor;
     }
 
@@ -535,7 +567,11 @@ export class DutyScopeV3Service {
                     ? { id: { in: context.operationalTeamLeadIds } }
                     : { id: '__no_duty_scope__' }),
                 ...(context.officeId
-                  ? { orgUnit: { is: { officeId: context.officeId, isActive: true } } }
+                  ? {
+                      orgUnit: {
+                        is: { officeId: context.officeId, isActive: true },
+                      },
+                    }
                   : {}),
               }),
         },
@@ -588,13 +624,20 @@ export class DutyScopeV3Service {
       at,
     );
 
-    if (!context.canView && orgUnitIds.length === 0 && teamAccountIds.length === 0) {
+    if (
+      !context.canView &&
+      orgUnitIds.length === 0 &&
+      teamAccountIds.length === 0
+    ) {
       return { employeeAccountId: user.accountId };
     }
 
     const clauses: Prisma.DutyAssignmentWhereInput[] = [];
     if (orgUnitIds.length) {
-      clauses.push({ officeId: context.officeId, orgUnitId: { in: orgUnitIds } });
+      clauses.push({
+        officeId: context.officeId,
+        orgUnitId: { in: orgUnitIds },
+      });
     }
     if (context.operationalTeamLeadIds.length || teamAccountIds.length) {
       clauses.push({
@@ -603,7 +646,12 @@ export class DutyScopeV3Service {
             ? [{ operationalTeamId: { in: context.operationalTeamLeadIds } }]
             : []),
           ...(teamAccountIds.length
-            ? [{ operationalTeamId: null, employeeAccountId: { in: teamAccountIds } }]
+            ? [
+                {
+                  operationalTeamId: null,
+                  employeeAccountId: { in: teamAccountIds },
+                },
+              ]
             : []),
         ],
       });
@@ -631,7 +679,10 @@ export class DutyScopeV3Service {
     );
     const clauses: Prisma.DutyExceptionWhereInput[] = [];
     if (orgUnitIds.length) {
-      clauses.push({ officeId: context.officeId, orgUnitId: { in: orgUnitIds } });
+      clauses.push({
+        officeId: context.officeId,
+        orgUnitId: { in: orgUnitIds },
+      });
     }
     if (teamAccountIds.length) {
       clauses.push({ employeeAccountId: { in: teamAccountIds } });
@@ -658,7 +709,9 @@ export class DutyScopeV3Service {
         },
         select: { employee: { select: { account: { select: { id: true } } } } },
       });
-      return rows.map((row) => row.employee.account?.id).filter((id): id is string => Boolean(id));
+      return rows
+        .map((row) => row.employee.account?.id)
+        .filter((id): id is string => Boolean(id));
     }
     if (!context.officeId) return [user.accountId];
 
@@ -673,16 +726,19 @@ export class DutyScopeV3Service {
           at,
         ))
       ) {
-        throw new ForbiddenException('The selected Operational Team is outside your Duty scope.');
+        throw new ForbiddenException(
+          'The selected Operational Team is outside your Duty scope.',
+        );
       }
       return this.accountIdsForTeams([operationalTeamId], at);
     }
 
-    const visibleOrgUnitIds = await this.organizationAuthorization.visibleOrgUnitIds(
-      user,
-      CAPABILITIES.DUTY_VIEW,
-      context.officeId,
-    );
+    const visibleOrgUnitIds =
+      await this.organizationAuthorization.visibleOrgUnitIds(
+        user,
+        CAPABILITIES.DUTY_VIEW,
+        context.officeId,
+      );
     const scopedOrgUnitIds = orgUnitId
       ? visibleOrgUnitIds.includes(orgUnitId)
         ? [orgUnitId]
@@ -698,11 +754,21 @@ export class DutyScopeV3Service {
             OR: [{ endsAt: null }, { endsAt: { gt: at } }],
             employee: { is: { account: { is: { isEnabled: true } } } },
           },
-          select: { employee: { select: { account: { select: { id: true } } } } },
+          select: {
+            employee: { select: { account: { select: { id: true } } } },
+          },
         })
       : [];
-    const ids = new Set(rows.map((row) => row.employee.account?.id).filter((id): id is string => Boolean(id)));
-    for (const id of await this.accountIdsForTeams(context.operationalTeamLeadIds, at)) ids.add(id);
+    const ids = new Set(
+      rows
+        .map((row) => row.employee.account?.id)
+        .filter((id): id is string => Boolean(id)),
+    );
+    for (const id of await this.accountIdsForTeams(
+      context.operationalTeamLeadIds,
+      at,
+    ))
+      ids.add(id);
     ids.add(user.accountId);
     return [...ids];
   }
@@ -724,36 +790,37 @@ export class DutyScopeV3Service {
     const teamIds = [...new Set(input.operationalTeamIds ?? [])];
 
     if (teamIds.length) {
-      const teamLeads = await this.prisma.operationalTeamLeadAssignment.findMany({
-        where: {
-          teamId: { in: teamIds },
-          effectiveFrom: { lte: at },
-          OR: [{ effectiveUntil: null }, { effectiveUntil: { gt: at } }],
-          team: {
-            is: {
-              isActive: true,
-              archivedAt: null,
-              orgUnit: { is: { officeId: input.officeId, isActive: true } },
+      const teamLeads =
+        await this.prisma.operationalTeamLeadAssignment.findMany({
+          where: {
+            teamId: { in: teamIds },
+            effectiveFrom: { lte: at },
+            OR: [{ effectiveUntil: null }, { effectiveUntil: { gt: at } }],
+            team: {
+              is: {
+                isActive: true,
+                archivedAt: null,
+                orgUnit: { is: { officeId: input.officeId, isActive: true } },
+              },
             },
-          },
-          employee: {
-            is: {
-              status: EmployeeStatus.ACTIVE,
-              employmentStatus: EmploymentStatus.ACTIVE,
-              archivedAt: null,
-              account: {
-                is: {
-                  isEnabled: true,
-                  accountClass: { not: AccountClass.SUPER_ADMIN },
+            employee: {
+              is: {
+                status: EmployeeStatus.ACTIVE,
+                employmentStatus: EmploymentStatus.ACTIVE,
+                archivedAt: null,
+                account: {
+                  is: {
+                    isEnabled: true,
+                    accountClass: { not: AccountClass.SUPER_ADMIN },
+                  },
                 },
               },
             },
           },
-        },
-        select: {
-          employee: { select: { account: { select: { id: true } } } },
-        },
-      });
+          select: {
+            employee: { select: { account: { select: { id: true } } } },
+          },
+        });
       for (const lead of teamLeads) {
         const accountId = lead.employee.account?.id;
         if (accountId) recipients.add(accountId);
@@ -805,7 +872,11 @@ export class DutyScopeV3Service {
     }, null);
     if (nearestDepth !== null) {
       for (const head of orgUnitHeads) {
-        if (!head.orgUnitId || depthByOrgUnitId.get(head.orgUnitId) !== nearestDepth) continue;
+        if (
+          !head.orgUnitId ||
+          depthByOrgUnitId.get(head.orgUnitId) !== nearestDepth
+        )
+          continue;
         const accountId = head.employee.account?.id;
         if (accountId) recipients.add(accountId);
       }
@@ -872,7 +943,9 @@ export class DutyScopeV3Service {
         employee: { select: { account: { select: scopedAccountSelect } } },
       },
     });
-    const employeeIds = memberships.map((row) => row.employee.account?.employee?.id).filter((id): id is string => Boolean(id));
+    const employeeIds = memberships
+      .map((row) => row.employee.account?.employee?.id)
+      .filter((id): id is string => Boolean(id));
     const teamMemberships = employeeIds.length
       ? await this.prisma.operationalTeamMember.findMany({
           where: {
@@ -893,16 +966,21 @@ export class DutyScopeV3Service {
     return memberships.flatMap((row) => {
       const account = row.employee.account;
       if (!account || !row.orgUnitId || !account.employee) return [];
-      return [{
-        ...account,
-        officeId: row.officeId,
-        orgUnitId: row.orgUnitId,
-        operationalTeamIds: teamsByEmployee.get(account.employee.id) ?? [],
-      }];
+      return [
+        {
+          ...account,
+          officeId: row.officeId,
+          orgUnitId: row.orgUnitId,
+          operationalTeamIds: teamsByEmployee.get(account.employee.id) ?? [],
+        },
+      ];
     });
   }
 
-  private async accountIdsForTeams(teamIds: string[], at: Date): Promise<string[]> {
+  private async accountIdsForTeams(
+    teamIds: string[],
+    at: Date,
+  ): Promise<string[]> {
     if (!teamIds.length) return [];
     const rows = await this.prisma.operationalTeamMember.findMany({
       where: {
@@ -914,6 +992,8 @@ export class DutyScopeV3Service {
       },
       select: { employee: { select: { account: { select: { id: true } } } } },
     });
-    return rows.map((row) => row.employee.account?.id).filter((id): id is string => Boolean(id));
+    return rows
+      .map((row) => row.employee.account?.id)
+      .filter((id): id is string => Boolean(id));
   }
 }

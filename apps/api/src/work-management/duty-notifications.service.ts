@@ -210,6 +210,8 @@ export class DutyNotificationsService {
   }
 
   private safeErrorMessage(error: unknown): string {
-    return error instanceof Error ? error.message : 'Unknown notification error';
+    return error instanceof Error
+      ? error.message
+      : 'Unknown notification error';
   }
 }

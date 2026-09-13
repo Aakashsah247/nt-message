@@ -71,11 +71,7 @@ export class OrganizationHierarchyController {
     @Param('officeId', new ParseUUIDPipe({ version: '4' }))
     officeId: string,
   ) {
-    return this.hierarchyService.getAvailableActions(
-      user,
-      officeId,
-      null,
-    );
+    return this.hierarchyService.getAvailableActions(user, officeId, null);
   }
 
   @Get('offices/:officeId/units/:unitId/actions')
@@ -86,11 +82,7 @@ export class OrganizationHierarchyController {
     @Param('unitId', new ParseUUIDPipe({ version: '4' }))
     unitId: string,
   ) {
-    return this.hierarchyService.getAvailableActions(
-      user,
-      officeId,
-      unitId,
-    );
+    return this.hierarchyService.getAvailableActions(user, officeId, unitId);
   }
 
   @Post('offices/:officeId/unit-types')
@@ -100,11 +92,7 @@ export class OrganizationHierarchyController {
     officeId: string,
     @Body() dto: CreateOrgUnitTypeDto,
   ) {
-    return this.hierarchyService.createUnitType(
-      user,
-      officeId,
-      dto,
-    );
+    return this.hierarchyService.createUnitType(user, officeId, dto);
   }
 
   @Patch('offices/:officeId/unit-types/:typeId')
@@ -116,12 +104,7 @@ export class OrganizationHierarchyController {
     typeId: string,
     @Body() dto: UpdateOrgUnitTypeDto,
   ) {
-    return this.hierarchyService.updateUnitType(
-      user,
-      officeId,
-      typeId,
-      dto,
-    );
+    return this.hierarchyService.updateUnitType(user, officeId, typeId, dto);
   }
 
   @Post('offices/:officeId/units')
@@ -131,11 +114,7 @@ export class OrganizationHierarchyController {
     officeId: string,
     @Body() dto: CreateOrgUnitDto,
   ) {
-    return this.hierarchyService.createOrgUnit(
-      user,
-      officeId,
-      dto,
-    );
+    return this.hierarchyService.createOrgUnit(user, officeId, dto);
   }
 
   @Patch('offices/:officeId/units/:unitId')
@@ -147,12 +126,7 @@ export class OrganizationHierarchyController {
     unitId: string,
     @Body() dto: UpdateOrgUnitDto,
   ) {
-    return this.hierarchyService.updateOrgUnit(
-      user,
-      officeId,
-      unitId,
-      dto,
-    );
+    return this.hierarchyService.updateOrgUnit(user, officeId, unitId, dto);
   }
 
   @Patch('offices/:officeId/units/:unitId/move')
@@ -164,12 +138,7 @@ export class OrganizationHierarchyController {
     unitId: string,
     @Body() dto: MoveOrgUnitDto,
   ) {
-    return this.hierarchyService.moveOrgUnit(
-      user,
-      officeId,
-      unitId,
-      dto,
-    );
+    return this.hierarchyService.moveOrgUnit(user, officeId, unitId, dto);
   }
 
   @Patch('offices/:officeId/units/:unitId/status')
@@ -181,11 +150,6 @@ export class OrganizationHierarchyController {
     unitId: string,
     @Body() dto: SetOrgUnitStatusDto,
   ) {
-    return this.hierarchyService.setOrgUnitStatus(
-      user,
-      officeId,
-      unitId,
-      dto,
-    );
+    return this.hierarchyService.setOrgUnitStatus(user, officeId, unitId, dto);
   }
 }

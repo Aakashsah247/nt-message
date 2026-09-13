@@ -1,7 +1,12 @@
 import { Type } from 'class-transformer';
 import { IsIn, IsInt, IsOptional, IsUUID, Max, Min } from 'class-validator';
 
-export const conversationListViews = ['ACTIVE', 'ARCHIVED', 'FAVORITES', 'ALL'] as const;
+export const conversationListViews = [
+  'ACTIVE',
+  'ARCHIVED',
+  'FAVORITES',
+  'ALL',
+] as const;
 
 export type ConversationListView = (typeof conversationListViews)[number];
 

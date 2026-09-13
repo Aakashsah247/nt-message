@@ -10,12 +10,15 @@ describe('bounded attachment temporary storage', () => {
   let tempRoot: string;
 
   beforeEach(async () => {
-    tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'nt-message-upload-test-'));
+    tempRoot = await fs.mkdtemp(
+      path.join(os.tmpdir(), 'nt-message-upload-test-'),
+    );
     process.env.ATTACHMENT_UPLOAD_TEMP_DIR = tempRoot;
   });
 
   afterEach(async () => {
-    if (originalTempRoot === undefined) delete process.env.ATTACHMENT_UPLOAD_TEMP_DIR;
+    if (originalTempRoot === undefined)
+      delete process.env.ATTACHMENT_UPLOAD_TEMP_DIR;
     else process.env.ATTACHMENT_UPLOAD_TEMP_DIR = originalTempRoot;
     await fs.rm(tempRoot, { recursive: true, force: true });
   });
@@ -25,7 +28,11 @@ describe('bounded attachment temporary storage', () => {
     const request = {} as never;
     const content = Buffer.alloc(16 * 1024, 0x61);
 
-    const stored = await new Promise<{ path: string; buffer: Buffer; size: number }>((resolve, reject) => {
+    const stored = await new Promise<{
+      path: string;
+      buffer: Buffer;
+      size: number;
+    }>((resolve, reject) => {
       const stream = new PassThrough();
       void storage._handleFile(request, { stream }, (error, file) => {
         if (error) reject(error);

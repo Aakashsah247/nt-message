@@ -3,10 +3,7 @@ import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
 
 import { PrismaService } from '../../database/prisma.service';
-import {
-  AccountClass,
-  AccountRole,
-} from '../../generated/prisma/client';
+import { AccountClass, AccountRole } from '../../generated/prisma/client';
 import type {
   AccessTokenPayload,
   AuthenticatedUser,
@@ -122,6 +119,4 @@ export class AccessTokenValidationService {
       role,
     };
   }
-
-
 }

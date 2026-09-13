@@ -48,9 +48,11 @@ describe('DutyAuthorizationService', () => {
         findMany: jest.fn().mockResolvedValue([]),
       },
       orgUnit: {
-        findMany: jest.fn().mockResolvedValue([
-          { id: 'unit-1', code: 'UNIT', name: 'Unit One' },
-        ]),
+        findMany: jest
+          .fn()
+          .mockResolvedValue([
+            { id: 'unit-1', code: 'UNIT', name: 'Unit One' },
+          ]),
       },
       operationalTeam: {
         findMany: jest.fn().mockResolvedValue([]),

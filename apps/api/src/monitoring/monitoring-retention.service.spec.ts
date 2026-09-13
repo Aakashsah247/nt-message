@@ -27,9 +27,11 @@ describe('MonitoringService retention cleanup', () => {
       .mocked(prisma.dailyActivitySummary.deleteMany)
       .mockResolvedValue({ count: 1 });
 
-    await (service as unknown as {
-      cleanupOldMonitoringRecords: () => Promise<void>;
-    }).cleanupOldMonitoringRecords();
+    await (
+      service as unknown as {
+        cleanupOldMonitoringRecords: () => Promise<void>;
+      }
+    ).cleanupOldMonitoringRecords();
 
     expect(activityDeleteMany).toHaveBeenCalledTimes(1);
     expect(summaryDeleteMany).toHaveBeenCalledTimes(1);
@@ -49,9 +51,11 @@ describe('MonitoringService retention cleanup', () => {
       .mockResolvedValueOnce({ count: 0 });
 
     const cleanup = () =>
-      (service as unknown as {
-        cleanupOldMonitoringRecords: () => Promise<void>;
-      }).cleanupOldMonitoringRecords();
+      (
+        service as unknown as {
+          cleanupOldMonitoringRecords: () => Promise<void>;
+        }
+      ).cleanupOldMonitoringRecords();
 
     await expect(cleanup()).resolves.toBeUndefined();
     await expect(cleanup()).resolves.toBeUndefined();
@@ -74,9 +78,11 @@ describe('MonitoringService retention cleanup', () => {
       .mockResolvedValue({ count: 0 });
 
     const cleanup = () =>
-      (service as unknown as {
-        cleanupOldMonitoringRecords: () => Promise<void>;
-      }).cleanupOldMonitoringRecords();
+      (
+        service as unknown as {
+          cleanupOldMonitoringRecords: () => Promise<void>;
+        }
+      ).cleanupOldMonitoringRecords();
 
     const firstRun = cleanup();
     await cleanup();

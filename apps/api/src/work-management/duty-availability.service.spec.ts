@@ -4,7 +4,6 @@ import type { PrismaService } from '../database/prisma.service';
 import {
   AccountClass,
   AccountRole,
-  OrgLeadershipType,
   WorkAvailabilityPreference,
 } from '../generated/prisma/enums';
 import type { MessagingPresenceService } from '../realtime/messaging-presence.service';
@@ -86,10 +85,11 @@ describe('DutyAvailabilityService M20 Phase 5', () => {
     });
     jest
       .mocked(prisma.$transaction)
-      .mockImplementation(async (callback: unknown) =>
-        (callback as (client: typeof transaction) => Promise<unknown>)(
-          transaction,
-        ) as never,
+      .mockImplementation(
+        async (callback: unknown) =>
+          (callback as (client: typeof transaction) => Promise<unknown>)(
+            transaction,
+          ) as never,
       );
   });
 
@@ -188,10 +188,14 @@ describe('DutyAvailabilityService M20 Phase 5', () => {
   });
 
   it('rejects direct help when the selected coworker is off duty', async () => {
-    jest.mocked(prisma.account.findFirst).mockResolvedValue({ id: 'helper' } as never);
+    jest
+      .mocked(prisma.account.findFirst)
+      .mockResolvedValue({ id: 'helper' } as never);
     jest.mocked(prisma.dutyAssignment.findFirst).mockResolvedValue(null);
     jest.mocked(prisma.dutyException.findUnique).mockResolvedValue(null);
-    jest.mocked(prisma.employeeWorkAvailability.findUnique).mockResolvedValue(null);
+    jest
+      .mocked(prisma.employeeWorkAvailability.findUnique)
+      .mockResolvedValue(null);
 
     await expect(
       service.assertCanReceiveDirectHelp('helper', 'department-a'),
@@ -264,5 +268,4 @@ describe('DutyAvailabilityService M20 Phase 5', () => {
       ),
     ).rejects.toBeInstanceOf(ForbiddenException);
   });
-
 });

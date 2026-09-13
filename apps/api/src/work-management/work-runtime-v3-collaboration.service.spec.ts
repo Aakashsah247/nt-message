@@ -150,7 +150,9 @@ function createHarness() {
   };
   const notifications = {
     publishCollaborationRequested: jest.fn().mockResolvedValue(undefined),
-    publishCollaborationReadyStageEvents: jest.fn().mockResolvedValue(undefined),
+    publishCollaborationReadyStageEvents: jest
+      .fn()
+      .mockResolvedValue(undefined),
   };
 
   return {

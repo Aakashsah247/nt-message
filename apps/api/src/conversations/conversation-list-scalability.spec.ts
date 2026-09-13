@@ -109,19 +109,27 @@ describe('ConversationsService conversation-list scalability', () => {
         requireMessageRequests: false,
       }),
     });
-    Object.defineProperty(service, 'synchronizeOfficialGroupsForAccountSafely', {
-      value: jest.fn().mockResolvedValue(undefined),
-    });
+    Object.defineProperty(
+      service,
+      'synchronizeOfficialGroupsForAccountSafely',
+      {
+        value: jest.fn().mockResolvedValue(undefined),
+      },
+    );
     Object.defineProperty(service, 'markReceiptsDelivered', {
       value: jest.fn().mockResolvedValue(0),
     });
   });
 
-  function boundedParticipant(
-    conversationId: string,
-  ) {
+  function boundedParticipant(conversationId: string) {
     const row = participantRow(conversationId, 0);
-    const { conversation: _conversation, unreadCount: _unreadCount, ...participant } = row;
+    const {
+      conversation: _conversation,
+      unreadCount: _unreadCount,
+      ...participant
+    } = row;
+    void _conversation;
+    void _unreadCount;
 
     return {
       conversationId,
@@ -166,9 +174,9 @@ describe('ConversationsService conversation-list scalability', () => {
     expect(prisma.messageReceipt.count).not.toHaveBeenCalled();
     expect(prisma.message.findFirst).not.toHaveBeenCalled();
     expect(prisma.message.findMany).not.toHaveBeenCalled();
-    expect(result.data.map((conversation) => conversation.unreadCount)).toEqual([
-      3, 7,
-    ]);
+    expect(result.data.map((conversation) => conversation.unreadCount)).toEqual(
+      [3, 7],
+    );
   });
 
   it('loads sidebar preview messages without recipient receipt fan-out', async () => {
@@ -179,9 +187,11 @@ describe('ConversationsService conversation-list scalability', () => {
       .mocked(prisma.conversationParticipant.findMany)
       .mockResolvedValueOnce([first] as never)
       .mockResolvedValueOnce([boundedParticipant(conversationOne)] as never);
-    jest.mocked(prisma.conversationParticipant.groupBy).mockResolvedValue([
-      { conversationId: conversationOne, _count: { _all: 1 } },
-    ] as never);
+    jest
+      .mocked(prisma.conversationParticipant.groupBy)
+      .mockResolvedValue([
+        { conversationId: conversationOne, _count: { _all: 1 } },
+      ] as never);
     jest.mocked(prisma.$queryRawUnsafe).mockResolvedValue([
       {
         conversationId: conversationOne,
@@ -216,7 +226,8 @@ describe('ConversationsService conversation-list scalability', () => {
     });
 
     expect(prisma.message.findMany).toHaveBeenCalledTimes(1);
-    const previewQuery = jest.mocked(prisma.message.findMany).mock.calls[0]?.[0];
+    const previewQuery = jest.mocked(prisma.message.findMany).mock
+      .calls[0]?.[0];
     expect(previewQuery?.select).not.toHaveProperty('receipts');
     expect(previewQuery?.select).not.toHaveProperty('reactions');
     expect(previewQuery?.select).not.toHaveProperty('stars');
@@ -230,9 +241,11 @@ describe('ConversationsService conversation-list scalability', () => {
     jest
       .mocked(prisma.conversationParticipant.findMany)
       .mockResolvedValueOnce([official] as never);
-    jest.mocked(prisma.conversationParticipant.groupBy).mockResolvedValue([
-      { conversationId: conversationOne, _count: { _all: 10_000 } },
-    ] as never);
+    jest
+      .mocked(prisma.conversationParticipant.groupBy)
+      .mockResolvedValue([
+        { conversationId: conversationOne, _count: { _all: 10_000 } },
+      ] as never);
     jest.mocked(prisma.$queryRawUnsafe).mockResolvedValue([
       {
         conversationId: conversationOne,
@@ -253,11 +266,10 @@ describe('ConversationsService conversation-list scalability', () => {
     expect(result.data[0]?.participants[0]?.accountId).toBe(viewerAccountId);
     expect(result.data[0]?.participantsComplete).toBe(false);
 
-    const listQuery = jest.mocked(prisma.conversationParticipant.findMany)
-      .mock.calls[0]?.[0];
+    const listQuery = jest.mocked(prisma.conversationParticipant.findMany).mock
+      .calls[0]?.[0];
     expect(listQuery?.select?.conversation?.select).not.toHaveProperty(
       'participants',
     );
   });
-
 });

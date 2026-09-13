@@ -111,7 +111,8 @@ export class WorkRuntimeV3Controller {
   getWork(
     @CurrentUser() user: AuthenticatedUser,
     @Param('officeId', new ParseUUIDPipe({ version: '4' })) officeId: string,
-    @Param('workItemId', new ParseUUIDPipe({ version: '4' })) workItemId: string,
+    @Param('workItemId', new ParseUUIDPipe({ version: '4' }))
+    workItemId: string,
   ) {
     return this.workRuntime.getWork(user, officeId, workItemId);
   }
@@ -120,7 +121,8 @@ export class WorkRuntimeV3Controller {
   getWorkSlaSummary(
     @CurrentUser() user: AuthenticatedUser,
     @Param('officeId', new ParseUUIDPipe({ version: '4' })) officeId: string,
-    @Param('workItemId', new ParseUUIDPipe({ version: '4' })) workItemId: string,
+    @Param('workItemId', new ParseUUIDPipe({ version: '4' }))
+    workItemId: string,
   ) {
     return this.workRuntime.getWorkSlaSummary(user, officeId, workItemId);
   }
@@ -129,17 +131,23 @@ export class WorkRuntimeV3Controller {
   async getWorkActions(
     @CurrentUser() user: AuthenticatedUser,
     @Param('officeId', new ParseUUIDPipe({ version: '4' })) officeId: string,
-    @Param('workItemId', new ParseUUIDPipe({ version: '4' })) workItemId: string,
+    @Param('workItemId', new ParseUUIDPipe({ version: '4' }))
+    workItemId: string,
   ) {
     await this.workRuntime.getWork(user, officeId, workItemId);
-    return this.stageRuntime.getWorkAvailableActions(user, officeId, workItemId);
+    return this.stageRuntime.getWorkAvailableActions(
+      user,
+      officeId,
+      workItemId,
+    );
   }
 
   @Post('work-items/:workItemId/collaboration-requests')
   requestCollaboration(
     @CurrentUser() user: AuthenticatedUser,
     @Param('officeId', new ParseUUIDPipe({ version: '4' })) officeId: string,
-    @Param('workItemId', new ParseUUIDPipe({ version: '4' })) workItemId: string,
+    @Param('workItemId', new ParseUUIDPipe({ version: '4' }))
+    workItemId: string,
     @Body() dto: CreateWorkRuntimeV3CollaborationRequestDto,
   ) {
     return this.collaborationRuntime.request(user, officeId, workItemId, dto);
@@ -149,7 +157,8 @@ export class WorkRuntimeV3Controller {
   listWorkCollaborations(
     @CurrentUser() user: AuthenticatedUser,
     @Param('officeId', new ParseUUIDPipe({ version: '4' })) officeId: string,
-    @Param('workItemId', new ParseUUIDPipe({ version: '4' })) workItemId: string,
+    @Param('workItemId', new ParseUUIDPipe({ version: '4' }))
+    workItemId: string,
   ) {
     return this.collaborationRuntime.listForWork(user, officeId, workItemId);
   }
@@ -294,7 +303,8 @@ export class WorkRuntimeV3Controller {
   completeWork(
     @CurrentUser() user: AuthenticatedUser,
     @Param('officeId', new ParseUUIDPipe({ version: '4' })) officeId: string,
-    @Param('workItemId', new ParseUUIDPipe({ version: '4' })) workItemId: string,
+    @Param('workItemId', new ParseUUIDPipe({ version: '4' }))
+    workItemId: string,
     @Body() dto: CompleteWorkRuntimeV3Dto,
   ) {
     return this.stageRuntime.completeWork(user, officeId, workItemId, dto);
@@ -304,7 +314,8 @@ export class WorkRuntimeV3Controller {
   cancelWork(
     @CurrentUser() user: AuthenticatedUser,
     @Param('officeId', new ParseUUIDPipe({ version: '4' })) officeId: string,
-    @Param('workItemId', new ParseUUIDPipe({ version: '4' })) workItemId: string,
+    @Param('workItemId', new ParseUUIDPipe({ version: '4' }))
+    workItemId: string,
     @Body() dto: CancelWorkRuntimeV3Dto,
   ) {
     return this.stageRuntime.cancelWork(user, officeId, workItemId, dto);
@@ -314,7 +325,8 @@ export class WorkRuntimeV3Controller {
   reopenWork(
     @CurrentUser() user: AuthenticatedUser,
     @Param('officeId', new ParseUUIDPipe({ version: '4' })) officeId: string,
-    @Param('workItemId', new ParseUUIDPipe({ version: '4' })) workItemId: string,
+    @Param('workItemId', new ParseUUIDPipe({ version: '4' }))
+    workItemId: string,
     @Body() dto: ReopenWorkRuntimeV3Dto,
   ) {
     return this.stageRuntime.reopenWork(user, officeId, workItemId, dto);

@@ -31,7 +31,6 @@ import {
   GroupKind,
   MessagingNotificationType,
   OfficialGroupMembershipMode,
-  OfficialGroupScopeType,
   OrgMembershipType,
 } from '../generated/prisma/client';
 import type { Prisma } from '../generated/prisma/client';
@@ -205,12 +204,11 @@ export class AnnouncementsService implements OnModuleInit, OnModuleDestroy {
   constructor(
     private readonly prisma: PrismaService,
     private readonly messagingEventsService: MessagingEventsService,
-    private readonly organizationAuthorization: OrganizationAuthorizationService =
-      new OrganizationAuthorizationService(prisma),
-    private readonly attachmentStorageService: AttachmentStorageService =
-      new AttachmentStorageService(),
-    private readonly attachmentSecurityService: AttachmentSecurityService =
-      new AttachmentSecurityService(),
+    private readonly organizationAuthorization: OrganizationAuthorizationService = new OrganizationAuthorizationService(
+      prisma,
+    ),
+    private readonly attachmentStorageService: AttachmentStorageService = new AttachmentStorageService(),
+    private readonly attachmentSecurityService: AttachmentSecurityService = new AttachmentSecurityService(),
   ) {}
 
   onModuleInit(): void {
@@ -279,9 +277,7 @@ export class AnnouncementsService implements OnModuleInit, OnModuleDestroy {
         where: {
           officeId,
           isActive: true,
-          ...(canTargetOffice
-            ? {}
-            : { id: { in: manageableOrgUnitIds } }),
+          ...(canTargetOffice ? {} : { id: { in: manageableOrgUnitIds } }),
         },
         orderBy: [{ sortOrder: 'asc' }, { name: 'asc' }],
         select: {
@@ -330,7 +326,9 @@ export class AnnouncementsService implements OnModuleInit, OnModuleDestroy {
     ]);
 
     if (!office) {
-      throw new ConflictException('The active announcement Office was not found.');
+      throw new ConflictException(
+        'The active announcement Office was not found.',
+      );
     }
 
     const officialGroupAuthorization = await Promise.all(
@@ -374,7 +372,10 @@ export class AnnouncementsService implements OnModuleInit, OnModuleDestroy {
     const now = new Date();
     const title = dto.title?.trim() ?? '';
     const body = dto.body?.trim() ?? '';
-    const scheduledAt = this.parseOptionalDate(dto.scheduledAt, 'scheduled time');
+    const scheduledAt = this.parseOptionalDate(
+      dto.scheduledAt,
+      'scheduled time',
+    );
     const expiresAt = this.parseOptionalDate(dto.expiresAt, 'expiry time');
     const requiresAcknowledgement = dto.requiresAcknowledgement ?? false;
     const isPinned = requiresAcknowledgement || (dto.isPinned ?? false);
@@ -406,8 +407,7 @@ export class AnnouncementsService implements OnModuleInit, OnModuleDestroy {
               body,
               priority: dto.priority ?? AnnouncementPriority.NORMAL,
               requiresAcknowledgement,
-              allowAttachmentDownload:
-                dto.allowAttachmentDownload ?? true,
+              allowAttachmentDownload: dto.allowAttachmentDownload ?? true,
               isPinned,
               expiresAt,
             },
@@ -607,7 +607,10 @@ export class AnnouncementsService implements OnModuleInit, OnModuleDestroy {
     this.validatePublishable(existing);
     const now = new Date();
 
-    if (existing.scheduledAt && existing.scheduledAt.getTime() > now.getTime()) {
+    if (
+      existing.scheduledAt &&
+      existing.scheduledAt.getTime() > now.getTime()
+    ) {
       const scheduled = await this.prisma.announcement.update({
         where: { id: announcementId },
         data: {
@@ -702,7 +705,11 @@ export class AnnouncementsService implements OnModuleInit, OnModuleDestroy {
     if (query.officialConversationId) {
       // The announcement workspace selects one official group at a time.
       where.AND = [
-        ...(Array.isArray(where.AND) ? where.AND : where.AND ? [where.AND] : []),
+        ...(Array.isArray(where.AND)
+          ? where.AND
+          : where.AND
+            ? [where.AND]
+            : []),
         {
           audienceType: AnnouncementAudienceType.OFFICIAL_GROUP,
           officialConversationId: query.officialConversationId,
@@ -712,7 +719,11 @@ export class AnnouncementsService implements OnModuleInit, OnModuleDestroy {
 
     if (searchText) {
       where.AND = [
-        ...(Array.isArray(where.AND) ? where.AND : where.AND ? [where.AND] : []),
+        ...(Array.isArray(where.AND)
+          ? where.AND
+          : where.AND
+            ? [where.AND]
+            : []),
         {
           OR: [
             { title: { contains: searchText, mode: 'insensitive' } },
@@ -806,14 +817,16 @@ export class AnnouncementsService implements OnModuleInit, OnModuleDestroy {
           ),
           attachmentCount: attachments.length,
           attachmentCategories: [
-            ...new Set(attachments.map((attachment) => attachment.contentCategory)),
+            ...new Set(
+              attachments.map((attachment) => attachment.contentCategory),
+            ),
           ],
           createdAt: record.createdAt,
           updatedAt: record.updatedAt,
         };
       }),
       pagination: {
-        nextCursor: hasMore ? page.at(-1)?.id ?? null : null,
+        nextCursor: hasMore ? (page.at(-1)?.id ?? null) : null,
         hasMore,
       },
     };
@@ -822,7 +835,10 @@ export class AnnouncementsService implements OnModuleInit, OnModuleDestroy {
   async getById(user: AuthenticatedUser, announcementId: string) {
     const viewer = await this.getViewer(user.accountId);
     const announcement = await this.getAnnouncement(announcementId);
-    const canManage = await this.assertCanViewAnnouncement(viewer, announcement);
+    const canManage = await this.assertCanViewAnnouncement(
+      viewer,
+      announcement,
+    );
 
     return {
       data: this.serializeAnnouncement(announcement, viewer, canManage),
@@ -935,17 +951,19 @@ export class AnnouncementsService implements OnModuleInit, OnModuleDestroy {
         throw new NotFoundException('Announcement was not found.');
       }
 
-      const inserted = await transaction.announcementAcknowledgement.createMany({
-        data: [
-          {
-            announcementId,
-            accountId: viewer.accountId,
-            revisionNumber: announcement.currentRevision,
-            acknowledgedAt,
-          },
-        ],
-        skipDuplicates: true,
-      });
+      const inserted = await transaction.announcementAcknowledgement.createMany(
+        {
+          data: [
+            {
+              announcementId,
+              accountId: viewer.accountId,
+              revisionNumber: announcement.currentRevision,
+              acknowledgedAt,
+            },
+          ],
+          skipDuplicates: true,
+        },
+      );
 
       const acknowledgement =
         await transaction.announcementAcknowledgement.findUniqueOrThrow({
@@ -1073,7 +1091,8 @@ export class AnnouncementsService implements OnModuleInit, OnModuleDestroy {
       throw new NotFoundException('Official group was not found.');
     }
 
-    const visibilityBoundary = participant.historyClearedAt ?? participant.joinedAt;
+    const visibilityBoundary =
+      participant.historyClearedAt ?? participant.joinedAt;
     const records = await this.prisma.announcement.findMany({
       where: {
         officialConversationId: conversationId,
@@ -1121,7 +1140,7 @@ export class AnnouncementsService implements OnModuleInit, OnModuleDestroy {
         ),
       })),
       pagination: {
-        nextCursor: hasMore ? page.at(-1)?.id ?? null : null,
+        nextCursor: hasMore ? (page.at(-1)?.id ?? null) : null,
         hasMore,
       },
     };
@@ -1358,14 +1377,10 @@ export class AnnouncementsService implements OnModuleInit, OnModuleDestroy {
       );
     }
 
-
     const attachment = announcement.attachments.find(
       (item) =>
         item.id === attachmentId &&
-        this.isAttachmentVisibleAtRevision(
-          item,
-          announcement.currentRevision,
-        ),
+        this.isAttachmentVisibleAtRevision(item, announcement.currentRevision),
     );
 
     if (!attachment) {
@@ -1373,10 +1388,7 @@ export class AnnouncementsService implements OnModuleInit, OnModuleDestroy {
     }
 
     if (
-      isAttachmentReferenceExpired(
-        attachment.expiresAt,
-        attachment.expiredAt,
-      )
+      isAttachmentReferenceExpired(attachment.expiresAt, attachment.expiredAt)
     ) {
       throw new NotFoundException(
         'This announcement attachment has expired and is no longer available.',
@@ -1404,7 +1416,9 @@ export class AnnouncementsService implements OnModuleInit, OnModuleDestroy {
         attachment.storageKey,
       ))
     ) {
-      throw new NotFoundException('Announcement attachment file was not found.');
+      throw new NotFoundException(
+        'Announcement attachment file was not found.',
+      );
     }
 
     return {
@@ -1462,7 +1476,11 @@ export class AnnouncementsService implements OnModuleInit, OnModuleDestroy {
           await this.claimAnnouncementForPublishing(item.id, [
             AnnouncementStatus.SCHEDULED,
           ]);
-          await this.finalizePublication(item.id, item.createdByAccountId, null);
+          await this.finalizePublication(
+            item.id,
+            item.createdByAccountId,
+            null,
+          );
         } catch (error) {
           await this.releaseFailedPublication(item.id, error);
           this.logger.warn(
@@ -1513,9 +1531,7 @@ export class AnnouncementsService implements OnModuleInit, OnModuleDestroy {
     }
   }
 
-  async cleanupExpiredAttachmentRetention(
-    now = new Date(),
-  ): Promise<{
+  async cleanupExpiredAttachmentRetention(now = new Date()): Promise<{
     expiredReferenceCount: number;
     purgedObjectCount: number;
     failedObjectCount: number;
@@ -1595,9 +1611,7 @@ export class AnnouncementsService implements OnModuleInit, OnModuleDestroy {
           continue;
         }
 
-        const removed = await this.deleteAttachmentFileWithResult(
-          storageKey,
-        );
+        const removed = await this.deleteAttachmentFileWithResult(storageKey);
 
         if (!removed) {
           failedObjectCount += 1;
@@ -1740,9 +1754,8 @@ export class AnnouncementsService implements OnModuleInit, OnModuleDestroy {
     } else {
       await this.assertCanManageAnnouncement(publisher, announcement);
     }
-    const recipientAccountIds = await this.resolveRecipientAccountIds(
-      announcement,
-    );
+    const recipientAccountIds =
+      await this.resolveRecipientAccountIds(announcement);
 
     if (recipientAccountIds.length === 0) {
       throw new ConflictException(
@@ -1780,8 +1793,7 @@ export class AnnouncementsService implements OnModuleInit, OnModuleDestroy {
             body: bodyPreview,
             metadata: {
               priority: announcement.priority,
-              requiresAcknowledgement:
-                announcement.requiresAcknowledgement,
+              requiresAcknowledgement: announcement.requiresAcknowledgement,
               revisionNumber: announcement.currentRevision,
               audienceType: announcement.audienceType,
             },
@@ -1903,7 +1915,7 @@ export class AnnouncementsService implements OnModuleInit, OnModuleDestroy {
         audience.orgUnitId,
         audience.audienceType === AnnouncementAudienceType.OFFICIAL_GROUP
           ? audience.officialMembershipMode ===
-            OfficialGroupMembershipMode.ENTIRE_SUBTREE
+              OfficialGroupMembershipMode.ENTIRE_SUBTREE
           : audience.includeDescendants,
       ))
     ) {
@@ -1942,7 +1954,9 @@ export class AnnouncementsService implements OnModuleInit, OnModuleDestroy {
         select: { id: true, name: true },
       });
       if (!office) {
-        throw new NotFoundException('Active announcement Office was not found.');
+        throw new NotFoundException(
+          'Active announcement Office was not found.',
+        );
       }
 
       return {
@@ -1956,11 +1970,7 @@ export class AnnouncementsService implements OnModuleInit, OnModuleDestroy {
     }
 
     if (input.audienceType === AnnouncementAudienceType.ORG_UNIT) {
-      if (
-        !input.officeId ||
-        !input.orgUnitId ||
-        input.officialConversationId
-      ) {
+      if (!input.officeId || !input.orgUnitId || input.officialConversationId) {
         throw new BadRequestException(
           'An OrgUnit announcement requires exactly one Office and OrgUnit.',
         );
@@ -1980,7 +1990,9 @@ export class AnnouncementsService implements OnModuleInit, OnModuleDestroy {
         },
       });
       if (!orgUnit) {
-        throw new NotFoundException('Active announcement OrgUnit was not found.');
+        throw new NotFoundException(
+          'Active announcement OrgUnit was not found.',
+        );
       }
 
       return {
@@ -2120,9 +2132,7 @@ export class AnnouncementsService implements OnModuleInit, OnModuleDestroy {
     const visible = new Set(visibleIds);
     visible.add(orgUnitId);
 
-    return descendants.every((link) =>
-      visible.has(link.descendantOrgUnitId),
-    );
+    return descendants.every((link) => visible.has(link.descendantOrgUnitId));
   }
 
   private async resolveRecipientAccountIds(
@@ -2130,9 +2140,7 @@ export class AnnouncementsService implements OnModuleInit, OnModuleDestroy {
   ): Promise<string[]> {
     const now = new Date();
 
-    if (
-      announcement.audienceType === AnnouncementAudienceType.OFFICIAL_GROUP
-    ) {
+    if (announcement.audienceType === AnnouncementAudienceType.OFFICIAL_GROUP) {
       const participants = await this.prisma.conversationParticipant.findMany({
         where: {
           conversationId: announcement.officialConversationId ?? undefined,
@@ -2202,9 +2210,7 @@ export class AnnouncementsService implements OnModuleInit, OnModuleDestroy {
               membershipType: OrgMembershipType.PRIMARY,
               startsAt: { lte: at },
               OR: [{ endsAt: null }, { endsAt: { gt: at } }],
-              ...(orgUnitIds
-                ? { orgUnitId: { in: orgUnitIds } }
-                : {}),
+              ...(orgUnitIds ? { orgUnitId: { in: orgUnitIds } } : {}),
             },
           },
         },
@@ -2241,12 +2247,7 @@ export class AnnouncementsService implements OnModuleInit, OnModuleDestroy {
       if (!canTargetOffice) {
         for (const orgUnitId of manageableOrgUnitIds) {
           if (
-            await this.canPublishScope(
-              viewer,
-              viewer.officeId,
-              orgUnitId,
-              true,
-            )
+            await this.canPublishScope(viewer, viewer.officeId, orgUnitId, true)
           ) {
             subtreeManageableOrgUnitIds.push(orgUnitId);
           }
@@ -2567,7 +2568,7 @@ export class AnnouncementsService implements OnModuleInit, OnModuleDestroy {
       announcement.orgUnitId,
       announcement.audienceType === AnnouncementAudienceType.OFFICIAL_GROUP
         ? announcement.officialConversation?.officialMembershipMode ===
-          OfficialGroupMembershipMode.ENTIRE_SUBTREE
+            OfficialGroupMembershipMode.ENTIRE_SUBTREE
         : announcement.includeDescendants,
     );
   }
@@ -2667,7 +2668,12 @@ export class AnnouncementsService implements OnModuleInit, OnModuleDestroy {
     reference: Date,
     alreadyPublished: boolean,
   ): void {
-    if (!alreadyPublished && scheduledAt && expiresAt && expiresAt <= scheduledAt) {
+    if (
+      !alreadyPublished &&
+      scheduledAt &&
+      expiresAt &&
+      expiresAt <= scheduledAt
+    ) {
       throw new BadRequestException(
         'Announcement expiry must be after its scheduled publication time.',
       );
@@ -2714,9 +2720,10 @@ export class AnnouncementsService implements OnModuleInit, OnModuleDestroy {
     viewer: AnnouncementViewer,
     canManage: boolean,
   ) {
-    const recipient = announcement.recipients.find(
-      (item) => item.accountId === viewer.accountId,
-    ) ?? null;
+    const recipient =
+      announcement.recipients.find(
+        (item) => item.accountId === viewer.accountId,
+      ) ?? null;
 
     return {
       id: announcement.id,
@@ -2768,8 +2775,7 @@ export class AnnouncementsService implements OnModuleInit, OnModuleDestroy {
       reporting: canManage
         ? {
             recipientCount: announcement._count.recipients,
-            acknowledgementHistoryCount:
-              announcement._count.acknowledgements,
+            acknowledgementHistoryCount: announcement._count.acknowledgements,
           }
         : null,
       createdAt: announcement.createdAt,
@@ -2798,8 +2804,7 @@ export class AnnouncementsService implements OnModuleInit, OnModuleDestroy {
       officialGroup: announcement.officialConversation
         ? {
             id: announcement.officialConversation.id,
-            title:
-              announcement.officialConversation.title ?? 'Official group',
+            title: announcement.officialConversation.title ?? 'Official group',
           }
         : null,
     };
@@ -2820,8 +2825,7 @@ export class AnnouncementsService implements OnModuleInit, OnModuleDestroy {
           firstReadAt: recipient.firstReadAt,
           isRead: recipient.readRevision === currentRevision,
           readRevision: recipient.readRevision,
-          isAcknowledged:
-            recipient.acknowledgedRevision === currentRevision,
+          isAcknowledged: recipient.acknowledgedRevision === currentRevision,
           acknowledgedRevision: recipient.acknowledgedRevision,
         }
       : null;
@@ -2937,11 +2941,7 @@ export class AnnouncementsService implements OnModuleInit, OnModuleDestroy {
     announcement: AnnouncementDetailRecord,
     actorAccountId: string,
   ): void {
-    const payload = this.eventPayload(
-      action,
-      announcement,
-      actorAccountId,
-    );
+    const payload = this.eventPayload(action, announcement, actorAccountId);
 
     this.messagingEventsService.emitAnnouncementUpdated(
       [...accountIds, announcement.createdByAccountId],
@@ -2973,21 +2973,27 @@ export class AnnouncementsService implements OnModuleInit, OnModuleDestroy {
 
     if (IMAGE_MIME_TYPES.has(file.mimetype)) {
       if (file.size > MAX_IMAGE_BYTES) {
-        throw new BadRequestException('Announcement images must be 20 MB or smaller.');
+        throw new BadRequestException(
+          'Announcement images must be 20 MB or smaller.',
+        );
       }
       return { originalFileName, category: 'IMAGE' };
     }
 
     if (VIDEO_MIME_TYPES.has(file.mimetype)) {
       if (file.size > MAX_VIDEO_BYTES) {
-        throw new BadRequestException('Announcement videos must be 200 MB or smaller.');
+        throw new BadRequestException(
+          'Announcement videos must be 200 MB or smaller.',
+        );
       }
       return { originalFileName, category: 'VIDEO' };
     }
 
     if (DOCUMENT_MIME_TYPES.has(file.mimetype)) {
       if (file.size > MAX_DOCUMENT_BYTES) {
-        throw new BadRequestException('Announcement documents must be 50 MB or smaller.');
+        throw new BadRequestException(
+          'Announcement documents must be 50 MB or smaller.',
+        );
       }
       return { originalFileName, category: 'DOCUMENT' };
     }
@@ -3081,6 +3087,8 @@ export class AnnouncementsService implements OnModuleInit, OnModuleDestroy {
   }
 
   private errorMessage(error: unknown): string {
-    return error instanceof Error ? error.message : 'Unknown publication failure';
+    return error instanceof Error
+      ? error.message
+      : 'Unknown publication failure';
   }
 }

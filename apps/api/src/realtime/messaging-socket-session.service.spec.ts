@@ -54,9 +54,9 @@ describe('MessagingSocketSessionService', () => {
   }
 
   it('keeps an active matching session connected', async () => {
-    jest.mocked(prisma.authSession.findMany).mockResolvedValue([
-      activeSession,
-    ] as never);
+    jest
+      .mocked(prisma.authSession.findMany)
+      .mockResolvedValue([activeSession] as never);
     const invalidate = register();
 
     await service.validateNow();
@@ -106,7 +106,8 @@ describe('MessagingSocketSessionService', () => {
     const invalidate = register();
     const warn = jest
       .spyOn(
-        (service as unknown as { logger: { warn(message: string): void } }).logger,
+        (service as unknown as { logger: { warn(message: string): void } })
+          .logger,
         'warn',
       )
       .mockImplementation(() => undefined);

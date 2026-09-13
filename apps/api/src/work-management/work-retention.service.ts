@@ -100,7 +100,8 @@ export class WorkRetentionService {
     );
 
     return {
-      message: 'Retention hold applied. The ticket cannot enter deletion review.',
+      message:
+        'Retention hold applied. The ticket cannot enter deletion review.',
       workItem,
     };
   }

@@ -2,10 +2,7 @@ import { ForbiddenException, NotFoundException } from '@nestjs/common';
 
 import type { AuthenticatedUser } from '../auth/types/auth.types';
 import { PrismaService } from '../database/prisma.service';
-import {
-  AccountRole,
-  WorkTypeVersionStatus,
-} from '../generated/prisma/client';
+import { AccountRole, WorkTypeVersionStatus } from '../generated/prisma/client';
 import { CAPABILITIES } from '../organization/organization-capabilities';
 import { OrganizationAuthorizationService } from '../organization/organization-authorization.service';
 import { WorkTypeV3Service } from './work-type-v3.service';
@@ -74,7 +71,9 @@ function createService(
       ),
   } as unknown as OrganizationAuthorizationService;
 
-  const sla = { assertUsableOfficeCalendar: jest.fn().mockResolvedValue(undefined) };
+  const sla = {
+    assertUsableOfficeCalendar: jest.fn().mockResolvedValue(undefined),
+  };
 
   return {
     service: new WorkTypeV3Service(prisma, authorization, sla as never),

@@ -22,7 +22,8 @@ describe('AttachmentSecurityService', () => {
   const originalHost = process.env.CLAMAV_HOST;
   const originalPort = process.env.CLAMAV_PORT;
   const originalDeploymentProfile = process.env.DEPLOYMENT_PROFILE;
-  const originalAllowUnscanned = process.env.ALLOW_UNSCANNED_STAGING_ATTACHMENTS;
+  const originalAllowUnscanned =
+    process.env.ALLOW_UNSCANNED_STAGING_ATTACHMENTS;
 
   afterEach(() => {
     for (const [key, value] of [
@@ -90,9 +91,12 @@ describe('AttachmentSecurityService', () => {
     const server = net.createServer({ allowHalfOpen: true }, (socket) => {
       socket.on('data', () => socket.end('PONG\0'));
     });
-    await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+    await new Promise<void>((resolve) =>
+      server.listen(0, '127.0.0.1', resolve),
+    );
     const address = server.address();
-    if (!address || typeof address === 'string') throw new Error('Missing test port');
+    if (!address || typeof address === 'string')
+      throw new Error('Missing test port');
 
     process.env.ATTACHMENT_SCAN_MODE = 'clamav';
     process.env.NODE_ENV = 'production';
@@ -114,9 +118,12 @@ describe('AttachmentSecurityService', () => {
       socket.on('end', () => socket.end('stream: OK\0'));
       socket.resume();
     });
-    await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+    await new Promise<void>((resolve) =>
+      server.listen(0, '127.0.0.1', resolve),
+    );
     const address = server.address();
-    if (!address || typeof address === 'string') throw new Error('Missing test port');
+    if (!address || typeof address === 'string')
+      throw new Error('Missing test port');
 
     process.env.ATTACHMENT_SCAN_MODE = 'clamav';
     process.env.NODE_ENV = 'test';
@@ -125,7 +132,9 @@ describe('AttachmentSecurityService', () => {
 
     try {
       const service = new AttachmentSecurityService();
-      await expect(service.scanValidatedUpload(upload())).resolves.toBe('CLEAN');
+      await expect(service.scanValidatedUpload(upload())).resolves.toBe(
+        'CLEAN',
+      );
       expect(service.canAccessStoredAttachment('FORMAT_VALIDATED')).toBe(false);
       expect(service.canAccessStoredAttachment('CLEAN')).toBe(true);
     } finally {
@@ -141,9 +150,12 @@ describe('AttachmentSecurityService', () => {
       );
       socket.resume();
     });
-    await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+    await new Promise<void>((resolve) =>
+      server.listen(0, '127.0.0.1', resolve),
+    );
     const address = server.address();
-    if (!address || typeof address === 'string') throw new Error('Missing test port');
+    if (!address || typeof address === 'string')
+      throw new Error('Missing test port');
 
     process.env.ATTACHMENT_SCAN_MODE = 'clamav';
     process.env.NODE_ENV = 'test';
@@ -162,17 +174,21 @@ describe('AttachmentSecurityService', () => {
     }
   });
 
-
   it('streams a temporary file to ClamAV without requiring its full bytes in the upload buffer', async () => {
     const server = net.createServer({ allowHalfOpen: true }, (socket) => {
       socket.on('end', () => socket.end('stream: OK\0'));
       socket.resume();
     });
-    await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+    await new Promise<void>((resolve) =>
+      server.listen(0, '127.0.0.1', resolve),
+    );
     const address = server.address();
-    if (!address || typeof address === 'string') throw new Error('Missing test port');
+    if (!address || typeof address === 'string')
+      throw new Error('Missing test port');
 
-    const directory = await fs.mkdtemp(path.join(os.tmpdir(), 'nt-message-scan-'));
+    const directory = await fs.mkdtemp(
+      path.join(os.tmpdir(), 'nt-message-scan-'),
+    );
     const filePath = path.join(directory, 'upload');
     await fs.writeFile(filePath, Buffer.alloc(128 * 1024, 0x61));
 
@@ -198,5 +214,4 @@ describe('AttachmentSecurityService', () => {
       );
     }
   });
-
 });

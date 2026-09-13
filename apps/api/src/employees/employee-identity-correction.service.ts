@@ -88,7 +88,9 @@ export class EmployeeIdentityCorrectionService {
     const requestedEmpId =
       dto.empId !== undefined ? normalizeEmployeeId(dto.empId) : undefined;
     const requestedEmpName =
-      dto.empName !== undefined ? normalizeEmployeeName(dto.empName) : undefined;
+      dto.empName !== undefined
+        ? normalizeEmployeeName(dto.empName)
+        : undefined;
     const requestedPhoneNumber =
       dto.phoneNumber !== undefined
         ? normalizeNepalPhoneNumber(dto.phoneNumber)
@@ -158,7 +160,10 @@ export class EmployeeIdentityCorrectionService {
 
       const changes: IdentityChange[] = [];
 
-      if (requestedEmpName !== undefined && requestedEmpName !== employee.empName) {
+      if (
+        requestedEmpName !== undefined &&
+        requestedEmpName !== employee.empName
+      ) {
         changes.push({
           field: IdentityCorrectionField.OFFICIAL_NAME,
           oldValue: employee.empName,
@@ -275,7 +280,8 @@ export class EmployeeIdentityCorrectionService {
           );
         }
 
-        const duplicateRequestConditions: Prisma.AccountRequestWhereInput[] = [];
+        const duplicateRequestConditions: Prisma.AccountRequestWhereInput[] =
+          [];
 
         if (empIdChange) {
           duplicateRequestConditions.push({
@@ -332,7 +338,8 @@ export class EmployeeIdentityCorrectionService {
       }
 
       const accountUsernameTracksEmployeeId =
-        employee.account.username?.toLowerCase() === employee.empId.toLowerCase();
+        employee.account.username?.toLowerCase() ===
+        employee.empId.toLowerCase();
       let accountUsernameUpdated = false;
 
       if (empIdChange && accountUsernameTracksEmployeeId) {

@@ -38,22 +38,19 @@ describe('account identity normalization', () => {
     });
 
     it('creates a lowercase comparison key without changing the stored address', () => {
-      expect(
-        normalizeOfficialEmailForLookup(' AakashSAH123@GMAIL.COM '),
-      ).toBe(
+      expect(normalizeOfficialEmailForLookup(' AakashSAH123@GMAIL.COM ')).toBe(
         'aakashsah123@gmail.com',
       );
     });
   });
 
   describe('normalizeNepalPhoneNumber', () => {
-    it.each([
-      '9801234567',
-      '9779801234567',
-      '+9779801234567',
-    ])('normalizes %s to the canonical Nepal format', (value: string) => {
-      expect(normalizeNepalPhoneNumber(value)).toBe('+9779801234567');
-    });
+    it.each(['9801234567', '9779801234567', '+9779801234567'])(
+      'normalizes %s to the canonical Nepal format',
+      (value: string) => {
+        expect(normalizeNepalPhoneNumber(value)).toBe('+9779801234567');
+      },
+    );
 
     it.each([
       '',
@@ -94,11 +91,7 @@ describe('account identity normalization', () => {
         empId: 'NTC-1001',
         empName: 'Aakásh Sah',
         phoneNumber: '+9779801234567',
-        phoneLookupValues: [
-          '+9779801234567',
-          '9801234567',
-          '9779801234567',
-        ],
+        phoneLookupValues: ['+9779801234567', '9801234567', '9779801234567'],
         officialEmail: 'AakashSAH123@GMAIL.COM',
         officialEmailLookup: 'aakashsah123@gmail.com',
       });

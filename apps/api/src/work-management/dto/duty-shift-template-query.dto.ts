@@ -9,7 +9,10 @@ export class DutyShiftTemplateQueryDto {
   @IsEnum(DutyShiftTargetScope)
   targetScope?: DutyShiftTargetScope;
 
-  @ValidateIf((dto: DutyShiftTemplateQueryDto) => dto.targetScope === DutyShiftTargetScope.ORG_UNIT)
+  @ValidateIf(
+    (dto: DutyShiftTemplateQueryDto) =>
+      dto.targetScope === DutyShiftTargetScope.ORG_UNIT,
+  )
   @IsUUID('4')
   orgUnitId?: string;
 }

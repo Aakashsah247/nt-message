@@ -60,8 +60,9 @@ describe('ConversationsService official-group receipt scalability', () => {
   };
 
   const prisma = {
-    $transaction: jest.fn(async (callback: (tx: typeof transaction) => unknown) =>
-      callback(transaction),
+    $transaction: jest.fn(
+      async (callback: (tx: typeof transaction) => unknown) =>
+        callback(transaction),
     ),
     conversation: {
       findFirst: jest.fn(),
@@ -148,7 +149,9 @@ describe('ConversationsService official-group receipt scalability', () => {
     jest.mocked(prisma.message.findUnique).mockResolvedValue(null);
     transaction.message.create.mockResolvedValue({ id: messageId, sentAt });
     transaction.conversation.update.mockResolvedValue({} as never);
-    transaction.conversationParticipant.updateMany.mockResolvedValue({ count: 2 });
+    transaction.conversationParticipant.updateMany.mockResolvedValue({
+      count: 2,
+    });
     transaction.message.findUniqueOrThrow.mockResolvedValue({
       id: messageId,
       conversationId,
@@ -197,7 +200,9 @@ describe('ConversationsService official-group receipt scalability', () => {
       sentAt,
     } as never);
     jest.mocked(prisma.message.count).mockResolvedValue(25);
-    jest.mocked(prisma.conversationParticipant.update).mockResolvedValue({} as never);
+    jest
+      .mocked(prisma.conversationParticipant.update)
+      .mockResolvedValue({} as never);
     jest.mocked(prisma.message.findMany).mockResolvedValue([] as never);
 
     const result = await service.markConversationRead(viewer, conversationId);
@@ -242,11 +247,13 @@ describe('ConversationsService official-group receipt scalability', () => {
       id: messageId,
       sentAt,
     } as never);
-    jest.mocked(prisma.message.findMany).mockResolvedValue([
-      { senderAccountId: recipientAccountId },
-    ] as never);
+    jest
+      .mocked(prisma.message.findMany)
+      .mockResolvedValue([{ senderAccountId: recipientAccountId }] as never);
     jest.mocked(prisma.messageReceipt.findMany).mockResolvedValue([] as never);
-    transaction.conversationParticipant.updateMany.mockResolvedValue({ count: 1 });
+    transaction.conversationParticipant.updateMany.mockResolvedValue({
+      count: 1,
+    });
     transaction.conversationParticipant.findUnique.mockResolvedValue({
       conversationId,
       accountId: viewerAccountId,
@@ -264,7 +271,9 @@ describe('ConversationsService official-group receipt scalability', () => {
       draftText: null,
       draftUpdatedAt: null,
     } as never);
-    transaction.messagingNotification.deleteMany.mockResolvedValue({ count: 0 });
+    transaction.messagingNotification.deleteMany.mockResolvedValue({
+      count: 0,
+    });
     transaction.activityEvent.create.mockResolvedValue({} as never);
 
     await service.clearConversationForAccount(viewer, conversationId);
@@ -290,5 +299,4 @@ describe('ConversationsService official-group receipt scalability', () => {
       }),
     );
   });
-
 });

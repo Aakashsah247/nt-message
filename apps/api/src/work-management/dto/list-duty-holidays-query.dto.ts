@@ -14,7 +14,9 @@ export class ListDutyHolidaysQueryDto {
   @IsUUID('4')
   orgUnitId?: string;
 
-  @Transform(({ value }: { value: unknown }) => value === true || value === 'true')
+  @Transform(
+    ({ value }: { value: unknown }) => value === true || value === 'true',
+  )
   @IsOptional()
   @IsBoolean()
   includeCancelled?: boolean;

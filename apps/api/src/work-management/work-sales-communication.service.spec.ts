@@ -106,9 +106,13 @@ describe('WorkSalesCommunicationService WM-V2-4B1', () => {
       visibleOrgUnitIds: [],
       operationalTeamMemberIds: [],
     });
-    jest.mocked(prisma.workItem.findUnique).mockResolvedValue(workItem() as never);
+    jest
+      .mocked(prisma.workItem.findUnique)
+      .mockResolvedValue(workItem() as never);
     jest.mocked(storage.deleteFile).mockResolvedValue(true);
-    jest.mocked(security.scanValidatedUpload).mockResolvedValue('FORMAT_VALIDATED');
+    jest
+      .mocked(security.scanValidatedUpload)
+      .mockResolvedValue('FORMAT_VALIDATED');
   });
 
   it('stores a field-team Sales message and secure file metadata without putting file bytes in PostgreSQL', async () => {
@@ -219,9 +223,11 @@ describe('WorkSalesCommunicationService WM-V2-4B1', () => {
       visibleOrgUnitIds: [],
       operationalTeamMemberIds: [],
     });
-    jest.mocked(prisma.workItem.findUnique).mockResolvedValue(
-      workItem(WorkSalesCoordinationStatus.WAITING_FOR_DOCUMENTS) as never,
-    );
+    jest
+      .mocked(prisma.workItem.findUnique)
+      .mockResolvedValue(
+        workItem(WorkSalesCoordinationStatus.WAITING_FOR_DOCUMENTS) as never,
+      );
 
     await expect(service.listMessages(salesUser, 'work-1')).resolves.toEqual({
       messages: [],
@@ -239,9 +245,9 @@ describe('WorkSalesCommunicationService WM-V2-4B1', () => {
       operationalTeamMemberIds: [],
     });
 
-    await expect(service.listMessages(employeeUser, 'work-1')).rejects.toBeInstanceOf(
-      ForbiddenException,
-    );
+    await expect(
+      service.listMessages(employeeUser, 'work-1'),
+    ).rejects.toBeInstanceOf(ForbiddenException);
   });
 
   it('requires a message or file and blocks unsupported executable-style uploads', async () => {
@@ -269,9 +275,9 @@ describe('WorkSalesCommunicationService WM-V2-4B1', () => {
       buffer: Buffer.from('%PDF-1.7'),
     };
     jest.mocked(storage.writeUploadedFile).mockResolvedValue();
-    jest.mocked(prisma.workSalesMessage.create).mockRejectedValue(
-      new Error('database unavailable'),
-    );
+    jest
+      .mocked(prisma.workSalesMessage.create)
+      .mockRejectedValue(new Error('database unavailable'));
 
     await expect(
       service.createMessage(employeeUser, 'work-1', {}, [file]),
@@ -315,5 +321,4 @@ describe('WorkSalesCommunicationService WM-V2-4B1', () => {
       ),
     ).rejects.toBeInstanceOf(ForbiddenException);
   });
-
 });

@@ -41,7 +41,9 @@ export class UpdateDutyHolidayDto {
   @IsEnum(DutyHolidayScope)
   scope?: DutyHolidayScope;
 
-  @ValidateIf((dto: UpdateDutyHolidayDto) => dto.scope === DutyHolidayScope.ORG_UNIT)
+  @ValidateIf(
+    (dto: UpdateDutyHolidayDto) => dto.scope === DutyHolidayScope.ORG_UNIT,
+  )
   @IsUUID('4')
   orgUnitId?: string;
 

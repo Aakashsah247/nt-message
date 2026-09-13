@@ -214,18 +214,29 @@ export class WorkRuntimeV3StageService {
       this.assertWorkOperational(stage);
       this.assertExpectedVersion(stage, dto.expectedStageVersion);
 
-      if (!MUTABLE_STAGE_STATUSES.includes(stage.status as (typeof MUTABLE_STAGE_STATUSES)[number])) {
+      if (
+        !MUTABLE_STAGE_STATUSES.includes(
+          stage.status as (typeof MUTABLE_STAGE_STATUSES)[number],
+        )
+      ) {
         throw new ConflictException(
           `Stage ${stage.code} cannot be assigned while it is ${stage.status}.`,
         );
       }
 
       await this.lockWork(tx, stage.workItemId);
-      const target = await this.resolveAssignmentTarget(tx, stage, dto, new Date());
+      const target = await this.resolveAssignmentTarget(
+        tx,
+        stage,
+        dto,
+        new Date(),
+      );
       const current = stage.assignments[0] ?? null;
 
       if (current && this.sameAssignment(current, target)) {
-        throw new ConflictException('This stage already has the requested active assignment.');
+        throw new ConflictException(
+          'This stage already has the requested active assignment.',
+        );
       }
 
       const reason = dto.reason?.trim() || null;
@@ -311,7 +322,9 @@ export class WorkRuntimeV3StageService {
       }
 
       if (!(await this.canExecuteStage(user, stage))) {
-        throw new ForbiddenException('You are not authorized to start this stage.');
+        throw new ForbiddenException(
+          'You are not authorized to start this stage.',
+        );
       }
 
       await this.lockWork(tx, stage.workItemId);
@@ -366,10 +379,14 @@ export class WorkRuntimeV3StageService {
         stage.status !== WorkStageStatus.READY &&
         stage.status !== WorkStageStatus.IN_PROGRESS
       ) {
-        throw new ConflictException('Only a READY or IN_PROGRESS stage can be blocked.');
+        throw new ConflictException(
+          'Only a READY or IN_PROGRESS stage can be blocked.',
+        );
       }
       if (!(await this.canExecuteStage(user, stage))) {
-        throw new ForbiddenException('You are not authorized to block this stage.');
+        throw new ForbiddenException(
+          'You are not authorized to block this stage.',
+        );
       }
 
       await this.lockWork(tx, stage.workItemId);
@@ -429,10 +446,14 @@ export class WorkRuntimeV3StageService {
         stage.blockedFromStatus !== WorkStageStatus.READY &&
         stage.blockedFromStatus !== WorkStageStatus.IN_PROGRESS
       ) {
-        throw new ConflictException('The blocked stage has no valid resume state.');
+        throw new ConflictException(
+          'The blocked stage has no valid resume state.',
+        );
       }
       if (!(await this.canExecuteStage(user, stage))) {
-        throw new ForbiddenException('You are not authorized to resume this stage.');
+        throw new ForbiddenException(
+          'You are not authorized to resume this stage.',
+        );
       }
 
       await this.lockWork(tx, stage.workItemId);
@@ -447,9 +468,7 @@ export class WorkRuntimeV3StageService {
         blockerReason: null,
         blockedAt: null,
         submittedAt:
-          stage.status === WorkStageStatus.RETURNED
-            ? null
-            : stage.submittedAt,
+          stage.status === WorkStageStatus.RETURNED ? null : stage.submittedAt,
       });
 
       await tx.workEvent.create({
@@ -497,10 +516,14 @@ export class WorkRuntimeV3StageService {
       this.assertExpectedVersion(stage, dto.expectedStageVersion);
 
       if (stage.status !== WorkStageStatus.IN_PROGRESS) {
-        throw new ConflictException('Only an IN_PROGRESS stage can be submitted.');
+        throw new ConflictException(
+          'Only an IN_PROGRESS stage can be submitted.',
+        );
       }
       if (!(await this.canExecuteStage(user, stage))) {
-        throw new ForbiddenException('You are not authorized to submit this stage.');
+        throw new ForbiddenException(
+          'You are not authorized to submit this stage.',
+        );
       }
 
       const validated = validateRuntimeStageFields(
@@ -684,7 +707,9 @@ export class WorkRuntimeV3StageService {
 
       const submission = stage.submissions[0];
       if (!submission) {
-        throw new ConflictException('The submitted stage has no submission record.');
+        throw new ConflictException(
+          'The submitted stage has no submission record.',
+        );
       }
 
       await this.lockWork(tx, stage.workItemId);
@@ -777,7 +802,9 @@ export class WorkRuntimeV3StageService {
 
       const submission = stage.submissions[0];
       if (!submission) {
-        throw new ConflictException('The submitted stage has no submission record.');
+        throw new ConflictException(
+          'The submitted stage has no submission record.',
+        );
       }
 
       await this.lockWork(tx, stage.workItemId);
@@ -898,7 +925,13 @@ export class WorkRuntimeV3StageService {
       ) {
         try {
           await this.prisma.$transaction(async (tx) => {
-            await this.assertCurrentOfficeHead(tx, user, officeId, at, 'cancel');
+            await this.assertCurrentOfficeHead(
+              tx,
+              user,
+              officeId,
+              at,
+              'cancel',
+            );
           });
           actions.push('CANCEL');
         } catch (error) {
@@ -930,7 +963,13 @@ export class WorkRuntimeV3StageService {
             workTypeVersion.finalClosureMode ===
             WorkFinalClosureMode.AUTO_AFTER_REQUIRED_STAGES
           ) {
-            await this.assertCurrentOfficeHead(tx, user, officeId, at, 'reopen');
+            await this.assertCurrentOfficeHead(
+              tx,
+              user,
+              officeId,
+              at,
+              'reopen',
+            );
           } else {
             await this.assertFinalClosureAuthority(tx, user, work, at);
           }
@@ -1083,7 +1122,11 @@ export class WorkRuntimeV3StageService {
     workItemId: string,
     dto: CancelWorkRuntimeV3Dto,
   ) {
-    await this.authorization.assertCan(user, CAPABILITIES.WORK_CANCEL, officeId);
+    await this.authorization.assertCan(
+      user,
+      CAPABILITIES.WORK_CANCEL,
+      officeId,
+    );
 
     await this.prisma.$transaction(async (tx) => {
       const work = await tx.workItem.findFirst({
@@ -1104,7 +1147,9 @@ export class WorkRuntimeV3StageService {
         );
       }
       if (work.runtimeStatus === WorkRuntimeStatus.COMPLETED) {
-        throw new ConflictException('Completed Work cannot be cancelled. Reopen it first if correction is required.');
+        throw new ConflictException(
+          'Completed Work cannot be cancelled. Reopen it first if correction is required.',
+        );
       }
       if (work.runtimeStatus === WorkRuntimeStatus.CANCELLED) {
         throw new ConflictException('Work is already cancelled.');
@@ -1289,7 +1334,9 @@ export class WorkRuntimeV3StageService {
         },
       });
       if (!stage) {
-        throw new NotFoundException('The Work stage selected for reopening was not found.');
+        throw new NotFoundException(
+          'The Work stage selected for reopening was not found.',
+        );
       }
       if (stage.status !== WorkStageStatus.COMPLETED) {
         throw new ConflictException('Only a completed stage can be reopened.');
@@ -1420,11 +1467,7 @@ export class WorkRuntimeV3StageService {
     });
   }
 
-  async getStage(
-    user: AuthenticatedUser,
-    officeId: string,
-    stageId: string,
-  ) {
+  async getStage(user: AuthenticatedUser, officeId: string, stageId: string) {
     const stage = await this.prisma.workStage.findFirst({
       where: {
         id: stageId,
@@ -1437,7 +1480,9 @@ export class WorkRuntimeV3StageService {
     }
 
     if (!(await this.canViewStage(user, stage))) {
-      throw new ForbiddenException('You do not have access to this Work stage.');
+      throw new ForbiddenException(
+        'You do not have access to this Work stage.',
+      );
     }
 
     return {
@@ -1506,7 +1551,11 @@ export class WorkRuntimeV3StageService {
             effectiveFrom: { lte: now },
             OR: [{ effectiveUntil: null }, { effectiveUntil: { gt: now } }],
           },
-          orderBy: [{ isActing: 'desc' }, { effectiveFrom: 'desc' }, { id: 'asc' }],
+          orderBy: [
+            { isActing: 'desc' },
+            { effectiveFrom: 'desc' },
+            { id: 'asc' },
+          ],
           select: {
             id: true,
             isActing: true,
@@ -1570,7 +1619,9 @@ export class WorkRuntimeV3StageService {
         orgUnitId: team.orgUnitId,
         lead:
           team.leadAssignments
-            .filter((assignment) => this.isActiveOperationalEmployee(assignment.employee))
+            .filter((assignment) =>
+              this.isActiveOperationalEmployee(assignment.employee),
+            )
             .map((assignment) => ({
               assignmentId: assignment.id,
               isActing: assignment.isActing,
@@ -1580,7 +1631,9 @@ export class WorkRuntimeV3StageService {
               employeeName: assignment.employee.empName,
             }))[0] ?? null,
         members: team.members
-          .filter((membership) => this.isActiveOperationalEmployee(membership.employee))
+          .filter((membership) =>
+            this.isActiveOperationalEmployee(membership.employee),
+          )
           .map((membership) => ({
             membershipId: membership.id,
             accountId: membership.employee.account!.id,
@@ -1592,11 +1645,7 @@ export class WorkRuntimeV3StageService {
     };
   }
 
-  async listMyStages(
-    user: AuthenticatedUser,
-    officeId: string,
-    take = 50,
-  ) {
+  async listMyStages(user: AuthenticatedUser, officeId: string, take = 50) {
     await this.assertActiveOfficeMember(user, officeId);
     const stages = await this.prisma.workStage.findMany({
       where: {
@@ -1624,11 +1673,7 @@ export class WorkRuntimeV3StageService {
     );
   }
 
-  async listTeamQueue(
-    user: AuthenticatedUser,
-    officeId: string,
-    take = 50,
-  ) {
+  async listTeamQueue(user: AuthenticatedUser, officeId: string, take = 50) {
     const teamIds = await this.activeOperationalTeamIdsForAccount(
       user.accountId,
       officeId,
@@ -1664,11 +1709,7 @@ export class WorkRuntimeV3StageService {
     );
   }
 
-  async listOrgUnitQueue(
-    user: AuthenticatedUser,
-    officeId: string,
-    take = 50,
-  ) {
+  async listOrgUnitQueue(user: AuthenticatedUser, officeId: string, take = 50) {
     const visibleOrgUnitIds = await this.authorization.visibleOrgUnitIds(
       user,
       CAPABILITIES.WORK_ASSIGN,
@@ -1831,7 +1872,10 @@ export class WorkRuntimeV3StageService {
       activation === 'READY' ? WorkStageStatus.READY : WorkStageStatus.SKIPPED;
     const readyAt = nextStatus === WorkStageStatus.READY ? at : null;
     const dueAt =
-      readyAt && stage.slaMinutes && stage.workItem.officeId && stage.workItem.workTypeVersion
+      readyAt &&
+      stage.slaMinutes &&
+      stage.workItem.officeId &&
+      stage.workItem.workTypeVersion
         ? await this.sla.resolveDueAt(
             tx,
             stage.workItem.officeId,
@@ -1929,17 +1973,24 @@ export class WorkRuntimeV3StageService {
 
   private assertWorkOperational(stage: RuntimeStage): void {
     if (!stage.workItem.officeId || !stage.workItem.runtimeStatus) {
-      throw new ConflictException('This stage does not belong to a native V3 Work.');
+      throw new ConflictException(
+        'This stage does not belong to a native V3 Work.',
+      );
     }
     if (
       stage.workItem.runtimeStatus === WorkRuntimeStatus.COMPLETED ||
       stage.workItem.runtimeStatus === WorkRuntimeStatus.CANCELLED
     ) {
-      throw new ConflictException('Completed or cancelled Work cannot be changed here.');
+      throw new ConflictException(
+        'Completed or cancelled Work cannot be changed here.',
+      );
     }
   }
 
-  private assertExpectedVersion(stage: RuntimeStage, expectedVersion: number): void {
+  private assertExpectedVersion(
+    stage: RuntimeStage,
+    expectedVersion: number,
+  ): void {
     if (stage.version !== expectedVersion) {
       throw new ConflictException(
         `Stage changed from version ${expectedVersion} to ${stage.version}. Refresh and try again.`,
@@ -1963,7 +2014,9 @@ export class WorkRuntimeV3StageService {
     at: Date,
   ): Promise<void> {
     if (user.accountClass === AccountClass.SUPER_ADMIN) {
-      throw new ForbiddenException('System administrators cannot review Work stages.');
+      throw new ForbiddenException(
+        'System administrators cannot review Work stages.',
+      );
     }
 
     const employee = await tx.account.findFirst({
@@ -1983,7 +2036,9 @@ export class WorkRuntimeV3StageService {
     });
     const employeeId = employee?.employee?.id;
     if (!employeeId) {
-      throw new ForbiddenException('Only an active Office employee can review this stage.');
+      throw new ForbiddenException(
+        'Only an active Office employee can review this stage.',
+      );
     }
 
     if (stage.approvalMode === WorkStageApprovalMode.TEAM_LEAD) {
@@ -2233,7 +2288,9 @@ export class WorkRuntimeV3StageService {
     });
 
     if (result.count !== 1) {
-      throw new ConflictException('Stage changed while you were working. Refresh and try again.');
+      throw new ConflictException(
+        'Stage changed while you were working. Refresh and try again.',
+      );
     }
   }
 
@@ -2258,7 +2315,9 @@ export class WorkRuntimeV3StageService {
     dto: AssignWorkRuntimeV3StageDto,
     at: Date,
   ): Promise<AssignmentTarget> {
-    if (stage.assignmentMode === WorkStageAssignmentMode.RESPONSIBLE_ORG_UNIT_HEAD) {
+    if (
+      stage.assignmentMode === WorkStageAssignmentMode.RESPONSIBLE_ORG_UNIT_HEAD
+    ) {
       if (
         dto.targetType ||
         dto.targetOrgUnitId ||
@@ -2289,10 +2348,17 @@ export class WorkRuntimeV3StageService {
 
     if (dto.targetType === WorkStageAssignmentTargetType.ORG_UNIT_QUEUE) {
       if (dto.targetAccountId || dto.targetOperationalTeamId) {
-        throw new BadRequestException('OrgUnit queue assignment cannot contain an account target.');
+        throw new BadRequestException(
+          'OrgUnit queue assignment cannot contain an account target.',
+        );
       }
-      if (dto.targetOrgUnitId && dto.targetOrgUnitId !== stage.responsibleOrgUnitId) {
-        throw new BadRequestException('OrgUnit queue must target the responsible OrgUnit.');
+      if (
+        dto.targetOrgUnitId &&
+        dto.targetOrgUnitId !== stage.responsibleOrgUnitId
+      ) {
+        throw new BadRequestException(
+          'OrgUnit queue must target the responsible OrgUnit.',
+        );
       }
       return {
         targetType: dto.targetType,
@@ -2343,7 +2409,9 @@ export class WorkRuntimeV3StageService {
       dto.targetOrgUnitId ||
       dto.targetOperationalTeamId
     ) {
-      throw new BadRequestException('Individual assignment requires only targetAccountId.');
+      throw new BadRequestException(
+        'Individual assignment requires only targetAccountId.',
+      );
     }
     await this.assertAccountInsideResponsibleScope(
       tx,
@@ -2363,19 +2431,37 @@ export class WorkRuntimeV3StageService {
     mode: WorkStageAssignmentMode,
     targetType: WorkStageAssignmentTargetType,
   ): void {
-    const allowed = new Map<WorkStageAssignmentMode, WorkStageAssignmentTargetType[]>([
-      [WorkStageAssignmentMode.ORG_UNIT_QUEUE, [WorkStageAssignmentTargetType.ORG_UNIT_QUEUE]],
+    const allowed = new Map<
+      WorkStageAssignmentMode,
+      WorkStageAssignmentTargetType[]
+    >([
+      [
+        WorkStageAssignmentMode.ORG_UNIT_QUEUE,
+        [WorkStageAssignmentTargetType.ORG_UNIT_QUEUE],
+      ],
       [WorkStageAssignmentMode.TEAM, [WorkStageAssignmentTargetType.TEAM]],
-      [WorkStageAssignmentMode.INDIVIDUAL, [WorkStageAssignmentTargetType.ACCOUNT]],
+      [
+        WorkStageAssignmentMode.INDIVIDUAL,
+        [WorkStageAssignmentTargetType.ACCOUNT],
+      ],
       [
         WorkStageAssignmentMode.ORG_UNIT_OR_TEAM,
-        [WorkStageAssignmentTargetType.ORG_UNIT_QUEUE, WorkStageAssignmentTargetType.TEAM],
+        [
+          WorkStageAssignmentTargetType.ORG_UNIT_QUEUE,
+          WorkStageAssignmentTargetType.TEAM,
+        ],
       ],
       [
         WorkStageAssignmentMode.ORG_UNIT_OR_USER,
-        [WorkStageAssignmentTargetType.ORG_UNIT_QUEUE, WorkStageAssignmentTargetType.ACCOUNT],
+        [
+          WorkStageAssignmentTargetType.ORG_UNIT_QUEUE,
+          WorkStageAssignmentTargetType.ACCOUNT,
+        ],
       ],
-      [WorkStageAssignmentMode.RESPONSIBLE_ORG_UNIT_HEAD, [WorkStageAssignmentTargetType.ACCOUNT]],
+      [
+        WorkStageAssignmentMode.RESPONSIBLE_ORG_UNIT_HEAD,
+        [WorkStageAssignmentTargetType.ACCOUNT],
+      ],
     ]);
 
     if (!allowed.get(mode)?.includes(targetType)) {
@@ -2530,11 +2616,11 @@ export class WorkRuntimeV3StageService {
     if (assignment.targetType === WorkStageAssignmentTargetType.TEAM) {
       return Boolean(
         assignment.targetOperationalTeamId &&
-          (await this.accountBelongsToOperationalTeam(
-            user.accountId,
-            stage.workItem.officeId!,
-            assignment.targetOperationalTeamId,
-          )),
+        (await this.accountBelongsToOperationalTeam(
+          user.accountId,
+          stage.workItem.officeId!,
+          assignment.targetOperationalTeamId,
+        )),
       );
     }
 
@@ -2613,7 +2699,9 @@ export class WorkRuntimeV3StageService {
     );
     if (
       canAssign &&
-      MUTABLE_STAGE_STATUSES.includes(stage.status as (typeof MUTABLE_STAGE_STATUSES)[number])
+      MUTABLE_STAGE_STATUSES.includes(
+        stage.status as (typeof MUTABLE_STAGE_STATUSES)[number],
+      )
     ) {
       actions.push('ASSIGN');
     }
@@ -2786,14 +2874,18 @@ export class WorkRuntimeV3StageService {
     status: EmployeeStatus;
     employmentStatus: EmploymentStatus;
     archivedAt: Date | null;
-    account: { id: string; isEnabled: boolean; accountClass: AccountClass } | null;
+    account: {
+      id: string;
+      isEnabled: boolean;
+      accountClass: AccountClass;
+    } | null;
   }): boolean {
     return Boolean(
       employee.status === EmployeeStatus.ACTIVE &&
-        employee.employmentStatus === EmploymentStatus.ACTIVE &&
-        employee.archivedAt === null &&
-        employee.account?.isEnabled &&
-        employee.account.accountClass !== AccountClass.SUPER_ADMIN,
+      employee.employmentStatus === EmploymentStatus.ACTIVE &&
+      employee.archivedAt === null &&
+      employee.account?.isEnabled &&
+      employee.account.accountClass !== AccountClass.SUPER_ADMIN,
     );
   }
 
@@ -2833,10 +2925,7 @@ export class WorkRuntimeV3StageService {
             leadAssignments: {
               some: {
                 effectiveFrom: { lte: at },
-                OR: [
-                  { effectiveUntil: null },
-                  { effectiveUntil: { gt: at } },
-                ],
+                OR: [{ effectiveUntil: null }, { effectiveUntil: { gt: at } }],
                 employee: {
                   status: EmployeeStatus.ACTIVE,
                   employmentStatus: EmploymentStatus.ACTIVE,
@@ -2900,11 +2989,15 @@ export class WorkRuntimeV3StageService {
     officeId: string,
   ): Promise<void> {
     if (user.accountClass === AccountClass.SUPER_ADMIN) {
-      throw new ForbiddenException('System administrators do not have operational Work queues.');
+      throw new ForbiddenException(
+        'System administrators do not have operational Work queues.',
+      );
     }
     const orgUnitIds = await this.activeMembershipOrgUnitIds(user, officeId);
     if (orgUnitIds.length === 0) {
-      throw new ForbiddenException('You are not an active member of this Office.');
+      throw new ForbiddenException(
+        'You are not an active member of this Office.',
+      );
     }
   }
 

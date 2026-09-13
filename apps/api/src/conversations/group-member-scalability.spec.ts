@@ -50,9 +50,13 @@ describe('ConversationsService group-member scalability', () => {
         requireMessageRequests: false,
       }),
     });
-    Object.defineProperty(service, 'synchronizeOfficialGroupsForAccountSafely', {
-      value: jest.fn().mockResolvedValue(undefined),
-    });
+    Object.defineProperty(
+      service,
+      'synchronizeOfficialGroupsForAccountSafely',
+      {
+        value: jest.fn().mockResolvedValue(undefined),
+      },
+    );
     Object.defineProperty(service, 'assertActiveParticipant', {
       value: jest.fn().mockResolvedValue({
         joinedAt: new Date('2026-01-01T00:00:00.000Z'),
@@ -66,7 +70,9 @@ describe('ConversationsService group-member scalability', () => {
     jest.mocked(prisma.conversation.findUnique).mockResolvedValue({
       type: 'GROUP',
     } as never);
-    jest.mocked(prisma.orgLeadershipAssignment.findMany).mockResolvedValue([] as never);
+    jest
+      .mocked(prisma.orgLeadershipAssignment.findMany)
+      .mockResolvedValue([] as never);
     jest.mocked(prisma.orgMembership.findMany).mockResolvedValue([] as never);
   });
 
@@ -74,7 +80,9 @@ describe('ConversationsService group-member scalability', () => {
     const accountId = `00000000-0000-4000-8000-${String(index).padStart(12, '0')}`;
     return {
       accountId,
-      joinedAt: new Date(`2026-01-${String((index % 28) + 1).padStart(2, '0')}T00:00:00.000Z`),
+      joinedAt: new Date(
+        `2026-01-${String((index % 28) + 1).padStart(2, '0')}T00:00:00.000Z`,
+      ),
       role: index === 1 ? 'OWNER' : 'MEMBER',
       account: {
         id: accountId,
@@ -152,7 +160,9 @@ describe('ConversationsService group-member scalability', () => {
   it('returns a bounded page instead of hydrating all members', async () => {
     jest
       .mocked(prisma.conversationParticipant.findMany)
-      .mockResolvedValue(Array.from({ length: 26 }, (_, index) => member(index + 1)) as never);
+      .mockResolvedValue(
+        Array.from({ length: 26 }, (_, index) => member(index + 1)) as never,
+      );
 
     const result = await service.listGroupMembers(viewer, conversationId, {
       limit: 25,
@@ -166,11 +176,7 @@ describe('ConversationsService group-member scalability', () => {
           leftAt: null,
         }),
         take: 26,
-        orderBy: [
-          { role: 'asc' },
-          { joinedAt: 'asc' },
-          { accountId: 'asc' },
-        ],
+        orderBy: [{ role: 'asc' }, { joinedAt: 'asc' }, { accountId: 'asc' }],
       }),
     );
     expect(result.data).toHaveLength(25);
@@ -183,14 +189,17 @@ describe('ConversationsService group-member scalability', () => {
     process.env.SUPER_ADMIN_NAME = 'Aakash Shah';
 
     try {
-      jest.mocked(prisma.conversationParticipant.findMany).mockResolvedValue([] as never);
+      jest
+        .mocked(prisma.conversationParticipant.findMany)
+        .mockResolvedValue([] as never);
 
       await service.listGroupMembers(viewer, conversationId, {
         search: 'Aakash',
         limit: 7,
       });
 
-      const query = jest.mocked(prisma.conversationParticipant.findMany).mock.calls[0]?.[0];
+      const query = jest.mocked(prisma.conversationParticipant.findMany).mock
+        .calls[0]?.[0];
       expect(query?.take).toBe(8);
       expect(query?.where).toEqual(
         expect.objectContaining({

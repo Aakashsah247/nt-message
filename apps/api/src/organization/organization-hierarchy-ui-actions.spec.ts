@@ -36,10 +36,7 @@ describe('OrganizationHierarchyService UI action context', () => {
 
     const authorization = {
       can: jest.fn(
-        async (
-          _user: AuthenticatedUser,
-          capability: string,
-        ) =>
+        async (_user: AuthenticatedUser, capability: string) =>
           capability === CAPABILITIES.ORGANIZATION_CREATE_UNIT ||
           capability === CAPABILITIES.ORGANIZATION_RENAME_UNIT,
       ),
@@ -52,11 +49,7 @@ describe('OrganizationHierarchyService UI action context', () => {
     );
 
     await expect(
-      service.getAvailableActions(
-        employeeUser,
-        'office-1',
-        'unit-1',
-      ),
+      service.getAvailableActions(employeeUser, 'office-1', 'unit-1'),
     ).resolves.toEqual({
       officeId: 'office-1',
       orgUnitId: 'unit-1',
@@ -117,11 +110,7 @@ describe('OrganizationHierarchyService UI action context', () => {
     );
 
     await expect(
-      service.getAvailableActions(
-        superAdminUser,
-        'office-1',
-        null,
-      ),
+      service.getAvailableActions(superAdminUser, 'office-1', null),
     ).resolves.toEqual({
       officeId: 'office-1',
       orgUnitId: null,

@@ -7,7 +7,11 @@ import {
   ServiceUnavailableException,
 } from '@nestjs/common';
 import { randomUUID } from 'node:crypto';
-import { createReadStream, constants as fsConstants, promises as fs } from 'node:fs';
+import {
+  createReadStream,
+  constants as fsConstants,
+  promises as fs,
+} from 'node:fs';
 import type { Dirent } from 'node:fs';
 import path from 'node:path';
 import { Readable } from 'node:stream';
@@ -152,10 +156,12 @@ export class AttachmentStorageService implements OnModuleInit, OnModuleDestroy {
         messages: path.join(root, 'messages'),
         announcements: path.join(root, 'announcements'),
         'profile-photos': path.resolve(
-          process.env.PROFILE_PHOTO_STORAGE_DIR ?? path.join(root, 'profile-photos'),
+          process.env.PROFILE_PHOTO_STORAGE_DIR ??
+            path.join(root, 'profile-photos'),
         ),
         'group-photos': path.resolve(
-          process.env.GROUP_PHOTO_STORAGE_DIR ?? path.join(root, 'group-photos'),
+          process.env.GROUP_PHOTO_STORAGE_DIR ??
+            path.join(root, 'group-photos'),
         ),
         work: path.join(root, 'work'),
       };
@@ -170,7 +176,10 @@ export class AttachmentStorageService implements OnModuleInit, OnModuleDestroy {
       messages: legacyMessageRoot,
       announcements: path.resolve(
         process.env.MESSAGE_ATTACHMENT_STORAGE_DIR
-          ? path.join(process.env.MESSAGE_ATTACHMENT_STORAGE_DIR, 'announcements')
+          ? path.join(
+              process.env.MESSAGE_ATTACHMENT_STORAGE_DIR,
+              'announcements',
+            )
           : path.join(process.cwd(), 'storage', 'announcement-attachments'),
       ),
       'profile-photos': path.resolve(
@@ -192,7 +201,10 @@ export class AttachmentStorageService implements OnModuleInit, OnModuleDestroy {
     return this.roots[namespace];
   }
 
-  resolvePath(namespace: AttachmentStorageNamespace, storageKey: string): string {
+  resolvePath(
+    namespace: AttachmentStorageNamespace,
+    storageKey: string,
+  ): string {
     if (this.driver !== 'filesystem') {
       throw new ConflictException(
         'A filesystem path is not available for the configured object-storage driver.',
@@ -209,7 +221,9 @@ export class AttachmentStorageService implements OnModuleInit, OnModuleDestroy {
       relativePath === '..' ||
       path.isAbsolute(relativePath)
     ) {
-      throw new ConflictException('An attachment storage reference is invalid.');
+      throw new ConflictException(
+        'An attachment storage reference is invalid.',
+      );
     }
 
     return absolutePath;
@@ -223,7 +237,9 @@ export class AttachmentStorageService implements OnModuleInit, OnModuleDestroy {
       !normalized ||
       parts.some((part) => !part || part === '.' || part === '..')
     ) {
-      throw new ConflictException('An attachment storage reference is invalid.');
+      throw new ConflictException(
+        'An attachment storage reference is invalid.',
+      );
     }
 
     return normalized;
@@ -243,7 +259,9 @@ export class AttachmentStorageService implements OnModuleInit, OnModuleDestroy {
       .join('/');
   }
 
-  private supabaseHeaders(extra?: Record<string, string>): Record<string, string> {
+  private supabaseHeaders(
+    extra?: Record<string, string>,
+  ): Record<string, string> {
     const config = this.requireSupabaseConfig();
     return {
       apikey: config.secretKey,
@@ -260,13 +278,11 @@ export class AttachmentStorageService implements OnModuleInit, OnModuleDestroy {
   }
 
   private async remoteError(response: Response): Promise<string> {
-    const body = (await response.json().catch(() => null)) as
-      | RemoteStorageErrorPayload
-      | null;
+    const body = (await response
+      .json()
+      .catch(() => null)) as RemoteStorageErrorPayload | null;
     const message = body?.message ?? body?.error;
-    return typeof message === 'string'
-      ? message
-      : `HTTP ${response.status}`;
+    return typeof message === 'string' ? message : `HTTP ${response.status}`;
   }
 
   private async uploadSupabaseObject(
@@ -357,7 +373,9 @@ export class AttachmentStorageService implements OnModuleInit, OnModuleDestroy {
   ): Promise<void> {
     if (this.driver === 'supabase') {
       try {
-        const buffer = file.path ? await fs.readFile(file.path) : file.buffer ?? null;
+        const buffer = file.path
+          ? await fs.readFile(file.path)
+          : (file.buffer ?? null);
         if (!buffer) {
           throw new Error('Upload data is unavailable.');
         }
@@ -429,7 +447,9 @@ export class AttachmentStorageService implements OnModuleInit, OnModuleDestroy {
       entries = await fs.readdir(root, { withFileTypes: true });
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code === 'ENOENT') return 0;
-      this.logger.warn('Attachment temporary-upload cleanup could not read its private directory.');
+      this.logger.warn(
+        'Attachment temporary-upload cleanup could not read its private directory.',
+      );
       return 0;
     }
 
@@ -448,7 +468,9 @@ export class AttachmentStorageService implements OnModuleInit, OnModuleDestroy {
     }
 
     if (removed > 0) {
-      this.logger.log(`Attachment temporary-upload cleanup removed ${removed} stale file(s).`);
+      this.logger.log(
+        `Attachment temporary-upload cleanup removed ${removed} stale file(s).`,
+      );
     }
     return removed;
   }
@@ -456,7 +478,10 @@ export class AttachmentStorageService implements OnModuleInit, OnModuleDestroy {
   async createSignedReadUrl(
     namespace: AttachmentStorageNamespace,
     storageKey: string,
-    options?: { expiresInSeconds?: number; downloadFileName?: string | boolean },
+    options?: {
+      expiresInSeconds?: number;
+      downloadFileName?: string | boolean;
+    },
   ): Promise<string> {
     if (this.driver !== 'supabase') {
       throw new ConflictException(
@@ -466,8 +491,7 @@ export class AttachmentStorageService implements OnModuleInit, OnModuleDestroy {
 
     const config = this.requireSupabaseConfig();
     const objectKey = this.objectKey(namespace, storageKey);
-    const expiresIn =
-      options?.expiresInSeconds ?? config.signedUrlTtlSeconds;
+    const expiresIn = options?.expiresInSeconds ?? config.signedUrlTtlSeconds;
     const response = await fetch(
       `${config.baseUrl}/object/sign/${encodeURIComponent(config.bucket)}/${this.encodeObjectKey(objectKey)}`,
       {
@@ -485,7 +509,9 @@ export class AttachmentStorageService implements OnModuleInit, OnModuleDestroy {
 
     const data = (await response.json()) as { signedURL?: unknown };
     if (typeof data.signedURL !== 'string' || !data.signedURL) {
-      throw new ServiceUnavailableException('Stored file access could not be prepared.');
+      throw new ServiceUnavailableException(
+        'Stored file access could not be prepared.',
+      );
     }
 
     const signedUrl = /^https?:\/\//i.test(data.signedURL)
@@ -511,7 +537,9 @@ export class AttachmentStorageService implements OnModuleInit, OnModuleDestroy {
 
     const signedUrl = await this.createSignedReadUrl(namespace, storageKey);
     const response = await fetch(signedUrl, {
-      headers: range ? { Range: `bytes=${range.start}-${range.end}` } : undefined,
+      headers: range
+        ? { Range: `bytes=${range.start}-${range.end}` }
+        : undefined,
     });
 
     if (!response.ok && response.status !== 206) {
@@ -521,7 +549,9 @@ export class AttachmentStorageService implements OnModuleInit, OnModuleDestroy {
     }
 
     if (!response.body) {
-      throw new ServiceUnavailableException('Stored file returned an empty response.');
+      throw new ServiceUnavailableException(
+        'Stored file returned an empty response.',
+      );
     }
 
     return Readable.fromWeb(
@@ -580,7 +610,9 @@ export class AttachmentStorageService implements OnModuleInit, OnModuleDestroy {
         {
           method: 'DELETE',
           headers: this.supabaseHeaders({ 'Content-Type': 'application/json' }),
-          body: JSON.stringify({ prefixes: [this.objectKey(namespace, storageKey)] }),
+          body: JSON.stringify({
+            prefixes: [this.objectKey(namespace, storageKey)],
+          }),
         },
       );
       return response.ok;
@@ -593,7 +625,9 @@ export class AttachmentStorageService implements OnModuleInit, OnModuleDestroy {
     }
   }
 
-  private async listSupabaseObjects(prefix: string): Promise<Array<{ name: string }>> {
+  private async listSupabaseObjects(
+    prefix: string,
+  ): Promise<Array<{ name: string }>> {
     const config = this.requireSupabaseConfig();
     const response = await fetch(
       `${config.baseUrl}/object/list/${encodeURIComponent(config.bucket)}`,
@@ -639,7 +673,11 @@ export class AttachmentStorageService implements OnModuleInit, OnModuleDestroy {
     }
 
     const entries = await this.listSupabaseObjects(`${namespace}/`);
-    return [...new Set(entries.map((entry) => entry.name.split('/')[0]).filter(Boolean))];
+    return [
+      ...new Set(
+        entries.map((entry) => entry.name.split('/')[0]).filter(Boolean),
+      ),
+    ];
   }
 
   async removeDirectory(

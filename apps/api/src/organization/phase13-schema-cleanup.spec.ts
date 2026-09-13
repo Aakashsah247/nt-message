@@ -120,6 +120,8 @@ describe('Phase 13 checkpoint 20 destructive schema cleanup', () => {
     expect(migration).toContain('DROP TABLE IF EXISTS "department_teams"');
     expect(migration).toContain('DROP TABLE IF EXISTS "management_positions"');
     expect(migration).toContain('DROP TYPE IF EXISTS "WorkItemType"');
-    expect(migration).toContain('CREATE TYPE "OfficialGroupScopeType" AS ENUM (\'OFFICE\', \'ORG_UNIT\')');
+    expect(migration).toContain(
+      "CREATE TYPE \"OfficialGroupScopeType\" AS ENUM ('OFFICE', 'ORG_UNIT')",
+    );
   });
 });

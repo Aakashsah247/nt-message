@@ -1,5 +1,11 @@
 import { Transform } from 'class-transformer';
-import { IsOptional, IsString, IsUUID, Matches, MaxLength } from 'class-validator';
+import {
+  IsOptional,
+  IsString,
+  IsUUID,
+  Matches,
+  MaxLength,
+} from 'class-validator';
 
 export class CreateDutyLeaveDto {
   @IsUUID('4')

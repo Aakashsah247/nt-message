@@ -22,9 +22,11 @@ describe('Phase 13 checkpoint 18 legacy-data reconciliation', () => {
 
   it('reconciles employee and account-request V3 placement', () => {
     expect(migration).toContain('INSERT INTO "org_memberships"');
-    expect(migration).toContain("'PRIMARY'::\"OrgMembershipType\"");
+    expect(migration).toContain('\'PRIMARY\'::"OrgMembershipType"');
     expect(migration).toContain('UPDATE "account_requests" request');
-    expect(migration).toContain('"intended_org_unit_id" = mapping."org_unit_id"');
+    expect(migration).toContain(
+      '"intended_org_unit_id" = mapping."org_unit_id"',
+    );
   });
 
   it('reconciles every active Duty scope to Office and OrgUnit', () => {
@@ -62,20 +64,12 @@ describe('Phase 13 checkpoint 18 legacy-data reconciliation', () => {
     expect(migration).toContain(
       'employee without V3 primary membership history',
     );
-    expect(migration).toContain(
-      'Work row without complete V3 runtime context',
-    );
-    expect(migration).toContain(
-      'active account request without V3 scope',
-    );
+    expect(migration).toContain('Work row without complete V3 runtime context');
+    expect(migration).toContain('active account request without V3 scope');
     expect(migration).toContain(
       'Duty data still contains unreconciled V3 scope',
     );
-    expect(migration).toContain(
-      'legacy Official Group scope value remains',
-    );
-    expect(migration).toContain(
-      'legacy Announcement audience value remains',
-    );
+    expect(migration).toContain('legacy Official Group scope value remains');
+    expect(migration).toContain('legacy Announcement audience value remains');
   });
 });

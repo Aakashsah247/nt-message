@@ -21,9 +21,7 @@ describe('ChangePasswordDto', () => {
     });
 
     expect(
-      validateSync(dto).some(
-        (error) => error.property === 'currentPassword',
-      ),
+      validateSync(dto).some((error) => error.property === 'currentPassword'),
     ).toBe(true);
   });
 
@@ -39,9 +37,7 @@ describe('ChangePasswordDto', () => {
     });
 
     expect(
-      validateSync(dto).some(
-        (error) => error.property === 'newPassword',
-      ),
+      validateSync(dto).some((error) => error.property === 'newPassword'),
     ).toBe(true);
   });
 
@@ -51,9 +47,7 @@ describe('ChangePasswordDto', () => {
     });
 
     expect(
-      validateSync(dto).some(
-        (error) => error.property === 'confirmPassword',
-      ),
+      validateSync(dto).some((error) => error.property === 'confirmPassword'),
     ).toBe(true);
   });
 });

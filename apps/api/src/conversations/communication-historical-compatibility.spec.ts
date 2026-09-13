@@ -5,13 +5,7 @@ import { join } from 'node:path';
 import { validateSync } from 'class-validator';
 
 import { CreateAnnouncementDto } from '../announcements/dto/create-announcement.dto';
-import type { PrismaService } from '../database/prisma.service';
-import {
-  AccountRole,
-  AnnouncementAudienceType,
-  OfficialGroupScopeType,
-} from '../generated/prisma/client';
-import { ConversationsService } from './conversations.service';
+import { AnnouncementAudienceType } from '../generated/prisma/client';
 import { CreateOfficialGroupConversationDto } from './dto/create-official-group-conversation.dto';
 
 jest.mock('../database/prisma.service', () => ({
@@ -35,9 +29,6 @@ const cutoverVerificationScript = readFileSync(
 describe('P12-K communication historical compatibility and legacy-write cutover', () => {
   const officeId = '11111111-1111-4111-8111-111111111111';
   const orgUnitId = '22222222-2222-4222-8222-222222222222';
-  const divisionId = '33333333-3333-4333-8333-333333333333';
-  const accountId = '44444444-4444-4444-8444-444444444444';
-  const employeeId = '55555555-5555-4555-8555-555555555555';
 
   it('accepts only Office/OrgUnit scope for new Official Group writes', () => {
     const native = Object.assign(new CreateOfficialGroupConversationDto(), {

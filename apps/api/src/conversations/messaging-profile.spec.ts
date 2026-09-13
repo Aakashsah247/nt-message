@@ -3,7 +3,11 @@ import { ConversationsService } from './conversations.service';
 
 describe('ConversationsService messaging profile serialization', () => {
   it('returns the authorized employee contact number in the opened profile', () => {
-    const service = new ConversationsService({} as never, {} as never, {} as never);
+    const service = new ConversationsService(
+      {} as never,
+      {} as never,
+      {} as never,
+    );
     const account = {
       id: 'account-2',
       username: 'employee@example.com',
@@ -243,5 +247,4 @@ describe('ConversationsService messaging profile serialization', () => {
       }
     }
   });
-
 });

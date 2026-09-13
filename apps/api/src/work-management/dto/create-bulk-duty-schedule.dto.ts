@@ -53,11 +53,17 @@ export class CreateBulkDutyScheduleDto {
   @Matches(/^\d{4}-\d{2}-\d{2}$/)
   startDate!: string;
 
-  @ValidateIf((dto: CreateBulkDutyScheduleDto) => dto.recurrenceType !== DutyRecurrenceType.ONE_TIME)
+  @ValidateIf(
+    (dto: CreateBulkDutyScheduleDto) =>
+      dto.recurrenceType !== DutyRecurrenceType.ONE_TIME,
+  )
   @Matches(/^\d{4}-\d{2}-\d{2}$/)
   endDate?: string;
 
-  @ValidateIf((dto: CreateBulkDutyScheduleDto) => dto.recurrenceType === DutyRecurrenceType.WEEKLY)
+  @ValidateIf(
+    (dto: CreateBulkDutyScheduleDto) =>
+      dto.recurrenceType === DutyRecurrenceType.WEEKLY,
+  )
   @IsArray()
   @ArrayUnique()
   @ArrayMaxSize(7)

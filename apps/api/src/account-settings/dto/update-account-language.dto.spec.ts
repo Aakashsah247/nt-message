@@ -13,11 +13,14 @@ describe('UpdateAccountLanguageDto', () => {
     expect(validateSync(buildDto(language))).toHaveLength(0);
   });
 
-  it.each(['', 'np', 'english', 'EN'])('rejects unsupported language %s', (language) => {
-    expect(
-      validateSync(buildDto(language)).some(
-        (error) => error.property === 'interfaceLanguage',
-      ),
-    ).toBe(true);
-  });
+  it.each(['', 'np', 'english', 'EN'])(
+    'rejects unsupported language %s',
+    (language) => {
+      expect(
+        validateSync(buildDto(language)).some(
+          (error) => error.property === 'interfaceLanguage',
+        ),
+      ).toBe(true);
+    },
+  );
 });

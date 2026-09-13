@@ -89,19 +89,25 @@ export class DutyManagementController {
 
   @Get('management/access-context')
   @AccountClasses(...ALL_ACCOUNT_CLASSES)
-  getDutyAccessContext(@CurrentUser() user: AuthenticatedUser): Promise<unknown> {
+  getDutyAccessContext(
+    @CurrentUser() user: AuthenticatedUser,
+  ): Promise<unknown> {
     return this.dutyAuthorizationService.getContext(user);
   }
 
   @Get('management/supervisor-options')
   @AccountClasses(...OFFICE_USER_ONLY)
-  listSupervisorOptions(@CurrentUser() user: AuthenticatedUser): Promise<unknown> {
+  listSupervisorOptions(
+    @CurrentUser() user: AuthenticatedUser,
+  ): Promise<unknown> {
     return this.dutyScopeV3Service.listSupervisorOptions(user);
   }
 
   @Get('management/summary')
   @AccountClasses(...ALL_ACCOUNT_CLASSES)
-  getManagementSummary(@CurrentUser() user: AuthenticatedUser): Promise<unknown> {
+  getManagementSummary(
+    @CurrentUser() user: AuthenticatedUser,
+  ): Promise<unknown> {
     return this.dutyScheduleService.getManagementSummary(user);
   }
 
@@ -272,11 +278,7 @@ export class DutyManagementController {
     assignmentId: string,
     @Body() dto: UpdateDutyAssignmentDto,
   ): Promise<unknown> {
-    return this.dutyScheduleService.updateAssignment(
-      user,
-      assignmentId,
-      dto,
-    );
+    return this.dutyScheduleService.updateAssignment(user, assignmentId, dto);
   }
 
   @Post('management/assignments/:assignmentId/cancel')
@@ -287,11 +289,7 @@ export class DutyManagementController {
     assignmentId: string,
     @Body() dto: CancelDutyAssignmentDto,
   ): Promise<unknown> {
-    return this.dutyScheduleService.cancelAssignment(
-      user,
-      assignmentId,
-      dto,
-    );
+    return this.dutyScheduleService.cancelAssignment(user, assignmentId, dto);
   }
 
   @Post('management/leaves')

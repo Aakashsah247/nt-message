@@ -48,17 +48,11 @@ describe('WorkRuntimeV3Controller overview contract', () => {
     };
     const controller = createController(workRuntime, stageRuntime);
 
-    const result = await controller.listWork(
-      superAdmin,
-      officeId,
-      { take: 50 } as WorkRuntimeV3QueueQueryDto,
-    );
+    const result = await controller.listWork(superAdmin, officeId, {
+      take: 50,
+    } as WorkRuntimeV3QueueQueryDto);
 
-    expect(workRuntime.listWork).toHaveBeenCalledWith(
-      superAdmin,
-      officeId,
-      50,
-    );
+    expect(workRuntime.listWork).toHaveBeenCalledWith(superAdmin, officeId, 50);
     expect(stageRuntime.getWorkAvailableActions).toHaveBeenCalledWith(
       superAdmin,
       officeId,

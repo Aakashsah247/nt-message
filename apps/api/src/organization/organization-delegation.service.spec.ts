@@ -12,14 +12,9 @@ describe('OrganizationDelegationService', () => {
   it('does not allow Super Admin to create internal Office delegation', async () => {
     const prisma = {} as PrismaService;
 
-    const authorization =
-      {} as OrganizationAuthorizationService;
+    const authorization = {} as OrganizationAuthorizationService;
 
-    const service =
-      new OrganizationDelegationService(
-        prisma,
-        authorization,
-      );
+    const service = new OrganizationDelegationService(prisma, authorization);
 
     await expect(
       service.create(
@@ -31,8 +26,7 @@ describe('OrganizationDelegationService', () => {
         'office-1',
         {
           granteeAccountId: 'account-1',
-          capability:
-            CAPABILITIES.MEMBERSHIP_VIEW,
+          capability: CAPABILITIES.MEMBERSHIP_VIEW,
           reason: 'Internal delegation',
         },
       ),
@@ -42,14 +36,9 @@ describe('OrganizationDelegationService', () => {
   it('does not allow protected system capabilities to be delegated', async () => {
     const prisma = {} as PrismaService;
 
-    const authorization =
-      {} as OrganizationAuthorizationService;
+    const authorization = {} as OrganizationAuthorizationService;
 
-    const service =
-      new OrganizationDelegationService(
-        prisma,
-        authorization,
-      );
+    const service = new OrganizationDelegationService(prisma, authorization);
 
     await expect(
       service.create(
@@ -61,8 +50,7 @@ describe('OrganizationDelegationService', () => {
         'office-1',
         {
           granteeAccountId: 'account-1',
-          capability:
-            CAPABILITIES.SYSTEM_SECURITY,
+          capability: CAPABILITIES.SYSTEM_SECURITY,
           reason: 'Not allowed',
         },
       ),
@@ -82,11 +70,7 @@ describe('OrganizationDelegationService', () => {
       canRedelegate: jest.fn().mockResolvedValue(false),
     } as unknown as OrganizationAuthorizationService;
 
-    const service =
-      new OrganizationDelegationService(
-        prisma,
-        authorization,
-      );
+    const service = new OrganizationDelegationService(prisma, authorization);
 
     const effectiveFrom = '2026-09-03T00:00:00.000Z';
     const effectiveUntil = '2026-09-04T00:00:00.000Z';
@@ -101,8 +85,7 @@ describe('OrganizationDelegationService', () => {
         'office-1',
         {
           granteeAccountId: 'account-2',
-          capability:
-            CAPABILITIES.ORGANIZATION_RENAME_UNIT,
+          capability: CAPABILITIES.ORGANIZATION_RENAME_UNIT,
           orgUnitId: 'unit-1',
           includeDescendants: true,
           effectiveFrom,
@@ -124,5 +107,4 @@ describe('OrganizationDelegationService', () => {
       new Date(effectiveUntil),
     );
   });
-
 });

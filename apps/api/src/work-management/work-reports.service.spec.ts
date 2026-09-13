@@ -94,7 +94,9 @@ describe('WorkReportsService — Duty compatibility only', () => {
       },
     );
 
-    expect(result.filename).toBe('duty-assignments-2026-09-01-to-2026-09-02.csv');
+    expect(result.filename).toBe(
+      'duty-assignments-2026-09-01-to-2026-09-02.csv',
+    );
     expect(result.rowCount).toBe(1);
     expect(result.content).toContain('Employee One (NTC-1)');
   });
@@ -103,14 +105,11 @@ describe('WorkReportsService — Duty compatibility only', () => {
     const service = new WorkReportsService(prisma as never, scope as never);
 
     await expect(
-      service.getDrilldown(
-        { accountId: actor.accountId } as never,
-        {
-          dataset: 'WORK_RECORDS' as WorkReportDrilldownDataset,
-          page: 1,
-          limit: 25,
-        },
-      ),
+      service.getDrilldown({ accountId: actor.accountId } as never, {
+        dataset: 'WORK_RECORDS' as WorkReportDrilldownDataset,
+        page: 1,
+        limit: 25,
+      }),
     ).rejects.toBeInstanceOf(BadRequestException);
   });
 });

@@ -43,11 +43,8 @@ describe('PasswordRecoveryService', () => {
       findUnique: jest.fn(),
     },
     $transaction: jest.fn(
-      async (
-        callback: (
-          value: typeof transaction,
-        ) => Promise<unknown>,
-      ) => callback(transaction),
+      async (callback: (value: typeof transaction) => Promise<unknown>) =>
+        callback(transaction),
     ),
   } as unknown as PrismaService;
 
@@ -111,9 +108,7 @@ describe('PasswordRecoveryService', () => {
       id: 'event-1',
     });
 
-    jest
-      .mocked(mailService.sendPasswordResetOtp)
-      .mockResolvedValue(undefined);
+    jest.mocked(mailService.sendPasswordResetOtp).mockResolvedValue(undefined);
     jest
       .mocked(mailService.sendPasswordResetNotification)
       .mockResolvedValue(undefined);

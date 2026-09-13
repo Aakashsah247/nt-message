@@ -23,7 +23,7 @@ describe('Phase 11 Duty Operational Team history migration', () => {
   });
 
   it('backfills explicit Team context from Duty activity snapshots', () => {
-    expect(migration).toContain("activity.\"details\" ->> 'operationalTeamId'");
+    expect(migration).toContain('activity."details" ->> \'operationalTeamId\'');
     expect(migration).toContain(
       'UPDATE "duty_assignments" assignment SET "operational_team_id" = latest."operational_team_id"',
     );

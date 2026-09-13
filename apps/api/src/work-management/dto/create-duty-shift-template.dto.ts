@@ -1,5 +1,13 @@
 import { Transform } from 'class-transformer';
-import { IsEnum, IsOptional, IsString, IsUUID, Matches, MaxLength, MinLength, ValidateIf } from 'class-validator';
+import {
+  IsEnum,
+  IsString,
+  IsUUID,
+  Matches,
+  MaxLength,
+  MinLength,
+  ValidateIf,
+} from 'class-validator';
 
 export enum DutyShiftScope {
   OFFICE = 'OFFICE',
@@ -26,7 +34,9 @@ export class CreateDutyShiftTemplateDto {
   @IsEnum(DutyShiftScope)
   scope!: DutyShiftScope;
 
-  @ValidateIf((dto: CreateDutyShiftTemplateDto) => dto.scope === DutyShiftScope.ORG_UNIT)
+  @ValidateIf(
+    (dto: CreateDutyShiftTemplateDto) => dto.scope === DutyShiftScope.ORG_UNIT,
+  )
   @IsUUID('4')
   orgUnitId?: string;
 }

@@ -186,8 +186,13 @@ function createHarness() {
   };
   const sla = {
     resolveDueAt: jest.fn(
-      async (_tx: unknown, _officeId: string, _basis: unknown, startsAt: Date, minutes: number) =>
-        new Date(startsAt.getTime() + minutes * 60_000),
+      async (
+        _tx: unknown,
+        _officeId: string,
+        _basis: unknown,
+        startsAt: Date,
+        minutes: number,
+      ) => new Date(startsAt.getTime() + minutes * 60_000),
     ),
     getWorkSlaSummary: jest.fn(),
   };
@@ -263,7 +268,8 @@ describe('WorkRuntimeV3Service creation', () => {
       }),
     );
 
-    const createData = jest.mocked(harness.tx.workItem.create).mock.calls[0]?.[0]?.data as Record<string, unknown>;
+    const createData = jest.mocked(harness.tx.workItem.create).mock
+      .calls[0]?.[0]?.data as Record<string, unknown>;
     expect(createData).not.toHaveProperty('assignedTeamId');
     expect(createData).not.toHaveProperty('responsibleManagerAccountId');
 
@@ -290,8 +296,7 @@ describe('WorkRuntimeV3Service creation', () => {
           code: 'TECHNICAL_INTAKE',
           name: 'Technical intake',
           sortOrder: 10,
-          responsibleOrgUnitRule:
-            WorkStageResponsibleOrgUnitRule.PRIMARY_OWNER,
+          responsibleOrgUnitRule: WorkStageResponsibleOrgUnitRule.PRIMARY_OWNER,
           responsibleOrgUnitId: null,
           isRequired: true,
         },
@@ -448,7 +453,9 @@ describe('WorkRuntimeV3Service creation', () => {
     });
     secondHarness.tx.workItem.findUnique.mockResolvedValue(first);
 
-    await expect(secondHarness.service.create(user, officeId, dto)).resolves.toEqual(first);
+    await expect(
+      secondHarness.service.create(user, officeId, dto),
+    ).resolves.toEqual(first);
     expect(secondHarness.tx.workTypeVersion.findFirst).not.toHaveBeenCalled();
     expect(secondHarness.tx.workItem.create).not.toHaveBeenCalled();
   });
@@ -470,10 +477,7 @@ describe('WorkRuntimeV3Service shared Work visibility', () => {
       },
     };
     const authorization = {
-      can: jest
-        .fn()
-        .mockResolvedValueOnce(false)
-        .mockResolvedValueOnce(true),
+      can: jest.fn().mockResolvedValueOnce(false).mockResolvedValueOnce(true),
     };
     const sla = { getWorkSlaSummary: jest.fn() };
     const notifications = { publishReadyStageEvents: jest.fn() };
@@ -484,9 +488,9 @@ describe('WorkRuntimeV3Service shared Work visibility', () => {
       notifications as never,
     );
 
-    await expect(
-      service.getWork(user, officeId, sharedWork.id),
-    ).resolves.toBe(sharedWork);
+    await expect(service.getWork(user, officeId, sharedWork.id)).resolves.toBe(
+      sharedWork,
+    );
 
     expect(authorization.can).toHaveBeenNthCalledWith(
       1,

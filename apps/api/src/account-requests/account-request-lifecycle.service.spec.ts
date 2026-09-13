@@ -63,8 +63,6 @@ describe('AccountRequestLifecycleService', () => {
     ],
   ])('rejects %s -> %s', (from, to) => {
     expect(service.canTransition(from, to)).toBe(false);
-    expect(() => service.assertTransition(from, to)).toThrow(
-      ConflictException,
-    );
+    expect(() => service.assertTransition(from, to)).toThrow(ConflictException);
   });
 });

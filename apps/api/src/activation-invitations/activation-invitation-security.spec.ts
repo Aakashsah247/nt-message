@@ -16,9 +16,7 @@ describe('activation invitation security', () => {
     expect(invitation.rawToken).toMatch(/^[A-Za-z0-9_-]+$/);
     expect(invitation.tokenHash).toMatch(/^[a-f0-9]{64}$/);
     expect(invitation.tokenHash).not.toBe(invitation.rawToken);
-    expect(invitation.expiresAt.toISOString()).toBe(
-      '2026-07-19T12:00:00.000Z',
-    );
+    expect(invitation.expiresAt.toISOString()).toBe('2026-07-19T12:00:00.000Z');
   });
 
   it('produces a stable token hash for database lookup', () => {
@@ -36,9 +34,7 @@ describe('activation invitation security', () => {
         'http://localhost:5173/',
         'opaque_token-value',
       ),
-    ).toBe(
-      'http://localhost:5173/activate?invitation=opaque_token-value',
-    );
+    ).toBe('http://localhost:5173/activate?invitation=opaque_token-value');
   });
 
   it.each([

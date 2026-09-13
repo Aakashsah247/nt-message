@@ -10,8 +10,7 @@ interface MessagingSocketSessionRegistration {
   invalidate: () => void;
 }
 
-interface RegisteredMessagingSocketSession
-  extends MessagingSocketSessionRegistration {
+interface RegisteredMessagingSocketSession extends MessagingSocketSessionRegistration {
   accessTokenExpiresAtMs: number;
 }
 
@@ -142,7 +141,9 @@ export class MessagingSocketSessionService implements OnModuleDestroy {
       },
     });
 
-    const sessionById = new Map(sessions.map((session) => [session.id, session]));
+    const sessionById = new Map(
+      sessions.map((session) => [session.id, session]),
+    );
 
     for (const registration of activeRegistrations) {
       const session = sessionById.get(registration.user.sessionId);

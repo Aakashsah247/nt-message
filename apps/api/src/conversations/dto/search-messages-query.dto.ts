@@ -40,15 +40,21 @@ export class SearchMessagesQueryDto {
   contentType?: MessageContentType;
 
   @IsOptional()
-  @IsISO8601({}, {
-    message: 'Start date must be a valid ISO date.',
-  })
+  @IsISO8601(
+    {},
+    {
+      message: 'Start date must be a valid ISO date.',
+    },
+  )
   dateFrom?: string;
 
   @IsOptional()
-  @IsISO8601({}, {
-    message: 'End date must be a valid ISO date.',
-  })
+  @IsISO8601(
+    {},
+    {
+      message: 'End date must be a valid ISO date.',
+    },
+  )
   dateTo?: string;
 
   @Type(() => Number)

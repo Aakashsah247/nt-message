@@ -1,7 +1,4 @@
-import {
-  BadRequestException,
-  ForbiddenException,
-} from '@nestjs/common';
+import { BadRequestException, ForbiddenException } from '@nestjs/common';
 
 import type { AuthenticatedUser } from '../auth/types/auth.types';
 import { AccountClass, AccountRole } from '../generated/prisma/client';
@@ -90,9 +87,7 @@ describe('AccountRequestAuthorityService', () => {
     const { service, prisma, authorization } = buildService();
     allowActiveOfficeUser(prisma);
 
-    authorization.visibleOrgUnitIds.mockResolvedValue([
-      'unit-requestable',
-    ]);
+    authorization.visibleOrgUnitIds.mockResolvedValue(['unit-requestable']);
     prisma.orgUnit.findMany.mockResolvedValue([
       {
         id: 'unit-requestable',
@@ -148,9 +143,9 @@ describe('AccountRequestAuthorityService', () => {
     const { service, prisma } = buildService();
     allowActiveOfficeUser(prisma);
 
-    await expect(
-      service.resolveCreateTarget(user, {}),
-    ).rejects.toBeInstanceOf(BadRequestException);
+    await expect(service.resolveCreateTarget(user, {})).rejects.toBeInstanceOf(
+      BadRequestException,
+    );
   });
 
   it('uses the canonical intended OrgUnit and checks central capability scope', async () => {
@@ -188,5 +183,4 @@ describe('AccountRequestAuthorityService', () => {
       },
     });
   });
-
 });

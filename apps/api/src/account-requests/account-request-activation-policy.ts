@@ -28,10 +28,10 @@ export function isCanonicalOfficeActivationRequest(
 ): boolean {
   return Boolean(
     request.officeId &&
-      request.intendedOrgUnitId &&
-      request.requestedRole === AccountRole.EMPLOYEE &&
-      (request.lifecycleState === AccountRequestLifecycleState.APPROVED ||
-        request.lifecycleState === AccountRequestLifecycleState.PROVISIONED),
+    request.intendedOrgUnitId &&
+    request.requestedRole === AccountRole.EMPLOYEE &&
+    (request.lifecycleState === AccountRequestLifecycleState.APPROVED ||
+      request.lifecycleState === AccountRequestLifecycleState.PROVISIONED),
   );
 }
 
@@ -44,11 +44,11 @@ export function primaryMembershipMatchesActivationScope(
 ): boolean {
   return Boolean(
     request.officeId &&
-      request.intendedOrgUnitId &&
-      membership &&
-      membership.membershipType === OrgMembershipType.PRIMARY &&
-      membership.endsAt === null &&
-      membership.officeId === request.officeId &&
-      membership.orgUnitId === request.intendedOrgUnitId,
+    request.intendedOrgUnitId &&
+    membership &&
+    membership.membershipType === OrgMembershipType.PRIMARY &&
+    membership.endsAt === null &&
+    membership.officeId === request.officeId &&
+    membership.orgUnitId === request.intendedOrgUnitId,
   );
 }

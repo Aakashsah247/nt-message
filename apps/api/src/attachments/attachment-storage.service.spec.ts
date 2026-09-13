@@ -39,9 +39,9 @@ describe('AttachmentStorageService', () => {
       Buffer.from('content'),
     );
 
-    expect(
-      service.resolvePath('messages', 'conversation-id/object-id'),
-    ).toBe(path.join(root, 'messages', 'conversation-id', 'object-id'));
+    expect(service.resolvePath('messages', 'conversation-id/object-id')).toBe(
+      path.join(root, 'messages', 'conversation-id', 'object-id'),
+    );
     await expect(
       service.exists('messages', 'conversation-id/object-id'),
     ).resolves.toBe(true);
@@ -57,12 +57,18 @@ describe('AttachmentStorageService', () => {
     const service = new AttachmentStorageService();
     await service.onModuleInit();
 
-    await service.writeFile('work', 'work-id/sales/file-id', Buffer.from('evidence'));
+    await service.writeFile(
+      'work',
+      'work-id/sales/file-id',
+      Buffer.from('evidence'),
+    );
 
     expect(service.resolvePath('work', 'work-id/sales/file-id')).toBe(
       path.join(root, 'work', 'work-id', 'sales', 'file-id'),
     );
-    await expect(service.exists('work', 'work-id/sales/file-id')).resolves.toBe(true);
+    await expect(service.exists('work', 'work-id/sales/file-id')).resolves.toBe(
+      true,
+    );
   });
 
   it('rejects storage keys that try to escape the private root', () => {
@@ -83,12 +89,18 @@ describe('AttachmentStorageService', () => {
   });
   it('fails an upload safely when NTC storage cannot write the object', async () => {
     const service = new AttachmentStorageService();
-    const writeError = Object.assign(new Error('disk full'), { code: 'ENOSPC' });
+    const writeError = Object.assign(new Error('disk full'), {
+      code: 'ENOSPC',
+    });
     const writeSpy = jest.spyOn(fs, 'writeFile').mockRejectedValue(writeError);
 
     try {
       await expect(
-        service.writeFile('messages', 'conversation-id/object-id', Buffer.from('x')),
+        service.writeFile(
+          'messages',
+          'conversation-id/object-id',
+          Buffer.from('x'),
+        ),
       ).rejects.toThrow('Attachment storage is temporarily unavailable');
     } finally {
       writeSpy.mockRestore();
@@ -101,7 +113,6 @@ describe('AttachmentStorageService', () => {
       service.deleteFile('messages', 'conversation-id/missing-object'),
     ).resolves.toBe(true);
   });
-
 
   it('copies a streamed temporary upload into permanent NTC storage without requiring the full file in memory', async () => {
     const service = new AttachmentStorageService();
@@ -119,11 +130,10 @@ describe('AttachmentStorageService', () => {
 
     await service.writeUploadedFile('messages', 'conversation/object', upload);
 
-    await expect(fs.stat(service.resolvePath('messages', 'conversation/object'))).resolves.toEqual(
-      expect.objectContaining({ size: 32 * 1024 }),
-    );
+    await expect(
+      fs.stat(service.resolvePath('messages', 'conversation/object')),
+    ).resolves.toEqual(expect.objectContaining({ size: 32 * 1024 }));
     await expect(fs.access(temporaryFile)).rejects.toThrow();
     expect(upload.path).toBeUndefined();
   });
-
 });

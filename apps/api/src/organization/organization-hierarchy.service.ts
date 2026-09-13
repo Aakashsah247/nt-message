@@ -81,8 +81,7 @@ export class OrganizationHierarchyService {
   }
 
   async listOffices(user: AuthenticatedUser) {
-    const visibleOfficeIds =
-      await this.authority.listVisibleOfficeIds(user);
+    const visibleOfficeIds = await this.authority.listVisibleOfficeIds(user);
 
     const offices = await this.prisma.office.findMany({
       where:
@@ -93,11 +92,7 @@ export class OrganizationHierarchyService {
                 in: visibleOfficeIds,
               },
             },
-      orderBy: [
-        { isActive: 'desc' },
-        { sortOrder: 'asc' },
-        { name: 'asc' },
-      ],
+      orderBy: [{ isActive: 'desc' }, { sortOrder: 'asc' }, { name: 'asc' }],
       select: {
         id: true,
         code: true,
@@ -180,9 +175,10 @@ export class OrganizationHierarchyService {
     }
 
     return {
-      mode: manageableOfficeIds.length > 0
-        ? ('MANAGE' as const)
-        : ('NONE' as const),
+      mode:
+        manageableOfficeIds.length > 0
+          ? ('MANAGE' as const)
+          : ('NONE' as const),
       officeIds,
       manageableOfficeIds,
     };
@@ -228,12 +224,11 @@ export class OrganizationHierarchyService {
   async getTree(user: AuthenticatedUser, officeId: string) {
     await this.authority.assertCanViewOffice(user, officeId);
 
-    const visibleOrgUnitIds =
-      await this.authorization.visibleOrgUnitIds(
-        user,
-        CAPABILITIES.ORGANIZATION_VIEW,
-        officeId,
-      );
+    const visibleOrgUnitIds = await this.authorization.visibleOrgUnitIds(
+      user,
+      CAPABILITIES.ORGANIZATION_VIEW,
+      officeId,
+    );
 
     const office = await this.prisma.office.findUnique({
       where: { id: officeId },
@@ -286,14 +281,10 @@ export class OrganizationHierarchyService {
       },
     });
 
-    const childrenByParent = new Map<
-      string | null,
-      typeof units
-    >();
+    const childrenByParent = new Map<string | null, typeof units>();
 
     for (const unit of units) {
-      const siblings =
-        childrenByParent.get(unit.parentOrgUnitId) ?? [];
+      const siblings = childrenByParent.get(unit.parentOrgUnitId) ?? [];
 
       siblings.push(unit);
       childrenByParent.set(unit.parentOrgUnitId, siblings);
@@ -344,27 +335,26 @@ export class OrganizationHierarchyService {
       };
     }
 
-    const [renameUnit, moveUnit, changeUnitStatus] =
-      await Promise.all([
-        this.authorization.can(
-          user,
-          CAPABILITIES.ORGANIZATION_RENAME_UNIT,
-          officeId,
-          orgUnitId,
-        ),
-        this.authorization.can(
-          user,
-          CAPABILITIES.ORGANIZATION_MOVE_UNIT,
-          officeId,
-          orgUnitId,
-        ),
-        this.authorization.can(
-          user,
-          CAPABILITIES.ORGANIZATION_DEACTIVATE_UNIT,
-          officeId,
-          orgUnitId,
-        ),
-      ]);
+    const [renameUnit, moveUnit, changeUnitStatus] = await Promise.all([
+      this.authorization.can(
+        user,
+        CAPABILITIES.ORGANIZATION_RENAME_UNIT,
+        officeId,
+        orgUnitId,
+      ),
+      this.authorization.can(
+        user,
+        CAPABILITIES.ORGANIZATION_MOVE_UNIT,
+        officeId,
+        orgUnitId,
+      ),
+      this.authorization.can(
+        user,
+        CAPABILITIES.ORGANIZATION_DEACTIVATE_UNIT,
+        officeId,
+        orgUnitId,
+      ),
+    ]);
 
     return {
       officeId,
@@ -417,9 +407,7 @@ export class OrganizationHierarchyService {
       };
     } catch (error) {
       if (this.isUniqueConstraintError(error)) {
-        throw new ConflictException(
-          'This organization type already exists.',
-        );
+        throw new ConflictException('This organization type already exists.');
       }
 
       throw error;
@@ -456,15 +444,10 @@ export class OrganizationHierarchyService {
     });
 
     if (!existing) {
-      throw new NotFoundException(
-        'Organization type was not found.',
-      );
+      throw new NotFoundException('Organization type was not found.');
     }
 
-    if (
-      dto.isActive === false &&
-      existing.isActive
-    ) {
+    if (dto.isActive === false && existing.isActive) {
       const activeUnits = await this.prisma.orgUnit.count({
         where: {
           orgUnitTypeId: typeId,
@@ -491,10 +474,7 @@ export class OrganizationHierarchyService {
       data.nameKey = this.nameKey(name);
     }
 
-    if (
-      dto.isTeam !== undefined &&
-      dto.isTeam !== existing.isTeam
-    ) {
+    if (dto.isTeam !== undefined && dto.isTeam !== existing.isTeam) {
       throw new BadRequestException(
         'Team classification on legacy OrgUnit types is historical and cannot be changed.',
       );
@@ -520,9 +500,7 @@ export class OrganizationHierarchyService {
       };
     } catch (error) {
       if (this.isUniqueConstraintError(error)) {
-        throw new ConflictException(
-          'This organization type already exists.',
-        );
+        throw new ConflictException('This organization type already exists.');
       }
 
       throw error;
@@ -545,98 +523,92 @@ export class OrganizationHierarchyService {
     const name = this.normalizeName(dto.name);
 
     try {
-      const orgUnit = await this.prisma.$transaction(
-        async (transaction) => {
-          const unitType =
-            await transaction.orgUnitType.findFirst({
-              where: {
-                id: dto.orgUnitTypeId,
-                officeId,
-                isActive: true,
-              },
-              select: {
-                id: true,
-                isTeam: true,
-              },
-            });
+      const orgUnit = await this.prisma.$transaction(async (transaction) => {
+        const unitType = await transaction.orgUnitType.findFirst({
+          where: {
+            id: dto.orgUnitTypeId,
+            officeId,
+            isActive: true,
+          },
+          select: {
+            id: true,
+            isTeam: true,
+          },
+        });
 
-          if (!unitType) {
-            throw new BadRequestException(
-              'Select an active organization type from this office.',
-            );
-          }
+        if (!unitType) {
+          throw new BadRequestException(
+            'Select an active organization type from this office.',
+          );
+        }
 
-          if (unitType.isTeam) {
-            throw new BadRequestException(
-              'Operational Teams cannot be created as formal OrgUnits.',
-            );
-          }
+        if (unitType.isTeam) {
+          throw new BadRequestException(
+            'Operational Teams cannot be created as formal OrgUnits.',
+          );
+        }
 
-          if (dto.parentOrgUnitId) {
-            const parent = await transaction.orgUnit.findFirst({
-              where: {
-                id: dto.parentOrgUnitId,
-                officeId,
-                isActive: true,
-              },
-              select: { id: true },
-            });
-
-            if (!parent) {
-              throw new BadRequestException(
-                'Select an active parent unit from this office.',
-              );
-            }
-          }
-
-          const created = await transaction.orgUnit.create({
-            data: {
+        if (dto.parentOrgUnitId) {
+          const parent = await transaction.orgUnit.findFirst({
+            where: {
+              id: dto.parentOrgUnitId,
               officeId,
-              orgUnitTypeId: dto.orgUnitTypeId,
-              parentOrgUnitId: dto.parentOrgUnitId ?? null,
-              code,
-              name,
-              nameKey: this.nameKey(name),
-              sortOrder: dto.sortOrder ?? 0,
+              isActive: true,
             },
+            select: { id: true },
           });
 
-          await transaction.orgUnitClosure.create({
-            data: {
-              ancestorOrgUnitId: created.id,
-              descendantOrgUnitId: created.id,
-              depth: 0,
-            },
-          });
-
-          if (dto.parentOrgUnitId) {
-            const ancestors =
-              await transaction.orgUnitClosure.findMany({
-                where: {
-                  descendantOrgUnitId:
-                    dto.parentOrgUnitId,
-                },
-                select: {
-                  ancestorOrgUnitId: true,
-                  depth: true,
-                },
-              });
-
-            if (ancestors.length > 0) {
-              await transaction.orgUnitClosure.createMany({
-                data: ancestors.map((ancestor) => ({
-                  ancestorOrgUnitId:
-                    ancestor.ancestorOrgUnitId,
-                  descendantOrgUnitId: created.id,
-                  depth: ancestor.depth + 1,
-                })),
-              });
-            }
+          if (!parent) {
+            throw new BadRequestException(
+              'Select an active parent unit from this office.',
+            );
           }
+        }
 
-          return created;
-        },
-      );
+        const created = await transaction.orgUnit.create({
+          data: {
+            officeId,
+            orgUnitTypeId: dto.orgUnitTypeId,
+            parentOrgUnitId: dto.parentOrgUnitId ?? null,
+            code,
+            name,
+            nameKey: this.nameKey(name),
+            sortOrder: dto.sortOrder ?? 0,
+          },
+        });
+
+        await transaction.orgUnitClosure.create({
+          data: {
+            ancestorOrgUnitId: created.id,
+            descendantOrgUnitId: created.id,
+            depth: 0,
+          },
+        });
+
+        if (dto.parentOrgUnitId) {
+          const ancestors = await transaction.orgUnitClosure.findMany({
+            where: {
+              descendantOrgUnitId: dto.parentOrgUnitId,
+            },
+            select: {
+              ancestorOrgUnitId: true,
+              depth: true,
+            },
+          });
+
+          if (ancestors.length > 0) {
+            await transaction.orgUnitClosure.createMany({
+              data: ancestors.map((ancestor) => ({
+                ancestorOrgUnitId: ancestor.ancestorOrgUnitId,
+                descendantOrgUnitId: created.id,
+                depth: ancestor.depth + 1,
+              })),
+            });
+          }
+        }
+
+        return created;
+      });
 
       return {
         message: 'Organizational unit created successfully.',
@@ -659,10 +631,7 @@ export class OrganizationHierarchyService {
     unitId: string,
     dto: UpdateOrgUnitDto,
   ) {
-    const existing = await this.getUnitForOffice(
-      officeId,
-      unitId,
-    );
+    const existing = await this.getUnitForOffice(officeId, unitId);
 
     await this.authorization.assertCan(
       user,
@@ -676,9 +645,7 @@ export class OrganizationHierarchyService {
       dto.name === undefined &&
       dto.sortOrder === undefined
     ) {
-      throw new BadRequestException(
-        'Provide at least one field to update.',
-      );
+      throw new BadRequestException('Provide at least one field to update.');
     }
 
     const data: Prisma.OrgUnitUpdateInput = {};
@@ -726,10 +693,7 @@ export class OrganizationHierarchyService {
     unitId: string,
     dto: MoveOrgUnitDto,
   ) {
-    const unit = await this.getUnitForOffice(
-      officeId,
-      unitId,
-    );
+    const unit = await this.getUnitForOffice(officeId, unitId);
 
     await this.authorization.assertCan(
       user,
@@ -741,9 +705,7 @@ export class OrganizationHierarchyService {
     const newParentId = dto.parentOrgUnitId ?? null;
 
     if (newParentId === unit.id) {
-      throw new BadRequestException(
-        'A unit cannot be placed inside itself.',
-      );
+      throw new BadRequestException('A unit cannot be placed inside itself.');
     }
 
     if (newParentId) {
@@ -777,106 +739,91 @@ export class OrganizationHierarchyService {
       );
     }
 
-    const orgUnit = await this.prisma.$transaction(
-      async (transaction) => {
-        if (newParentId) {
-          const createsCycle =
-            await transaction.orgUnitClosure.findUnique({
-              where: {
-                ancestorOrgUnitId_descendantOrgUnitId: {
-                  ancestorOrgUnitId: unitId,
-                  descendantOrgUnitId: newParentId,
-                },
-              },
-              select: { depth: true },
-            });
-
-          if (createsCycle) {
-            throw new ConflictException(
-              'This move would create a circular organization structure.',
-            );
-          }
-        }
-
-        const subtree =
-          await transaction.orgUnitClosure.findMany({
-            where: {
+    const orgUnit = await this.prisma.$transaction(async (transaction) => {
+      if (newParentId) {
+        const createsCycle = await transaction.orgUnitClosure.findUnique({
+          where: {
+            ancestorOrgUnitId_descendantOrgUnitId: {
               ancestorOrgUnitId: unitId,
+              descendantOrgUnitId: newParentId,
             },
-            select: {
-              descendantOrgUnitId: true,
-              depth: true,
-            },
-          });
+          },
+          select: { depth: true },
+        });
 
-        if (subtree.length === 0) {
+        if (createsCycle) {
           throw new ConflictException(
-            'The organization tree is incomplete for this unit.',
+            'This move would create a circular organization structure.',
           );
         }
+      }
 
-        const subtreeIds = subtree.map(
-          (item) => item.descendantOrgUnitId,
+      const subtree = await transaction.orgUnitClosure.findMany({
+        where: {
+          ancestorOrgUnitId: unitId,
+        },
+        select: {
+          descendantOrgUnitId: true,
+          depth: true,
+        },
+      });
+
+      if (subtree.length === 0) {
+        throw new ConflictException(
+          'The organization tree is incomplete for this unit.',
+        );
+      }
+
+      const subtreeIds = subtree.map((item) => item.descendantOrgUnitId);
+
+      await transaction.orgUnitClosure.deleteMany({
+        where: {
+          descendantOrgUnitId: {
+            in: subtreeIds,
+          },
+          ancestorOrgUnitId: {
+            notIn: subtreeIds,
+          },
+        },
+      });
+
+      const updated = await transaction.orgUnit.update({
+        where: { id: unitId },
+        data: {
+          parentOrgUnitId: newParentId,
+          ...(dto.sortOrder !== undefined ? { sortOrder: dto.sortOrder } : {}),
+        },
+      });
+
+      if (newParentId) {
+        const parentAncestors = await transaction.orgUnitClosure.findMany({
+          where: {
+            descendantOrgUnitId: newParentId,
+          },
+          select: {
+            ancestorOrgUnitId: true,
+            depth: true,
+          },
+        });
+
+        const links = parentAncestors.flatMap((ancestor) =>
+          subtree.map((descendant) => ({
+            ancestorOrgUnitId: ancestor.ancestorOrgUnitId,
+            descendantOrgUnitId: descendant.descendantOrgUnitId,
+            depth: ancestor.depth + 1 + descendant.depth,
+          })),
         );
 
-        await transaction.orgUnitClosure.deleteMany({
-          where: {
-            descendantOrgUnitId: {
-              in: subtreeIds,
-            },
-            ancestorOrgUnitId: {
-              notIn: subtreeIds,
-            },
-          },
-        });
-
-        const updated = await transaction.orgUnit.update({
-          where: { id: unitId },
-          data: {
-            parentOrgUnitId: newParentId,
-            ...(dto.sortOrder !== undefined
-              ? { sortOrder: dto.sortOrder }
-              : {}),
-          },
-        });
-
-        if (newParentId) {
-          const parentAncestors =
-            await transaction.orgUnitClosure.findMany({
-              where: {
-                descendantOrgUnitId: newParentId,
-              },
-              select: {
-                ancestorOrgUnitId: true,
-                depth: true,
-              },
-            });
-
-          const links = parentAncestors.flatMap(
-            (ancestor) =>
-              subtree.map((descendant) => ({
-                ancestorOrgUnitId:
-                  ancestor.ancestorOrgUnitId,
-                descendantOrgUnitId:
-                  descendant.descendantOrgUnitId,
-                depth:
-                  ancestor.depth +
-                  1 +
-                  descendant.depth,
-              })),
-          );
-
-          if (links.length > 0) {
-            await transaction.orgUnitClosure.createMany({
-              data: links,
-              skipDuplicates: true,
-            });
-          }
+        if (links.length > 0) {
+          await transaction.orgUnitClosure.createMany({
+            data: links,
+            skipDuplicates: true,
+          });
         }
+      }
 
-        return updated;
-      },
-    );
+      return updated;
+    });
 
     await this.conversationsService?.synchronizeAllOfficialGroupsSafely(
       user.accountId,
@@ -895,10 +842,7 @@ export class OrganizationHierarchyService {
     unitId: string,
     dto: SetOrgUnitStatusDto,
   ) {
-    const unit = await this.getUnitForOffice(
-      officeId,
-      unitId,
-    );
+    const unit = await this.getUnitForOffice(officeId, unitId);
 
     await this.authorization.assertCan(
       user,
@@ -919,44 +863,31 @@ export class OrganizationHierarchyService {
     if (!dto.isActive) {
       const now = new Date();
 
-      const [
-        activeChildren,
-        activeMemberships,
-        activeLeadership,
-      ] = await Promise.all([
-        this.prisma.orgUnit.count({
-          where: {
-            parentOrgUnitId: unitId,
-            isActive: true,
-          },
-        }),
-        this.prisma.orgMembership.count({
-          where: {
-            orgUnitId: unitId,
-            startsAt: { lte: now },
-            OR: [
-              { endsAt: null },
-              { endsAt: { gt: now } },
-            ],
-          },
-        }),
-        this.prisma.orgLeadershipAssignment.count({
-          where: {
-            orgUnitId: unitId,
-            effectiveFrom: { lte: now },
-            OR: [
-              { effectiveUntil: null },
-              { effectiveUntil: { gt: now } },
-            ],
-          },
-        }),
-      ]);
+      const [activeChildren, activeMemberships, activeLeadership] =
+        await Promise.all([
+          this.prisma.orgUnit.count({
+            where: {
+              parentOrgUnitId: unitId,
+              isActive: true,
+            },
+          }),
+          this.prisma.orgMembership.count({
+            where: {
+              orgUnitId: unitId,
+              startsAt: { lte: now },
+              OR: [{ endsAt: null }, { endsAt: { gt: now } }],
+            },
+          }),
+          this.prisma.orgLeadershipAssignment.count({
+            where: {
+              orgUnitId: unitId,
+              effectiveFrom: { lte: now },
+              OR: [{ effectiveUntil: null }, { effectiveUntil: { gt: now } }],
+            },
+          }),
+        ]);
 
-      if (
-        activeChildren > 0 ||
-        activeMemberships > 0 ||
-        activeLeadership > 0
-      ) {
+      if (activeChildren > 0 || activeMemberships > 0 || activeLeadership > 0) {
         throw new ConflictException(
           'Move or end the active people, leadership and child units before deactivating this unit.',
         );
@@ -970,9 +901,7 @@ export class OrganizationHierarchyService {
       });
 
       if (!type?.isActive) {
-        throw new ConflictException(
-          'Activate this organization type first.',
-        );
+        throw new ConflictException('Activate this organization type first.');
       }
 
       if (unit.parentOrgUnitId) {
@@ -982,9 +911,7 @@ export class OrganizationHierarchyService {
         });
 
         if (!parent?.isActive) {
-          throw new ConflictException(
-            'Activate the parent unit first.',
-          );
+          throw new ConflictException('Activate the parent unit first.');
         }
       }
     }
@@ -1009,10 +936,7 @@ export class OrganizationHierarchyService {
     };
   }
 
-  private async getUnitForOffice(
-    officeId: string,
-    unitId: string,
-  ) {
+  private async getUnitForOffice(officeId: string, unitId: string) {
     const unit = await this.prisma.orgUnit.findFirst({
       where: {
         id: unitId,
@@ -1021,9 +945,7 @@ export class OrganizationHierarchyService {
     });
 
     if (!unit) {
-      throw new NotFoundException(
-        'Organizational unit was not found.',
-      );
+      throw new NotFoundException('Organizational unit was not found.');
     }
 
     return unit;

@@ -633,11 +633,7 @@ export class WorkRuntimeV3CollaborationService {
     );
   }
 
-  async listIncoming(
-    user: AuthenticatedUser,
-    officeId: string,
-    take = 50,
-  ) {
+  async listIncoming(user: AuthenticatedUser, officeId: string, take = 50) {
     const visibleOrgUnitIds = await this.authorization.visibleOrgUnitIds(
       user,
       CAPABILITIES.WORK_ACCEPT_PARTICIPANT,

@@ -1,6 +1,7 @@
 import { ForbiddenException, NotFoundException } from '@nestjs/common';
 
 import type { AuthenticatedUser } from '../auth/types/auth.types';
+import type { PrismaService } from '../database/prisma.service';
 import {
   AccountRole,
   EmployeeStatus,
@@ -10,6 +11,7 @@ import {
   WorkStageAssignmentTargetType,
   WorkStageStatus,
 } from '../generated/prisma/client';
+import type { OrganizationAuthorizationService } from '../organization/organization-authorization.service';
 import { WorkRuntimeV3EscalationService } from './work-runtime-v3-escalation.service';
 
 const officeId = '11111111-1111-4111-8111-111111111111';
@@ -61,9 +63,12 @@ describe('WorkRuntimeV3EscalationService', () => {
     orgUnitClosure: { findMany: jest.fn() },
     orgLeadershipAssignment: { findMany: jest.fn() },
     operationalTeam: { findFirst: jest.fn() },
-  } as any;
-  const authorization = { can: jest.fn() } as any;
-  const service = new WorkRuntimeV3EscalationService(prisma, authorization);
+  };
+  const authorization = { can: jest.fn() };
+  const service = new WorkRuntimeV3EscalationService(
+    prisma as unknown as PrismaService,
+    authorization as unknown as OrganizationAuthorizationService,
+  );
 
   beforeEach(() => {
     jest.clearAllMocks();
@@ -285,7 +290,9 @@ describe('WorkRuntimeV3EscalationService', () => {
     const result = await service.resolveStageEscalation(officeId, stageId);
 
     expect(
-      result.steps.filter((step) => step.kind === 'ORG_UNIT_HEAD').map((step) => step.orgUnit?.id),
+      result.steps
+        .filter((step) => step.kind === 'ORG_UNIT_HEAD')
+        .map((step) => step.orgUnit?.id),
     ).toEqual([parentOrgUnitId]);
     expect(result.steps[result.steps.length - 1]?.kind).toBe('OFFICE_HEAD');
   });
@@ -315,8 +322,12 @@ describe('WorkRuntimeV3EscalationService', () => {
 
     const result = await service.resolveStageEscalation(officeId, stageId);
 
-    expect(result.steps.filter((step) => step.accountId === sharedAccountId)).toHaveLength(2);
-    expect(result.recipientAccountIds.filter((id) => id === sharedAccountId)).toHaveLength(1);
+    expect(
+      result.steps.filter((step) => step.accountId === sharedAccountId),
+    ).toHaveLength(2);
+    expect(
+      result.recipientAccountIds.filter((id) => id === sharedAccountId),
+    ).toHaveLength(1);
   });
 
   it('reports overdue duration and excludes terminal stages from escalation overdue state', async () => {
@@ -346,7 +357,11 @@ describe('WorkRuntimeV3EscalationService', () => {
       assignments: [],
     });
 
-    const completed = await service.resolveStageEscalation(officeId, stageId, at);
+    const completed = await service.resolveStageEscalation(
+      officeId,
+      stageId,
+      at,
+    );
     expect(completed.isOverdue).toBe(false);
     expect(completed.overdueByMinutes).toBe(0);
   });

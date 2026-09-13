@@ -123,7 +123,9 @@ function createHarness() {
     officeId: 'office-1',
     isActive: true,
   });
-  prisma.orgUnitClosure.findFirst.mockResolvedValue({ ancestorOrgUnitId: 'org-unit-1' });
+  prisma.orgUnitClosure.findFirst.mockResolvedValue({
+    ancestorOrgUnitId: 'org-unit-1',
+  });
   prisma.dutyShiftTemplate.findUnique.mockResolvedValue({
     id: 'shift-1',
     isActive: true,
@@ -188,7 +190,7 @@ describe('DutyCoverageRequirementsService', () => {
         data: expect.objectContaining({
           officeId: 'office-1',
           orgUnitId: 'org-unit-1',
-                requiredStaff: 5,
+          requiredStaff: 5,
           reportingLocation: 'Patan Office',
           reportingLocationKey: 'patan office',
         }),
@@ -272,7 +274,11 @@ describe('DutyCoverageRequirementsService', () => {
 
     await expect(
       service.createRequirement(
-        { ...managerUser, accountId: 'super-admin', role: AccountRole.SUPER_ADMIN },
+        {
+          ...managerUser,
+          accountId: 'super-admin',
+          role: AccountRole.SUPER_ADMIN,
+        },
         {
           orgUnitId: 'org-unit-1',
           shiftTemplateId: 'shift-1',

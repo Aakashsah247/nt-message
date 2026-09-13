@@ -237,12 +237,13 @@ export class WorkItemsController {
     attachmentId: string,
     @Res({ passthrough: true }) response: Response,
   ): Promise<StreamableFile> {
-    const attachment = await this.workSalesCommunicationService.getAttachmentDownload(
-      user,
-      workItemId,
-      messageId,
-      attachmentId,
-    );
+    const attachment =
+      await this.workSalesCommunicationService.getAttachmentDownload(
+        user,
+        workItemId,
+        messageId,
+        attachmentId,
+      );
     const safeFileName = attachment.originalFileName.replace(/[\r\n"]/g, '_');
     const encodedFileName = encodeURIComponent(attachment.originalFileName);
     const inline =
@@ -261,6 +262,4 @@ export class WorkItemsController {
 
     return new StreamableFile(createReadStream(attachment.absolutePath));
   }
-
-
 }

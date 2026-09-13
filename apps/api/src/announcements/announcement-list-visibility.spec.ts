@@ -10,9 +10,9 @@ describe('buildAnnouncementVisibilityWhere', () => {
   };
 
   it('uses only recipient visibility when the viewer has no management scope', () => {
-    expect(
-      buildAnnouncementVisibilityWhere(receivedScope, null),
-    ).toEqual(receivedScope);
+    expect(buildAnnouncementVisibilityWhere(receivedScope, null)).toEqual(
+      receivedScope,
+    );
   });
 
   it('combines recipient and management visibility for authorized managers', () => {

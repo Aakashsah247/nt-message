@@ -7,6 +7,9 @@ import {
   WorkRuntimeStatus,
   WorkStageStatus,
 } from '../generated/prisma/enums';
+import type { PrismaService } from '../database/prisma.service';
+import type { WorkNotificationsService } from './work-notifications.service';
+import type { WorkRuntimeV3EscalationService } from './work-runtime-v3-escalation.service';
 import { WorkRuntimeV3NotificationsService } from './work-runtime-v3-notifications.service';
 
 jest.mock('../database/prisma.service', () => ({
@@ -59,16 +62,18 @@ function createHarness() {
     orgLeadershipAssignment: { findMany: jest.fn().mockResolvedValue([]) },
     operationalTeam: { findFirst: jest.fn() },
     account: {
-      findMany: jest.fn().mockImplementation(({ where }: any) =>
-        (where.id.in as string[])
-          .filter((id) => id !== superAdminAccountId)
-          .map((id) => ({ id })),
-      ),
+      findMany: jest
+        .fn()
+        .mockImplementation(({ where }: { where: { id: { in: string[] } } }) =>
+          where.id.in
+            .filter((id) => id !== superAdminAccountId)
+            .map((id) => ({ id })),
+        ),
     },
-  } as any;
+  };
   const workNotifications = {
     publishWorkUpdate: jest.fn().mockResolvedValue(undefined),
-  } as any;
+  };
   const escalation = {
     resolveStageEscalation: jest.fn().mockResolvedValue({
       workItemId,
@@ -99,11 +104,11 @@ function createHarness() {
         },
       ],
     }),
-  } as any;
+  };
   const service = new WorkRuntimeV3NotificationsService(
-    prisma,
-    workNotifications,
-    escalation,
+    prisma as unknown as PrismaService,
+    workNotifications as unknown as WorkNotificationsService,
+    escalation as unknown as WorkRuntimeV3EscalationService,
   );
   return { prisma, workNotifications, escalation, service };
 }
@@ -358,7 +363,9 @@ describe('WorkRuntimeV3NotificationsService', () => {
         recipientAccountIds: [unitHeadAccountId],
       }),
     );
-    expect(harness.prisma.orgLeadershipAssignment.findMany).toHaveBeenCalledWith(
+    expect(
+      harness.prisma.orgLeadershipAssignment.findMany,
+    ).toHaveBeenCalledWith(
       expect.objectContaining({
         where: expect.objectContaining({
           AND: [
@@ -457,16 +464,8 @@ describe('WorkRuntimeV3NotificationsService', () => {
   });
 
   it.each([
-    [
-      'V3_WORK_CANCELLED',
-      WorkRuntimeStatus.CANCELLED,
-      'WORK_CANCELLED',
-    ],
-    [
-      'V3_WORK_REOPENED',
-      WorkRuntimeStatus.IN_PROGRESS,
-      'WORK_REOPENED',
-    ],
+    ['V3_WORK_CANCELLED', WorkRuntimeStatus.CANCELLED, 'WORK_CANCELLED'],
+    ['V3_WORK_REOPENED', WorkRuntimeStatus.IN_PROGRESS, 'WORK_REOPENED'],
   ] as const)(
     'publishes %s to the primary/participant operational authorities',
     async (action, runtimeStatus, notificationReason) => {

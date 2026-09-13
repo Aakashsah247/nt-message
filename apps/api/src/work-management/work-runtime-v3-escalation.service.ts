@@ -178,7 +178,8 @@ export class WorkRuntimeV3EscalationService {
       assignment.targetAccount?.isEnabled &&
       assignment.targetAccount.employee &&
       assignment.targetAccount.employee.status === EmployeeStatus.ACTIVE &&
-      assignment.targetAccount.employee.employmentStatus === EmploymentStatus.ACTIVE &&
+      assignment.targetAccount.employee.employmentStatus ===
+        EmploymentStatus.ACTIVE &&
       assignment.targetAccount.employee.archivedAt === null
     ) {
       steps.push({
@@ -195,25 +196,26 @@ export class WorkRuntimeV3EscalationService {
         isActing: false,
       });
 
-      const operationalMembership = await this.prisma.operationalTeamMember.findFirst({
-        where: {
-          employeeId: assignment.targetAccount.employee.id,
-          startsAt: { lte: at },
-          OR: [{ endsAt: null }, { endsAt: { gt: at } }],
-          team: {
-            orgUnitId: stage.responsibleOrgUnitId,
-            isActive: true,
-            archivedAt: null,
-            orgUnit: {
-              officeId,
+      const operationalMembership =
+        await this.prisma.operationalTeamMember.findFirst({
+          where: {
+            employeeId: assignment.targetAccount.employee.id,
+            startsAt: { lte: at },
+            OR: [{ endsAt: null }, { endsAt: { gt: at } }],
+            team: {
+              orgUnitId: stage.responsibleOrgUnitId,
               isActive: true,
+              archivedAt: null,
+              orgUnit: {
+                officeId,
+                isActive: true,
+              },
             },
           },
-        },
-        select: {
-          teamId: true,
-        },
-      });
+          select: {
+            teamId: true,
+          },
+        });
       operationalTeamId = operationalMembership?.teamId ?? null;
     } else if (
       assignment?.targetType === WorkStageAssignmentTargetType.TEAM &&
@@ -246,10 +248,7 @@ export class WorkRuntimeV3EscalationService {
       where: {
         officeId,
         effectiveFrom: { lte: at },
-        OR: [
-          { effectiveUntil: null },
-          { effectiveUntil: { gt: at } },
-        ],
+        OR: [{ effectiveUntil: null }, { effectiveUntil: { gt: at } }],
         AND: [
           {
             OR: [
@@ -265,11 +264,7 @@ export class WorkRuntimeV3EscalationService {
           },
         ],
       },
-      orderBy: [
-        { isActing: 'desc' },
-        { effectiveFrom: 'desc' },
-        { id: 'asc' },
-      ],
+      orderBy: [{ isActing: 'desc' }, { effectiveFrom: 'desc' }, { id: 'asc' }],
       select: {
         id: true,
         orgUnitId: true,
@@ -296,42 +291,47 @@ export class WorkRuntimeV3EscalationService {
     });
 
     if (operationalTeamId) {
-      const teamLead = await this.prisma.operationalTeamLeadAssignment.findFirst({
-        where: {
-          teamId: operationalTeamId,
-          effectiveFrom: { lte: at },
-          OR: [{ effectiveUntil: null }, { effectiveUntil: { gt: at } }],
-          team: {
-            orgUnitId: stage.responsibleOrgUnitId,
-            isActive: true,
-            archivedAt: null,
-            orgUnit: { officeId, isActive: true },
-          },
-          employee: {
-            status: EmployeeStatus.ACTIVE,
-            employmentStatus: EmploymentStatus.ACTIVE,
-            archivedAt: null,
-            account: {
-              isEnabled: true,
-              accountClass: { not: AccountClass.SUPER_ADMIN },
+      const teamLead =
+        await this.prisma.operationalTeamLeadAssignment.findFirst({
+          where: {
+            teamId: operationalTeamId,
+            effectiveFrom: { lte: at },
+            OR: [{ effectiveUntil: null }, { effectiveUntil: { gt: at } }],
+            team: {
+              orgUnitId: stage.responsibleOrgUnitId,
+              isActive: true,
+              archivedAt: null,
+              orgUnit: { officeId, isActive: true },
+            },
+            employee: {
+              status: EmployeeStatus.ACTIVE,
+              employmentStatus: EmploymentStatus.ACTIVE,
+              archivedAt: null,
+              account: {
+                isEnabled: true,
+                accountClass: { not: AccountClass.SUPER_ADMIN },
+              },
             },
           },
-        },
-        orderBy: [{ isActing: 'desc' }, { effectiveFrom: 'desc' }, { id: 'asc' }],
-        select: {
-          id: true,
-          isActing: true,
-          team: { select: { id: true, code: true, name: true } },
-          employee: {
-            select: {
-              id: true,
-              empId: true,
-              empName: true,
-              account: { select: { id: true } },
+          orderBy: [
+            { isActing: 'desc' },
+            { effectiveFrom: 'desc' },
+            { id: 'asc' },
+          ],
+          select: {
+            id: true,
+            isActing: true,
+            team: { select: { id: true, code: true, name: true } },
+            employee: {
+              select: {
+                id: true,
+                empId: true,
+                empName: true,
+                account: { select: { id: true } },
+              },
             },
           },
-        },
-      });
+        });
 
       if (teamLead?.employee.account) {
         steps.push({

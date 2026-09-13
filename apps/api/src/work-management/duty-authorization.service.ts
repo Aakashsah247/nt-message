@@ -19,7 +19,12 @@ export interface DutyAuthorizationContext {
   primaryOrgUnitId: string | null;
   operationalTeamLeadIds: string[];
   orgUnits: Array<{ id: string; code: string; name: string }>;
-  operationalTeams: Array<{ id: string; code: string; name: string; orgUnitId: string }>;
+  operationalTeams: Array<{
+    id: string;
+    code: string;
+    name: string;
+    orgUnitId: string;
+  }>;
   canView: boolean;
   canCreate: boolean;
   canAssign: boolean;
@@ -139,11 +144,12 @@ export class DutyAuthorizationService {
     ]);
 
     const isOperationalTeamLead = teamLeads.length > 0;
-    const visibleOrgUnitIds = await this.organizationAuthorization.visibleOrgUnitIds(
-      user,
-      CAPABILITIES.DUTY_VIEW,
-      membership.officeId,
-    );
+    const visibleOrgUnitIds =
+      await this.organizationAuthorization.visibleOrgUnitIds(
+        user,
+        CAPABILITIES.DUTY_VIEW,
+        membership.officeId,
+      );
     const [orgUnits, operationalTeams] = await Promise.all([
       this.prisma.orgUnit.findMany({
         where: {
@@ -189,7 +195,10 @@ export class DutyAuthorizationService {
 
   async assertCanUseManagement(
     user: AuthenticatedUser,
-    capability: Extract<Capability, 'duty.create' | 'duty.assign' | 'duty.manage'>,
+    capability: Extract<
+      Capability,
+      'duty.create' | 'duty.assign' | 'duty.manage'
+    >,
   ): Promise<DutyAuthorizationContext> {
     const context = await this.getContext(user);
     const allowed =

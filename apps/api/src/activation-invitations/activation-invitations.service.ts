@@ -360,17 +360,17 @@ export class ActivationInvitationsService {
 
     const validCanonicalScope = Boolean(
       invitation &&
-        isCanonicalOfficeActivationRequest(invitation.request) &&
-        invitation.request.office &&
-        invitation.request.office.isActive &&
-        invitation.request.intendedOrgUnit &&
-        invitation.request.intendedOrgUnit.isActive &&
-        invitation.request.intendedOrgUnit.officeId ===
-          invitation.request.officeId &&
-        primaryMembershipMatchesActivationScope(
-          invitation.request,
-          invitation.employee.orgMemberships[0],
-        ),
+      isCanonicalOfficeActivationRequest(invitation.request) &&
+      invitation.request.office &&
+      invitation.request.office.isActive &&
+      invitation.request.intendedOrgUnit &&
+      invitation.request.intendedOrgUnit.isActive &&
+      invitation.request.intendedOrgUnit.officeId ===
+        invitation.request.officeId &&
+      primaryMembershipMatchesActivationScope(
+        invitation.request,
+        invitation.employee.orgMemberships[0],
+      ),
     );
 
     /*

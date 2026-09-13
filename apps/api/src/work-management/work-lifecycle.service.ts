@@ -1,5 +1,4 @@
 import {
-  BadRequestException,
   ConflictException,
   ForbiddenException,
   Injectable,
@@ -87,7 +86,6 @@ type WorkItemDetail = WorkItemDetailPayload;
 
 type WorkDatabaseClient = Pick<Prisma.TransactionClient, 'workItem'>;
 
-
 const completionReportSelect = {
   id: true,
   result: true,
@@ -143,7 +141,7 @@ const helpRequestSelect = {
       ticketNumber: true,
       title: true,
       status: true,
-          dueAt: true,
+      dueAt: true,
     },
   },
 } satisfies Prisma.WorkHelpRequestSelect;
@@ -537,13 +535,18 @@ export class WorkLifecycleService {
     };
   }
 
-  async coordinateHelpRequest(
-    _user: AuthenticatedUser,
-    _helpRequestId: string,
-    _dto: CoordinateWorkHelpDto,
-  ) {
-    throw new ConflictException(
-      'The legacy cross-department coordination flow is retired. Use V3 OrgUnit collaboration instead.',
+  coordinateHelpRequest(
+    user: AuthenticatedUser,
+    helpRequestId: string,
+    dto: CoordinateWorkHelpDto,
+  ): Promise<never> {
+    void user;
+    void helpRequestId;
+    void dto;
+    return Promise.reject(
+      new ConflictException(
+        'The legacy cross-department coordination flow is retired. Use V3 OrgUnit collaboration instead.',
+      ),
     );
   }
 

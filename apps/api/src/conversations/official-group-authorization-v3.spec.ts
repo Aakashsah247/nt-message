@@ -5,7 +5,6 @@ import {
   AccountRole,
   ConversationParticipantRole,
   OfficialGroupMembershipMode,
-  OfficialGroupScopeType,
   OrgLeadershipType,
 } from '../generated/prisma/client';
 import { CAPABILITIES } from '../organization/organization-capabilities';

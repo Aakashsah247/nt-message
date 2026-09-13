@@ -8,9 +8,7 @@ import {
 
 import type { AuthenticatedUser } from '../auth/types/auth.types';
 import { PrismaService } from '../database/prisma.service';
-import {
-  DutyCoverageRequirementAction,
-} from '../generated/prisma/client';
+import { DutyCoverageRequirementAction } from '../generated/prisma/client';
 import type { Prisma } from '../generated/prisma/client';
 import { CAPABILITIES } from '../organization/organization-capabilities';
 import { OrganizationAuthorizationService } from '../organization/organization-authorization.service';
@@ -155,11 +153,7 @@ export class DutyCoverageRequirementsService {
     user: AuthenticatedUser,
     dto: CreateDutyCoverageRequirementDto,
   ): Promise<unknown> {
-    const scope = await this.resolveManagedScope(
-      user,
-      dto.orgUnitId,
-      true,
-    );
+    const scope = await this.resolveManagedScope(user, dto.orgUnitId, true);
     await this.resolveShiftForOrgUnit(
       dto.shiftTemplateId,
       scope.officeId,
@@ -290,13 +284,16 @@ export class DutyCoverageRequirementsService {
       );
     }
     if (this.statesEqual(previous, next)) {
-      throw new BadRequestException('No coverage requirement changes were supplied.');
+      throw new BadRequestException(
+        'No coverage requirement changes were supplied.',
+      );
     }
 
     await this.assertNoOverlap(next, requirementId);
     const action =
       next.effectiveUntil &&
-      (!previous.effectiveUntil || next.effectiveUntil < previous.effectiveUntil)
+      (!previous.effectiveUntil ||
+        next.effectiveUntil < previous.effectiveUntil)
         ? DutyCoverageRequirementAction.RETIRED
         : DutyCoverageRequirementAction.UPDATED;
 
@@ -331,23 +328,24 @@ export class DutyCoverageRequirementsService {
     requirementId: string,
   ): Promise<unknown> {
     const requirement = await this.findVisibleRequirement(user, requirementId);
-    const activities = await this.prisma.dutyCoverageRequirementActivity.findMany({
-      where: { requirementId },
-      orderBy: { createdAt: 'asc' },
-      select: {
-        id: true,
-        action: true,
-        previousState: true,
-        nextState: true,
-        createdAt: true,
-        actor: {
-          select: {
-            username: true,
-            employee: { select: { empId: true, empName: true } },
+    const activities =
+      await this.prisma.dutyCoverageRequirementActivity.findMany({
+        where: { requirementId },
+        orderBy: { createdAt: 'asc' },
+        select: {
+          id: true,
+          action: true,
+          previousState: true,
+          nextState: true,
+          createdAt: true,
+          actor: {
+            select: {
+              username: true,
+              employee: { select: { empId: true, empName: true } },
+            },
           },
         },
-      },
-    });
+      });
 
     return {
       requirement: this.presentRequirement(requirement),
@@ -403,7 +401,9 @@ export class DutyCoverageRequirementsService {
     const context = await this.dutyAuthorization.getContext(user);
     if (context.readOnlyOversight) return;
     if (!context.officeId) {
-      throw new ForbiddenException('The selected OrgUnit is outside your Duty visibility scope.');
+      throw new ForbiddenException(
+        'The selected OrgUnit is outside your Duty visibility scope.',
+      );
     }
 
     const visibleOrgUnitIds = new Set(
@@ -427,7 +427,9 @@ export class DutyCoverageRequirementsService {
       if (team) visibleOrgUnitIds.add(orgUnitId);
     }
     if (!visibleOrgUnitIds.has(orgUnitId)) {
-      throw new ForbiddenException('The selected OrgUnit is outside your Duty visibility scope.');
+      throw new ForbiddenException(
+        'The selected OrgUnit is outside your Duty visibility scope.',
+      );
     }
   }
 
@@ -444,10 +446,14 @@ export class DutyCoverageRequirementsService {
       CAPABILITIES.DUTY_MANAGE,
     );
     if (!context.officeId) {
-      throw new ForbiddenException('Duty coverage requires an active Office scope.');
+      throw new ForbiddenException(
+        'Duty coverage requires an active Office scope.',
+      );
     }
     if (!requestedOrgUnitId) {
-      throw new BadRequestException('Select an OrgUnit for this coverage requirement.');
+      throw new BadRequestException(
+        'Select an OrgUnit for this coverage requirement.',
+      );
     }
 
     const orgUnit = await this.prisma.orgUnit.findFirst({
@@ -459,7 +465,9 @@ export class DutyCoverageRequirementsService {
       select: { id: true, officeId: true, isActive: true },
     });
     if (!orgUnit) {
-      throw new NotFoundException('The selected OrgUnit was not found in this Office.');
+      throw new NotFoundException(
+        'The selected OrgUnit was not found in this Office.',
+      );
     }
     if (requireActive && !orgUnit.isActive) {
       throw new BadRequestException(
@@ -587,7 +595,9 @@ export class DutyCoverageRequirementsService {
     const parsedFrom = from ? this.parseDate(from) : null;
     const parsedTo = to ? this.parseDate(to) : null;
     if (parsedFrom && parsedTo && parsedTo < parsedFrom) {
-      throw new BadRequestException('Coverage range end must not precede start.');
+      throw new BadRequestException(
+        'Coverage range end must not precede start.',
+      );
     }
     return { from: parsedFrom, to: parsedTo };
   }
@@ -595,7 +605,9 @@ export class DutyCoverageRequirementsService {
   private parseDate(value: string): Date {
     const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value);
     if (!match) {
-      throw new BadRequestException('Coverage dates must use YYYY-MM-DD format.');
+      throw new BadRequestException(
+        'Coverage dates must use YYYY-MM-DD format.',
+      );
     }
     const year = Number(match[1]);
     const month = Number(match[2]);

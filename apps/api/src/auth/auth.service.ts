@@ -249,8 +249,7 @@ export class AuthService {
     metadata: LoginMetadata,
   ): Promise<LoginResult> {
     const officialEmail = sanitizeOfficialEmail(dto.officialEmail);
-    const officialEmailLookup =
-      normalizeOfficialEmailForLookup(officialEmail);
+    const officialEmailLookup = normalizeOfficialEmailForLookup(officialEmail);
 
     const employee = await this.prisma.employee.findFirst({
       where: {
@@ -520,9 +519,7 @@ export class AuthService {
     return result.count;
   }
 
-  private async buildAccountResult(
-    accountId: string,
-  ): Promise<AccountResult> {
+  private async buildAccountResult(accountId: string): Promise<AccountResult> {
     const account = await this.prisma.account.findUnique({
       where: {
         id: accountId,
@@ -586,7 +583,7 @@ export class AuthService {
       positionLabel:
         account.accountClass === AccountClass.SUPER_ADMIN
           ? 'Super Admin'
-          : account.employee?.designation ?? 'Office User',
+          : (account.employee?.designation ?? 'Office User'),
 
       interfaceLanguage: account.interfaceLanguage,
     };

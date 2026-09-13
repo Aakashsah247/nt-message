@@ -12,7 +12,10 @@ import {
   WorkStageAssignmentTargetType,
   WorkStageStatus,
 } from '../generated/prisma/enums';
-import { CAPABILITIES } from '../organization/organization-capabilities';
+import {
+  CAPABILITIES,
+  type Capability,
+} from '../organization/organization-capabilities';
 import { WorkReportV3ExportDataset } from './dto/work-report-v3-export-query.dto';
 import { WorkReportV3SlaState } from './dto/work-report-v3-query.dto';
 import { WorkReportsV3Service } from './work-reports-v3.service';
@@ -68,7 +71,9 @@ function createHarness() {
   const operationalTeamFindFirst = jest.fn().mockResolvedValue({ id: teamId });
   const operationalTeamCount = jest.fn().mockResolvedValue(3);
   const workTypeDefinitionFindMany = jest.fn().mockResolvedValue([]);
-  const workTypeDefinitionFindFirst = jest.fn().mockResolvedValue({ id: 'type-1' });
+  const workTypeDefinitionFindFirst = jest
+    .fn()
+    .mockResolvedValue({ id: 'type-1' });
   const workTypeDefinitionCount = jest.fn().mockResolvedValue(8);
   const workItemCount = jest.fn().mockResolvedValue(0);
   const workItemGroupBy = jest.fn().mockResolvedValue([]);
@@ -209,7 +214,7 @@ describe('WorkReportsV3Service — P10-1 report scope and counting foundation', 
       isEnabled: true,
       employee: null,
     });
-    harness.can.mockImplementation(async (_user, capability) =>
+    harness.can.mockImplementation(async (_user, capability: Capability) =>
       [CAPABILITIES.REPORTS_VIEW, CAPABILITIES.REPORTS_EXPORT].includes(
         capability,
       ),
@@ -221,7 +226,10 @@ describe('WorkReportsV3Service — P10-1 report scope and counting foundation', 
     );
 
     expect(context.scope.type).toBe('OFFICE');
-    expect(context.scope.availableActions).toEqual({ view: true, export: true });
+    expect(context.scope.availableActions).toEqual({
+      view: true,
+      export: true,
+    });
     expect(harness.can).toHaveBeenCalledWith(
       expect.anything(),
       CAPABILITIES.REPORTS_VIEW,
@@ -330,9 +338,7 @@ describe('WorkReportsV3Service — P10-1 report scope and counting foundation', 
     harness.workOrgUnitParticipantCount
       .mockResolvedValueOnce(72)
       .mockResolvedValueOnce(0);
-    harness.workStageCount
-      .mockResolvedValueOnce(54)
-      .mockResolvedValueOnce(0);
+    harness.workStageCount.mockResolvedValueOnce(54).mockResolvedValueOnce(0);
     harness.workStageAssignmentCount
       .mockResolvedValueOnce(21)
       .mockResolvedValueOnce(0)
@@ -345,7 +351,9 @@ describe('WorkReportsV3Service — P10-1 report scope and counting foundation', 
     expect(result.counts.participantRows).toBe(72);
     expect(result.counts.runtimeStages).toBe(54);
     expect(result.counts.operationalTeamAssignments).toBe(21);
-    expect(result.counts.activeTeamAssignmentsMissingOperationalTeamTarget).toBe(0);
+    expect(
+      result.counts.activeTeamAssignmentsMissingOperationalTeamTarget,
+    ).toBe(0);
     expect(result.counts.legacyTeamCompatibilityPointers).toBe(12);
     expect(result.counts.workWithLegacyTeamPrimaryOwner).toBe(0);
     expect(result.counts.participantsOnLegacyTeamOrgUnits).toBe(0);
@@ -374,7 +382,6 @@ describe('WorkReportsV3Service — P10-1 report scope and counting foundation', 
       },
     });
   });
-
 
   it('builds overview totals without multiplying Work through participants, stages, or Team assignments', async () => {
     const harness = createHarness();
@@ -419,11 +426,7 @@ describe('WorkReportsV3Service — P10-1 report scope and counting foundation', 
       { id: teamId, code: 'KTM', name: 'KTM Team', orgUnitId },
     ]);
 
-    const result = await harness.service.getOverview(
-      user(),
-      officeId,
-      {},
-    );
+    const result = await harness.service.getOverview(user(), officeId, {});
 
     expect(result.totalWork).toBe(5);
     expect(result.statuses.OPEN).toBe(2);
@@ -657,9 +660,7 @@ describe('WorkReportsV3Service — P10-1 report scope and counting foundation', 
           code: 'OUT',
           name: 'Outside Service',
         },
-        references: [
-          { referenceType: 'SERVICE_NUMBER', value: 'SERVICE-102' },
-        ],
+        references: [{ referenceType: 'SERVICE_NUMBER', value: 'SERVICE-102' }],
         runtimeStages: [
           {
             responsibleOrgUnitId: orgUnitId,
@@ -745,10 +746,16 @@ describe('WorkReportsV3Service — P10-1 report scope and counting foundation', 
       completed: 0,
       pending: 1,
     });
-    expect(result.totals.total).toEqual({ tickets: 2, completed: 1, pending: 1 });
+    expect(result.totals.total).toEqual({
+      tickets: 2,
+      completed: 1,
+      pending: 1,
+    });
     expect(JSON.stringify(result)).not.toContain('01-LEGACY');
 
-    const where = JSON.stringify(harness.workItemFindMany.mock.calls[0]?.[0]?.where);
+    const where = JSON.stringify(
+      harness.workItemFindMany.mock.calls[0]?.[0]?.where,
+    );
     for (const code of [
       'ROUTINE_WORK',
       'TROUBLE_TICKET',
@@ -818,7 +825,13 @@ describe('WorkReportsV3Service — P10-1 report scope and counting foundation', 
             cancelledAt: null,
           },
           assignments: [
-            { targetOperationalTeam: { id: teamId, code: 'KTM', name: 'KTM Team' } },
+            {
+              targetOperationalTeam: {
+                id: teamId,
+                code: 'KTM',
+                name: 'KTM Team',
+              },
+            },
           ],
           events: [
             {
@@ -1043,8 +1056,8 @@ describe('WorkReportsV3Service — P10-4 Duty compatibility and complete export 
       isEnabled: true,
       employee: null,
     });
-    harness.can.mockImplementation(async (_user, capability) =>
-      capability === CAPABILITIES.REPORTS_VIEW,
+    harness.can.mockImplementation(
+      async (_user, capability) => capability === CAPABILITIES.REPORTS_VIEW,
     );
 
     await expect(

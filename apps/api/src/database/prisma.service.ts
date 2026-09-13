@@ -24,7 +24,10 @@ export class PrismaService
     return new Promise((resolve) => setTimeout(resolve, ms));
   }
 
-  private async connectWithRetry(maxAttempts = 5, delayMs = 2000): Promise<void> {
+  private async connectWithRetry(
+    maxAttempts = 5,
+    delayMs = 2000,
+  ): Promise<void> {
     let attempt = 0;
     while (attempt < maxAttempts) {
       try {

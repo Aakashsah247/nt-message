@@ -1,10 +1,7 @@
 import type { ExecutionContext } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
 
-import {
-  AccountClass,
-  AccountRole,
-} from '../../generated/prisma/client';
+import { AccountClass, AccountRole } from '../../generated/prisma/client';
 import { AccountClassesGuard } from './account-classes.guard';
 
 function createContext(accountClass?: AccountClass): ExecutionContext {
@@ -28,9 +25,7 @@ function createContext(accountClass?: AccountClass): ExecutionContext {
 describe('AccountClassesGuard', () => {
   it('allows an account class explicitly permitted by the route', () => {
     const reflector = {
-      getAllAndOverride: jest
-        .fn()
-        .mockReturnValue([AccountClass.OFFICE_USER]),
+      getAllAndOverride: jest.fn().mockReturnValue([AccountClass.OFFICE_USER]),
     } as unknown as Reflector;
     const guard = new AccountClassesGuard(reflector);
 
@@ -41,9 +36,7 @@ describe('AccountClassesGuard', () => {
 
   it('rejects an account class that is not permitted by the route', () => {
     const reflector = {
-      getAllAndOverride: jest
-        .fn()
-        .mockReturnValue([AccountClass.SUPER_ADMIN]),
+      getAllAndOverride: jest.fn().mockReturnValue([AccountClass.SUPER_ADMIN]),
     } as unknown as Reflector;
     const guard = new AccountClassesGuard(reflector);
 
@@ -54,9 +47,7 @@ describe('AccountClassesGuard', () => {
 
   it('rejects requests that do not carry the Phase 13 accountClass claim', () => {
     const reflector = {
-      getAllAndOverride: jest
-        .fn()
-        .mockReturnValue([AccountClass.OFFICE_USER]),
+      getAllAndOverride: jest.fn().mockReturnValue([AccountClass.OFFICE_USER]),
     } as unknown as Reflector;
     const guard = new AccountClassesGuard(reflector);
 

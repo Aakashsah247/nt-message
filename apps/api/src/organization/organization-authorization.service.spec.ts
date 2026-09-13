@@ -8,9 +8,7 @@ import {
   OrgLeadershipType,
 } from '../generated/prisma/client';
 
-import {
-  CAPABILITIES,
-} from './organization-capabilities';
+import { CAPABILITIES } from './organization-capabilities';
 import { OrganizationAuthorizationService } from './organization-authorization.service';
 
 describe('OrganizationAuthorizationService', () => {
@@ -26,9 +24,7 @@ describe('OrganizationAuthorizationService', () => {
     role: AccountRole.SUPER_ADMIN,
   } as AuthenticatedUser;
 
-  function activeEmployeeAccount(
-    role: AccountRole = AccountRole.EMPLOYEE,
-  ) {
+  function activeEmployeeAccount(role: AccountRole = AccountRole.EMPLOYEE) {
     return {
       id: 'account-1',
       accountClass: AccountClass.OFFICE_USER,
@@ -46,9 +42,7 @@ describe('OrganizationAuthorizationService', () => {
   function createPrisma() {
     return {
       account: {
-        findUnique: jest
-          .fn()
-          .mockResolvedValue(activeEmployeeAccount()),
+        findUnique: jest.fn().mockResolvedValue(activeEmployeeAccount()),
       },
       orgMembership: {
         findFirst: jest.fn().mockResolvedValue({
@@ -83,25 +77,16 @@ describe('OrganizationAuthorizationService', () => {
       employee: null,
     });
 
-    const service =
-      new OrganizationAuthorizationService(
-        prisma as unknown as PrismaService,
-      );
+    const service = new OrganizationAuthorizationService(
+      prisma as unknown as PrismaService,
+    );
 
     await expect(
-      service.can(
-        superAdmin,
-        CAPABILITIES.WORK_VIEW,
-        'office-1',
-      ),
+      service.can(superAdmin, CAPABILITIES.WORK_VIEW, 'office-1'),
     ).resolves.toBe(true);
 
     await expect(
-      service.can(
-        superAdmin,
-        CAPABILITIES.WORK_SLA_CALENDAR_VIEW,
-        'office-1',
-      ),
+      service.can(superAdmin, CAPABILITIES.WORK_SLA_CALENDAR_VIEW, 'office-1'),
     ).resolves.toBe(true);
 
     await expect(
@@ -113,19 +98,11 @@ describe('OrganizationAuthorizationService', () => {
     ).resolves.toBe(false);
 
     await expect(
-      service.can(
-        superAdmin,
-        CAPABILITIES.WORK_CREATE,
-        'office-1',
-      ),
+      service.can(superAdmin, CAPABILITIES.WORK_CREATE, 'office-1'),
     ).resolves.toBe(false);
 
     await expect(
-      service.can(
-        superAdmin,
-        CAPABILITIES.WORK_ASSIGN,
-        'office-1',
-      ),
+      service.can(superAdmin, CAPABILITIES.WORK_ASSIGN, 'office-1'),
     ).resolves.toBe(false);
 
     await expect(
@@ -137,51 +114,27 @@ describe('OrganizationAuthorizationService', () => {
     ).resolves.toBe(false);
 
     await expect(
-      service.can(
-        superAdmin,
-        CAPABILITIES.WORK_ACCEPT_PARTICIPANT,
-        'office-1',
-      ),
+      service.can(superAdmin, CAPABILITIES.WORK_ACCEPT_PARTICIPANT, 'office-1'),
     ).resolves.toBe(false);
 
     await expect(
-      service.can(
-        superAdmin,
-        CAPABILITIES.WORK_START_STAGE,
-        'office-1',
-      ),
+      service.can(superAdmin, CAPABILITIES.WORK_START_STAGE, 'office-1'),
     ).resolves.toBe(false);
 
     await expect(
-      service.can(
-        superAdmin,
-        CAPABILITIES.WORK_APPROVE_STAGE,
-        'office-1',
-      ),
+      service.can(superAdmin, CAPABILITIES.WORK_APPROVE_STAGE, 'office-1'),
     ).resolves.toBe(false);
 
     await expect(
-      service.can(
-        superAdmin,
-        CAPABILITIES.WORK_CANCEL,
-        'office-1',
-      ),
+      service.can(superAdmin, CAPABILITIES.WORK_CANCEL, 'office-1'),
     ).resolves.toBe(false);
 
     await expect(
-      service.can(
-        superAdmin,
-        CAPABILITIES.REPORTS_VIEW,
-        'office-1',
-      ),
+      service.can(superAdmin, CAPABILITIES.REPORTS_VIEW, 'office-1'),
     ).resolves.toBe(true);
 
     await expect(
-      service.can(
-        superAdmin,
-        CAPABILITIES.REPORTS_EXPORT,
-        'office-1',
-      ),
+      service.can(superAdmin, CAPABILITIES.REPORTS_EXPORT, 'office-1'),
     ).resolves.toBe(true);
 
     await expect(
@@ -238,10 +191,20 @@ describe('OrganizationAuthorizationService', () => {
       service.can(employeeUser, CAPABILITIES.DUTY_VIEW, 'office-1', 'child-1'),
     ).resolves.toBe(true);
     await expect(
-      service.can(employeeUser, CAPABILITIES.DUTY_ASSIGN, 'office-1', 'child-1'),
+      service.can(
+        employeeUser,
+        CAPABILITIES.DUTY_ASSIGN,
+        'office-1',
+        'child-1',
+      ),
     ).resolves.toBe(true);
     await expect(
-      service.can(employeeUser, CAPABILITIES.DUTY_MANAGE, 'office-1', 'child-1'),
+      service.can(
+        employeeUser,
+        CAPABILITIES.DUTY_MANAGE,
+        'office-1',
+        'child-1',
+      ),
     ).resolves.toBe(true);
 
     await expect(
@@ -340,21 +303,11 @@ describe('OrganizationAuthorizationService', () => {
     );
 
     await expect(
-      service.can(
-        employeeUser,
-        CAPABILITIES.REPORTS_VIEW,
-        'office-1',
-        null,
-      ),
+      service.can(employeeUser, CAPABILITIES.REPORTS_VIEW, 'office-1', null),
     ).resolves.toBe(true);
 
     await expect(
-      service.can(
-        employeeUser,
-        CAPABILITIES.REPORTS_EXPORT,
-        'office-1',
-        null,
-      ),
+      service.can(employeeUser, CAPABILITIES.REPORTS_EXPORT, 'office-1', null),
     ).resolves.toBe(true);
   });
 
@@ -387,10 +340,9 @@ describe('OrganizationAuthorizationService', () => {
       },
     ]);
 
-    const service =
-      new OrganizationAuthorizationService(
-        prisma as unknown as PrismaService,
-      );
+    const service = new OrganizationAuthorizationService(
+      prisma as unknown as PrismaService,
+    );
 
     await expect(
       service.can(
@@ -419,10 +371,9 @@ describe('OrganizationAuthorizationService', () => {
       },
     ]);
 
-    const service =
-      new OrganizationAuthorizationService(
-        prisma as unknown as PrismaService,
-      );
+    const service = new OrganizationAuthorizationService(
+      prisma as unknown as PrismaService,
+    );
 
     await expect(
       service.can(
@@ -444,10 +395,9 @@ describe('OrganizationAuthorizationService', () => {
       },
     ]);
 
-    const service =
-      new OrganizationAuthorizationService(
-        prisma as unknown as PrismaService,
-      );
+    const service = new OrganizationAuthorizationService(
+      prisma as unknown as PrismaService,
+    );
 
     await expect(
       service.can(
@@ -500,10 +450,9 @@ describe('OrganizationAuthorizationService', () => {
       depth: 2,
     });
 
-    const service =
-      new OrganizationAuthorizationService(
-        prisma as unknown as PrismaService,
-      );
+    const service = new OrganizationAuthorizationService(
+      prisma as unknown as PrismaService,
+    );
 
     await expect(
       service.can(
@@ -515,7 +464,6 @@ describe('OrganizationAuthorizationService', () => {
     ).resolves.toBe(true);
   });
 
-
   it('grants users.request_create automatically to the current Office Head', async () => {
     const prisma = createPrisma();
 
@@ -526,10 +474,9 @@ describe('OrganizationAuthorizationService', () => {
       },
     ]);
 
-    const service =
-      new OrganizationAuthorizationService(
-        prisma as unknown as PrismaService,
-      );
+    const service = new OrganizationAuthorizationService(
+      prisma as unknown as PrismaService,
+    );
 
     await expect(
       service.can(
@@ -539,9 +486,7 @@ describe('OrganizationAuthorizationService', () => {
         'unit-1',
       ),
     ).resolves.toBe(true);
-
   });
-
 
   it('grants Office Head calendar management while keeping it outside normal employee authority', async () => {
     const prisma = createPrisma();
@@ -587,10 +532,9 @@ describe('OrganizationAuthorizationService', () => {
       },
     ]);
 
-    const service =
-      new OrganizationAuthorizationService(
-        prisma as unknown as PrismaService,
-      );
+    const service = new OrganizationAuthorizationService(
+      prisma as unknown as PrismaService,
+    );
 
     await expect(
       service.can(
@@ -612,10 +556,9 @@ describe('OrganizationAuthorizationService', () => {
       },
     ]);
 
-    const service =
-      new OrganizationAuthorizationService(
-        prisma as unknown as PrismaService,
-      );
+    const service = new OrganizationAuthorizationService(
+      prisma as unknown as PrismaService,
+    );
 
     await expect(
       service.can(
@@ -637,10 +580,9 @@ describe('OrganizationAuthorizationService', () => {
       },
     ]);
 
-    const service =
-      new OrganizationAuthorizationService(
-        prisma as unknown as PrismaService,
-      );
+    const service = new OrganizationAuthorizationService(
+      prisma as unknown as PrismaService,
+    );
 
     await expect(
       service.can(
@@ -662,10 +604,9 @@ describe('OrganizationAuthorizationService', () => {
       },
     ]);
 
-    const service =
-      new OrganizationAuthorizationService(
-        prisma as unknown as PrismaService,
-      );
+    const service = new OrganizationAuthorizationService(
+      prisma as unknown as PrismaService,
+    );
 
     await expect(
       service.can(
@@ -694,10 +635,9 @@ describe('OrganizationAuthorizationService', () => {
       },
     ]);
 
-    const service =
-      new OrganizationAuthorizationService(
-        prisma as unknown as PrismaService,
-      );
+    const service = new OrganizationAuthorizationService(
+      prisma as unknown as PrismaService,
+    );
 
     await expect(
       service.can(
@@ -720,10 +660,9 @@ describe('OrganizationAuthorizationService', () => {
       },
     ]);
 
-    const service =
-      new OrganizationAuthorizationService(
-        prisma as unknown as PrismaService,
-      );
+    const service = new OrganizationAuthorizationService(
+      prisma as unknown as PrismaService,
+    );
 
     await expect(
       service.canRedelegate(
@@ -753,10 +692,9 @@ describe('OrganizationAuthorizationService', () => {
       depth: 1,
     });
 
-    const service =
-      new OrganizationAuthorizationService(
-        prisma as unknown as PrismaService,
-      );
+    const service = new OrganizationAuthorizationService(
+      prisma as unknown as PrismaService,
+    );
 
     await expect(
       service.canRedelegate(
@@ -778,16 +716,13 @@ describe('OrganizationAuthorizationService', () => {
       {
         orgUnitId: 'unit-1',
         includeDescendants: false,
-        effectiveUntil: new Date(
-          '2026-09-05T00:00:00.000Z',
-        ),
+        effectiveUntil: new Date('2026-09-05T00:00:00.000Z'),
       },
     ]);
 
-    const service =
-      new OrganizationAuthorizationService(
-        prisma as unknown as PrismaService,
-      );
+    const service = new OrganizationAuthorizationService(
+      prisma as unknown as PrismaService,
+    );
 
     await expect(
       service.canRedelegate(
@@ -817,10 +752,9 @@ describe('OrganizationAuthorizationService', () => {
       effectiveUntil: new Date('2026-09-05T00:00:00.000Z'),
     });
 
-    const service =
-      new OrganizationAuthorizationService(
-        prisma as unknown as PrismaService,
-      );
+    const service = new OrganizationAuthorizationService(
+      prisma as unknown as PrismaService,
+    );
 
     await expect(
       service.canRedelegate(
@@ -852,10 +786,9 @@ describe('OrganizationAuthorizationService', () => {
       },
     ]);
 
-    const service =
-      new OrganizationAuthorizationService(
-        prisma as unknown as PrismaService,
-      );
+    const service = new OrganizationAuthorizationService(
+      prisma as unknown as PrismaService,
+    );
 
     await expect(
       service.can(
@@ -866,12 +799,8 @@ describe('OrganizationAuthorizationService', () => {
       ),
     ).resolves.toBe(false);
 
-    expect(
-      prisma.orgLeadershipAssignment.findMany,
-    ).not.toHaveBeenCalled();
-    expect(
-      prisma.delegatedPermission.findMany,
-    ).not.toHaveBeenCalled();
+    expect(prisma.orgLeadershipAssignment.findMany).not.toHaveBeenCalled();
+    expect(prisma.delegatedPermission.findMany).not.toHaveBeenCalled();
   });
 
   it('limits a normal employee organization view to the effective breadcrumb', async () => {
@@ -882,27 +811,22 @@ describe('OrganizationAuthorizationService', () => {
       orgUnitId: 'team-1',
     });
 
-    prisma.orgUnitClosure.findUnique.mockImplementation(
-      async (args) => {
-        const relation =
-          args.where
-            .ancestorOrgUnitId_descendantOrgUnitId;
+    prisma.orgUnitClosure.findUnique.mockImplementation(async (args) => {
+      const relation = args.where.ancestorOrgUnitId_descendantOrgUnitId;
 
-        if (
-          relation.descendantOrgUnitId === 'team-1' &&
-          relation.ancestorOrgUnitId === 'department-1'
-        ) {
-          return { depth: 1 };
-        }
+      if (
+        relation.descendantOrgUnitId === 'team-1' &&
+        relation.ancestorOrgUnitId === 'department-1'
+      ) {
+        return { depth: 1 };
+      }
 
-        return null;
-      },
+      return null;
+    });
+
+    const service = new OrganizationAuthorizationService(
+      prisma as unknown as PrismaService,
     );
-
-    const service =
-      new OrganizationAuthorizationService(
-        prisma as unknown as PrismaService,
-      );
 
     await expect(
       service.can(
@@ -951,27 +875,22 @@ describe('OrganizationAuthorizationService', () => {
       },
     ]);
 
-    prisma.orgUnitClosure.findUnique.mockImplementation(
-      async (args) => {
-        const relation =
-          args.where
-            .ancestorOrgUnitId_descendantOrgUnitId;
+    prisma.orgUnitClosure.findUnique.mockImplementation(async (args) => {
+      const relation = args.where.ancestorOrgUnitId_descendantOrgUnitId;
 
-        if (
-          relation.ancestorOrgUnitId === 'unit-1' &&
-          relation.descendantOrgUnitId === 'child-1'
-        ) {
-          return { depth: 1 };
-        }
+      if (
+        relation.ancestorOrgUnitId === 'unit-1' &&
+        relation.descendantOrgUnitId === 'child-1'
+      ) {
+        return { depth: 1 };
+      }
 
-        return null;
-      },
+      return null;
+    });
+
+    const service = new OrganizationAuthorizationService(
+      prisma as unknown as PrismaService,
     );
-
-    const service =
-      new OrganizationAuthorizationService(
-        prisma as unknown as PrismaService,
-      );
 
     await expect(
       service.can(
@@ -1012,30 +931,24 @@ describe('OrganizationAuthorizationService', () => {
 
   it('removes Acting Office Head authority exactly at effectiveUntil', async () => {
     const prisma = createPrisma();
-    const effectiveUntil = new Date(
-      '2026-09-05T00:00:00.000Z',
+    const effectiveUntil = new Date('2026-09-05T00:00:00.000Z');
+
+    prisma.orgLeadershipAssignment.findMany.mockImplementation(async (args) => {
+      const at = args.where.effectiveFrom.lte as Date;
+
+      return at.getTime() < effectiveUntil.getTime()
+        ? [
+            {
+              leadershipType: OrgLeadershipType.OFFICE_HEAD,
+              orgUnitId: null,
+            },
+          ]
+        : [];
+    });
+
+    const service = new OrganizationAuthorizationService(
+      prisma as unknown as PrismaService,
     );
-
-    prisma.orgLeadershipAssignment.findMany.mockImplementation(
-      async (args) => {
-        const at = args.where.effectiveFrom.lte as Date;
-
-        return at.getTime() < effectiveUntil.getTime()
-          ? [
-              {
-                leadershipType:
-                  OrgLeadershipType.OFFICE_HEAD,
-                orgUnitId: null,
-              },
-            ]
-          : [];
-      },
-    );
-
-    const service =
-      new OrganizationAuthorizationService(
-        prisma as unknown as PrismaService,
-      );
 
     await expect(
       service.can(
@@ -1057,9 +970,7 @@ describe('OrganizationAuthorizationService', () => {
       ),
     ).resolves.toBe(false);
 
-    expect(
-      prisma.orgLeadershipAssignment.findMany,
-    ).toHaveBeenLastCalledWith(
+    expect(prisma.orgLeadershipAssignment.findMany).toHaveBeenLastCalledWith(
       expect.objectContaining({
         where: expect.objectContaining({
           effectiveFrom: {
@@ -1090,23 +1001,20 @@ describe('OrganizationAuthorizationService', () => {
       },
     ]);
 
-    prisma.delegatedPermission.findMany.mockImplementation(
-      async (args) =>
-        args.where.capability ===
-        CAPABILITIES.MEMBERSHIP_TRANSFER_INTERNAL
-          ? [
-              {
-                orgUnitId: 'unit-1',
-                includeDescendants: false,
-              },
-            ]
-          : [],
+    prisma.delegatedPermission.findMany.mockImplementation(async (args) =>
+      args.where.capability === CAPABILITIES.MEMBERSHIP_TRANSFER_INTERNAL
+        ? [
+            {
+              orgUnitId: 'unit-1',
+              includeDescendants: false,
+            },
+          ]
+        : [],
     );
 
-    const service =
-      new OrganizationAuthorizationService(
-        prisma as unknown as PrismaService,
-      );
+    const service = new OrganizationAuthorizationService(
+      prisma as unknown as PrismaService,
+    );
 
     await expect(
       service.can(
@@ -1136,10 +1044,9 @@ describe('OrganizationAuthorizationService', () => {
       effectiveUntil: null,
     });
 
-    const service =
-      new OrganizationAuthorizationService(
-        prisma as unknown as PrismaService,
-      );
+    const service = new OrganizationAuthorizationService(
+      prisma as unknown as PrismaService,
+    );
 
     await expect(
       service.isOfficeHead(
@@ -1149,9 +1056,7 @@ describe('OrganizationAuthorizationService', () => {
       ),
     ).resolves.toBe(false);
 
-    expect(
-      prisma.orgLeadershipAssignment.findFirst,
-    ).not.toHaveBeenCalled();
+    expect(prisma.orgLeadershipAssignment.findFirst).not.toHaveBeenCalled();
   });
 
   it('resolves reports.view to the current Org Unit Head subtree', async () => {
@@ -1188,10 +1093,9 @@ describe('OrganizationAuthorizationService', () => {
       isEnabled: false,
     });
 
-    const service =
-      new OrganizationAuthorizationService(
-        prisma as unknown as PrismaService,
-      );
+    const service = new OrganizationAuthorizationService(
+      prisma as unknown as PrismaService,
+    );
 
     await expect(
       service.visibleOrgUnitIds(
@@ -1201,12 +1105,7 @@ describe('OrganizationAuthorizationService', () => {
       ),
     ).resolves.toEqual([]);
 
-    expect(
-      prisma.orgLeadershipAssignment.findMany,
-    ).not.toHaveBeenCalled();
-    expect(
-      prisma.delegatedPermission.findMany,
-    ).not.toHaveBeenCalled();
+    expect(prisma.orgLeadershipAssignment.findMany).not.toHaveBeenCalled();
+    expect(prisma.delegatedPermission.findMany).not.toHaveBeenCalled();
   });
-
 });

@@ -56,9 +56,9 @@ describe('ConversationsService message-search scalability', () => {
   });
 
   it('pre-resolves sender identities within the conversation before querying messages', async () => {
-    jest.mocked(prisma.conversationParticipant.findMany).mockResolvedValue([
-      { accountId: senderAccountId },
-    ] as never);
+    jest
+      .mocked(prisma.conversationParticipant.findMany)
+      .mockResolvedValue([{ accountId: senderAccountId }] as never);
     jest.mocked(prisma.message.findMany).mockResolvedValue([] as never);
 
     await service.searchConversationMessages(viewer, conversationId, {
@@ -82,7 +82,8 @@ describe('ConversationsService message-search scalability', () => {
       }),
     );
 
-    const messageQuery = jest.mocked(prisma.message.findMany).mock.calls[0]?.[0];
+    const messageQuery = jest.mocked(prisma.message.findMany).mock
+      .calls[0]?.[0];
     const serializedWhere = JSON.stringify(messageQuery?.where ?? {});
 
     expect(serializedWhere).toContain(senderAccountId);
@@ -93,7 +94,9 @@ describe('ConversationsService message-search scalability', () => {
   });
 
   it('keeps former group members eligible for sender-name search', async () => {
-    jest.mocked(prisma.conversationParticipant.findMany).mockResolvedValue([] as never);
+    jest
+      .mocked(prisma.conversationParticipant.findMany)
+      .mockResolvedValue([] as never);
     jest.mocked(prisma.message.findMany).mockResolvedValue([] as never);
 
     await service.searchConversationMessages(viewer, conversationId, {
@@ -101,13 +104,16 @@ describe('ConversationsService message-search scalability', () => {
       limit: 10,
     });
 
-    const participantQuery = jest.mocked(prisma.conversationParticipant.findMany)
-      .mock.calls[0]?.[0];
+    const participantQuery = jest.mocked(
+      prisma.conversationParticipant.findMany,
+    ).mock.calls[0]?.[0];
 
     // Search must not add leftAt:null here; former members' historical messages
     // remain legitimate searchable history while normal message visibility rules
     // still protect what the viewer is allowed to see.
     expect(participantQuery?.where).not.toHaveProperty('leftAt');
-    expect(jest.mocked(prisma.message.findMany).mock.calls[0]?.[0]?.take).toBe(10);
+    expect(jest.mocked(prisma.message.findMany).mock.calls[0]?.[0]?.take).toBe(
+      10,
+    );
   });
 });

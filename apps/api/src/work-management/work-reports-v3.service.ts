@@ -137,7 +137,12 @@ export interface WorkReportV3Overview {
     overdueWork: number;
   }>;
   teamExecution: Array<{
-    operationalTeam: { id: string; code: string; name: string; orgUnitId: string };
+    operationalTeam: {
+      id: string;
+      code: string;
+      name: string;
+      orgUnitId: string;
+    };
     workCount: number;
   }>;
 }
@@ -537,7 +542,8 @@ export class WorkReportsV3Service {
       {} as Record<WorkRuntimeStatus, number>,
     );
     for (const group of statusGroups) {
-      if (group.runtimeStatus) statuses[group.runtimeStatus] = group._count._all;
+      if (group.runtimeStatus)
+        statuses[group.runtimeStatus] = group._count._all;
     }
 
     const primaryOwnerCounts = new Map<string, number>();
@@ -1088,7 +1094,8 @@ export class WorkReportsV3Service {
     const orgUnitIds = new Set<string>(
       statusGroups.map((group) => group.responsibleOrgUnitId),
     );
-    for (const group of overdueGroups) orgUnitIds.add(group.responsibleOrgUnitId);
+    for (const group of overdueGroups)
+      orgUnitIds.add(group.responsibleOrgUnitId);
     const orgUnits =
       orgUnitIds.size === 0
         ? []
@@ -1102,10 +1109,7 @@ export class WorkReportsV3Service {
             select: { id: true, code: true, name: true },
           });
 
-    const statusCounts = new Map<
-      string,
-      Map<WorkStageStatus, number>
-    >();
+    const statusCounts = new Map<string, Map<WorkStageStatus, number>>();
     for (const group of statusGroups) {
       const counts =
         statusCounts.get(group.responsibleOrgUnitId) ??
@@ -1176,7 +1180,8 @@ export class WorkReportsV3Service {
       total,
       totalPages: total === 0 ? 0 : Math.ceil(total / limit),
       summary: orgUnits.map((orgUnit) => {
-        const counts = statusCounts.get(orgUnit.id) ?? new Map();
+        const counts =
+          statusCounts.get(orgUnit.id) ?? new Map<WorkStageStatus, number>();
         const waitingStages = [...WAITING_STAGE_STATUSES].reduce(
           (sum, status) => sum + (counts.get(status) ?? 0),
           0,
@@ -1721,9 +1726,7 @@ export class WorkReportsV3Service {
     };
   }
 
-  private csvCell(
-    value: string | number | boolean | null | undefined,
-  ): string {
+  private csvCell(value: string | number | boolean | null | undefined): string {
     let text = value == null ? '' : String(value);
     if (/^[=+\-@]/.test(text)) text = `'${text}`;
     return `"${text.replace(/"/g, '""')}"`;
@@ -1760,7 +1763,11 @@ export class WorkReportsV3Service {
       },
     });
 
-    if (!account || !account.isEnabled || account.accountClass !== user.accountClass) {
+    if (
+      !account ||
+      !account.isEnabled ||
+      account.accountClass !== user.accountClass
+    ) {
       throw new ForbiddenException('Your account cannot access reports.');
     }
 
@@ -2384,7 +2391,11 @@ export class WorkReportsV3Service {
     }
     return {
       OR: [
-        { runtimeStatus: { in: [WorkRuntimeStatus.COMPLETED, WorkRuntimeStatus.CANCELLED] } },
+        {
+          runtimeStatus: {
+            in: [WorkRuntimeStatus.COMPLETED, WorkRuntimeStatus.CANCELLED],
+          },
+        },
         { dueAt: { gte: new Date(now.getTime() + DUE_SOON_MS) } },
       ],
     };

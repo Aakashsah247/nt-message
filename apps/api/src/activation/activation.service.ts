@@ -471,9 +471,7 @@ export class ActivationService {
         if (accountRequest.status === AccountRequestStatus.APPROVED) {
           let lifecycleState = accountRequest.lifecycleState;
 
-          if (
-            lifecycleState === AccountRequestLifecycleState.APPROVED
-          ) {
+          if (lifecycleState === AccountRequestLifecycleState.APPROVED) {
             this.lifecycle.assertTransition(
               AccountRequestLifecycleState.APPROVED,
               AccountRequestLifecycleState.PROVISIONED,
@@ -523,7 +521,6 @@ export class ActivationService {
                 officeId: accountRequest.officeId,
 
                 intendedOrgUnitId: accountRequest.intendedOrgUnitId,
-
 
                 otpVerificationId: otpRecord.id,
               },
@@ -1212,7 +1209,6 @@ export class ActivationService {
               officeId: accountRequest.officeId,
 
               intendedOrgUnitId: accountRequest.intendedOrgUnitId,
-
             },
           },
         });
