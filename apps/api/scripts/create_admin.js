@@ -28,7 +28,7 @@ if (!username || !password) {
       process.exit(0);
     }
     const hash = await argon2.hash(password, { type: argon2.argon2id });
-    const acc = await prisma.account.create({ data: { username, passwordHash: hash, role: 'SUPER_ADMIN', isEnabled: true } });
+    const acc = await prisma.account.create({ data: { username, passwordHash: hash, accountClass: 'SUPER_ADMIN', role: 'SUPER_ADMIN', isEnabled: true } });
     console.log('Created admin account:', acc.id);
   } catch (err) {
     console.error('Failed to create admin:', err);

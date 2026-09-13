@@ -8,13 +8,13 @@ import {
 import type { AuthenticatedUser } from '../auth/types/auth.types';
 import { PrismaService } from '../database/prisma.service';
 import {
-  AccountRole,
+  AccountClass,
   WorkActivityAction,
   WorkItemStatus,
 } from '../generated/prisma/client';
 import type { Prisma } from '../generated/prisma/client';
 import { ManageWorkRetentionDto } from './dto/manage-work-retention.dto';
-import { workItemDetailSelect } from './work-items.service';
+import { workCompatibilityDetailSelect } from './work-compatibility-selects';
 import { WorkScopeService, type WorkActorContext } from './work-scope.service';
 
 const retentionCurrentSelect = {
@@ -94,7 +94,7 @@ export class WorkRetentionService {
 
         return transaction.workItem.findUniqueOrThrow({
           where: { id: current.id },
-          select: workItemDetailSelect,
+          select: workCompatibilityDetailSelect,
         });
       },
     );
@@ -148,7 +148,7 @@ export class WorkRetentionService {
 
         return transaction.workItem.findUniqueOrThrow({
           where: { id: current.id },
-          select: workItemDetailSelect,
+          select: workCompatibilityDetailSelect,
         });
       },
     );
@@ -233,7 +233,7 @@ export class WorkRetentionService {
 
         return transaction.workItem.findUniqueOrThrow({
           where: { id: current.id },
-          select: workItemDetailSelect,
+          select: workCompatibilityDetailSelect,
         });
       },
     );
@@ -288,7 +288,7 @@ export class WorkRetentionService {
 
         return transaction.workItem.findUniqueOrThrow({
           where: { id: current.id },
-          select: workItemDetailSelect,
+          select: workCompatibilityDetailSelect,
         });
       },
     );
@@ -301,7 +301,7 @@ export class WorkRetentionService {
   ): Promise<WorkActorContext> {
     const actor = await this.workScopeService.resolveActorContext(user);
 
-    if (actor.role !== AccountRole.SUPER_ADMIN) {
+    if (actor.accountClass !== AccountClass.SUPER_ADMIN) {
       throw new ForbiddenException(
         'Only the Super Admin can place retention holds or request deletion review.',
       );

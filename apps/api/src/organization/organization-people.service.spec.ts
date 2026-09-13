@@ -6,6 +6,7 @@ import {
 import type { AuthenticatedUser } from '../auth/types/auth.types';
 import { PrismaService } from '../database/prisma.service';
 import {
+  AccountClass,
   AccountRole,
   EmployeeStatus,
   EmploymentStatus,
@@ -22,11 +23,13 @@ import { OrganizationPeopleService } from './organization-people.service';
 describe('OrganizationPeopleService', () => {
   const officeHeadUser = {
     accountId: 'office-head-account',
+    accountClass: AccountClass.OFFICE_USER,
     role: AccountRole.EMPLOYEE,
   } as AuthenticatedUser;
 
   const superAdmin = {
     accountId: 'super-admin',
+    accountClass: AccountClass.SUPER_ADMIN,
     role: AccountRole.SUPER_ADMIN,
   } as AuthenticatedUser;
 
@@ -40,6 +43,7 @@ describe('OrganizationPeopleService', () => {
     archivedAt: null,
     account: {
       id: 'account-1',
+      accountClass: AccountClass.OFFICE_USER,
       role: AccountRole.EMPLOYEE,
       isEnabled: true,
     },
@@ -163,6 +167,7 @@ describe('OrganizationPeopleService', () => {
           ...activeEmployee,
           account: {
             id: 'super-admin',
+            accountClass: AccountClass.SUPER_ADMIN,
             role: AccountRole.SUPER_ADMIN,
             isEnabled: true,
           },

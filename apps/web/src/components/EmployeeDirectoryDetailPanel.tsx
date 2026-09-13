@@ -10,16 +10,13 @@ import type {
 
 import {
   archiveDirectoryEmployee,
-  changeDirectoryEmployeeRole,
   endDirectoryEmployeeEmployment,
   getDirectoryEmployee,
   getDirectoryEmployeeLifecycleHistory,
-  listDirectoryOrganizationDepartments,
-  listDirectoryOrganizationDivisions,
   updateDirectoryEmployeeStatus,
 } from "../services/directory.service";
 import type {
-  AccountRole,
+  AccountClass,
 } from "../types/auth";
 
 import type {
@@ -27,22 +24,12 @@ import type {
   DirectoryEmployeeStatus,
   DirectoryEmploymentStatus,
   DirectoryLifecycleHistoryResponse,
-  DirectoryOrganizationDepartment,
-  DirectoryOrganizationDivision,
-  DirectoryRoleChangeTarget,
 } from "../types/directory";
-
-const assignableRoles:
-  DirectoryRoleChangeTarget[] = [
-    "SENIOR_MANAGEMENT",
-    "TEAM_MANAGER",
-    "EMPLOYEE",
-  ];
 
 interface EmployeeDirectoryDetailPanelProps {
   accessToken: string;
   employeeId: string;
-  viewerRole: AccountRole;
+  viewerAccountClass: AccountClass;
   onStatusChanged: () => void;
   onClose: () => void;
 }
@@ -168,7 +155,7 @@ function getStatusClass(value: string): string {
 export function EmployeeDirectoryDetailPanel({
   accessToken,
   employeeId,
-  viewerRole,
+  viewerAccountClass,
   onStatusChanged,
   onClose,
 }: EmployeeDirectoryDetailPanelProps) {
@@ -258,7 +245,7 @@ export function EmployeeDirectoryDetailPanel({
     lifecycleLoading,
     setLifecycleLoading,
   ] = useState(
-    viewerRole === "SUPER_ADMIN",
+    viewerAccountClass === "SUPER_ADMIN",
   );
 
   const [
@@ -266,72 +253,6 @@ export function EmployeeDirectoryDetailPanel({
     setLifecycleError,
   ] = useState("");
 
-
-  const [
-    organizationDivisions,
-    setOrganizationDivisions,
-  ] =
-    useState<
-      DirectoryOrganizationDivision[]
-    >([]);
-
-  const [
-    organizationDepartments,
-    setOrganizationDepartments,
-  ] =
-    useState<
-      DirectoryOrganizationDepartment[]
-    >([]);
-
-  const [
-    organizationLoading,
-    setOrganizationLoading,
-  ] = useState(
-    viewerRole === "SUPER_ADMIN",
-  );
-
-  const [
-    organizationError,
-    setOrganizationError,
-  ] = useState("");
-
-  const [
-    showRoleForm,
-    setShowRoleForm,
-  ] = useState(false);
-
-  const [
-    targetRole,
-    setTargetRole,
-  ] =
-    useState<
-      DirectoryRoleChangeTarget | ""
-    >("");
-
-  const [
-    roleDivisionId,
-    setRoleDivisionId,
-  ] = useState("");
-
-  const [
-    roleDepartmentId,
-    setRoleDepartmentId,
-  ] = useState("");
-
-  const [
-    roleDesignation,
-    setRoleDesignation,
-  ] = useState("");
-
-  const [
-    roleReason,
-    setRoleReason,
-  ] = useState("");
-
-  const [
-    changingRole,
-    setChangingRole,
-  ] = useState(false);
 
   useEffect(() => {
     let active = true;
@@ -369,10 +290,7 @@ export function EmployeeDirectoryDetailPanel({
   ]);
 
   useEffect(() => {
-    if (
-      viewerRole !==
-      "SUPER_ADMIN"
-    ) {
+    if (viewerAccountClass !== "SUPER_ADMIN") {
       return;
     }
 
@@ -387,31 +305,19 @@ export function EmployeeDirectoryDetailPanel({
           return;
         }
 
-        setLifecycleHistory(
-          historyResponse,
-        );
-
+        setLifecycleHistory(historyResponse);
         setLifecycleError("");
       })
-      .catch(
-        (
-          requestError:
-            unknown,
-        ) => {
-          if (!active) {
-            return;
-          }
+      .catch((requestError: unknown) => {
+        if (!active) {
+          return;
+        }
 
-          setLifecycleHistory(null);
-
-          setLifecycleError(
-            getErrorMessage(
-              requestError,
-              t,
-            ),
-          );
-        },
-      )
+        setLifecycleHistory(null);
+        setLifecycleError(
+          getErrorMessage(requestError, t),
+        );
+      })
       .finally(() => {
         if (active) {
           setLifecycleLoading(false);
@@ -425,77 +331,7 @@ export function EmployeeDirectoryDetailPanel({
     accessToken,
     employeeId,
     retryKey,
-    viewerRole,
-    t,
-  ]);
-
-  useEffect(() => {
-    if (
-      viewerRole !==
-      "SUPER_ADMIN"
-    ) {
-      return;
-    }
-
-    let active = true;
-
-    Promise.all([
-      listDirectoryOrganizationDivisions(
-        accessToken,
-      ),
-
-      listDirectoryOrganizationDepartments(
-        accessToken,
-      ),
-    ])
-      .then(([
-        divisionResponse,
-        departmentResponse,
-      ]) => {
-        if (!active) {
-          return;
-        }
-
-        setOrganizationDivisions(
-          divisionResponse.data,
-        );
-
-        setOrganizationDepartments(
-          departmentResponse.data,
-        );
-
-
-        setOrganizationError("");
-      })
-      .catch(
-        (
-          requestError:
-            unknown,
-        ) => {
-          if (!active) {
-            return;
-          }
-
-          setOrganizationError(
-            getErrorMessage(
-              requestError,
-              t,
-            ),
-          );
-        },
-      )
-      .finally(() => {
-        if (active) {
-          setOrganizationLoading(false);
-        }
-      });
-
-    return () => {
-      active = false;
-    };
-  }, [
-    accessToken,
-    viewerRole,
+    viewerAccountClass,
     t,
   ]);
 
@@ -532,8 +368,8 @@ export function EmployeeDirectoryDetailPanel({
 
   const canManageAccount =
     Boolean(employee) &&
-    viewerRole === "SUPER_ADMIN" &&
-    employee?.role !== "SUPER_ADMIN";
+    viewerAccountClass === "SUPER_ADMIN" &&
+    employee?.accountClass !== "SUPER_ADMIN";
 
   const employmentIsActive =
     employee?.employmentStatus ===
@@ -553,27 +389,6 @@ export function EmployeeDirectoryDetailPanel({
     !employmentIsActive &&
     !employee?.archivedAt;
 
-
-  const canChangeRole =
-    canManageAccount &&
-    employmentIsActive &&
-    employee?.status === "ACTIVE" &&
-    employee?.activationStatus ===
-      "ACTIVATED" &&
-    Boolean(employee?.role);
-
-  const roleRequiresDepartment =
-    targetRole !==
-    "SENIOR_MANAGEMENT";
-
-  const availableRoleDepartments =
-    organizationDepartments.filter(
-      (department) =>
-        department.isActive &&
-        department.division.isActive &&
-        department.division.id ===
-          roleDivisionId,
-    );
 
   function openStatusConfirmation(
     status: DirectoryEmployeeStatus,
@@ -842,172 +657,6 @@ export function EmployeeDirectoryDetailPanel({
   }
 
 
-  function openRoleChange(): void {
-    if (!employee) {
-      return;
-    }
-
-    setTargetRole("");
-    setRoleDivisionId(
-      employee.division?.id ??
-        "",
-    );
-
-    setRoleDepartmentId(
-      employee.department?.id ??
-        "",
-    );
-
-    setRoleDesignation(
-      employee.designation ??
-        "",
-    );
-
-    setRoleReason("");
-    setActionError("");
-    setActionMessage("");
-    setShowRoleForm(true);
-  }
-
-  function cancelRoleChange(): void {
-    if (changingRole) {
-      return;
-    }
-
-    setShowRoleForm(false);
-    setTargetRole("");
-    setRoleReason("");
-    setActionError("");
-  }
-
-  async function submitRoleChange(
-    event:
-      FormEvent<HTMLFormElement>,
-  ): Promise<void> {
-    event.preventDefault();
-
-    if (
-      !employee ||
-      changingRole
-    ) {
-      return;
-    }
-
-    if (!targetRole) {
-      setActionError(
-        t("detail.roleChange.selectRoleError"),
-      );
-
-      return;
-    }
-
-    if (!roleDivisionId) {
-      setActionError(
-        t("detail.roleChange.selectDivision"),
-      );
-
-      return;
-    }
-
-    if (
-      roleRequiresDepartment &&
-      !roleDepartmentId
-    ) {
-      setActionError(
-        t("detail.roleChange.selectDepartment"),
-      );
-
-      return;
-    }
-
-
-    const designation =
-      roleDesignation
-        .trim()
-        .replace(/\s+/g, " ");
-
-    if (
-      designation &&
-      designation.length < 2
-    ) {
-      setActionError(
-        t("detail.roleChange.designationError"),
-      );
-
-      return;
-    }
-
-    const reason =
-      roleReason
-        .trim()
-        .replace(/\s+/g, " ");
-
-    if (reason.length < 3) {
-      setActionError(
-        t("detail.roleChange.reasonError"),
-      );
-
-      return;
-    }
-
-    setChangingRole(true);
-    setActionError("");
-    setActionMessage("");
-
-    try {
-      const result =
-        await changeDirectoryEmployeeRole(
-          accessToken,
-          employee.id,
-          {
-            targetRole,
-            divisionId:
-              roleDivisionId,
-            departmentId:
-              roleRequiresDepartment
-                ? roleDepartmentId
-                : undefined,
-
-            designation:
-              designation ||
-              undefined,
-
-            reason,
-          },
-        );
-
-      setActionMessage(
-        t("detail.roleChange.success", {
-          count: result.revokedSessions,
-        }),
-      );
-
-      setShowRoleForm(false);
-      setTargetRole("");
-      setRoleReason("");
-
-      // Reload the role badge, organization assignment and history.
-      setRetryKey(
-        (current) =>
-          current + 1,
-      );
-
-      onStatusChanged();
-    } catch (
-      requestError:
-        unknown
-    ) {
-      setActionError(
-        getErrorMessage(
-          requestError,
-          t,
-        ),
-      );
-    } finally {
-      setChangingRole(false);
-    }
-  }
-
   return (
     <div
       className="directory-detail-backdrop"
@@ -1090,16 +739,6 @@ export function EmployeeDirectoryDetailPanel({
             </section>
 
             <section className="directory-detail-badges">
-              <span
-                className={`directory-badge role-${getStatusClass(
-                  employee.effectiveRole ??
-                    "NO_ACCOUNT",
-                )}`}
-              >
-                {employee.effectiveRole
-                  ? t("detail.effectiveBadge", { role: formatValue(employee.effectiveRole, t) })
-                  : t("common.noAccount")}
-              </span>
 
               <span
                 className={`directory-badge ${getStatusClass(
@@ -1272,22 +911,12 @@ export function EmployeeDirectoryDetailPanel({
 
               <dl className="directory-detail-list">
                 <div>
-                  <dt>{t("detail.account.role")}</dt>
+                  <dt>{t("detail.account.accountClass")}</dt>
 
                   <dd>
-                    {employee.accountRole
-                      ? formatValue(employee.accountRole, t)
+                    {employee.accountClass
+                      ? formatValue(employee.accountClass, t)
                       : t("common.noAccount")}
-                  </dd>
-                </div>
-
-                <div>
-                  <dt>{t("detail.account.effectiveRole")}</dt>
-
-                  <dd>
-                    {employee.effectiveRole
-                      ? formatValue(employee.effectiveRole, t)
-                      : t("common.noAuthority")}
                   </dd>
                 </div>
 
@@ -1316,311 +945,6 @@ export function EmployeeDirectoryDetailPanel({
                 </div>
               </dl>
             </section>
-
-            {canChangeRole && (
-              <section className="dir-role-box">
-                <div className="dir-role-head">
-                  <span>{t("detail.roleChange.eyebrow")}</span>
-
-                  <strong>{t("detail.roleChange.title")}</strong>
-
-                  <p>{t("detail.roleChange.description")}</p>
-                </div>
-
-                {organizationError && (
-                  <div
-                    className="dir-status-err"
-                    role="alert"
-                  >
-                    {organizationError}
-                  </div>
-                )}
-
-                {actionMessage && (
-                  <div className="dir-status-ok">
-                    {actionMessage}
-                  </div>
-                )}
-
-                {actionError && (
-                  <div
-                    className="dir-status-err"
-                    role="alert"
-                  >
-                    {actionError}
-                  </div>
-                )}
-
-                {!showRoleForm && (
-                  <button
-                    type="button"
-                    className="dir-role-open"
-                    onClick={
-                      openRoleChange
-                    }
-                    disabled={
-                      organizationLoading ||
-                      Boolean(
-                        organizationError,
-                      )
-                    }
-                  >
-                    {organizationLoading
-                      ? t("detail.roleChange.loadingOrganization")
-                      : t("detail.roleChange.open")}
-                  </button>
-                )}
-
-                {showRoleForm && (
-                  <form
-                    className="dir-role-form"
-                    onSubmit={
-                      submitRoleChange
-                    }
-                  >
-                    <div className="dir-role-current">
-                      <span>{t("detail.roleChange.currentRole")}</span>
-
-                      <strong>
-                        {employee.effectiveRole
-                          ? formatValue(employee.effectiveRole, t)
-                          : t("roles.EMPLOYEE")}
-                      </strong>
-                    </div>
-
-                    <label>
-                      <span>{t("detail.roleChange.newRole")}</span>
-
-                      <select
-                        value={
-                          targetRole
-                        }
-                        onChange={(
-                          event,
-                        ) => {
-                          const nextRole =
-                            event.target
-                              .value as
-                              | DirectoryRoleChangeTarget
-                              | "";
-
-                          setTargetRole(
-                            nextRole,
-                          );
-
-                          if (
-                            nextRole ===
-                            "SENIOR_MANAGEMENT"
-                          ) {
-                            setRoleDepartmentId(
-                              "",
-                            );
-                          }
-
-                          setActionError("");
-                        }}
-                        disabled={
-                          changingRole
-                        }
-                        required
-                      >
-                        <option value="">{t("detail.roleChange.selectRole")}</option>
-
-                        {assignableRoles
-                          .map(
-                            (role) => (
-                              <option
-                                key={
-                                  role
-                                }
-                                value={
-                                  role
-                                }
-                              >
-                                {formatValue(role, t)}
-                                {role ===
-                                employee.effectiveRole
-                                  ? t("detail.roleChange.transferSuffix")
-                                  : ""}
-                              </option>
-                            ),
-                          )}
-                      </select>
-                    </label>
-
-                    <label>
-                      <span>{t("detail.organization.division")}</span>
-
-                      <select
-                        value={
-                          roleDivisionId
-                        }
-                        onChange={(
-                          event,
-                        ) => {
-                          setRoleDivisionId(
-                            event.target.value,
-                          );
-
-                          setRoleDepartmentId(
-                            "",
-                          );
-
-                          setActionError("");
-                        }}
-                        disabled={
-                          changingRole
-                        }
-                        required
-                      >
-                        <option value="">{t("detail.roleChange.division")}</option>
-
-                        {organizationDivisions
-                          .filter(
-                            (division) =>
-                              division.isActive,
-                          )
-                          .map(
-                            (division) => (
-                              <option
-                                key={
-                                  division.id
-                                }
-                                value={
-                                  division.id
-                                }
-                              >
-                                {division.name} ({division.code})
-                              </option>
-                            ),
-                          )}
-                      </select>
-                    </label>
-
-                    {roleRequiresDepartment && (
-                      <label>
-                        <span>{t("detail.organization.department")}</span>
-
-                        <select
-                          value={
-                            roleDepartmentId
-                          }
-                          onChange={(
-                            event,
-                          ) => {
-                            setRoleDepartmentId(
-                              event.target.value,
-                            );
-
-                            setActionError("");
-                          }}
-                          disabled={
-                            changingRole ||
-                            !roleDivisionId
-                          }
-                          required
-                        >
-                          <option value="">{t("detail.roleChange.department")}</option>
-
-                          {availableRoleDepartments.map(
-                            (
-                              department,
-                            ) => (
-                              <option
-                                key={
-                                  department.id
-                                }
-                                value={
-                                  department.id
-                                }
-                              >
-                                {department.name} ({department.code})
-                              </option>
-                            ),
-                          )}
-                        </select>
-                      </label>
-                    )}
-
-
-                    <label>
-                      <span>{t("detail.roleChange.designation")}</span>
-
-                      <input
-                        type="text"
-                        value={
-                          roleDesignation
-                        }
-                        onChange={(
-                          event,
-                        ) =>
-                          setRoleDesignation(
-                            event.target.value,
-                          )
-                        }
-                        minLength={2}
-                        maxLength={120}
-                        placeholder={t("detail.roleChange.designationPlaceholder")}
-                        disabled={
-                          changingRole
-                        }
-                      />
-                    </label>
-
-                    <label>
-                      <span>{t("detail.roleChange.reason")}</span>
-
-                      <textarea
-                        value={
-                          roleReason
-                        }
-                        onChange={(
-                          event,
-                        ) =>
-                          setRoleReason(
-                            event.target.value,
-                          )
-                        }
-                        minLength={3}
-                        maxLength={500}
-                        placeholder={t("detail.roleChange.reasonPlaceholder")}
-                        disabled={
-                          changingRole
-                        }
-                        required
-                      />
-                    </label>
-
-                    <div className="dir-role-warning">{t("detail.roleChange.warning")}</div>
-
-                    <div className="dir-role-actions">
-                      <button
-                        type="submit"
-                        className="dir-role-confirm"
-                        disabled={
-                          changingRole
-                        }
-                      >
-                        {changingRole
-                          ? t("detail.roleChange.confirming")
-                          : t("detail.roleChange.confirm")}
-                      </button>
-
-                      <button
-                        type="button"
-                        className="dir-status-cancel"
-                        onClick={
-                          cancelRoleChange
-                        }
-                        disabled={
-                          changingRole
-                        }
-                      >{t("common.cancel")}</button>
-                    </div>
-                  </form>
-                )}
-              </section>
-            )}
 
             {canManageStatus && (
               <section className="dir-status-box">
@@ -1848,7 +1172,7 @@ export function EmployeeDirectoryDetailPanel({
                     </label>
 
                     <label>
-                      <span>{t("detail.roleChange.reason")}</span>
+                      <span>{t("detail.lifecycle.reason")}</span>
 
                       <textarea
                         value={
@@ -1902,7 +1226,7 @@ export function EmployeeDirectoryDetailPanel({
               </section>
             )}
 
-            {viewerRole ===
+            {viewerAccountClass ===
               "SUPER_ADMIN" && (
               <section className="dir-history-box">
                 <div className="dir-history-head">

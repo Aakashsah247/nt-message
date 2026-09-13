@@ -2,6 +2,7 @@ import { ForbiddenException } from '@nestjs/common';
 
 import type { PrismaService } from '../database/prisma.service';
 import {
+  AccountClass,
   AccountRole,
   ConversationParticipantRole,
   ConversationType,
@@ -54,6 +55,119 @@ describe('ConversationsService group governance', () => {
   beforeEach(() => {
     jest.clearAllMocks();
     service = new ConversationsService(prisma, {} as never, {} as never);
+  });
+
+
+  it('uses AccountClass for messaging access independently of the normalized compatibility role', async () => {
+    const account = {
+      id: 'office-head-account',
+      username: 'office-head',
+      accountClass: AccountClass.OFFICE_USER,
+      role: AccountRole.EMPLOYEE,
+      isEnabled: true,
+      showOnlineStatus: true,
+      showReadReceipts: true,
+      requireMessageRequests: false,
+      employee: {
+        id: 'office-head-employee',
+        status: 'ACTIVE',
+        employmentStatus: 'ACTIVE',
+        archivedAt: null,
+        isActivated: true,
+        orgMemberships: [
+          {
+            startsAt: new Date('2026-01-01T00:00:00.000Z'),
+            endsAt: null,
+            office: { id: 'office-1', isActive: true },
+            orgUnit: { id: 'org-unit-1', isActive: true },
+          },
+        ],
+      },
+    };
+
+    (prisma.account.findUnique as jest.Mock).mockResolvedValue(account);
+
+    const viewer = await (
+      service as unknown as {
+        getMessagingViewer: (user: unknown) => Promise<{
+          accountId: string;
+          role: AccountRole;
+          officeId: string | null;
+        }>;
+      }
+    ).getMessagingViewer({
+      accountId: account.id,
+      sessionId: 'session-1',
+      username: account.username,
+      accountClass: AccountClass.OFFICE_USER,
+      role: AccountRole.EMPLOYEE,
+    });
+
+    expect(viewer).toEqual(
+      expect.objectContaining({
+        accountId: account.id,
+        role: AccountRole.EMPLOYEE,
+        officeId: 'office-1',
+      }),
+    );
+  });
+
+  it('elects only one active Office Head as official-group OWNER during leadership overlap', async () => {
+    const creatorHead = { id: 'head-b' };
+    const otherHead = { id: 'head-a' };
+    const member = { id: 'member-1' };
+
+    jest
+      .spyOn(
+        service as unknown as {
+          resolveOfficialGroupOfficeId: () => Promise<string>;
+        },
+        'resolveOfficialGroupOfficeId',
+      )
+      .mockResolvedValue('office-1');
+    jest
+      .spyOn(
+        service as unknown as {
+          getV3OfficialGroupMembershipAccounts: () => Promise<unknown[]>;
+        },
+        'getV3OfficialGroupMembershipAccounts',
+      )
+      .mockResolvedValue([creatorHead, member]);
+    jest
+      .spyOn(
+        service as unknown as {
+          getActiveOfficeHeadAccountsForOffice: () => Promise<unknown[]>;
+        },
+        'getActiveOfficeHeadAccountsForOffice',
+      )
+      .mockResolvedValue([otherHead, creatorHead]);
+    jest
+      .spyOn(
+        service as unknown as {
+          getOfficialGroupManagerAccountIds: () => Promise<Set<string>>;
+        },
+        'getOfficialGroupManagerAccountIds',
+      )
+      .mockResolvedValue(new Set());
+
+    const desired = await (
+      service as unknown as {
+        getDesiredOfficialGroupMembership: (group: unknown) => Promise<{
+          accounts: Array<{ id: string }>;
+          officeHeadAccountIds: Set<string>;
+          managerAccountIds: Set<string>;
+        }>;
+      }
+    ).getDesiredOfficialGroupMembership({
+      id: 'official-group-1',
+      createdByAccountId: creatorHead.id,
+    });
+
+    expect([...desired.officeHeadAccountIds]).toEqual([creatorHead.id]);
+    expect(desired.managerAccountIds.has(otherHead.id)).toBe(true);
+    expect(desired.accounts.map((account) => account.id).sort()).toEqual(
+      [creatorHead.id, otherHead.id, member.id].sort(),
+    );
   });
 
   it('assigns an active Office Head as ADMIN when explicitly added to a personal group', () => {

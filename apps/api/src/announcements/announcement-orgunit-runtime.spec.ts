@@ -31,8 +31,6 @@ const viewer = {
   officeId: OFFICE_ID,
   primaryOrgUnitId: ORG_UNIT_ID,
   isOfficeHead: false,
-  divisionId: null,
-  departmentId: null,
   displayName: 'Employee One',
   isEnabled: true,
 };
@@ -86,8 +84,6 @@ describe('P12-F announcement OrgUnit runtime', () => {
         officeId: string;
         orgUnitId: string | null;
         includeDescendants: boolean;
-        divisionId: string | null;
-        departmentId: string | null;
       }>;
     };
 
@@ -113,16 +109,12 @@ describe('P12-F announcement OrgUnit runtime', () => {
       officeId: OFFICE_ID,
       orgUnitId: null,
       includeDescendants: false,
-      divisionId: null,
-      departmentId: null,
     });
     expect(orgUnit).toMatchObject({
       audienceType: AnnouncementAudienceType.ORG_UNIT,
       officeId: OFFICE_ID,
       orgUnitId: ORG_UNIT_ID,
       includeDescendants: true,
-      divisionId: null,
-      departmentId: null,
     });
   });
 
@@ -245,8 +237,6 @@ describe('P12-F announcement OrgUnit runtime', () => {
           id: '77777777-7777-4777-8777-777777777777',
           title: 'Technical Office Group',
           officialScopeType: OfficialGroupScopeType.ORG_UNIT,
-          officialDivisionId: null,
-          officialDepartmentId: null,
           officialOfficeId: OFFICE_ID,
           officialOrgUnitId: ORG_UNIT_ID,
           officialMembershipMode: OfficialGroupMembershipMode.DIRECT_MEMBERS,

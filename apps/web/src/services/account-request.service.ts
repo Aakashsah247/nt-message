@@ -14,8 +14,6 @@ import type {
   MyAccountRequestDetailResponse,
   MyAccountRequestListResponse,
   OwnAccountStatusResponse,
-  ScopedAccountRequestDetailResponse,
-  ScopedAccountRequestListResponse,
   RejectAccountRequestResponse,
   ResendActivationEmailResponse,
   ResubmitMyAccountRequestInput,
@@ -24,7 +22,6 @@ import type {
 
 export interface AccountRequestListFilters {
   search?: string;
-  departmentId?: string;
   dateFrom?: string;
   dateTo?: string;
 }
@@ -37,9 +34,6 @@ function appendListFilters(
     query.set("search", filters.search.trim());
   }
 
-  if (filters.departmentId) {
-    query.set("departmentId", filters.departmentId);
-  }
 
   if (filters.dateFrom) {
     query.set("dateFrom", filters.dateFrom);
@@ -114,43 +108,6 @@ export function getOwnAccountStatus(
   });
 }
 
-export function listDivisionEmployeeRequests(
-  accessToken: string,
-  status?: AccountRequestStatus,
-  page = 1,
-  limit = 20,
-  filters: AccountRequestListFilters = {},
-): Promise<ScopedAccountRequestListResponse> {
-  const query = new URLSearchParams({
-    page: String(page),
-    limit: String(limit),
-  });
-
-  if (status) {
-    query.set("status", status);
-  }
-
-  appendListFilters(query, filters);
-
-  return apiRequest<ScopedAccountRequestListResponse>(
-    `/account-requests/division-employees?${query.toString()}`,
-    {
-      headers: createAuthorizationHeaders(accessToken),
-    },
-  );
-}
-
-export function getDivisionEmployeeRequest(
-  accessToken: string,
-  requestId: string,
-): Promise<ScopedAccountRequestDetailResponse> {
-  return apiRequest<ScopedAccountRequestDetailResponse>(
-    `/account-requests/division-employees/${requestId}`,
-    {
-      headers: createAuthorizationHeaders(accessToken),
-    },
-  );
-}
 
 export function getMyAccountRequest(
   accessToken: string,
@@ -211,8 +168,6 @@ export function listAdminAccountRequests(
   });
 
   if (input.requestedRole) query.set("requestedRole", input.requestedRole);
-  if (input.divisionId) query.set("divisionId", input.divisionId);
-  if (input.departmentId) query.set("departmentId", input.departmentId);
   if (input.search) query.set("search", input.search);
   if (input.dateFrom) query.set("dateFrom", input.dateFrom);
   if (input.dateTo) query.set("dateTo", input.dateTo);

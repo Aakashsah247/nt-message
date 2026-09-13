@@ -2,6 +2,7 @@ import { ConflictException, ForbiddenException } from '@nestjs/common';
 
 import type { PrismaService } from '../database/prisma.service';
 import {
+  AccountClass,
   AccountRole,
   WorkItemStatus,
 } from '../generated/prisma/enums';
@@ -20,6 +21,7 @@ const superAdminUser = {
   accountId: 'super-admin',
   sessionId: 'session',
   username: 'admin@ntc.test',
+  accountClass: AccountClass.SUPER_ADMIN,
   role: AccountRole.SUPER_ADMIN,
 };
 
@@ -65,7 +67,13 @@ describe('WorkRetentionService', () => {
     jest.clearAllMocks();
     jest.mocked(scope.resolveActorContext).mockResolvedValue({
       accountId: 'super-admin',
+      accountClass: AccountClass.SUPER_ADMIN,
       role: AccountRole.SUPER_ADMIN,
+      officeId: null,
+      primaryOrgUnitId: null,
+      visibleOrgUnitIds: [],
+      assignableOrgUnitIds: [],
+      operationalTeamLeadIds: [],
       divisionId: null,
       departmentId: null,
     });
@@ -87,14 +95,25 @@ describe('WorkRetentionService', () => {
   it('rejects retention actions from ordinary management roles', async () => {
     jest.mocked(scope.resolveActorContext).mockResolvedValue({
       accountId: 'manager',
-      role: AccountRole.TEAM_MANAGER,
+      accountClass: AccountClass.OFFICE_USER,
+      role: AccountRole.EMPLOYEE,
+      officeId: 'office-a',
+      primaryOrgUnitId: 'org-department-a',
+      visibleOrgUnitIds: ['org-department-a'],
+      assignableOrgUnitIds: ['org-department-a'],
+      operationalTeamLeadIds: [],
       divisionId: 'division-a',
       departmentId: 'department-a',
     });
 
     await expect(
       service.placeHold(
-        { ...superAdminUser, accountId: 'manager', role: AccountRole.TEAM_MANAGER },
+        {
+          ...superAdminUser,
+          accountId: 'manager',
+          accountClass: AccountClass.OFFICE_USER,
+          role: AccountRole.EMPLOYEE,
+        },
         'work-1',
         { reason: 'Unauthorized retention request.' },
       ),

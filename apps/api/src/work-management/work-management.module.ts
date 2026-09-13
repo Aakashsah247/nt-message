@@ -12,9 +12,7 @@ import { DutyNotificationsService } from './duty-notifications.service';
 import { DutyScheduleService } from './duty-schedule.service';
 import { DutyScopeV3Service } from './duty-scope-v3.service';
 import { WorkItemsController } from './work-items.controller';
-import { WorkItemsService } from './work-items.service';
 import { WorkLifecycleService } from './work-lifecycle.service';
-import { WorkManagementQueryService } from './work-management-query.service';
 import { WorkReportsController } from './work-reports.controller';
 import { WorkReportsService } from './work-reports.service';
 import { WorkReportsV3Service } from './work-reports-v3.service';
@@ -49,9 +47,7 @@ import { WorkTypeV3Service } from './work-type-v3.service';
     DutyNotificationsService,
     DutyScheduleService,
     DutyScopeV3Service,
-    WorkItemsService,
     WorkLifecycleService,
-    WorkManagementQueryService,
     WorkNotificationsService,
     WorkReportsService,
     WorkReportsV3Service,
@@ -73,9 +69,7 @@ import { WorkTypeV3Service } from './work-type-v3.service';
     DutyCoverageRequirementsService,
     DutyScheduleService,
     DutyScopeV3Service,
-    WorkItemsService,
     WorkLifecycleService,
-    WorkManagementQueryService,
     WorkNotificationsService,
     WorkReportsV3Service,
     WorkRetentionService,

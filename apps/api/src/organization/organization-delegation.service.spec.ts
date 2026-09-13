@@ -2,7 +2,7 @@ import { ForbiddenException } from '@nestjs/common';
 
 import type { AuthenticatedUser } from '../auth/types/auth.types';
 import { PrismaService } from '../database/prisma.service';
-import { AccountRole } from '../generated/prisma/client';
+import { AccountClass, AccountRole } from '../generated/prisma/client';
 
 import { CAPABILITIES } from './organization-capabilities';
 import { OrganizationAuthorizationService } from './organization-authorization.service';
@@ -25,6 +25,7 @@ describe('OrganizationDelegationService', () => {
       service.create(
         {
           accountId: 'super-admin',
+          accountClass: AccountClass.SUPER_ADMIN,
           role: AccountRole.SUPER_ADMIN,
         } as AuthenticatedUser,
         'office-1',
@@ -54,6 +55,7 @@ describe('OrganizationDelegationService', () => {
       service.create(
         {
           accountId: 'office-head',
+          accountClass: AccountClass.OFFICE_USER,
           role: AccountRole.EMPLOYEE,
         } as AuthenticatedUser,
         'office-1',
@@ -93,6 +95,7 @@ describe('OrganizationDelegationService', () => {
       service.create(
         {
           accountId: 'delegated-manager',
+          accountClass: AccountClass.OFFICE_USER,
           role: AccountRole.EMPLOYEE,
         } as AuthenticatedUser,
         'office-1',

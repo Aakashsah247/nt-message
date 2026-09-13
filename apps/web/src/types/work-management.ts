@@ -1,39 +1,3 @@
-export type WorkItemType =
-  | "ROUTINE_TASK"
-  | "TROUBLE_TICKET"
-  | "MAINTENANCE"
-  | "NEW_CONNECTION"
-  | "UPDATE_SERVICES"
-  | "INSPECTION"
-  | "EMERGENCY_WORK"
-  | "ADMINISTRATIVE_TASK";
-
-export type WorkServiceType = "DATA" | "VOICE" | "IPTV" | "SIP" | "OTHER";
-
-export type WorkContactType = "MOBILE" | "TELEPHONE";
-
-export type DepartmentWorkFunction =
-  | "GENERAL"
-  | "FIELD_OPERATIONS"
-  | "SALES"
-  | "SUPPORT";
-
-export type WorkQueueView =
-  | "ACTIVE"
-  | "HISTORY"
-  | "ARCHIVE"
-  | "DELETION_REVIEW";
-
-// Queue focus is role-scoped; it does not grant broader ticket visibility.
-export type WorkQueueFocus =
-  | "TEAM_QUEUE"
-  | "ACTION_CENTER"
-  | "ASSIGNED_TO_ME"
-  | "CREATED_BY_ME"
-  | "AWAITING_MY_REVIEW"
-  | "EXCEPTIONS"
-  | "EXPLORER";
-
 export type WorkItemStatus =
   | "ASSIGNED"
   | "ACKNOWLEDGED"
@@ -44,19 +8,6 @@ export type WorkItemStatus =
   | "REOPENED"
   | "BLOCKED"
   | "CANCELLED";
-
-export type WorkAssignmentRole = "PRIMARY" | "SUPPORTING";
-
-export type WorkCompletionResult =
-  | "FULLY_RESOLVED"
-  | "TEMPORARY_SOLUTION"
-  | "UNABLE_TO_RESOLVE";
-
-export type WorkCompletionReviewStatus =
-  | "PENDING_REVIEW"
-  | "INFORMATION_REQUESTED"
-  | "ACCEPTED"
-  | "REJECTED";
 
 export type WorkHelpReason =
   | "NEED_ANOTHER_EMPLOYEE"
@@ -70,33 +21,6 @@ export type WorkHelpRequestStatus =
   | "ACCEPTED"
   | "DECLINED"
   | "CANCELLED";
-
-export type WorkActivityAction =
-  | "CREATED"
-  | "ASSIGNED"
-  | "TEAM_ASSIGNED"
-  | "SALES_MEMBER_ASSIGNED"
-  | "ACKNOWLEDGED"
-  | "STARTED"
-  | "STATUS_CHANGED"
-  | "REASSIGNED"
-  | "SUPPORT_ADDED"
-  | "SUPPORT_REMOVED"
-  | "HELP_REQUESTED"
-  | "HELP_ACCEPTED"
-  | "HELP_DECLINED"
-  | "COMPLETION_SUBMITTED"
-  | "INFORMATION_REQUESTED"
-  | "CLOSED"
-  | "REOPENED"
-  | "CANCELLED"
-  | "DETAILS_UPDATED"
-  | "DUE_DATE_CHANGED"
-  | "RETENTION_HOLD_APPLIED"
-  | "RETENTION_HOLD_RELEASED"
-  | "DELETION_REVIEW_REQUESTED"
-  | "DELETION_REVIEW_CANCELLED"
-  | "DELEGATED";
 
 export type WorkItemRealtimeAction =
   | "CREATED"
@@ -117,33 +41,21 @@ export type WorkItemRealtimeAction =
   | "DUE_SOON"
   | "OVERDUE";
 
-export type WorkManagementScopeType =
-  | "ORGANIZATION"
-  | "DIVISION"
-  | "DEPARTMENT";
-
-export type WorkloadLevel =
-  | "AVAILABLE"
-  | "MODERATE"
-  | "BUSY"
-  | "OVERLOADED";
-
 export interface WorkEmployeeSummary {
   id: string;
   empId: string;
   empName: string;
   designation: string | null;
-  divisionId: string | null;
-  departmentId: string | null;
 }
 
 export interface WorkAccountSummary {
   id: string;
-  role: "SUPER_ADMIN" | "SENIOR_MANAGEMENT" | "TEAM_MANAGER" | "EMPLOYEE";
+  role: string;
   username: string | null;
   employee: WorkEmployeeSummary | null;
   superAdminProfile?: { fullName: string } | null;
 }
+
 
 export interface WorkOrganizationSummary {
   id: string;
@@ -151,119 +63,11 @@ export interface WorkOrganizationSummary {
   name: string;
 }
 
-export interface WorkOrganizationMetrics {
-  active: number;
-  newWork: number;
-  inProgress: number;
-  waitingForSales: number;
-  waitingForApproval: number;
-  overdue: number;
-  completedToday: number;
-}
-
-export interface WorkOrganizationTeamOverview {
-  id: string;
-  departmentId: string;
-  name: string;
-  memberCount: number;
-  totals: WorkOrganizationMetrics;
-}
-
-export interface WorkOrganizationDepartmentOverview
-  extends WorkOrganizationSummary {
-  divisionId: string;
-  workFunction: DepartmentWorkFunction;
-  totals: WorkOrganizationMetrics;
-  teams: WorkOrganizationTeamOverview[];
-}
-
-export interface WorkOrganizationDivisionOverview
-  extends WorkOrganizationSummary {
-  totals: WorkOrganizationMetrics;
-  departments: WorkOrganizationDepartmentOverview[];
-}
-
-export interface WorkManagementOrganizationSummaryResponse {
-  timezone: "Asia/Kathmandu";
-  generatedAt: string;
-  scope: {
-    role: WorkAccountSummary["role"];
-    type: WorkManagementScopeType;
-    divisionId: string | null;
-    departmentId: string | null;
-  };
-  organization: {
-    divisionCount: number;
-    departmentCount: number;
-    teamCount: number;
-  };
-  totals: WorkOrganizationMetrics;
-  divisions: WorkOrganizationDivisionOverview[];
-}
-
-export interface WorkDepartmentOption extends WorkOrganizationSummary {
-  divisionId: string;
-  workFunction: DepartmentWorkFunction;
-  division: WorkOrganizationSummary;
-}
-
-export interface WorkTeamSummary {
-  id: string;
-  name: string;
-  departmentId: string;
-  isActive: boolean;
-  archivedAt: string | null;
-  teamAdmin: {
-    id: string;
-    empId: string;
-    empName: string;
-    designation: string | null;
-    account: WorkAccountSummary | null;
-  };
-  _count: {
-    members: number;
-  };
-  members?: Array<{
-    id: string;
-    employee: {
-      id: string;
-      empId: string;
-      empName: string;
-      designation: string | null;
-      account: WorkAccountSummary | null;
-    };
-  }>;
-}
-
-export interface WorkAssignment {
-  id: string;
-  assignmentRole: WorkAssignmentRole;
-  acknowledgedAt: string | null;
-  startedAt: string | null;
-  createdAt: string;
-  assignee: WorkAccountSummary;
-  assignedBy: WorkAccountSummary;
-}
-
-export interface WorkCompletionReport {
-  id: string;
-  result: WorkCompletionResult;
-  summary: string;
-  cpcSerial: string | null;
-  serviceNumber: string | null;
-  customerId: string | null;
-  rxLevelDbm: number | null;
-  olt: string | null;
-  fdcName: string | null;
-  fapName: string | null;
-  moreWorkRequired: boolean;
-  reviewStatus: WorkCompletionReviewStatus;
-  managerNote: string | null;
-  reviewedAt: string | null;
-  createdAt: string;
-  updatedAt: string;
-  submittedBy: WorkAccountSummary;
-  reviewedBy: WorkAccountSummary | null;
+export interface WorkPagination {
+  page: number;
+  limit: number;
+  total: number;
+  totalPages: number;
 }
 
 export interface WorkHelpRequest {
@@ -279,236 +83,16 @@ export interface WorkHelpRequest {
   updatedAt: string;
   requestedBy: WorkAccountSummary;
   requestedHelper: WorkAccountSummary | null;
-  requestedDepartment?: {
-    id: string;
-    divisionId: string;
-    code: string;
-    name: string;
-  } | null;
   respondedBy: WorkAccountSummary | null;
   coordinatedBy?: WorkAccountSummary | null;
   coordinatedAt?: string | null;
-  workItem?: Pick<
-    WorkItem,
-    "id" | "ticketNumber" | "title" | "status" | "dueAt"
-  > & { responsibleManagerAccountId: string };
-}
-
-export interface WorkDelegationProgress {
-  total: number;
-  completed: number;
-  inProgress: number;
-  awaitingReview: number;
-  notStarted: number;
-  cancelled: number;
-  completionPercentage: number;
-}
-
-export interface WorkDelegatedMemberProgress {
-  id: string;
-  parentWorkItemId: string | null;
-  depth: number;
-  ticketNumber: string;
-  title: string;
-  instructions: string | null;
-  status: WorkItemStatus;
-  dueAt: string;
-  createdAt: string;
-  completedAt: string | null;
-  closedAt: string | null;
-  cancelledAt: string | null;
-  primaryAssignee: WorkAccountSummary | null;
-  assignedBy: WorkAccountSummary | null;
-  latestProgressSummary: string | null;
-  isOverdue: boolean;
-}
-
-export interface WorkDelegatedTracking {
-  total: number;
-  completed: number;
-  inProgress: number;
-  awaitingReview: number;
-  notStarted: number;
-  cancelled: number;
-  overdue: number;
-  completionPercentage: number;
-  members: WorkDelegatedMemberProgress[];
-}
-
-
-export type WorkSalesCoordinationStatus =
-  | "WAITING_FOR_DOCUMENTS"
-  | "READY_FOR_SALES"
-  | "COMPLETED";
-
-export interface WorkSalesMessageAttachment {
-  id: string;
-  originalFileName: string;
-  mimeType: string;
-  fileSizeBytes: number;
-  createdAt: string;
-}
-
-export interface WorkSalesMessage {
-  id: string;
-  workItemId: string;
-  senderAccountId: string;
-  senderName: string;
-  senderRole: WorkAccountSummary["role"];
-  senderDesignation: string | null;
-  text: string | null;
-  attachments: WorkSalesMessageAttachment[];
-  createdAt: string;
-}
-
-export interface WorkSalesMessageListResponse {
-  messages: WorkSalesMessage[];
-}
-
-export interface WorkSalesMessageMutationResponse {
-  message: string;
-  salesMessage: WorkSalesMessage;
-}
-
-export interface WorkItem {
-  id: string;
-  ticketNumber: string;
-  type: WorkItemType;
-  title: string;
-  description: string;
-  category: string | null;
-  customerName: string | null;
-  customerContactType: WorkContactType | null;
-  customerContactNumber: string | null;
-  serviceTypes: WorkServiceType[];
-  otherServiceText: string | null;
-  requestNumber: string | null;
-  cpcSerial: string | null;
-  serviceNumber: string | null;
-  olt: string | null;
-  fdcName: string | null;
-  fapName: string | null;
-  status: WorkItemStatus;
-  divisionId: string;
-  departmentId: string | null;
-  parentWorkItemId: string | null;
-  assignedTeamId: string | null;
-  salesMemberAccountId: string | null;
-  salesCoordinationStatus: WorkSalesCoordinationStatus | null;
-  salesDocumentsSentAt: string | null;
-  salesCompletedAt: string | null;
-  salesCompletionNote: string | null;
-  locationText: string | null;
-  registeredAt: string;
-  plannedStartAt: string | null;
-  dueAt: string;
-  completedAt: string | null;
-  closedAt: string | null;
-  cancelledAt: string | null;
-  archiveEligibleAt: string | null;
-  deletionEligibleAt: string | null;
-  retentionHoldAt: string | null;
-  retentionHoldReason: string | null;
-  deletionRequestedAt: string | null;
-  deletionRequestReason: string | null;
-  version: number;
-  createdAt: string;
-  updatedAt: string;
-  division: WorkOrganizationSummary;
-  department: WorkOrganizationSummary | null;
-  assignedTeam: WorkTeamSummary | null;
-  salesMember: WorkAccountSummary | null;
-  createdBy: WorkAccountSummary;
-  responsibleManager: WorkAccountSummary;
-  retentionHoldBy: WorkAccountSummary | null;
-  deletionRequestedBy: WorkAccountSummary | null;
-  assignments: WorkAssignment[];
-  completionReports?: WorkCompletionReport[];
-  helpRequests?: WorkHelpRequest[];
-  parentWorkItem?: WorkLinkedItem | null;
-  childWorkItems?: WorkLinkedItem[];
-  delegationProgress?: WorkDelegationProgress;
-  delegatedWork?: WorkDelegatedTracking;
-}
-
-export interface WorkLinkedItem {
-  id: string;
-  ticketNumber: string;
-  title: string;
-  status: WorkItemStatus;
-  dueAt: string;
-}
-
-export interface WorkActivity {
-  id: string;
-  action: WorkActivityAction;
-  fromStatus: WorkItemStatus | null;
-  toStatus: WorkItemStatus | null;
-  details: Record<string, unknown> | null;
-  createdAt: string;
-  actor: WorkAccountSummary | null;
-}
-
-export interface WorkPagination {
-  page: number;
-  limit: number;
-  total: number;
-  totalPages: number;
-}
-
-export interface WorkListFilters {
-  view: WorkQueueView;
-  focus: WorkQueueFocus;
-  status: WorkItemStatus | null;
-  type: WorkItemType | null;
-  search: string | null;
-  category: string | null;
-  divisionId: string | null;
-  departmentId: string | null;
-  assigneeAccountId: string | null;
-  assignedTeamId: string | null;
-  salesMemberAccountId: string | null;
-  dueFrom: string | null;
-  dueTo: string | null;
-  plannedFrom: string | null;
-  plannedTo: string | null;
-  historyFrom: string | null;
-  historyTo: string | null;
-}
-
-export interface WorkQueueSummary {
-  view: WorkQueueView;
-  focus: WorkQueueFocus;
-  defaultHistoryDays: number;
-  explorerRequiresFilter: boolean;
-  focusCounts: {
-    assignedToMe: number;
-    createdByMe: number;
-    awaitingMyReview: number;
-    exceptions: number;
+  workItem?: {
+    id: string;
+    ticketNumber: string;
+    title: string;
+    status: WorkItemStatus;
+    dueAt: string;
   };
-  counts: {
-    active: number;
-    recentHistory: number;
-    archive: number;
-    eligibleForDeletion: number;
-    deletionRequested: number;
-  };
-}
-
-export interface WorkItemListResponse {
-  data: WorkItem[];
-  pagination: WorkPagination;
-  queue: WorkQueueSummary;
-  filters: WorkListFilters;
-}
-
-export interface WorkItemDetailResponse {
-  workItem: WorkItem;
-}
-
-export interface WorkActivityResponse {
-  data: WorkActivity[];
 }
 
 export interface PendingWorkHelpRequestsResponse {
@@ -517,107 +101,12 @@ export interface PendingWorkHelpRequestsResponse {
 
 export interface WorkMutationResponse {
   message: string;
-  workItem: WorkItem;
-}
-
-export interface WorkCompletionMutationResponse extends WorkMutationResponse {
-  report: WorkCompletionReport;
-}
-
-export interface WorkHelpMutationResponse extends WorkMutationResponse {
-  helpRequest?: WorkHelpRequest;
-}
-
-export interface WorkEmployeeDashboardSummary {
-  timezone: "Asia/Kathmandu";
-  generatedAt: string;
-  totals: {
-    active: number;
-    newWork: number;
-    working: number;
-    waitingForManager: number;
-    dueToday: number;
-    dueSoon: number;
-    overdue: number;
-    informationRequested: number;
-    pendingHelpRequests: number;
-  };
-  nextWork: WorkItem[];
-}
-
-export interface WorkManagementScope {
-  role: "SUPER_ADMIN" | "SENIOR_MANAGEMENT" | "TEAM_MANAGER";
-  type: WorkManagementScopeType;
-  divisionId: string | null;
-  departmentId: string | null;
-}
-
-export interface WorkManagementDashboardSummary {
-  timezone: "Asia/Kathmandu";
-  generatedAt: string;
-  scope: WorkManagementScope;
-  totals: {
-    open: number;
-    assignedToday: number;
-    inProgress: number;
-    helpRequested: number;
-    waitingForReview: number;
-    overdue: number;
-    closedToday: number;
-    needsAttention: number;
-  };
-  nextReview: WorkItem[];
-  attentionWork: WorkItem[];
-}
-
-export interface WorkloadSummary {
-  active: number;
-  overdue: number;
-  waitingForReview: number;
-  level: WorkloadLevel;
-}
-
-export interface WorkAssignmentCandidate {
-  account: WorkAccountSummary;
-  division: WorkOrganizationSummary | null;
-  department: (WorkOrganizationSummary & { divisionId: string }) | null;
-  workload: WorkloadSummary;
-}
-
-export interface WorkResponsibleManagerOption {
-  account: WorkAccountSummary;
-  divisionId: string | null;
-  departmentId: string | null;
-}
-
-export interface WorkAssignmentTeamOption {
-  id: string;
-  name: string;
-  department: WorkDepartmentOption;
-  admin: {
-    employeeId: string;
-    empId: string;
-    name: string;
-    designation: string | null;
-    account: WorkAccountSummary | null;
-  };
-  memberCount: number;
-  memberAccountIds: string[];
-  workload: WorkloadSummary;
-}
-
-export interface WorkAssignmentOptionsResponse {
-  scope: WorkManagementScope;
-  departments: WorkDepartmentOption[];
-  responsibleManagers: WorkResponsibleManagerOption[];
-  teams: WorkAssignmentTeamOption[];
-  salesMembers: WorkAssignmentCandidate[];
-  supportMembers: WorkAssignmentCandidate[];
-  data: WorkAssignmentCandidate[];
-  pagination: WorkPagination;
-  filters: {
-    search: string | null;
-    departmentId: string | null;
+  workItem: {
+    id: string;
+    ticketNumber: string;
+    title: string;
+    status: WorkItemStatus;
+    dueAt: string;
   };
 }
 
@@ -630,10 +119,41 @@ export interface WorkItemRealtimePayload {
   occurredAt: string;
 }
 
+export interface DutyAuthorizationContext {
+  officeId: string | null;
+  primaryOrgUnitId: string | null;
+  operationalTeamLeadIds: string[];
+  orgUnits: Array<{ id: string; code: string; name: string }>;
+  operationalTeams: Array<{ id: string; code: string; name: string; orgUnitId: string }>;
+  canView: boolean;
+  canCreate: boolean;
+  canAssign: boolean;
+  canManage: boolean;
+  readOnlyOversight: boolean;
+}
+
+export interface DutySupervisorOption {
+  account: {
+    id: string;
+    username: string | null;
+    superAdminProfile?: { fullName: string } | null;
+    employee: {
+      id: string;
+      empId: string;
+      empName: string;
+      designation: string | null;
+    } | null;
+  };
+}
+
+export interface DutySupervisorOptionsResponse {
+  data: DutySupervisorOption[];
+}
+
 export type DutyRecurrenceType = "ONE_TIME" | "DATE_RANGE" | "WEEKLY";
 export type DutyExceptionType = "LEAVE" | "HOLIDAY";
-export type DutyShiftScope = "BRANCH" | "DIVISION" | "DEPARTMENT";
-export type DutyHolidayScope = "BRANCH" | "DIVISION" | "DEPARTMENT";
+export type DutyShiftScope = "OFFICE" | "ORG_UNIT";
+export type DutyHolidayScope = "OFFICE" | "ORG_UNIT";
 export type DutyHolidayType = "GOVERNMENT" | "FESTIVAL" | "ORGANIZATION" | "OTHER";
 export type DutyAssignmentAuthority =
   | "STANDARD_HIERARCHY"
@@ -668,8 +188,10 @@ export interface DutyShiftTemplate {
   endTime: string;
   spansNextDay: boolean;
   isActive: boolean;
-  divisionId: string | null;
-  departmentId: string | null;
+  officeId: string | null;
+  orgUnitId: string | null;
+  office: WorkOrganizationSummary | null;
+  orgUnit: WorkOrganizationSummary | null;
   scope: DutyShiftScope;
   createdAt: string;
   updatedAt: string;
@@ -686,8 +208,6 @@ export interface DutyAssignmentShift {
   endTime: string;
   spansNextDay: boolean;
   isActive: boolean;
-  divisionId: string | null;
-  departmentId: string | null;
   deleted: boolean;
 }
 
@@ -698,8 +218,6 @@ export interface DutyAssignment {
   shiftTemplateId: string | null;
   supervisorAccountId: string;
   createdByAccountId: string;
-  divisionId: string;
-  departmentId: string | null;
   dutyDate: string;
   startsAt: string;
   endsAt: string;
@@ -717,8 +235,9 @@ export interface DutyAssignment {
   supervisor: WorkAccountSummary;
   createdBy: WorkAccountSummary;
   shift: DutyAssignmentShift;
-  division: WorkOrganizationSummary;
   department: WorkOrganizationSummary | null;
+  orgUnit?: WorkOrganizationSummary | null;
+  operationalTeam?: WorkOrganizationSummary | null;
 }
 
 export interface DutyException {
@@ -756,6 +275,16 @@ export interface MyDutyAssignment {
     DutyAssignmentShift,
     "id" | "name" | "startMinute" | "endMinute" | "startTime" | "endTime" | "spansNextDay" | "deleted"
   >;
+  orgUnit: {
+    id: string;
+    code: string;
+    name: string;
+  } | null;
+  operationalTeam: {
+    id: string;
+    code: string;
+    name: string;
+  } | null;
   division: WorkOrganizationSummary;
   department: WorkOrganizationSummary | null;
 }
@@ -780,21 +309,13 @@ export interface MyDutySummary {
 // Roster accounts contain operational identity only; private contact fields are intentionally absent.
 export interface DutyRosterAccount {
   id: string;
-  role: "SENIOR_MANAGEMENT" | "TEAM_MANAGER" | "EMPLOYEE";
+  role: string;
   username: string;
   employee: {
     id: string;
     empId: string;
     empName: string;
     designation: string | null;
-    division: WorkOrganizationSummary;
-    department: (WorkOrganizationSummary & { divisionId: string }) | null;
-    managementPosition: {
-      positionType: "SENIOR_MANAGEMENT" | "TEAM_MANAGER";
-      divisionId: string;
-      departmentId: string | null;
-      isActive: boolean;
-    } | null;
   } | null;
 }
 
@@ -828,23 +349,13 @@ export interface DutyRosterResponse {
     leaveCount: number;
     holidayCount: number;
   }>;
-  departments: Array<{
-    id: string;
-    divisionId: string;
-    code: string;
-    name: string;
-    division: WorkOrganizationSummary;
-    people: number;
-    scheduledPeople: number;
-    assignmentCount: number;
-    leaveCount: number;
-    holidayCount: number;
-  }>;
 }
 
 // Bulk schedules describe planned coverage and never imply attendance confirmation.
 export interface BulkDutyScheduleInput {
   employeeAccountIds: string[];
+  orgUnitId?: string;
+  operationalTeamId?: string;
   shiftTemplateId: string;
   supervisorAccountId?: string;
   recurrenceType: DutyRecurrenceType;
@@ -895,8 +406,10 @@ export interface DutyHoliday {
   scope: DutyHolidayScope;
   startDate: string;
   endDate: string;
-  divisionId: string | null;
-  departmentId: string | null;
+  officeId: string | null;
+  orgUnitId: string | null;
+  office: WorkOrganizationSummary | null;
+  orgUnit: WorkOrganizationSummary | null;
   note: string | null;
   cancelledAt: string | null;
   createdAt: string;
@@ -916,10 +429,8 @@ export interface DutyManagementSummary {
   generatedAt: string;
   scope: {
     accountId: string;
-    role: "SUPER_ADMIN" | "SENIOR_MANAGEMENT" | "TEAM_MANAGER";
-    divisionId: string | null;
-    departmentId: string | null;
-  };
+    role: string;
+      };
   totals: {
     scheduledToday: number;
     onDutyNow: number;
@@ -942,8 +453,7 @@ export interface DutyAssignmentListResponse {
     from: string;
     to: string;
     employeeAccountId: string | null;
-    departmentId: string | null;
-    includeCancelled: boolean;
+      includeCancelled: boolean;
     view: DutyAssignmentListView;
   };
 }
@@ -978,12 +488,6 @@ export interface DutyHelpRecommendation {
 }
 
 export interface DutyManagementHelpRecommendationResponse {
-  department: {
-    id: string;
-    divisionId: string;
-    code: string;
-    name: string;
-  };
   data: DutyHelpRecommendation[];
 }
 
@@ -992,16 +496,8 @@ export interface DutyHelpRecommendationResponse {
     id: string;
     ticketNumber: string;
     title: string;
-    divisionId: string;
-    departmentId: string;
   };
   data: DutyHelpRecommendation[];
-  crossDepartmentOptions: Array<{
-    id: string;
-    divisionId: string;
-    code: string;
-    name: string;
-  }>;
 }
 
 export interface DutyScheduleRealtimePayload {
@@ -1014,17 +510,11 @@ export interface DutyScheduleRealtimePayload {
   occurredAt: string;
 }
 
-export interface WorkReportDepartmentOption {
-  id: string;
-  divisionId: string;
-  code: string;
-  name: string;
-  division: WorkOrganizationSummary;
-}
 
 export interface DutyCoverageRequirement {
   id: string;
-  department: WorkReportDepartmentOption;
+  office: WorkOrganizationSummary;
+  orgUnit: WorkOrganizationSummary;
   shift: DutyShiftTemplate;
   dayOfWeek: number;
   requiredStaff: number;
@@ -1058,7 +548,7 @@ export interface DutyCoverageRequirementAuditResponse {
 }
 
 export interface DutyCoverageRequirementInput {
-  departmentId: string;
+  orgUnitId: string;
   shiftTemplateId: string;
   dayOfWeek: number;
   requiredStaff: number;
@@ -1068,7 +558,7 @@ export interface DutyCoverageRequirementInput {
 }
 
 export interface DutyCoverageRequirementUpdateInput {
-  departmentId?: string;
+  orgUnitId?: string;
   shiftTemplateId?: string;
   dayOfWeek?: number;
   requiredStaff?: number;

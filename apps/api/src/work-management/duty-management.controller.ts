@@ -12,11 +12,11 @@ import {
 } from '@nestjs/common';
 
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
-import { Roles } from '../auth/decorators/roles.decorator';
+import { AccountClasses } from '../auth/decorators/account-classes.decorator';
 import { AccessTokenGuard } from '../auth/guards/access-token.guard';
-import { RolesGuard } from '../auth/guards/roles.guard';
+import { AccountClassesGuard } from '../auth/guards/account-classes.guard';
 import type { AuthenticatedUser } from '../auth/types/auth.types';
-import { AccountRole } from '../generated/prisma/client';
+import { AccountClass } from '../generated/prisma/client';
 import { CancelDutyAssignmentDto } from './dto/cancel-duty-assignment.dto';
 import { CreateDutyCoverageRequirementDto } from './dto/create-duty-coverage-requirement.dto';
 import { CreateBulkDutyScheduleDto } from './dto/create-bulk-duty-schedule.dto';
@@ -39,43 +39,34 @@ import { DutyAuthorizationService } from './duty-authorization.service';
 import { DutyAvailabilityService } from './duty-availability.service';
 import { DutyCoverageRequirementsService } from './duty-coverage-requirements.service';
 import { DutyScheduleService } from './duty-schedule.service';
+import { DutyScopeV3Service } from './duty-scope-v3.service';
 
-const ALL_ACCOUNT_ROLES = [
-  AccountRole.SUPER_ADMIN,
-  AccountRole.SENIOR_MANAGEMENT,
-  AccountRole.TEAM_MANAGER,
-  AccountRole.EMPLOYEE,
+const ALL_ACCOUNT_CLASSES = [
+  AccountClass.SUPER_ADMIN,
+  AccountClass.OFFICE_USER,
 ] as const;
 
-const DUTY_MANAGEMENT_READ_ROLES = ALL_ACCOUNT_ROLES;
-
-// Super Admin is operationally read-only for Duty. Mutation routes remain
-// reachable to Office users regardless of their legacy account role; the
-// service layer remains authoritative for leadership/scope authorization.
-const DUTY_MANAGEMENT_MUTATION_ROLES = [
-  AccountRole.SENIOR_MANAGEMENT,
-  AccountRole.TEAM_MANAGER,
-  AccountRole.EMPLOYEE,
-] as const;
+const OFFICE_USER_ONLY = [AccountClass.OFFICE_USER] as const;
 
 @Controller('duty')
-@UseGuards(AccessTokenGuard, RolesGuard)
+@UseGuards(AccessTokenGuard, AccountClassesGuard)
 export class DutyManagementController {
   constructor(
     private readonly dutyScheduleService: DutyScheduleService,
+    private readonly dutyScopeV3Service: DutyScopeV3Service,
     private readonly dutyAuthorizationService: DutyAuthorizationService,
     private readonly dutyAvailabilityService: DutyAvailabilityService,
     private readonly dutyCoverageRequirementsService: DutyCoverageRequirementsService,
   ) {}
 
   @Get('me')
-  @Roles(...ALL_ACCOUNT_ROLES)
+  @AccountClasses(...OFFICE_USER_ONLY)
   getMyDuty(@CurrentUser() user: AuthenticatedUser): Promise<unknown> {
     return this.dutyAvailabilityService.getMyDutySummary(user);
   }
 
   @Patch('me/availability')
-  @Roles(...ALL_ACCOUNT_ROLES)
+  @AccountClasses(...OFFICE_USER_ONLY)
   updateMyAvailability(
     @CurrentUser() user: AuthenticatedUser,
     @Body() dto: UpdateWorkAvailabilityDto,
@@ -84,7 +75,7 @@ export class DutyManagementController {
   }
 
   @Get('work-items/:workItemId/help-recommendations')
-  @Roles(AccountRole.EMPLOYEE)
+  @AccountClasses(...OFFICE_USER_ONLY)
   listHelpRecommendations(
     @CurrentUser() user: AuthenticatedUser,
     @Param('workItemId', new ParseUUIDPipe({ version: '4' }))
@@ -97,32 +88,38 @@ export class DutyManagementController {
   }
 
   @Get('management/access-context')
-  @Roles(...DUTY_MANAGEMENT_READ_ROLES)
+  @AccountClasses(...ALL_ACCOUNT_CLASSES)
   getDutyAccessContext(@CurrentUser() user: AuthenticatedUser): Promise<unknown> {
     return this.dutyAuthorizationService.getContext(user);
   }
 
+  @Get('management/supervisor-options')
+  @AccountClasses(...OFFICE_USER_ONLY)
+  listSupervisorOptions(@CurrentUser() user: AuthenticatedUser): Promise<unknown> {
+    return this.dutyScopeV3Service.listSupervisorOptions(user);
+  }
+
   @Get('management/summary')
-  @Roles(...DUTY_MANAGEMENT_READ_ROLES)
+  @AccountClasses(...ALL_ACCOUNT_CLASSES)
   getManagementSummary(@CurrentUser() user: AuthenticatedUser): Promise<unknown> {
     return this.dutyScheduleService.getManagementSummary(user);
   }
 
   @Get('management/help-recommendations')
-  @Roles(...DUTY_MANAGEMENT_READ_ROLES)
+  @AccountClasses(...ALL_ACCOUNT_CLASSES)
   listManagementHelpRecommendations(
     @CurrentUser() user: AuthenticatedUser,
-    @Query('departmentId', new ParseUUIDPipe({ version: '4' }))
-    departmentId: string,
+    @Query('orgUnitId', new ParseUUIDPipe({ version: '4' }))
+    orgUnitId: string,
   ): Promise<unknown> {
     return this.dutyAvailabilityService.listManagementHelpRecommendations(
       user,
-      departmentId,
+      orgUnitId,
     );
   }
 
   @Get('management/shift-templates')
-  @Roles(...DUTY_MANAGEMENT_READ_ROLES)
+  @AccountClasses(...ALL_ACCOUNT_CLASSES)
   listShiftTemplates(
     @CurrentUser() user: AuthenticatedUser,
     @Query() query: DutyShiftTemplateQueryDto,
@@ -132,7 +129,7 @@ export class DutyManagementController {
 
   // Coverage targets are effective-dated planned staffing rules, never attendance records.
   @Get('management/coverage-requirements')
-  @Roles(...DUTY_MANAGEMENT_READ_ROLES)
+  @AccountClasses(...ALL_ACCOUNT_CLASSES)
   listCoverageRequirements(
     @CurrentUser() user: AuthenticatedUser,
     @Query() query: ListDutyCoverageRequirementsQueryDto,
@@ -141,7 +138,7 @@ export class DutyManagementController {
   }
 
   @Post('management/coverage-requirements')
-  @Roles(...DUTY_MANAGEMENT_MUTATION_ROLES)
+  @AccountClasses(...OFFICE_USER_ONLY)
   createCoverageRequirement(
     @CurrentUser() user: AuthenticatedUser,
     @Body() dto: CreateDutyCoverageRequirementDto,
@@ -150,7 +147,7 @@ export class DutyManagementController {
   }
 
   @Patch('management/coverage-requirements/:requirementId')
-  @Roles(...DUTY_MANAGEMENT_MUTATION_ROLES)
+  @AccountClasses(...OFFICE_USER_ONLY)
   updateCoverageRequirement(
     @CurrentUser() user: AuthenticatedUser,
     @Param('requirementId', new ParseUUIDPipe({ version: '4' }))
@@ -165,7 +162,7 @@ export class DutyManagementController {
   }
 
   @Get('management/coverage-requirements/:requirementId/audit')
-  @Roles(...DUTY_MANAGEMENT_READ_ROLES)
+  @AccountClasses(...ALL_ACCOUNT_CLASSES)
   getCoverageRequirementAudit(
     @CurrentUser() user: AuthenticatedUser,
     @Param('requirementId', new ParseUUIDPipe({ version: '4' }))
@@ -178,7 +175,7 @@ export class DutyManagementController {
   }
 
   @Post('management/shift-templates')
-  @Roles(...DUTY_MANAGEMENT_MUTATION_ROLES)
+  @AccountClasses(...OFFICE_USER_ONLY)
   createShiftTemplate(
     @CurrentUser() user: AuthenticatedUser,
     @Body() dto: CreateDutyShiftTemplateDto,
@@ -187,7 +184,7 @@ export class DutyManagementController {
   }
 
   @Patch('management/shift-templates/:templateId')
-  @Roles(...DUTY_MANAGEMENT_MUTATION_ROLES)
+  @AccountClasses(...OFFICE_USER_ONLY)
   updateShiftTemplate(
     @CurrentUser() user: AuthenticatedUser,
     @Param('templateId', new ParseUUIDPipe({ version: '4' }))
@@ -198,7 +195,7 @@ export class DutyManagementController {
   }
 
   @Delete('management/shift-templates/:templateId')
-  @Roles(...DUTY_MANAGEMENT_MUTATION_ROLES)
+  @AccountClasses(...OFFICE_USER_ONLY)
   deleteShiftTemplate(
     @CurrentUser() user: AuthenticatedUser,
     @Param('templateId', new ParseUUIDPipe({ version: '4' }))
@@ -209,7 +206,7 @@ export class DutyManagementController {
 
   // Roster summaries load scoped people first and avoid returning raw branch-wide history.
   @Get('management/roster')
-  @Roles(...DUTY_MANAGEMENT_READ_ROLES)
+  @AccountClasses(...ALL_ACCOUNT_CLASSES)
   getRoster(
     @CurrentUser() user: AuthenticatedUser,
     @Query() query: DutyRosterQueryDto,
@@ -219,7 +216,7 @@ export class DutyManagementController {
 
   // Preview performs all scope, overlap, leave and holiday checks without writing rows.
   @Post('management/assignments/preview')
-  @Roles(...DUTY_MANAGEMENT_MUTATION_ROLES)
+  @AccountClasses(...OFFICE_USER_ONLY)
   previewBulkSchedule(
     @CurrentUser() user: AuthenticatedUser,
     @Body() dto: CreateBulkDutyScheduleDto,
@@ -229,7 +226,7 @@ export class DutyManagementController {
 
   // Bulk creation repeats server-side validation before any transaction is committed.
   @Post('management/assignments/bulk')
-  @Roles(...DUTY_MANAGEMENT_MUTATION_ROLES)
+  @AccountClasses(...OFFICE_USER_ONLY)
   createBulkSchedule(
     @CurrentUser() user: AuthenticatedUser,
     @Body() dto: CreateBulkDutyScheduleDto,
@@ -239,7 +236,7 @@ export class DutyManagementController {
 
   // Audit history is scoped through the same assignment visibility checks as the roster.
   @Get('management/assignments/:assignmentId/audit')
-  @Roles(...DUTY_MANAGEMENT_READ_ROLES)
+  @AccountClasses(...ALL_ACCOUNT_CLASSES)
   getAssignmentAudit(
     @CurrentUser() user: AuthenticatedUser,
     @Param('assignmentId', new ParseUUIDPipe({ version: '4' }))
@@ -250,7 +247,7 @@ export class DutyManagementController {
 
   // Assignment views separate personal creation, management oversight and audited overrides.
   @Get('management/assignments')
-  @Roles(...DUTY_MANAGEMENT_READ_ROLES)
+  @AccountClasses(...ALL_ACCOUNT_CLASSES)
   listAssignments(
     @CurrentUser() user: AuthenticatedUser,
     @Query() query: ListDutyAssignmentsQueryDto,
@@ -259,7 +256,7 @@ export class DutyManagementController {
   }
 
   @Post('management/assignments')
-  @Roles(...DUTY_MANAGEMENT_MUTATION_ROLES)
+  @AccountClasses(...OFFICE_USER_ONLY)
   createSchedule(
     @CurrentUser() user: AuthenticatedUser,
     @Body() dto: CreateDutyScheduleDto,
@@ -268,7 +265,7 @@ export class DutyManagementController {
   }
 
   @Patch('management/assignments/:assignmentId')
-  @Roles(...DUTY_MANAGEMENT_MUTATION_ROLES)
+  @AccountClasses(...OFFICE_USER_ONLY)
   updateAssignment(
     @CurrentUser() user: AuthenticatedUser,
     @Param('assignmentId', new ParseUUIDPipe({ version: '4' }))
@@ -283,7 +280,7 @@ export class DutyManagementController {
   }
 
   @Post('management/assignments/:assignmentId/cancel')
-  @Roles(...DUTY_MANAGEMENT_MUTATION_ROLES)
+  @AccountClasses(...OFFICE_USER_ONLY)
   cancelAssignment(
     @CurrentUser() user: AuthenticatedUser,
     @Param('assignmentId', new ParseUUIDPipe({ version: '4' }))
@@ -298,7 +295,7 @@ export class DutyManagementController {
   }
 
   @Post('management/leaves')
-  @Roles(...DUTY_MANAGEMENT_MUTATION_ROLES)
+  @AccountClasses(...OFFICE_USER_ONLY)
   createLeave(
     @CurrentUser() user: AuthenticatedUser,
     @Body() dto: CreateDutyLeaveDto,
@@ -307,7 +304,7 @@ export class DutyManagementController {
   }
 
   @Get('calendar')
-  @Roles(...ALL_ACCOUNT_ROLES)
+  @AccountClasses(...ALL_ACCOUNT_CLASSES)
   getDutyCalendar(
     @CurrentUser() user: AuthenticatedUser,
     @Query() query: ListDutyHolidaysQueryDto,
@@ -316,7 +313,7 @@ export class DutyManagementController {
   }
 
   @Post('management/holidays')
-  @Roles(...DUTY_MANAGEMENT_MUTATION_ROLES)
+  @AccountClasses(...OFFICE_USER_ONLY)
   createHoliday(
     @CurrentUser() user: AuthenticatedUser,
     @Body() dto: CreateDutyHolidayDto,
@@ -325,7 +322,7 @@ export class DutyManagementController {
   }
 
   @Patch('management/holidays/:holidayId')
-  @Roles(...DUTY_MANAGEMENT_MUTATION_ROLES)
+  @AccountClasses(...OFFICE_USER_ONLY)
   updateHoliday(
     @CurrentUser() user: AuthenticatedUser,
     @Param('holidayId', new ParseUUIDPipe({ version: '4' })) holidayId: string,
@@ -335,7 +332,7 @@ export class DutyManagementController {
   }
 
   @Post('management/holidays/:holidayId/cancel')
-  @Roles(...DUTY_MANAGEMENT_MUTATION_ROLES)
+  @AccountClasses(...OFFICE_USER_ONLY)
   cancelHoliday(
     @CurrentUser() user: AuthenticatedUser,
     @Param('holidayId', new ParseUUIDPipe({ version: '4' })) holidayId: string,
@@ -344,13 +341,13 @@ export class DutyManagementController {
   }
 
   @Get('management/weekly-off')
-  @Roles(...DUTY_MANAGEMENT_READ_ROLES)
+  @AccountClasses(...ALL_ACCOUNT_CLASSES)
   getWeeklyOff(@CurrentUser() user: AuthenticatedUser): Promise<unknown> {
     return this.dutyScheduleService.getWeeklyOff(user);
   }
 
   @Patch('management/weekly-off')
-  @Roles(...DUTY_MANAGEMENT_MUTATION_ROLES)
+  @AccountClasses(...OFFICE_USER_ONLY)
   updateWeeklyOff(
     @CurrentUser() user: AuthenticatedUser,
     @Body() dto: UpdateDutyWeeklyOffDto,

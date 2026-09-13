@@ -6,7 +6,6 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 
-import { ActivationInvitationsService } from '../activation-invitations/activation-invitations.service';
 import type { AuthenticatedUser } from '../auth/types/auth.types';
 import {
   normalizeAccountIdentity,
@@ -15,30 +14,18 @@ import {
 import { ConversationsService } from '../conversations/conversations.service';
 import { PrismaService } from '../database/prisma.service';
 import {
-  AccountRequestActionType,
-  AccountRequestStatus,
-  AccountRole,
+  AccountClass,
   EmployeeLifecycleActionType,
   EmployeeStatus,
   EmploymentStatus,
-  ManagementPositionType,
 } from '../generated/prisma/client';
 
 import type { Prisma } from '../generated/prisma/client';
 
-import { resolveOrCreateVacantManagementPosition } from '../management-assignments/management-position-resolver';
-
 import { ArchiveEmployeeDto } from './dto/archive-employee.dto';
-import { ChangeEmployeeRoleDto } from './dto/change-employee-role.dto';
-import { CreateEmployeeDto } from './dto/create-employee.dto';
 import { EndEmployeeEmploymentDto } from './dto/end-employee-employment.dto';
 import { ListEmployeesQueryDto } from './dto/list-employees-query.dto';
 import { UpdateEmployeeDto } from './dto/update-employee.dto';
-
-interface EmployeeCreationMetadata {
-  ipAddress: string | null;
-  userAgent: string | null;
-}
 
 interface EmployeeLifecycleMetadata {
   ipAddress: string | null;
@@ -50,7 +37,6 @@ export class EmployeesService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly conversationsService: ConversationsService,
-    private readonly activationInvitationsService: ActivationInvitationsService,
   ) {}
 
   private async synchronizeOfficialGroups(
@@ -63,513 +49,6 @@ export class EmployeesService {
       actorAccountId,
       reason,
     );
-  }
-
-  private async validateDivisionAssignment(divisionId: string) {
-    const division = await this.prisma.division.findUnique({
-      where: {
-        id: divisionId,
-      },
-
-      select: {
-        id: true,
-        code: true,
-        name: true,
-        isActive: true,
-      },
-    });
-
-    if (!division) {
-      throw new NotFoundException('Division was not found.');
-    }
-
-    if (!division.isActive) {
-      throw new ConflictException('The selected division is inactive.');
-    }
-
-    return division;
-  }
-
-  private async validateOrganizationAssignment(
-    divisionId: string,
-    departmentId: string,
-  ) {
-    const division = await this.validateDivisionAssignment(divisionId);
-
-    const department = await this.prisma.department.findUnique({
-      where: {
-        id: departmentId,
-      },
-
-      select: {
-        id: true,
-        divisionId: true,
-        code: true,
-        name: true,
-        isActive: true,
-      },
-    });
-
-    if (!department) {
-      throw new NotFoundException('Department was not found.');
-    }
-
-    if (!department.isActive) {
-      throw new ConflictException('The selected department is inactive.');
-    }
-
-    if (department.divisionId !== division.id) {
-      throw new BadRequestException(
-        'The selected department does not belong to the selected division.',
-      );
-    }
-
-    return {
-      division,
-      department,
-    };
-  }
-
-  private async validateRoleOrganizationAssignment(
-    role: AccountRole,
-    divisionId: string,
-    departmentId?: string,
-  ) {
-    if (role === AccountRole.SENIOR_MANAGEMENT) {
-      if (departmentId) {
-        throw new BadRequestException(
-          'Senior Management must be assigned to a division without a department.',
-        );
-      }
-
-      return {
-        division: await this.validateDivisionAssignment(divisionId),
-        department: null,
-      };
-    }
-
-    if (!departmentId) {
-      throw new BadRequestException(
-        'Department ID is required for Team Manager and Employee accounts.',
-      );
-    }
-
-    return this.validateOrganizationAssignment(divisionId, departmentId);
-  }
-
-  async createEmployee(
-    user: AuthenticatedUser,
-    dto: CreateEmployeeDto,
-    metadata: EmployeeCreationMetadata,
-  ) {
-    if (user.role !== AccountRole.SUPER_ADMIN) {
-      throw new ForbiddenException(
-        'Only the Super Admin can create employee identities directly.',
-      );
-    }
-
-    const {
-      empId,
-      empName,
-      phoneNumber,
-      phoneLookupValues,
-      officialEmail,
-      officialEmailLookup,
-    } = normalizeAccountIdentity(dto);
-
-    const designation = dto.designation?.trim() || null;
-
-    // Uses the role selected by the Super Admin.
-    const requestedRole = dto.requestedRole;
-
-    const { division, department } =
-      await this.validateRoleOrganizationAssignment(
-        requestedRole,
-        dto.divisionId,
-        dto.departmentId,
-      );
-
-    /*
-     * Check every unique employee identity in one database round trip.
-     * Email matching is case-insensitive while new values preserve the
-     * approved casing for display and delivery.
-     */
-    const existingEmployee = await this.prisma.employee.findFirst({
-      where: {
-        OR: [
-          {
-            empId,
-          },
-          {
-            officialEmail: {
-              equals: officialEmailLookup,
-              mode: 'insensitive',
-            },
-          },
-          {
-            phoneNumber: {
-              in: phoneLookupValues,
-            },
-          },
-        ],
-      },
-
-      select: {
-        empId: true,
-        phoneNumber: true,
-        officialEmail: true,
-      },
-    });
-
-    if (existingEmployee) {
-      if (existingEmployee.empId === empId) {
-        throw new ConflictException(
-          'An employee with this employee ID already exists.',
-        );
-      }
-
-      if (
-        normalizeOfficialEmailForLookup(existingEmployee.officialEmail) ===
-        officialEmailLookup
-      ) {
-        throw new ConflictException(
-          'An employee with this official email already exists.',
-        );
-      }
-
-      throw new ConflictException(
-        'An employee with this phone number already exists.',
-      );
-    }
-
-    const existingRequest = await this.prisma.accountRequest.findFirst({
-      where: {
-        status: {
-          not: AccountRequestStatus.REJECTED,
-        },
-
-        OR: [
-          {
-            empId,
-          },
-          {
-            officialEmail: {
-              equals: officialEmailLookup,
-              mode: 'insensitive',
-            },
-          },
-          {
-            phoneNumber: {
-              in: phoneLookupValues,
-            },
-          },
-        ],
-      },
-
-      select: {
-        id: true,
-        status: true,
-      },
-    });
-
-    if (existingRequest) {
-      throw new ConflictException(
-        'An active account request already exists for this employee ID, phone number, or official email.',
-      );
-    }
-
-    const now = new Date();
-
-    const ipAddress = metadata.ipAddress?.slice(0, 45) || null;
-
-    const userAgent = metadata.userAgent?.slice(0, 500) || null;
-
-    /*
-     * Generate the opaque token before the transaction, but persist only its
-     * hash with the employee and approved request. The raw token exists only
-     * long enough to build the post-commit email.
-     */
-    const preparedInvitation =
-      this.activationInvitationsService.prepareInvitation(now);
-
-    const result = await this.prisma.$transaction(async (transaction) => {
-      let managementPositionId: string | null = null;
-
-      if (requestedRole !== AccountRole.EMPLOYEE) {
-        const position = await resolveOrCreateVacantManagementPosition(
-          transaction,
-          {
-            requestedRole,
-
-            divisionId: division.id,
-
-            departmentId: department?.id ?? null,
-
-            suppliedManagementPositionId: dto.managementPositionId ?? null,
-          },
-        );
-
-        managementPositionId = position.id;
-      } else if (dto.managementPositionId) {
-        throw new BadRequestException(
-          'A normal employee account must not reference a management position.',
-        );
-      }
-
-      const employee = await transaction.employee.create({
-        data: {
-          empId,
-          empName,
-          phoneNumber,
-          officialEmail,
-          designation,
-
-          division: {
-            connect: {
-              id: division.id,
-            },
-          },
-
-          ...(department
-            ? {
-                departmentUnit: {
-                  connect: {
-                    id: department.id,
-                  },
-                },
-              }
-            : {}),
-
-          /*
-           * Temporary compatibility field.
-           * This will be removed after all
-           * organization data is migrated.
-           */
-          department: department?.name ?? null,
-
-          status: EmployeeStatus.ACTIVE,
-
-          isActivated: false,
-        },
-
-        select: {
-          id: true,
-          empId: true,
-          empName: true,
-          phoneNumber: true,
-          officialEmail: true,
-          designation: true,
-          status: true,
-          isActivated: true,
-          profilePhotoKey: true,
-          createdAt: true,
-          updatedAt: true,
-
-          division: {
-            select: {
-              id: true,
-              code: true,
-              name: true,
-              isActive: true,
-            },
-          },
-
-          departmentUnit: {
-            select: {
-              id: true,
-              code: true,
-              name: true,
-              isActive: true,
-            },
-          },
-        },
-      });
-
-      /*
-       * Direct Super Admin creation is treated
-       * as an approved account request.
-       */
-      const accountRequest = await transaction.accountRequest.create({
-        data: {
-          empId,
-          empName,
-          phoneNumber,
-          officialEmail,
-          designation,
-
-          requestedRole,
-
-          divisionId: division.id,
-
-          departmentId: department?.id ?? null,
-
-          managementPositionId,
-
-          employeeId: employee.id,
-
-          requestedByAccountId: user.accountId,
-
-          reviewedByAccountId: user.accountId,
-
-          status: AccountRequestStatus.APPROVED,
-
-          reviewedAt: now,
-        },
-
-        select: {
-          id: true,
-          empId: true,
-          empName: true,
-          officialEmail: true,
-          requestedRole: true,
-          divisionId: true,
-          departmentId: true,
-          managementPositionId: true,
-          employeeId: true,
-          requestedByAccountId: true,
-          reviewedByAccountId: true,
-          revisionNumber: true,
-          status: true,
-          submittedAt: true,
-          reviewedAt: true,
-          createdAt: true,
-          updatedAt: true,
-        },
-      });
-
-      if (managementPositionId) {
-        /*
-         * The employee, approved request and reservation are
-         * committed together or completely rolled back.
-         */
-        const reservationClaim =
-          await transaction.managementPosition.updateMany({
-            where: {
-              id: managementPositionId,
-              isActive: true,
-              reservedByAccountRequestId: null,
-
-              assignments: {
-                none: {
-                  endedAt: null,
-                },
-              },
-            },
-
-            data: {
-              reservedByAccountRequestId: accountRequest.id,
-            },
-          });
-
-        if (reservationClaim.count !== 1) {
-          throw new ConflictException(
-            'The selected management position is no longer vacant.',
-          );
-        }
-      }
-
-      await transaction.accountRequestAction.createMany({
-        data: [
-          {
-            accountRequestId: accountRequest.id,
-
-            actorAccountId: user.accountId,
-
-            action: AccountRequestActionType.CREATED,
-
-            ipAddress,
-            userAgent,
-
-            metadata: {
-              source: 'SUPER_ADMIN_DIRECT_CREATION',
-
-              employeeId: employee.id,
-
-              requestedRole,
-
-              managementPositionId,
-            },
-          },
-          {
-            accountRequestId: accountRequest.id,
-
-            actorAccountId: user.accountId,
-
-            action: AccountRequestActionType.APPROVED,
-
-            ipAddress,
-            userAgent,
-
-            metadata: {
-              source: 'SUPER_ADMIN_DIRECT_CREATION',
-
-              employeeId: employee.id,
-
-              requestedRole,
-
-              managementPositionId,
-
-              divisionId: division.id,
-
-              departmentId: department?.id ?? null,
-            },
-          },
-        ],
-      });
-
-      const invitation =
-        await this.activationInvitationsService.queueInvitation(
-          transaction,
-          {
-            accountRequestId: accountRequest.id,
-            employeeId: employee.id,
-            actorAccountId: user.accountId,
-            source: 'SUPER_ADMIN_DIRECT_CREATION',
-            ipAddress,
-            userAgent,
-          },
-          preparedInvitation,
-        );
-
-      return {
-        employee,
-        accountRequest,
-        invitation,
-      };
-    });
-
-    /*
-     * SMTP delivery occurs only after the identity transaction commits. A
-     * provider failure is recorded but never rolls back the approved account.
-     */
-    const activationEmailDelivery =
-      await this.activationInvitationsService.deliverQueuedInvitation({
-        ...result.invitation,
-        employeeName: result.employee.empName,
-        employeeCode: result.employee.empId,
-        officialEmail: result.employee.officialEmail,
-        phoneNumber: result.employee.phoneNumber,
-        divisionName: division.name,
-        departmentName: department?.name ?? null,
-        requestedRole,
-      });
-
-    return {
-      message: 'Account identity created successfully.',
-
-      employee: result.employee,
-
-      accountRequest: {
-        ...result.accountRequest,
-        activationEmailStatus: activationEmailDelivery.status,
-        activationEmailLastAttemptAt: activationEmailDelivery.attemptedAt,
-        activationEmailSentAt: activationEmailDelivery.sentAt,
-        activationEmailFailureCategory:
-          activationEmailDelivery.failureCategory,
-      },
-
-      activationEmailDelivery,
-    };
   }
 
   async listEmployees(query: ListEmployeesQueryDto) {
@@ -586,17 +65,7 @@ export class EmployeesService {
           }
         : {}),
 
-      ...(query.divisionId
-        ? {
-            divisionId: query.divisionId,
-          }
-        : {}),
 
-      ...(query.departmentId
-        ? {
-            departmentId: query.departmentId,
-          }
-        : {}),
 
       ...(search
         ? {
@@ -625,59 +94,6 @@ export class EmployeesService {
                   mode: 'insensitive',
                 },
               },
-
-              /*
-               * Temporary legacy text search.
-               * This remains until old employee
-               * organization data is migrated.
-               */
-              {
-                department: {
-                  contains: search,
-                  mode: 'insensitive',
-                },
-              },
-
-              {
-                division: {
-                  is: {
-                    name: {
-                      contains: search,
-                      mode: 'insensitive',
-                    },
-                  },
-                },
-              },
-              {
-                division: {
-                  is: {
-                    code: {
-                      contains: search,
-                      mode: 'insensitive',
-                    },
-                  },
-                },
-              },
-              {
-                departmentUnit: {
-                  is: {
-                    name: {
-                      contains: search,
-                      mode: 'insensitive',
-                    },
-                  },
-                },
-              },
-              {
-                departmentUnit: {
-                  is: {
-                    code: {
-                      contains: search,
-                      mode: 'insensitive',
-                    },
-                  },
-                },
-              },
             ],
           }
         : {}),
@@ -699,14 +115,6 @@ export class EmployeesService {
           empName: true,
           phoneNumber: true,
           officialEmail: true,
-          divisionId: true,
-          departmentId: true,
-
-          /*
-           * Temporary compatibility field.
-           */
-          department: true,
-
           designation: true,
           status: true,
           isActivated: true,
@@ -715,23 +123,6 @@ export class EmployeesService {
           createdAt: true,
           updatedAt: true,
 
-          division: {
-            select: {
-              id: true,
-              code: true,
-              name: true,
-              isActive: true,
-            },
-          },
-
-          departmentUnit: {
-            select: {
-              id: true,
-              code: true,
-              name: true,
-              isActive: true,
-            },
-          },
         },
       }),
 
@@ -765,14 +156,6 @@ export class EmployeesService {
         empName: true,
         phoneNumber: true,
         officialEmail: true,
-        divisionId: true,
-        departmentId: true,
-
-        /*
-         * Temporary compatibility field.
-         */
-        department: true,
-
         designation: true,
         status: true,
         isActivated: true,
@@ -780,23 +163,6 @@ export class EmployeesService {
         createdAt: true,
         updatedAt: true,
 
-        division: {
-          select: {
-            id: true,
-            code: true,
-            name: true,
-            isActive: true,
-          },
-        },
-
-        departmentUnit: {
-          select: {
-            id: true,
-            code: true,
-            name: true,
-            isActive: true,
-          },
-        },
 
         account: {
           select: {
@@ -832,11 +198,6 @@ export class EmployeesService {
       );
     }
 
-    if (dto.divisionId !== undefined || dto.departmentId !== undefined) {
-      throw new ForbiddenException(
-        'Organization placement must be changed through the organization membership workflow.',
-      );
-    }
 
     if (dto.designation === undefined) {
       throw new BadRequestException(
@@ -879,9 +240,6 @@ export class EmployeesService {
         empName: true,
         phoneNumber: true,
         officialEmail: true,
-        divisionId: true,
-        departmentId: true,
-        department: true,
         designation: true,
         status: true,
         isActivated: true,
@@ -894,566 +252,6 @@ export class EmployeesService {
       message: 'Employee designation updated successfully.',
       employee: updatedEmployee,
     };
-  }
-
-  async changeEmployeeRole(
-    user: AuthenticatedUser,
-    id: string,
-    dto: ChangeEmployeeRoleDto,
-    metadata: EmployeeLifecycleMetadata,
-  ) {
-    if (user.role !== AccountRole.SUPER_ADMIN) {
-      throw new ForbiddenException(
-        'Only the Super Admin can change an employee role.',
-      );
-    }
-
-    if (dto.targetRole === AccountRole.SUPER_ADMIN) {
-      throw new ForbiddenException(
-        'The Super Admin role cannot be assigned through this process.',
-      );
-    }
-
-    const reason = dto.reason.trim().replace(/\s+/g, ' ');
-
-    if (reason.length < 3) {
-      throw new BadRequestException(
-        'Role-change reason must contain at least 3 characters.',
-      );
-    }
-
-    const designation =
-      dto.designation !== undefined
-        ? dto.designation.trim().replace(/\s+/g, ' ')
-        : undefined;
-
-    if (designation !== undefined && designation.length < 2) {
-      throw new BadRequestException(
-        'Designation must contain at least 2 characters.',
-      );
-    }
-
-    const { division, department } =
-      await this.validateRoleOrganizationAssignment(
-        dto.targetRole,
-        dto.divisionId,
-        dto.departmentId,
-      );
-
-    const roleRank: Partial<Record<AccountRole, number>> = {
-      [AccountRole.EMPLOYEE]: 1,
-      [AccountRole.TEAM_MANAGER]: 2,
-      [AccountRole.SENIOR_MANAGEMENT]: 3,
-    };
-
-    const targetRank = roleRank[dto.targetRole];
-
-    if (targetRank === undefined) {
-      throw new BadRequestException(
-        'The selected target role is not supported.',
-      );
-    }
-
-    const now = new Date();
-
-    const ipAddress = metadata.ipAddress?.slice(0, 45) || null;
-
-    const userAgent = metadata.userAgent?.slice(0, 500) || null;
-
-    try {
-      const result = await this.prisma.$transaction(async (transaction) => {
-        const employee = await transaction.employee.findUnique({
-          where: {
-            id,
-          },
-
-          select: {
-            id: true,
-            empId: true,
-            empName: true,
-            officialEmail: true,
-            designation: true,
-            divisionId: true,
-            departmentId: true,
-            status: true,
-            employmentStatus: true,
-            archivedAt: true,
-            isActivated: true,
-
-            account: {
-              select: {
-                id: true,
-                role: true,
-                isEnabled: true,
-              },
-            },
-
-            managementAssignments: {
-              where: {
-                endedAt: null,
-              },
-
-              take: 1,
-
-              orderBy: {
-                startedAt: 'desc',
-              },
-
-              select: {
-                id: true,
-                positionId: true,
-                startedAt: true,
-
-                position: {
-                  select: {
-                    positionType: true,
-                    divisionId: true,
-                    departmentId: true,
-                    isActive: true,
-                  },
-                },
-              },
-            },
-          },
-        });
-
-        if (!employee) {
-          throw new NotFoundException('Employee was not found.');
-        }
-
-        if (employee.status !== EmployeeStatus.ACTIVE) {
-          throw new ConflictException(
-            'Only an active employee can have their role changed.',
-          );
-        }
-
-        if (employee.employmentStatus !== EmploymentStatus.ACTIVE) {
-          throw new ConflictException(
-            'A former employee cannot have their role changed.',
-          );
-        }
-
-        if (employee.archivedAt) {
-          throw new ConflictException(
-            'An archived employee cannot have their role changed.',
-          );
-        }
-
-        if (!employee.isActivated || !employee.account) {
-          throw new ConflictException(
-            'The employee must activate their account before a role change.',
-          );
-        }
-
-        if (employee.account.role === AccountRole.SUPER_ADMIN) {
-          throw new ForbiddenException(
-            'The Super Admin role cannot be changed through this process.',
-          );
-        }
-
-        const currentAssignment = employee.managementAssignments[0] ?? null;
-
-        /*
-         * Authority is derived from the active
-         * management assignment.
-         */
-        let previousEffectiveRole: AccountRole = AccountRole.EMPLOYEE;
-
-        if (
-          currentAssignment?.position.isActive &&
-          currentAssignment.position.positionType ===
-            ManagementPositionType.SENIOR_MANAGEMENT &&
-          currentAssignment.position.divisionId === employee.divisionId &&
-          currentAssignment.position.departmentId === null
-        ) {
-          previousEffectiveRole = AccountRole.SENIOR_MANAGEMENT;
-        } else if (
-          currentAssignment?.position.isActive &&
-          currentAssignment.position.positionType ===
-            ManagementPositionType.TEAM_MANAGER &&
-          currentAssignment.position.divisionId === employee.divisionId &&
-          currentAssignment.position.departmentId === employee.departmentId
-        ) {
-          previousEffectiveRole = AccountRole.TEAM_MANAGER;
-        }
-
-        const previousRank = roleRank[previousEffectiveRole];
-
-        if (previousRank === undefined) {
-          throw new BadRequestException(
-            'The employee current role is not supported.',
-          );
-        }
-
-        let targetManagementPosition: {
-          id: string;
-          positionType: ManagementPositionType;
-          divisionId: string;
-          departmentId: string | null;
-        } | null = null;
-
-        if (dto.targetRole === AccountRole.EMPLOYEE) {
-          if (dto.managementPositionId) {
-            throw new BadRequestException(
-              'A normal employee role must not reference a management position.',
-            );
-          }
-        } else {
-          const position = await resolveOrCreateVacantManagementPosition(
-            transaction,
-            {
-              requestedRole: dto.targetRole,
-
-              divisionId: division.id,
-
-              departmentId: department?.id ?? null,
-
-              suppliedManagementPositionId: dto.managementPositionId ?? null,
-
-              allowEmployeeId: employee.id,
-            },
-          );
-
-          targetManagementPosition = {
-            id: position.id,
-
-            positionType: position.positionType,
-
-            divisionId: position.divisionId,
-
-            departmentId: position.departmentId,
-          };
-        }
-
-        const sameOrganization =
-          employee.divisionId === division.id &&
-          employee.departmentId === (department?.id ?? null);
-
-        const samePosition =
-          currentAssignment?.positionId === targetManagementPosition?.id;
-
-        if (
-          employee.account.role === dto.targetRole &&
-          previousEffectiveRole === dto.targetRole &&
-          sameOrganization &&
-          (dto.targetRole === AccountRole.EMPLOYEE || samePosition)
-        ) {
-          throw new ConflictException(
-            'The employee already has the selected role and organization assignment.',
-          );
-        }
-
-        /*
-         * Claim the exact target vacancy before
-         * ending the employee's current assignment.
-         *
-         * A competing reservation or appointment
-         * will cause this claim to affect zero rows.
-         */
-        if (targetManagementPosition && !samePosition) {
-          const targetClaim = await transaction.managementPosition.updateMany({
-            where: {
-              id: targetManagementPosition.id,
-
-              isActive: true,
-
-              reservedByAccountRequestId: null,
-
-              assignments: {
-                none: {
-                  endedAt: null,
-                },
-              },
-            },
-
-            data: {
-              updatedAt: now,
-            },
-          });
-
-          if (targetClaim.count !== 1) {
-            throw new ConflictException(
-              'The selected management position is no longer vacant.',
-            );
-          }
-        }
-
-        const lifecycleAction =
-          targetRank > previousRank
-            ? EmployeeLifecycleActionType.PROMOTED
-            : targetRank < previousRank
-              ? EmployeeLifecycleActionType.DEMOTED
-              : EmployeeLifecycleActionType.TRANSFERRED;
-
-        const previousAccountRole = employee.account.role;
-
-        const previousDivisionId = employee.divisionId;
-
-        const previousDepartmentId = employee.departmentId;
-
-        const previousDesignation = employee.designation;
-
-        const previousManagementPositionId =
-          currentAssignment?.positionId ?? null;
-
-        /*
-         * Release the old position inside the
-         * same transaction as the new appointment.
-         */
-        const endedManagementAssignments =
-          await transaction.managementAssignment.updateMany({
-            where: {
-              employeeId: employee.id,
-
-              endedAt: null,
-            },
-
-            data: {
-              endedAt: now,
-
-              endedByAccountId: user.accountId,
-
-              endReason: reason,
-            },
-          });
-
-        await transaction.account.update({
-          where: {
-            id: employee.account.id,
-          },
-
-          data: {
-            role: dto.targetRole,
-          },
-        });
-
-        const updatedEmployee = await transaction.employee.update({
-          where: {
-            id: employee.id,
-          },
-
-          data: {
-            division: {
-              connect: {
-                id: division.id,
-              },
-            },
-
-            departmentUnit: department
-              ? {
-                  connect: {
-                    id: department.id,
-                  },
-                }
-              : {
-                  disconnect: true,
-                },
-
-            department: department?.name ?? null,
-
-            ...(designation !== undefined
-              ? {
-                  designation,
-                }
-              : {}),
-          },
-
-          select: {
-            id: true,
-            empId: true,
-            empName: true,
-            officialEmail: true,
-            designation: true,
-            divisionId: true,
-            departmentId: true,
-            status: true,
-            employmentStatus: true,
-            isActivated: true,
-            updatedAt: true,
-
-            division: {
-              select: {
-                id: true,
-                code: true,
-                name: true,
-                isActive: true,
-              },
-            },
-
-            departmentUnit: {
-              select: {
-                id: true,
-                code: true,
-                name: true,
-                isActive: true,
-              },
-            },
-
-            account: {
-              select: {
-                id: true,
-                role: true,
-                isEnabled: true,
-              },
-            },
-          },
-        });
-
-        let newManagementAssignmentId: string | null = null;
-
-        if (targetManagementPosition) {
-          const newManagementAssignment =
-            await transaction.managementAssignment.create({
-              data: {
-                positionId: targetManagementPosition.id,
-
-                employeeId: employee.id,
-
-                assignedByAccountId: user.accountId,
-
-                startedAt: now,
-
-                assignmentReason: reason,
-              },
-
-              select: {
-                id: true,
-              },
-            });
-
-          newManagementAssignmentId = newManagementAssignment.id;
-        }
-
-        /*
-         * Old sessions may contain the previous
-         * role or organization scope.
-         */
-        const revokedSessions = await transaction.authSession.updateMany({
-          where: {
-            accountId: employee.account.id,
-
-            revokedAt: null,
-          },
-
-          data: {
-            revokedAt: now,
-          },
-        });
-
-        await transaction.employeeLifecycleAction.create({
-          data: {
-            employeeId: employee.id,
-
-            actorAccountId: user.accountId,
-
-            action: lifecycleAction,
-
-            previousEmployeeStatus: employee.status,
-
-            newEmployeeStatus: employee.status,
-
-            previousEmploymentStatus: employee.employmentStatus,
-
-            newEmploymentStatus: employee.employmentStatus,
-
-            reason,
-            effectiveAt: now,
-            ipAddress,
-            userAgent,
-
-            metadata: {
-              previousAccountRole,
-
-              previousEffectiveRole,
-
-              newRole: dto.targetRole,
-
-              previousDivisionId,
-
-              newDivisionId: division.id,
-
-              previousDepartmentId,
-
-              newDepartmentId: department?.id ?? null,
-
-              previousDesignation,
-
-              newDesignation: designation ?? previousDesignation,
-
-              previousManagementPositionId,
-
-              newManagementPositionId: targetManagementPosition?.id ?? null,
-
-              accountId: employee.account.id,
-
-              revokedSessions: revokedSessions.count,
-
-              endedManagementAssignments: endedManagementAssignments.count,
-
-              newManagementAssignmentId,
-            },
-          },
-        });
-
-        return {
-          employee: updatedEmployee,
-
-          lifecycleAction,
-
-          revokedSessions: revokedSessions.count,
-
-          previousManagementPositionId,
-
-          newManagementPositionId: targetManagementPosition?.id ?? null,
-
-          newManagementAssignmentId,
-        };
-      });
-
-      await this.synchronizeOfficialGroups(
-        result.employee.account?.id,
-        user.accountId,
-        'EMPLOYEE_ROLE_OR_SCOPE_CHANGED',
-      );
-
-      return {
-        message:
-          result.lifecycleAction === EmployeeLifecycleActionType.PROMOTED
-            ? 'Employee promoted successfully.'
-            : result.lifecycleAction === EmployeeLifecycleActionType.DEMOTED
-              ? 'Employee demoted successfully.'
-              : 'Employee transferred successfully.',
-
-        employee: result.employee,
-
-        action: result.lifecycleAction,
-
-        revokedSessions: result.revokedSessions,
-
-        previousManagementPositionId: result.previousManagementPositionId,
-
-        newManagementPositionId: result.newManagementPositionId,
-
-        newManagementAssignmentId: result.newManagementAssignmentId,
-      };
-    } catch (error: unknown) {
-      /*
-       * The database's active-assignment unique
-       * indexes are the final concurrency guard.
-       */
-      if (
-        typeof error === 'object' &&
-        error !== null &&
-        'code' in error &&
-        error.code === 'P2002'
-      ) {
-        throw new ConflictException(
-          'The selected management position is no longer vacant.',
-        );
-      }
-
-      throw error;
-    }
   }
 
   async getEmployeeLifecycleHistory(id: string) {
@@ -1530,7 +328,7 @@ export class EmployeesService {
     dto: ArchiveEmployeeDto,
     metadata: EmployeeLifecycleMetadata,
   ) {
-    if (user.role !== AccountRole.SUPER_ADMIN) {
+    if (user.accountClass !== AccountClass.SUPER_ADMIN) {
       throw new ForbiddenException(
         'Only the Super Admin can archive an employee record.',
       );
@@ -1569,6 +367,7 @@ export class EmployeesService {
             select: {
               id: true,
               role: true,
+              accountClass: true,
               isEnabled: true,
             },
           },
@@ -1579,7 +378,7 @@ export class EmployeesService {
         throw new NotFoundException('Employee was not found.');
       }
 
-      if (employee.account?.role === AccountRole.SUPER_ADMIN) {
+      if (employee.account?.accountClass === AccountClass.SUPER_ADMIN) {
         throw new ForbiddenException(
           'The Super Admin record cannot be archived.',
         );
@@ -1657,6 +456,7 @@ export class EmployeesService {
             select: {
               id: true,
               role: true,
+              accountClass: true,
               isEnabled: true,
             },
           },
@@ -1725,7 +525,7 @@ export class EmployeesService {
     dto: EndEmployeeEmploymentDto,
     metadata: EmployeeLifecycleMetadata,
   ) {
-    if (user.role !== AccountRole.SUPER_ADMIN) {
+    if (user.accountClass !== AccountClass.SUPER_ADMIN) {
       throw new ForbiddenException(
         'Only the Super Admin can end an employee employment record.',
       );
@@ -1802,6 +602,7 @@ export class EmployeesService {
             select: {
               id: true,
               role: true,
+              accountClass: true,
               isEnabled: true,
             },
           },
@@ -1812,7 +613,7 @@ export class EmployeesService {
         throw new NotFoundException('Employee was not found.');
       }
 
-      if (employee.account?.role === AccountRole.SUPER_ADMIN) {
+      if (employee.account?.accountClass === AccountClass.SUPER_ADMIN) {
         throw new ForbiddenException(
           'Super Admin employment cannot be ended through this process.',
         );
@@ -1827,30 +628,6 @@ export class EmployeesService {
       if (employee.archivedAt) {
         throw new ConflictException(
           'An archived employee cannot be processed again.',
-        );
-      }
-
-      const activeManagementAssignments =
-        await transaction.managementAssignment.findMany({
-          where: {
-            employeeId: employee.id,
-            endedAt: null,
-          },
-
-          select: {
-            startedAt: true,
-          },
-        });
-
-      const assignmentStartingAfterEffectiveDate =
-        activeManagementAssignments.find(
-          (assignment) =>
-            assignment.startedAt.getTime() > effectiveAt.getTime(),
-        );
-
-      if (assignmentStartingAfterEffectiveDate) {
-        throw new BadRequestException(
-          'Employment end date cannot be earlier than the active management assignment start time.',
         );
       }
 
@@ -1886,6 +663,7 @@ export class EmployeesService {
             select: {
               id: true,
               role: true,
+              accountClass: true,
               isEnabled: true,
             },
           },
@@ -1920,23 +698,6 @@ export class EmployeesService {
         revokedSessions = sessionResult.count;
       }
 
-      const endedManagementAssignments =
-        await transaction.managementAssignment.updateMany({
-          where: {
-            employeeId: employee.id,
-
-            endedAt: null,
-          },
-
-          data: {
-            endedAt: effectiveAt,
-
-            endedByAccountId: user.accountId,
-
-            endReason: reason,
-          },
-        });
-
       await transaction.employeeLifecycleAction.create({
         data: {
           employeeId: employee.id,
@@ -1967,8 +728,6 @@ export class EmployeesService {
             accountRole: employee.account?.role ?? null,
 
             revokedSessions,
-
-            endedManagementAssignments: endedManagementAssignments.count,
           },
         },
       });
@@ -2001,7 +760,7 @@ export class EmployeesService {
     status: EmployeeStatus,
     metadata: EmployeeLifecycleMetadata,
   ) {
-    if (user.role !== AccountRole.SUPER_ADMIN) {
+    if (user.accountClass !== AccountClass.SUPER_ADMIN) {
       throw new ForbiddenException(
         'Only the Super Admin can change employee access status.',
       );
@@ -2031,6 +790,7 @@ export class EmployeesService {
             select: {
               id: true,
               role: true,
+              accountClass: true,
               isEnabled: true,
             },
           },
@@ -2041,7 +801,7 @@ export class EmployeesService {
         throw new NotFoundException('Employee was not found.');
       }
 
-      if (employee.account?.role === AccountRole.SUPER_ADMIN) {
+      if (employee.account?.accountClass === AccountClass.SUPER_ADMIN) {
         throw new ForbiddenException(
           'Super Admin status cannot be changed through this process.',
         );

@@ -22,7 +22,7 @@ const managerUser = {
   accountId: 'manager-account',
   sessionId: 'session-1',
   username: 'manager',
-  role: AccountRole.TEAM_MANAGER,
+  role: AccountRole.EMPLOYEE,
 };
 
 function requirementRecord(overrides: Record<string, unknown> = {}) {
@@ -30,7 +30,6 @@ function requirementRecord(overrides: Record<string, unknown> = {}) {
     id: 'requirement-1',
     officeId: 'office-1',
     orgUnitId: 'org-unit-1',
-    departmentId: 'department-1',
     shiftTemplateId: 'shift-1',
     dayOfWeek: 1,
     requiredStaff: 5,
@@ -52,19 +51,6 @@ function requirementRecord(overrides: Record<string, unknown> = {}) {
       parentOrgUnitId: null,
       orgUnitType: { code: 'DEPARTMENT', name: 'Department', isTeam: false },
     },
-    department: {
-      id: 'department-1',
-      divisionId: 'division-1',
-      code: 'NET',
-      name: 'Network',
-      isActive: true,
-      division: {
-        id: 'division-1',
-        code: 'TECH',
-        name: 'Technical',
-        isActive: true,
-      },
-    },
     shift: {
       id: 'shift-1',
       name: 'Morning',
@@ -74,8 +60,6 @@ function requirementRecord(overrides: Record<string, unknown> = {}) {
       isActive: true,
       officeId: 'office-1',
       orgUnitId: 'org-unit-1',
-      divisionId: 'division-1',
-      departmentId: 'department-1',
     },
     createdBy: {
       username: 'manager',
@@ -108,9 +92,6 @@ function createHarness() {
       findMany: jest.fn(),
       findFirst: jest.fn(),
     },
-    legacyOrgUnitMapping: {
-      findFirst: jest.fn(),
-    },
     orgUnitClosure: {
       findFirst: jest.fn(),
     },
@@ -133,9 +114,6 @@ function createHarness() {
     visibleOrgUnitIds: jest.fn(),
     assertCan: jest.fn(),
   };
-  const dutyScope = {
-    resolveLegacyCompatibilityScope: jest.fn(),
-  };
 
   prisma.$transaction.mockImplementation(async (callback: unknown) =>
     (callback as (client: typeof transaction) => Promise<unknown>)(transaction),
@@ -151,8 +129,6 @@ function createHarness() {
     isActive: true,
     officeId: 'office-1',
     orgUnitId: 'org-unit-1',
-    divisionId: 'division-1',
-    departmentId: 'department-1',
   });
   prisma.dutyCoverageRequirement.findFirst.mockResolvedValue(null);
   dutyAuthorization.getContext.mockResolvedValue({
@@ -177,28 +153,22 @@ function createHarness() {
   });
   organizationAuthorization.visibleOrgUnitIds.mockResolvedValue(['org-unit-1']);
   organizationAuthorization.assertCan.mockResolvedValue(undefined);
-  dutyScope.resolveLegacyCompatibilityScope.mockResolvedValue({
-    divisionId: 'division-1',
-    departmentId: 'department-1',
-  });
 
   return {
     prisma,
     transaction,
     dutyAuthorization,
     organizationAuthorization,
-    dutyScope,
     service: new DutyCoverageRequirementsService(
       prisma as never,
       dutyAuthorization as never,
       organizationAuthorization as never,
-      dutyScope as never,
     ),
   };
 }
 
 describe('DutyCoverageRequirementsService', () => {
-  it('creates an OrgUnit-scoped effective-dated staffing target with compatibility data', async () => {
+  it('creates an OrgUnit-scoped effective-dated staffing target without legacy Department scope', async () => {
     const { service, transaction } = createHarness();
     transaction.dutyCoverageRequirement.create.mockResolvedValue(
       requirementRecord(),
@@ -218,8 +188,7 @@ describe('DutyCoverageRequirementsService', () => {
         data: expect.objectContaining({
           officeId: 'office-1',
           orgUnitId: 'org-unit-1',
-          departmentId: 'department-1',
-          requiredStaff: 5,
+                requiredStaff: 5,
           reportingLocation: 'Patan Office',
           reportingLocationKey: 'patan office',
         }),

@@ -22,7 +22,7 @@ import {
 import { getWorkTypeActions } from "../../services/work-type-v3.service";
 import type { OrganizationNavigationMode } from "../../types/organization-v3";
 import type { WorkTypeNavigationMode } from "../../types/work-type-v3";
-import { getRoleHomePath } from "../../utils/get-role-home-path";
+import { getAccountHomePath } from "../../utils/get-account-home-path";
 import { ManagementIcon } from "./ManagementIcon";
 import {
   getDefaultAdminView,
@@ -36,26 +36,10 @@ interface ManagementLayoutProps {
 
 const SIDEBAR_STORAGE_PREFIX = "nt-message:management-sidebar";
 
-function formatRole(role: string): string {
-  return role
-    .toLowerCase()
-    .split("_")
-    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
-    .join(" ");
-}
-
-function getRoleTranslationKey(role: string): string {
-  switch (role) {
-    case "SUPER_ADMIN":
-      return "roles.superAdmin";
-    case "SENIOR_MANAGEMENT":
-      return "roles.seniorManagement";
-    case "TEAM_MANAGER":
-      return "roles.teamManager";
-    case "EMPLOYEE":
-    default:
-      return "roles.employee";
-  }
+function getAccountClassTranslationKey(accountClass: string): string {
+  return accountClass === "SUPER_ADMIN"
+    ? "accountClasses.superAdmin"
+    : "accountClasses.officeUser";
 }
 
 function getItemHref(item: ManagementNavigationItem): string {
@@ -111,7 +95,7 @@ export function ManagementLayout({
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const accountId = account?.id ?? null;
-  const accountRole = account?.role ?? null;
+  const accountClass = account?.accountClass ?? null;
   const currentRouteKey = `${location.pathname}${location.search}`;
   const [mobileOpenRoute, setMobileOpenRoute] = useState<string | null>(null);
   const mobileOpen = mobileOpenRoute === currentRouteKey;
@@ -133,30 +117,30 @@ export function ManagementLayout({
 
   const adminView = getDefaultAdminView(searchParams.get("view"));
   const organizationFallbackMode: OrganizationNavigationMode =
-    accountRole === "SUPER_ADMIN" ? "VIEW" : "NONE";
+    accountClass === "SUPER_ADMIN" ? "VIEW" : "NONE";
   const workTypeFallbackMode: WorkTypeNavigationMode =
-    accountRole === "SUPER_ADMIN" ? "VIEW" : "NONE";
+    accountClass === "SUPER_ADMIN" ? "VIEW" : "NONE";
   const organizationNavigationMode: OrganizationNavigationMode =
-    accountId && accountRole
+    accountId && accountClass
       ? accessToken && organizationNavigationResult?.accountId === accountId
         ? organizationNavigationResult.mode
         : organizationFallbackMode
       : "NONE";
   const workTypeNavigationMode: WorkTypeNavigationMode =
-    accountId && accountRole
+    accountId && accountClass
       ? accessToken && workTypeNavigationResult?.accountId === accountId
         ? workTypeNavigationResult.mode
         : workTypeFallbackMode
       : "NONE";
   const navigation = useMemo(
-    () => accountRole
+    () => accountClass
       ? getManagementNavigation(
-          accountRole,
+          accountClass,
           organizationNavigationMode,
           workTypeNavigationMode,
         )
       : [],
-    [accountRole, organizationNavigationMode, workTypeNavigationMode],
+    [accountClass, organizationNavigationMode, workTypeNavigationMode],
   );
   const activeItem = navigation
     .flatMap((section) => section.items)
@@ -165,7 +149,7 @@ export function ManagementLayout({
   useEffect(() => {
     let active = true;
 
-    if (!accountId || !accountRole || !accessToken) {
+    if (!accountId || !accountClass || !accessToken) {
       return () => {
         active = false;
       };
@@ -192,12 +176,12 @@ export function ManagementLayout({
     return () => {
       active = false;
     };
-  }, [accessToken, accountId, accountRole, organizationFallbackMode]);
+  }, [accessToken, accountId, accountClass, organizationFallbackMode]);
 
   useEffect(() => {
     let active = true;
 
-    if (!accountId || !accountRole || !accessToken) {
+    if (!accountId || !accountClass || !accessToken) {
       return () => {
         active = false;
       };
@@ -248,7 +232,7 @@ export function ManagementLayout({
     return () => {
       active = false;
     };
-  }, [accessToken, accountId, accountRole, workTypeFallbackMode]);
+  }, [accessToken, accountId, accountClass, workTypeFallbackMode]);
 
   useEffect(() => {
     window.localStorage.setItem(
@@ -282,8 +266,8 @@ export function ManagementLayout({
     return null;
   }
 
-  const roleLabel = t(getRoleTranslationKey(account.role), {
-    defaultValue: formatRole(account.role),
+  const authorityLabel = t(getAccountClassTranslationKey(account.accountClass), {
+    defaultValue: account.accountClass === "SUPER_ADMIN" ? "Super Admin" : "Office User",
   });
 
   async function handleLogout(): Promise<void> {
@@ -317,14 +301,12 @@ export function ManagementLayout({
         className={mobileOpen
           ? "management-layout__sidebar management-layout__sidebar--open"
           : "management-layout__sidebar"}
-        aria-label={t("navigation.primaryAria", { role: roleLabel })}
+        aria-label={t("navigation.primaryAria", { role: authorityLabel })}
       >
         <div className="management-layout__brand-row">
           <Link
             className="management-layout__brand"
-            to={account.role === "EMPLOYEE"
-              ? "/employee"
-              : getRoleHomePath(account.role)}
+            to={getAccountHomePath(account.accountClass)}
             aria-label={t("brand.dashboardAria")}
             onClick={() => setMobileOpenRoute(null)}
           >
@@ -416,7 +398,7 @@ export function ManagementLayout({
           <span className="management-layout__account-copy">
             <small>{t("account.signedAs")}</small>
             <strong>{account.displayName}</strong>
-            <span>{account.positionLabel || formatRole(account.role)}</span>
+            <span>{account.positionLabel || authorityLabel}</span>
           </span>
 
           <button
@@ -447,7 +429,7 @@ export function ManagementLayout({
           </button>
 
           <div className="management-layout__page-heading">
-            <span>{t("topbar.workspace", { role: roleLabel })}</span>
+            <span>{t("topbar.workspace", { role: authorityLabel })}</span>
             <strong>{activeItem
               ? t(activeItem.labelKey, { defaultValue: activeItem.label })
               : t("navigation.items.dashboard")}</strong>

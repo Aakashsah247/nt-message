@@ -19,11 +19,12 @@ const announcementTypes = readFileSync(
   "utf8",
 );
 
-test("P12-K keeps historical message-request reasons readable", () => {
-  assert.match(messagingTypes, /"CROSS_DEPARTMENT"/);
-  assert.match(messagingTypes, /"CROSS_DIVISION"/);
-  assert.match(page, /reason === "CROSS_DIVISION"/);
-  assert.match(page, /requestWorkspace\.reasons\.crossDepartment/);
+test("P12-K keeps historical message requests readable after the Phase 13 runtime cutover", () => {
+  assert.doesNotMatch(messagingTypes, /"CROSS_DEPARTMENT"/);
+  assert.doesNotMatch(messagingTypes, /"CROSS_DIVISION"/);
+  assert.doesNotMatch(page, /reason === "CROSS_DIVISION"/);
+  assert.doesNotMatch(page, /requestWorkspace\.reasons\.crossDepartment/);
+  assert.match(page, /requestWorkspace\.reasons\.outsideOrgScope/);
 });
 
 test("P12-K removes legacy hierarchy targets from new communication writes", () => {

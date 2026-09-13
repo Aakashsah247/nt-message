@@ -248,7 +248,7 @@ export function EmployeeDutyPage() {
                   <div className="employee-duty__summary-copy">
                     <span className="employee-duty__summary-label">Reporting location</span>
                     <strong>{visibleDuty.reportingLocation}</strong>
-                    <small>{visibleDuty.department?.name ?? visibleDuty.division.name}</small>
+                    <small>{visibleDuty.operationalTeam?.name ?? visibleDuty.orgUnit?.name ?? "Office duty"}</small>
                   </div>
                 </article>
                 <article className="employee-duty__summary-card">

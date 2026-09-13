@@ -10,7 +10,7 @@ import type { AuthenticatedUser } from '../auth/types/auth.types';
 import { PrismaService } from '../database/prisma.service';
 import type { Prisma } from '../generated/prisma/client';
 import {
-  AccountRole,
+  AccountClass,
   EmployeeStatus,
   EmploymentStatus,
   OrgLeadershipType,
@@ -827,7 +827,7 @@ export class WorkRuntimeV3StageService {
     officeId: string,
     workItemId: string,
   ): Promise<string[]> {
-    if (user.role === AccountRole.SUPER_ADMIN) {
+    if (user.accountClass === AccountClass.SUPER_ADMIN) {
       return [];
     }
 
@@ -1522,7 +1522,7 @@ export class WorkRuntimeV3StageService {
                   select: {
                     id: true,
                     isEnabled: true,
-                    role: true,
+                    accountClass: true,
                   },
                 },
               },
@@ -1549,7 +1549,7 @@ export class WorkRuntimeV3StageService {
                   select: {
                     id: true,
                     isEnabled: true,
-                    role: true,
+                    accountClass: true,
                   },
                 },
               },
@@ -1962,7 +1962,7 @@ export class WorkRuntimeV3StageService {
     stage: RuntimeStage,
     at: Date,
   ): Promise<void> {
-    if (user.role === AccountRole.SUPER_ADMIN) {
+    if (user.accountClass === AccountClass.SUPER_ADMIN) {
       throw new ForbiddenException('System administrators cannot review Work stages.');
     }
 
@@ -1970,7 +1970,7 @@ export class WorkRuntimeV3StageService {
       where: {
         id: user.accountId,
         isEnabled: true,
-        role: { not: AccountRole.SUPER_ADMIN },
+        accountClass: { not: AccountClass.SUPER_ADMIN },
         employee: {
           is: {
             status: EmployeeStatus.ACTIVE,
@@ -2080,7 +2080,7 @@ export class WorkRuntimeV3StageService {
     },
     at: Date,
   ): Promise<void> {
-    if (user.role === AccountRole.SUPER_ADMIN || !work.officeId) {
+    if (user.accountClass === AccountClass.SUPER_ADMIN || !work.officeId) {
       throw new ForbiddenException(
         'System administrators cannot perform operational Work closure.',
       );
@@ -2095,7 +2095,7 @@ export class WorkRuntimeV3StageService {
       where: {
         id: user.accountId,
         isEnabled: true,
-        role: { not: AccountRole.SUPER_ADMIN },
+        accountClass: { not: AccountClass.SUPER_ADMIN },
         employee: {
           is: {
             status: EmployeeStatus.ACTIVE,
@@ -2169,7 +2169,7 @@ export class WorkRuntimeV3StageService {
     at: Date,
     action: 'cancel' | 'reopen',
   ): Promise<void> {
-    if (user.role === AccountRole.SUPER_ADMIN) {
+    if (user.accountClass === AccountClass.SUPER_ADMIN) {
       throw new ForbiddenException(
         `System administrators cannot ${action} operational Work.`,
       );
@@ -2179,7 +2179,7 @@ export class WorkRuntimeV3StageService {
       where: {
         id: user.accountId,
         isEnabled: true,
-        role: { not: AccountRole.SUPER_ADMIN },
+        accountClass: { not: AccountClass.SUPER_ADMIN },
         employee: {
           is: {
             status: EmployeeStatus.ACTIVE,
@@ -2395,7 +2395,7 @@ export class WorkRuntimeV3StageService {
       where: {
         id: accountId,
         isEnabled: true,
-        role: { not: AccountRole.SUPER_ADMIN },
+        accountClass: { not: AccountClass.SUPER_ADMIN },
         employee: {
           is: {
             status: EmployeeStatus.ACTIVE,
@@ -2453,7 +2453,7 @@ export class WorkRuntimeV3StageService {
               select: {
                 id: true,
                 isEnabled: true,
-                role: true,
+                accountClass: true,
               },
             },
           },
@@ -2467,7 +2467,7 @@ export class WorkRuntimeV3StageService {
         assignment.employee.employmentStatus === EmploymentStatus.ACTIVE &&
         assignment.employee.archivedAt === null &&
         assignment.employee.account?.isEnabled &&
-        assignment.employee.account.role !== AccountRole.SUPER_ADMIN,
+        assignment.employee.account.accountClass !== AccountClass.SUPER_ADMIN,
     );
     const accountId = active?.employee.account?.id;
     if (!accountId) {
@@ -2495,7 +2495,7 @@ export class WorkRuntimeV3StageService {
     user: AuthenticatedUser,
     stage: RuntimeStage,
   ): Promise<boolean> {
-    if (user.role === AccountRole.SUPER_ADMIN) {
+    if (user.accountClass === AccountClass.SUPER_ADMIN) {
       return false;
     }
 
@@ -2550,7 +2550,7 @@ export class WorkRuntimeV3StageService {
     user: AuthenticatedUser,
     stage: RuntimeStage,
   ): Promise<boolean> {
-    if (user.role === AccountRole.SUPER_ADMIN) {
+    if (user.accountClass === AccountClass.SUPER_ADMIN) {
       return true;
     }
     if (stage.workItem.createdByAccountId === user.accountId) {
@@ -2599,7 +2599,7 @@ export class WorkRuntimeV3StageService {
     user: AuthenticatedUser,
     stage: RuntimeStage,
   ): Promise<string[]> {
-    if (user.role === AccountRole.SUPER_ADMIN) {
+    if (user.accountClass === AccountClass.SUPER_ADMIN) {
       return [];
     }
 
@@ -2646,7 +2646,7 @@ export class WorkRuntimeV3StageService {
     stage: RuntimeStage,
   ): Promise<boolean> {
     if (
-      user.role === AccountRole.SUPER_ADMIN ||
+      user.accountClass === AccountClass.SUPER_ADMIN ||
       stage.status !== WorkStageStatus.SUBMITTED ||
       stage.approvalMode === WorkStageApprovalMode.NONE
     ) {
@@ -2710,7 +2710,7 @@ export class WorkRuntimeV3StageService {
                     account: {
                       id: accountId,
                       isEnabled: true,
-                      role: { not: AccountRole.SUPER_ADMIN },
+                      accountClass: { not: AccountClass.SUPER_ADMIN },
                     },
                   },
                 },
@@ -2731,7 +2731,7 @@ export class WorkRuntimeV3StageService {
                     account: {
                       id: accountId,
                       isEnabled: true,
-                      role: { not: AccountRole.SUPER_ADMIN },
+                      accountClass: { not: AccountClass.SUPER_ADMIN },
                     },
                   },
                 },
@@ -2771,7 +2771,7 @@ export class WorkRuntimeV3StageService {
                 account: {
                   id: accountId,
                   isEnabled: true,
-                  role: { not: AccountRole.SUPER_ADMIN },
+                  accountClass: { not: AccountClass.SUPER_ADMIN },
                 },
               },
             },
@@ -2786,14 +2786,14 @@ export class WorkRuntimeV3StageService {
     status: EmployeeStatus;
     employmentStatus: EmploymentStatus;
     archivedAt: Date | null;
-    account: { id: string; isEnabled: boolean; role: AccountRole } | null;
+    account: { id: string; isEnabled: boolean; accountClass: AccountClass } | null;
   }): boolean {
     return Boolean(
       employee.status === EmployeeStatus.ACTIVE &&
         employee.employmentStatus === EmploymentStatus.ACTIVE &&
         employee.archivedAt === null &&
         employee.account?.isEnabled &&
-        employee.account.role !== AccountRole.SUPER_ADMIN,
+        employee.account.accountClass !== AccountClass.SUPER_ADMIN,
     );
   }
 
@@ -2823,7 +2823,7 @@ export class WorkRuntimeV3StageService {
                   account: {
                     id: accountId,
                     isEnabled: true,
-                    role: { not: AccountRole.SUPER_ADMIN },
+                    accountClass: { not: AccountClass.SUPER_ADMIN },
                   },
                 },
               },
@@ -2844,7 +2844,7 @@ export class WorkRuntimeV3StageService {
                   account: {
                     id: accountId,
                     isEnabled: true,
-                    role: { not: AccountRole.SUPER_ADMIN },
+                    accountClass: { not: AccountClass.SUPER_ADMIN },
                   },
                 },
               },
@@ -2869,7 +2869,7 @@ export class WorkRuntimeV3StageService {
         where: {
           id: accountId,
           isEnabled: true,
-          role: { not: AccountRole.SUPER_ADMIN },
+          accountClass: { not: AccountClass.SUPER_ADMIN },
           employee: {
             is: {
               status: EmployeeStatus.ACTIVE,
@@ -2899,7 +2899,7 @@ export class WorkRuntimeV3StageService {
     user: AuthenticatedUser,
     officeId: string,
   ): Promise<void> {
-    if (user.role === AccountRole.SUPER_ADMIN) {
+    if (user.accountClass === AccountClass.SUPER_ADMIN) {
       throw new ForbiddenException('System administrators do not have operational Work queues.');
     }
     const orgUnitIds = await this.activeMembershipOrgUnitIds(user, officeId);
@@ -2912,7 +2912,7 @@ export class WorkRuntimeV3StageService {
     user: AuthenticatedUser,
     officeId: string,
   ): Promise<string[]> {
-    if (user.role === AccountRole.SUPER_ADMIN) {
+    if (user.accountClass === AccountClass.SUPER_ADMIN) {
       return [];
     }
     const now = new Date();

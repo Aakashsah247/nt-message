@@ -68,27 +68,6 @@ const emergencyAccountSelect = {
       employmentStatus: true,
       archivedAt: true,
       isActivated: true,
-      divisionId: true,
-      departmentId: true,
-
-      division: {
-        select: {
-          id: true,
-          code: true,
-          name: true,
-          isActive: true,
-        },
-      },
-
-      departmentUnit: {
-        select: {
-          id: true,
-          divisionId: true,
-          code: true,
-          name: true,
-          isActive: true,
-        },
-      },
     },
   },
 } satisfies Prisma.AccountSelect;
@@ -590,8 +569,6 @@ export class EmergencyAlertsService {
             designation: account.employee.designation,
             profilePhotoKey,
             profileBio,
-            division: account.employee.division,
-            department: account.employee.departmentUnit,
           }
         : null,
       superAdminProfile: account.superAdminProfile
@@ -628,8 +605,6 @@ export class EmergencyAlertsService {
       displayName: this.getDisplayName(account),
       role: account.role,
       designation: account.employee?.designation ?? null,
-      division: account.employee?.division?.name ?? null,
-      department: account.employee?.departmentUnit?.name ?? null,
       profileSource:
         account.role === AccountRole.SUPER_ADMIN
           ? 'SUPER_ADMIN_PROFILE'

@@ -72,6 +72,7 @@ describe('PasswordRecoveryService', () => {
   const eligibleAccount = {
     id: 'account-1',
     username: 'employee@example.test',
+    accountClass: 'OFFICE_USER',
     role: 'EMPLOYEE',
     passwordHash: 'stored-hash',
     isEnabled: true,

@@ -1,6 +1,6 @@
 import type { AuthenticatedUser } from '../auth/types/auth.types';
 import { PrismaService } from '../database/prisma.service';
-import { AccountRole } from '../generated/prisma/client';
+import { AccountClass, AccountRole } from '../generated/prisma/client';
 
 import { CAPABILITIES } from './organization-capabilities';
 import { OrganizationAuthorityService } from './organization-authority.service';
@@ -10,11 +10,13 @@ import { OrganizationHierarchyService } from './organization-hierarchy.service';
 describe('OrganizationHierarchyService navigation context', () => {
   const superAdminUser = {
     accountId: 'super-admin-account',
+    accountClass: AccountClass.SUPER_ADMIN,
     role: AccountRole.SUPER_ADMIN,
   } as AuthenticatedUser;
 
   const employeeUser = {
     accountId: 'employee-account',
+    accountClass: AccountClass.OFFICE_USER,
     role: AccountRole.EMPLOYEE,
   } as AuthenticatedUser;
 

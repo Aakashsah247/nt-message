@@ -293,5 +293,9 @@
     "seniorManagement": "वरिष्ठ व्यवस्थापन",
     "teamManager": "टोली प्रबन्धक",
     "employee": "कर्मचारी"
+  },
+  "accountClasses": {
+    "superAdmin": "सुपर एडमिन",
+    "officeUser": "कार्यालय प्रयोगकर्ता"
   }
 }

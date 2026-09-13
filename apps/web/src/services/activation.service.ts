@@ -5,21 +5,9 @@ import type {
   ActivationInvitationPreview,
   CompleteActivationInput,
   CompleteActivationResponse,
-  PublicDepartmentsResponse,
-  PublicDivisionsResponse,
   RequestActivationOtpResponse,
   VerifyActivationOtpResponse,
 } from "../types/activation";
-
-export function getPublicDivisions(): Promise<PublicDivisionsResponse> {
-  return apiRequest<PublicDivisionsResponse>("/public/organization/divisions");
-}
-
-export function getPublicDepartments(): Promise<PublicDepartmentsResponse> {
-  return apiRequest<PublicDepartmentsResponse>(
-    "/public/organization/departments",
-  );
-}
 
 export function getActivationInvitationPreview(
   token: string,

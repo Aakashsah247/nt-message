@@ -7,7 +7,7 @@ import {
 import type { AuthenticatedUser } from '../auth/types/auth.types';
 import { PrismaService } from '../database/prisma.service';
 import {
-  AccountRole,
+  AccountClass,
   EmployeeStatus,
   EmploymentStatus,
   OrgLeadershipType,
@@ -34,8 +34,20 @@ const scopedAccountSelect = {
       employmentStatus: true,
       archivedAt: true,
       isActivated: true,
-      divisionId: true,
-      departmentId: true,
+    },
+  },
+} satisfies Prisma.AccountSelect;
+
+const dutySupervisorAccountSelect = {
+  id: true,
+  username: true,
+  superAdminProfile: { select: { fullName: true } },
+  employee: {
+    select: {
+      id: true,
+      empId: true,
+      empName: true,
+      designation: true,
     },
   },
 } satisfies Prisma.AccountSelect;
@@ -224,6 +236,150 @@ export class DutyScopeV3Service {
     }
   }
 
+  async listSupervisorOptions(user: AuthenticatedUser, at = new Date()) {
+    const context = await this.dutyAuthorization.getContext(user, at);
+    if (!context.officeId || !context.canAssign) {
+      return { data: [] };
+    }
+
+    const accountIds = new Set<string>([user.accountId]);
+    const visibleOrgUnitIds = await this.organizationAuthorization.visibleOrgUnitIds(
+      user,
+      CAPABILITIES.DUTY_ASSIGN,
+      context.officeId,
+    );
+
+    const leadership = await this.prisma.orgLeadershipAssignment.findMany({
+      where: {
+        officeId: context.officeId,
+        leadershipType: {
+          in: [OrgLeadershipType.OFFICE_HEAD, OrgLeadershipType.ORG_UNIT_HEAD],
+        },
+        effectiveFrom: { lte: at },
+        OR: [{ effectiveUntil: null }, { effectiveUntil: { gt: at } }],
+        AND: [
+          {
+            OR: [
+              { leadershipType: OrgLeadershipType.OFFICE_HEAD, orgUnitId: null },
+              ...(visibleOrgUnitIds.length
+                ? [
+                    {
+                      leadershipType: OrgLeadershipType.ORG_UNIT_HEAD,
+                      orgUnitId: { in: visibleOrgUnitIds },
+                    },
+                  ]
+                : []),
+            ],
+          },
+        ],
+        employee: {
+          is: {
+            status: EmployeeStatus.ACTIVE,
+            employmentStatus: EmploymentStatus.ACTIVE,
+            archivedAt: null,
+            isActivated: true,
+            account: {
+              is: {
+                isEnabled: true,
+                accountClass: AccountClass.OFFICE_USER,
+              },
+            },
+          },
+        },
+      },
+      select: {
+        employee: { select: { account: { select: { id: true } } } },
+      },
+    });
+    for (const assignment of leadership) {
+      const accountId = assignment.employee.account?.id;
+      if (accountId) accountIds.add(accountId);
+    }
+
+    const teamScope: Prisma.OperationalTeamLeadAssignmentWhereInput[] = [
+      ...(visibleOrgUnitIds.length
+        ? [
+            {
+              team: {
+                is: {
+                  orgUnitId: { in: visibleOrgUnitIds },
+                  isActive: true,
+                  archivedAt: null,
+                  orgUnit: {
+                    is: { officeId: context.officeId, isActive: true },
+                  },
+                },
+              },
+            },
+          ]
+        : []),
+      ...(context.operationalTeamLeadIds.length
+        ? [{ teamId: { in: context.operationalTeamLeadIds } }]
+        : []),
+    ];
+
+    if (teamScope.length) {
+      const teamLeads = await this.prisma.operationalTeamLeadAssignment.findMany({
+        where: {
+          OR: teamScope,
+          effectiveFrom: { lte: at },
+          AND: [
+            { OR: [{ effectiveUntil: null }, { effectiveUntil: { gt: at } }] },
+          ],
+          employee: {
+            is: {
+              status: EmployeeStatus.ACTIVE,
+              employmentStatus: EmploymentStatus.ACTIVE,
+              archivedAt: null,
+              isActivated: true,
+              account: {
+                is: {
+                  isEnabled: true,
+                  accountClass: AccountClass.OFFICE_USER,
+                },
+              },
+            },
+          },
+        },
+        select: {
+          employee: { select: { account: { select: { id: true } } } },
+        },
+      });
+      for (const assignment of teamLeads) {
+        const accountId = assignment.employee.account?.id;
+        if (accountId) accountIds.add(accountId);
+      }
+    }
+
+    const accounts = await this.prisma.account.findMany({
+      where: {
+        id: { in: [...accountIds] },
+        accountClass: AccountClass.OFFICE_USER,
+        isEnabled: true,
+        employee: {
+          is: {
+            status: EmployeeStatus.ACTIVE,
+            employmentStatus: EmploymentStatus.ACTIVE,
+            archivedAt: null,
+            isActivated: true,
+            orgMemberships: {
+              some: {
+                officeId: context.officeId,
+                membershipType: OrgMembershipType.PRIMARY,
+                startsAt: { lte: at },
+                OR: [{ endsAt: null }, { endsAt: { gt: at } }],
+              },
+            },
+          },
+        },
+      },
+      orderBy: { username: 'asc' },
+      select: dutySupervisorAccountSelect,
+    });
+
+    return { data: accounts.map((account) => ({ account })) };
+  }
+
   async resolveSupervisor(
     user: AuthenticatedUser,
     requestedAccountId: string | undefined,
@@ -293,6 +449,124 @@ export class DutyScopeV3Service {
     throw new ForbiddenException(
       'Choose an active Office Head, responsible OrgUnit Head, or Operational Team Lead as Duty supervisor.',
     );
+  }
+
+  async managementDutyAccountIds(
+    user: AuthenticatedUser,
+    at = new Date(),
+  ): Promise<string[]> {
+    const context = await this.dutyAuthorization.getContext(user, at);
+    const accountIds = new Set<string>();
+
+    const officeFilter = context.readOnlyOversight
+      ? {}
+      : context.officeId
+        ? { officeId: context.officeId }
+        : { officeId: '__no_duty_scope__' };
+
+    const visibleOrgUnitIds =
+      !context.readOnlyOversight && context.officeId
+        ? await this.organizationAuthorization.visibleOrgUnitIds(
+            user,
+            CAPABILITIES.DUTY_VIEW,
+            context.officeId,
+          )
+        : [];
+
+    const leadership = await this.prisma.orgLeadershipAssignment.findMany({
+      where: {
+        ...officeFilter,
+        leadershipType: {
+          in: [OrgLeadershipType.OFFICE_HEAD, OrgLeadershipType.ORG_UNIT_HEAD],
+        },
+        effectiveFrom: { lte: at },
+        AND: [
+          { OR: [{ effectiveUntil: null }, { effectiveUntil: { gt: at } }] },
+          ...(!context.readOnlyOversight
+            ? [
+                {
+                  OR: [
+                    { leadershipType: OrgLeadershipType.OFFICE_HEAD },
+                    ...(visibleOrgUnitIds.length
+                      ? [{ orgUnitId: { in: visibleOrgUnitIds } }]
+                      : []),
+                  ],
+                },
+              ]
+            : []),
+        ],
+        employee: {
+          is: {
+            status: EmployeeStatus.ACTIVE,
+            employmentStatus: EmploymentStatus.ACTIVE,
+            archivedAt: null,
+            isActivated: true,
+            account: {
+              is: {
+                isEnabled: true,
+                accountClass: AccountClass.OFFICE_USER,
+              },
+            },
+          },
+        },
+      },
+      select: {
+        employee: { select: { account: { select: { id: true } } } },
+      },
+    });
+    for (const assignment of leadership) {
+      const accountId = assignment.employee.account?.id;
+      if (accountId) accountIds.add(accountId);
+    }
+
+    const teamWhere: Prisma.OperationalTeamLeadAssignmentWhereInput = {
+      effectiveFrom: { lte: at },
+      OR: [{ effectiveUntil: null }, { effectiveUntil: { gt: at } }],
+      team: {
+        is: {
+          isActive: true,
+          archivedAt: null,
+          ...(context.readOnlyOversight
+            ? {}
+            : {
+                ...(visibleOrgUnitIds.length
+                  ? { orgUnitId: { in: visibleOrgUnitIds } }
+                  : context.operationalTeamLeadIds.length
+                    ? { id: { in: context.operationalTeamLeadIds } }
+                    : { id: '__no_duty_scope__' }),
+                ...(context.officeId
+                  ? { orgUnit: { is: { officeId: context.officeId, isActive: true } } }
+                  : {}),
+              }),
+        },
+      },
+      employee: {
+        is: {
+          status: EmployeeStatus.ACTIVE,
+          employmentStatus: EmploymentStatus.ACTIVE,
+          archivedAt: null,
+          isActivated: true,
+          account: {
+            is: {
+              isEnabled: true,
+              accountClass: AccountClass.OFFICE_USER,
+            },
+          },
+        },
+      },
+    };
+    const teamLeads = await this.prisma.operationalTeamLeadAssignment.findMany({
+      where: teamWhere,
+      select: {
+        employee: { select: { account: { select: { id: true } } } },
+      },
+    });
+    for (const assignment of teamLeads) {
+      const accountId = assignment.employee.account?.id;
+      if (accountId) accountIds.add(accountId);
+    }
+
+    return [...accountIds];
   }
 
   async visibleAssignmentWhere(
@@ -470,7 +744,7 @@ export class DutyScopeV3Service {
               account: {
                 is: {
                   isEnabled: true,
-                  role: { not: AccountRole.SUPER_ADMIN },
+                  accountClass: { not: AccountClass.SUPER_ADMIN },
                 },
               },
             },
@@ -510,7 +784,7 @@ export class DutyScopeV3Service {
                 account: {
                   is: {
                     isEnabled: true,
-                    role: { not: AccountRole.SUPER_ADMIN },
+                    accountClass: { not: AccountClass.SUPER_ADMIN },
                   },
                 },
               },
@@ -551,7 +825,7 @@ export class DutyScopeV3Service {
               account: {
                 is: {
                   isEnabled: true,
-                  role: { not: AccountRole.SUPER_ADMIN },
+                  accountClass: { not: AccountClass.SUPER_ADMIN },
                 },
               },
             },
@@ -568,95 +842,6 @@ export class DutyScopeV3Service {
     }
 
     return [...recipients];
-  }
-
-  async assertLegacyScopeFilter(
-    user: AuthenticatedUser,
-    filter: { divisionId?: string; departmentId?: string },
-    at = new Date(),
-  ): Promise<void> {
-    const requested = [
-      filter.divisionId
-        ? {
-            legacyEntityType: 'DIVISION' as const,
-            legacyEntityId: filter.divisionId,
-          }
-        : null,
-      filter.departmentId
-        ? {
-            legacyEntityType: 'DEPARTMENT' as const,
-            legacyEntityId: filter.departmentId,
-          }
-        : null,
-    ].filter(
-      (value): value is {
-        legacyEntityType: 'DIVISION' | 'DEPARTMENT';
-        legacyEntityId: string;
-      } => value !== null,
-    );
-    if (!requested.length) return;
-
-    const context = await this.dutyAuthorization.getContext(user, at);
-    if (context.readOnlyOversight) return;
-    if (!context.officeId) {
-      throw new ForbiddenException(
-        'The selected legacy Duty scope is outside your Office.',
-      );
-    }
-
-    for (const item of requested) {
-      const mapping = await this.prisma.legacyOrgUnitMapping.findFirst({
-        where: {
-          officeId: context.officeId,
-          legacyEntityType: item.legacyEntityType,
-          legacyEntityId: item.legacyEntityId,
-        },
-        select: { orgUnitId: true },
-      });
-      if (!mapping) {
-        throw new ForbiddenException(
-          'The selected legacy Duty scope is outside your Office.',
-        );
-      }
-      const allowed = await this.organizationAuthorization.can(
-        user,
-        CAPABILITIES.DUTY_VIEW,
-        context.officeId,
-        mapping.orgUnitId,
-        at,
-      );
-      if (!allowed) {
-        throw new ForbiddenException(
-          'The selected legacy Duty scope is outside your Duty visibility.',
-        );
-      }
-    }
-  }
-
-  async resolveLegacyCompatibilityScope(
-    officeId: string,
-    orgUnitId: string,
-  ): Promise<{ divisionId: string | null; departmentId: string | null }> {
-    const ancestors = await this.prisma.orgUnitClosure.findMany({
-      where: { descendantOrgUnitId: orgUnitId },
-      orderBy: { depth: 'asc' },
-      select: { ancestorOrgUnitId: true, depth: true },
-    });
-    const depthById = new Map(ancestors.map((row) => [row.ancestorOrgUnitId, row.depth]));
-    const mappings = await this.prisma.legacyOrgUnitMapping.findMany({
-      where: {
-        officeId,
-        orgUnitId: { in: ancestors.map((row) => row.ancestorOrgUnitId) },
-        legacyEntityType: { in: ['DIVISION', 'DEPARTMENT'] },
-      },
-      select: { orgUnitId: true, legacyEntityType: true, legacyEntityId: true },
-    });
-    const nearest = (type: 'DIVISION' | 'DEPARTMENT') =>
-      mappings
-        .filter((row) => row.legacyEntityType === type)
-        .sort((a, b) => (depthById.get(a.orgUnitId) ?? 9999) - (depthById.get(b.orgUnitId) ?? 9999))[0]
-        ?.legacyEntityId ?? null;
-    return { divisionId: nearest('DIVISION'), departmentId: nearest('DEPARTMENT') };
   }
 
   private async resolveActiveAccounts(

@@ -10,7 +10,7 @@ import type { AuthenticatedUser } from '../auth/types/auth.types';
 import { ConversationsService } from '../conversations/conversations.service';
 import { PrismaService } from '../database/prisma.service';
 import {
-  AccountRole,
+  AccountClass,
   EmployeeStatus,
   EmploymentStatus,
   OrgAssignmentSource,
@@ -132,7 +132,7 @@ export class OrganizationPeopleService {
         account: {
           select: {
             id: true,
-            role: true,
+            accountClass: true,
             isEnabled: true,
           },
         },
@@ -153,7 +153,7 @@ export class OrganizationPeopleService {
       );
     }
 
-    if (employee.account?.role === AccountRole.SUPER_ADMIN) {
+    if (employee.account?.accountClass === AccountClass.SUPER_ADMIN) {
       throw new ForbiddenException(
         'The system administrator cannot be placed inside the office hierarchy.',
       );
@@ -449,7 +449,7 @@ export class OrganizationPeopleService {
               select: {
                 id: true,
                 username: true,
-                role: true,
+                accountClass: true,
                 isEnabled: true,
               },
             },
@@ -477,8 +477,8 @@ export class OrganizationPeopleService {
     const data = primaryMemberships
       .filter(
         (membership) =>
-          membership.employee.account?.role !==
-          AccountRole.SUPER_ADMIN,
+          membership.employee.account?.accountClass !==
+          AccountClass.SUPER_ADMIN,
       )
       .sort((left, right) => {
         const byName = left.employee.empName.localeCompare(

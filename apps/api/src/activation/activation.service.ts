@@ -36,10 +36,10 @@ import { PrismaService } from '../database/prisma.service';
 import {
   AccountRequestActionType,
   AccountRequestLifecycleState,
+  AccountClass,
   AccountRequestStatus,
   AccountRole,
   EmployeeStatus,
-  ManagementPositionType,
   OrgMembershipType,
   OtpPurpose,
 } from '../generated/prisma/client';
@@ -248,12 +248,6 @@ export class ActivationService {
     const officialEmail = sanitizeOfficialEmail(dto.officialEmail);
     const officialEmailLookup = normalizeOfficialEmailForLookup(officialEmail);
 
-    // Compatibility-only values for older activation pages. Canonical V3
-    // activation derives organization from the provisioned request and the
-    // employee's current PRIMARY OrgMembership.
-    const divisionId = dto.divisionId?.trim() || null;
-    const departmentId = dto.departmentId?.trim() || null;
-
     const now = new Date();
 
     const cooldownStart = new Date(
@@ -289,8 +283,6 @@ export class ActivationService {
             id: true,
             empName: true,
             officialEmail: true,
-            divisionId: true,
-            departmentId: true,
             status: true,
             isActivated: true,
             orgMemberships: {
@@ -374,9 +366,6 @@ export class ActivationService {
             employeeId: true,
             officeId: true,
             intendedOrgUnitId: true,
-            divisionId: true,
-            departmentId: true,
-            managementPositionId: true,
           },
         });
 
@@ -407,26 +396,12 @@ export class ActivationService {
           };
         }
 
-        const canonicalOfficeActivation =
-          isCanonicalOfficeActivationRequest(accountRequest);
-
-        if (canonicalOfficeActivation) {
-          if (
-            !primaryMembershipMatchesActivationScope(
-              accountRequest,
-              employee.orgMemberships[0],
-            )
-          ) {
-            return {
-              status: 'invalid',
-            };
-          }
-        } else if (
-          !divisionId ||
-          employee.divisionId !== divisionId ||
-          employee.departmentId !== departmentId ||
-          accountRequest.divisionId !== divisionId ||
-          accountRequest.departmentId !== departmentId
+        if (
+          !isCanonicalOfficeActivationRequest(accountRequest) ||
+          !primaryMembershipMatchesActivationScope(
+            accountRequest,
+            employee.orgMemberships[0],
+          )
         ) {
           return {
             status: 'invalid',
@@ -549,9 +524,6 @@ export class ActivationService {
 
                 intendedOrgUnitId: accountRequest.intendedOrgUnitId,
 
-                legacyDivisionId: accountRequest.divisionId,
-
-                legacyDepartmentId: accountRequest.departmentId,
 
                 otpVerificationId: otpRecord.id,
               },
@@ -636,9 +608,6 @@ export class ActivationService {
     const officialEmail = sanitizeOfficialEmail(dto.officialEmail);
     const officialEmailLookup = normalizeOfficialEmailForLookup(officialEmail);
 
-    const divisionId = dto.divisionId?.trim() || null;
-    const departmentId = dto.departmentId?.trim() || null;
-
     const otp = dto.otp.trim();
 
     const now = new Date();
@@ -667,8 +636,6 @@ export class ActivationService {
             empId: true,
             empName: true,
             officialEmail: true,
-            divisionId: true,
-            departmentId: true,
             status: true,
             isActivated: true,
             orgMemberships: {
@@ -745,9 +712,6 @@ export class ActivationService {
             lifecycleState: true,
             officeId: true,
             intendedOrgUnitId: true,
-            divisionId: true,
-            departmentId: true,
-            managementPositionId: true,
           },
         });
 
@@ -760,26 +724,12 @@ export class ActivationService {
           };
         }
 
-        const canonicalOfficeActivation =
-          isCanonicalOfficeActivationRequest(accountRequest);
-
-        if (canonicalOfficeActivation) {
-          if (
-            !primaryMembershipMatchesActivationScope(
-              accountRequest,
-              employee.orgMemberships[0],
-            )
-          ) {
-            return {
-              status: 'invalid',
-            };
-          }
-        } else if (
-          !divisionId ||
-          employee.divisionId !== divisionId ||
-          employee.departmentId !== departmentId ||
-          accountRequest.divisionId !== divisionId ||
-          accountRequest.departmentId !== departmentId
+        if (
+          !isCanonicalOfficeActivationRequest(accountRequest) ||
+          !primaryMembershipMatchesActivationScope(
+            accountRequest,
+            employee.orgMemberships[0],
+          )
         ) {
           return {
             status: 'invalid',
@@ -1002,8 +952,6 @@ export class ActivationService {
             empName: true,
             phoneNumber: true,
             officialEmail: true,
-            divisionId: true,
-            departmentId: true,
             status: true,
             isActivated: true,
 
@@ -1080,9 +1028,6 @@ export class ActivationService {
             lifecycleState: true,
             officeId: true,
             intendedOrgUnitId: true,
-            divisionId: true,
-            departmentId: true,
-            managementPositionId: true,
             reviewedByAccountId: true,
           },
         });
@@ -1096,144 +1041,20 @@ export class ActivationService {
           };
         }
 
-        const canonicalOfficeActivation =
-          isCanonicalOfficeActivationRequest(accountRequest);
-
-        if (canonicalOfficeActivation) {
-          if (
-            !primaryMembershipMatchesActivationScope(
-              accountRequest,
-              employee.orgMemberships[0],
-            )
-          ) {
-            throw new ConflictException(
-              'The provisioned PRIMARY organization membership no longer matches this account request.',
-            );
-          }
-        } else if (
-          accountRequest.divisionId !== employee.divisionId ||
-          accountRequest.departmentId !== employee.departmentId
-        ) {
+        if (!isCanonicalOfficeActivationRequest(accountRequest)) {
           return {
             status: 'invalid',
           };
         }
 
-        let managementPositionId: string | null = null;
-
-        let managementAssignedByAccountId: string | null = null;
-
-        let managementAssignmentId: string | null = null;
-
         if (
-          !canonicalOfficeActivation &&
-          accountRequest.requestedRole !== AccountRole.EMPLOYEE
-        ) {
-          if (
-            !accountRequest.managementPositionId ||
-            !accountRequest.reviewedByAccountId
-          ) {
-            throw new ConflictException(
-              'The approved management request does not have a valid reserved position.',
-            );
-          }
-
-          const requiredPositionType =
-            accountRequest.requestedRole === AccountRole.SENIOR_MANAGEMENT
-              ? ManagementPositionType.SENIOR_MANAGEMENT
-              : ManagementPositionType.TEAM_MANAGER;
-
-          const managementPosition =
-            await transaction.managementPosition.findUnique({
-              where: {
-                id: accountRequest.managementPositionId,
-              },
-
-              select: {
-                id: true,
-                positionType: true,
-                divisionId: true,
-                departmentId: true,
-                isActive: true,
-                reservedByAccountRequestId: true,
-
-                assignments: {
-                  where: {
-                    endedAt: null,
-                  },
-
-                  take: 1,
-
-                  select: {
-                    id: true,
-                  },
-                },
-              },
-            });
-
-          if (
-            !managementPosition ||
-            !managementPosition.isActive ||
-            managementPosition.positionType !== requiredPositionType ||
-            managementPosition.divisionId !== accountRequest.divisionId ||
-            managementPosition.reservedByAccountRequestId !== accountRequest.id
-          ) {
-            throw new ConflictException(
-              'The reserved management position is no longer valid for this activation.',
-            );
-          }
-
-          if (
-            requiredPositionType === ManagementPositionType.SENIOR_MANAGEMENT &&
-            managementPosition.departmentId !== null
-          ) {
-            throw new ConflictException(
-              'The reserved Senior Management position has an invalid organization scope.',
-            );
-          }
-
-          if (
-            requiredPositionType === ManagementPositionType.TEAM_MANAGER &&
-            managementPosition.departmentId !== accountRequest.departmentId
-          ) {
-            throw new ConflictException(
-              'The reserved Team Manager position does not match the request department.',
-            );
-          }
-
-          if (managementPosition.assignments.length > 0) {
-            throw new ConflictException(
-              'The reserved management position is no longer vacant.',
-            );
-          }
-
-          const existingEmployeeAssignment =
-            await transaction.managementAssignment.findFirst({
-              where: {
-                employeeId: employee.id,
-                endedAt: null,
-              },
-
-              select: {
-                id: true,
-              },
-            });
-
-          if (existingEmployeeAssignment) {
-            throw new ConflictException(
-              'This employee already has an active management assignment.',
-            );
-          }
-
-          managementPositionId = managementPosition.id;
-
-          managementAssignedByAccountId = accountRequest.reviewedByAccountId;
-        } else if (
-          !canonicalOfficeActivation &&
-          accountRequest.managementPositionId
+          !primaryMembershipMatchesActivationScope(
+            accountRequest,
+            employee.orgMemberships[0],
+          )
         ) {
           throw new ConflictException(
-            'A normal employee activation must not reference a management position.',
+            'The provisioned PRIMARY organization membership no longer matches this account request.',
           );
         }
 
@@ -1341,13 +1162,12 @@ export class ActivationService {
             employeeId: employee.id,
 
             username,
+            accountClass: AccountClass.OFFICE_USER,
 
             // Canonical V3 provisioning always creates a normal Office
             // account. Leadership and delegated capabilities remain separate
             // organization assignments rather than AccountRole side effects.
-            role: canonicalOfficeActivation
-              ? AccountRole.EMPLOYEE
-              : accountRequest.requestedRole,
+            role: AccountRole.EMPLOYEE,
 
             passwordHash,
 
@@ -1359,65 +1179,11 @@ export class ActivationService {
           select: {
             id: true,
             username: true,
+            accountClass: true,
             role: true,
             isEnabled: true,
           },
         });
-
-        if (managementPositionId && managementAssignedByAccountId) {
-          /*
-           * Claim and release the reservation before creating
-           * the active assignment. Any later failure rolls the
-           * complete transaction back.
-           */
-          const reservationClaim =
-            await transaction.managementPosition.updateMany({
-              where: {
-                id: managementPositionId,
-                isActive: true,
-
-                reservedByAccountRequestId: accountRequest.id,
-
-                assignments: {
-                  none: {
-                    endedAt: null,
-                  },
-                },
-              },
-
-              data: {
-                reservedByAccountRequestId: null,
-              },
-            });
-
-          if (reservationClaim.count !== 1) {
-            throw new ConflictException(
-              'The reserved management position could not be assigned.',
-            );
-          }
-
-          const managementAssignment =
-            await transaction.managementAssignment.create({
-              data: {
-                positionId: managementPositionId,
-
-                employeeId: employee.id,
-
-                assignedByAccountId: managementAssignedByAccountId,
-
-                startedAt: now,
-
-                assignmentReason:
-                  'Assigned automatically when the approved management account was activated.',
-              },
-
-              select: {
-                id: true,
-              },
-            });
-
-          managementAssignmentId = managementAssignment.id;
-        }
 
         await transaction.accountRequestAction.create({
           data: {
@@ -1447,13 +1213,6 @@ export class ActivationService {
 
               intendedOrgUnitId: accountRequest.intendedOrgUnitId,
 
-              legacyDivisionId: accountRequest.divisionId,
-
-              legacyDepartmentId: accountRequest.departmentId,
-
-              managementPositionId,
-
-              managementAssignmentId,
             },
           },
         });
@@ -1560,20 +1319,12 @@ export class ActivationService {
         },
       );
 
-      const allowedRoles: AccountRole[] = [
-        AccountRole.SENIOR_MANAGEMENT,
-
-        AccountRole.TEAM_MANAGER,
-
-        AccountRole.EMPLOYEE,
-      ];
-
       if (
         payload.type !== 'account_activation' ||
         !payload.sub ||
         !payload.otpVerificationId ||
         !payload.accountRequestId ||
-        !allowedRoles.includes(payload.requestedRole)
+        payload.requestedRole === AccountRole.SUPER_ADMIN
       ) {
         throw new Error('Invalid activation payload.');
       }

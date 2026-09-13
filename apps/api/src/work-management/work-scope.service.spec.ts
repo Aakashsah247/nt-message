@@ -1,51 +1,61 @@
-import { ForbiddenException } from '@nestjs/common';
+import { ForbiddenException, NotFoundException } from '@nestjs/common';
 
 import type { PrismaService } from '../database/prisma.service';
 import {
+  AccountClass,
   AccountRole,
-  DepartmentWorkFunction,
   EmployeeStatus,
   EmploymentStatus,
-  ManagementPositionType,
+  OrgLeadershipType,
   WorkItemStatus,
 } from '../generated/prisma/enums';
-import { WorkScopeService } from './work-scope.service';
+import { WorkScopeService, type WorkActorContext } from './work-scope.service';
 
-// Replace the database runtime token with a lightweight unit-test double.
 jest.mock('../database/prisma.service', () => ({
   PrismaService: class PrismaService {},
 }));
 
-// Focused scope tests need generated enums but do not execute Prisma queries.
 jest.mock('../generated/prisma/client', () =>
   jest.requireActual('../generated/prisma/enums'),
 );
 
+const activeSince = new Date('2026-01-01T00:00:00.000Z');
+
 function createAccount(input: {
   id: string;
-  role: AccountRole;
-  divisionId?: string;
-  departmentId?: string | null;
-  workFunction?: DepartmentWorkFunction;
+  role?: AccountRole;
+  officeId?: string;
+  orgUnitId?: string | null;
+  leadershipType?: OrgLeadershipType | null;
+  teamMembershipIds?: string[];
+  teamLeadIds?: string[];
 }) {
-  const isManager =
-    input.role === AccountRole.SENIOR_MANAGEMENT ||
-    input.role === AccountRole.TEAM_MANAGER;
-  const positionType =
-    input.role === AccountRole.SENIOR_MANAGEMENT
-      ? ManagementPositionType.SENIOR_MANAGEMENT
-      : ManagementPositionType.TEAM_MANAGER;
+  const role = input.role ?? AccountRole.EMPLOYEE;
+  const officeId = input.officeId ?? 'office-a';
+  const orgUnitId =
+    input.orgUnitId === undefined ? 'org-unit-a' : input.orgUnitId;
+  const leadershipType = input.leadershipType ?? null;
 
-  const departmentId =
-    input.departmentId === undefined ? 'department-a' : input.departmentId;
+  const team = (teamId: string) => ({
+    id: teamId,
+    orgUnitId: orgUnitId ?? 'org-team',
+    isActive: true,
+    archivedAt: null,
+    orgUnit: { officeId, isActive: true },
+  });
 
   return {
     id: input.id,
-    role: input.role,
+    role,
+    accountClass:
+      role === AccountRole.SUPER_ADMIN
+        ? AccountClass.SUPER_ADMIN
+        : AccountClass.OFFICE_USER,
     isEnabled: true,
     username: `${input.id}@ntc.test`,
+    superAdminProfile: null,
     employee:
-      input.role === AccountRole.SUPER_ADMIN
+      role === AccountRole.SUPER_ADMIN
         ? null
         : {
             id: `employee-${input.id}`,
@@ -56,43 +66,83 @@ function createAccount(input: {
             employmentStatus: EmploymentStatus.ACTIVE,
             archivedAt: null,
             isActivated: true,
-            divisionId: input.divisionId ?? 'division-a',
-            departmentId,
-            division: {
-              id: input.divisionId ?? 'division-a',
-              code: 'DIV-A',
-              name: 'Division A',
-              isActive: true,
-            },
-            departmentUnit: departmentId
-              ? {
-                  id: departmentId,
-                  divisionId: input.divisionId ?? 'division-a',
-                  code: 'NET',
-                  name: 'Network',
-                  workFunction:
-                    input.workFunction ?? DepartmentWorkFunction.GENERAL,
-                  isActive: true,
-                }
-              : null,
-            managementAssignments: isManager
+            orgMemberships: [
+              {
+                officeId,
+                orgUnitId,
+                startsAt: activeSince,
+                endsAt: null,
+                office: { isActive: true },
+                orgUnit: orgUnitId ? { isActive: true } : null,
+              },
+            ],
+            orgLeadershipAssignments: leadershipType
               ? [
                   {
-                    id: `assignment-${input.id}`,
-                    position: {
-                      id: `position-${input.id}`,
-                      positionType,
-                      divisionId: input.divisionId ?? 'division-a',
-                      departmentId:
-                        input.role === AccountRole.TEAM_MANAGER
-                          ? departmentId
-                          : null,
-                      isActive: true,
-                    },
+                    officeId,
+                    orgUnitId:
+                      leadershipType === OrgLeadershipType.OFFICE_HEAD
+                        ? null
+                        : orgUnitId,
+                    leadershipType,
+                    effectiveFrom: activeSince,
+                    effectiveUntil: null,
                   },
                 ]
               : [],
+            operationalTeamMemberships: (input.teamMembershipIds ?? []).map(
+              (teamId) => ({
+                teamId,
+                startsAt: activeSince,
+                endsAt: null,
+                team: team(teamId),
+              }),
+            ),
+            operationalTeamLeadAssignments: (input.teamLeadIds ?? []).map(
+              (teamId) => ({
+                teamId,
+                effectiveFrom: activeSince,
+                effectiveUntil: null,
+                team: team(teamId),
+              }),
+            ),
           },
+  };
+}
+
+function actor(input: {
+  id: string;
+  role?: AccountRole;
+  officeId?: string | null;
+  primaryOrgUnitId?: string | null;
+  visibleOrgUnitIds?: string[];
+  assignableOrgUnitIds?: string[];
+  operationalTeamLeadIds?: string[];
+}): WorkActorContext {
+  const role = input.role ?? AccountRole.EMPLOYEE;
+  const isSuperAdmin = role === AccountRole.SUPER_ADMIN;
+
+  return {
+    accountId: input.id,
+    role,
+    accountClass: isSuperAdmin
+      ? AccountClass.SUPER_ADMIN
+      : AccountClass.OFFICE_USER,
+    officeId:
+      input.officeId === undefined
+        ? isSuperAdmin
+          ? null
+          : 'office-a'
+        : input.officeId,
+    primaryOrgUnitId:
+      input.primaryOrgUnitId === undefined
+        ? isSuperAdmin
+          ? null
+          : 'org-unit-a'
+        : input.primaryOrgUnitId,
+    visibleOrgUnitIds: input.visibleOrgUnitIds ?? [],
+    assignableOrgUnitIds: input.assignableOrgUnitIds ?? [],
+    operationalTeamLeadIds: input.operationalTeamLeadIds ?? [],
   };
 }
 
@@ -102,646 +152,326 @@ describe('WorkScopeService', () => {
       findUnique: jest.fn(),
       findMany: jest.fn(),
     },
-    departmentTeam: {
+    operationalTeam: {
       findUnique: jest.fn(),
+    },
+    orgUnit: {
+      findMany: jest.fn(),
+    },
+    orgUnitClosure: {
+      findMany: jest.fn(),
+    },
+    delegatedPermission: {
+      findMany: jest.fn(),
     },
   } as unknown as PrismaService;
   const service = new WorkScopeService(prisma);
 
   beforeEach(() => {
     jest.clearAllMocks();
+    jest.mocked(prisma.orgUnit.findMany).mockResolvedValue([] as never);
+    jest.mocked(prisma.orgUnitClosure.findMany).mockResolvedValue([] as never);
+    jest.mocked(prisma.delegatedPermission.findMany).mockResolvedValue([] as never);
   });
 
-  it('allows division-scoped Senior Management without a department assignment', async () => {
-    const senior = createAccount({
-      id: 'senior',
-      role: AccountRole.SENIOR_MANAGEMENT,
-      divisionId: 'division-a',
-      departmentId: null,
+  it('resolves Office Head Work scope from active V3 Office leadership', async () => {
+    const officeHead = createAccount({
+      id: 'office-head',
+      role: AccountRole.EMPLOYEE,
+      leadershipType: OrgLeadershipType.OFFICE_HEAD,
     });
-    jest.mocked(prisma.account.findUnique).mockResolvedValue(senior as never);
+    jest.mocked(prisma.account.findUnique).mockResolvedValue(officeHead as never);
+    jest.mocked(prisma.orgUnit.findMany).mockResolvedValue([
+      { id: 'org-a' },
+      { id: 'org-b' },
+    ] as never);
 
     await expect(
       service.resolveActorContext({
-        accountId: senior.id,
+        accountId: officeHead.id,
         sessionId: 'session',
-        username: senior.username,
-        role: senior.role,
+        username: officeHead.username,
+        accountClass: officeHead.accountClass,
+        role: officeHead.role,
       }),
-    ).resolves.toEqual({
-      accountId: senior.id,
-      role: AccountRole.SENIOR_MANAGEMENT,
-      divisionId: 'division-a',
-      departmentId: null,
-    });
+    ).resolves.toEqual(
+      expect.objectContaining({
+        accountId: officeHead.id,
+        role: AccountRole.EMPLOYEE,
+        accountClass: AccountClass.OFFICE_USER,
+        officeId: 'office-a',
+        visibleOrgUnitIds: ['org-a', 'org-b'],
+        assignableOrgUnitIds: ['org-a', 'org-b'],
+      }),
+    );
   });
 
-  it('allows a division-scoped Senior Manager to remain the responsible reviewer', async () => {
-    const senior = createAccount({
-      id: 'senior-reviewer',
-      role: AccountRole.SENIOR_MANAGEMENT,
-      divisionId: 'division-a',
-      departmentId: null,
+  it('resolves Org Unit Head descendants without consulting Division or Department scope', async () => {
+    const head = createAccount({
+      id: 'org-head',
+      role: AccountRole.EMPLOYEE,
+      orgUnitId: 'org-parent',
+      leadershipType: OrgLeadershipType.ORG_UNIT_HEAD,
     });
-    jest.mocked(prisma.account.findUnique).mockResolvedValue(senior as never);
+    jest.mocked(prisma.account.findUnique).mockResolvedValue(head as never);
+    jest.mocked(prisma.orgUnitClosure.findMany).mockResolvedValue([
+      { descendantOrgUnitId: 'org-child' },
+    ] as never);
+
+    const resolved = await service.resolveActorContext({
+      accountId: head.id,
+      sessionId: 'session',
+      username: head.username,
+      accountClass: head.accountClass,
+      role: head.role,
+    });
+
+    expect(new Set(resolved.assignableOrgUnitIds)).toEqual(
+      new Set(['org-parent', 'org-child']),
+    );
+  });
+
+  it('adds delegated work.assign descendants to V3 assignment scope', async () => {
+    const employee = createAccount({ id: 'delegate', role: AccountRole.EMPLOYEE });
+    jest.mocked(prisma.account.findUnique).mockResolvedValue(employee as never);
+    jest.mocked(prisma.delegatedPermission.findMany).mockResolvedValue([
+      {
+        capability: 'work.assign',
+        orgUnitId: 'org-delegated',
+        includeDescendants: true,
+      },
+    ] as never);
+    jest.mocked(prisma.orgUnitClosure.findMany).mockResolvedValue([
+      { descendantOrgUnitId: 'org-delegated-child' },
+    ] as never);
+
+    const resolved = await service.resolveActorContext({
+      accountId: employee.id,
+      sessionId: 'session',
+      username: employee.username,
+      accountClass: employee.accountClass,
+      role: employee.role,
+    });
+
+    expect(new Set(resolved.assignableOrgUnitIds)).toEqual(
+      new Set(['org-delegated', 'org-delegated-child']),
+    );
+    expect(new Set(resolved.visibleOrgUnitIds)).toEqual(
+      new Set(['org-delegated', 'org-delegated-child']),
+    );
+  });
+
+  it('allows an Org Unit Head to assign an employee inside its V3 subtree', async () => {
+    const target = createAccount({
+      id: 'employee',
+      role: AccountRole.EMPLOYEE,
+      orgUnitId: 'org-child',
+    });
+    jest.mocked(prisma.account.findMany).mockResolvedValue([target] as never);
 
     await expect(
-      service.resolveResponsibleManager(
-        {
-          accountId: senior.id,
-          role: AccountRole.SENIOR_MANAGEMENT,
-          divisionId: 'division-a',
-          departmentId: null,
-        },
-        undefined,
-        'division-a',
-        'department-a',
+      service.resolveAssignableAccounts(
+        actor({
+          id: 'org-head',
+          role: AccountRole.EMPLOYEE,
+          assignableOrgUnitIds: ['org-parent', 'org-child'],
+        }),
+        [target.id],
       ),
-    ).resolves.toEqual(senior);
+    ).resolves.toEqual([target]);
   });
 
-  it('still rejects a Team Manager without an active department assignment', async () => {
-    const manager = createAccount({
-      id: 'manager-without-department',
-      role: AccountRole.TEAM_MANAGER,
-      divisionId: 'division-a',
-      departmentId: null,
+  it('rejects a target outside the authorized V3 OrgUnit scope', async () => {
+    const target = createAccount({
+      id: 'outside',
+      role: AccountRole.EMPLOYEE,
+      orgUnitId: 'org-outside',
     });
-    jest.mocked(prisma.account.findUnique).mockResolvedValue(manager as never);
+    jest.mocked(prisma.account.findMany).mockResolvedValue([target] as never);
 
     await expect(
-      service.resolveActorContext({
-        accountId: manager.id,
-        sessionId: 'session',
-        username: manager.username,
-        role: manager.role,
-      }),
+      service.resolveAssignableAccounts(
+        actor({
+          id: 'org-head',
+          role: AccountRole.EMPLOYEE,
+          assignableOrgUnitIds: ['org-parent'],
+        }),
+        [target.id],
+      ),
     ).rejects.toBeInstanceOf(ForbiddenException);
   });
 
-  it('lets a Team Manager assign active employees in the same division', async () => {
+  it('allows an Operational Team Lead to assign a current member of that team', async () => {
+    const target = createAccount({
+      id: 'team-member',
+      role: AccountRole.EMPLOYEE,
+      orgUnitId: 'org-team',
+      teamMembershipIds: ['team-a'],
+    });
+    jest.mocked(prisma.account.findMany).mockResolvedValue([target] as never);
+
+    await expect(
+      service.resolveAssignableAccounts(
+        actor({
+          id: 'team-lead',
+          role: AccountRole.EMPLOYEE,
+          operationalTeamLeadIds: ['team-a'],
+        }),
+        [target.id],
+      ),
+    ).resolves.toEqual([target]);
+  });
+
+  it('rejects a Team Lead target who is not a current member of the led team', async () => {
+    const target = createAccount({
+      id: 'not-team-member',
+      role: AccountRole.EMPLOYEE,
+      orgUnitId: 'org-team',
+      teamMembershipIds: ['team-b'],
+    });
+    jest.mocked(prisma.account.findMany).mockResolvedValue([target] as never);
+
+    await expect(
+      service.resolveAssignableAccounts(
+        actor({
+          id: 'team-lead',
+          role: AccountRole.EMPLOYEE,
+          operationalTeamLeadIds: ['team-a'],
+        }),
+        [target.id],
+      ),
+    ).rejects.toBeInstanceOf(ForbiddenException);
+  });
+
+  it('authorizes Administrative individual assignment by V3 scope instead of compatibility role', () => {
     const manager = createAccount({
       id: 'manager',
-      role: AccountRole.TEAM_MANAGER,
-      departmentId: 'department-a',
-    });
-    const employee = createAccount({
-      id: 'employee',
       role: AccountRole.EMPLOYEE,
-      departmentId: 'department-a',
+      orgUnitId: 'org-a',
     });
-    jest.mocked(prisma.account.findUnique).mockResolvedValue(manager as never);
-    jest.mocked(prisma.account.findMany).mockResolvedValue([employee] as never);
-
-    const actor = await service.resolveActorContext({
-      accountId: manager.id,
-      sessionId: 'session',
-      username: manager.username,
-      role: manager.role,
+    const outsideManager = createAccount({
+      id: 'outside-manager',
+      role: AccountRole.EMPLOYEE,
+      orgUnitId: 'org-b',
     });
-    const resolved = await service.resolveAssignableAccounts(actor, [
-      employee.id,
-    ]);
+    const officeHead = actor({
+      id: 'office-head',
+      role: AccountRole.EMPLOYEE,
+      assignableOrgUnitIds: ['org-a'],
+    });
 
-    expect(resolved).toHaveLength(1);
-    expect(resolved[0]?.id).toBe(employee.id);
+    expect(() =>
+      service.assertAdministrativeIndividualAssignee(officeHead, manager as never),
+    ).not.toThrow();
+    expect(() =>
+      service.assertAdministrativeIndividualAssignee(
+        officeHead,
+        outsideManager as never,
+      ),
+    ).toThrow(ForbiddenException);
   });
 
-  it('lets a Team Manager assign an employee from a sibling department in the same division', async () => {
-    const employee = createAccount({
-      id: 'employee',
-      role: AccountRole.EMPLOYEE,
-      departmentId: 'department-b',
-    });
-    jest.mocked(prisma.account.findMany).mockResolvedValue([employee] as never);
-
-    const resolved = await service.resolveAssignableAccounts(
-      {
-        accountId: 'manager',
-        role: AccountRole.TEAM_MANAGER,
-        divisionId: 'division-a',
-        departmentId: 'department-a',
-      },
-      [employee.id],
+  it('builds management visibility from V3 OrgUnit and participant scope', () => {
+    const where = service.buildVisibleWorkWhere(
+      actor({
+        id: 'head',
+        role: AccountRole.EMPLOYEE,
+        visibleOrgUnitIds: ['org-a', 'org-b'],
+      }),
     );
 
-    expect(resolved[0]?.id).toBe(employee.id);
-  });
-
-  it('rejects a Team Manager assigning an employee from another division', async () => {
-    const employee = createAccount({
-      id: 'employee',
-      role: AccountRole.EMPLOYEE,
-      divisionId: 'division-b',
-      departmentId: 'department-b',
-    });
-    jest.mocked(prisma.account.findMany).mockResolvedValue([employee] as never);
-
-    await expect(
-      service.resolveAssignableAccounts(
-        {
-          accountId: 'manager',
-          role: AccountRole.TEAM_MANAGER,
-          divisionId: 'division-a',
-          departmentId: 'department-a',
-        },
-        [employee.id],
-      ),
-    ).rejects.toBeInstanceOf(ForbiddenException);
-  });
-
-  it('lets Super Admin assign division-level work directly to Senior Management', async () => {
-    const senior = createAccount({
-      id: 'senior-assignee',
-      role: AccountRole.SENIOR_MANAGEMENT,
-      divisionId: 'division-a',
-      departmentId: null,
-    });
-    jest.mocked(prisma.account.findMany).mockResolvedValue([senior] as never);
-
-    await expect(
-      service.resolveAssignableAccounts(
-        {
-          accountId: 'super-admin',
-          role: AccountRole.SUPER_ADMIN,
-          divisionId: null,
-          departmentId: null,
-        },
-        [senior.id],
-      ),
-    ).resolves.toEqual([senior]);
-  });
-
-  it('enforces the Administrative individual hierarchy from Super Admin downward', () => {
-    const senior = createAccount({
-      id: 'senior-target',
-      role: AccountRole.SENIOR_MANAGEMENT,
-      divisionId: 'division-a',
-      departmentId: null,
-    });
-    const teamManager = createAccount({
-      id: 'manager-target',
-      role: AccountRole.TEAM_MANAGER,
-      divisionId: 'division-a',
-      departmentId: 'department-a',
-    });
-    const employee = createAccount({
-      id: 'employee-target',
-      role: AccountRole.EMPLOYEE,
-      divisionId: 'division-a',
-      departmentId: 'department-a',
-    });
-    const actor = {
-      accountId: 'super-admin',
-      role: AccountRole.SUPER_ADMIN,
-      divisionId: null,
-      departmentId: null,
-    };
-
-    expect(() =>
-      service.assertAdministrativeIndividualAssignee(actor, senior as never),
-    ).not.toThrow();
-    expect(() =>
-      service.assertAdministrativeIndividualAssignee(actor, teamManager as never),
-    ).not.toThrow();
-    expect(() =>
-      service.assertAdministrativeIndividualAssignee(actor, employee as never),
-    ).toThrow(ForbiddenException);
-  });
-
-  it('allows Senior Management to delegate Administrative Work only to a Team Manager in its division', () => {
-    const teamManager = createAccount({
-      id: 'manager-target',
-      role: AccountRole.TEAM_MANAGER,
-      divisionId: 'division-a',
-      departmentId: 'department-a',
-    });
-    const employee = createAccount({
-      id: 'employee-target',
-      role: AccountRole.EMPLOYEE,
-      divisionId: 'division-a',
-      departmentId: 'department-a',
-    });
-    const otherDivisionManager = createAccount({
-      id: 'other-manager',
-      role: AccountRole.TEAM_MANAGER,
-      divisionId: 'division-b',
-      departmentId: 'department-b',
-    });
-    const actor = {
-      accountId: 'senior',
-      role: AccountRole.SENIOR_MANAGEMENT,
-      divisionId: 'division-a',
-      departmentId: null,
-    };
-
-    expect(() =>
-      service.assertAdministrativeIndividualAssignee(actor, teamManager as never),
-    ).not.toThrow();
-    expect(() =>
-      service.assertAdministrativeIndividualAssignee(actor, employee as never),
-    ).toThrow(ForbiddenException);
-    expect(() =>
-      service.assertAdministrativeIndividualAssignee(actor, otherDivisionManager as never),
-    ).toThrow(ForbiddenException);
-  });
-
-  it('allows a Team Manager to delegate Administrative Work only to an Employee in its department', () => {
-    const employee = createAccount({
-      id: 'employee-target',
-      role: AccountRole.EMPLOYEE,
-      divisionId: 'division-a',
-      departmentId: 'department-a',
-    });
-    const siblingEmployee = createAccount({
-      id: 'sibling-employee',
-      role: AccountRole.EMPLOYEE,
-      divisionId: 'division-a',
-      departmentId: 'department-b',
-    });
-    const actor = {
-      accountId: 'manager',
-      role: AccountRole.TEAM_MANAGER,
-      divisionId: 'division-a',
-      departmentId: 'department-a',
-    };
-
-    expect(() =>
-      service.assertAdministrativeIndividualAssignee(actor, employee as never),
-    ).not.toThrow();
-    expect(() =>
-      service.assertAdministrativeIndividualAssignee(actor, siblingEmployee as never),
-    ).toThrow(ForbiddenException);
-  });
-
-  it('keeps division-level primary reassignment with Senior Management in the same division', async () => {
-    const senior = createAccount({
-      id: 'replacement-senior',
-      role: AccountRole.SENIOR_MANAGEMENT,
-      divisionId: 'division-a',
-      departmentId: null,
-    });
-    jest.mocked(prisma.account.findMany).mockResolvedValue([senior] as never);
-
-    await expect(
-      service.resolvePrimaryReassignmentAccount(
-        {
-          accountId: 'super-admin',
-          role: AccountRole.SUPER_ADMIN,
-          divisionId: null,
-          departmentId: null,
-        },
-        senior.id,
-        'division-a',
-        null,
-      ),
-    ).resolves.toEqual(senior);
-  });
-
-  it('lets Senior Management see only its division', () => {
-    expect(
-      service.buildVisibleWorkWhere({
-        accountId: 'senior',
-        role: AccountRole.SENIOR_MANAGEMENT,
-        divisionId: 'division-a',
-        departmentId: 'department-a',
+    expect(where).toEqual(
+      expect.objectContaining({
+        AND: expect.arrayContaining([
+          { status: { not: WorkItemStatus.V3_RUNTIME } },
+          expect.objectContaining({
+            OR: expect.arrayContaining([
+              { primaryOwnerOrgUnitId: { in: ['org-a', 'org-b'] } },
+              {
+                orgUnitParticipants: {
+                  some: { orgUnitId: { in: ['org-a', 'org-b'] } },
+                },
+              },
+            ]),
+          }),
+        ]),
       }),
-    ).toEqual({
-      AND: [
-        { status: { not: WorkItemStatus.V3_RUNTIME } },
-        { divisionId: 'division-a' },
-      ],
-    });
+    );
+    expect(JSON.stringify(where)).not.toContain('divisionId');
+    expect(JSON.stringify(where)).not.toContain('departmentId');
   });
 
-  it('uses strict hierarchy scope for branch, division and department overviews', () => {
-    expect(
-      service.buildOrganizationHierarchyWorkWhere({
-        accountId: 'super-admin',
-        role: AccountRole.SUPER_ADMIN,
-        divisionId: null,
-        departmentId: null,
-      }),
-    ).toEqual({ status: { not: WorkItemStatus.V3_RUNTIME } });
-
-    expect(
-      service.buildOrganizationHierarchyWorkWhere({
-        accountId: 'senior',
-        role: AccountRole.SENIOR_MANAGEMENT,
-        divisionId: 'division-a',
-        departmentId: null,
-      }),
-    ).toEqual({
-      AND: [
-        { status: { not: WorkItemStatus.V3_RUNTIME } },
-        { divisionId: 'division-a' },
-      ],
-    });
-
-    expect(
-      service.buildOrganizationHierarchyWorkWhere({
-        accountId: 'manager',
-        role: AccountRole.TEAM_MANAGER,
-        divisionId: 'division-a',
-        departmentId: 'department-a',
-      }),
-    ).toEqual({
-      AND: [
-        { status: { not: WorkItemStatus.V3_RUNTIME } },
-        { departmentId: 'department-a' },
-      ],
-    });
-  });
-
-  it('keeps Employee visibility assignment-scoped', () => {
-    expect(
-      service.buildVisibleWorkWhere({
-        accountId: 'employee',
+  it('builds hierarchy overview from V3 OrgUnit and Operational Team scope', () => {
+    const where = service.buildOrganizationHierarchyWorkWhere(
+      actor({
+        id: 'team-lead',
         role: AccountRole.EMPLOYEE,
-        divisionId: 'division-a',
-        departmentId: 'department-a',
+        visibleOrgUnitIds: ['org-a'],
+        operationalTeamLeadIds: ['team-a'],
       }),
-    ).toEqual({
-      AND: [
-        { status: { not: WorkItemStatus.V3_RUNTIME } },
-        {
-          OR: [
-            {
-              assignments: {
-                some: {
-                  assigneeAccountId: 'employee',
-                  endedAt: null,
-                },
-              },
-            },
-            {
-              status: {
-                in: [WorkItemStatus.CLOSED, WorkItemStatus.CANCELLED],
-              },
-              assignments: {
-                some: {
-                  assigneeAccountId: 'employee',
-                },
-              },
-            },
-            {
-              assignedTeam: {
-                is: {
-                  members: {
-                    some: {
-                      employee: {
-                        is: {
-                          account: { is: { id: 'employee' } },
-                        },
-                      },
-                    },
-                  },
-                },
-              },
-            },
-            { salesMemberAccountId: 'employee' },
-          ],
-        },
-      ],
-    });
-  });
-
-
-  it('resolves an active team only inside the manager organization scope', async () => {
-    const admin = createAccount({
-      id: 'team-admin',
-      role: AccountRole.EMPLOYEE,
-      departmentId: 'department-a',
-    });
-    const team = {
-      id: 'team-a',
-      name: 'Network Team A',
-      departmentId: 'field-department',
-      teamAdminEmployeeId: admin.employee.id,
-      isActive: true,
-      archivedAt: null,
-      department: {
-        id: 'field-department',
-        divisionId: 'division-a',
-        code: 'NET',
-        name: 'Network',
-        workFunction: DepartmentWorkFunction.FIELD_OPERATIONS,
-        isActive: true,
-        division: {
-          id: 'division-a',
-          code: 'DIV-A',
-          name: 'Division A',
-          isActive: true,
-        },
-      },
-      teamAdmin: { id: admin.employee.id, account: admin },
-      members: [
-        { employee: { id: admin.employee.id, account: admin } },
-      ],
-    };
-    jest.mocked(prisma.departmentTeam.findUnique).mockResolvedValue(team as never);
-
-    await expect(
-      service.resolveAssignableTeam(
-        {
-          accountId: 'manager',
-          role: AccountRole.TEAM_MANAGER,
-          divisionId: 'division-a',
-          departmentId: 'department-a',
-        },
-        team.id,
-      ),
-    ).resolves.toEqual(team);
-  });
-
-  it('allows a Team Manager to select an active Sales collaborator from any department in the same division', async () => {
-    const sales = createAccount({
-      id: 'sales-member',
-      role: AccountRole.EMPLOYEE,
-      divisionId: 'division-a',
-      departmentId: 'sales-department',
-      workFunction: DepartmentWorkFunction.SALES,
-    });
-    jest.mocked(prisma.account.findUnique).mockResolvedValue(sales as never);
-
-    await expect(
-      service.resolveSalesMember(
-        {
-          accountId: 'manager',
-          role: AccountRole.TEAM_MANAGER,
-          divisionId: 'division-a',
-          departmentId: 'network-department',
-        },
-        sales.id,
-        'division-a',
-      ),
-    ).resolves.toEqual(sales);
-  });
-
-  it('rejects a Sales collaborator outside the assigned work division', async () => {
-    const outsideEmployee = createAccount({
-      id: 'outside-collaborator',
-      role: AccountRole.EMPLOYEE,
-      divisionId: 'division-b',
-      departmentId: 'department-b',
-    });
-    jest.mocked(prisma.account.findUnique).mockResolvedValueOnce(
-      outsideEmployee as never,
     );
 
-    await expect(
-      service.resolveSalesMember(
-        {
-          accountId: 'manager',
-          role: AccountRole.TEAM_MANAGER,
-          divisionId: 'division-a',
-          departmentId: 'department-a',
-        },
-        outsideEmployee.id,
-        'division-a',
-      ),
-    ).rejects.toBeInstanceOf(ForbiddenException);
+    expect(JSON.stringify(where)).toContain('primaryOwnerOrgUnitId');
+    expect(JSON.stringify(where)).toContain('targetOperationalTeamId');
+    expect(JSON.stringify(where)).not.toContain('divisionId');
+    expect(JSON.stringify(where)).not.toContain('departmentId');
   });
 
-  it('allows Supporting Staff from any active department inside the selected work division', async () => {
-    const support = createAccount({
-      id: 'support-member',
-      role: AccountRole.EMPLOYEE,
-      divisionId: 'division-a',
-      departmentId: 'any-department',
-    });
-    jest.mocked(prisma.account.findMany).mockResolvedValue([support] as never);
+  it('keeps ordinary Employee visibility assignment/personal-work scoped', () => {
+    const where = service.buildVisibleWorkWhere(
+      actor({ id: 'employee', role: AccountRole.EMPLOYEE }),
+    );
+    const serialized = JSON.stringify(where);
 
-    await expect(
-      service.resolveSupportMembers(
-        {
-          accountId: 'manager',
-          role: AccountRole.TEAM_MANAGER,
-          divisionId: 'division-a',
-          departmentId: 'creator-department',
-        },
-        [support.id],
-        'division-a',
-      ),
-    ).resolves.toEqual([support]);
+    expect(serialized).toContain('assigneeAccountId');
+    expect(serialized).toContain('salesMemberAccountId');
+    expect(serialized).not.toContain('divisionId');
+    expect(serialized).not.toContain('departmentId');
   });
 
-  it('does not allow an Employee to create work', () => {
-    expect(() =>
-      service.assertCanCreateWork({
-        accountId: 'employee',
-        role: AccountRole.EMPLOYEE,
-        divisionId: 'division-a',
-        departmentId: 'department-a',
-      }),
-    ).toThrow(ForbiddenException);
-  });
-
-  it('keeps completion review with the responsible manager or Super Admin', () => {
-    expect(() =>
-      service.assertCanReviewWork(
-        {
-          accountId: 'manager',
-          role: AccountRole.TEAM_MANAGER,
-          divisionId: 'division-a',
-          departmentId: 'department-a',
-        },
-        'manager',
-      ),
-    ).not.toThrow();
-
-    expect(() =>
-      service.assertCanReviewWork(
-        {
-          accountId: 'other-manager',
-          role: AccountRole.TEAM_MANAGER,
-          divisionId: 'division-a',
-          departmentId: 'department-a',
-        },
-        'manager',
-      ),
-    ).toThrow(ForbiddenException);
-  });
-
-  it('allows direct help only from the same department', async () => {
+  it('allows direct help across OrgUnits in the same Office', async () => {
     const helper = createAccount({
       id: 'helper',
       role: AccountRole.EMPLOYEE,
-      departmentId: 'department-a',
+      orgUnitId: 'org-other',
     });
     jest.mocked(prisma.account.findUnique).mockResolvedValue(helper as never);
 
     await expect(
       service.resolveHelpCandidate(
-        {
-          accountId: 'employee',
-          role: AccountRole.EMPLOYEE,
-          divisionId: 'division-a',
-          departmentId: 'department-a',
-        },
+        actor({ id: 'employee', role: AccountRole.EMPLOYEE }),
         helper.id,
-        'department-a',
+        'org-source',
       ),
     ).resolves.toEqual(helper);
-
-    await expect(
-      service.resolveHelpCandidate(
-        {
-          accountId: 'employee',
-          role: AccountRole.EMPLOYEE,
-          divisionId: 'division-a',
-          departmentId: 'department-a',
-        },
-        helper.id,
-        'department-b',
-      ),
-    ).rejects.toBeInstanceOf(ForbiddenException);
   });
 
-  it('keeps primary reassignment inside the original department', async () => {
-    const target = createAccount({
-      id: 'target',
-      role: AccountRole.EMPLOYEE,
-      departmentId: 'department-b',
-    });
-    jest.mocked(prisma.account.findMany).mockResolvedValue([target] as never);
-
-    await expect(
-      service.resolvePrimaryReassignmentAccount(
-        {
-          accountId: 'senior',
-          role: AccountRole.SENIOR_MANAGEMENT,
-          divisionId: 'division-a',
-          departmentId: 'department-a',
-        },
-        target.id,
-        'division-a',
-        'department-a',
-      ),
-    ).rejects.toBeInstanceOf(ForbiddenException);
-  });
-
-  it('keeps organization management closed to Employees while preserving Super Admin emergency review authority', () => {
+  it('denies Work management when an Office user has no V3 assignment authority', () => {
     expect(() =>
-      service.assertCanManageWork({
-        accountId: 'employee',
-        role: AccountRole.EMPLOYEE,
-        divisionId: 'division-a',
-        departmentId: 'department-a',
-      }),
+      service.assertCanManageWork(
+        actor({ id: 'office-user', role: AccountRole.EMPLOYEE }),
+      ),
     ).toThrow(ForbiddenException);
+  });
 
+  it('allows delegated Work management regardless of the compatibility Employee role', () => {
     expect(() =>
-      service.assertCanReviewWork(
-        {
-          accountId: 'super-admin',
-          role: AccountRole.SUPER_ADMIN,
-          divisionId: null,
-          departmentId: null,
-        },
-        'manager',
+      service.assertCanManageWork(
+        actor({
+          id: 'delegate',
+          role: AccountRole.EMPLOYEE,
+          assignableOrgUnitIds: ['org-a'],
+        }),
       ),
     ).not.toThrow();
+  });
+
+  it('denies Super Admin operational Work management even though the compatibility role is privileged', () => {
+    expect(() =>
+      service.assertCanManageWork(
+        actor({ id: 'super-admin', role: AccountRole.SUPER_ADMIN }),
+      ),
+    ).toThrow(ForbiddenException);
   });
 
 });

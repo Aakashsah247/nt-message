@@ -1,14 +1,15 @@
 import type { InterfaceLanguage } from "../i18n/language";
 
-export type AccountRole =
-  | "SUPER_ADMIN"
-  | "SENIOR_MANAGEMENT"
-  | "TEAM_MANAGER"
-  | "EMPLOYEE";
+export type AccountClass = "SUPER_ADMIN" | "OFFICE_USER";
+
+// Temporary compatibility field while the persisted legacy role column is retired.
+// Authorization must use AccountClass plus server-provided capability/scope context.
+export type AccountRole = string;
 
 export interface AuthAccount {
   id: string;
   username: string | null;
+  accountClass: AccountClass;
   role: AccountRole;
   displayName: string;
   positionLabel: string;

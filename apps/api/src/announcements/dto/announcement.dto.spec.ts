@@ -45,11 +45,7 @@ describe('announcement DTO validation', () => {
   });
 
   it('rejects legacy hierarchy audiences for new announcement writes', () => {
-    for (const audienceType of [
-      AnnouncementAudienceType.ORGANIZATION,
-      AnnouncementAudienceType.DIVISION,
-      AnnouncementAudienceType.DEPARTMENT,
-    ]) {
+    for (const audienceType of ['ORGANIZATION', 'DIVISION', 'DEPARTMENT']) {
       const dto = Object.assign(validCreateDto(), { audienceType });
       expect(
         validateSync(dto).some((error) => error.property === 'audienceType'),

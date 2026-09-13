@@ -734,15 +734,15 @@ export function AdminRequestDetailPanel({
 
               <div className="admin-detail-grid">
                 <DetailField
-                  label={t("common.division")}
-                  value={request.division?.name ?? t("common.notAssigned")}
-                  secondary={request.division?.code}
+                  label={t("common.office")}
+                  value={request.office?.name ?? t("common.notAssigned")}
+                  secondary={request.office?.code}
                 />
 
                 <DetailField
-                  label={t("common.department")}
-                  value={request.department?.name ?? t("common.notAssigned")}
-                  secondary={request.department?.code}
+                  label={t("common.orgUnit")}
+                  value={request.intendedOrgUnit?.name ?? t("common.notAssigned")}
+                  secondary={request.intendedOrgUnit?.code}
                 />
               </div>
             </section>

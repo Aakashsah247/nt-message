@@ -7,6 +7,7 @@ import {
 import type { AuthenticatedUser } from '../auth/types/auth.types';
 import { PrismaService } from '../database/prisma.service';
 import {
+  AccountClass,
   AccountRole,
   OrgLeadershipType,
   WorkCollaborationStatus,
@@ -31,6 +32,7 @@ const user = {
   accountId: '11111111-1111-4111-8111-111111111111',
   sessionId: 'session-1',
   username: 'worker',
+  accountClass: AccountClass.OFFICE_USER,
   role: AccountRole.EMPLOYEE,
 } satisfies AuthenticatedUser;
 
@@ -262,6 +264,7 @@ describe('WorkRuntimeV3StageService', () => {
     const harness = createHarness();
     const superAdmin = {
       ...user,
+      accountClass: AccountClass.SUPER_ADMIN,
       role: AccountRole.SUPER_ADMIN,
     } satisfies AuthenticatedUser;
 
@@ -1305,6 +1308,7 @@ describe('WorkRuntimeV3StageService', () => {
     const superAdmin = {
       ...user,
       accountId: '99999999-9999-4999-8999-999999999999',
+      accountClass: AccountClass.SUPER_ADMIN,
       role: AccountRole.SUPER_ADMIN,
     } satisfies AuthenticatedUser;
     const harness = createHarness();

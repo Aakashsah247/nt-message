@@ -327,7 +327,6 @@ export class AuthController {
       // records cannot leak stale header names into the frontend.
       account: await this.authService.getCurrentAccountResult(
         user.accountId,
-        user.role,
       ),
 
       session: {

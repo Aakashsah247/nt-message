@@ -9,7 +9,6 @@ export interface CanonicalActivationRequestScope {
   officeId: string | null;
   intendedOrgUnitId: string | null;
   requestedRole: AccountRole;
-  managementPositionId: string | null;
 }
 
 export interface CurrentPrimaryMembershipScope {
@@ -31,7 +30,6 @@ export function isCanonicalOfficeActivationRequest(
     request.officeId &&
       request.intendedOrgUnitId &&
       request.requestedRole === AccountRole.EMPLOYEE &&
-      request.managementPositionId === null &&
       (request.lifecycleState === AccountRequestLifecycleState.APPROVED ||
         request.lifecycleState === AccountRequestLifecycleState.PROVISIONED),
   );

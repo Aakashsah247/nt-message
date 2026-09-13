@@ -3,6 +3,7 @@ import { ForbiddenException } from '@nestjs/common';
 import type { AuthenticatedUser } from '../auth/types/auth.types';
 import { PrismaService } from '../database/prisma.service';
 import {
+  AccountClass,
   AccountRole,
   EmployeeStatus,
   EmploymentStatus,
@@ -18,11 +19,13 @@ import { OrganizationPeopleService } from './organization-people.service';
 describe('OrganizationPeopleService UI read context', () => {
   const employeeUser = {
     accountId: 'employee-account',
+    accountClass: AccountClass.OFFICE_USER,
     role: AccountRole.EMPLOYEE,
   } as AuthenticatedUser;
 
   const superAdminUser = {
     accountId: 'super-admin-account',
+    accountClass: AccountClass.SUPER_ADMIN,
     role: AccountRole.SUPER_ADMIN,
   } as AuthenticatedUser;
 
@@ -99,6 +102,7 @@ describe('OrganizationPeopleService UI read context', () => {
               account: {
                 id: 'account-2',
                 username: 'ntc-1004',
+                accountClass: AccountClass.OFFICE_USER,
                 role: AccountRole.EMPLOYEE,
                 isEnabled: true,
               },
@@ -134,6 +138,7 @@ describe('OrganizationPeopleService UI read context', () => {
               account: {
                 id: 'account-1',
                 username: 'ntc-1002',
+                accountClass: AccountClass.OFFICE_USER,
                 role: AccountRole.EMPLOYEE,
                 isEnabled: true,
               },

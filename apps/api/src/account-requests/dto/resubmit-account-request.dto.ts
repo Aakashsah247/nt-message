@@ -10,6 +10,12 @@ import {
 
 export class ResubmitAccountRequestDto {
   @IsOptional()
+  @IsUUID('4', {
+    message: 'Intended OrgUnit ID must be a valid UUID.',
+  })
+  intendedOrgUnitId?: string;
+
+  @IsOptional()
   @IsString()
   @MinLength(2)
   @MaxLength(50)
@@ -42,29 +48,6 @@ export class ResubmitAccountRequestDto {
   )
   @MaxLength(255)
   officialEmail?: string;
-
-  /*
-   * Senior Management may correct the department
-   * for a Team Manager request.
-   *
-   * A Team Manager remains restricted to their
-   * currently assigned department.
-   */
-  @IsOptional()
-  @IsUUID('4', {
-    message: 'Department ID must be a valid UUID.',
-  })
-  departmentId?: string;
-
-  /*
-   * A rejected management request may select another position.
-   * The backend resolves the unique scoped position when omitted.
-   */
-  @IsOptional()
-  @IsUUID('4', {
-    message: 'Management position ID must be a valid UUID.',
-  })
-  managementPositionId?: string;
 
   @IsOptional()
   @IsString()

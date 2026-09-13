@@ -105,8 +105,6 @@ describe('ConversationsService official-group OrgUnit runtime', () => {
       id: 'official-group-1',
       createdByAccountId: accountId,
       officialScopeType: scopeType,
-      officialDivisionId: null,
-      officialDepartmentId: null,
       officialOfficeId: officeId,
       officialOrgUnitId:
         scopeType === OfficialGroupScopeType.ORG_UNIT ? orgUnitId : null,
@@ -503,8 +501,6 @@ describe('ConversationsService official-group OrgUnit runtime', () => {
         officialOfficeId: officeId,
         officialOrgUnitId: orgUnitId,
         officialMembershipMode: OfficialGroupMembershipMode.DIRECT_MEMBERS,
-        officialDivisionId: null,
-        officialDepartmentId: null,
       }),
       select: { id: true },
     });

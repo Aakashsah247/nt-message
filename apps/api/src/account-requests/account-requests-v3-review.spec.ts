@@ -1,5 +1,6 @@
 import type { AuthenticatedUser } from '../auth/types/auth.types';
 import {
+  AccountClass,
   AccountRequestActionType,
   AccountRequestLifecycleState,
   AccountRequestStatus,
@@ -15,6 +16,7 @@ const superAdmin: AuthenticatedUser = {
   sessionId: 'session-1',
   username: 'superadmin@example.com',
   role: AccountRole.SUPER_ADMIN,
+  accountClass: AccountClass.SUPER_ADMIN,
 };
 
 const metadata = {
@@ -46,7 +48,6 @@ describe('AccountRequestsService V3 review/provision flow', () => {
           intendedOrgUnitId: 'unit-1',
           divisionId: null,
           departmentId: null,
-          managementPositionId: null,
           office: {
             id: 'office-1',
             code: 'PATAN',
@@ -78,7 +79,6 @@ describe('AccountRequestsService V3 review/provision flow', () => {
           intendedOrgUnitId: 'unit-1',
           divisionId: null,
           departmentId: null,
-          managementPositionId: null,
           employeeId: 'employee-1',
           revisionNumber: 1,
           status: AccountRequestStatus.APPROVED,
@@ -130,7 +130,6 @@ describe('AccountRequestsService V3 review/provision flow', () => {
           officeId: 'office-1',
           intendedOrgUnitId: 'unit-1',
           requestedRole: AccountRole.EMPLOYEE,
-          managementPositionId: null,
         }),
       },
       $transaction: jest.fn(

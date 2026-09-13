@@ -13,9 +13,8 @@ import {
 import { DutyHolidayType } from '../../generated/prisma/client';
 
 export enum DutyHolidayScope {
-  BRANCH = 'BRANCH',
-  DIVISION = 'DIVISION',
-  DEPARTMENT = 'DEPARTMENT',
+  OFFICE = 'OFFICE',
+  ORG_UNIT = 'ORG_UNIT',
 }
 
 function trimText(value: unknown): unknown {
@@ -41,13 +40,9 @@ export class CreateDutyHolidayDto {
   @IsEnum(DutyHolidayScope)
   scope!: DutyHolidayScope;
 
-  @ValidateIf((dto: CreateDutyHolidayDto) => dto.scope !== DutyHolidayScope.BRANCH)
+  @ValidateIf((dto: CreateDutyHolidayDto) => dto.scope === DutyHolidayScope.ORG_UNIT)
   @IsUUID('4')
-  divisionId?: string;
-
-  @ValidateIf((dto: CreateDutyHolidayDto) => dto.scope === DutyHolidayScope.DEPARTMENT)
-  @IsUUID('4')
-  departmentId?: string;
+  orgUnitId?: string;
 
   @Transform(({ value }: { value: unknown }) => trimText(value))
   @IsOptional()

@@ -110,7 +110,6 @@ export interface WorkTypeDefinitionListItem {
   id: string;
   officeId: string;
   code: string;
-  legacyWorkItemType: string | null;
   isActive: boolean;
   sortOrder: number;
   createdAt: string;
@@ -223,7 +222,6 @@ export interface WorkTypeDefinitionDetail {
   id: string;
   officeId: string;
   code: string;
-  legacyWorkItemType: string | null;
   isActive: boolean;
   sortOrder: number;
   createdAt: string;

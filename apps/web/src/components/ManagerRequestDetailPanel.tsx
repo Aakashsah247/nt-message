@@ -6,7 +6,6 @@ import { useTranslation } from "react-i18next";
 
 import {
   cancelMyAccountRequest,
-  getDivisionEmployeeRequest,
   getMyAccountRequest,
   resendActivationEmail,
   resubmitMyAccountRequest,
@@ -15,7 +14,6 @@ import {
 import type {
   ManagerRequestContextResponse,
   MyAccountRequestDetail,
-  ScopedAccountRequestDetail,
 } from "../types/account-request";
 
 interface ManagerRequestDetailPanelProps {
@@ -23,7 +21,6 @@ interface ManagerRequestDetailPanelProps {
   requestId: string;
   requestContext: ManagerRequestContextResponse;
   onClose: () => void;
-  readOnly?: boolean;
   onCancelled: () => void;
   onResubmitted: (newRequestId: string) => void;
 }
@@ -34,7 +31,7 @@ interface ResubmitFormState {
   phoneNumber: string;
   officialEmail: string;
   designation: string;
-  departmentId: string;
+  intendedOrgUnitId: string;
 }
 
 const emptyForm: ResubmitFormState = {
@@ -43,7 +40,7 @@ const emptyForm: ResubmitFormState = {
   phoneNumber: "",
   officialEmail: "",
   designation: "",
-  departmentId: "",
+  intendedOrgUnitId: "",
 };
 
 function getErrorMessage(error: unknown, t: TFunction<"requests">): string {
@@ -90,15 +87,12 @@ export function ManagerRequestDetailPanel({
   accessToken,
   requestId,
   requestContext,
-  readOnly = false,
   onClose,
   onCancelled,
   onResubmitted,
 }: ManagerRequestDetailPanelProps) {
   const { t, i18n } = useTranslation("requests");
-  const [detail, setDetail] = useState<
-    MyAccountRequestDetail | ScopedAccountRequestDetail | null
-  >(null);
+  const [detail, setDetail] = useState<MyAccountRequestDetail | null>(null);
 
   const [form, setForm] = useState<ResubmitFormState>(emptyForm);
 
@@ -121,19 +115,15 @@ export function ManagerRequestDetailPanel({
 
   const [retryKey, setRetryKey] = useState(0);
 
-  const isSeniorManagement = requestContext.role === "SENIOR_MANAGEMENT";
-
-  const selectedDepartment =
-    requestContext.departments.find(
-      (department) => department.id === form.departmentId,
+  const selectedOrgUnit =
+    requestContext.orgUnits.find(
+      (orgUnit) => orgUnit.id === form.intendedOrgUnitId,
     ) ?? null;
 
   useEffect(() => {
     let active = true;
 
-    const detailRequest = readOnly
-      ? getDivisionEmployeeRequest(accessToken, requestId)
-      : getMyAccountRequest(accessToken, requestId);
+    const detailRequest = getMyAccountRequest(accessToken, requestId);
 
     detailRequest
       .then((response) => {
@@ -156,7 +146,7 @@ export function ManagerRequestDetailPanel({
 
           designation: accountRequest.designation ?? "",
 
-          departmentId: accountRequest.departmentId ?? "",
+          intendedOrgUnitId: accountRequest.intendedOrgUnitId ?? requestContext.primaryOrgUnit.id,
         });
 
         setError("");
@@ -177,7 +167,13 @@ export function ManagerRequestDetailPanel({
     return () => {
       active = false;
     };
-  }, [accessToken, requestId, readOnly, retryKey, t]);
+  }, [
+    accessToken,
+    requestContext.primaryOrgUnit.id,
+    requestId,
+    retryKey,
+    t,
+  ]);
 
   function updateField(field: keyof ResubmitFormState, value: string): void {
     setForm((current) => ({
@@ -225,15 +221,15 @@ export function ManagerRequestDetailPanel({
       return t("form.validationEmail");
     }
 
-    if (isSeniorManagement && !form.departmentId) {
-      return t("form.validationManagedDepartment");
+    if (!form.intendedOrgUnitId) {
+      return t("form.v3.validationOrgUnit");
     }
 
     return null;
   }
 
   async function handleActivationEmailResend(): Promise<void> {
-    if (!detail || readOnly || resendingActivationEmail) {
+    if (!detail || resendingActivationEmail) {
       return;
     }
 
@@ -260,7 +256,6 @@ export function ManagerRequestDetailPanel({
 
     if (
       !detail ||
-      readOnly ||
       cancelling ||
       submitting ||
       !["PENDING_APPROVAL", "APPROVED", "ACTIVATION_PENDING"].includes(
@@ -314,7 +309,7 @@ export function ManagerRequestDetailPanel({
   ): Promise<void> {
     event.preventDefault();
 
-    if (readOnly || submitting || detail?.status !== "REJECTED") {
+    if (submitting || detail?.status !== "REJECTED") {
       return;
     }
 
@@ -342,7 +337,7 @@ export function ManagerRequestDetailPanel({
 
         designation: form.designation.trim(),
 
-        departmentId: isSeniorManagement ? form.departmentId : undefined,
+        intendedOrgUnitId: form.intendedOrgUnitId,
       });
 
       setSuccess(response.message);
@@ -378,7 +373,7 @@ export function ManagerRequestDetailPanel({
         <header className="manager-detail-header">
           <div>
             <span>
-              {readOnly ? t("managerDetail.divisionEmployeeEyebrow") : t("managerDetail.accountEyebrow")}
+              {t("managerDetail.accountEyebrow")}
             </span>
 
             <h2 id="manager-request-detail-title">{t("common.requestDetails")}</h2>
@@ -481,8 +476,7 @@ export function ManagerRequestDetailPanel({
                 <strong>{formatDate(detail.activationEmailSentAt, i18n.language, t)}</strong>
               </div>
 
-              {!readOnly &&
-                ["APPROVED", "ACTIVATION_PENDING"].includes(detail.status) && (
+              {["APPROVED", "ACTIVATION_PENDING"].includes(detail.status) && (
                   <button
                     type="button"
                     onClick={() => void handleActivationEmailResend()}
@@ -525,15 +519,15 @@ export function ManagerRequestDetailPanel({
               </div>
 
               <div>
-                <span>{t("common.division")}</span>
+                <span>{t("common.office")}</span>
 
-                <strong>{detail.division?.name ?? t("common.notAssigned")}</strong>
+                <strong>{detail.office?.name ?? t("common.notAssigned")}</strong>
               </div>
 
               <div>
-                <span>{t("common.department")}</span>
+                <span>{t("common.orgUnit")}</span>
 
-                <strong>{detail.department?.name ?? t("common.notAssigned")}</strong>
+                <strong>{detail.intendedOrgUnit?.name ?? t("common.notAssigned")}</strong>
               </div>
 
               <div>
@@ -542,21 +536,6 @@ export function ManagerRequestDetailPanel({
                 <strong>{formatDate(detail.reviewedAt, i18n.language, t)}</strong>
               </div>
 
-              {"requestedBy" in detail && (
-                <div>
-                  <span>{t("common.requestedBy")}</span>
-
-                  <strong>
-                    {detail.requestedBy.employee?.empName ??
-                      formatValue(detail.requestedBy.role, t)}
-                  </strong>
-
-                  <small>
-                    {detail.requestedBy.employee?.empId ??
-                      t("common.authorizedRequester")}
-                  </small>
-                </div>
-              )}
             </section>
 
             <section className="manager-history-section">
@@ -583,17 +562,9 @@ export function ManagerRequestDetailPanel({
               </div>
             </section>
 
-            {readOnly && (
-              <section className="manager-detail-readonly">
-                <strong>{t("managerDetail.readOnly")}</strong>
-                <p>{t("managerDetail.readOnlyDescription")}</p>
-              </section>
-            )}
-
-            {!readOnly &&
-              ["PENDING_APPROVAL", "APPROVED", "ACTIVATION_PENDING"].includes(
-                detail.status,
-              ) && (
+            {["PENDING_APPROVAL", "APPROVED", "ACTIVATION_PENDING"].includes(
+              detail.status,
+            ) && (
                 <section className="manager-close-section">
                   <header>
                     <span>{t("managerDetail.requestControl")}</span>
@@ -676,7 +647,7 @@ export function ManagerRequestDetailPanel({
                 </section>
               )}
 
-            {!readOnly && detail.status === "REJECTED" && (
+            {detail.status === "REJECTED" && (
               <form className="manager-resubmit-form" onSubmit={handleResubmit}>
                 <header>
                   <span>{t("managerDetail.correctResubmit")}</span>
@@ -768,51 +739,35 @@ export function ManagerRequestDetailPanel({
                     />
                   </label>
 
-                  {isSeniorManagement ? (
-                    <label>
-                      <span>{t("form.managedDepartment")}</span>
+                  <label>
+                    <span>{t("form.v3.intendedOrgUnit")}</span>
 
-                      <select
-                        value={form.departmentId}
-                        onChange={(event) =>
-                          updateField("departmentId", event.target.value)
-                        }
-                        disabled={submitting}
-                        required
-                      >
-                        <option value="">{t("form.selectDepartment")}</option>
+                    <select
+                      value={form.intendedOrgUnitId}
+                      onChange={(event) =>
+                        updateField("intendedOrgUnitId", event.target.value)
+                      }
+                      disabled={submitting}
+                      required
+                    >
+                      <option value="">{t("form.v3.selectOrgUnit")}</option>
 
-                        {requestContext.departments.map((department) => (
-                          <option key={department.id} value={department.id}>
-                            {department.name} ({department.code})
-                          </option>
-                        ))}
-                      </select>
+                      {requestContext.orgUnits.map((orgUnit) => (
+                        <option key={orgUnit.id} value={orgUnit.id}>
+                          {orgUnit.name} ({orgUnit.code})
+                        </option>
+                      ))}
+                    </select>
 
-                      <small>{t("managerDetail.autoPositionHelp")}</small>
-                    </label>
-                  ) : (
-                    <div className="manager-fixed-field">
-                      <span>{t("common.department")}</span>
-
-                      <strong>
-                        {requestContext.scope.department?.name ??
-                          t("common.notAssigned")}
-                      </strong>
-
-                      <small>{t("managerDetail.fixedScope")}</small>
-                    </div>
-                  )}
+                    <small>{t("form.v3.orgUnitHelp")}</small>
+                  </label>
                 </div>
 
                 <div className="manager-resubmit-review">
-                  <span>{t("managerDetail.resubmissionDepartment")}</span>
+                  <span>{t("form.v3.intendedOrgUnit")}</span>
 
                   <strong>
-                    {isSeniorManagement
-                      ? (selectedDepartment?.name ?? t("form.selectDepartment"))
-                      : (requestContext.scope.department?.name ??
-                        t("common.notAssigned"))}
+                    {selectedOrgUnit?.name ?? t("common.notAssigned")}
                   </strong>
                 </div>
 

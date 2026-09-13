@@ -5,8 +5,8 @@ import { PassportModule } from '@nestjs/passport';
 import { MailModule } from '../mail/mail.module';
 import { AuthController } from './auth.controller';
 import { AuthService } from './auth.service';
+import { AccountClassesGuard } from './guards/account-classes.guard';
 import { AccessTokenGuard } from './guards/access-token.guard';
-import { RolesGuard } from './guards/roles.guard';
 import { AccessTokenValidationService } from './services/access-token-validation.service';
 import { DailySessionLogoutService } from './services/daily-session-logout.service';
 import { PasswordManagementService } from './services/password-management.service';
@@ -34,17 +34,17 @@ import { AccessTokenStrategy } from './strategies/access-token.strategy';
     PasswordRecoveryService,
     AccessTokenStrategy,
     AccessTokenGuard,
-    RolesGuard,
+    AccountClassesGuard,
   ],
 
   /*
-   * Other modules can now use both authentication guards.
+   * Other modules use AccountClass/capability authorization guards.
    */
   exports: [
     AuthService,
     AccessTokenValidationService,
     AccessTokenGuard,
-    RolesGuard,
+    AccountClassesGuard,
   ],
 })
 export class AuthModule {}

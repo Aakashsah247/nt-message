@@ -9,20 +9,14 @@ export interface AnnouncementPolicyViewer {
   accountId: string;
   role: AccountRole;
   isOfficeHead: boolean;
-  divisionId: string | null;
-  departmentId: string | null;
 }
 
 export interface AnnouncementPolicyAudience {
   audienceType: AnnouncementAudienceType;
-  divisionId: string | null;
-  departmentId: string | null;
   officeId?: string | null;
   orgUnitId?: string | null;
   includeDescendants?: boolean;
   officialScopeType?: OfficialGroupScopeType | null;
-  officialDivisionId?: string | null;
-  officialDepartmentId?: string | null;
   officialOfficeId?: string | null;
   officialOrgUnitId?: string | null;
   officialParticipantRole?: ConversationParticipantRole | null;

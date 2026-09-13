@@ -8,9 +8,8 @@ import type { AuthenticatedUser } from '../auth/types/auth.types';
 import { PrismaService } from '../database/prisma.service';
 
 import {
-  AccountRole,
+  AccountClass,
   EmployeeStatus,
-  ManagementPositionType,
   OrgLeadershipType,
   OrgMembershipType,
 } from '../generated/prisma/client';
@@ -34,7 +33,7 @@ export interface DirectoryOrganizationUnit {
 }
 
 interface DirectoryViewer {
-  role: AccountRole;
+  accountClass: AccountClass;
   scopeType: DirectoryScopeType;
   officeId: string | null;
   orgUnitId: string | null;
@@ -49,8 +48,6 @@ const directoryEmployeeSelect = {
   empName: true,
   phoneNumber: true,
   officialEmail: true,
-  divisionId: true,
-  departmentId: true,
   designation: true,
   status: true,
   employmentStatus: true,
@@ -60,25 +57,6 @@ const directoryEmployeeSelect = {
   isActivated: true,
   createdAt: true,
   updatedAt: true,
-
-  division: {
-    select: {
-      id: true,
-      code: true,
-      name: true,
-      isActive: true,
-    },
-  },
-
-  departmentUnit: {
-    select: {
-      id: true,
-      divisionId: true,
-      code: true,
-      name: true,
-      isActive: true,
-    },
-  },
 
   orgMemberships: {
     where: {
@@ -188,62 +166,13 @@ const directoryEmployeeSelect = {
     select: {
       id: true,
       username: true,
-      role: true,
+      accountClass: true,
       isEnabled: true,
       lastLoginAt: true,
       createdAt: true,
     },
   },
 
-  /*
-   * A current assignment is one that has not ended.
-   * The position itself may still be active or inactive,
-   * so its state is returned separately.
-   */
-  managementAssignments: {
-    where: {
-      endedAt: null,
-    },
-
-    take: 1,
-
-    orderBy: {
-      startedAt: 'desc',
-    },
-
-    select: {
-      id: true,
-      startedAt: true,
-
-      position: {
-        select: {
-          id: true,
-          positionType: true,
-          divisionId: true,
-          departmentId: true,
-          isActive: true,
-
-          division: {
-            select: {
-              id: true,
-              code: true,
-              name: true,
-              isActive: true,
-            },
-          },
-
-          department: {
-            select: {
-              id: true,
-              code: true,
-              name: true,
-              isActive: true,
-            },
-          },
-        },
-      },
-    },
-  },
 } satisfies Prisma.EmployeeSelect;
 
 type DirectoryEmployeeRecord = Prisma.EmployeeGetPayload<{
@@ -260,7 +189,7 @@ export class DirectoryService {
       where: { id: user.accountId },
       select: {
         id: true,
-        role: true,
+        accountClass: true,
         isEnabled: true,
         employee: {
           select: {
@@ -286,20 +215,36 @@ export class DirectoryService {
                 },
               },
             },
+            orgLeadershipAssignments: {
+              where: {
+                effectiveFrom: { lte: now },
+                OR: [{ effectiveUntil: null }, { effectiveUntil: { gt: now } }],
+              },
+              take: 1,
+              select: { id: true },
+            },
+            operationalTeamLeadAssignments: {
+              where: {
+                effectiveFrom: { lte: now },
+                OR: [{ effectiveUntil: null }, { effectiveUntil: { gt: now } }],
+              },
+              take: 1,
+              select: { id: true },
+            },
           },
         },
       },
     });
 
-    if (!account || !account.isEnabled || account.role !== user.role) {
+    if (!account || !account.isEnabled || account.accountClass !== user.accountClass) {
       throw new ForbiddenException(
         'Your authenticated account cannot access the employee directory.',
       );
     }
 
-    if (account.role === AccountRole.SUPER_ADMIN) {
+    if (account.accountClass === AccountClass.SUPER_ADMIN) {
       return {
-        role: account.role,
+        accountClass: account.accountClass,
         scopeType: 'OFFICE',
         officeId: null,
         orgUnitId: null,
@@ -325,13 +270,15 @@ export class DirectoryService {
     }
 
     return {
-      role: account.role,
+      accountClass: account.accountClass,
       scopeType: 'OFFICE',
       officeId: primaryMembership.officeId,
       orgUnitId: primaryMembership.orgUnitId,
       office: primaryMembership.office,
       orgUnit: primaryMembership.orgUnit,
-      canViewContactDetails: account.role !== AccountRole.EMPLOYEE,
+      canViewContactDetails:
+        (employee?.orgLeadershipAssignments.length ?? 0) > 0 ||
+        (employee?.operationalTeamLeadAssignments.length ?? 0) > 0,
     };
   }
 
@@ -339,7 +286,7 @@ export class DirectoryService {
     viewer: DirectoryViewer,
     _query: ListDirectoryQueryDto,
   ): Promise<void> {
-    if (viewer.role !== AccountRole.SUPER_ADMIN && !viewer.officeId) {
+    if (viewer.accountClass !== AccountClass.SUPER_ADMIN && !viewer.officeId) {
       throw new ForbiddenException(
         'Your directory scope has no active Office.',
       );
@@ -365,13 +312,6 @@ export class DirectoryService {
       });
     }
 
-    if (viewer.role === AccountRole.EMPLOYEE) {
-      conditions.push({
-        status: EmployeeStatus.ACTIVE,
-        isActivated: true,
-        account: { is: { isEnabled: true } },
-      });
-    }
 
     return conditions;
   }
@@ -385,59 +325,6 @@ export class DirectoryService {
       : employee.account.isEnabled
         ? 'ENABLED'
         : 'DISABLED';
-
-    const currentAssignment = employee.managementAssignments[0] ?? null;
-
-    const currentPosition = currentAssignment
-      ? {
-          assignmentId: currentAssignment.id,
-
-          startedAt: currentAssignment.startedAt,
-
-          id: currentAssignment.position.id,
-
-          positionType: currentAssignment.position.positionType,
-
-          divisionId: currentAssignment.position.divisionId,
-
-          departmentId: currentAssignment.position.departmentId,
-
-          isActive: currentAssignment.position.isActive,
-
-          status: currentAssignment.position.isActive ? 'ACTIVE' : 'INACTIVE',
-
-          division: currentAssignment.position.division,
-
-          department: currentAssignment.position.department,
-        }
-      : null;
-
-    /*
-     * Management authority comes from a valid active
-     * assignment, not merely from the stored account role.
-     */
-    let effectiveRole: AccountRole | null = employee.account?.role ?? null;
-
-    if (effectiveRole !== AccountRole.SUPER_ADMIN) {
-      if (
-        currentPosition?.isActive &&
-        currentPosition.positionType ===
-          ManagementPositionType.SENIOR_MANAGEMENT &&
-        currentPosition.divisionId === employee.divisionId &&
-        currentPosition.departmentId === null
-      ) {
-        effectiveRole = AccountRole.SENIOR_MANAGEMENT;
-      } else if (
-        currentPosition?.isActive &&
-        currentPosition.positionType === ManagementPositionType.TEAM_MANAGER &&
-        currentPosition.divisionId === employee.divisionId &&
-        currentPosition.departmentId === employee.departmentId
-      ) {
-        effectiveRole = AccountRole.TEAM_MANAGER;
-      } else if (employee.account) {
-        effectiveRole = AccountRole.EMPLOYEE;
-      }
-    }
 
     const now = new Date();
     const primaryMembership =
@@ -539,31 +426,7 @@ export class DirectoryService {
 
       accountStatus,
 
-      /*
-       * role remains as a compatibility alias for
-       * the stored account role.
-       */
-      role: employee.account?.role ?? null,
-
-      accountRole: employee.account?.role ?? null,
-
-      effectiveRole,
-
-      currentPosition,
-
-      division: employee.division,
-
-      department: employee.departmentUnit
-        ? {
-            id: employee.departmentUnit.id,
-
-            code: employee.departmentUnit.code,
-
-            name: employee.departmentUnit.name,
-
-            isActive: employee.departmentUnit.isActive,
-          }
-        : null,
+      accountClass: employee.account?.accountClass ?? null,
 
       lastLoginAt: viewer.canViewContactDetails
         ? (employee.account?.lastLoginAt ?? null)
@@ -577,12 +440,10 @@ export class DirectoryService {
 
   private serializeScope(viewer: DirectoryViewer) {
     return {
-      role: viewer.role,
+      accountClass: viewer.accountClass,
       type: viewer.scopeType,
       office: viewer.office,
       orgUnit: viewer.orgUnit,
-      division: null,
-      department: null,
       contactVisibility: viewer.canViewContactDetails ? 'FULL' : 'LIMITED',
     };
   }
@@ -619,15 +480,6 @@ export class DirectoryService {
       });
     }
 
-    if (query.role) {
-      conditions.push({
-        account: {
-          is: {
-            role: query.role,
-          },
-        },
-      });
-    }
 
     if (query.accountStatus === DirectoryAccountStatus.ENABLED) {
       conditions.push({
@@ -813,8 +665,6 @@ export class DirectoryService {
 
         recordStatus: query.recordStatus,
 
-        role: query.role ?? null,
-
         accountStatus: query.accountStatus ?? null,
 
         activationStatus: query.activationStatus ?? null,
@@ -853,7 +703,7 @@ export class DirectoryService {
       );
     }
 
-    if (employee.archivedAt && viewer.role !== AccountRole.SUPER_ADMIN) {
+    if (employee.archivedAt && viewer.accountClass !== AccountClass.SUPER_ADMIN) {
       throw new NotFoundException(
         'Archived employee profiles are available only to the Super Admin.',
       );

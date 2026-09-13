@@ -8,17 +8,20 @@ import {
 import type { AuthenticatedUser } from '../auth/types/auth.types';
 import { PrismaService } from '../database/prisma.service';
 import {
+  AccountClass,
   AccountRole,
   EmployeeStatus,
   EmploymentStatus,
-  ManagementPositionType,
+  OrgLeadershipType,
+  OrgMembershipType,
   WorkItemStatus,
 } from '../generated/prisma/client';
 import type { Prisma } from '../generated/prisma/client';
+import { CAPABILITIES } from '../organization/organization-capabilities';
 
 const workAccountSelect = {
   id: true,
-  role: true,
+  accountClass: true,
   isEnabled: true,
   username: true,
   superAdminProfile: { select: { fullName: true } },
@@ -32,43 +35,64 @@ const workAccountSelect = {
       employmentStatus: true,
       archivedAt: true,
       isActivated: true,
-      divisionId: true,
-      departmentId: true,
-      division: {
-        select: {
-          id: true,
-          code: true,
-          name: true,
-          isActive: true,
-        },
-      },
-      departmentUnit: {
-        select: {
-          id: true,
-          divisionId: true,
-          code: true,
-          name: true,
-          workFunction: true,
-          isActive: true,
-        },
-      },
-      managementAssignments: {
+      orgMemberships: {
         where: {
-          endedAt: null,
+          membershipType: OrgMembershipType.PRIMARY,
         },
-        orderBy: {
-          startedAt: 'desc',
-        },
-        take: 1,
+        orderBy: { startsAt: 'desc' },
+        take: 10,
         select: {
-          id: true,
-          position: {
+          officeId: true,
+          orgUnitId: true,
+          startsAt: true,
+          endsAt: true,
+          office: { select: { isActive: true } },
+          orgUnit: { select: { isActive: true } },
+        },
+      },
+      orgLeadershipAssignments: {
+        orderBy: { effectiveFrom: 'desc' },
+        take: 20,
+        select: {
+          officeId: true,
+          orgUnitId: true,
+          leadershipType: true,
+          effectiveFrom: true,
+          effectiveUntil: true,
+        },
+      },
+      operationalTeamMemberships: {
+        orderBy: { startsAt: 'desc' },
+        take: 50,
+        select: {
+          teamId: true,
+          startsAt: true,
+          endsAt: true,
+          team: {
             select: {
               id: true,
-              positionType: true,
-              divisionId: true,
-              departmentId: true,
+              orgUnitId: true,
               isActive: true,
+              archivedAt: true,
+              orgUnit: { select: { officeId: true, isActive: true } },
+            },
+          },
+        },
+      },
+      operationalTeamLeadAssignments: {
+        orderBy: { effectiveFrom: 'desc' },
+        take: 20,
+        select: {
+          teamId: true,
+          effectiveFrom: true,
+          effectiveUntil: true,
+          team: {
+            select: {
+              id: true,
+              orgUnitId: true,
+              isActive: true,
+              archivedAt: true,
+              orgUnit: { select: { officeId: true, isActive: true } },
             },
           },
         },
@@ -81,59 +105,16 @@ export type WorkAccountRecord = Prisma.AccountGetPayload<{
   select: typeof workAccountSelect;
 }>;
 
-const workTeamSelect = {
-  id: true,
-  name: true,
-  departmentId: true,
-  teamAdminEmployeeId: true,
-  isActive: true,
-  archivedAt: true,
-  department: {
-    select: {
-      id: true,
-      divisionId: true,
-      code: true,
-      name: true,
-      workFunction: true,
-      isActive: true,
-      division: {
-        select: {
-          id: true,
-          code: true,
-          name: true,
-          isActive: true,
-        },
-      },
-    },
-  },
-  teamAdmin: {
-    select: {
-      id: true,
-      account: { select: workAccountSelect },
-    },
-  },
-  members: {
-    orderBy: { employee: { empName: 'asc' } },
-    select: {
-      employee: {
-        select: {
-          id: true,
-          account: { select: workAccountSelect },
-        },
-      },
-    },
-  },
-} satisfies Prisma.DepartmentTeamSelect;
-
-export type WorkTeamRecord = Prisma.DepartmentTeamGetPayload<{
-  select: typeof workTeamSelect;
-}>;
-
 export interface WorkActorContext {
   accountId: string;
   role: AccountRole;
-  divisionId: string | null;
-  departmentId: string | null;
+  accountClass?: AccountClass;
+  officeId?: string | null;
+  primaryOrgUnitId?: string | null;
+  visibleOrgUnitIds?: string[];
+  assignableOrgUnitIds?: string[];
+  operationalTeamLeadIds?: string[];
+  operationalTeamMemberIds?: string[];
 }
 
 @Injectable()
@@ -155,61 +136,70 @@ export class WorkScopeService {
       throw new NotFoundException('Authenticated account was not found.');
     }
 
-    if (!account.isEnabled || account.role !== user.role) {
+    if (
+      !account.isEnabled ||
+      !user.accountClass ||
+      account.accountClass !== user.accountClass
+    ) {
       throw new ForbiddenException(
         'Your account is not authorized to manage work items.',
       );
     }
 
-    if (account.role === AccountRole.SUPER_ADMIN) {
+    // `role` remains only as a legacy serializer field until the schema cleanup.
+    // Operational authority is derived from AccountClass + V3 scope, never by
+    // projecting current leadership back into the old fixed role hierarchy.
+    const role =
+      account.accountClass === AccountClass.SUPER_ADMIN
+        ? AccountRole.SUPER_ADMIN
+        : AccountRole.EMPLOYEE;
+    if (account.accountClass === AccountClass.SUPER_ADMIN) {
       return {
         accountId: account.id,
-        role: account.role,
-        divisionId: null,
-        departmentId: null,
+        role,
+        accountClass: account.accountClass,
+        officeId: null,
+        primaryOrgUnitId: null,
+        visibleOrgUnitIds: [],
+        assignableOrgUnitIds: [],
+        operationalTeamLeadIds: [],
+        operationalTeamMemberIds: [],
       };
     }
 
     this.assertOperationalActor(account);
 
     const employee = account.employee;
-
-    if (!employee?.divisionId) {
+    const primaryMembership = this.currentPrimaryMembership(account);
+    if (!employee || !primaryMembership) {
       throw new ForbiddenException(
-        'Your organizational assignment is incomplete.',
+        'Your active Office and OrgUnit assignment is required for work access.',
       );
     }
 
-    // Senior Management may own division-level work without belonging to one department.
-    if (
-      account.role !== AccountRole.SENIOR_MANAGEMENT &&
-      !employee.departmentId
-    ) {
-      throw new ForbiddenException('Your department assignment is incomplete.');
-    }
-
-    // JWT role is not enough; management authority must still have an active position assignment.
-    if (
-      account.role === AccountRole.SENIOR_MANAGEMENT ||
-      account.role === AccountRole.TEAM_MANAGER
-    ) {
-      this.assertCurrentManagementAssignment(account);
-    }
+    const scope = await this.resolveV3WorkScope(
+      account,
+      primaryMembership.officeId,
+    );
 
     return {
       accountId: account.id,
-      role: account.role,
-      divisionId: employee.divisionId,
-      departmentId: employee.departmentId,
+      role,
+      accountClass: account.accountClass,
+      officeId: primaryMembership.officeId,
+      primaryOrgUnitId: primaryMembership.orgUnitId,
+      visibleOrgUnitIds: scope.visibleOrgUnitIds,
+      assignableOrgUnitIds: scope.assignableOrgUnitIds,
+      operationalTeamLeadIds: scope.operationalTeamLeadIds,
+      operationalTeamMemberIds: scope.operationalTeamMemberIds,
     };
   }
 
   assertCanCreateWork(actor: WorkActorContext): void {
-    if (actor.role === AccountRole.EMPLOYEE) {
-      throw new ForbiddenException(
-        'Employees cannot assign work to other employees.',
-      );
-    }
+    this.assertOfficeOperationalManager(
+      actor,
+      'You do not have V3 Work assignment authority.',
+    );
   }
 
   async resolveAssignableAccounts(
@@ -244,13 +234,6 @@ export class WorkScopeService {
       this.assertAssignableRole(actor, account);
       this.assertAccountInsideActorScope(actor, account);
 
-      if (
-        account.role === AccountRole.SENIOR_MANAGEMENT ||
-        account.role === AccountRole.TEAM_MANAGER
-      ) {
-        this.assertCurrentManagementAssignment(account);
-      }
-
       return account;
     });
   }
@@ -259,402 +242,140 @@ export class WorkScopeService {
     actor: WorkActorContext,
     target: WorkAccountRecord,
   ): void {
-    // Administrative individual work follows the management hierarchy.
-    // Operational work remains Team-owned and uses a separate assignment model.
-    const allowedRolesByActor: Record<AccountRole, AccountRole[]> = {
-      [AccountRole.SUPER_ADMIN]: [
-        AccountRole.SENIOR_MANAGEMENT,
-        AccountRole.TEAM_MANAGER,
-      ],
-      [AccountRole.SENIOR_MANAGEMENT]: [AccountRole.TEAM_MANAGER],
-      [AccountRole.TEAM_MANAGER]: [AccountRole.EMPLOYEE],
-      [AccountRole.EMPLOYEE]: [],
-    };
-
-    if (!allowedRolesByActor[actor.role].includes(target.role)) {
-      throw new ForbiddenException(
-        'Choose an individual at an allowed lower level of the administrative hierarchy.',
-      );
-    }
-
-    if (actor.role === AccountRole.SENIOR_MANAGEMENT) {
-      if (target.employee?.divisionId !== actor.divisionId) {
-        throw new ForbiddenException(
-          'Senior Management can assign administrative work only to a Team Manager in the same division.',
-        );
-      }
-      return;
-    }
-
-    if (actor.role === AccountRole.TEAM_MANAGER) {
-      if (
-        target.employee?.divisionId !== actor.divisionId ||
-        target.employee?.departmentId !== actor.departmentId
-      ) {
-        throw new ForbiddenException(
-          'A Team Manager can assign administrative work only to an Employee in the same department.',
-        );
-      }
-    }
-  }
-
-  async resolveAssignableTeam(
-    actor: WorkActorContext,
-    teamId: string,
-  ): Promise<WorkTeamRecord> {
-    const team = await this.prisma.departmentTeam.findUnique({
-      where: { id: teamId },
-      select: workTeamSelect,
-    });
-
-    if (
-      !team ||
-      !team.isActive ||
-      team.archivedAt !== null ||
-      !team.department.isActive ||
-      !team.department.division.isActive
-    ) {
-      throw new NotFoundException('The selected team is not active.');
-    }
-
-    this.assertDepartmentInsideActorScope(
+    this.assertOfficeOperationalManager(
       actor,
-      team.department.id,
-      team.department.divisionId,
+      'You do not have V3 authority to assign Administrative Work.',
     );
-
-    // Team membership is resolved again at assignment time. This prevents an old
-    // browser selection from assigning disabled employees after the team changed.
-    for (const membership of team.members) {
-      const account = membership.employee.account;
-      if (!account || account.role !== AccountRole.EMPLOYEE) {
-        throw new ForbiddenException(
-          'Update this team before assigning work because one of its members is not operationally available.',
-        );
-      }
-      this.assertOperationalAssignableAccount(account);
-    }
-
-    const adminAccount = team.teamAdmin.account;
-    if (
-      !adminAccount ||
-      adminAccount.role !== AccountRole.EMPLOYEE ||
-      !team.members.some(
-        (membership) => membership.employee.account?.id === adminAccount.id,
-      )
-    ) {
+    if (target.accountClass === AccountClass.SUPER_ADMIN) {
       throw new ForbiddenException(
-        'Update this team before assigning work because its Team Admin is not an active member.',
+        'The Super Admin cannot receive operational Work assignments.',
       );
     }
-    this.assertOperationalAssignableAccount(adminAccount);
-
-    return team;
-  }
-
-  async resolveSalesMember(
-    actor: WorkActorContext,
-    accountId: string,
-    workDivisionId: string,
-  ): Promise<WorkAccountRecord> {
-    // Sales responsibility is assigned per work item. Department names and
-    // classifications are organization data, not permission rules.
-    const account = await this.resolveOperationalAccount(
-      accountId,
-      'The selected Sales Member was not found.',
-    );
-
-    if (account.role !== AccountRole.EMPLOYEE) {
-      throw new BadRequestException(
-        'Choose an active employee for Sales responsibility.',
-      );
-    }
-
-    this.assertCrossDepartmentWorkDivision(
-      actor,
-      account.employee?.divisionId,
-      workDivisionId,
-      'The Sales Member must belong to the same division as the assigned team.',
-    );
-
-    return account;
-  }
-
-  async resolveSupportMembers(
-    actor: WorkActorContext,
-    accountIds: string[],
-    workDivisionId: string,
-  ): Promise<WorkAccountRecord[]> {
-    const uniqueIds = [...new Set(accountIds)];
-    if (uniqueIds.length === 0) return [];
-
-    const accounts = await this.prisma.account.findMany({
-      where: { id: { in: uniqueIds } },
-      select: workAccountSelect,
-    });
-    const accountsById = new Map(
-      accounts.map((account) => [account.id, account]),
-    );
-
-    return uniqueIds.map((accountId) => {
-      const account = accountsById.get(accountId);
-      if (!account) {
-        throw new NotFoundException(
-          'One or more selected Support Members were not found.',
-        );
-      }
-
-      this.assertOperationalEmployee(account);
-      if (account.role !== AccountRole.EMPLOYEE) {
-        throw new BadRequestException(
-          'Choose active employees for Supporting Staff.',
-        );
-      }
-
-      this.assertCrossDepartmentWorkDivision(
-        actor,
-        account.employee?.divisionId,
-        workDivisionId,
-        'Supporting Staff must belong to the same division as the assigned work.',
-      );
-
-      return account;
-    });
-  }
-
-  async resolveResponsibleManager(
-    actor: WorkActorContext,
-    requestedManagerAccountId: string | undefined,
-    workDivisionId: string,
-    workDepartmentId: string | null,
-  ): Promise<WorkAccountRecord> {
-    // The responsible reviewer is resolved independently from the operational assignee.
-    const managerAccountId = requestedManagerAccountId ?? actor.accountId;
-    const manager: WorkAccountRecord | null =
-      await this.prisma.account.findUnique({
-        where: {
-          id: managerAccountId,
-        },
-        select: workAccountSelect,
-      });
-
-    if (!manager) {
-      throw new NotFoundException('Responsible manager was not found.');
-    }
-
-    if (!manager.isEnabled) {
-      throw new ForbiddenException(
-        'The selected responsible manager is not enabled.',
-      );
-    }
-
-    if (manager.role === AccountRole.SUPER_ADMIN) {
-      if (
-        actor.role !== AccountRole.SUPER_ADMIN ||
-        manager.id !== actor.accountId
-      ) {
-        throw new ForbiddenException(
-          'Only the Super Admin can remain the responsible manager at organization scope.',
-        );
-      }
-
-      return manager;
-    }
-
-    this.assertOperationalManager(manager);
-    this.assertCurrentManagementAssignment(manager);
-
-    if (actor.role === AccountRole.TEAM_MANAGER) {
-      if (manager.id !== actor.accountId) {
-        throw new ForbiddenException(
-          'A Team Manager must remain responsible for work they assign inside their division.',
-        );
-      }
-
-      return manager;
-    }
-
-    if (actor.role === AccountRole.SENIOR_MANAGEMENT) {
-      const validSeniorManager = manager.id === actor.accountId;
-      const validTeamManager =
-        workDepartmentId !== null &&
-        manager.role === AccountRole.TEAM_MANAGER &&
-        manager.employee?.divisionId === actor.divisionId &&
-        manager.employee?.departmentId === workDepartmentId;
-
-      if (!validSeniorManager && !validTeamManager) {
-        throw new ForbiddenException(
-          'Senior Management can select only itself or the responsible Team Manager inside the assigned division.',
-        );
-      }
-
-      return manager;
-    }
-
-    const managerMatchesWorkScope =
-      (manager.role === AccountRole.SENIOR_MANAGEMENT &&
-        manager.employee?.divisionId === workDivisionId) ||
-      (workDepartmentId !== null &&
-        manager.role === AccountRole.TEAM_MANAGER &&
-        manager.employee?.divisionId === workDivisionId &&
-        manager.employee?.departmentId === workDepartmentId);
-
-    if (!managerMatchesWorkScope) {
-      throw new ForbiddenException(
-        'The responsible manager does not match the work item organization scope.',
-      );
-    }
-
-    return manager;
+    this.assertAccountInsideActorScope(actor, target);
   }
 
   buildVisibleWorkWhere(actor: WorkActorContext): Prisma.WorkItemWhereInput {
-    // Migration 87 compatibility-binds legacy WM-V2 rows to an Office, so
-    // officeId can no longer identify the legacy read path. Keep native V3
-    // rows out of WM-V2 reads using the dedicated runtime marker status.
     const legacyOnly: Prisma.WorkItemWhereInput = {
       status: { not: WorkItemStatus.V3_RUNTIME },
     };
 
-    if (actor.role === AccountRole.SUPER_ADMIN) {
+    if (actor.accountClass === AccountClass.SUPER_ADMIN) {
       return legacyOnly;
     }
 
-    if (actor.role === AccountRole.SENIOR_MANAGEMENT) {
-      return {
-        AND: [
-          legacyOnly,
-          { divisionId: actor.divisionId ?? '__missing_division__' },
-        ],
-      };
-    }
-
-    if (actor.role === AccountRole.TEAM_MANAGER) {
-      return {
-        AND: [
-          legacyOnly,
-          {
-            OR: [
-              { departmentId: actor.departmentId ?? '__missing_department__' },
-              { createdByAccountId: actor.accountId },
-              { responsibleManagerAccountId: actor.accountId },
-            ],
+    const visibility: Prisma.WorkItemWhereInput[] = [
+      { createdByAccountId: actor.accountId },
+      {
+        assignments: {
+          some: {
+            assigneeAccountId: actor.accountId,
+            endedAt: null,
           },
-        ],
-      };
+        },
+      },
+      {
+        status: { in: [WorkItemStatus.CLOSED, WorkItemStatus.CANCELLED] },
+        assignments: { some: { assigneeAccountId: actor.accountId } },
+      },
+      { salesMemberAccountId: actor.accountId },
+    ];
+
+    const visibleOrgUnitIds = actor.visibleOrgUnitIds ?? [];
+    if (visibleOrgUnitIds.length > 0) {
+      visibility.push(
+        { primaryOwnerOrgUnitId: { in: visibleOrgUnitIds } },
+        {
+          orgUnitParticipants: {
+            some: { orgUnitId: { in: visibleOrgUnitIds } },
+          },
+        },
+      );
     }
 
-    return {
-      AND: [
-        legacyOnly,
-        {
-          OR: [
-            {
-              assignments: {
-                some: {
-                  assigneeAccountId: actor.accountId,
-                  endedAt: null,
-                },
+    const operationalTeamIds = [
+      ...new Set([
+        ...(actor.operationalTeamLeadIds ?? []),
+        ...(actor.operationalTeamMemberIds ?? []),
+      ]),
+    ];
+    if (operationalTeamIds.length > 0) {
+      visibility.push({
+        runtimeStages: {
+          some: {
+            assignments: {
+              some: {
+                targetOperationalTeamId: { in: operationalTeamIds },
+                endsAt: null,
               },
             },
-            {
-              status: {
-                in: [WorkItemStatus.CLOSED, WorkItemStatus.CANCELLED],
-              },
-              assignments: {
-                some: {
-                  assigneeAccountId: actor.accountId,
-                },
-              },
-            },
-            {
-              assignedTeam: {
-                is: {
-                  members: {
-                    some: {
-                      employee: {
-                        is: {
-                          account: { is: { id: actor.accountId } },
-                        },
-                      },
-                    },
-                  },
-                },
-              },
-            },
-            { salesMemberAccountId: actor.accountId },
-          ],
+          },
         },
-      ],
-    };
+      });
+    }
+
+    return { AND: [legacyOnly, { OR: visibility }] };
   }
 
   buildOrganizationHierarchyWorkWhere(
     actor: WorkActorContext,
   ): Prisma.WorkItemWhereInput {
-    // This method is still the WM-V2 hierarchy projection. Migration 87 gives
-    // legacy rows an Office binding, so use the native-runtime marker rather
-    // than officeId to preserve compatibility reads after backfill.
     const legacyOnly: Prisma.WorkItemWhereInput = {
       status: { not: WorkItemStatus.V3_RUNTIME },
     };
 
-    if (actor.role === AccountRole.SUPER_ADMIN) {
+    if (actor.accountClass === AccountClass.SUPER_ADMIN) {
       return legacyOnly;
     }
 
-    if (actor.role === AccountRole.SENIOR_MANAGEMENT) {
+    const hierarchyScope: Prisma.WorkItemWhereInput[] = [];
+    const visibleOrgUnitIds = actor.visibleOrgUnitIds ?? [];
+    if (visibleOrgUnitIds.length > 0) {
+      hierarchyScope.push(
+        { primaryOwnerOrgUnitId: { in: visibleOrgUnitIds } },
+        {
+          orgUnitParticipants: {
+            some: { orgUnitId: { in: visibleOrgUnitIds } },
+          },
+        },
+      );
+    }
+
+    const ledTeamIds = actor.operationalTeamLeadIds ?? [];
+    if (ledTeamIds.length > 0) {
+      hierarchyScope.push({
+        runtimeStages: {
+          some: {
+            assignments: {
+              some: {
+                targetOperationalTeamId: { in: ledTeamIds },
+                endsAt: null,
+              },
+            },
+          },
+        },
+      });
+    }
+
+    if (hierarchyScope.length === 0) {
       return {
-        AND: [
-          legacyOnly,
-          { divisionId: actor.divisionId ?? '__missing_division__' },
-        ],
+        AND: [legacyOnly, { id: '__management_scope_unavailable__' }],
       };
     }
 
-    if (actor.role === AccountRole.TEAM_MANAGER) {
-      return {
-        AND: [
-          legacyOnly,
-          { departmentId: actor.departmentId ?? '__missing_department__' },
-        ],
-      };
-    }
-
-    return {
-      AND: [legacyOnly, { id: '__management_scope_unavailable__' }],
-    };
+    return { AND: [legacyOnly, { OR: hierarchyScope }] };
   }
 
   assertCanManageWork(actor: WorkActorContext): void {
-    if (actor.role === AccountRole.EMPLOYEE) {
-      throw new ForbiddenException(
-        "Employees cannot manage another employee's work assignment.",
-      );
-    }
-  }
-
-  assertCanReviewWork(
-    actor: WorkActorContext,
-    responsibleManagerAccountId: string,
-  ): void {
-    this.assertCanManageWork(actor);
-
-    // The selected reviewer owns closure; Super Admin retains branch-wide emergency authority.
-    if (
-      actor.role !== AccountRole.SUPER_ADMIN &&
-      actor.accountId !== responsibleManagerAccountId
-    ) {
-      throw new ForbiddenException(
-        'Only the responsible manager can review and close this work item.',
-      );
-    }
+    this.assertOfficeOperationalManager(
+      actor,
+      "You do not have V3 authority to manage another employee's Work assignment.",
+    );
   }
 
   async resolveHelpCandidate(
     requester: WorkActorContext,
     requestedHelperAccountId: string,
-    workDepartmentId: string | null,
+    _workOrgUnitId: string | null,
   ): Promise<WorkAccountRecord> {
     if (requestedHelperAccountId === requester.accountId) {
       throw new ForbiddenException(
@@ -667,69 +388,15 @@ export class WorkScopeService {
       'Requested helper was not found.',
     );
 
-    if (helper.role === AccountRole.SUPER_ADMIN) {
+    if (helper.accountClass === AccountClass.SUPER_ADMIN) {
       throw new ForbiddenException(
         'The Super Admin cannot be selected as a direct supporting employee.',
       );
     }
 
-    // Employee-to-employee help remains inside the ticket department until a manager coordinates wider support.
-    if (helper.employee?.departmentId !== workDepartmentId) {
-      throw new ForbiddenException(
-        'Direct help requests can be sent only to employees in the same department.',
-      );
-    }
-
+    // V3 Work can collaborate across OrgUnits; direct helper selection remains Office-scoped.
+    this.assertAccountInsideOffice(requester, helper, 'Requested helper');
     return helper;
-  }
-
-  async resolveSupportAccount(
-    actor: WorkActorContext,
-    accountId: string,
-    workDivisionId: string,
-  ): Promise<WorkAccountRecord> {
-    this.assertCanManageWork(actor);
-    const [account] = await this.resolveSupportMembers(
-      actor,
-      [accountId],
-      workDivisionId,
-    );
-
-    if (!account) {
-      throw new NotFoundException('Supporting employee was not found.');
-    }
-
-    return account;
-  }
-
-  async resolvePrimaryReassignmentAccount(
-    actor: WorkActorContext,
-    accountId: string,
-    workDivisionId: string,
-    workDepartmentId: string | null,
-  ): Promise<WorkAccountRecord> {
-    const [account] = await this.resolveAssignableAccounts(actor, [accountId]);
-    if (!account) {
-      throw new NotFoundException('Primary assignee was not found.');
-    }
-
-    // Primary ownership stays in the original department; cross-department staff join as support.
-    const sameOperationalScope =
-      account.employee?.divisionId === workDivisionId &&
-      (workDepartmentId === null
-        ? account.role === AccountRole.SENIOR_MANAGEMENT &&
-          account.employee.departmentId === null
-        : account.employee.departmentId === workDepartmentId);
-
-    if (!sameOperationalScope) {
-      throw new ForbiddenException(
-        workDepartmentId === null
-          ? 'Division-level responsibility can be reassigned only to Senior Management in the same division.'
-          : 'Primary responsibility can be reassigned only inside the work item department.',
-      );
-    }
-
-    return account;
   }
 
   async resolveOperationalAccount(
@@ -752,56 +419,52 @@ export class WorkScopeService {
     return account;
   }
 
-  private assertDepartmentInsideActorScope(
+  private assertOperationalTeamInsideActorScope(
     actor: WorkActorContext,
-    _departmentId: string,
-    divisionId: string,
+    team: {
+      id: string;
+      orgUnitId: string;
+      orgUnit: { officeId: string; isActive: boolean };
+    },
   ): void {
-    if (actor.role === AccountRole.SUPER_ADMIN) {
-      return;
+    if (actor.accountClass === AccountClass.SUPER_ADMIN) return;
+
+    if (!actor.officeId || team.orgUnit.officeId !== actor.officeId) {
+      throw new ForbiddenException(
+        'The selected team is outside your authorized Office scope.',
+      );
     }
 
     if (
-      actor.role === AccountRole.SENIOR_MANAGEMENT &&
-      actor.divisionId === divisionId
-    ) {
-      return;
-    }
-
-    if (
-      actor.role === AccountRole.TEAM_MANAGER &&
-      actor.divisionId === divisionId
+      (actor.operationalTeamLeadIds ?? []).includes(team.id) ||
+      (actor.assignableOrgUnitIds ?? []).includes(team.orgUnitId)
     ) {
       return;
     }
 
     throw new ForbiddenException(
-      'The selected team is outside your authorized work-assignment division.',
+      'The selected team is outside your authorized V3 OrgUnit or Operational Team scope.',
     );
   }
 
-  private assertCrossDepartmentWorkDivision(
+  private assertAccountInsideOffice(
     actor: WorkActorContext,
-    targetDivisionId: string | null | undefined,
-    workDivisionId: string,
-    message: string,
+    target: WorkAccountRecord,
+    label: string,
   ): void {
-    if (targetDivisionId !== workDivisionId) {
-      throw new ForbiddenException(message);
-    }
+    if (actor.accountClass === AccountClass.SUPER_ADMIN) return;
 
-    if (
-      actor.role !== AccountRole.SUPER_ADMIN &&
-      actor.divisionId !== workDivisionId
-    ) {
-      throw new ForbiddenException(message);
+    const membership = this.currentPrimaryMembership(target);
+    if (!actor.officeId || !membership || membership.officeId !== actor.officeId) {
+      throw new ForbiddenException(
+        `${label} must have an active PRIMARY membership in your Office.`,
+      );
     }
   }
 
   private assertOperationalActor(account: WorkAccountRecord): void {
     this.assertOperationalAccount(
       account,
-      account.role !== AccountRole.SENIOR_MANAGEMENT,
       'Your account is not available for operational work management.',
     );
   }
@@ -809,7 +472,6 @@ export class WorkScopeService {
   private assertOperationalManager(account: WorkAccountRecord): void {
     this.assertOperationalAccount(
       account,
-      account.role !== AccountRole.SENIOR_MANAGEMENT,
       'The selected responsible manager is not operationally available.',
     );
   }
@@ -817,7 +479,6 @@ export class WorkScopeService {
   private assertOperationalAssignableAccount(account: WorkAccountRecord): void {
     this.assertOperationalAccount(
       account,
-      account.role !== AccountRole.SENIOR_MANAGEMENT,
       'The selected staff member is not available for work assignment.',
     );
   }
@@ -825,27 +486,25 @@ export class WorkScopeService {
   private assertOperationalEmployee(account: WorkAccountRecord): void {
     this.assertOperationalAccount(
       account,
-      true,
       'The selected employee is not available for work assignment.',
     );
   }
 
   private assertOperationalAccount(
     account: WorkAccountRecord,
-    requireActiveDepartment: boolean,
     errorMessage: string,
   ): void {
     const employee = account.employee;
 
     if (
       !account.isEnabled ||
+      account.accountClass !== AccountClass.OFFICE_USER ||
       !employee ||
       employee.status !== EmployeeStatus.ACTIVE ||
       employee.employmentStatus !== EmploymentStatus.ACTIVE ||
       employee.archivedAt !== null ||
       !employee.isActivated ||
-      !employee.division?.isActive ||
-      (requireActiveDepartment && !employee.departmentUnit?.isActive)
+      !this.currentPrimaryMembership(account)
     ) {
       throw new ForbiddenException(errorMessage);
     }
@@ -855,25 +514,13 @@ export class WorkScopeService {
     actor: WorkActorContext,
     target: WorkAccountRecord,
   ): void {
-    // Role hierarchy is enforced here as well as in the controller guard.
-    // Assignment authority follows the locked role hierarchy and never trusts frontend options.
-    const allowedRolesByActor: Record<AccountRole, AccountRole[]> = {
-      [AccountRole.SUPER_ADMIN]: [
-        AccountRole.SENIOR_MANAGEMENT,
-        AccountRole.TEAM_MANAGER,
-        AccountRole.EMPLOYEE,
-      ],
-      [AccountRole.SENIOR_MANAGEMENT]: [
-        AccountRole.TEAM_MANAGER,
-        AccountRole.EMPLOYEE,
-      ],
-      [AccountRole.TEAM_MANAGER]: [AccountRole.EMPLOYEE],
-      [AccountRole.EMPLOYEE]: [],
-    };
-
-    if (!allowedRolesByActor[actor.role].includes(target.role)) {
+    this.assertOfficeOperationalManager(
+      actor,
+      'You do not have V3 Work assignment authority.',
+    );
+    if (target.accountClass === AccountClass.SUPER_ADMIN) {
       throw new ForbiddenException(
-        'You cannot assign work to the selected account role.',
+        'The Super Admin cannot receive operational Work assignments.',
       );
     }
   }
@@ -882,53 +529,261 @@ export class WorkScopeService {
     actor: WorkActorContext,
     target: WorkAccountRecord,
   ): void {
-    if (actor.role === AccountRole.SUPER_ADMIN) {
-      return;
+    if (actor.accountClass === AccountClass.SUPER_ADMIN) return;
+
+    const membership = this.currentPrimaryMembership(target);
+    if (!actor.officeId || !membership || membership.officeId !== actor.officeId) {
+      throw new ForbiddenException(
+        'The selected employee is outside your authorized Office scope.',
+      );
     }
 
-    // Scope checks are repeated server-side even when the candidate list was generated by the API.
     if (
-      actor.role === AccountRole.SENIOR_MANAGEMENT &&
-      target.employee?.divisionId === actor.divisionId
+      membership.orgUnitId &&
+      (actor.assignableOrgUnitIds ?? []).includes(membership.orgUnitId)
     ) {
       return;
     }
 
+    const ledTeamIds = new Set(actor.operationalTeamLeadIds ?? []);
     if (
-      actor.role === AccountRole.TEAM_MANAGER &&
-      target.employee?.divisionId === actor.divisionId
+      ledTeamIds.size > 0 &&
+      this.activeOperationalTeamMembershipIds(target).some((teamId) =>
+        ledTeamIds.has(teamId),
+      )
     ) {
-      // Create Work can coordinate sibling departments inside the manager's
-      // division without granting any department-management permissions.
       return;
     }
 
     throw new ForbiddenException(
-      'The selected employee is outside your authorized organization scope.',
+      'The selected employee is outside your authorized V3 OrgUnit or Operational Team scope.',
     );
   }
 
-  private assertCurrentManagementAssignment(account: WorkAccountRecord): void {
-    const assignment = account.employee?.managementAssignments[0];
-    const position = assignment?.position;
-    const requiredPositionType =
-      account.role === AccountRole.SENIOR_MANAGEMENT
-        ? ManagementPositionType.SENIOR_MANAGEMENT
-        : account.role === AccountRole.TEAM_MANAGER
-          ? ManagementPositionType.TEAM_MANAGER
-          : null;
-
-    if (
-      !requiredPositionType ||
-      !position?.isActive ||
-      position.positionType !== requiredPositionType ||
-      position.divisionId !== account.employee?.divisionId ||
-      (requiredPositionType === ManagementPositionType.TEAM_MANAGER &&
-        position.departmentId !== account.employee?.departmentId)
-    ) {
+  private assertOfficeOperationalManager(
+    actor: WorkActorContext,
+    errorMessage: string,
+  ): void {
+    if (actor.accountClass === AccountClass.SUPER_ADMIN) {
       throw new ForbiddenException(
-        'The management account does not have a current organizational assignment.',
+        'The Super Admin has read-only operational Work access.',
       );
     }
+
+    if (
+      !actor.officeId ||
+      ((actor.assignableOrgUnitIds?.length ?? 0) === 0 &&
+        (actor.operationalTeamLeadIds?.length ?? 0) === 0)
+    ) {
+      throw new ForbiddenException(errorMessage);
+    }
   }
+
+  private accountHasOperationalManagementAuthority(
+    account: WorkAccountRecord,
+    at = new Date(),
+  ): boolean {
+    if (account.accountClass !== AccountClass.OFFICE_USER || !account.employee) {
+      return false;
+    }
+
+    const hasLeadership = account.employee.orgLeadershipAssignments.some(
+      (assignment) =>
+        assignment.effectiveFrom <= at &&
+        (!assignment.effectiveUntil || assignment.effectiveUntil > at) &&
+        (assignment.leadershipType === OrgLeadershipType.OFFICE_HEAD ||
+          assignment.leadershipType === OrgLeadershipType.ORG_UNIT_HEAD ||
+          assignment.leadershipType === OrgLeadershipType.TEAM_LEAD),
+    );
+
+    const leadsOperationalTeam =
+      account.employee.operationalTeamLeadAssignments.some(
+        (assignment) =>
+          assignment.effectiveFrom <= at &&
+          (!assignment.effectiveUntil || assignment.effectiveUntil > at) &&
+          assignment.team.isActive &&
+          assignment.team.archivedAt === null &&
+          assignment.team.orgUnit.isActive,
+      );
+
+    return hasLeadership || leadsOperationalTeam;
+  }
+
+  private async resolveV3WorkScope(
+    account: WorkAccountRecord,
+    officeId: string,
+    at = new Date(),
+  ): Promise<{
+    visibleOrgUnitIds: string[];
+    assignableOrgUnitIds: string[];
+    operationalTeamLeadIds: string[];
+    operationalTeamMemberIds: string[];
+  }> {
+    const visibleOrgUnitIds = new Set<string>();
+    const assignableOrgUnitIds = new Set<string>();
+    const employee = account.employee;
+
+    if (!employee) {
+      return {
+        visibleOrgUnitIds: [],
+        assignableOrgUnitIds: [],
+        operationalTeamLeadIds: [],
+        operationalTeamMemberIds: [],
+      };
+    }
+
+    let officeOrgUnitIds: string[] | null = null;
+    const loadOfficeOrgUnitIds = async () => {
+      if (officeOrgUnitIds) return officeOrgUnitIds;
+      const units = await this.prisma.orgUnit.findMany({
+        where: { officeId, isActive: true },
+        select: { id: true },
+      });
+      officeOrgUnitIds = units.map((unit) => unit.id);
+      return officeOrgUnitIds;
+    };
+
+    const addOrgUnitWithDescendants = async (
+      orgUnitId: string,
+      target: Set<string>,
+    ) => {
+      target.add(orgUnitId);
+      const descendants = await this.prisma.orgUnitClosure.findMany({
+        where: {
+          ancestorOrgUnitId: orgUnitId,
+          descendantOrgUnit: { is: { officeId, isActive: true } },
+        },
+        select: { descendantOrgUnitId: true },
+      });
+      descendants.forEach((item) => target.add(item.descendantOrgUnitId));
+    };
+
+    const leadership = employee.orgLeadershipAssignments.filter(
+      (assignment) =>
+        assignment.officeId === officeId &&
+        assignment.effectiveFrom <= at &&
+        (!assignment.effectiveUntil || assignment.effectiveUntil > at),
+    );
+
+    if (
+      leadership.some(
+        (assignment) =>
+          assignment.leadershipType === OrgLeadershipType.OFFICE_HEAD,
+      )
+    ) {
+      const ids = await loadOfficeOrgUnitIds();
+      ids.forEach((id) => {
+        visibleOrgUnitIds.add(id);
+        assignableOrgUnitIds.add(id);
+      });
+    } else {
+      const headedOrgUnitIds = new Set(
+        leadership
+          .filter(
+            (assignment) =>
+              assignment.leadershipType === OrgLeadershipType.ORG_UNIT_HEAD &&
+              assignment.orgUnitId,
+          )
+          .map((assignment) => assignment.orgUnitId as string),
+      );
+
+      for (const orgUnitId of headedOrgUnitIds) {
+        await addOrgUnitWithDescendants(orgUnitId, visibleOrgUnitIds);
+        await addOrgUnitWithDescendants(orgUnitId, assignableOrgUnitIds);
+      }
+    }
+
+    const operationalTeamLeadIds = employee.operationalTeamLeadAssignments
+      .filter(
+        (assignment) =>
+          assignment.effectiveFrom <= at &&
+          (!assignment.effectiveUntil || assignment.effectiveUntil > at) &&
+          assignment.team.isActive &&
+          assignment.team.archivedAt === null &&
+          assignment.team.orgUnit.isActive &&
+          assignment.team.orgUnit.officeId === officeId,
+      )
+      .map((assignment) => assignment.teamId);
+
+    const operationalTeamMemberIds = this.activeOperationalTeamMembershipIds(
+      account,
+      at,
+    );
+
+    const delegations = await this.prisma.delegatedPermission.findMany({
+      where: {
+        granteeAccountId: account.id,
+        officeId,
+        capability: {
+          in: [CAPABILITIES.WORK_VIEW, CAPABILITIES.WORK_ASSIGN],
+        },
+        revokedAt: null,
+        effectiveFrom: { lte: at },
+        OR: [{ effectiveUntil: null }, { effectiveUntil: { gt: at } }],
+      },
+      select: {
+        capability: true,
+        orgUnitId: true,
+        includeDescendants: true,
+      },
+    });
+
+    for (const grant of delegations) {
+      const targets =
+        grant.capability === CAPABILITIES.WORK_ASSIGN
+          ? [visibleOrgUnitIds, assignableOrgUnitIds]
+          : [visibleOrgUnitIds];
+
+      if (!grant.orgUnitId) {
+        const ids = await loadOfficeOrgUnitIds();
+        for (const target of targets) ids.forEach((id) => target.add(id));
+        continue;
+      }
+
+      for (const target of targets) {
+        target.add(grant.orgUnitId);
+        if (grant.includeDescendants) {
+          await addOrgUnitWithDescendants(grant.orgUnitId, target);
+        }
+      }
+    }
+
+    return {
+      visibleOrgUnitIds: [...visibleOrgUnitIds],
+      assignableOrgUnitIds: [...assignableOrgUnitIds],
+      operationalTeamLeadIds,
+      operationalTeamMemberIds,
+    };
+  }
+
+  private activeOperationalTeamMembershipIds(
+    account: WorkAccountRecord,
+    at = new Date(),
+  ): string[] {
+    return (
+      account.employee?.operationalTeamMemberships
+        .filter(
+          (membership) =>
+            membership.startsAt <= at &&
+            (!membership.endsAt || membership.endsAt > at) &&
+            membership.team.isActive &&
+            membership.team.archivedAt === null &&
+            membership.team.orgUnit.isActive,
+        )
+        .map((membership) => membership.teamId) ?? []
+    );
+  }
+
+  private currentPrimaryMembership(account: WorkAccountRecord, at = new Date()) {
+    return (
+      account.employee?.orgMemberships.find(
+        (membership) =>
+          membership.startsAt <= at &&
+          (!membership.endsAt || membership.endsAt > at) &&
+          membership.office.isActive &&
+          (!membership.orgUnit || membership.orgUnit.isActive),
+      ) ?? null
+    );
+  }
+
 }

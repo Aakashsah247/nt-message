@@ -5,6 +5,7 @@ import {
 
 import type { PrismaService } from '../database/prisma.service';
 import {
+  AccountClass,
   AccountRole,
   DutyAssignmentAuthority,
   DutyRecurrenceType,
@@ -28,15 +29,20 @@ const managerUser = {
   accountId: 'manager',
   sessionId: 'session',
   username: 'manager@ntc.test',
-  role: AccountRole.TEAM_MANAGER,
+  accountClass: AccountClass.OFFICE_USER,
+  role: AccountRole.EMPLOYEE,
 };
 
-function actor(role: AccountRole = AccountRole.TEAM_MANAGER) {
+function actor(role: AccountRole = AccountRole.EMPLOYEE) {
   return {
     accountId: 'manager',
     role,
-    divisionId: 'division-a',
-    departmentId: role === AccountRole.TEAM_MANAGER ? 'department-a' : null,
+    accountClass: role === AccountRole.SUPER_ADMIN ? AccountClass.SUPER_ADMIN : AccountClass.OFFICE_USER,
+    officeId: role === AccountRole.SUPER_ADMIN ? null : 'office-1',
+    primaryOrgUnitId: role === AccountRole.SUPER_ADMIN ? null : 'org-unit-a',
+    visibleOrgUnitIds: role === AccountRole.SUPER_ADMIN ? [] : ['org-unit-a'],
+    assignableOrgUnitIds: role === AccountRole.SUPER_ADMIN ? [] : ['org-unit-a'],
+    operationalTeamLeadIds: [],
   };
 }
 
@@ -86,16 +92,12 @@ describe('DutyScheduleService M20 Phase 5', () => {
       deleteMany: jest.fn(),
       createMany: jest.fn(),
     },
-    division: { findFirst: jest.fn() },
-    department: { findFirst: jest.fn(), findMany: jest.fn() },
+    orgUnit: { findFirst: jest.fn() },
     account: { findMany: jest.fn() },
-    managementAssignment: { findMany: jest.fn() },
   } as unknown as PrismaService;
   const scope = {
     resolveActorContext: jest.fn(),
     assertCanManageWork: jest.fn(),
-    resolveAssignableAccounts: jest.fn(),
-    resolveResponsibleManager: jest.fn(),
   } as unknown as WorkScopeService;
   const notifications = {
     publishDutyUpdate: jest.fn(),
@@ -103,11 +105,10 @@ describe('DutyScheduleService M20 Phase 5', () => {
   const dutyScope = {
     resolveAssignableAccounts: jest.fn(),
     resolveSupervisor: jest.fn(),
-    resolveLegacyCompatibilityScope: jest.fn(),
     rosterAccountIds: jest.fn(),
     visibleAssignmentWhere: jest.fn(),
     visibleExceptionWhere: jest.fn(),
-    assertLegacyScopeFilter: jest.fn(),
+    managementDutyAccountIds: jest.fn(),
     notificationRecipientIds: jest.fn(),
   } as unknown as DutyScopeV3Service;
   const service = new DutyScheduleService(prisma, scope, notifications, dutyScope);
@@ -115,34 +116,23 @@ describe('DutyScheduleService M20 Phase 5', () => {
   beforeEach(() => {
     jest.resetAllMocks();
     jest.mocked(scope.resolveActorContext).mockResolvedValue(actor());
-    jest.mocked(dutyScope.resolveAssignableAccounts).mockImplementation(
-      async () => {
-        const rows = await (scope.resolveAssignableAccounts as jest.Mock)();
-        return rows.map((row: Record<string, unknown>) => ({
-          ...row,
-          officeId: 'office-1',
-          orgUnitId: 'org-unit-a',
-          operationalTeamIds: [],
-        })) as never;
-      },
-    );
-    jest.mocked(dutyScope.resolveSupervisor).mockImplementation(
-      async () =>
-        ({
-          ...(await (scope.resolveResponsibleManager as jest.Mock)()),
-          officeId: 'office-1',
-          orgUnitId: 'org-unit-a',
-          operationalTeamIds: [],
-        }) as never,
-    );
-    jest.mocked(dutyScope.resolveLegacyCompatibilityScope).mockResolvedValue({
-      divisionId: 'division-a',
-      departmentId: 'department-a',
-    });
+    jest
+      .mocked(dutyScope.resolveAssignableAccounts)
+      .mockResolvedValue([] as never);
+    jest.mocked(dutyScope.resolveSupervisor).mockResolvedValue({
+      id: 'manager',
+      role: AccountRole.EMPLOYEE,
+      username: 'manager',
+      superAdminProfile: null,
+      employee: null,
+      officeId: 'office-1',
+      orgUnitId: 'org-unit-a',
+      operationalTeamIds: [],
+    } as never);
     jest.mocked(dutyScope.rosterAccountIds).mockResolvedValue([]);
     jest.mocked(dutyScope.visibleAssignmentWhere).mockResolvedValue({});
     jest.mocked(dutyScope.visibleExceptionWhere).mockResolvedValue({});
-    jest.mocked(dutyScope.assertLegacyScopeFilter).mockResolvedValue(undefined);
+    jest.mocked(dutyScope.managementDutyAccountIds).mockResolvedValue([]);
     jest
       .mocked(dutyScope.notificationRecipientIds)
       .mockImplementation(async ({ assigneeAccountId, supervisorAccountId }) => [
@@ -158,9 +148,6 @@ describe('DutyScheduleService M20 Phase 5', () => {
     jest.mocked(prisma.dutyScheduleSeries.count).mockResolvedValue(0);
     jest.mocked(prisma.dutyCoverageRequirement.count).mockResolvedValue(0);
     jest
-      .mocked(prisma.managementAssignment.findMany)
-      .mockResolvedValue([] as never);
-    jest
       .mocked(prisma.$transaction)
       .mockImplementation(async (callback: unknown) =>
         (callback as (client: typeof transaction) => Promise<unknown>)(
@@ -171,6 +158,7 @@ describe('DutyScheduleService M20 Phase 5', () => {
 
   it('creates an overnight shift template inside the manager scope', async () => {
     jest.mocked(prisma.dutyShiftTemplate.findFirst).mockResolvedValue(null);
+    jest.mocked(prisma.orgUnit.findFirst).mockResolvedValue({ id: 'org-unit-a' } as never);
     jest.mocked(prisma.dutyShiftTemplate.create).mockResolvedValue({
       id: 'shift-1',
       name: 'Night Shift',
@@ -178,8 +166,10 @@ describe('DutyScheduleService M20 Phase 5', () => {
       endMinute: 6 * 60,
       spansNextDay: true,
       isActive: true,
-      divisionId: 'division-a',
-      departmentId: 'department-a',
+      officeId: 'office-1',
+      orgUnitId: 'org-unit-a',
+      office: { id: 'office-1', code: 'PATAN', name: 'Patan' },
+      orgUnit: { id: 'org-unit-a', code: 'TECH', name: 'Technical', officeId: 'office-1' },
       createdAt: new Date(),
       updatedAt: new Date(),
     } as never);
@@ -188,14 +178,16 @@ describe('DutyScheduleService M20 Phase 5', () => {
       name: 'Night Shift',
       startTime: '22:00',
       endTime: '06:00',
-      scope: DutyShiftScope.DEPARTMENT,
+      scope: DutyShiftScope.ORG_UNIT,
+      orgUnitId: 'org-unit-a',
     });
 
     expect(prisma.dutyShiftTemplate.create).toHaveBeenCalledWith(
       expect.objectContaining({
         data: expect.objectContaining({
           spansNextDay: true,
-          departmentId: 'department-a',
+          officeId: 'office-1',
+          orgUnitId: 'org-unit-a',
         }),
       }),
     );
@@ -210,8 +202,8 @@ describe('DutyScheduleService M20 Phase 5', () => {
       endMinute: 17 * 60,
       spansNextDay: false,
       isActive: true,
-      divisionId: 'division-a',
-      departmentId: 'department-a',
+      officeId: 'office-1',
+      orgUnitId: 'org-unit-a',
       createdAt: new Date(),
       updatedAt: new Date(),
     } as never);
@@ -235,8 +227,8 @@ describe('DutyScheduleService M20 Phase 5', () => {
       endMinute: 17 * 60,
       spansNextDay: false,
       isActive: true,
-      divisionId: 'division-a',
-      departmentId: 'department-a',
+      officeId: 'office-1',
+      orgUnitId: 'org-unit-a',
       createdAt: new Date(),
       updatedAt: new Date(),
     } as never);
@@ -256,8 +248,8 @@ describe('DutyScheduleService M20 Phase 5', () => {
       endMinute: 16 * 60,
       spansNextDay: false,
       isActive: true,
-      divisionId: 'division-a',
-      departmentId: 'department-a',
+      officeId: 'office-1',
+      orgUnitId: 'org-unit-a',
       createdAt: new Date(),
       updatedAt: new Date(),
     } as never);
@@ -292,19 +284,16 @@ describe('DutyScheduleService M20 Phase 5', () => {
   });
 
   it('rejects a schedule that overlaps an existing duty assignment', async () => {
-    jest.mocked(scope.resolveAssignableAccounts).mockResolvedValue([
+    jest.mocked(dutyScope.resolveAssignableAccounts).mockResolvedValue([
       {
         id: 'employee',
         role: AccountRole.EMPLOYEE,
-        employee: {
-          divisionId: 'division-a',
-          departmentId: 'department-a',
-        },
+        employee: {},
+        officeId: 'office-1',
+        orgUnitId: 'org-unit-a',
+        operationalTeamIds: [],
       },
     ] as never);
-    jest.mocked(scope.resolveResponsibleManager).mockResolvedValue({
-      id: 'manager',
-    } as never);
     jest.mocked(prisma.dutyShiftTemplate.findFirst).mockResolvedValue({
       id: 'shift-1',
       name: 'Office Shift',
@@ -312,8 +301,6 @@ describe('DutyScheduleService M20 Phase 5', () => {
       endMinute: 18 * 60,
       spansNextDay: false,
       isActive: true,
-      divisionId: 'division-a',
-      departmentId: 'department-a',
       createdAt: new Date(),
       updatedAt: new Date(),
     } as never);
@@ -337,32 +324,26 @@ describe('DutyScheduleService M20 Phase 5', () => {
     ).rejects.toBeInstanceOf(ConflictException);
   });
 
-  it('prevents management from using a legacy department filter outside V3 Duty scope', async () => {
-    jest.mocked(dutyScope.assertLegacyScopeFilter).mockRejectedValueOnce(
-      new ForbiddenException(
-        'The selected legacy Duty scope is outside your Duty visibility.',
-      ),
-    );
-
+  it('lists assignments through V3 OrgUnit scope without legacy department filters', async () => {
     await expect(
       service.listAssignments(
-        { ...managerUser, role: AccountRole.SENIOR_MANAGEMENT },
+        { ...managerUser, role: AccountRole.EMPLOYEE },
         {
-          departmentId: 'department-outside',
+          orgUnitId: 'org-unit-a',
           page: 1,
           limit: 25,
         },
       ),
-    ).rejects.toBeInstanceOf(ForbiddenException);
-
-    expect(dutyScope.assertLegacyScopeFilter).toHaveBeenCalledWith(
-      expect.objectContaining({ accountId: 'manager' }),
-      { departmentId: 'department-outside' },
+    ).resolves.toEqual(
+      expect.objectContaining({
+        filters: expect.objectContaining({ orgUnitId: 'org-unit-a' }),
+      }),
     );
+
   });
 
   it('previews a bulk weekly schedule without writing conflicting rows', async () => {
-    jest.mocked(scope.resolveAssignableAccounts).mockResolvedValue([
+    jest.mocked(dutyScope.resolveAssignableAccounts).mockResolvedValue([
       {
         id: 'employee-a',
         role: AccountRole.EMPLOYEE,
@@ -372,9 +353,10 @@ describe('DutyScheduleService M20 Phase 5', () => {
           empId: 'NTC-A',
           empName: 'Employee A',
           designation: 'Technician',
-          divisionId: 'division-a',
-          departmentId: 'department-a',
         },
+        officeId: 'office-1',
+        orgUnitId: 'org-unit-a',
+        operationalTeamIds: [],
       },
       {
         id: 'employee-b',
@@ -385,14 +367,12 @@ describe('DutyScheduleService M20 Phase 5', () => {
           empId: 'NTC-B',
           empName: 'Employee B',
           designation: 'Technician',
-          divisionId: 'division-a',
-          departmentId: 'department-a',
         },
+        officeId: 'office-1',
+        orgUnitId: 'org-unit-a',
+        operationalTeamIds: [],
       },
     ] as never);
-    jest.mocked(scope.resolveResponsibleManager).mockResolvedValue({
-      id: 'manager',
-    } as never);
     jest.mocked(prisma.dutyShiftTemplate.findFirst).mockResolvedValue({
       id: 'shift-1',
       name: 'Office Shift',
@@ -400,8 +380,6 @@ describe('DutyScheduleService M20 Phase 5', () => {
       endMinute: 18 * 60,
       spansNextDay: false,
       isActive: true,
-      divisionId: 'division-a',
-      departmentId: 'department-a',
       createdAt: new Date(),
       updatedAt: new Date(),
     } as never);
@@ -450,27 +428,23 @@ describe('DutyScheduleService M20 Phase 5', () => {
     jest.mocked(scope.resolveActorContext).mockResolvedValue({
       accountId: 'super-admin',
       role: AccountRole.SUPER_ADMIN,
-      divisionId: null,
-      departmentId: null,
     });
-    jest.mocked(scope.resolveAssignableAccounts).mockResolvedValue([
+    jest.mocked(dutyScope.resolveAssignableAccounts).mockResolvedValue([
       {
         id: 'senior',
-        role: AccountRole.SENIOR_MANAGEMENT,
+        role: AccountRole.EMPLOYEE,
         username: 'senior',
         employee: {
           id: 'employee-senior',
           empId: 'NTC-SM',
           empName: 'Senior Manager',
           designation: 'Division Head',
-          divisionId: 'division-a',
-          departmentId: null,
         },
+        officeId: 'office-1',
+        orgUnitId: 'org-unit-a',
+        operationalTeamIds: [],
       },
     ] as never);
-    jest.mocked(scope.resolveResponsibleManager).mockResolvedValue({
-      id: 'super-admin',
-    } as never);
     jest.mocked(prisma.dutyShiftTemplate.findFirst).mockResolvedValue({
       id: 'shift-branch',
       name: 'Division On-call',
@@ -478,8 +452,6 @@ describe('DutyScheduleService M20 Phase 5', () => {
       endMinute: 18 * 60,
       spansNextDay: false,
       isActive: true,
-      divisionId: null,
-      departmentId: null,
       createdAt: new Date(),
       updatedAt: new Date(),
     } as never);
@@ -491,6 +463,7 @@ describe('DutyScheduleService M20 Phase 5', () => {
         {
           ...managerUser,
           accountId: 'super-admin',
+          accountClass: AccountClass.SUPER_ADMIN,
           role: AccountRole.SUPER_ADMIN,
         },
         {
@@ -504,22 +477,21 @@ describe('DutyScheduleService M20 Phase 5', () => {
     ).rejects.toThrow(
       'Super Admin has read-only Duty oversight and cannot perform operational Duty actions.',
     );
-    expect(scope.resolveAssignableAccounts).not.toHaveBeenCalled();
+    expect(dutyScope.resolveAssignableAccounts).not.toHaveBeenCalled();
   });
 
   it('denies Super Admin assignment to lower staff', async () => {
     const superUser = {
       ...managerUser,
       accountId: 'super-admin',
+      accountClass: AccountClass.SUPER_ADMIN,
       role: AccountRole.SUPER_ADMIN,
     };
     jest.mocked(scope.resolveActorContext).mockResolvedValue({
       accountId: 'super-admin',
       role: AccountRole.SUPER_ADMIN,
-      divisionId: null,
-      departmentId: null,
     });
-    jest.mocked(scope.resolveAssignableAccounts).mockResolvedValue([
+    jest.mocked(dutyScope.resolveAssignableAccounts).mockResolvedValue([
       {
         id: 'employee',
         role: AccountRole.EMPLOYEE,
@@ -530,18 +502,12 @@ describe('DutyScheduleService M20 Phase 5', () => {
           empId: 'NTC-1001',
           empName: 'Employee One',
           designation: 'Technician',
-          divisionId: 'division-a',
-          departmentId: 'department-a',
         },
+        officeId: 'office-1',
+        orgUnitId: 'org-unit-a',
+        operationalTeamIds: [],
       },
     ] as never);
-    jest.mocked(scope.resolveResponsibleManager).mockResolvedValue({
-      id: 'super-admin',
-      role: AccountRole.SUPER_ADMIN,
-      username: 'admin@ntc.test',
-      superAdminProfile: { fullName: 'Super Admin Name' },
-      employee: null,
-    } as never);
     jest.mocked(prisma.dutyShiftTemplate.findFirst).mockResolvedValue({
       id: 'shift-1',
       name: 'Branch Shift',
@@ -549,8 +515,6 @@ describe('DutyScheduleService M20 Phase 5', () => {
       endMinute: 17 * 60,
       spansNextDay: false,
       isActive: true,
-      divisionId: null,
-      departmentId: null,
       createdAt: new Date(),
       updatedAt: new Date(),
     } as never);
@@ -566,11 +530,11 @@ describe('DutyScheduleService M20 Phase 5', () => {
     ).rejects.toThrow(
       'Super Admin has read-only Duty oversight and cannot perform operational Duty actions.',
     );
-    expect(scope.resolveAssignableAccounts).not.toHaveBeenCalled();
+    expect(dutyScope.resolveAssignableAccounts).not.toHaveBeenCalled();
   });
 
   it('shows a holiday as a warning without blocking operational duty', async () => {
-    jest.mocked(scope.resolveAssignableAccounts).mockResolvedValue([
+    jest.mocked(dutyScope.resolveAssignableAccounts).mockResolvedValue([
       {
         id: 'employee',
         role: AccountRole.EMPLOYEE,
@@ -581,18 +545,12 @@ describe('DutyScheduleService M20 Phase 5', () => {
           empId: 'NTC-1001',
           empName: 'Employee One',
           designation: 'Technician',
-          divisionId: 'division-a',
-          departmentId: 'department-a',
         },
+        officeId: 'office-1',
+        orgUnitId: 'org-unit-a',
+        operationalTeamIds: [],
       },
     ] as never);
-    jest.mocked(scope.resolveResponsibleManager).mockResolvedValue({
-      id: 'manager',
-      role: AccountRole.TEAM_MANAGER,
-      username: 'manager',
-      superAdminProfile: null,
-      employee: null,
-    } as never);
     jest.mocked(prisma.dutyShiftTemplate.findFirst).mockResolvedValue({
       id: 'shift-1',
       name: 'Office Shift',
@@ -600,8 +558,8 @@ describe('DutyScheduleService M20 Phase 5', () => {
       endMinute: 17 * 60,
       spansNextDay: false,
       isActive: true,
-      divisionId: 'division-a',
-      departmentId: 'department-a',
+      officeId: 'office-1',
+      orgUnitId: null,
       createdAt: new Date(),
       updatedAt: new Date(),
     } as never);
@@ -611,8 +569,8 @@ describe('DutyScheduleService M20 Phase 5', () => {
         name: 'Festival Holiday',
         startDate: new Date('2026-07-20T00:00:00.000Z'),
         endDate: new Date('2026-07-20T00:00:00.000Z'),
-        divisionId: null,
-        departmentId: null,
+        officeId: 'office-1',
+        orgUnitId: null,
       },
     ] as never);
 
@@ -633,7 +591,7 @@ describe('DutyScheduleService M20 Phase 5', () => {
   });
 
   it('blocks a second duty when the required rest period is not available', async () => {
-    jest.mocked(scope.resolveAssignableAccounts).mockResolvedValue([
+    jest.mocked(dutyScope.resolveAssignableAccounts).mockResolvedValue([
       {
         id: 'employee',
         role: AccountRole.EMPLOYEE,
@@ -644,12 +602,12 @@ describe('DutyScheduleService M20 Phase 5', () => {
           empId: 'NTC-1001',
           empName: 'Employee One',
           designation: 'Technician',
-          divisionId: 'division-a',
-          departmentId: 'department-a',
         },
+        officeId: 'office-1',
+        orgUnitId: 'org-unit-a',
+        operationalTeamIds: [],
       },
     ] as never);
-    jest.mocked(scope.resolveResponsibleManager).mockResolvedValue({ id: 'manager' } as never);
     jest.mocked(prisma.dutyShiftTemplate.findFirst).mockResolvedValue({
       id: 'shift-1',
       name: 'Evening Shift',
@@ -657,8 +615,10 @@ describe('DutyScheduleService M20 Phase 5', () => {
       endMinute: 22 * 60,
       spansNextDay: false,
       isActive: true,
-      divisionId: 'division-a',
-      departmentId: 'department-a',
+      officeId: 'office-1',
+      orgUnitId: null,
+      office: { id: 'office-1', code: 'PATAN', name: 'Patan' },
+      orgUnit: null,
       createdAt: new Date(),
       updatedAt: new Date(),
     } as never);
@@ -685,15 +645,18 @@ describe('DutyScheduleService M20 Phase 5', () => {
     expect(result.people[0]?.conflicts[0]?.type).toBe('REST_PERIOD');
   });
 
-  it('filters Senior Management oversight to Team Manager duty', async () => {
+  it('filters management oversight to V3 leadership duty accounts', async () => {
     jest.mocked(scope.resolveActorContext).mockResolvedValue(
-      actor(AccountRole.SENIOR_MANAGEMENT),
+      actor(AccountRole.EMPLOYEE),
     );
+    jest
+      .mocked(dutyScope.managementDutyAccountIds)
+      .mockResolvedValue(['org-head-account', 'team-lead-account']);
     jest.mocked(prisma.dutyAssignment.findMany).mockResolvedValue([] as never);
     jest.mocked(prisma.dutyAssignment.count).mockResolvedValue(0);
 
     await service.listAssignments(
-      { ...managerUser, role: AccountRole.SENIOR_MANAGEMENT },
+      { ...managerUser, role: AccountRole.EMPLOYEE },
       {
         view: DutyAssignmentListView.MANAGEMENT_DUTIES,
         page: 1,
@@ -701,10 +664,15 @@ describe('DutyScheduleService M20 Phase 5', () => {
       },
     );
 
+    expect(dutyScope.managementDutyAccountIds).toHaveBeenCalledWith(
+      expect.objectContaining({ accountId: 'manager' }),
+    );
     expect(prisma.dutyAssignment.findMany).toHaveBeenCalledWith(
       expect.objectContaining({
         where: expect.objectContaining({
-          employee: { is: { role: AccountRole.TEAM_MANAGER } },
+          employeeAccountId: {
+            in: ['org-head-account', 'team-lead-account'],
+          },
         }),
       }),
     );
@@ -747,8 +715,6 @@ describe('DutyScheduleService M20 Phase 5', () => {
       officeId: 'office-1',
       orgUnitId: 'org-unit-a',
       operationalTeamId: 'team-1',
-      divisionId: 'division-a',
-      departmentId: 'department-a',
       dutyDate,
       startsAt,
       endsAt,
@@ -763,7 +729,7 @@ describe('DutyScheduleService M20 Phase 5', () => {
       createdAt: startsAt,
       updatedAt: startsAt,
       employee: { id: 'employee-account', role: AccountRole.EMPLOYEE, employee: null },
-      supervisor: { id: 'supervisor-account', role: AccountRole.TEAM_MANAGER, employee: null },
+      supervisor: { id: 'supervisor-account', role: AccountRole.EMPLOYEE, employee: null },
       createdBy: { id: 'legacy-super-admin', role: AccountRole.SUPER_ADMIN, employee: null },
       shift: null,
       division: null,
@@ -809,83 +775,37 @@ describe('DutyScheduleService M20 Phase 5', () => {
       }),
     );
   });
-  it('rejects a legacy Duty roster division outside V3 Duty scope', async () => {
-    jest.mocked(dutyScope.assertLegacyScopeFilter).mockRejectedValueOnce(
-      new ForbiddenException(
-        'The selected legacy Duty scope is outside your Duty visibility.',
-      ),
-    );
-
-    await expect(
-      service.getRoster(
-        { ...managerUser, role: AccountRole.SENIOR_MANAGEMENT },
-        {
-          from: '2026-08-23',
-          to: '2026-08-23',
-          divisionId: 'division-b',
-        },
-      ),
-    ).rejects.toBeInstanceOf(ForbiddenException);
-
-    expect(dutyScope.assertLegacyScopeFilter).toHaveBeenCalledWith(
-      expect.objectContaining({ accountId: 'manager' }),
-      { divisionId: 'division-b', departmentId: undefined },
-    );
-  });
-
-  it('applies an active Super Admin division filter to duty roster candidates', async () => {
-    jest.mocked(scope.resolveActorContext).mockResolvedValue(
-      actor(AccountRole.SUPER_ADMIN),
-    );
-    jest.mocked(prisma.division.findFirst).mockResolvedValue({ id: 'division-b' } as never);
+  it('queries roster candidates by V3 OrgUnit scope without legacy hierarchy filters', async () => {
     jest.mocked(prisma.account.findMany).mockResolvedValue([] as never);
-    jest.mocked(prisma.department.findMany).mockResolvedValue([] as never);
 
-    await service.getRoster(
-      { ...managerUser, role: AccountRole.SUPER_ADMIN },
-      {
-        from: '2026-08-23',
-        to: '2026-08-23',
-        divisionId: 'division-b',
-      },
-    );
+    await service.getRoster(managerUser, {
+      from: '2026-08-23',
+      to: '2026-08-23',
+      orgUnitId: 'org-unit-a',
+    });
 
-    expect(prisma.account.findMany).toHaveBeenCalledWith(
-      expect.objectContaining({
-        where: expect.objectContaining({
-          employee: expect.objectContaining({
-            is: expect.objectContaining({
-              AND: expect.arrayContaining([{ divisionId: 'division-b' }]),
-            }),
-          }),
-        }),
-      }),
+    expect(dutyScope.rosterAccountIds).toHaveBeenCalledWith(
+      managerUser,
+      'org-unit-a',
+      undefined,
     );
   });
 
-  it('filters assignment shifts to branch, division and selected department scope', async () => {
-    jest.mocked(prisma.division.findFirst).mockResolvedValue({ id: 'division-a' } as never);
-    jest.mocked(prisma.department.findFirst).mockResolvedValue({ id: 'department-a' } as never);
+  it('filters assignment shifts to Office and selected OrgUnit scope', async () => {
     jest.mocked(prisma.dutyShiftTemplate.findMany).mockResolvedValue([] as never);
 
     await service.listShiftTemplates(managerUser, {
-      targetScope: 'DEPARTMENT' as never,
-      divisionId: 'division-a',
-      departmentId: 'department-a',
+      targetScope: 'ORG_UNIT' as never,
+      orgUnitId: 'org-unit-a',
     });
 
     expect(prisma.dutyShiftTemplate.findMany).toHaveBeenCalledWith(
       expect.objectContaining({
         where: expect.objectContaining({
-          AND: expect.arrayContaining([
-            expect.any(Object),
-            expect.objectContaining({
-              OR: expect.arrayContaining([
-                { divisionId: null, departmentId: null },
-                { divisionId: 'division-a', departmentId: null },
-                { departmentId: 'department-a' },
-              ]),
-            }),
+          officeId: 'office-1',
+          OR: expect.arrayContaining([
+            { orgUnitId: null },
+            { orgUnitId: 'org-unit-a' },
           ]),
         }),
       }),
@@ -893,7 +813,7 @@ describe('DutyScheduleService M20 Phase 5', () => {
   });
 
   it('treats approved leave as a hard assignment conflict', async () => {
-    jest.mocked(scope.resolveAssignableAccounts).mockResolvedValue([
+    jest.mocked(dutyScope.resolveAssignableAccounts).mockResolvedValue([
       {
         id: 'employee',
         role: AccountRole.EMPLOYEE,
@@ -904,12 +824,12 @@ describe('DutyScheduleService M20 Phase 5', () => {
           empId: 'NTC-1001',
           empName: 'Employee One',
           designation: 'Technician',
-          divisionId: 'division-a',
-          departmentId: 'department-a',
         },
+        officeId: 'office-1',
+        orgUnitId: 'org-unit-a',
+        operationalTeamIds: [],
       },
     ] as never);
-    jest.mocked(scope.resolveResponsibleManager).mockResolvedValue({ id: 'manager' } as never);
     jest.mocked(prisma.dutyShiftTemplate.findFirst).mockResolvedValue({
       id: 'shift-1',
       name: 'Office Shift',
@@ -917,8 +837,10 @@ describe('DutyScheduleService M20 Phase 5', () => {
       endMinute: 17 * 60,
       spansNextDay: false,
       isActive: true,
-      divisionId: 'division-a',
-      departmentId: 'department-a',
+      officeId: 'office-1',
+      orgUnitId: null,
+      office: { id: 'office-1', code: 'PATAN', name: 'Patan' },
+      orgUnit: null,
       createdAt: new Date(),
       updatedAt: new Date(),
     } as never);

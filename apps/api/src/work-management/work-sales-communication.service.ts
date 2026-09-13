@@ -16,9 +16,7 @@ import type { AuthenticatedUser } from '../auth/types/auth.types';
 import type { UploadedMessageAttachmentFile } from '../conversations/types/uploaded-message-attachment-file';
 import { PrismaService } from '../database/prisma.service';
 import {
-  AccountRole,
-  EmployeeStatus,
-  EmploymentStatus,
+  AccountClass,
   WorkAssignmentRole,
   WorkItemStatus,
   WorkSalesCoordinationStatus,
@@ -33,7 +31,6 @@ import {
 } from './work-sales-attachment.constants';
 import { WorkNotificationsService } from './work-notifications.service';
 import { WorkScopeService } from './work-scope.service';
-import { requireLegacyWorkValue } from './work-v2-compatibility';
 
 const salesMessageSelect = {
   id: true,
@@ -46,6 +43,7 @@ const salesMessageSelect = {
       id: true,
       username: true,
       role: true,
+      accountClass: true,
       employee: {
         select: {
           empName: true,
@@ -77,9 +75,15 @@ interface SalesAccessContext {
     ticketNumber: string;
     title: string;
     status: WorkItemStatus;
-    assignedTeamId: string | null;
+    primaryOwnerOrgUnitId: string | null;
     salesMemberAccountId: string | null;
-    responsibleManagerAccountId: string;
+    orgUnitParticipants: Array<{ orgUnitId: string }>;
+    runtimeStages: Array<{
+      assignments: Array<{
+        targetAccountId: string | null;
+        targetOperationalTeamId: string | null;
+      }>;
+    }>;
     salesCoordinationStatus: WorkSalesCoordinationStatus | null;
     assignments: Array<{
       assigneeAccountId: string;
@@ -90,7 +94,7 @@ interface SalesAccessContext {
   actorAccountId: string;
   isPrimaryTeamMember: boolean;
   isSalesMember: boolean;
-  isResponsibleManager: boolean;
+  isManagementViewer: boolean;
 }
 
 @Injectable()
@@ -286,9 +290,23 @@ export class WorkSalesCommunicationService {
         ticketNumber: true,
         title: true,
         status: true,
-        assignedTeamId: true,
+        primaryOwnerOrgUnitId: true,
         salesMemberAccountId: true,
-        responsibleManagerAccountId: true,
+        orgUnitParticipants: {
+          where: { endedAt: null },
+          select: { orgUnitId: true },
+        },
+        runtimeStages: {
+          select: {
+            assignments: {
+              where: { endsAt: null },
+              select: {
+                targetAccountId: true,
+                targetOperationalTeamId: true,
+              },
+            },
+          },
+        },
         salesCoordinationStatus: true,
         assignments: {
           where: { endedAt: null },
@@ -303,65 +321,49 @@ export class WorkSalesCommunicationService {
     if (!workItem || !workItem.salesMemberAccountId) {
       throw new NotFoundException('Sales work not found.');
     }
-    const responsibleManagerAccountId = requireLegacyWorkValue(
-      workItem.responsibleManagerAccountId,
-      'responsible manager',
-    );
-
     const isSalesMember = workItem.salesMemberAccountId === actor.accountId;
-    const isResponsibleManager =
-      responsibleManagerAccountId === actor.accountId;
     const isActivePrimary = workItem.assignments.some(
       (assignment) =>
         assignment.assignmentRole === WorkAssignmentRole.PRIMARY &&
         assignment.assigneeAccountId === actor.accountId,
     );
-    let isPrimaryTeamMember = isActivePrimary;
+    const stageAssignments = workItem.runtimeStages.flatMap(
+      (stage) => stage.assignments,
+    );
+    const operationalTeamMemberIds = new Set(
+      actor.operationalTeamMemberIds ?? [],
+    );
+    const isV3StageAssignee = stageAssignments.some(
+      (assignment) =>
+        assignment.targetAccountId === actor.accountId ||
+        (assignment.targetOperationalTeamId !== null &&
+          operationalTeamMemberIds.has(assignment.targetOperationalTeamId)),
+    );
+    const isPrimaryTeamMember = isActivePrimary || isV3StageAssignee;
 
-    if (!isPrimaryTeamMember && workItem.assignedTeamId && actor.role === AccountRole.EMPLOYEE) {
-      const membership = await this.prisma.departmentTeamMember.findFirst({
-        where: {
-          teamId: workItem.assignedTeamId,
-          team: { is: { isActive: true, archivedAt: null } },
-          employee: {
-            is: {
-              status: EmployeeStatus.ACTIVE,
-              employmentStatus: EmploymentStatus.ACTIVE,
-              archivedAt: null,
-              isActivated: true,
-              account: {
-                is: {
-                  id: actor.accountId,
-                  isEnabled: true,
-                  role: AccountRole.EMPLOYEE,
-                },
-              },
-            },
-          },
-        },
-        select: { id: true },
-      });
-      isPrimaryTeamMember = Boolean(membership);
-    }
+    const visibleOrgUnitIds = new Set(actor.visibleOrgUnitIds ?? []);
+    const isManagementViewer =
+      (workItem.primaryOwnerOrgUnitId !== null &&
+        visibleOrgUnitIds.has(workItem.primaryOwnerOrgUnitId)) ||
+      workItem.orgUnitParticipants.some((participant) =>
+        visibleOrgUnitIds.has(participant.orgUnitId),
+      );
 
-    if (!isSalesMember && !isResponsibleManager && !isPrimaryTeamMember) {
+    if (!isSalesMember && !isManagementViewer && !isPrimaryTeamMember) {
       throw new ForbiddenException('You cannot open these Sales files.');
     }
 
     return {
-      workItem: {
-        ...workItem,
-        responsibleManagerAccountId,
-      },
+      workItem,
       actorAccountId: actor.accountId,
       isPrimaryTeamMember,
       isSalesMember,
-      isResponsibleManager,
+      isManagementViewer,
     };
   }
 
   private assertCanSend(access: SalesAccessContext): void {
-    if (access.isResponsibleManager && !access.isPrimaryTeamMember && !access.isSalesMember) {
+    if (access.isManagementViewer && !access.isPrimaryTeamMember && !access.isSalesMember) {
       throw new ForbiddenException('Managers can view Sales files but cannot send them.');
     }
     if (
@@ -442,7 +444,9 @@ export class WorkSalesCommunicationService {
       senderName:
         sender.employee?.empName ??
         sender.username ??
-        (sender.role === AccountRole.SUPER_ADMIN ? 'Super Admin' : 'NT Message User'),
+        (sender.accountClass === AccountClass.SUPER_ADMIN
+          ? 'Super Admin'
+          : 'NT Message User'),
       senderRole: sender.role,
       senderDesignation: sender.employee?.designation ?? null,
       text: message.text,

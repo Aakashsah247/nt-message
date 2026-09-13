@@ -2,6 +2,7 @@ import { ForbiddenException } from '@nestjs/common';
 
 import type { AuthenticatedUser } from '../auth/types/auth.types';
 import {
+  AccountClass,
   AccountRole,
   EmployeeStatus,
   EmploymentStatus,
@@ -32,6 +33,7 @@ const teamId = '44444444-4444-4444-8444-444444444444';
 function activeOfficeUser(role: AccountRole = AccountRole.EMPLOYEE) {
   return {
     id: '55555555-5555-4555-8555-555555555555',
+    accountClass: AccountClass.OFFICE_USER,
     role,
     isEnabled: true,
     employee: {
@@ -150,6 +152,10 @@ function user(role: AccountRole = AccountRole.EMPLOYEE): AuthenticatedUser {
         : '55555555-5555-4555-8555-555555555555',
     sessionId: 'session-1',
     username: 'tester',
+    accountClass:
+      role === AccountRole.SUPER_ADMIN
+        ? AccountClass.SUPER_ADMIN
+        : AccountClass.OFFICE_USER,
     role,
   };
 }
@@ -198,6 +204,7 @@ describe('WorkReportsV3Service — P10-1 report scope and counting foundation', 
     const harness = createHarness();
     harness.accountFindUnique.mockResolvedValue({
       id: user(AccountRole.SUPER_ADMIN).accountId,
+      accountClass: AccountClass.SUPER_ADMIN,
       role: AccountRole.SUPER_ADMIN,
       isEnabled: true,
       employee: null,
@@ -1031,6 +1038,7 @@ describe('WorkReportsV3Service — P10-4 Duty compatibility and complete export 
     const harness = createHarness();
     harness.accountFindUnique.mockResolvedValue({
       id: user(AccountRole.SUPER_ADMIN).accountId,
+      accountClass: AccountClass.SUPER_ADMIN,
       role: AccountRole.SUPER_ADMIN,
       isEnabled: true,
       employee: null,

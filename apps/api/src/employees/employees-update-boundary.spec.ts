@@ -1,4 +1,4 @@
-import { ForbiddenException } from '@nestjs/common';
+import { BadRequestException, ForbiddenException } from '@nestjs/common';
 
 import type { PrismaService } from '../database/prisma.service';
 import type { ActivationInvitationsService } from '../activation-invitations/activation-invitations.service';
@@ -38,7 +38,7 @@ describe('EmployeesService legacy update boundary', () => {
     expect(prisma.employee.findUnique).not.toHaveBeenCalled();
   });
 
-  it('does not allow organization placement changes through the legacy generic update endpoint', async () => {
+  it('rejects retired legacy organization placement fields at the generic update boundary', async () => {
     const prisma = {
       employee: {
         findUnique: jest.fn(),
@@ -50,7 +50,7 @@ describe('EmployeesService legacy update boundary', () => {
         divisionId: '11111111-1111-4111-8111-111111111111',
         departmentId: '22222222-2222-4222-8222-222222222222',
       }),
-    ).rejects.toBeInstanceOf(ForbiddenException);
+    ).rejects.toBeInstanceOf(BadRequestException);
 
     expect(prisma.employee.findUnique).not.toHaveBeenCalled();
   });

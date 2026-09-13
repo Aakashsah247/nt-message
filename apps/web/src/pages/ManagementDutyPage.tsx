@@ -8,20 +8,18 @@ import {
 import {
   cancelDutyAssignment,
   deleteDutyShiftTemplate,
-  coordinateManagementHelpRequest,
   createBulkDutySchedule,
   cancelDutyHoliday,
   createDutyHoliday,
   createDutyLeave,
   createDutyShiftTemplate,
   getDutyCalendar,
+  getDutyManagementAccessContext,
   getDutyManagementSummary,
   getDutyRoster,
   listDutyAssignments,
   listDutyShiftTemplates,
-  listManagementAssignmentOptions,
-  listManagementDutyHelpRecommendations,
-  listPendingEmployeeHelpRequests,
+  listDutySupervisorOptions,
   previewBulkDutySchedule,
   updateDutyAssignment,
   updateDutyShiftTemplate,
@@ -31,19 +29,18 @@ import type {
   BulkDutyPreviewResponse,
   BulkDutyScheduleInput,
   DutyAssignment,
+  DutyAuthorizationContext,
   DutyAssignmentListView,
   DutyCalendarResponse,
   DutyHolidayScope,
   DutyHolidayType,
-  DutyHelpRecommendation,
   DutyManagementSummary,
   DutyRecurrenceType,
   DutyRosterPerson,
   DutyRosterResponse,
   DutyShiftScope,
   DutyShiftTemplate,
-  WorkHelpRequest,
-  WorkResponsibleManagerOption,
+  DutySupervisorOption,
 } from "../types/work-management";
 
 const BRANCH_TIME_ZONE = "Asia/Kathmandu";
@@ -71,10 +68,8 @@ type DutyDialog =
   | "HOLIDAYS"
   | "EDIT"
   | "CANCEL"
-  | "COORDINATE"
   | "ROUTINE"
   | null;
-type DutyAssignableRole = "SENIOR_MANAGEMENT" | "TEAM_MANAGER" | "EMPLOYEE";
 
 type DutyIconName =
   | "calendar"
@@ -219,14 +214,18 @@ export function ManagementDutyPage() {
   const { accessToken, account } = useAuth();
   const [view, setView] = useState<DutyView>("OVERVIEW");
   const [summary, setSummary] = useState<DutyManagementSummary | null>(null);
+  const [accessContext, setAccessContext] = useState<DutyAuthorizationContext | null>(null);
+  const canAssignDuty = accessContext?.canAssign ?? false;
+  const canCreateDuty = accessContext?.canCreate ?? false;
+  const canManageDuty = accessContext?.canManage ?? false;
+  const readOnlyOversight = accessContext?.readOnlyOversight ?? false;
   const [roster, setRoster] = useState<DutyRosterResponse | null>(null);
   const [templates, setTemplates] = useState<DutyShiftTemplate[]>([]);
   const [assignmentTemplates, setAssignmentTemplates] = useState<DutyShiftTemplate[]>([]);
   const [calendar, setCalendar] = useState<DutyCalendarResponse | null>(null);
   const [history, setHistory] = useState<DutyAssignment[]>([]);
   const [historyTotal, setHistoryTotal] = useState(0);
-  const [managers, setManagers] = useState<WorkResponsibleManagerOption[]>([]);
-  const [helpRequests, setHelpRequests] = useState<WorkHelpRequest[]>([]);
+  const [managers, setManagers] = useState<DutySupervisorOption[]>([]);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState("");
   const [error, setError] = useState("");
@@ -238,12 +237,10 @@ export function ManagementDutyPage() {
   const [selectedPerson, setSelectedPerson] = useState<DutyRosterPerson | null>(null);
   const [routineDates, setRoutineDates] = useState<string[]>([]);
   const [routineLoading, setRoutineLoading] = useState(false);
-  const [selectedHelpRequest, setSelectedHelpRequest] = useState<WorkHelpRequest | null>(null);
-  const [coordinationCandidates, setCoordinationCandidates] = useState<DutyHelpRecommendation[]>([]);
-  const [coordinationHelperId, setCoordinationHelperId] = useState("");
   const [weekFrom, setWeekFrom] = useState(initialWeek);
   const weekTo = addDays(weekFrom, 6);
-  const [departmentId, setDepartmentId] = useState("");
+  const [orgUnitId, setOrgUnitId] = useState("");
+  const [operationalTeamId, setOperationalTeamId] = useState("");
   const [peopleSearch, setPeopleSearch] = useState("");
   const [historyFrom, setHistoryFrom] = useState(today);
   const [historyTo, setHistoryTo] = useState(addDays(today, 30));
@@ -251,9 +248,6 @@ export function ManagementDutyPage() {
   const [assignmentMode, setAssignmentMode] = useState<"ALL" | "ASSIGNED_BY_ME">("ALL");
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [selectedStaff, setSelectedStaff] = useState<DutyRosterPerson[]>([]);
-  const [assignmentDivisionId, setAssignmentDivisionId] = useState("");
-  const [assignmentDepartmentId, setAssignmentDepartmentId] = useState("");
-  const [assignmentRole, setAssignmentRole] = useState<DutyAssignableRole | "">("");
   const [assignmentSearch, setAssignmentSearch] = useState("");
   const [assignmentSearchDebounced, setAssignmentSearchDebounced] = useState("");
   const [assignmentCandidates, setAssignmentCandidates] = useState<DutyRosterPerson[]>([]);
@@ -267,9 +261,8 @@ export function ManagementDutyPage() {
     name: "",
     startTime: "09:00",
     endTime: "18:00",
-    scope: "BRANCH" as DutyShiftScope,
-    divisionId: "",
-    departmentId: "",
+    scope: "OFFICE" as DutyShiftScope,
+    orgUnitId: "",
   });
   const [scheduleForm, setScheduleForm] = useState({
     shiftTemplateId: "",
@@ -293,9 +286,8 @@ export function ManagementDutyPage() {
     type: "GOVERNMENT" as DutyHolidayType,
     startDate: today,
     endDate: today,
-    scope: "BRANCH" as DutyHolidayScope,
-    divisionId: "",
-    departmentId: "",
+    scope: "OFFICE" as DutyHolidayScope,
+    orgUnitId: "",
     note: "",
   });
   const [weeklyOffDays, setWeeklyOffDays] = useState<number[]>([]);
@@ -340,28 +332,30 @@ export function ManagementDutyPage() {
     setLoading(true);
     setError("");
     try {
-      const [summaryResponse, templateResponse, calendarResponse, rosterResponse, historyResponse, optionResponse, helpResponse] = await Promise.all([
+      const [accessResponse, summaryResponse, templateResponse, calendarResponse, rosterResponse, historyResponse, optionResponse] = await Promise.all([
+        getDutyManagementAccessContext(accessToken),
         getDutyManagementSummary(accessToken),
         listDutyShiftTemplates(accessToken),
         getDutyCalendar(accessToken, { from: today, to: addDays(today, 365) }),
         getDutyRoster(accessToken, {
           from: weekFrom,
           to: weekTo,
-          departmentId: departmentId || undefined,
+          orgUnitId: orgUnitId || undefined,
+          operationalTeamId: operationalTeamId || undefined,
           search: peopleSearch || undefined,
         }),
         listDutyAssignments(accessToken, {
           from: historyFrom,
           to: historyTo,
-          departmentId: departmentId || undefined,
+          orgUnitId: orgUnitId || undefined,
           page: historyPage,
           limit: 25,
           view: activeAssignmentListView ?? "ALL",
           includeCancelled: view === "HISTORY",
         }),
-        listManagementAssignmentOptions(accessToken, { limit: 50 }),
-        listPendingEmployeeHelpRequests(accessToken),
+        listDutySupervisorOptions(accessToken),
       ]);
+      setAccessContext(accessResponse);
       setSummary(summaryResponse);
       setTemplates(templateResponse.data);
       setCalendar(calendarResponse);
@@ -369,14 +363,13 @@ export function ManagementDutyPage() {
       setRoster(rosterResponse);
       setHistory(historyResponse.data);
       setHistoryTotal(historyResponse.pagination.total);
-      setManagers(optionResponse.responsibleManagers);
-      setHelpRequests(helpResponse.data.filter((request) => request.requestedDepartment));
+      setManagers(optionResponse.data);
     } catch (loadError) {
       setError(errorMessage(loadError));
     } finally {
       setLoading(false);
     }
-  }, [accessToken, activeAssignmentListView, departmentId, historyFrom, historyPage, historyTo, peopleSearch, view, weekFrom, weekTo]);
+  }, [accessToken, activeAssignmentListView, historyFrom, historyPage, historyTo, operationalTeamId, orgUnitId, peopleSearch, view, weekFrom, weekTo]);
 
   useEffect(() => {
     let active = true;
@@ -452,42 +445,13 @@ export function ManagementDutyPage() {
   }, [dialog]);
 
   const people = useMemo(() => roster?.people ?? [], [roster?.people]);
-  const departments = useMemo(() => roster?.departments ?? [], [roster?.departments]);
-  const divisions = useMemo(() => {
-    const byId = new Map<string, { id: string; code: string; name: string }>();
-    for (const department of departments) {
-      byId.set(department.division.id, department.division);
-    }
-    return [...byId.values()].sort((left, right) => left.name.localeCompare(right.name));
-  }, [departments]);
-  const assignmentDepartments = useMemo(
-    () => departments.filter((department) => !assignmentDivisionId || department.divisionId === assignmentDivisionId),
-    [assignmentDivisionId, departments],
-  );
-  const assignmentRoleOptions = useMemo((): Array<{ value: DutyAssignableRole; label: string }> => {
-    if (account?.role === "SUPER_ADMIN") {
-      return [
-        { value: "SENIOR_MANAGEMENT", label: "Senior Management" },
-        { value: "TEAM_MANAGER", label: "Team Manager" },
-        { value: "EMPLOYEE", label: "Employee" },
-      ];
-    }
-    if (account?.role === "SENIOR_MANAGEMENT") {
-      return [
-        { value: "TEAM_MANAGER", label: "Team Manager" },
-        { value: "EMPLOYEE", label: "Employee" },
-      ];
-    }
-    return [{ value: "EMPLOYEE", label: "Employee" }];
-  }, [account?.role]);
-  const assignmentNeedsDepartment = Boolean(
-    account?.role === "SENIOR_MANAGEMENT" ||
-      (account?.role === "SUPER_ADMIN" && assignmentRole && assignmentRole !== "SENIOR_MANAGEMENT"),
+  const orgUnits = accessContext?.orgUnits ?? [];
+  const operationalTeams = useMemo(
+    () => (accessContext?.operationalTeams ?? []).filter((team) => !orgUnitId || team.orgUnitId === orgUnitId),
+    [accessContext?.operationalTeams, orgUnitId],
   );
   const assignmentScopeReady = Boolean(
-    assignmentRole &&
-      (account?.role !== "SUPER_ADMIN" || assignmentDivisionId) &&
-      (!assignmentNeedsDepartment || assignmentDepartmentId),
+    orgUnitId || accessContext?.primaryOrgUnitId || operationalTeamId,
   );
   const currentManagerName = account?.displayName || account?.username || roleLabel(account?.role ?? "MANAGER");
 
@@ -499,7 +463,7 @@ export function ManagementDutyPage() {
   useEffect(() => {
     let cancelled = false;
 
-    if (!accessToken || dialog !== "SCHEDULE" || !assignmentScopeReady || !assignmentRole) {
+    if (!accessToken || dialog !== "SCHEDULE" || !assignmentScopeReady) {
       queueMicrotask(() => {
         if (cancelled) {
           return;
@@ -523,26 +487,12 @@ export function ManagementDutyPage() {
       setAssignmentCandidatesLoading(true);
       setAssignmentCandidatesError("");
     });
-    const queryDepartmentId =
-      account?.role === "TEAM_MANAGER"
-        ? departments[0]?.id
-        : assignmentNeedsDepartment
-          ? assignmentDepartmentId
-          : undefined;
-    const queryDivisionId =
-      account?.role === "SUPER_ADMIN"
-        ? assignmentDivisionId
-        : account?.role === "SENIOR_MANAGEMENT"
-          ? departments[0]?.divisionId
-          : departments[0]?.divisionId;
-
     void getDutyRoster(accessToken, {
       from: scheduleForm.startDate,
       to: scheduleForm.startDate,
-      divisionId: queryDivisionId || undefined,
-      departmentId: queryDepartmentId || undefined,
+      orgUnitId: orgUnitId || accessContext?.primaryOrgUnitId || undefined,
+      operationalTeamId: operationalTeamId || undefined,
       search: assignmentSearchDebounced || undefined,
-      role: assignmentRole,
       limit: 40,
     })
       .then((response) => {
@@ -563,15 +513,12 @@ export function ManagementDutyPage() {
     };
   }, [
     accessToken,
-    account?.role,
-    assignmentDepartmentId,
-    assignmentDivisionId,
-    assignmentNeedsDepartment,
-    assignmentRole,
+    accessContext?.primaryOrgUnitId,
     assignmentScopeReady,
     assignmentSearchDebounced,
-    departments,
     dialog,
+    operationalTeamId,
+    orgUnitId,
     scheduleForm.startDate,
   ]);
 
@@ -593,20 +540,9 @@ export function ManagementDutyPage() {
       };
     }
 
-    const divisionIds = [...new Set(selectedStaff.map((person) => person.account.employee?.division.id).filter(Boolean))] as string[];
-    const departmentIds = [...new Set(selectedStaff.map((person) => person.account.employee?.department?.id).filter(Boolean))] as string[];
-    const targetScope: DutyShiftScope =
-      divisionIds.length === 1 && departmentIds.length === 1 && selectedStaff.every((person) => person.account.employee?.department?.id === departmentIds[0])
-        ? "DEPARTMENT"
-        : divisionIds.length === 1
-          ? "DIVISION"
-          : "BRANCH";
-
-    void listDutyShiftTemplates(accessToken, {
-      targetScope,
-      divisionId: targetScope === "BRANCH" ? undefined : divisionIds[0],
-      departmentId: targetScope === "DEPARTMENT" ? departmentIds[0] : undefined,
-    }).then((response) => {
+    void listDutyShiftTemplates(accessToken, orgUnitId
+      ? { targetScope: "ORG_UNIT", orgUnitId }
+      : {}).then((response) => {
       if (cancelled) return;
       const active = response.data.filter((template) => template.isActive);
       setAssignmentTemplates(active);
@@ -623,7 +559,7 @@ export function ManagementDutyPage() {
       }
     });
     return () => { cancelled = true; };
-  }, [accessToken, dialog, selectedStaff]);
+  }, [accessToken, dialog, orgUnitId, selectedStaff]);
 
   useEffect(() => {
     // Roster selections follow the visible list, but the Assign Duty picker owns its own scoped selection.
@@ -638,6 +574,8 @@ export function ManagementDutyPage() {
   }, [dialog, people]);
   const schedulePayload = useCallback((): BulkDutyScheduleInput => ({
     employeeAccountIds: selectedIds,
+    orgUnitId: orgUnitId || accessContext?.primaryOrgUnitId || undefined,
+    operationalTeamId: operationalTeamId || undefined,
     shiftTemplateId: scheduleForm.shiftTemplateId,
     supervisorAccountId: scheduleForm.supervisorAccountId || undefined,
     recurrenceType: scheduleForm.recurrenceType,
@@ -647,56 +585,13 @@ export function ManagementDutyPage() {
     reportingLocation: scheduleForm.reportingLocation,
     notes: scheduleForm.notes || undefined,
     createValidAssignmentsOnly: scheduleForm.createValidAssignmentsOnly,
-  }), [scheduleForm, selectedIds]);
+  }), [accessContext?.primaryOrgUnitId, operationalTeamId, orgUnitId, scheduleForm, selectedIds]);
 
   function openSchedule(ids: string[]) {
     const preselectedPeople = people.filter((person) => ids.includes(person.account.id));
-    const commonRole =
-      preselectedPeople.length > 0 &&
-      preselectedPeople.every((person) => person.account.role === preselectedPeople[0].account.role)
-        ? (preselectedPeople[0].account.role as DutyAssignableRole)
-        : "";
-    const commonDivisionId =
-      preselectedPeople.length > 0 &&
-      preselectedPeople.every(
-        (person) => person.account.employee?.division.id === preselectedPeople[0].account.employee?.division.id,
-      )
-        ? preselectedPeople[0].account.employee?.division.id ?? ""
-        : "";
-    const commonDepartmentId =
-      preselectedPeople.length > 0 &&
-      preselectedPeople.every(
-        (person) => person.account.employee?.department?.id === preselectedPeople[0].account.employee?.department?.id,
-      )
-        ? preselectedPeople[0].account.employee?.department?.id ?? ""
-        : "";
-
-    const defaultRole: DutyAssignableRole | "" =
-      account?.role === "TEAM_MANAGER"
-        ? "EMPLOYEE"
-        : commonRole && assignmentRoleOptions.some((option) => option.value === commonRole)
-          ? commonRole
-          : "";
-    const ownDivisionId = departments[0]?.divisionId ?? "";
-    const ownDepartmentId = departments[0]?.id ?? "";
-    const preselectionHasRequiredScope = Boolean(
-      defaultRole &&
-        (account?.role !== "SUPER_ADMIN" || commonDivisionId) &&
-        ((account?.role === "TEAM_MANAGER") ||
-          (defaultRole === "SENIOR_MANAGEMENT" && account?.role === "SUPER_ADMIN") ||
-          commonDepartmentId),
-    );
-
-    const initialStaff = preselectionHasRequiredScope ? preselectedPeople : [];
+    const initialStaff = preselectedPeople;
     setSelectedIds(initialStaff.map((person) => person.account.id));
     setSelectedStaff(initialStaff);
-    setAssignmentRole(defaultRole);
-    setAssignmentDivisionId(
-      account?.role === "SUPER_ADMIN" ? commonDivisionId : ownDivisionId,
-    );
-    setAssignmentDepartmentId(
-      account?.role === "TEAM_MANAGER" ? ownDepartmentId : commonDepartmentId,
-    );
     setAssignmentSearch("");
     setAssignmentSearchDebounced("");
     setAssignmentCandidates([]);
@@ -750,15 +645,12 @@ export function ManagementDutyPage() {
 
   function openShiftManager() {
     setSelectedTemplate(null);
-    const ownDivisionId = departments[0]?.divisionId ?? "";
-    const ownDepartmentId = departments[0]?.id ?? "";
     setShiftForm({
       name: "",
       startTime: "09:00",
       endTime: "18:00",
-      scope: account?.role === "SUPER_ADMIN" ? "BRANCH" : account?.role === "SENIOR_MANAGEMENT" ? "DIVISION" : "DEPARTMENT",
-      divisionId: ownDivisionId,
-      departmentId: ownDepartmentId,
+      scope: "OFFICE",
+      orgUnitId: accessContext?.primaryOrgUnitId ?? "",
     });
     setDialog("SHIFTS");
   }
@@ -770,8 +662,7 @@ export function ManagementDutyPage() {
       startTime: template.startTime,
       endTime: template.endTime,
       scope: template.scope,
-      divisionId: template.divisionId ?? "",
-      departmentId: template.departmentId ?? "",
+      orgUnitId: template.orgUnitId ?? "",
     });
     setDialog("SHIFTS");
   }
@@ -791,16 +682,14 @@ export function ManagementDutyPage() {
             startTime: shiftForm.startTime,
             endTime: shiftForm.endTime,
             scope: shiftForm.scope,
-            divisionId: shiftForm.scope === "BRANCH" ? undefined : shiftForm.divisionId || undefined,
-            departmentId: shiftForm.scope === "DEPARTMENT" ? shiftForm.departmentId || undefined : undefined,
+            orgUnitId: shiftForm.scope === "ORG_UNIT" ? shiftForm.orgUnitId || undefined : undefined,
           });
       setSuccess(response.message);
       setSelectedTemplate(null);
       setShiftForm({
         name: "", startTime: "09:00", endTime: "18:00",
-        scope: account?.role === "SUPER_ADMIN" ? "BRANCH" : account?.role === "SENIOR_MANAGEMENT" ? "DIVISION" : "DEPARTMENT",
-        divisionId: departments[0]?.divisionId ?? "",
-        departmentId: departments[0]?.id ?? "",
+        scope: "OFFICE",
+        orgUnitId: accessContext?.primaryOrgUnitId ?? "",
       });
       setRefreshKey((value) => value + 1);
     } catch (requestError) {
@@ -848,22 +737,28 @@ export function ManagementDutyPage() {
 
   async function submitHoliday(event: FormEvent) {
     event.preventDefault();
-    if (!accessToken || account?.role !== "SUPER_ADMIN") return;
+    if (!accessToken || !canManageDuty) return;
     setBusy("holiday");
     setError("");
     try {
       const response = await createDutyHoliday(accessToken, {
         ...holidayForm,
-        divisionId: holidayForm.scope === "BRANCH" ? undefined : holidayForm.divisionId || undefined,
-        departmentId: holidayForm.scope === "DEPARTMENT" ? holidayForm.departmentId || undefined : undefined,
+        orgUnitId: holidayForm.scope === "ORG_UNIT" ? holidayForm.orgUnitId || undefined : undefined,
         note: holidayForm.note || undefined,
       });
       setSuccess(response.message);
       const nextCalendar = await getDutyCalendar(accessToken, { from: today, to: addDays(today, 365) });
       setCalendar(nextCalendar);
       setWeeklyOffDays(nextCalendar.weeklyOffDays);
-      setHolidayForm({ name: "", type: "GOVERNMENT", startDate: today, endDate: today, scope: "BRANCH", divisionId: "", departmentId: "", note: "" });
-      setRefreshKey((value) => value + 1);
+      setHolidayForm({
+        name: "",
+        type: "GOVERNMENT",
+        startDate: today,
+        endDate: today,
+        scope: "OFFICE",
+        orgUnitId: accessContext?.primaryOrgUnitId ?? "",
+        note: "",
+      });
     } catch (requestError) {
       setError(errorMessage(requestError));
     } finally {
@@ -872,14 +767,18 @@ export function ManagementDutyPage() {
   }
 
   async function saveWeeklyOff() {
-    if (!accessToken || account?.role !== "SUPER_ADMIN") return;
+    if (!accessToken || !canManageDuty) return;
     setBusy("weekly-off");
     setError("");
     try {
       const response = await updateDutyWeeklyOff(accessToken, weeklyOffDays);
       setSuccess(response.message);
-      const nextCalendar = await getDutyCalendar(accessToken, { from: today, to: addDays(today, 365) });
+      const nextCalendar = await getDutyCalendar(accessToken, {
+        from: today,
+        to: addDays(today, 365),
+      });
       setCalendar(nextCalendar);
+      setWeeklyOffDays(nextCalendar.weeklyOffDays);
     } catch (requestError) {
       setError(errorMessage(requestError));
     } finally {
@@ -888,7 +787,7 @@ export function ManagementDutyPage() {
   }
 
   async function removeHoliday(holidayId: string) {
-    if (!accessToken || account?.role !== "SUPER_ADMIN") return;
+    if (!accessToken || !canManageDuty) return;
     setBusy(`holiday-${holidayId}`);
     setError("");
     try {
@@ -934,33 +833,6 @@ export function ManagementDutyPage() {
     } finally { setBusy(""); }
   }
 
-  async function openCoordination(request: WorkHelpRequest) {
-    if (!accessToken || !request.requestedDepartment) return;
-    setSelectedHelpRequest(request);
-    setCoordinationHelperId("");
-    setDialog("COORDINATE");
-    try {
-      const response = await listManagementDutyHelpRecommendations(accessToken, request.requestedDepartment.id);
-      setCoordinationCandidates(response.data);
-    } catch (requestError) {
-      setError(errorMessage(requestError));
-    }
-  }
-
-  async function submitCoordination(event: FormEvent) {
-    event.preventDefault();
-    if (!accessToken || !selectedHelpRequest || !coordinationHelperId) return;
-    setBusy("coordinate");
-    try {
-      const response = await coordinateManagementHelpRequest(accessToken, selectedHelpRequest.id, { helperAccountId: coordinationHelperId });
-      setSuccess(response.message);
-      setDialog(null);
-      setRefreshKey((value) => value + 1);
-    } catch (requestError) {
-      setError(errorMessage(requestError));
-    } finally { setBusy(""); }
-  }
-
   function changeView(nextView: DutyView) {
     setView(nextView);
     setHistoryPage(1);
@@ -975,7 +847,6 @@ export function ManagementDutyPage() {
 
   function clearDutyFilters() {
     setWeekFrom(initialWeek);
-    setDepartmentId("");
     setPeopleSearch("");
     setHistoryFrom(today);
     setHistoryTo(addDays(today, 30));
@@ -991,11 +862,11 @@ export function ManagementDutyPage() {
     return person.exceptions.find((exception) => exception.exceptionDate === date);
   }
 
-  const scopeLabel = account?.role === "SUPER_ADMIN"
-    ? "Branch schedule"
-    : account?.role === "SENIOR_MANAGEMENT"
-      ? "Division schedule"
-      : "Department schedule";
+  const scopeLabel = readOnlyOversight
+    ? "Duty oversight"
+    : accessContext?.operationalTeamLeadIds.length
+      ? "Operational Team duty"
+      : "Organization duty";
 
   const assignmentViews = new Set<DutyView>(["ASSIGNMENTS", "HISTORY"]);
   const createCount = preview
@@ -1027,9 +898,9 @@ export function ManagementDutyPage() {
       icon: "leave",
     },
     {
-      label: "Need attention",
-      value: helpRequests.length,
-      note: "Items that need review",
+      label: "Cancelled today",
+      value: summary?.totals.cancelledToday ?? 0,
+      note: "Cancelled duty assignments",
       icon: "warning",
       tone: "attention",
     },
@@ -1042,23 +913,24 @@ export function ManagementDutyPage() {
         <div className="management-duty-header__copy">
           <span>{scopeLabel}</span>
           <h1>Duty Roster</h1>
-          <p>Plan shifts, assign staff and check the week in one place.</p>
+          <p>{readOnlyOversight ? "View duty schedules and history without operational changes." : "Plan shifts, assign staff and check the week in one place."}</p>
         </div>
         <div className="management-duty-header__actions">
-          <button
-            type="button"
-            className="is-primary"
-            disabled={loading}
-            onClick={() => openSchedule(selectedIds)}
-          >
-            <DutyIcon name="calendar" /> Assign Duty
-          </button>
-          <button type="button" onClick={openShiftManager}>
-            <DutyIcon name="settings" /> Shifts
-          </button>
-          <button type="button" onClick={() => setDialog("LEAVE")}>
-            <DutyIcon name="leave" /> Leave
-          </button>
+          {canAssignDuty && (
+            <button type="button" className="is-primary" disabled={loading} onClick={() => openSchedule(selectedIds)}>
+              <DutyIcon name="calendar" /> Assign Duty
+            </button>
+          )}
+          {canManageDuty && (
+            <button type="button" onClick={openShiftManager}>
+              <DutyIcon name="settings" /> Shifts
+            </button>
+          )}
+          {(canCreateDuty || canAssignDuty) && (
+            <button type="button" onClick={() => setDialog("LEAVE")}>
+              <DutyIcon name="leave" /> Leave
+            </button>
+          )}
           <button type="button" onClick={() => setDialog("HOLIDAYS")}>
             <DutyIcon name="calendar" /> Holiday Calendar
           </button>
@@ -1074,6 +946,7 @@ export function ManagementDutyPage() {
         </div>
       </section>
 
+      {readOnlyOversight && <div className="management-duty-message" role="status"><strong>Read-only oversight.</strong> You can review Duty information, but operational actions are not available.</div>}
       {error && <div className="management-duty-message is-error" role="alert">{error}</div>}
       {success && <div className="management-duty-message is-success" role="status">{success}</div>}
       {summary && (summary.calendarToday.weeklyOff || summary.calendarToday.holidays.length > 0) && (
@@ -1104,7 +977,7 @@ export function ManagementDutyPage() {
           {([
             ["OVERVIEW", "Overview"],
             ["WEEKLY", "Weekly Roster"],
-            ["PEOPLE", account?.role === "TEAM_MANAGER" ? "Employees" : "Staff"],
+            ["PEOPLE", "Staff"],
             ["ASSIGNMENTS", "Assignments"],
             ["HISTORY", "History"],
           ] as Array<[DutyView, string]>).map(([value, label]) => (
@@ -1129,17 +1002,24 @@ export function ManagementDutyPage() {
               </label>
               <button type="button" aria-label="Next week" onClick={() => setWeekFrom(addDays(weekFrom, 7))}>→</button>
             </div>
-            {account?.role !== "TEAM_MANAGER" && (
-              <label>
-                <span>Department</span>
-                <select value={departmentId} onChange={(event) => { setDepartmentId(event.target.value); setHistoryPage(1); }}>
-                  <option value="">All departments</option>
-                  {departments.map((department) => (
-                    <option key={department.id} value={department.id}>{department.division.name} · {department.name}</option>
-                  ))}
-                </select>
-              </label>
-            )}
+            <label>
+              <span>Org Unit</span>
+              <select value={orgUnitId} onChange={(event) => { setOrgUnitId(event.target.value); setOperationalTeamId(""); setHistoryPage(1); }}>
+                <option value="">All permitted Org Units</option>
+                {orgUnits.map((unit) => (
+                  <option key={unit.id} value={unit.id}>{unit.code} · {unit.name}</option>
+                ))}
+              </select>
+            </label>
+            <label>
+              <span>Operational Team</span>
+              <select value={operationalTeamId} onChange={(event) => { setOperationalTeamId(event.target.value); setHistoryPage(1); }}>
+                <option value="">All permitted teams</option>
+                {operationalTeams.map((team) => (
+                  <option key={team.id} value={team.id}>{team.code} · {team.name}</option>
+                ))}
+              </select>
+            </label>
             <label className="management-duty-toolbar__search">
               <span>Find staff</span>
               <input value={peopleSearch} onChange={(event) => setPeopleSearch(event.target.value)} placeholder="Name, ID or job title" />
@@ -1153,30 +1033,15 @@ export function ManagementDutyPage() {
             <section className="management-duty-panel">
               <header><div><span>Week summary</span><h2>{formatDate(weekFrom)} – {formatDate(weekTo)}</h2></div><strong>{roster?.totals.scheduledPeople ?? 0} staff scheduled</strong></header>
               <div className="management-duty-department-grid">
-                {(departments.length ? departments : []).map((department) => (
-                  <button key={department.id} type="button" onClick={() => { setDepartmentId(department.id); setView("WEEKLY"); }}>
-                    <span>{department.division.code} · {department.name}</span>
-                    <strong>{department.scheduledPeople}/{department.people}</strong>
-                    <small>{department.assignmentCount} duties · {department.leaveCount} on leave</small>
+                {orgUnits.map((unit) => (
+                  <button key={unit.id} type="button" onClick={() => { setOrgUnitId(unit.id); setOperationalTeamId(""); setView("WEEKLY"); }}>
+                    <span>{unit.code} · {unit.name}</span>
+                    <strong>Org Unit</strong>
+                    <small>Open the scoped weekly roster</small>
                   </button>
                 ))}
-                {!departments.length && <p>No department information is available.</p>}
+                {!orgUnits.length && <p>No permitted Org Unit information is available.</p>}
               </div>
-            </section>
-            <section className={`management-duty-panel management-duty-attention ${helpRequests.length ? "has-items" : "is-clear"}`}>
-              <header><div><span>Need attention</span><h2>{helpRequests.length ? "Help requests" : "Everything looks good"}</h2></div>{helpRequests.length > 0 && <strong>{helpRequests.length}</strong>}</header>
-              {helpRequests.length ? (
-                <div className="management-duty-help-list">
-                  {helpRequests.slice(0, 6).map((request) => (
-                    <article key={request.id}><div><strong>{request.workItem?.ticketNumber} · {request.workItem?.title}</strong><span>{request.requestedDepartment?.name} · {request.note || "Help requested"}</span></div><button type="button" onClick={() => void openCoordination(request)}>Choose Helper</button></article>
-                  ))}
-                </div>
-              ) : (
-                <div className="management-duty-all-clear">
-                  <span><DutyIcon name="chart" /></span>
-                  <p>No help request needs action.</p>
-                </div>
-              )}
             </section>
             <section className="management-duty-panel management-duty-overview__days">
               <header><div><span>Daily view</span><h2>People scheduled each day</h2></div></header>
@@ -1197,7 +1062,7 @@ export function ManagementDutyPage() {
         {view === "PEOPLE" && (
           <section className="management-duty-panel management-duty-people">
             <header>
-              <div><span>Staff list</span><h2>{account?.role === "TEAM_MANAGER" ? "Employees" : "Staff"}</h2></div>
+              <div><span>Staff list</span><h2>Staff</h2></div>
               <div><strong>{selectedIds.length} selected</strong><button type="button" disabled={!selectedIds.length} onClick={() => openSchedule(selectedIds)}>Assign selected</button></div>
             </header>
             <div className="management-duty-people__list">
@@ -1205,12 +1070,12 @@ export function ManagementDutyPage() {
                 <article key={person.account.id} className={selectedIds.includes(person.account.id) ? "is-selected" : ""}>
                   <input type="checkbox" aria-label={`Select ${accountName(person)}`} checked={selectedIds.includes(person.account.id)} onChange={(event) => setSelectedIds((current) => event.target.checked ? [...new Set([...current, person.account.id])] : current.filter((id) => id !== person.account.id))} />
                   <button type="button" className="management-duty-person" onClick={() => void openRoutine(person)}>
-                    <span><strong>{accountName(person)}</strong><small>{roleLabel(person.account.role)} · {person.account.employee?.designation || person.account.employee?.department?.name || person.account.employee?.division.name}</small></span>
+                    <span><strong>{accountName(person)}</strong><small>{roleLabel(person.account.role)} · {person.account.employee?.designation || "NTC staff"}</small></span>
                     <span><small>Today</small><strong>{statusLabel(person.todayStatus)}</strong></span>
                     <span><small>This week</small><strong>{formatHours(person.totalScheduledMinutes)}</strong></span>
                     <span><small>Next duty</small><strong>{person.next ? formatDateTime(person.next.startsAt) : "Not scheduled"}</strong></span>
                   </button>
-                  <button type="button" onClick={() => openSchedule([person.account.id])}>Assign</button>
+                  {canAssignDuty && <button type="button" onClick={() => openSchedule([person.account.id])}>Assign</button>}
                 </article>
               ))}
               {!loading && !people.length && <div className="management-duty-empty"><DutyIcon name="people" /><strong>No staff found</strong><span>Try another department or search word.</span></div>}
@@ -1228,7 +1093,7 @@ export function ManagementDutyPage() {
                 <tbody>
                   {people.map((person) => (
                     <tr key={person.account.id}>
-                      <th><button type="button" onClick={() => void openRoutine(person)}><strong>{accountName(person)}</strong><small>{person.account.employee?.department?.name || roleLabel(person.account.role)}</small></button></th>
+                      <th><button type="button" onClick={() => void openRoutine(person)}><strong>{accountName(person)}</strong><small>{person.account.employee?.designation || roleLabel(person.account.role)}</small></button></th>
                       {roster?.period.days.map((date) => {
                         const assignment = assignmentFor(person, date);
                         const exception = exceptionFor(person, date);
@@ -1239,7 +1104,9 @@ export function ManagementDutyPage() {
                               <button
                                 type="button"
                                 className="duty-cell is-scheduled"
+                                disabled={!canAssignDuty}
                                 onClick={() => {
+                                  if (!canAssignDuty) return;
                                   if (protectedOverride) {
                                     setError("Only Super Admin can change this special assignment.");
                                     return;
@@ -1259,7 +1126,7 @@ export function ManagementDutyPage() {
                         if (exception) {
                           return <td key={date}><span className={`duty-cell is-${exception.type.toLowerCase()}`}><strong>{exception.type === "LEAVE" ? "Leave" : "Holiday"}</strong><small>{exception.note || "Recorded"}</small></span></td>;
                         }
-                        return <td key={date}><button type="button" className="duty-cell is-empty" onClick={() => { setScheduleForm((current) => ({ ...current, startDate: date, endDate: date, recurrenceType: "ONE_TIME" })); openSchedule([person.account.id]); }}>Assign</button></td>;
+                        return <td key={date}>{canAssignDuty ? <button type="button" className="duty-cell is-empty" onClick={() => { setScheduleForm((current) => ({ ...current, startDate: date, endDate: date, recurrenceType: "ONE_TIME" })); openSchedule([person.account.id]); }}>Assign</button> : <span className="duty-cell is-empty"><small>Unassigned</small></span>}</td>;
                       })}
                     </tr>
                   ))}
@@ -1292,7 +1159,7 @@ export function ManagementDutyPage() {
             </div>
             <div className="management-duty-table-wrap">
               <table>
-                <thead><tr><th>Staff</th><th>Date & shift</th><th>Assigned by</th><th>Location</th><th>Supervisor</th><th>Status</th>{view === "ASSIGNMENTS" && <th>Actions</th>}</tr></thead>
+                <thead><tr><th>Staff</th><th>Date & shift</th><th>Assigned by</th><th>Location</th><th>Supervisor</th><th>Status</th>{view === "ASSIGNMENTS" && canAssignDuty && <th>Actions</th>}</tr></thead>
                 <tbody>
                   {history.map((assignment) => {
                     const protectedOverride = false;
@@ -1304,7 +1171,7 @@ export function ManagementDutyPage() {
                         <td>{assignment.reportingLocation}</td>
                         <td>{accountName(assignment.supervisor)}</td>
                         <td><span className={assignment.cancelledAt ? "is-cancelled" : "is-scheduled"}>{assignment.cancelledAt ? "Cancelled" : new Date(assignment.startsAt) <= new Date() && new Date(assignment.endsAt) > new Date() ? "On Duty" : "Scheduled"}</span></td>
-                        {view === "ASSIGNMENTS" && (
+                        {view === "ASSIGNMENTS" && canAssignDuty && (
                           <td>
                             <button type="button" disabled={Boolean(assignment.cancelledAt) || protectedOverride} title={protectedOverride ? "Only Super Admin can change this special assignment." : undefined} onClick={() => { setSelectedAssignment(assignment); setEditForm({ shiftTemplateId: assignment.shiftTemplateId ?? "", supervisorAccountId: assignment.supervisorAccountId, reportingLocation: assignment.reportingLocation, notes: assignment.notes || "" }); setDialog("EDIT"); }}>Change</button>
                             <button type="button" className="is-danger" disabled={Boolean(assignment.cancelledAt) || protectedOverride} title={protectedOverride ? "Only Super Admin can cancel this special assignment." : undefined} onClick={() => { setSelectedAssignment(assignment); setCancelReason(""); setDialog("CANCEL"); }}>Cancel</button>
@@ -1313,7 +1180,7 @@ export function ManagementDutyPage() {
                       </tr>
                     );
                   })}
-                  {!history.length && <tr><td colSpan={view === "ASSIGNMENTS" ? 7 : 6}>No duty history was found for these dates.</td></tr>}
+                  {!history.length && <tr><td colSpan={view === "ASSIGNMENTS" && canAssignDuty ? 7 : 6}>No duty history was found for these dates.</td></tr>}
                 </tbody>
               </table>
             </div>
@@ -1326,8 +1193,8 @@ export function ManagementDutyPage() {
 
       {dialog && (
         <div className="management-duty-dialog" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget && !busy) setDialog(null); }}>
-          <form ref={dialogPanelRef} role="dialog" aria-modal="true" aria-labelledby="duty-dialog-title" className="management-duty-dialog__panel" onSubmit={dialog === "SHIFTS" ? submitShift : dialog === "SHIFT_DELETE" ? submitDeleteShift : dialog === "SCHEDULE" ? previewSchedule : dialog === "LEAVE" ? submitLeave : dialog === "HOLIDAYS" ? submitHoliday : dialog === "EDIT" ? submitEdit : dialog === "CANCEL" ? submitCancel : dialog === "COORDINATE" ? submitCoordination : (event) => event.preventDefault()}>
-            <header><div><span>Duty Roster</span><h2 id="duty-dialog-title">{dialog === "SHIFTS" ? "Shifts" : dialog === "SHIFT_DELETE" ? "Delete Shift" : dialog === "SCHEDULE" ? preview ? "Review Duty Assignment" : "Assign Duty" : dialog === "LEAVE" ? "Record Leave" : dialog === "HOLIDAYS" ? "Holiday Calendar" : dialog === "EDIT" ? "Change Duty" : dialog === "CANCEL" ? "Cancel Duty" : dialog === "COORDINATE" ? "Choose a Helper" : `${accountName(selectedPerson)} Duty`}</h2></div><button type="button" aria-label="Close dialog" disabled={Boolean(busy)} onClick={() => setDialog(null)}><DutyIcon name="close" /></button></header>
+          <form ref={dialogPanelRef} role="dialog" aria-modal="true" aria-labelledby="duty-dialog-title" className="management-duty-dialog__panel" onSubmit={dialog === "SHIFTS" ? submitShift : dialog === "SHIFT_DELETE" ? submitDeleteShift : dialog === "SCHEDULE" ? previewSchedule : dialog === "LEAVE" ? submitLeave : dialog === "HOLIDAYS" ? submitHoliday : dialog === "EDIT" ? submitEdit : dialog === "CANCEL" ? submitCancel : (event) => event.preventDefault()}>
+            <header><div><span>Duty Roster</span><h2 id="duty-dialog-title">{dialog === "SHIFTS" ? "Shifts" : dialog === "SHIFT_DELETE" ? "Delete Shift" : dialog === "SCHEDULE" ? preview ? "Review Duty Assignment" : "Assign Duty" : dialog === "LEAVE" ? "Record Leave" : dialog === "HOLIDAYS" ? "Holiday Calendar" : dialog === "EDIT" ? "Change Duty" : dialog === "CANCEL" ? "Cancel Duty" : `${accountName(selectedPerson)} Duty`}</h2></div><button type="button" aria-label="Close dialog" disabled={Boolean(busy)} onClick={() => setDialog(null)}><DutyIcon name="close" /></button></header>
 
             {dialog === "SHIFTS" && (
               <div className="management-duty-shifts">
@@ -1338,9 +1205,8 @@ export function ManagementDutyPage() {
                       setSelectedTemplate(null);
                       setShiftForm({
                         name: "", startTime: "09:00", endTime: "18:00",
-                        scope: account?.role === "SUPER_ADMIN" ? "BRANCH" : account?.role === "SENIOR_MANAGEMENT" ? "DIVISION" : "DEPARTMENT",
-                        divisionId: departments[0]?.divisionId ?? "",
-                        departmentId: departments[0]?.id ?? "",
+                        scope: "OFFICE",
+                        orgUnitId: accessContext?.primaryOrgUnitId ?? "",
                       });
                     }}>New Shift</button>
                   </div>
@@ -1349,7 +1215,7 @@ export function ManagementDutyPage() {
                       <div>
                         <strong>{template.name}</strong>
                         <span>{template.startTime}–{template.endTime}{template.spansNextDay ? " · next day" : ""}</span>
-                        <small>{template.scope === "BRANCH" ? "Branch-wide" : template.scope === "DIVISION" ? `${divisions.find((division) => division.id === template.divisionId)?.name ?? "Division"}` : `${departments.find((department) => department.id === template.departmentId)?.name ?? "Department"}`}</small>
+                        <small>{template.scope === "OFFICE" ? "Office-wide" : template.orgUnit?.name ?? "Org Unit"}</small>
                       </div>
                       <div>
                         {template.canManage === false ? (
@@ -1374,16 +1240,12 @@ export function ManagementDutyPage() {
                   <label><span>End time</span><input required type="time" value={shiftForm.endTime} onChange={(event) => setShiftForm({ ...shiftForm, endTime: event.target.value })} /></label>
                   {!selectedTemplate && (
                     <>
-                      <label><span>Available for</span><select value={shiftForm.scope} onChange={(event) => { const scope = event.target.value as DutyShiftScope; setShiftForm((current) => ({ ...current, scope, departmentId: scope === "DEPARTMENT" ? current.departmentId : "" })); }}>
-                        {account?.role === "SUPER_ADMIN" && <option value="BRANCH">Entire Branch</option>}
-                        {account?.role !== "TEAM_MANAGER" && <option value="DIVISION">{account?.role === "SUPER_ADMIN" ? "One Division" : "My Division"}</option>}
-                        <option value="DEPARTMENT">{account?.role === "TEAM_MANAGER" ? "My Department" : "One Department"}</option>
+                      <label><span>Available for</span><select value={shiftForm.scope} onChange={(event) => { const scope = event.target.value as DutyShiftScope; setShiftForm((current) => ({ ...current, scope, orgUnitId: scope === "ORG_UNIT" ? current.orgUnitId : "" })); }}>
+                        <option value="OFFICE">Entire Office</option>
+                        <option value="ORG_UNIT">One Org Unit</option>
                       </select></label>
-                      {shiftForm.scope !== "BRANCH" && account?.role === "SUPER_ADMIN" && (
-                        <label><span>Division</span><select required value={shiftForm.divisionId} onChange={(event) => setShiftForm((current) => ({ ...current, divisionId: event.target.value, departmentId: "" }))}><option value="">Select division</option>{divisions.map((division) => <option key={division.id} value={division.id}>{division.name}</option>)}</select></label>
-                      )}
-                      {shiftForm.scope === "DEPARTMENT" && account?.role !== "TEAM_MANAGER" && (
-                        <label><span>Department</span><select required value={shiftForm.departmentId} onChange={(event) => setShiftForm((current) => ({ ...current, departmentId: event.target.value }))}><option value="">Select department</option>{departments.filter((department) => !shiftForm.divisionId || department.divisionId === shiftForm.divisionId).map((department) => <option key={department.id} value={department.id}>{department.name}</option>)}</select></label>
+                      {shiftForm.scope === "ORG_UNIT" && (
+                        <label><span>Org Unit</span><select required value={shiftForm.orgUnitId} onChange={(event) => setShiftForm((current) => ({ ...current, orgUnitId: event.target.value }))}><option value="">Select Org Unit</option>{orgUnits.map((orgUnit) => <option key={orgUnit.id} value={orgUnit.id}>{orgUnit.name}</option>)}</select></label>
                       )}
                     </>
                   )}
@@ -1410,40 +1272,11 @@ export function ManagementDutyPage() {
                   <div><strong>Choose staff</strong><small>Select the organization scope first, then choose one or more people.</small></div>
                 </div>
                 <div className="management-duty-assignment-scope">
-                  {account?.role === "SUPER_ADMIN" && (
-                    <label>
-                      <span>Division</span>
-                      <select required value={assignmentDivisionId} onChange={(event) => { setAssignmentDivisionId(event.target.value); setAssignmentDepartmentId(""); setSelectedIds([]); setSelectedStaff([]); setPreview(null); }}>
-                        <option value="">Select division</option>
-                        {divisions.map((division) => <option key={division.id} value={division.id}>{division.name}</option>)}
-                      </select>
-                    </label>
-                  )}
-                  {account?.role !== "TEAM_MANAGER" && (
-                    <label>
-                      <span>Staff level</span>
-                      <select required value={assignmentRole} onChange={(event) => { const nextRole = event.target.value as DutyAssignableRole; setAssignmentRole(nextRole); if (nextRole === "SENIOR_MANAGEMENT") setAssignmentDepartmentId(""); setSelectedIds([]); setSelectedStaff([]); setPreview(null); }}>
-                        <option value="">Select level</option>
-                        {assignmentRoleOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
-                      </select>
-                    </label>
-                  )}
-                  {assignmentNeedsDepartment && (
-                    <label>
-                      <span>Department</span>
-                      <select required value={assignmentDepartmentId} onChange={(event) => { setAssignmentDepartmentId(event.target.value); setSelectedIds([]); setSelectedStaff([]); setPreview(null); }}>
-                        <option value="">Select department</option>
-                        {assignmentDepartments.map((department) => <option key={department.id} value={department.id}>{department.name}</option>)}
-                      </select>
-                    </label>
-                  )}
-                  {account?.role === "TEAM_MANAGER" && (
-                    <div className="management-duty-assignment-scope__fixed">
-                      <span>Assignment scope</span>
-                      <strong>{departments[0]?.name || "Your department"}</strong>
-                      <small>Employees in your department</small>
-                    </div>
-                  )}
+                  <div className="management-duty-assignment-scope__fixed">
+                    <span>Org Unit scope</span>
+                    <strong>{orgUnits.find((unit) => unit.id === (orgUnitId || accessContext?.primaryOrgUnitId))?.name || "Your authorized Org Unit scope"}</strong>
+                    <small>{operationalTeamId ? operationalTeams.find((team) => team.id === operationalTeamId)?.name || "Selected Operational Team" : "Org Unit and descendant members you are authorized to assign"}</small>
+                  </div>
                 </div>
 
                 <div className="management-duty-staff-picker management-duty-staff-picker--searchable">
@@ -1511,7 +1344,7 @@ export function ManagementDutyPage() {
                   <div><strong>Duty details</strong><small>Choose the shift and schedule. Your management account remains the supervisor.</small></div>
                 </div>
                 <div className="management-duty-assignment-fields">
-                  <label><span>Shift</span><select required disabled={!selectedStaff.length} value={scheduleForm.shiftTemplateId} onChange={(event) => { setScheduleForm({ ...scheduleForm, shiftTemplateId: event.target.value }); setPreview(null); }}><option value="">{selectedStaff.length ? "Select valid shift" : "Select staff first"}</option>{assignmentTemplates.map((template) => <option key={template.id} value={template.id}>{template.name} · {template.startTime}–{template.endTime} · {template.scope === "BRANCH" ? "Branch" : template.scope === "DIVISION" ? "Division" : "Department"}</option>)}</select><small>{selectedStaff.length && !assignmentTemplates.length ? "No shift is valid for all selected staff. Create a branch/division shift or change the selection." : "Only shifts valid for all selected staff are shown."}</small></label>
+                  <label><span>Shift</span><select required disabled={!selectedStaff.length} value={scheduleForm.shiftTemplateId} onChange={(event) => { setScheduleForm({ ...scheduleForm, shiftTemplateId: event.target.value }); setPreview(null); }}><option value="">{selectedStaff.length ? "Select valid shift" : "Select staff first"}</option>{assignmentTemplates.map((template) => <option key={template.id} value={template.id}>{template.name} · {template.startTime}–{template.endTime} · {template.scope === "OFFICE" ? "Office" : "Org Unit"}</option>)}</select><small>{selectedStaff.length && !assignmentTemplates.length ? "No shift is valid for all selected staff. Create an Office/Org Unit shift or change the selection." : "Only shifts valid for all selected staff are shown."}</small></label>
                   <label><span>Schedule type</span><select value={scheduleForm.recurrenceType} onChange={(event) => { setScheduleForm({ ...scheduleForm, recurrenceType: event.target.value as DutyRecurrenceType }); setPreview(null); }}><option value="ONE_TIME">One day</option><option value="DATE_RANGE">Every day</option><option value="WEEKLY">Selected weekdays</option></select></label>
                   <label><span>Start date</span><input required type="date" value={scheduleForm.startDate} onChange={(event) => { setScheduleForm({ ...scheduleForm, startDate: event.target.value }); setPreview(null); }} /></label>
                   {scheduleForm.recurrenceType !== "ONE_TIME" && <label><span>End date</span><input required type="date" value={scheduleForm.endDate} onChange={(event) => { setScheduleForm({ ...scheduleForm, endDate: event.target.value }); setPreview(null); }} /></label>}
@@ -1604,29 +1437,28 @@ export function ManagementDutyPage() {
               <div className="management-duty-holiday-calendar">
                 <section className="management-duty-holiday-weekly">
                   <div><strong>Weekly off</strong><span>Configured once for the branch calendar.</span></div>
-                  <div className="management-duty-weekdays is-calendar">{WEEKDAYS.map(([value, label]) => { const active = weeklyOffDays.includes(value); return <button key={value} type="button" disabled={account?.role !== "SUPER_ADMIN"} aria-pressed={active} className={active ? "is-selected" : ""} onClick={() => setWeeklyOffDays((current) => active ? current.filter((day) => day !== value) : [...current, value].sort((a,b) => a-b))}><span>{label}</span><small>{active ? "Weekly off" : "Working"}</small></button>; })}</div>
-                  {account?.role === "SUPER_ADMIN" && <button type="button" className="is-primary" disabled={Boolean(busy)} onClick={() => void saveWeeklyOff()}>{busy === "weekly-off" ? "Saving…" : "Save weekly off"}</button>}
+                  <div className="management-duty-weekdays is-calendar">{WEEKDAYS.map(([value, label]) => { const active = weeklyOffDays.includes(value); return <button key={value} type="button" disabled={!canManageDuty} aria-pressed={active} className={active ? "is-selected" : ""} onClick={() => setWeeklyOffDays((current) => active ? current.filter((day) => day !== value) : [...current, value].sort((a,b) => a-b))}><span>{label}</span><small>{active ? "Weekly off" : "Working"}</small></button>; })}</div>
+                  {canManageDuty && <button type="button" className="is-primary" disabled={Boolean(busy)} onClick={() => void saveWeeklyOff()}>{busy === "weekly-off" ? "Saving…" : "Save weekly off"}</button>}
                 </section>
 
                 <section className="management-duty-holiday-list">
                   <header><div><strong>Upcoming holidays</strong><span>Holiday dates warn Duty planners but do not block essential operational coverage.</span></div></header>
                   {calendar?.holidays.filter((holiday) => !holiday.cancelledAt).length ? calendar.holidays.filter((holiday) => !holiday.cancelledAt).map((holiday) => (
                     <article key={holiday.id}>
-                      <div><strong>{holiday.name}</strong><span>{formatDate(holiday.startDate)}{holiday.endDate !== holiday.startDate ? ` – ${formatDate(holiday.endDate)}` : ""} · {holiday.type.toLowerCase().replaceAll("_", " ")}</span><small>{holiday.scope === "BRANCH" ? "Entire Branch" : holiday.scope === "DIVISION" ? divisions.find((division) => division.id === holiday.divisionId)?.name ?? "Division" : departments.find((department) => department.id === holiday.departmentId)?.name ?? "Department"}</small></div>
-                      {account?.role === "SUPER_ADMIN" && <button type="button" className="is-danger" disabled={Boolean(busy)} onClick={() => void removeHoliday(holiday.id)}>Cancel holiday</button>}
+                      <div><strong>{holiday.name}</strong><span>{formatDate(holiday.startDate)}{holiday.endDate !== holiday.startDate ? ` – ${formatDate(holiday.endDate)}` : ""} · {holiday.type.toLowerCase().replaceAll("_", " ")}</span><small>{holiday.scope === "OFFICE" ? "Entire Office" : holiday.orgUnit?.name ?? "Org Unit"}</small></div>
+                      {canManageDuty && <button type="button" className="is-danger" disabled={Boolean(busy)} onClick={() => void removeHoliday(holiday.id)}>Cancel holiday</button>}
                     </article>
                   )) : <p className="management-duty-shifts__empty">No upcoming holidays are recorded.</p>}
                 </section>
 
-                {account?.role === "SUPER_ADMIN" && (
+                {canManageDuty && (
                   <section className="management-duty-holiday-form">
-                    <div><strong>Add holiday</strong><span>Use the official NTC/government calendar. Department or Division scope is for approved local closures.</span></div>
+                    <div><strong>Add holiday</strong><span>Use the official NTC/government calendar. Org Unit scope is for approved local closures.</span></div>
                     <div className="management-duty-dialog__grid">
                       <label className="wide"><span>Holiday name</span><input required minLength={2} value={holidayForm.name} onChange={(event) => setHolidayForm({ ...holidayForm, name: event.target.value })} placeholder="e.g. Dashain Holiday" /></label>
                       <label><span>Type</span><select value={holidayForm.type} onChange={(event) => setHolidayForm({ ...holidayForm, type: event.target.value as DutyHolidayType })}><option value="GOVERNMENT">Government</option><option value="FESTIVAL">Festival</option><option value="ORGANIZATION">Organization</option><option value="OTHER">Other</option></select></label>
-                      <label><span>Scope</span><select value={holidayForm.scope} onChange={(event) => setHolidayForm((current) => ({ ...current, scope: event.target.value as DutyHolidayScope, divisionId: "", departmentId: "" }))}><option value="BRANCH">Entire Branch</option><option value="DIVISION">Division</option><option value="DEPARTMENT">Department</option></select></label>
-                      {holidayForm.scope !== "BRANCH" && <label><span>Division</span><select required value={holidayForm.divisionId} onChange={(event) => setHolidayForm((current) => ({ ...current, divisionId: event.target.value, departmentId: "" }))}><option value="">Select division</option>{divisions.map((division) => <option key={division.id} value={division.id}>{division.name}</option>)}</select></label>}
-                      {holidayForm.scope === "DEPARTMENT" && <label><span>Department</span><select required value={holidayForm.departmentId} onChange={(event) => setHolidayForm({ ...holidayForm, departmentId: event.target.value })}><option value="">Select department</option>{departments.filter((department) => department.divisionId === holidayForm.divisionId).map((department) => <option key={department.id} value={department.id}>{department.name}</option>)}</select></label>}
+                      <label><span>Scope</span><select value={holidayForm.scope} onChange={(event) => setHolidayForm((current) => ({ ...current, scope: event.target.value as DutyHolidayScope, orgUnitId: "" }))}><option value="OFFICE">Entire Office</option><option value="ORG_UNIT">Org Unit</option></select></label>
+                      {holidayForm.scope === "ORG_UNIT" && <label><span>Org Unit</span><select required value={holidayForm.orgUnitId} onChange={(event) => setHolidayForm({ ...holidayForm, orgUnitId: event.target.value })}><option value="">Select Org Unit</option>{orgUnits.map((orgUnit) => <option key={orgUnit.id} value={orgUnit.id}>{orgUnit.name}</option>)}</select></label>}
                       <label><span>From</span><input required type="date" value={holidayForm.startDate} onChange={(event) => setHolidayForm((current) => ({ ...current, startDate: event.target.value, endDate: current.endDate < event.target.value ? event.target.value : current.endDate }))} /></label>
                       <label><span>To</span><input required type="date" min={holidayForm.startDate} value={holidayForm.endDate} onChange={(event) => setHolidayForm({ ...holidayForm, endDate: event.target.value })} /></label>
                       <label className="wide"><span>Note (optional)</span><textarea value={holidayForm.note} onChange={(event) => setHolidayForm({ ...holidayForm, note: event.target.value })} /></label>
@@ -1640,7 +1472,6 @@ export function ManagementDutyPage() {
 
             {dialog === "CANCEL" && selectedAssignment && <div className="management-duty-dialog__grid"><div className="management-duty-cancel-summary wide"><DutyIcon name="warning" /><div><strong>Cancel {accountName(selectedAssignment.employee)} duty?</strong><p>{formatDateTime(selectedAssignment.startsAt)} · {selectedAssignment.shift.name}</p></div></div><label className="wide"><span>Cancellation reason</span><textarea required minLength={3} maxLength={500} value={cancelReason} onChange={(event) => setCancelReason(event.target.value)} /></label></div>}
 
-            {dialog === "COORDINATE" && selectedHelpRequest && <div className="management-duty-dialog__grid"><div className="management-duty-dialog__context wide"><strong>{selectedHelpRequest.workItem?.ticketNumber} · {selectedHelpRequest.workItem?.title}</strong><p>Requested department: {selectedHelpRequest.requestedDepartment?.name}</p></div><label className="wide"><span>On-duty helper</span><select required value={coordinationHelperId} onChange={(event) => setCoordinationHelperId(event.target.value)}><option value="">Select eligible employee</option>{coordinationCandidates.filter((candidate) => candidate.eligibleForDirectHelp).map((candidate) => <option key={candidate.account.id} value={candidate.account.id}>{candidate.account.employee?.empName || candidate.account.username} · {candidate.workload.active} active work</option>)}</select></label></div>}
 
             {dialog === "ROUTINE" && selectedPerson && (routineLoading ? <div className="management-duty-dialog__loading">Loading the next 31 days of duty…</div> : <div className="management-duty-routine"><div className="management-duty-routine__summary"><article><span>Role</span><strong>{roleLabel(selectedPerson.account.role)}</strong></article><article><span>Next 31 days</span><strong>{formatHours(selectedPerson.totalScheduledMinutes)}</strong></article><article><span>Current status</span><strong>{statusLabel(selectedPerson.todayStatus)}</strong></article></div><div className="management-duty-routine__list">{routineDates.map((date) => { const assignment = assignmentFor(selectedPerson, date); const exception = exceptionFor(selectedPerson, date); return <article key={date}><strong>{formatDate(date)}</strong>{assignment ? <><span>{assignment.shift.name} · {assignment.shift.startTime}–{assignment.shift.endTime}</span><small>{assignment.reportingLocation} · Supervisor {accountName(assignment.supervisor)}</small></> : exception ? <><span>{exception.type === "LEAVE" ? "Leave" : "Holiday exception"}</span><small>{exception.note || "No note"}</small></> : <span>Off duty</span>}</article>; })}</div></div>)}
 
@@ -1650,13 +1481,13 @@ export function ManagementDutyPage() {
                 <button type="button" className="is-primary" disabled={Boolean(busy) || createCount === 0} onClick={() => void createScheduleFromPreview()}>
                   {busy === "schedule" ? "Assigning..." : `Assign ${createCount}`}
                 </button>
-              ) : dialog !== "ROUTINE" && !(dialog === "HOLIDAYS" && account?.role !== "SUPER_ADMIN") ? (
+              ) : dialog !== "ROUTINE" && !(dialog === "HOLIDAYS" && !canManageDuty) ? (
                 <button
                   type="submit"
                   className={dialog === "CANCEL" || dialog === "SHIFT_DELETE" ? "is-danger" : "is-primary"}
                   disabled={Boolean(busy) || (dialog === "SCHEDULE" && (!selectedIds.length || !scheduleForm.shiftTemplateId))}
                 >
-                  {busy ? "Saving..." : dialog === "SCHEDULE" ? "Review Assignment" : dialog === "SHIFT_DELETE" ? "Delete Shift" : dialog === "SHIFTS" ? selectedTemplate ? "Save Changes" : "Create Shift" : dialog === "CANCEL" ? "Cancel Duty" : dialog === "COORDINATE" ? "Choose Helper" : dialog === "LEAVE" ? "Record Leave" : dialog === "HOLIDAYS" ? "Add Holiday" : "Save"}
+                  {busy ? "Saving..." : dialog === "SCHEDULE" ? "Review Assignment" : dialog === "SHIFT_DELETE" ? "Delete Shift" : dialog === "SHIFTS" ? selectedTemplate ? "Save Changes" : "Create Shift" : dialog === "CANCEL" ? "Cancel Duty" : dialog === "LEAVE" ? "Record Leave" : dialog === "HOLIDAYS" ? "Add Holiday" : "Save"}
                 </button>
               ) : null}
             </footer>

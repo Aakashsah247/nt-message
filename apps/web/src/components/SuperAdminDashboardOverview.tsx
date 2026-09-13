@@ -298,7 +298,7 @@ export function SuperAdminDashboardOverview({
           </header>
 
           <div className="super-admin-overview__actions">
-            <Link to="/work-management">
+            <Link to="/work-oversight">
               <ManagementIcon name="management" />
               <span>
                 <strong>{t("dashboard.quickActions.work")}</strong>
@@ -319,11 +319,11 @@ export function SuperAdminDashboardOverview({
                 <small>{t("dashboard.quickActions.directoryDescription")}</small>
               </span>
             </Link>
-            <Link to="/super-admin/management-positions">
+            <Link to="/organization">
               <ManagementIcon name="management" />
               <span>
-                <strong>{t("dashboard.quickActions.positions")}</strong>
-                <small>{t("dashboard.quickActions.positionsDescription")}</small>
+                <strong>{t("dashboard.quickActions.organization")}</strong>
+                <small>{t("dashboard.quickActions.organizationDescription")}</small>
               </span>
             </Link>
             <Link to="/super-admin?view=analytics">

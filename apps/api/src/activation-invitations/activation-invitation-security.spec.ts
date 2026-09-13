@@ -42,11 +42,10 @@ describe('activation invitation security', () => {
   });
 
   it.each([
-    [AccountRole.SENIOR_MANAGEMENT, 'Senior Management'],
-    [AccountRole.TEAM_MANAGER, 'Team Manager'],
-    [AccountRole.EMPLOYEE, 'Employee'],
+    [AccountRole.EMPLOYEE, 'Office User'],
+    [AccountRole.SUPER_ADMIN, 'Super Admin'],
   ])(
-    'maps %s to its employee-facing role name',
+    'maps %s to its canonical activation role name',
     (role: AccountRole, expected: string) => {
       expect(getActivationRoleName(role)).toBe(expected);
     },

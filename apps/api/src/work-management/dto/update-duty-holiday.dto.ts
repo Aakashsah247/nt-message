@@ -41,13 +41,9 @@ export class UpdateDutyHolidayDto {
   @IsEnum(DutyHolidayScope)
   scope?: DutyHolidayScope;
 
-  @ValidateIf((dto: UpdateDutyHolidayDto) => dto.scope !== undefined && dto.scope !== DutyHolidayScope.BRANCH)
+  @ValidateIf((dto: UpdateDutyHolidayDto) => dto.scope === DutyHolidayScope.ORG_UNIT)
   @IsUUID('4')
-  divisionId?: string;
-
-  @ValidateIf((dto: UpdateDutyHolidayDto) => dto.scope === DutyHolidayScope.DEPARTMENT)
-  @IsUUID('4')
-  departmentId?: string;
+  orgUnitId?: string;
 
   @Transform(({ value }: { value: unknown }) => trimText(value))
   @IsOptional()

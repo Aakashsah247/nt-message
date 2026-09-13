@@ -6,12 +6,7 @@ export type GroupKind = "PERSONAL" | "OFFICIAL";
 
 export type ConversationParticipantRole = "OWNER" | "ADMIN" | "MEMBER";
 
-export type OfficialGroupScopeType =
-  | "ORGANIZATION"
-  | "DIVISION"
-  | "DEPARTMENT"
-  | "OFFICE"
-  | "ORG_UNIT";
+export type OfficialGroupScopeType = "OFFICE" | "ORG_UNIT";
 
 export type OfficialGroupMembershipMode = "DIRECT_MEMBERS" | "ENTIRE_SUBTREE";
 
@@ -40,8 +35,6 @@ export type MessageRequestStatus =
 
 export type MessageRequestReason =
   | "PROTECTED_RECIPIENT"
-  | "CROSS_DEPARTMENT"
-  | "CROSS_DIVISION"
   | "OUTSIDE_ORG_SCOPE";
 
 export type MessagingContactMode =
@@ -68,8 +61,6 @@ export interface MessagingEmployeeIdentity {
   office: MessagingOrganizationUnit | null;
   primaryOrgUnit: MessagingOrganizationUnit | null;
   orgUnitBreadcrumb: MessagingOrganizationUnit[];
-  division: MessagingOrganizationUnit | null;
-  department: MessagingOrganizationUnit | null;
 }
 
 export interface MessagingAccount {
@@ -118,8 +109,6 @@ export interface MessagingUserProfile extends MessagingAccount {
     office: MessagingOrganizationUnit | null;
     primaryOrgUnit: MessagingOrganizationUnit | null;
     orgUnitBreadcrumb: MessagingOrganizationUnit[];
-    division: MessagingOrganizationUnit | null;
-    department: MessagingOrganizationUnit | null;
   } | null;
   sharedGroups: MessagingProfileSharedGroup[];
 }
@@ -280,13 +269,9 @@ export interface MessagingMessage {
 
 export interface MessagingOfficialGroupScope {
   scopeType: OfficialGroupScopeType;
-  divisionId: string | null;
-  departmentId: string | null;
   officeId: string | null;
   orgUnitId: string | null;
   membershipMode: OfficialGroupMembershipMode | null;
-  division: MessagingOrganizationUnit | null;
-  department: MessagingOrganizationUnit | null;
   office: MessagingOrganizationUnit | null;
   orgUnit:
     | (MessagingOrganizationUnit & {
@@ -458,10 +443,6 @@ export interface OfficialGroupScopeOption {
         };
       })
     | null;
-  divisionId: string | null;
-  departmentId: string | null;
-  division: MessagingOrganizationUnit | null;
-  department: MessagingOrganizationUnit | null;
 }
 
 export interface OfficialGroupScopesResponse {

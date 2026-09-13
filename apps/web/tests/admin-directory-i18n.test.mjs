@@ -80,12 +80,11 @@ test("Directory list and employee detail use the directory translation namespace
     "page.scopedAccess",
     "list.search.placeholder",
     "list.filters.clear",
-    "list.table.currentPosition",
+    "list.table.leadership",
     "list.pagination.page",
     "detail.organization.title",
     "detail.contact.title",
     "detail.account.title",
-    "detail.roleChange.title",
     "detail.accountAccess.suspend",
     "detail.lifecycle.title",
     "detail.history.title",
@@ -99,7 +98,7 @@ test("Directory list and employee detail use the directory translation namespace
   for (const [source, patterns] of [
     [pageSource, ["Organization Directory", "Scoped access"]],
     [listSource, ["Search directory", "Clear filters", "No employees found"]],
-    [detailSource, ["Change organizational role", "End Patan Branch access", "Archive former employee"]],
+    [detailSource, ["End Patan Branch access", "Archive former employee"]],
   ]) {
     for (const hardcoded of patterns) {
       assert.equal(

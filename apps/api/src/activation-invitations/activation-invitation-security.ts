@@ -33,14 +33,5 @@ export function buildActivationInvitationUrl(
 }
 
 export function getActivationRoleName(role: AccountRole): string {
-  switch (role) {
-    case AccountRole.SENIOR_MANAGEMENT:
-      return 'Senior Management';
-    case AccountRole.TEAM_MANAGER:
-      return 'Team Manager';
-    case AccountRole.EMPLOYEE:
-      return 'Employee';
-    default:
-      return 'NT Message account';
-  }
+  return role === AccountRole.SUPER_ADMIN ? 'Super Admin' : 'Office User';
 }

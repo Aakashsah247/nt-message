@@ -11,11 +11,11 @@ import {
 import type { Response } from 'express';
 
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
-import { Roles } from '../auth/decorators/roles.decorator';
+import { AccountClasses } from '../auth/decorators/account-classes.decorator';
 import { AccessTokenGuard } from '../auth/guards/access-token.guard';
-import { RolesGuard } from '../auth/guards/roles.guard';
+import { AccountClassesGuard } from '../auth/guards/account-classes.guard';
 import type { AuthenticatedUser } from '../auth/types/auth.types';
-import { AccountRole } from '../generated/prisma/client';
+import { AccountClass } from '../generated/prisma/client';
 import {
   ExportWorkReportQueryDto,
   WorkReportDataset,
@@ -47,14 +47,13 @@ import {
   type WorkReportV3WorkRecords,
 } from './work-reports-v3.service';
 
-const MANAGEMENT_REPORT_ROLES = [
-  AccountRole.SUPER_ADMIN,
-  AccountRole.SENIOR_MANAGEMENT,
-  AccountRole.TEAM_MANAGER,
+const REPORT_ACCOUNT_CLASSES = [
+  AccountClass.SUPER_ADMIN,
+  AccountClass.OFFICE_USER,
 ] as const;
 
 @Controller('work-reports')
-@UseGuards(AccessTokenGuard, RolesGuard)
+@UseGuards(AccessTokenGuard, AccountClassesGuard)
 export class WorkReportsController {
   constructor(
     private readonly workReportsService: WorkReportsService,
@@ -170,7 +169,7 @@ export class WorkReportsController {
   }
 
   @Get('drilldown')
-  @Roles(...MANAGEMENT_REPORT_ROLES)
+  @AccountClasses(...REPORT_ACCOUNT_CLASSES)
   getDrilldown(
     @CurrentUser() user: AuthenticatedUser,
     @Query() query: WorkReportDrilldownQueryDto,
@@ -186,7 +185,7 @@ export class WorkReportsController {
   }
 
   @Get('export')
-  @Roles(...MANAGEMENT_REPORT_ROLES)
+  @AccountClasses(...REPORT_ACCOUNT_CLASSES)
   async exportCsv(
     @CurrentUser() user: AuthenticatedUser,
     @Query() query: ExportWorkReportQueryDto,

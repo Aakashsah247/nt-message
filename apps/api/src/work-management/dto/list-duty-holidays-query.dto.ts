@@ -12,11 +12,7 @@ export class ListDutyHolidaysQueryDto {
 
   @IsOptional()
   @IsUUID('4')
-  divisionId?: string;
-
-  @IsOptional()
-  @IsUUID('4')
-  departmentId?: string;
+  orgUnitId?: string;
 
   @Transform(({ value }: { value: unknown }) => value === true || value === 'true')
   @IsOptional()

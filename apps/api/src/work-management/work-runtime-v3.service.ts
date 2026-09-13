@@ -12,7 +12,7 @@ import type { AuthenticatedUser } from '../auth/types/auth.types';
 import { PrismaService } from '../database/prisma.service';
 import type { Prisma } from '../generated/prisma/client';
 import {
-  AccountRole,
+  AccountClass,
   EmployeeStatus,
   EmploymentStatus,
   OrgLeadershipType,
@@ -329,7 +329,7 @@ export class WorkRuntimeV3Service {
       primaryOwnerOrgUnitId: { not: null },
     };
 
-    if (user.role !== AccountRole.SUPER_ADMIN) {
+    if (user.accountClass !== AccountClass.SUPER_ADMIN) {
       const visibleOrgUnitIds = await this.authorization.visibleOrgUnitIds(
         user,
         CAPABILITIES.WORK_VIEW,
@@ -650,7 +650,6 @@ export class WorkRuntimeV3Service {
       const work = await tx.workItem.create({
         data: {
           ticketNumber,
-          type: null,
           title: dto.title.trim(),
           description: dto.description?.trim() ?? '',
           category: null,
@@ -662,17 +661,13 @@ export class WorkRuntimeV3Service {
           openedAt: now,
           creationRequestId: dto.clientRequestId,
           creationRequestFingerprint: fingerprint,
-          divisionId: null,
-          departmentId: null,
           parentWorkItemId: null,
-          assignedTeamId: null,
           salesMemberAccountId: null,
           salesCoordinationStatus: null,
           registeredAt: null,
           plannedStartAt,
           dueAt,
           createdByAccountId: user.accountId,
-          responsibleManagerAccountId: null,
           orgUnitParticipants: {
             create: [...participantRoles.entries()].map(([orgUnitId, role]) => ({
               orgUnitId,
@@ -926,7 +921,7 @@ export class WorkRuntimeV3Service {
                   account: {
                     id: accountId,
                     isEnabled: true,
-                    role: { not: AccountRole.SUPER_ADMIN },
+                    accountClass: { not: AccountClass.SUPER_ADMIN },
                   },
                 },
               },
@@ -947,7 +942,7 @@ export class WorkRuntimeV3Service {
                   account: {
                     id: accountId,
                     isEnabled: true,
-                    role: { not: AccountRole.SUPER_ADMIN },
+                    accountClass: { not: AccountClass.SUPER_ADMIN },
                   },
                 },
               },
@@ -971,7 +966,7 @@ export class WorkRuntimeV3Service {
       where: { id: accountId },
       select: {
         id: true,
-        role: true,
+        accountClass: true,
         isEnabled: true,
         employee: {
           select: {
@@ -1024,7 +1019,7 @@ export class WorkRuntimeV3Service {
     if (
       !account ||
       !account.isEnabled ||
-      account.role === AccountRole.SUPER_ADMIN ||
+      account.accountClass === AccountClass.SUPER_ADMIN ||
       !account.employee ||
       account.employee.status !== EmployeeStatus.ACTIVE ||
       account.employee.employmentStatus !== EmploymentStatus.ACTIVE ||

@@ -3,8 +3,8 @@ import { Injectable, Logger, OnModuleDestroy, OnModuleInit } from '@nestjs/commo
 import type { AuthenticatedUser } from '../auth/types/auth.types';
 import { PrismaService } from '../database/prisma.service';
 import {
-  AccountRole,
   ActivityEventType,
+  OrgMembershipType,
 } from '../generated/prisma/client';
 import type { Prisma } from '../generated/prisma/client';
 import { RecordActivityEventDto } from './dto/record-activity-event.dto';
@@ -32,7 +32,7 @@ interface SummaryCounters {
 const accountMonitoringSelect = {
   id: true,
   username: true,
-  role: true,
+  accountClass: true,
   isEnabled: true,
   lastLoginAt: true,
 
@@ -42,15 +42,26 @@ const accountMonitoringSelect = {
       officialEmail: true,
       designation: true,
 
-      division: {
-        select: {
-          name: true,
+      orgMemberships: {
+        where: {
+          membershipType: OrgMembershipType.PRIMARY,
+          endsAt: null,
         },
-      },
-
-      departmentUnit: {
+        orderBy: {
+          startsAt: 'desc' as const,
+        },
+        take: 1,
         select: {
-          name: true,
+          office: {
+            select: {
+              name: true,
+            },
+          },
+          orgUnit: {
+            select: {
+              name: true,
+            },
+          },
         },
       },
     },
@@ -83,22 +94,33 @@ const activityLogSelect = {
     select: {
       id: true,
       username: true,
-      role: true,
+      accountClass: true,
 
       employee: {
         select: {
           empName: true,
           designation: true,
 
-          division: {
-            select: {
-              name: true,
+          orgMemberships: {
+            where: {
+              membershipType: OrgMembershipType.PRIMARY,
+              endsAt: null,
             },
-          },
-
-          departmentUnit: {
+            orderBy: {
+              startsAt: 'desc' as const,
+            },
+            take: 1,
             select: {
-              name: true,
+              office: {
+                select: {
+                  name: true,
+                },
+              },
+              orgUnit: {
+                select: {
+                  name: true,
+                },
+              },
             },
           },
         },
@@ -368,24 +390,30 @@ export class MonitoringService implements OnModuleInit, OnModuleDestroy {
         account: {
           employee: {
             is: {
-              OR: [
-                {
-                  departmentUnit: {
-                    name: {
-                      contains: query.department,
-                      mode: 'insensitive',
+              orgMemberships: {
+                some: {
+                  membershipType: OrgMembershipType.PRIMARY,
+                  endsAt: null,
+                  OR: [
+                    {
+                      orgUnit: {
+                        name: {
+                          contains: query.department,
+                          mode: 'insensitive',
+                        },
+                      },
                     },
-                  },
-                },
-                {
-                  division: {
-                    name: {
-                      contains: query.department,
-                      mode: 'insensitive',
+                    {
+                      office: {
+                        name: {
+                          contains: query.department,
+                          mode: 'insensitive',
+                        },
+                      },
                     },
-                  },
+                  ],
                 },
-              ],
+              },
             },
           },
         },
@@ -449,11 +477,11 @@ export class MonitoringService implements OnModuleInit, OnModuleDestroy {
       accountId: record.account.id,
       employeeName:
         record.account.employee?.empName ?? record.account.username ?? 'Unknown account',
-      role: record.account.role,
+      role: record.account.accountClass,
       designation: record.account.employee?.designation ?? null,
       department:
-        record.account.employee?.departmentUnit?.name ??
-        record.account.employee?.division?.name ??
+        record.account.employee?.orgMemberships[0]?.orgUnit?.name ??
+        record.account.employee?.orgMemberships[0]?.office?.name ??
         null,
       pageName,
       eventType: record.eventType,
@@ -485,10 +513,10 @@ export class MonitoringService implements OnModuleInit, OnModuleDestroy {
       accountId: account.id,
       employeeName:
         account.employee?.empName ?? account.username ?? 'Unknown account',
-      role: account.role,
+      role: account.accountClass,
       designation: account.employee?.designation ?? null,
-      division: account.employee?.division?.name ?? null,
-      department: account.employee?.departmentUnit?.name ?? null,
+      division: account.employee?.orgMemberships[0]?.office?.name ?? null,
+      department: account.employee?.orgMemberships[0]?.orgUnit?.name ?? null,
       status,
       currentPage: latestPageEvent?.pagePath ?? null,
       lastActiveAt:

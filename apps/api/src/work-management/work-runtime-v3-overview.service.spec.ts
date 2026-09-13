@@ -1,4 +1,5 @@
 import type { AuthenticatedUser } from '../auth/types/auth.types';
+import { AccountClass } from '../generated/prisma/client';
 import { WorkRuntimeV3Service } from './work-runtime-v3.service';
 
 const officeId = '11111111-1111-4111-8111-111111111111';
@@ -42,6 +43,7 @@ describe('WorkRuntimeV3Service overview read contract', () => {
     const harness = createHarness();
     const superAdmin = {
       accountId: '33333333-3333-4333-8333-333333333333',
+      accountClass: AccountClass.SUPER_ADMIN,
       role: 'SUPER_ADMIN',
     } as unknown as AuthenticatedUser;
 

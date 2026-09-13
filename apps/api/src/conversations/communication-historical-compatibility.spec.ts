@@ -69,11 +69,7 @@ describe('P12-K communication historical compatibility and legacy-write cutover'
     });
     expect(validateSync(native)).toHaveLength(0);
 
-    for (const audienceType of [
-      AnnouncementAudienceType.ORGANIZATION,
-      AnnouncementAudienceType.DIVISION,
-      AnnouncementAudienceType.DEPARTMENT,
-    ]) {
+    for (const audienceType of ['ORGANIZATION', 'DIVISION', 'DEPARTMENT']) {
       const legacy = Object.assign(new CreateAnnouncementDto(), {
         audienceType,
         title: 'Legacy notice',
@@ -83,73 +79,6 @@ describe('P12-K communication historical compatibility and legacy-write cutover'
         validateSync(legacy).some((error) => error.property === 'audienceType'),
       ).toBe(true);
     }
-  });
-
-  it('keeps inactive legacy Official Group metadata manageable through its V3 binding', async () => {
-    const prisma = {
-      division: {
-        findUnique: jest.fn().mockResolvedValue({
-          id: divisionId,
-          code: 'OLD-TECH',
-          name: 'Historical Technical Division',
-          isActive: false,
-        }),
-      },
-    } as unknown as PrismaService;
-    const service = new ConversationsService(
-      prisma,
-      { emitConversationUpdated: jest.fn() } as never,
-      {} as never,
-    );
-
-    jest
-      .spyOn(
-        service as unknown as {
-          resolveLegacyOfficialGroupOfficeId: () => Promise<string>;
-        },
-        'resolveLegacyOfficialGroupOfficeId',
-      )
-      .mockResolvedValue(officeId);
-    jest
-      .spyOn(
-        service as unknown as {
-          resolveOfficialGroupOrgUnitId: () => Promise<string>;
-        },
-        'resolveOfficialGroupOrgUnitId',
-      )
-      .mockResolvedValue(orgUnitId);
-    jest
-      .spyOn(
-        service as unknown as {
-          canManageOfficialGroupScope: () => Promise<boolean>;
-        },
-        'canManageOfficialGroupScope',
-      )
-      .mockResolvedValue(true);
-
-    const authorize = (
-      service as unknown as {
-        getAuthorizedOfficialGroupScope: (
-          viewer: unknown,
-          scopeType: OfficialGroupScopeType,
-          legacyDivisionId?: string | null,
-        ) => Promise<{ officeId: string; orgUnitId: string | null }>;
-      }
-    ).getAuthorizedOfficialGroupScope.bind(service);
-
-    await expect(
-      authorize(
-        {
-          accountId,
-          employeeId,
-          role: AccountRole.EMPLOYEE,
-          divisionId: null,
-          departmentId: null,
-        },
-        OfficialGroupScopeType.DIVISION,
-        divisionId,
-      ),
-    ).resolves.toMatchObject({ officeId, orgUnitId });
   });
 
   it('reconciles native V3 bindings while reporting historical communication evidence', () => {
@@ -172,19 +101,27 @@ describe('P12-K communication historical compatibility and legacy-write cutover'
     expect(cutoverVerificationScript).toContain('OUTSIDE_ORG_SCOPE');
   });
 
-  it('retains legacy communication fields and enum values until Phase 13 cleanup', () => {
+  it('locks the active schema to native V3 communication scope after Phase 13 cleanup', () => {
     expect(schema).toMatch(
-      /enum OfficialGroupScopeType \{[\s\S]*?ORGANIZATION[\s\S]*?DIVISION[\s\S]*?DEPARTMENT[\s\S]*?OFFICE[\s\S]*?ORG_UNIT[\s\S]*?\}/,
+      /enum OfficialGroupScopeType \{\s*OFFICE\s*ORG_UNIT\s*\}/,
     );
     expect(schema).toMatch(
-      /enum AnnouncementAudienceType \{[\s\S]*?ORGANIZATION[\s\S]*?DIVISION[\s\S]*?DEPARTMENT[\s\S]*?OFFICIAL_GROUP[\s\S]*?OFFICE[\s\S]*?ORG_UNIT[\s\S]*?\}/,
+      /enum AnnouncementAudienceType \{\s*OFFICIAL_GROUP\s*OFFICE\s*ORG_UNIT\s*\}/,
     );
     expect(schema).toMatch(
-      /enum MessageRequestReason \{[\s\S]*?CROSS_DEPARTMENT[\s\S]*?CROSS_DIVISION[\s\S]*?OUTSIDE_ORG_SCOPE[\s\S]*?\}/,
+      /enum MessageRequestReason \{\s*PROTECTED_RECIPIENT\s*OUTSIDE_ORG_SCOPE\s*\}/,
     );
-    expect(schema).toContain('officialDivisionId');
-    expect(schema).toContain('officialDepartmentId');
-    expect(schema).toContain('divisionId');
-    expect(schema).toContain('departmentId');
+
+    expect(schema).not.toMatch(
+      /enum OfficialGroupScopeType \{[^}]*\b(?:ORGANIZATION|DIVISION|DEPARTMENT)\b[^}]*\}/,
+    );
+    expect(schema).not.toMatch(
+      /enum AnnouncementAudienceType \{[^}]*\b(?:ORGANIZATION|DIVISION|DEPARTMENT)\b[^}]*\}/,
+    );
+    expect(schema).not.toMatch(
+      /enum MessageRequestReason \{[^}]*\b(?:CROSS_DIVISION|CROSS_DEPARTMENT)\b[^}]*\}/,
+    );
+    expect(schema).not.toContain('officialDivisionId');
+    expect(schema).not.toContain('officialDepartmentId');
   });
 });

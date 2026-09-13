@@ -3,6 +3,7 @@ import * as argon2 from "argon2";
 import { config } from "dotenv";
 import { resolve } from "node:path";
 import {
+  AccountClass,
   AccountRole,
   PrismaClient,
 } from "../src/generated/prisma/client";
@@ -159,7 +160,7 @@ async function findSuperAdminAccount() {
 
   if (
     officialEmailAccount &&
-    officialEmailAccount.role !== AccountRole.SUPER_ADMIN
+    officialEmailAccount.accountClass !== AccountClass.SUPER_ADMIN
   ) {
     throw new Error(
       `SUPER_ADMIN_EMAIL is already used by a non-Super Admin account.`,
@@ -168,7 +169,7 @@ async function findSuperAdminAccount() {
 
   const allSuperAdmins = await prisma.account.findMany({
     where: {
-      role: AccountRole.SUPER_ADMIN,
+      accountClass: AccountClass.SUPER_ADMIN,
     },
     orderBy: {
       createdAt: "asc",
@@ -202,7 +203,7 @@ async function findSuperAdminAccount() {
         })
       : null;
 
-  if (legacyAccount && legacyAccount.role !== AccountRole.SUPER_ADMIN) {
+  if (legacyAccount && legacyAccount.accountClass !== AccountClass.SUPER_ADMIN) {
     throw new Error(
       `INITIAL_ADMIN_USERNAME points to a non-Super Admin account.`,
     );
@@ -240,6 +241,7 @@ async function main(): Promise<void> {
         },
         data: {
           username: superAdminEmail,
+          accountClass: AccountClass.SUPER_ADMIN,
           role: AccountRole.SUPER_ADMIN,
           isEnabled: true,
         },
@@ -280,6 +282,7 @@ async function main(): Promise<void> {
   await prisma.account.create({
     data: {
       username: superAdminEmail,
+      accountClass: AccountClass.SUPER_ADMIN,
       role: AccountRole.SUPER_ADMIN,
       passwordHash,
       isEnabled: true,

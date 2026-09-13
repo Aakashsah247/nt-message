@@ -8,7 +8,7 @@ import {
 import type { AuthenticatedUser } from '../auth/types/auth.types';
 import { PrismaService } from '../database/prisma.service';
 import {
-  AccountRole,
+  AccountClass,
   EmployeeStatus,
   EmploymentStatus,
   OrgMembershipType,
@@ -19,7 +19,6 @@ import { CAPABILITIES } from '../organization/organization-capabilities';
 interface ResolveRequestTargetInput {
   officeId?: string;
   intendedOrgUnitId?: string;
-  legacyDepartmentId?: string;
 }
 
 @Injectable()
@@ -36,7 +35,7 @@ export class AccountRequestAuthorityService {
       },
       select: {
         id: true,
-        role: true,
+        accountClass: true,
         isEnabled: true,
         employee: {
           select: {
@@ -44,25 +43,6 @@ export class AccountRequestAuthorityService {
             status: true,
             employmentStatus: true,
             archivedAt: true,
-            divisionId: true,
-            departmentId: true,
-            division: {
-              select: {
-                id: true,
-                code: true,
-                name: true,
-                isActive: true,
-              },
-            },
-            departmentUnit: {
-              select: {
-                id: true,
-                divisionId: true,
-                code: true,
-                name: true,
-                isActive: true,
-              },
-            },
           },
         },
       },
@@ -71,8 +51,9 @@ export class AccountRequestAuthorityService {
     if (
       !account ||
       !account.isEnabled ||
-      account.role !== user.role ||
-      account.role === AccountRole.SUPER_ADMIN ||
+      account.accountClass !== AccountClass.OFFICE_USER ||
+      (user.accountClass !== undefined &&
+        user.accountClass !== AccountClass.OFFICE_USER) ||
       !account.employee ||
       account.employee.status !== EmployeeStatus.ACTIVE ||
       account.employee.employmentStatus !== EmploymentStatus.ACTIVE ||
@@ -156,12 +137,11 @@ export class AccountRequestAuthorityService {
     const { account, primaryMembership } =
       await this.resolveActiveOfficeUser(user);
 
-    const visibleOrgUnitIds =
-      await this.authorization.visibleOrgUnitIds(
-        user,
-        CAPABILITIES.USERS_REQUEST_CREATE,
-        primaryMembership.officeId,
-      );
+    const visibleOrgUnitIds = await this.authorization.visibleOrgUnitIds(
+      user,
+      CAPABILITIES.USERS_REQUEST_CREATE,
+      primaryMembership.officeId,
+    );
 
     if (visibleOrgUnitIds.length === 0) {
       throw new ForbiddenException(
@@ -199,55 +179,11 @@ export class AccountRequestAuthorityService {
       );
     }
 
-    const legacyDepartmentMappings =
-      await this.prisma.legacyOrgUnitMapping.findMany({
-        where: {
-          officeId: primaryMembership.officeId,
-          legacyEntityType: 'DEPARTMENT',
-          orgUnitId: {
-            in: requestableOrgUnits.map((unit) => unit.id),
-          },
-        },
-        select: {
-          legacyEntityId: true,
-        },
-      });
-
-    const compatibilityDepartments =
-      legacyDepartmentMappings.length === 0
-        ? []
-        : await this.prisma.department.findMany({
-            where: {
-              id: {
-                in: legacyDepartmentMappings.map(
-                  (mapping) => mapping.legacyEntityId,
-                ),
-              },
-              isActive: true,
-              division: {
-                is: {
-                  isActive: true,
-                },
-              },
-            },
-            orderBy: {
-              name: 'asc',
-            },
-            select: {
-              id: true,
-              divisionId: true,
-              code: true,
-              name: true,
-              isActive: true,
-            },
-          });
-
     return {
       requester: account,
       office: primaryMembership.office,
       primaryOrgUnit: primaryMembership.orgUnit,
       requestableOrgUnits,
-      compatibilityDepartments,
     };
   }
 
@@ -258,59 +194,13 @@ export class AccountRequestAuthorityService {
     const { account, primaryMembership } =
       await this.resolveActiveOfficeUser(user);
 
-    if (
-      input.officeId &&
-      input.officeId !== primaryMembership.officeId
-    ) {
+    if (input.officeId && input.officeId !== primaryMembership.officeId) {
       throw new ForbiddenException(
         'Account requests may be created only for your active Office.',
       );
     }
 
-    let legacyMappedOrgUnitId: string | null = null;
-
-    if (input.legacyDepartmentId) {
-      const legacyMapping =
-        await this.prisma.legacyOrgUnitMapping.findFirst({
-          where: {
-            legacyEntityType: 'DEPARTMENT',
-            legacyEntityId: input.legacyDepartmentId,
-          },
-          select: {
-            officeId: true,
-            orgUnitId: true,
-          },
-        });
-
-      if (!legacyMapping) {
-        throw new NotFoundException(
-          'The selected legacy department does not have a reconciled OrgUnit.',
-        );
-      }
-
-      if (legacyMapping.officeId !== primaryMembership.officeId) {
-        throw new ForbiddenException(
-          'The selected department is outside your active Office.',
-        );
-      }
-
-      legacyMappedOrgUnitId = legacyMapping.orgUnitId;
-    }
-
-    if (
-      input.intendedOrgUnitId &&
-      legacyMappedOrgUnitId &&
-      input.intendedOrgUnitId !== legacyMappedOrgUnitId
-    ) {
-      throw new BadRequestException(
-        'The intended OrgUnit does not match the selected legacy department.',
-      );
-    }
-
-    const intendedOrgUnitId =
-      input.intendedOrgUnitId ?? legacyMappedOrgUnitId;
-
-    if (!intendedOrgUnitId) {
+    if (!input.intendedOrgUnitId) {
       throw new BadRequestException(
         'Intended OrgUnit is required for an account request.',
       );
@@ -318,7 +208,7 @@ export class AccountRequestAuthorityService {
 
     const intendedOrgUnit = await this.prisma.orgUnit.findUnique({
       where: {
-        id: intendedOrgUnitId,
+        id: input.intendedOrgUnitId,
       },
       select: {
         id: true,
@@ -356,101 +246,10 @@ export class AccountRequestAuthorityService {
       intendedOrgUnit.id,
     );
 
-    const ancestry = await this.prisma.orgUnitClosure.findMany({
-      where: {
-        descendantOrgUnitId: intendedOrgUnit.id,
-      },
-      orderBy: {
-        depth: 'asc',
-      },
-      select: {
-        ancestorOrgUnitId: true,
-        depth: true,
-      },
-    });
-
-    const ancestorIds = ancestry.map(
-      (item) => item.ancestorOrgUnitId,
-    );
-
-    const compatibilityMappings =
-      ancestorIds.length === 0
-        ? []
-        : await this.prisma.legacyOrgUnitMapping.findMany({
-            where: {
-              officeId: primaryMembership.officeId,
-              orgUnitId: {
-                in: ancestorIds,
-              },
-              legacyEntityType: {
-                in: ['DIVISION', 'DEPARTMENT'],
-              },
-            },
-            select: {
-              legacyEntityType: true,
-              legacyEntityId: true,
-              orgUnitId: true,
-            },
-          });
-
-    const depthByOrgUnitId = new Map(
-      ancestry.map((item) => [item.ancestorOrgUnitId, item.depth]),
-    );
-
-    const nearestMapping = (legacyEntityType: string) =>
-      compatibilityMappings
-        .filter(
-          (mapping) =>
-            mapping.legacyEntityType === legacyEntityType,
-        )
-        .sort(
-          (left, right) =>
-            (depthByOrgUnitId.get(left.orgUnitId) ??
-              Number.MAX_SAFE_INTEGER) -
-            (depthByOrgUnitId.get(right.orgUnitId) ??
-              Number.MAX_SAFE_INTEGER),
-        )[0] ?? null;
-
-    const departmentMapping = nearestMapping('DEPARTMENT');
-    const divisionMapping = nearestMapping('DIVISION');
-
-    let legacyDepartmentId: string | null =
-      departmentMapping?.legacyEntityId ?? null;
-    let legacyDivisionId = divisionMapping?.legacyEntityId ?? null;
-
-    if (legacyDepartmentId) {
-      const department = await this.prisma.department.findUnique({
-        where: {
-          id: legacyDepartmentId,
-        },
-        select: {
-          id: true,
-          divisionId: true,
-          isActive: true,
-          division: {
-            select: {
-              isActive: true,
-            },
-          },
-        },
-      });
-
-      if (
-        department?.isActive &&
-        department.division.isActive
-      ) {
-        legacyDivisionId = department.divisionId;
-      } else {
-        legacyDepartmentId = null;
-      }
-    }
-
     return {
       requesterId: account.id,
       office: primaryMembership.office,
       intendedOrgUnit,
-      legacyDivisionId,
-      legacyDepartmentId,
     };
   }
 }

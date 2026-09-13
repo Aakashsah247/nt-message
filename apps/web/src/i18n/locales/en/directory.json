@@ -11,9 +11,6 @@
   },
   "roles": {
     "SUPER_ADMIN": "Super Admin",
-    "SENIOR_MANAGEMENT": "Senior Management",
-    "TEAM_MANAGER": "Team Manager",
-    "EMPLOYEE": "Employee",
     "NO_ACCOUNT": "No account"
   },
   "values": {
@@ -30,9 +27,6 @@
     "NO_ACCOUNT": "No account",
     "ACTIVATED": "Activated",
     "AWAITING_ACTIVATION": "Awaiting activation",
-    "SENIOR_MANAGEMENT": "Senior Management",
-    "TEAM_MANAGER": "Team Manager",
-    "EMPLOYEE": "Employee",
     "SUPER_ADMIN": "Super Admin",
     "VACANT": "Vacant",
     "OCCUPIED": "Occupied",
@@ -41,12 +35,11 @@
     "LIMITED": "Limited",
     "NONE": "None",
     "BRANCH": "Branch",
-    "DIVISION": "Division",
-    "DEPARTMENT": "Department",
     "ROLE_CHANGED": "Role changed",
     "STATUS_CHANGED": "Status changed",
     "EMPLOYMENT_ENDED": "Employment ended",
-    "ARCHIVED_EMPLOYEE": "Employee archived"
+    "ARCHIVED_EMPLOYEE": "Employee archived",
+    "OFFICE_USER": "Office user"
   },
   "common": {
     "never": "Never",
@@ -54,24 +47,14 @@
     "notAssigned": "Not assigned",
     "notApplicable": "Not applicable",
     "noAccount": "No account",
-    "noAuthority": "No authority",
     "hidden": "Hidden",
     "cancel": "Cancel",
     "close": "Close",
     "tryAgain": "Try again",
     "view": "View",
-    "department": "Department",
-    "division": "Division",
     "employee": "Employee",
     "profile": "Profile",
     "loading": "Loading…"
-  },
-  "position": {
-    "none": "No management position",
-    "seniorManagement": "{{division}} Senior Management",
-    "teamManager": "{{department}} Team Manager",
-    "noCurrentAssignment": "No current assignment",
-    "status": "{{status}} position"
   },
   "list": {
     "errorFallback": "The employee directory could not be loaded.",
@@ -86,11 +69,11 @@
     "recordSectionsAria": "Employee record sections",
     "scope": {
       "title": "Directory scope",
-      "division": "Division",
-      "department": "Department",
       "contactAccess": "Contact access",
-      "allDivisions": "All divisions",
-      "allDepartments": "All departments"
+      "office": "Office",
+      "orgUnit": "OrgUnit",
+      "allOffices": "All Offices",
+      "allOrgUnits": "All OrgUnits"
     },
     "toolbarAria": "Directory search and filters",
     "search": {
@@ -99,8 +82,6 @@
       "action": "Search"
     },
     "filters": {
-      "role": "Role",
-      "allRoles": "All roles",
       "employeeStatus": "Employee status",
       "allStatuses": "All statuses",
       "employment": "Employment",
@@ -128,8 +109,6 @@
     "table": {
       "caption": "Authorized Nepal Telecom employee directory",
       "employee": "Employee",
-      "effectiveRole": "Effective role",
-      "currentPosition": "Current position",
       "organization": "Organization",
       "employment": "Employment",
       "account": "Account",
@@ -138,11 +117,10 @@
       "archivedOn": "Archived on",
       "profileActions": "Profile actions",
       "noDesignation": "No designation",
-      "noDepartment": "No department",
-      "noDivision": "No division",
       "viewProfileAria": "View {{name}} profile",
       "noOrgUnit": "No OrgUnit",
-      "noOffice": "No Office"
+      "noOffice": "No Office",
+      "leadership": "Leadership"
     },
     "pagination": {
       "previous": "Previous",
@@ -159,16 +137,8 @@
     "loading": "Loading employee details...",
     "errorTitle": "Employee details unavailable",
     "noDesignation": "No designation assigned",
-    "effectiveBadge": "Effective: {{role}}",
     "organization": {
       "title": "Organization",
-      "division": "Division",
-      "divisionCode": "Division code",
-      "department": "Department",
-      "departmentCode": "Department code",
-      "currentPosition": "Current position",
-      "positionStatus": "Position status",
-      "positionStarted": "Position started",
       "office": "Office",
       "primaryOrgUnit": "Primary OrgUnit",
       "breadcrumb": "Organization path",
@@ -194,39 +164,10 @@
     },
     "account": {
       "title": "Account information",
-      "role": "Account role",
-      "effectiveRole": "Effective role",
       "status": "Account status",
       "activationStatus": "Activation status",
-      "organizationAuthority": "Organization authority",
-      "lastLogin": "Last login"
-    },
-    "roleChange": {
-      "eyebrow": "Super Admin control",
-      "title": "Change organizational role",
-      "description": "Promotion or demotion keeps the same account and employee history. Existing login sessions are revoked after confirmation.",
-      "open": "Promote, demote or transfer employee",
-      "loadingOrganization": "Loading organization...",
-      "currentRole": "Current effective role",
-      "newRole": "New role",
-      "selectRole": "Select new role",
-      "selectRoleError": "Select the new organizational role.",
-      "division": "Select division",
-      "selectDivision": "Select a division.",
-      "department": "Select department",
-      "selectDepartment": "Select a department.",
-      "designation": "New designation",
-      "designationPlaceholder": "Example: Sales Team Manager",
-      "designationError": "Designation must contain at least 2 characters.",
-      "reason": "Official reason",
-      "reasonPlaceholder": "Enter the approved promotion or demotion reason.",
-      "reasonError": "Enter an official role-change reason of at least 3 characters.",
-      "warning": "The employee keeps the same password, employee ID and history. The correct internal authority position is created or reused automatically, the assignment is updated atomically, and all login sessions are revoked.",
-      "confirming": "Applying change...",
-      "confirm": "Confirm organization change",
-      "transferSuffix": " (transfer)",
-      "success_one": "Organization role updated. {{count}} active session was revoked.",
-      "success_other": "Organization role updated. {{count}} active sessions were revoked."
+      "lastLogin": "Last login",
+      "accountClass": "Account class"
     },
     "accountAccess": {
       "eyebrow": "Super Admin control",

@@ -293,5 +293,9 @@
     "seniorManagement": "Senior Management",
     "teamManager": "Team Manager",
     "employee": "Employee"
+  },
+  "accountClasses": {
+    "superAdmin": "Super Admin",
+    "officeUser": "Office User"
   }
 }

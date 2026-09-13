@@ -1232,7 +1232,17 @@
     "existing": "Existing",
     "remove": "Remove",
     "uploadingProgress": "Uploading {{percent}}%",
-    "removing": "Removing..."
+    "removing": "Removing...",
+    "audienceType": "Audience type",
+    "wholeOffice": "Whole Office",
+    "orgUnit": "OrgUnit",
+    "officialGroup": "Official Group",
+    "selectOrgUnit": "Select an OrgUnit",
+    "membershipScope": "Membership scope",
+    "directMembers": "Direct members only",
+    "entireSubtree": "Entire subtree",
+    "selectOfficialGroup": "Select an official group",
+    "audienceLockedAfterCreate": "Audience is fixed after the announcement is created."
   },
   "announcementAttachment": {
     "close": "Close announcement attachment preview",
@@ -1425,7 +1435,9 @@
     "historyClearError": "Clear chat for me could not be completed.",
     "deleteForMeError": "The message could not be deleted for you.",
     "deleteForEveryoneError": "The message could not be deleted for everyone.",
-    "messageSendError": "The message could not be sent."
+    "messageSendError": "The message could not be sent.",
+    "announcementAudienceRequired": "Select a valid announcement audience.",
+    "announcementAudienceLoadError": "Announcement audiences could not be loaded."
   },
   "roles": {
     "superAdmin": "Super Admin",

@@ -7,7 +7,7 @@ import {
 
 import { PrismaService } from '../database/prisma.service';
 import {
-  AccountRole,
+  AccountClass,
   EmployeeStatus,
   EmploymentStatus,
   OrgLeadershipType,
@@ -49,7 +49,7 @@ type LeadershipRecord = {
     archivedAt: Date | null;
     account: {
       id: string;
-      role: AccountRole;
+      accountClass: AccountClass;
       isEnabled: boolean;
     } | null;
   };
@@ -697,7 +697,7 @@ export class WorkRuntimeV3NotificationsService
                 employmentStatus: true,
                 archivedAt: true,
                 account: {
-                  select: { id: true, role: true, isEnabled: true },
+                  select: { id: true, accountClass: true, isEnabled: true },
                 },
               },
             },
@@ -721,7 +721,7 @@ export class WorkRuntimeV3NotificationsService
                 employmentStatus: true,
                 archivedAt: true,
                 account: {
-                  select: { id: true, role: true, isEnabled: true },
+                  select: { id: true, accountClass: true, isEnabled: true },
                 },
               },
             },
@@ -799,7 +799,7 @@ export class WorkRuntimeV3NotificationsService
             employmentStatus: true,
             archivedAt: true,
             account: {
-              select: { id: true, role: true, isEnabled: true },
+              select: { id: true, accountClass: true, isEnabled: true },
             },
           },
         },
@@ -842,7 +842,7 @@ export class WorkRuntimeV3NotificationsService
         assignment.employee.employmentStatus === EmploymentStatus.ACTIVE &&
         assignment.employee.archivedAt === null &&
         assignment.employee.account?.isEnabled &&
-        assignment.employee.account.role !== AccountRole.SUPER_ADMIN,
+        assignment.employee.account.accountClass !== AccountClass.SUPER_ADMIN,
     );
     const selected = matches.find((assignment) => assignment.isActing) ?? matches[0];
     return selected?.employee.account?.id ?? null;
@@ -857,7 +857,7 @@ export class WorkRuntimeV3NotificationsService
       where: {
         id: { in: unique },
         isEnabled: true,
-        role: { not: AccountRole.SUPER_ADMIN },
+        accountClass: { not: AccountClass.SUPER_ADMIN },
         employee: {
           is: {
             status: EmployeeStatus.ACTIVE,

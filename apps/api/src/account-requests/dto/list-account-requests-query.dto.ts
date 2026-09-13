@@ -5,32 +5,16 @@ import {
   IsInt,
   IsOptional,
   IsString,
-  IsUUID,
   Max,
   MaxLength,
   Min,
 } from 'class-validator';
-import {
-  AccountRequestStatus,
-  AccountRole,
-} from '../../generated/prisma/client';
+import { AccountRequestStatus } from '../../generated/prisma/client';
 
 export class ListAccountRequestsQueryDto {
   @IsOptional()
   @IsEnum(AccountRequestStatus)
   status?: AccountRequestStatus;
-
-  @IsOptional()
-  @IsEnum(AccountRole)
-  requestedRole?: AccountRole;
-
-  @IsOptional()
-  @IsUUID('4')
-  divisionId?: string;
-
-  @IsOptional()
-  @IsUUID('4')
-  departmentId?: string;
 
   @IsOptional()
   @IsString()

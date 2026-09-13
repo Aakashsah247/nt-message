@@ -43,8 +43,6 @@ export interface EmergencyAlertContact {
   displayName: string;
   role: AccountRole;
   designation: string | null;
-  division: string | null;
-  department: string | null;
   profileSource: EmergencyAlertProfileSource;
   phoneAvailable: boolean;
   phoneStatus: SuperAdminProfileStatus | "READY";

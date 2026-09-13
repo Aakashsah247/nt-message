@@ -1,35 +1,10 @@
-import type { AccountRole } from "./auth";
-
-export interface PublicDivision {
-  id: string;
-  code: string;
-  name: string;
-}
-
-export interface PublicDivisionsResponse {
-  data: PublicDivision[];
-}
-
-export interface PublicDepartment {
-  id: string;
-  code: string;
-  name: string;
-  divisionId: string;
-
-  division: PublicDivision;
-}
-
-export interface PublicDepartmentsResponse {
-  data: PublicDepartment[];
-}
+import type { AccountClass, AccountRole } from "./auth";
 
 export interface ActivationIdentity {
   empName: string;
   empId: string;
   phoneNumber: string;
   officialEmail: string;
-  divisionId: string;
-  departmentId: string | null;
 }
 
 export interface ActivationInvitationPreview {
@@ -39,10 +14,10 @@ export interface ActivationInvitationPreview {
   };
 
   organization: {
-    divisionId: string;
-    divisionName: string;
-    departmentId: string | null;
-    departmentName: string | null;
+    officeId: string;
+    officeName: string;
+    orgUnitId: string;
+    orgUnitName: string;
   };
 
   requestedRole: Exclude<AccountRole, "SUPER_ADMIN">;
@@ -92,6 +67,7 @@ export interface CompleteActivationResponse {
   account: {
     id: string;
     username: string | null;
+    accountClass: AccountClass;
     role: AccountRole;
     isEnabled: boolean;
   };

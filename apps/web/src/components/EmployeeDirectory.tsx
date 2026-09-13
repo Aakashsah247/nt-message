@@ -15,10 +15,6 @@ import {
 } from "../services/directory.service";
 
 import type {
-  AccountRole,
-} from "../types/auth";
-
-import type {
   DirectoryAccountStatus,
   DirectoryActivationStatus,
   DirectoryEmployee,
@@ -38,10 +34,6 @@ interface EmployeeDirectoryProps {
   ) => void;
   selectedEmployeeId?: string | null;
 }
-
-type RoleFilter =
-  | AccountRole
-  | "";
 
 type EmployeeStatusFilter =
   | DirectoryEmployeeStatus
@@ -122,29 +114,25 @@ function getStatusClass(value: string): string {
     .replaceAll("_", "-");
 }
 
-function getCurrentPositionLabel(
+function getLeadershipLabel(
   employee: DirectoryEmployee,
   t: TFunction<"directory">,
 ): string {
-  const position = employee.currentPosition;
-
-  if (!position) {
-    return t("position.none", { ns: "directory" });
+  if (employee.leadership.length === 0) {
+    return t("leadership.none", { ns: "directory" });
   }
 
-  if (position.positionType === "SENIOR_MANAGEMENT") {
-    return t("position.seniorManagement", {
-      ns: "directory",
-      division: position.division.name,
-    });
-  }
-
-  return t("position.teamManager", {
-    ns: "directory",
-    department:
-      position.department?.name ??
-        t("common.department", { ns: "directory" }),
-  });
+  return employee.leadership
+    .map((assignment) =>
+      t(`leadership.${assignment.type}`, {
+        acting: assignment.isActing
+          ? t("leadership.actingSuffix", { ns: "directory" })
+          : "",
+        unit: assignment.orgUnit?.name ?? assignment.office.name,
+        ns: "directory",
+      }),
+    )
+    .join(", ");
 }
 
 
@@ -179,12 +167,6 @@ export function EmployeeDirectory({
     setSearch,
   ] =
     useState("");
-
-  const [
-    role,
-    setRole,
-  ] =
-    useState<RoleFilter>("");
 
   const [
     employeeStatus,
@@ -245,9 +227,6 @@ export function EmployeeDirectory({
       {
         search:
           search || undefined,
-
-        role:
-          role || undefined,
 
         status:
           employeeStatus ||
@@ -322,7 +301,6 @@ export function EmployeeDirectory({
     refreshKey,
     reloadKey,
     recordStatus,
-    role,
     search,
     t,
   ]);
@@ -358,7 +336,6 @@ export function EmployeeDirectory({
     void {
     setSearchInput("");
     setSearch("");
-    setRole("");
     setEmployeeStatus("");
     setEmploymentStatus("");
     setAccountStatus("");
@@ -377,7 +354,6 @@ export function EmployeeDirectory({
     // Show all records when changing directory sections.
     setSearchInput("");
     setSearch("");
-    setRole("");
     setEmployeeStatus("");
     setEmploymentStatus("");
     setAccountStatus("");
@@ -387,14 +363,6 @@ export function EmployeeDirectory({
     setError("");
   }
 
-  function changeRole(
-    value: RoleFilter,
-  ): void {
-    setRole(value);
-    setPage(1);
-    setLoading(true);
-    setError("");
-  }
 
   function changeEmployeeStatus(
     value:
@@ -508,7 +476,6 @@ export function EmployeeDirectory({
   const hasActiveFilters =
     Boolean(
       search ||
-      role ||
       employeeStatus ||
       employmentStatus ||
       accountStatus ||
@@ -570,7 +537,7 @@ export function EmployeeDirectory({
         </div>
       </header>
 
-      {scope?.role ===
+      {scope?.accountClass ===
         "SUPER_ADMIN" && (
         <nav
           className="directory-record-tabs"
@@ -629,25 +596,21 @@ export function EmployeeDirectory({
 
           <div>
             <span>
-              {t("list.scope.division")}
+              {t("list.scope.office")}
             </span>
 
             <strong>
-              {scope.division
-                ?.name ??
-                t("list.scope.allDivisions")}
+              {scope.office?.name ?? t("list.scope.allOffices")}
             </strong>
           </div>
 
           <div>
             <span>
-              {t("list.scope.department")}
+              {t("list.scope.orgUnit")}
             </span>
 
             <strong>
-              {scope.department
-                ?.name ??
-                t("list.scope.allDepartments")}
+              {scope.orgUnit?.name ?? t("list.scope.allOrgUnits")}
             </strong>
           </div>
 
@@ -725,42 +688,6 @@ export function EmployeeDirectory({
         </form>
 
         <section className="directory-filters">
-          <label>
-            <span>{t("list.filters.role")}</span>
-
-            <select
-              value={role}
-              onChange={(
-                event,
-              ) =>
-                changeRole(
-                  event.target
-                    .value as
-                    RoleFilter,
-                )
-              }
-            >
-              <option value="">
-                {t("list.filters.allRoles")}
-              </option>
-
-              <option value="SUPER_ADMIN">
-                {t("roles.SUPER_ADMIN")}
-              </option>
-
-              <option value="SENIOR_MANAGEMENT">
-                {t("roles.SENIOR_MANAGEMENT")}
-              </option>
-
-              <option value="TEAM_MANAGER">
-                {t("roles.TEAM_MANAGER")}
-              </option>
-
-              <option value="EMPLOYEE">
-                {t("roles.EMPLOYEE")}
-              </option>
-            </select>
-          </label>
 
           <label>
             <span>
@@ -1024,15 +951,11 @@ export function EmployeeDirectory({
             <thead>
               <tr>
                 <th>
-                  {t("roles.EMPLOYEE")}
+                  {t("common.employee")}
                 </th>
 
                 <th>
-                  {t("list.table.effectiveRole")}
-                </th>
-
-                <th>
-                  {t("list.table.currentPosition")}
+                  {t("list.table.leadership")}
                 </th>
 
                 <th>
@@ -1113,40 +1036,10 @@ export function EmployeeDirectory({
                       </button>
                     </td>
 
-                    <td data-label={t("list.table.effectiveRole")}>
-                      <span
-                        className={`directory-badge role-${getStatusClass(
-                          employee.effectiveRole ??
-                            "NO_ACCOUNT",
-                        )}`}
-                      >
-                        {employee.effectiveRole
-                          ? formatValue(
-                              employee.effectiveRole,
-                              t,
-                            )
-                          : t("common.noAccount")}
-                      </span>
-                    </td>
-
-                    <td data-label={t("list.table.currentPosition")}>
+                    <td data-label={t("list.table.leadership")}>
                       <strong>
-                        {getCurrentPositionLabel(
-                          employee,
-                          t,
-                        )}
+                        {getLeadershipLabel(employee, t)}
                       </strong>
-
-                      <small>
-                        {employee.currentPosition
-                          ? t("position.status", {
-                              status: formatValue(
-                                employee.currentPosition.status,
-                                t,
-                              ),
-                            })
-                          : t("position.noCurrentAssignment")}
-                      </small>
                     </td>
 
                     <td data-label={t("list.table.organization")}>

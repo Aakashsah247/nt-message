@@ -1,149 +1,83 @@
-import { AccountRole } from '../generated/prisma/enums';
+import { AccountClass } from '../generated/prisma/enums';
 import { getActivationEmailResendPolicyViolation } from './account-request-activation-email-policy';
 
 const request = {
   requestedByAccountId: 'requester-account',
-  requestedRole: AccountRole.TEAM_MANAGER,
-  divisionId: 'division-a',
-  departmentId: 'department-a',
+  officeId: 'office-a',
+  intendedOrgUnitId: 'org-unit-a',
+};
+
+const officeRequester = {
+  accountId: 'requester-account',
+  accountClass: AccountClass.OFFICE_USER,
+  officeId: 'office-a',
+  requestableOrgUnitIds: ['org-unit-a', 'org-unit-b'],
 };
 
 describe('activation email resend policy', () => {
-  it('allows the Super Admin across the organization', () => {
+  it('allows the Super Admin across Offices', () => {
     expect(
       getActivationEmailResendPolicyViolation(
         {
           accountId: 'super-admin',
-          role: AccountRole.SUPER_ADMIN,
-          divisionId: null,
-          departmentId: null,
+          accountClass: AccountClass.SUPER_ADMIN,
+          officeId: null,
+          requestableOrgUnitIds: [],
         },
         request,
       ),
     ).toBeNull();
   });
 
-  it('allows the original Senior Management requester in the same division', () => {
+  it('allows the original Office requester when current V3 scope still contains the intended OrgUnit', () => {
     expect(
-      getActivationEmailResendPolicyViolation(
-        {
-          accountId: 'requester-account',
-          role: AccountRole.SENIOR_MANAGEMENT,
-          divisionId: 'division-a',
-          departmentId: null,
-        },
-        request,
-      ),
+      getActivationEmailResendPolicyViolation(officeRequester, request),
     ).toBeNull();
   });
 
-  it('rejects a different Senior Management requester', () => {
+  it('rejects a different Office requester', () => {
     expect(
       getActivationEmailResendPolicyViolation(
         {
+          ...officeRequester,
           accountId: 'different-account',
-          role: AccountRole.SENIOR_MANAGEMENT,
-          divisionId: 'division-a',
-          departmentId: null,
         },
         request,
       ),
     ).toBe('NOT_ORIGINAL_REQUESTER');
   });
 
-  it('rejects Senior Management for an Employee request', () => {
+  it('rejects an Office requester whose current capability scope no longer contains the intended OrgUnit', () => {
     expect(
       getActivationEmailResendPolicyViolation(
         {
-          accountId: 'requester-account',
-          role: AccountRole.SENIOR_MANAGEMENT,
-          divisionId: 'division-a',
-          departmentId: null,
-        },
-        {
-          ...request,
-          requestedRole: AccountRole.EMPLOYEE,
-        },
-      ),
-    ).toBe('REQUEST_ROLE_OUT_OF_SCOPE');
-  });
-
-  it('rejects a Senior Management requester outside the request division', () => {
-    expect(
-      getActivationEmailResendPolicyViolation(
-        {
-          accountId: 'requester-account',
-          role: AccountRole.SENIOR_MANAGEMENT,
-          divisionId: 'division-b',
-          departmentId: null,
+          ...officeRequester,
+          requestableOrgUnitIds: ['org-unit-b'],
         },
         request,
       ),
     ).toBe('REQUEST_ORGANIZATION_OUT_OF_SCOPE');
   });
 
-  it('allows the original Team Manager requester for an Employee in the same department', () => {
+  it('rejects an Office requester from another Office', () => {
     expect(
       getActivationEmailResendPolicyViolation(
         {
-          accountId: 'requester-account',
-          role: AccountRole.TEAM_MANAGER,
-          divisionId: 'division-a',
-          departmentId: 'department-a',
-        },
-        {
-          ...request,
-          requestedRole: AccountRole.EMPLOYEE,
-        },
-      ),
-    ).toBeNull();
-  });
-
-  it('rejects a Team Manager request for the wrong role', () => {
-    expect(
-      getActivationEmailResendPolicyViolation(
-        {
-          accountId: 'requester-account',
-          role: AccountRole.TEAM_MANAGER,
-          divisionId: 'division-a',
-          departmentId: 'department-a',
+          ...officeRequester,
+          officeId: 'office-b',
         },
         request,
-      ),
-    ).toBe('REQUEST_ROLE_OUT_OF_SCOPE');
-  });
-
-  it('rejects a Team Manager outside the request department', () => {
-    expect(
-      getActivationEmailResendPolicyViolation(
-        {
-          accountId: 'requester-account',
-          role: AccountRole.TEAM_MANAGER,
-          divisionId: 'division-a',
-          departmentId: 'department-b',
-        },
-        {
-          ...request,
-          requestedRole: AccountRole.EMPLOYEE,
-        },
       ),
     ).toBe('REQUEST_ORGANIZATION_OUT_OF_SCOPE');
   });
 
-  it('rejects Employee accounts', () => {
+  it('rejects compatibility requests that do not yet have canonical V3 Office/OrgUnit scope', () => {
     expect(
-      getActivationEmailResendPolicyViolation(
-        {
-          accountId: 'requester-account',
-          role: AccountRole.EMPLOYEE,
-          divisionId: 'division-a',
-          departmentId: 'department-a',
-        },
-        {
-          ...request,
-          requestedRole: AccountRole.EMPLOYEE,
-        },
-      ),
-    ).toBe('ROLE_NOT_AUTHORIZED');
+      getActivationEmailResendPolicyViolation(officeRequester, {
+        ...request,
+        officeId: null,
+        intendedOrgUnitId: null,
+      }),
+    ).toBe('REQUEST_ORGANIZATION_OUT_OF_SCOPE');
   });
 });

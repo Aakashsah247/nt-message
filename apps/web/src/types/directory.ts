@@ -1,4 +1,4 @@
-import type { AccountRole } from "./auth";
+import type { AccountClass, AccountRole } from "./auth";
 
 export type DirectoryScopeType =
   | "OFFICE"
@@ -56,56 +56,12 @@ export interface DirectoryLeadershipAssignment {
   orgUnit: DirectoryOrganizationUnit | null;
 }
 
-export type DirectoryManagementPositionType =
-  | "SENIOR_MANAGEMENT"
-  | "TEAM_MANAGER";
-
-export type DirectoryManagementPositionStatus =
-  | "ACTIVE"
-  | "INACTIVE";
-
-export interface DirectoryCurrentPosition {
-  assignmentId: string;
-  startedAt: string;
-
-  id: string;
-
-  positionType:
-    DirectoryManagementPositionType;
-
-  divisionId: string;
-  departmentId: string | null;
-
-  isActive: boolean;
-
-  status:
-    DirectoryManagementPositionStatus;
-
-  division:
-    DirectoryOrganizationUnit;
-
-  department:
-    | DirectoryOrganizationUnit
-    | null;
-}
-
 export interface DirectoryScope {
-  role: AccountRole;
+  accountClass: AccountClass;
   type: DirectoryScopeType;
-
   office: DirectoryOrganizationUnit | null;
   orgUnit: DirectoryOrganizationUnit | null;
-
-  division:
-    | DirectoryOrganizationUnit
-    | null;
-
-  department:
-    | DirectoryOrganizationUnit
-    | null;
-
-  contactVisibility:
-    DirectoryContactVisibility;
+  contactVisibility: DirectoryContactVisibility;
 }
 
 export interface DirectoryEmployee {
@@ -150,28 +106,7 @@ export interface DirectoryEmployee {
   accountStatus:
     DirectoryAccountStatus;
 
-  /*
-   * role remains a compatibility alias for
-   * the stored account role.
-   */
-  role: AccountRole | null;
-
-  accountRole:
-    AccountRole | null;
-
-  effectiveRole:
-    AccountRole | null;
-
-  currentPosition:
-    DirectoryCurrentPosition | null;
-
-  division:
-    | DirectoryOrganizationUnit
-    | null;
-
-  department:
-    | DirectoryOrganizationUnit
-    | null;
+  accountClass: AccountClass | null;
 
   lastLoginAt: string | null;
   createdAt: string;
@@ -193,10 +128,6 @@ export interface DirectoryFilters {
     DirectoryRecordStatus;
 
 
-  role:
-    | AccountRole
-    | null;
-
   accountStatus:
     | DirectoryAccountStatus
     | null;
@@ -205,8 +136,6 @@ export interface DirectoryFilters {
     | DirectoryActivationStatus
     | null;
 
-  divisionId: string | null;
-  departmentId: string | null;
 }
 
 export interface DirectoryPagination {
@@ -241,16 +170,11 @@ export interface DirectoryListQuery {
     DirectoryRecordStatus;
 
 
-  role?: AccountRole;
-
   accountStatus?:
     DirectoryAccountStatus;
 
   activationStatus?:
     DirectoryActivationStatus;
-
-  divisionId?: string;
-  departmentId?: string;
 
   page?: number;
   limit?: number;
@@ -390,103 +314,4 @@ export interface DirectoryLifecycleHistoryResponse {
   };
 
   data: DirectoryLifecycleAction[];
-}
-
-
-export type DirectoryRoleChangeTarget =
-  Exclude<
-    AccountRole,
-    "SUPER_ADMIN"
-  >;
-
-export interface DirectoryOrganizationDivision {
-  id: string;
-  code: string;
-  name: string;
-  isActive: boolean;
-}
-
-export interface DirectoryOrganizationDepartment {
-  id: string;
-  code: string;
-  name: string;
-  isActive: boolean;
-
-  division: {
-    id: string;
-    code: string;
-    name: string;
-    isActive: boolean;
-  };
-}
-
-export interface DirectoryOrganizationDivisionsResponse {
-  data:
-    DirectoryOrganizationDivision[];
-}
-
-export interface DirectoryOrganizationDepartmentsResponse {
-  data:
-    DirectoryOrganizationDepartment[];
-}
-
-export interface ChangeDirectoryEmployeeRoleInput {
-  targetRole:
-    DirectoryRoleChangeTarget;
-
-  divisionId: string;
-  departmentId?: string;
-
-  managementPositionId?: string;
-
-  designation?: string;
-  reason: string;
-}
-
-export interface ChangeDirectoryEmployeeRoleResponse {
-  message: string;
-
-  action:
-    | "PROMOTED"
-    | "DEMOTED"
-    | "TRANSFERRED";
-
-  revokedSessions: number;
-
-  previousManagementPositionId:
-    string | null;
-
-  newManagementPositionId:
-    string | null;
-
-  newManagementAssignmentId:
-    string | null;
-
-  employee: {
-    id: string;
-    empId: string;
-    empName: string;
-    officialEmail: string;
-    designation: string | null;
-    divisionId: string;
-    departmentId: string | null;
-    status:
-      DirectoryEmployeeStatus;
-    employmentStatus:
-      DirectoryEmploymentStatus;
-    isActivated: boolean;
-    updatedAt: string;
-
-    division:
-      DirectoryOrganizationUnit;
-
-    departmentUnit:
-      DirectoryOrganizationUnit;
-
-    account: {
-      id: string;
-      role: AccountRole;
-      isEnabled: boolean;
-    };
-  };
 }

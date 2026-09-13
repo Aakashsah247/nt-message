@@ -14,7 +14,7 @@ describe('requiresMessageRequestApproval', () => {
   it('requires approval when the existing rule applies and the recipient opted in', () => {
     expect(
       requiresMessageRequestApproval(
-        MessageRequestReason.CROSS_DEPARTMENT,
+        MessageRequestReason.OUTSIDE_ORG_SCOPE,
         true,
       ),
     ).toBe(true);

@@ -76,14 +76,10 @@ export interface ActivationInvitationPreview {
     officialEmail: string;
   };
   organization: {
-    officeId: string | null;
-    officeName: string | null;
-    orgUnitId: string | null;
-    orgUnitName: string | null;
-    divisionId: string | null;
-    divisionName: string | null;
-    departmentId: string | null;
-    departmentName: string | null;
+    officeId: string;
+    officeName: string;
+    orgUnitId: string;
+    orgUnitName: string;
   };
   requestedRole: AccountRole;
   expiresAt: Date;
@@ -312,9 +308,6 @@ export class ActivationInvitationsService {
             employeeId: true,
             officeId: true,
             intendedOrgUnitId: true,
-            divisionId: true,
-            departmentId: true,
-            managementPositionId: true,
             office: {
               select: {
                 name: true,
@@ -326,16 +319,6 @@ export class ActivationInvitationsService {
                 name: true,
                 officeId: true,
                 isActive: true,
-              },
-            },
-            division: {
-              select: {
-                name: true,
-              },
-            },
-            department: {
-              select: {
-                name: true,
               },
             },
           },
@@ -375,13 +358,9 @@ export class ActivationInvitationsService {
 
     const now = new Date();
 
-    const canonicalOfficeActivation = invitation
-      ? isCanonicalOfficeActivationRequest(invitation.request)
-      : false;
-
     const validCanonicalScope = Boolean(
       invitation &&
-        canonicalOfficeActivation &&
+        isCanonicalOfficeActivationRequest(invitation.request) &&
         invitation.request.office &&
         invitation.request.office.isActive &&
         invitation.request.intendedOrgUnit &&
@@ -392,13 +371,6 @@ export class ActivationInvitationsService {
           invitation.request,
           invitation.employee.orgMemberships[0],
         ),
-    );
-
-    const validLegacyScope = Boolean(
-      invitation &&
-        !canonicalOfficeActivation &&
-        invitation.request.divisionId &&
-        invitation.request.division,
     );
 
     /*
@@ -420,7 +392,7 @@ export class ActivationInvitationsService {
       (invitation.request.status === AccountRequestStatus.ACTIVATION_PENDING &&
         invitation.request.lifecycleState !==
           AccountRequestLifecycleState.PROVISIONED) ||
-      (!validCanonicalScope && !validLegacyScope)
+      !validCanonicalScope
     ) {
       throw new UnauthorizedException(
         'The activation invitation is invalid or expired.',
@@ -433,14 +405,10 @@ export class ActivationInvitationsService {
         officialEmail: invitation.employee.officialEmail,
       },
       organization: {
-        officeId: invitation.request.officeId,
-        officeName: invitation.request.office?.name ?? null,
-        orgUnitId: invitation.request.intendedOrgUnitId,
-        orgUnitName: invitation.request.intendedOrgUnit?.name ?? null,
-        divisionId: invitation.request.divisionId,
-        divisionName: invitation.request.division?.name ?? null,
-        departmentId: invitation.request.departmentId,
-        departmentName: invitation.request.department?.name ?? null,
+        officeId: invitation.request.officeId!,
+        officeName: invitation.request.office!.name,
+        orgUnitId: invitation.request.intendedOrgUnitId!,
+        orgUnitName: invitation.request.intendedOrgUnit!.name,
       },
       requestedRole: invitation.request.requestedRole,
       expiresAt: invitation.expiresAt,

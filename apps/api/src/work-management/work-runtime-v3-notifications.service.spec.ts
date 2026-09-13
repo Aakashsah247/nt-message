@@ -1,4 +1,5 @@
 import {
+  AccountClass,
   AccountRole,
   EmployeeStatus,
   EmploymentStatus,
@@ -131,7 +132,7 @@ describe('WorkRuntimeV3NotificationsService', () => {
     expect(harness.prisma.account.findMany).toHaveBeenCalledWith(
       expect.objectContaining({
         where: expect.objectContaining({
-          role: { not: AccountRole.SUPER_ADMIN },
+          accountClass: { not: AccountClass.SUPER_ADMIN },
         }),
       }),
     );

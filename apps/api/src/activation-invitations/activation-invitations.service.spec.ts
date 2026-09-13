@@ -88,9 +88,6 @@ describe('ActivationInvitationsService V3 invitation scope', () => {
         employeeId: 'employee-a',
         officeId: 'office-a',
         intendedOrgUnitId: 'unit-a',
-        divisionId: null,
-        departmentId: null,
-        managementPositionId: null,
         office: {
           name: 'Patan Telecom Office',
           isActive: true,
@@ -100,8 +97,6 @@ describe('ActivationInvitationsService V3 invitation scope', () => {
           officeId: 'office-a',
           isActive: true,
         },
-        division: null,
-        department: null,
       },
       employee: {
         id: 'employee-a',
@@ -136,8 +131,6 @@ describe('ActivationInvitationsService V3 invitation scope', () => {
         officeName: 'Patan Telecom Office',
         orgUnitId: 'unit-a',
         orgUnitName: 'Technical',
-        divisionId: null,
-        departmentId: null,
       },
       requestedRole: AccountRole.EMPLOYEE,
     });

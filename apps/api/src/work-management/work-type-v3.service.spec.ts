@@ -4,7 +4,6 @@ import type { AuthenticatedUser } from '../auth/types/auth.types';
 import { PrismaService } from '../database/prisma.service';
 import {
   AccountRole,
-  WorkItemType,
   WorkTypeVersionStatus,
 } from '../generated/prisma/client';
 import { CAPABILITIES } from '../organization/organization-capabilities';
@@ -196,7 +195,6 @@ describe('WorkTypeV3Service', () => {
       id: 'definition-1',
       officeId: office.id,
       code: 'ROUTINE_WORK',
-      legacyWorkItemType: WorkItemType.ROUTINE_TASK,
       isActive: true,
       sortOrder: 10,
       createdAt: new Date('2026-09-05T00:00:00Z'),

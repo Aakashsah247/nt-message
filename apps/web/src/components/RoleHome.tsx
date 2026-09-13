@@ -1,6 +1,6 @@
 import { Navigate,} from "react-router";
 import { useAuth } from "../context/AuthContext";
-import { getRoleHomePath} from "../utils/get-role-home-path";
+import { getAccountHomePath} from "../utils/get-account-home-path";
 
 export function RoleHome() {
   const { account } = useAuth();
@@ -16,7 +16,7 @@ export function RoleHome() {
 
   return (
     <Navigate
-      to={account.role === "EMPLOYEE" ? "/employee" : getRoleHomePath(account.role)}
+      to={getAccountHomePath(account.accountClass)}
       replace
     />
   );

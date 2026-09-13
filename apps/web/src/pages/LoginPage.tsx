@@ -4,7 +4,7 @@ import { useTranslation } from "react-i18next";
 import { Link, useLocation, useNavigate } from "react-router";
 import { useAuth } from "../context/AuthContext";
 
-import { getRoleHomePath } from "../utils/get-role-home-path";
+import { getAccountHomePath } from "../utils/get-account-home-path";
 
 export function LoginPage() {
   const navigate = useNavigate();
@@ -35,14 +35,9 @@ export function LoginPage() {
     try {
       const account = await login(identifier, password);
 
-      navigate(
-        account.role === "EMPLOYEE"
-          ? "/employee"
-          : getRoleHomePath(account.role),
-        {
-          replace: true,
-        },
-      );
+      navigate(getAccountHomePath(account.accountClass), {
+        replace: true,
+      });
     } catch (requestError) {
       setPassword("");
 

@@ -120,6 +120,7 @@ import {
   deleteAnnouncement,
   downloadAnnouncementAttachment,
   getAnnouncement,
+  listAnnouncementAudiences,
   listAnnouncements,
   markAnnouncementRead,
   publishAnnouncement,
@@ -144,6 +145,8 @@ import type {
 import type {
   AnnouncementAttachment,
   AnnouncementAttachmentCategory,
+  AnnouncementAudienceOptions,
+  AnnouncementCreateAudienceType,
   AnnouncementDetail,
   AnnouncementListItem,
   AnnouncementMutationInput,
@@ -273,6 +276,11 @@ type AnnouncementComposerMode = "CREATE" | "EDIT";
 type AnnouncementComposerAction = "PUBLISH" | "SAVE" | "CANCEL";
 
 interface AnnouncementComposerValues {
+  audienceType: AnnouncementCreateAudienceType;
+  officeId: string;
+  orgUnitId: string;
+  officialConversationId: string;
+  includeDescendants: boolean;
   title: string;
   body: string;
   priority: AnnouncementPriority;
@@ -1483,6 +1491,11 @@ function toLocalDateTimeInputValue(date: Date): string {
 
 function createAnnouncementComposerValues(): AnnouncementComposerValues {
   return {
+    audienceType: "OFFICIAL_GROUP",
+    officeId: "",
+    orgUnitId: "",
+    officialConversationId: "",
+    includeDescendants: false,
     title: "",
     body: "",
     priority: "NORMAL",
@@ -1501,6 +1514,13 @@ function announcementDetailToComposerValues(
   announcement: AnnouncementDetail,
 ): AnnouncementComposerValues {
   return {
+    audienceType: announcement.audience.type === "OFFICE" || announcement.audience.type === "ORG_UNIT" || announcement.audience.type === "OFFICIAL_GROUP"
+      ? announcement.audience.type
+      : "OFFICIAL_GROUP",
+    officeId: announcement.audience.office?.id ?? "",
+    orgUnitId: announcement.audience.orgUnit?.id ?? "",
+    officialConversationId: announcement.audience.officialGroup?.id ?? "",
+    includeDescendants: announcement.audience.includeDescendants,
     title: announcement.title,
     body: announcement.body,
     priority: announcement.priority,
@@ -2728,10 +2748,6 @@ function roleLabel(value: string, t: TFunction): string {
   switch (value) {
     case "SUPER_ADMIN":
       return t("roles.superAdmin");
-    case "SENIOR_MANAGEMENT":
-      return t("roles.seniorManagement");
-    case "TEAM_MANAGER":
-      return t("roles.teamManager");
     case "OWNER":
       return t("roles.owner");
     case "ADMIN":
@@ -3090,19 +3106,10 @@ function MessageStatusGlyph({ name }: { name: MessageStatusGlyphName }) {
   );
 }
 
-function workspacePathForRole(role: string | undefined): string {
-  switch (role) {
-    case "SUPER_ADMIN":
-      return "/super-admin";
-    case "SENIOR_MANAGEMENT":
-      return "/senior-management";
-    case "TEAM_MANAGER":
-      return "/team-manager";
-    case "EMPLOYEE":
-      return "/employee";
-    default:
-      return "/";
-  }
+function workspacePathForAccountClass(
+  accountClass: string | undefined,
+): string {
+  return accountClass === "SUPER_ADMIN" ? "/super-admin" : "/";
 }
 
 function officialScopeLabel(
@@ -3131,20 +3138,8 @@ function officialScopeLabel(
     });
   }
 
-  // Phase 13 removes these legacy variants. Keep them readable for historical
-  // conversations while every new official group uses Office/OrgUnit scope.
-  if (scope.scopeType === "ORGANIZATION") {
-    return t("groupInfo.scope.organizationWide");
-  }
-
-  if (scope.scopeType === "DIVISION") {
-    return t("groupInfo.scope.division", {
-      name: scope.division?.name ?? t("profileDetail.division"),
-    });
-  }
-
-  return t("groupInfo.scope.department", {
-    name: scope.department?.name ?? t("profileDetail.department"),
+  return t("groupInfo.scope.office", {
+    name: scope.office?.name ?? t("profileDetail.office"),
   });
 }
 
@@ -3191,15 +3186,7 @@ function requestReasonLabel(
     return t("requestWorkspace.reasons.protectedRecipient");
   }
 
-  if (reason === "OUTSIDE_ORG_SCOPE") {
-    return t("requestWorkspace.reasons.outsideOrgScope");
-  }
-
-  if (reason === "CROSS_DIVISION") {
-    return t("requestWorkspace.reasons.crossDivision");
-  }
-
-  return t("requestWorkspace.reasons.crossDepartment");
+  return t("requestWorkspace.reasons.outsideOrgScope");
 }
 
 
@@ -3651,7 +3638,7 @@ export function MessageAppPage() {
   const { t } = useTranslation("messaging");
   const { account, accessToken, logout } = useAuth();
   const { refreshAvatar } = useAvatarRegistry();
-  const mainWorkspacePath = workspacePathForRole(account?.role);
+  const mainWorkspacePath = workspacePathForAccountClass(account?.accountClass);
   const announcementMode = location.pathname.startsWith(
     "/messages/announcements",
   );
@@ -3736,6 +3723,10 @@ export function MessageAppPage() {
     useState<AnnouncementStatus | null>(null);
   const [announcementComposerValues, setAnnouncementComposerValues] =
     useState<AnnouncementComposerValues>(createAnnouncementComposerValues);
+  const [announcementAudienceOptions, setAnnouncementAudienceOptions] =
+    useState<AnnouncementAudienceOptions | null>(null);
+  const [announcementAudienceLoading, setAnnouncementAudienceLoading] =
+    useState(false);
   const [
     announcementComposerExistingAttachments,
     setAnnouncementComposerExistingAttachments,
@@ -6844,6 +6835,7 @@ export function MessageAppPage() {
     setAnnouncementComposerAnnouncementId(null);
     setAnnouncementComposerStatus(null);
     setAnnouncementComposerValues(createAnnouncementComposerValues());
+    setAnnouncementAudienceOptions(null);
     setAnnouncementComposerExistingAttachments([]);
     setAnnouncementComposerRemovedAttachmentIds([]);
     setAnnouncementComposerPendingAttachments([]);
@@ -6860,7 +6852,12 @@ export function MessageAppPage() {
     setAnnouncementComposerGroupId(selectedConversation.id);
     setAnnouncementComposerAnnouncementId(null);
     setAnnouncementComposerStatus(null);
-    setAnnouncementComposerValues(createAnnouncementComposerValues());
+    setAnnouncementComposerValues({
+      ...createAnnouncementComposerValues(),
+      audienceType: "OFFICIAL_GROUP",
+      officialConversationId: selectedConversation.id,
+    });
+    setAnnouncementAudienceOptions(null);
     setAnnouncementComposerExistingAttachments([]);
     setAnnouncementComposerRemovedAttachmentIds([]);
     setAnnouncementComposerPendingAttachments([]);
@@ -7187,9 +7184,7 @@ export function MessageAppPage() {
     }
   }
 
-  function buildAnnouncementComposerInput(
-    officialConversationId: string,
-  ): CreateAnnouncementInput {
+  function buildAnnouncementComposerInput(): CreateAnnouncementInput {
     const title = announcementComposerValues.title.trim();
     const body = announcementComposerValues.body.trim();
 
@@ -7239,9 +7234,33 @@ export function MessageAppPage() {
       expiresAt = expiryDate.toISOString();
     }
 
+    const audienceType = announcementComposerValues.audienceType;
+    const audienceInput: Pick<
+      CreateAnnouncementInput,
+      "audienceType" | "officeId" | "orgUnitId" | "includeDescendants" | "officialConversationId"
+    > = { audienceType };
+
+    if (audienceType === "OFFICE") {
+      if (!announcementComposerValues.officeId) {
+        throw new Error(t("feedback.announcementAudienceRequired"));
+      }
+      audienceInput.officeId = announcementComposerValues.officeId;
+    } else if (audienceType === "ORG_UNIT") {
+      if (!announcementComposerValues.officeId || !announcementComposerValues.orgUnitId) {
+        throw new Error(t("feedback.announcementAudienceRequired"));
+      }
+      audienceInput.officeId = announcementComposerValues.officeId;
+      audienceInput.orgUnitId = announcementComposerValues.orgUnitId;
+      audienceInput.includeDescendants = announcementComposerValues.includeDescendants;
+    } else {
+      if (!announcementComposerValues.officialConversationId) {
+        throw new Error(t("feedback.announcementAudienceRequired"));
+      }
+      audienceInput.officialConversationId = announcementComposerValues.officialConversationId;
+    }
+
     return {
-      audienceType: "OFFICIAL_GROUP",
-      officialConversationId,
+      ...audienceInput,
       title,
       body,
       priority: announcementComposerValues.priority,
@@ -7283,9 +7302,7 @@ export function MessageAppPage() {
     let workingAnnouncementId = announcementComposerAnnouncementId;
 
     try {
-      const input = buildAnnouncementComposerInput(
-        announcementComposerGroup.id,
-      );
+      const input = buildAnnouncementComposerInput();
       const updateInput: AnnouncementMutationInput = {
         title: input.title,
         body: input.body,
@@ -10186,6 +10203,33 @@ export function MessageAppPage() {
       window.clearTimeout(timer);
     };
   }, [accessToken, privateGroupDialogOpen, privateGroupSearch, t]);
+
+  useEffect(() => {
+    if (!announcementComposerOpen || announcementComposerMode !== "CREATE" || !accessToken) {
+      return undefined;
+    }
+
+    let active = true;
+    setAnnouncementAudienceLoading(true);
+    listAnnouncementAudiences(accessToken)
+      .then((response) => {
+        if (!active) return;
+        setAnnouncementAudienceOptions(response.data);
+        setAnnouncementComposerValues((current) => ({
+          ...current,
+          officeId: response.data.office.id,
+          officialConversationId: current.officialConversationId || announcementComposerGroupId || "",
+        }));
+      })
+      .catch((error) => {
+        if (active) {
+          setAnnouncementComposerError(error instanceof Error ? error.message : t("feedback.announcementAudienceLoadError"));
+        }
+      })
+      .finally(() => { if (active) setAnnouncementAudienceLoading(false); });
+
+    return () => { active = false; };
+  }, [accessToken, announcementComposerGroupId, announcementComposerMode, announcementComposerOpen, t]);
 
   useEffect(() => {
     if (!accessToken) {
@@ -24502,20 +24546,76 @@ export function MessageAppPage() {
                   className="message-announcement-audience-lock"
                   aria-label={t("announcementComposer.audienceAria")}
                 >
-                  <span>
-                    {renderGroupAvatar(
-                      announcementComposerGroup,
-                      "message-avatar",
-                    )}
-                  </span>
                   <div>
                     <small>{t("announcementComposer.audience")}</small>
-                    <strong>
-                      {announcementComposerGroup.title ?? t("groupInfo.officialGroup")}
-                    </strong>
-                    <p>{officialScopeLabel(announcementComposerGroup, t)}</p>
+                    {announcementComposerMode === "EDIT" ? (
+                      <>
+                        <strong>{announcementDetail?.audience.officialGroup?.title ?? announcementDetail?.audience.orgUnit?.name ?? announcementDetail?.audience.office?.name ?? announcementComposerGroup.title ?? t("groupInfo.officialGroup")}</strong>
+                        <p>{t("announcementComposer.audienceLockedAfterCreate")}</p>
+                      </>
+                    ) : (
+                      <div className="message-announcement-composer-grid">
+                        <label>
+                          <span>{t("announcementComposer.audienceType")}</span>
+                          <select
+                            value={announcementComposerValues.audienceType}
+                            disabled={announcementAudienceLoading}
+                            onChange={(event) => setAnnouncementComposerValues((current) => ({
+                              ...current,
+                              audienceType: event.target.value as AnnouncementCreateAudienceType,
+                              orgUnitId: "",
+                              includeDescendants: false,
+                            }))}
+                          >
+                            {announcementAudienceOptions?.canTargetOffice && <option value="OFFICE">{t("announcementComposer.wholeOffice")}</option>}
+                            {(announcementAudienceOptions?.orgUnits.length ?? 0) > 0 && <option value="ORG_UNIT">{t("announcementComposer.orgUnit")}</option>}
+                            {(announcementAudienceOptions?.officialGroups.length ?? 0) > 0 && <option value="OFFICIAL_GROUP">{t("announcementComposer.officialGroup")}</option>}
+                          </select>
+                        </label>
+
+                        {announcementComposerValues.audienceType === "ORG_UNIT" && (
+                          <>
+                            <label>
+                              <span>{t("announcementComposer.orgUnit")}</span>
+                              <select
+                                value={announcementComposerValues.orgUnitId}
+                                onChange={(event) => setAnnouncementComposerValues((current) => ({ ...current, orgUnitId: event.target.value }))}
+                                required
+                              >
+                                <option value="">{t("announcementComposer.selectOrgUnit")}</option>
+                                {announcementAudienceOptions?.orgUnits.map((unit) => <option key={unit.id} value={unit.id}>{unit.name}</option>)}
+                              </select>
+                            </label>
+                            <label>
+                              <span>{t("announcementComposer.membershipScope")}</span>
+                              <select
+                                value={announcementComposerValues.includeDescendants ? "SUBTREE" : "DIRECT"}
+                                onChange={(event) => setAnnouncementComposerValues((current) => ({ ...current, includeDescendants: event.target.value === "SUBTREE" }))}
+                              >
+                                <option value="DIRECT">{t("announcementComposer.directMembers")}</option>
+                                <option value="SUBTREE">{t("announcementComposer.entireSubtree")}</option>
+                              </select>
+                            </label>
+                          </>
+                        )}
+
+                        {announcementComposerValues.audienceType === "OFFICIAL_GROUP" && (
+                          <label>
+                            <span>{t("announcementComposer.officialGroup")}</span>
+                            <select
+                              value={announcementComposerValues.officialConversationId}
+                              onChange={(event) => setAnnouncementComposerValues((current) => ({ ...current, officialConversationId: event.target.value }))}
+                              required
+                            >
+                              <option value="">{t("announcementComposer.selectOfficialGroup")}</option>
+                              {announcementAudienceOptions?.officialGroups.map((group) => <option key={group.id} value={group.id}>{group.title}</option>)}
+                            </select>
+                          </label>
+                        )}
+                      </div>
+                    )}
                   </div>
-                  <em>{t("announcementComposer.locked")}</em>
+                  {announcementComposerMode === "EDIT" && <em>{t("announcementComposer.locked")}</em>}
                 </section>
 
                 <div className="message-announcement-composer-layout">

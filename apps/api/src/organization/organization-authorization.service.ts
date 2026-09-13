@@ -6,7 +6,7 @@ import {
 import type { AuthenticatedUser } from '../auth/types/auth.types';
 import { PrismaService } from '../database/prisma.service';
 import {
-  AccountRole,
+  AccountClass,
   EmployeeStatus,
   EmploymentStatus,
   OrgLeadershipType,
@@ -132,7 +132,7 @@ export class OrganizationAuthorizationService {
       return false;
     }
 
-    if (account.role === AccountRole.SUPER_ADMIN) {
+    if (account.accountClass === AccountClass.SUPER_ADMIN) {
       return SUPER_ADMIN_CAPABILITIES.has(capability);
     }
 
@@ -435,7 +435,7 @@ export class OrganizationAuthorizationService {
       return true;
     }
 
-    if (user.role === AccountRole.SUPER_ADMIN) {
+    if (user.accountClass === AccountClass.SUPER_ADMIN) {
       return false;
     }
 
@@ -796,7 +796,7 @@ export class OrganizationAuthorizationService {
 
     if (
       !account?.isEnabled ||
-      account.role === AccountRole.SUPER_ADMIN ||
+      account.accountClass === AccountClass.SUPER_ADMIN ||
       !account.employee ||
       account.employee.status !== EmployeeStatus.ACTIVE ||
       account.employee.employmentStatus !==
@@ -868,7 +868,7 @@ export class OrganizationAuthorizationService {
       },
       select: {
         id: true,
-        role: true,
+        accountClass: true,
         isEnabled: true,
         employee: {
           select: {

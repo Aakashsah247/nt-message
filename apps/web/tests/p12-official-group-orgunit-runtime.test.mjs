@@ -9,8 +9,10 @@ const pageUrl = new URL("../src/pages/MessageAppPage.tsx", import.meta.url);
 test("P12-D exposes Office/OrgUnit official-group scopes and membership modes", async () => {
   const source = await readFile(typesUrl, "utf8");
 
-  assert.match(source, /\| "OFFICE"/);
-  assert.match(source, /\| "ORG_UNIT"/);
+  assert.match(
+    source,
+    /OfficialGroupScopeType = "OFFICE" \| "ORG_UNIT"/,
+  );
   assert.match(
     source,
     /OfficialGroupMembershipMode = "DIRECT_MEMBERS" \| "ENTIRE_SUBTREE"/,

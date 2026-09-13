@@ -2,7 +2,7 @@ import { BadRequestException } from '@nestjs/common';
 
 import type { Prisma } from '../generated/prisma/client';
 import {
-  AccountRole,
+  AccountClass,
   EmployeeStatus,
   EmploymentStatus,
   OrgMembershipType,
@@ -385,7 +385,7 @@ export async function assertRuntimeIdentityFieldValues(
       where: {
         id: { in: accountIds },
         isEnabled: true,
-        role: { not: AccountRole.SUPER_ADMIN },
+        accountClass: { not: AccountClass.SUPER_ADMIN },
         employee: {
           is: {
             status: EmployeeStatus.ACTIVE,

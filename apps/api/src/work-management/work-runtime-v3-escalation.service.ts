@@ -7,7 +7,7 @@ import {
 import type { AuthenticatedUser } from '../auth/types/auth.types';
 import { PrismaService } from '../database/prisma.service';
 import {
-  AccountRole,
+  AccountClass,
   EmployeeStatus,
   EmploymentStatus,
   OrgLeadershipType,
@@ -313,7 +313,7 @@ export class WorkRuntimeV3EscalationService {
             archivedAt: null,
             account: {
               isEnabled: true,
-              role: { not: AccountRole.SUPER_ADMIN },
+              accountClass: { not: AccountClass.SUPER_ADMIN },
             },
           },
         },
@@ -433,7 +433,7 @@ export class WorkRuntimeV3EscalationService {
     responsibleOrgUnitId: string,
   ): Promise<boolean> {
     if (
-      user.role === AccountRole.SUPER_ADMIN ||
+      user.accountClass === AccountClass.SUPER_ADMIN ||
       createdByAccountId === user.accountId ||
       (await this.authorization.can(
         user,
@@ -525,7 +525,7 @@ export class WorkRuntimeV3EscalationService {
                     account: {
                       id: accountId,
                       isEnabled: true,
-                      role: { not: AccountRole.SUPER_ADMIN },
+                      accountClass: { not: AccountClass.SUPER_ADMIN },
                     },
                   },
                 },
@@ -546,7 +546,7 @@ export class WorkRuntimeV3EscalationService {
                     account: {
                       id: accountId,
                       isEnabled: true,
-                      role: { not: AccountRole.SUPER_ADMIN },
+                      accountClass: { not: AccountClass.SUPER_ADMIN },
                     },
                   },
                 },

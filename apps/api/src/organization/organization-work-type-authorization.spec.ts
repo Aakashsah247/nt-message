@@ -1,6 +1,7 @@
 import type { AuthenticatedUser } from '../auth/types/auth.types';
 import { PrismaService } from '../database/prisma.service';
 import {
+  AccountClass,
   AccountRole,
   EmployeeStatus,
   EmploymentStatus,
@@ -12,11 +13,13 @@ import { OrganizationAuthorizationService } from './organization-authorization.s
 const officeHeadUser = {
   accountId: 'office-head-account',
   role: AccountRole.EMPLOYEE,
+  accountClass: AccountClass.OFFICE_USER,
 } as AuthenticatedUser;
 
 const superAdmin = {
   accountId: 'super-admin-account',
   role: AccountRole.SUPER_ADMIN,
+  accountClass: AccountClass.SUPER_ADMIN,
 } as AuthenticatedUser;
 
 function officeHeadPrisma() {
@@ -25,6 +28,7 @@ function officeHeadPrisma() {
       findUnique: jest.fn().mockResolvedValue({
         id: officeHeadUser.accountId,
         role: AccountRole.EMPLOYEE,
+        accountClass: AccountClass.OFFICE_USER,
         isEnabled: true,
         employee: {
           id: 'employee-1',
@@ -98,6 +102,7 @@ describe('work type V3 authorization', () => {
         findUnique: jest.fn().mockResolvedValue({
           id: superAdmin.accountId,
           role: AccountRole.SUPER_ADMIN,
+          accountClass: AccountClass.SUPER_ADMIN,
           isEnabled: true,
           employee: null,
         }),

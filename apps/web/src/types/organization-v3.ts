@@ -142,7 +142,7 @@ export interface OrganizationPeopleActionContext {
 export interface OrganizationPersonAccount {
   id: string;
   username: string;
-  role: string;
+  accountClass: "SUPER_ADMIN" | "OFFICE_USER";
   isEnabled: boolean;
 }
 

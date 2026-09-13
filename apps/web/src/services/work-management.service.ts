@@ -1,49 +1,32 @@
-import { apiDownload, apiRequest } from "../lib/api";
+import { apiRequest } from "../lib/api";
 
 import type {
   BulkDutyPreviewResponse,
   BulkDutyScheduleInput,
   DutyAssignmentListResponse,
+  DutyAssignmentListView,
+  DutyAuthorizationContext,
+  DutyCalendarResponse,
   DutyCoverageRequirement,
   DutyCoverageRequirementAuditResponse,
   DutyCoverageRequirementInput,
   DutyCoverageRequirementListResponse,
   DutyCoverageRequirementUpdateInput,
-  DutyAssignmentListView,
-  DutyCalendarResponse,
+  DutyHelpRecommendationResponse,
   DutyHolidayScope,
   DutyHolidayType,
-  DutyHelpRecommendationResponse,
   DutyManagementHelpRecommendationResponse,
   DutyManagementSummary,
-  DutyRosterResponse,
   DutyMutationResponse,
   DutyRecurrenceType,
+  DutyRosterResponse,
   DutyShiftScope,
   DutyShiftTemplateListResponse,
+  DutySupervisorOptionsResponse,
   MyDutySummary,
   PendingWorkHelpRequestsResponse,
-  WorkActivityResponse,
   WorkAvailabilityPreference,
-  WorkAssignmentOptionsResponse,
-  WorkCompletionMutationResponse,
-  WorkCompletionResult,
-  WorkContactType,
-  WorkEmployeeDashboardSummary,
-  WorkHelpMutationResponse,
-  WorkHelpReason,
-  WorkItemDetailResponse,
-  WorkItemListResponse,
-  WorkItemStatus,
-  WorkItemType,
-  WorkManagementDashboardSummary,
-  WorkManagementOrganizationSummaryResponse,
   WorkMutationResponse,
-  WorkQueueFocus,
-  WorkServiceType,
-  WorkQueueView,
-  WorkSalesMessageListResponse,
-  WorkSalesMessageMutationResponse,
 } from "../types/work-management";
 
 function authorizationHeaders(accessToken: string): HeadersInit {
@@ -52,37 +35,8 @@ function authorizationHeaders(accessToken: string): HeadersInit {
   };
 }
 
-export interface WorkItemListQuery {
-  view?: WorkQueueView;
-  focus?: WorkQueueFocus;
-  page?: number;
-  limit?: number;
-  search?: string;
-  status?: WorkItemStatus;
-  type?: WorkItemType;
-  category?: string;
-  divisionId?: string;
-  departmentId?: string;
-  assigneeAccountId?: string;
-  assignedTeamId?: string;
-  salesMemberAccountId?: string;
-  dueFrom?: string;
-  dueTo?: string;
-  plannedFrom?: string;
-  plannedTo?: string;
-  historyFrom?: string;
-  historyTo?: string;
-}
-
-export interface WorkAssignmentOptionsQuery {
-  page?: number;
-  limit?: number;
-  search?: string;
-  departmentId?: string;
-}
-
 export interface DutyCoverageRequirementQuery {
-  departmentId?: string;
+  orgUnitId?: string;
   shiftTemplateId?: string;
   dayOfWeek?: number;
   from?: string;
@@ -90,62 +44,32 @@ export interface DutyCoverageRequirementQuery {
 }
 
 export interface DutyRosterQuery {
+  orgUnitId?: string;
+  operationalTeamId?: string;
   from?: string;
   to?: string;
   employeeAccountId?: string;
-  divisionId?: string;
-  departmentId?: string;
   search?: string;
-  role?: "SENIOR_MANAGEMENT" | "TEAM_MANAGER" | "EMPLOYEE";
   limit?: number;
 }
 
 export interface DutyAssignmentQuery {
+  orgUnitId?: string;
   page?: number;
   limit?: number;
   from?: string;
   to?: string;
   employeeAccountId?: string;
-  departmentId?: string;
   view?: DutyAssignmentListView;
   includeCancelled?: boolean;
 }
 
-export interface CreateWorkItemInput {
-  type: WorkItemType;
-  title?: string;
-  description?: string;
-  customerName?: string;
-  customerContactType?: WorkContactType;
-  customerContactNumber?: string;
-  locationText?: string;
-  requestNumber?: string;
-  cpcSerial?: string;
-  serviceNumber?: string;
-  olt?: string;
-  fdcName?: string;
-  fapName?: string;
-  serviceTypes?: WorkServiceType[];
-  otherServiceText?: string;
-  registeredAt?: string;
-  plannedStartAt?: string;
-  dueAt: string;
-  primaryAssigneeAccountId?: string;
-  assignedTeamId?: string;
-  salesMemberAccountId?: string;
-  supportingAssigneeAccountIds?: string[];
-  responsibleManagerAccountId?: string;
-  parentWorkItemId?: string;
-  delegationInstructions?: string;
-}
-
 function buildQueryString(
   query:
-    | WorkItemListQuery
-    | WorkAssignmentOptionsQuery
     | DutyAssignmentQuery
     | DutyRosterQuery
-    | DutyCoverageRequirementQuery,
+    | DutyCoverageRequirementQuery
+    | Record<string, string | number | boolean | undefined>,
 ): string {
   const params = new URLSearchParams();
 
@@ -164,147 +88,6 @@ function buildQueryString(
   return value ? `?${value}` : "";
 }
 
-export function getEmployeeWorkDashboardSummary(
-  accessToken: string,
-): Promise<WorkEmployeeDashboardSummary> {
-  return apiRequest<WorkEmployeeDashboardSummary>(
-    "/work-items/employee/dashboard-summary",
-    {
-      headers: authorizationHeaders(accessToken),
-    },
-  );
-}
-
-export function getManagementWorkDashboardSummary(
-  accessToken: string,
-): Promise<WorkManagementDashboardSummary> {
-  return apiRequest<WorkManagementDashboardSummary>(
-    "/work-items/management/dashboard-summary",
-    {
-      headers: authorizationHeaders(accessToken),
-    },
-  );
-}
-
-export function getManagementOrganizationSummary(
-  accessToken: string,
-): Promise<WorkManagementOrganizationSummaryResponse> {
-  return apiRequest<WorkManagementOrganizationSummaryResponse>(
-    "/work-items/management/organization-summary",
-    {
-      headers: authorizationHeaders(accessToken),
-    },
-  );
-}
-
-export function listManagementAssignmentOptions(
-  accessToken: string,
-  query: WorkAssignmentOptionsQuery = {},
-): Promise<WorkAssignmentOptionsResponse> {
-  return apiRequest<WorkAssignmentOptionsResponse>(
-    `/work-items/management/assignment-options${buildQueryString(query)}`,
-    {
-      headers: authorizationHeaders(accessToken),
-    },
-  );
-}
-
-// The API remains the source of truth for role scope even when the UI supplies a focus.
-export function listWorkItems(
-  accessToken: string,
-  query: WorkItemListQuery = {},
-): Promise<WorkItemListResponse> {
-  return apiRequest<WorkItemListResponse>(
-    `/work-items${buildQueryString(query)}`,
-    {
-      headers: authorizationHeaders(accessToken),
-    },
-  );
-}
-
-export const listEmployeeWorkItems = listWorkItems;
-
-export function placeWorkRetentionHold(
-  accessToken: string,
-  workItemId: string,
-  reason: string,
-): Promise<WorkMutationResponse> {
-  return apiRequest<WorkMutationResponse>(
-    `/work-items/${workItemId}/retention/hold`,
-    {
-      method: "POST",
-      headers: authorizationHeaders(accessToken),
-      body: JSON.stringify({ reason }),
-    },
-  );
-}
-
-export function releaseWorkRetentionHold(
-  accessToken: string,
-  workItemId: string,
-): Promise<WorkMutationResponse> {
-  return apiRequest<WorkMutationResponse>(
-    `/work-items/${workItemId}/retention/hold`,
-    {
-      method: "DELETE",
-      headers: authorizationHeaders(accessToken),
-    },
-  );
-}
-
-export function requestWorkDeletionReview(
-  accessToken: string,
-  workItemId: string,
-  reason: string,
-): Promise<WorkMutationResponse> {
-  return apiRequest<WorkMutationResponse>(
-    `/work-items/${workItemId}/retention/deletion-request`,
-    {
-      method: "POST",
-      headers: authorizationHeaders(accessToken),
-      body: JSON.stringify({ reason }),
-    },
-  );
-}
-
-export function cancelWorkDeletionReview(
-  accessToken: string,
-  workItemId: string,
-): Promise<WorkMutationResponse> {
-  return apiRequest<WorkMutationResponse>(
-    `/work-items/${workItemId}/retention/deletion-request`,
-    {
-      method: "DELETE",
-      headers: authorizationHeaders(accessToken),
-    },
-  );
-}
-
-export function getWorkItem(
-  accessToken: string,
-  workItemId: string,
-): Promise<WorkItemDetailResponse> {
-  return apiRequest<WorkItemDetailResponse>(`/work-items/${workItemId}`, {
-    headers: authorizationHeaders(accessToken),
-  });
-}
-
-export const getEmployeeWorkItem = getWorkItem;
-
-export function listWorkActivity(
-  accessToken: string,
-  workItemId: string,
-): Promise<WorkActivityResponse> {
-  return apiRequest<WorkActivityResponse>(
-    `/work-items/${workItemId}/activity`,
-    {
-      headers: authorizationHeaders(accessToken),
-    },
-  );
-}
-
-export const listEmployeeWorkActivity = listWorkActivity;
-
 export function listPendingEmployeeHelpRequests(
   accessToken: string,
 ): Promise<PendingWorkHelpRequestsResponse> {
@@ -316,287 +99,16 @@ export function listPendingEmployeeHelpRequests(
   );
 }
 
-export function createManagementWorkItem(
+export function listDutySupervisorOptions(
   accessToken: string,
-  payload: CreateWorkItemInput,
-): Promise<WorkMutationResponse> {
-  return apiRequest<WorkMutationResponse>("/work-items", {
-    method: "POST",
-    headers: authorizationHeaders(accessToken),
-    body: JSON.stringify(payload),
-  });
-}
-
-export function acknowledgeEmployeeWork(
-  accessToken: string,
-  workItemId: string,
-): Promise<WorkMutationResponse> {
-  return apiRequest<WorkMutationResponse>(
-    `/work-items/${workItemId}/acknowledge`,
+): Promise<DutySupervisorOptionsResponse> {
+  return apiRequest<DutySupervisorOptionsResponse>(
+    "/duty/management/supervisor-options",
     {
-      method: "POST",
       headers: authorizationHeaders(accessToken),
     },
   );
 }
-
-export function startEmployeeWork(
-  accessToken: string,
-  workItemId: string,
-): Promise<WorkMutationResponse> {
-  return apiRequest<WorkMutationResponse>(`/work-items/${workItemId}/start`, {
-    method: "POST",
-    headers: authorizationHeaders(accessToken),
-  });
-}
-
-
-export function listEmployeeWorkSalesMessages(
-  accessToken: string,
-  workItemId: string,
-): Promise<WorkSalesMessageListResponse> {
-  return apiRequest<WorkSalesMessageListResponse>(
-    `/work-items/${workItemId}/sales/messages`,
-    { headers: authorizationHeaders(accessToken) },
-  );
-}
-
-export function sendEmployeeWorkSalesMessage(
-  accessToken: string,
-  workItemId: string,
-  payload: { text?: string; files?: File[] },
-): Promise<WorkSalesMessageMutationResponse> {
-  const formData = new FormData();
-  if (payload.text?.trim()) formData.set("text", payload.text.trim());
-  for (const file of payload.files ?? []) formData.append("files", file);
-
-  return apiRequest<WorkSalesMessageMutationResponse>(
-    `/work-items/${workItemId}/sales/messages`,
-    {
-      method: "POST",
-      headers: authorizationHeaders(accessToken),
-      body: formData,
-    },
-  );
-}
-
-export function sendEmployeeWorkToSales(
-  accessToken: string,
-  workItemId: string,
-  note?: string,
-): Promise<WorkMutationResponse> {
-  return apiRequest<WorkMutationResponse>(`/work-items/${workItemId}/sales/send`, {
-    method: "POST",
-    headers: authorizationHeaders(accessToken),
-    body: JSON.stringify({ note: note?.trim() || undefined }),
-  });
-}
-
-export function completeEmployeeSalesWork(
-  accessToken: string,
-  workItemId: string,
-  note?: string,
-): Promise<WorkMutationResponse> {
-  return apiRequest<WorkMutationResponse>(`/work-items/${workItemId}/sales/complete`, {
-    method: "POST",
-    headers: authorizationHeaders(accessToken),
-    body: JSON.stringify({ note: note?.trim() || undefined }),
-  });
-}
-
-export function downloadEmployeeWorkSalesAttachment(
-  accessToken: string,
-  workItemId: string,
-  messageId: string,
-  attachmentId: string,
-) {
-  return apiDownload(
-    `/work-items/${workItemId}/sales/messages/${messageId}/attachments/${attachmentId}`,
-    { headers: authorizationHeaders(accessToken) },
-  );
-}
-
-export function requestEmployeeWorkHelp(
-  accessToken: string,
-  workItemId: string,
-  payload: {
-    reason: WorkHelpReason;
-    note?: string;
-    requestedHelperAccountId?: string;
-    requestedDepartmentId?: string;
-  },
-): Promise<WorkHelpMutationResponse> {
-  return apiRequest<WorkHelpMutationResponse>(
-    `/work-items/${workItemId}/help-requests`,
-    {
-      method: "POST",
-      headers: authorizationHeaders(accessToken),
-      body: JSON.stringify(payload),
-    },
-  );
-}
-
-export function respondToEmployeeHelpRequest(
-  accessToken: string,
-  helpRequestId: string,
-  payload: {
-    accept: boolean;
-    note?: string;
-  },
-): Promise<WorkMutationResponse> {
-  return apiRequest<WorkMutationResponse>(
-    `/work-items/help-requests/${helpRequestId}/respond`,
-    {
-      method: "POST",
-      headers: authorizationHeaders(accessToken),
-      body: JSON.stringify(payload),
-    },
-  );
-}
-
-export function submitEmployeeWorkCompletion(
-  accessToken: string,
-  workItemId: string,
-  payload: {
-    result: WorkCompletionResult;
-    summary: string;
-    customerId?: string;
-    rxLevelDbm?: number;
-    moreWorkRequired: boolean;
-  },
-): Promise<WorkCompletionMutationResponse> {
-  return apiRequest<WorkCompletionMutationResponse>(
-    `/work-items/${workItemId}/completion-reports`,
-    {
-      method: "POST",
-      headers: authorizationHeaders(accessToken),
-      body: JSON.stringify(payload),
-    },
-  );
-}
-
-export function updateManagementWorkItem(
-  accessToken: string,
-  workItemId: string,
-  payload: {
-      registeredAt?: string;
-    plannedStartAt?: string;
-    dueAt?: string;
-    locationText?: string;
-  },
-): Promise<WorkMutationResponse> {
-  return apiRequest<WorkMutationResponse>(`/work-items/${workItemId}`, {
-    method: "PATCH",
-    headers: authorizationHeaders(accessToken),
-    body: JSON.stringify(payload),
-  });
-}
-
-export function reassignManagementWorkItem(
-  accessToken: string,
-  workItemId: string,
-  payload: {
-    primaryAssigneeAccountId: string;
-    reason: string;
-  },
-): Promise<WorkMutationResponse> {
-  return apiRequest<WorkMutationResponse>(
-    `/work-items/${workItemId}/reassign`,
-    {
-      method: "POST",
-      headers: authorizationHeaders(accessToken),
-      body: JSON.stringify(payload),
-    },
-  );
-}
-
-export function addManagementWorkSupport(
-  accessToken: string,
-  workItemId: string,
-  payload: { accountId: string; reason?: string },
-): Promise<WorkMutationResponse> {
-  return apiRequest<WorkMutationResponse>(
-    `/work-items/${workItemId}/support/add`,
-    {
-      method: "POST",
-      headers: authorizationHeaders(accessToken),
-      body: JSON.stringify(payload),
-    },
-  );
-}
-
-export function removeManagementWorkSupport(
-  accessToken: string,
-  workItemId: string,
-  payload: { accountId: string; reason?: string },
-): Promise<WorkMutationResponse> {
-  return apiRequest<WorkMutationResponse>(
-    `/work-items/${workItemId}/support/remove`,
-    {
-      method: "POST",
-      headers: authorizationHeaders(accessToken),
-      body: JSON.stringify(payload),
-    },
-  );
-}
-
-export function requestManagementWorkInformation(
-  accessToken: string,
-  workItemId: string,
-  note: string,
-): Promise<WorkMutationResponse> {
-  return apiRequest<WorkMutationResponse>(
-    `/work-items/${workItemId}/review/request-information`,
-    {
-      method: "POST",
-      headers: authorizationHeaders(accessToken),
-      body: JSON.stringify({ note }),
-    },
-  );
-}
-
-export function closeManagementWorkItem(
-  accessToken: string,
-  workItemId: string,
-  note: string,
-): Promise<WorkMutationResponse> {
-  return apiRequest<WorkMutationResponse>(
-    `/work-items/${workItemId}/review/close`,
-    {
-      method: "POST",
-      headers: authorizationHeaders(accessToken),
-      body: JSON.stringify({ note }),
-    },
-  );
-}
-
-export function reopenManagementWorkItem(
-  accessToken: string,
-  workItemId: string,
-  note: string,
-): Promise<WorkMutationResponse> {
-  return apiRequest<WorkMutationResponse>(
-    `/work-items/${workItemId}/review/reopen`,
-    {
-      method: "POST",
-      headers: authorizationHeaders(accessToken),
-      body: JSON.stringify({ note }),
-    },
-  );
-}
-
-export function cancelManagementWorkItem(
-  accessToken: string,
-  workItemId: string,
-  reason: string,
-): Promise<WorkMutationResponse> {
-  return apiRequest<WorkMutationResponse>(`/work-items/${workItemId}/cancel`, {
-    method: "POST",
-    headers: authorizationHeaders(accessToken),
-    body: JSON.stringify({ reason }),
-  });
-}
-
 
 export function getMyDutySummary(
   accessToken: string,
@@ -629,10 +141,10 @@ export function listDutyHelpRecommendations(
 
 export function listManagementDutyHelpRecommendations(
   accessToken: string,
-  departmentId: string,
+  orgUnitId: string,
 ): Promise<DutyManagementHelpRecommendationResponse> {
   return apiRequest<DutyManagementHelpRecommendationResponse>(
-    `/duty/management/help-recommendations${buildQueryString({ departmentId })}`,
+    `/duty/management/help-recommendations${buildQueryString({ orgUnitId })}`,
     { headers: authorizationHeaders(accessToken) },
   );
 }
@@ -686,6 +198,14 @@ export function getDutyCoverageRequirementAudit(
   );
 }
 
+export function getDutyManagementAccessContext(
+  accessToken: string,
+): Promise<DutyAuthorizationContext> {
+  return apiRequest<DutyAuthorizationContext>("/duty/management/access-context", {
+    headers: authorizationHeaders(accessToken),
+  });
+}
+
 export function getDutyManagementSummary(
   accessToken: string,
 ): Promise<DutyManagementSummary> {
@@ -696,7 +216,7 @@ export function getDutyManagementSummary(
 
 export function listDutyShiftTemplates(
   accessToken: string,
-  query: { targetScope?: DutyShiftScope; divisionId?: string; departmentId?: string } = {},
+  query: { targetScope?: DutyShiftScope; orgUnitId?: string } = {},
 ): Promise<DutyShiftTemplateListResponse> {
   return apiRequest<DutyShiftTemplateListResponse>(
     `/duty/management/shift-templates${buildQueryString(query)}`,
@@ -711,8 +231,7 @@ export function createDutyShiftTemplate(
     startTime: string;
     endTime: string;
     scope: DutyShiftScope;
-    divisionId?: string;
-    departmentId?: string;
+    orgUnitId?: string;
   },
 ): Promise<DutyMutationResponse> {
   return apiRequest<DutyMutationResponse>("/duty/management/shift-templates", {
@@ -878,7 +397,7 @@ export function createDutyLeave(
 
 export function getDutyCalendar(
   accessToken: string,
-  query: { from?: string; to?: string; divisionId?: string; departmentId?: string; includeCancelled?: boolean } = {},
+  query: { from?: string; to?: string; orgUnitId?: string; includeCancelled?: boolean } = {},
 ): Promise<DutyCalendarResponse> {
   return apiRequest<DutyCalendarResponse>(`/duty/calendar${buildQueryString(query)}`, {
     headers: authorizationHeaders(accessToken),
@@ -893,8 +412,7 @@ export function createDutyHoliday(
     startDate: string;
     endDate: string;
     scope: DutyHolidayScope;
-    divisionId?: string;
-    departmentId?: string;
+    orgUnitId?: string;
     note?: string;
   },
 ): Promise<DutyMutationResponse & { holiday?: unknown }> {
@@ -914,8 +432,7 @@ export function updateDutyHoliday(
     startDate: string;
     endDate: string;
     scope: DutyHolidayScope;
-    divisionId: string;
-    departmentId: string;
+    orgUnitId: string;
     note: string;
   }>,
 ): Promise<DutyMutationResponse & { holiday?: unknown }> {

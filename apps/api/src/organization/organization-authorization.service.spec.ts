@@ -1,6 +1,7 @@
 import type { AuthenticatedUser } from '../auth/types/auth.types';
 import { PrismaService } from '../database/prisma.service';
 import {
+  AccountClass,
   AccountRole,
   EmployeeStatus,
   EmploymentStatus,
@@ -15,11 +16,13 @@ import { OrganizationAuthorizationService } from './organization-authorization.s
 describe('OrganizationAuthorizationService', () => {
   const employeeUser = {
     accountId: 'account-1',
+    accountClass: AccountClass.OFFICE_USER,
     role: AccountRole.EMPLOYEE,
   } as AuthenticatedUser;
 
   const superAdmin = {
     accountId: 'super-admin',
+    accountClass: AccountClass.SUPER_ADMIN,
     role: AccountRole.SUPER_ADMIN,
   } as AuthenticatedUser;
 
@@ -28,6 +31,7 @@ describe('OrganizationAuthorizationService', () => {
   ) {
     return {
       id: 'account-1',
+      accountClass: AccountClass.OFFICE_USER,
       role,
       isEnabled: true,
       employee: {
@@ -73,6 +77,7 @@ describe('OrganizationAuthorizationService', () => {
 
     prisma.account.findUnique.mockResolvedValue({
       id: 'super-admin',
+      accountClass: AccountClass.SUPER_ADMIN,
       role: AccountRole.SUPER_ADMIN,
       isEnabled: true,
       employee: null,

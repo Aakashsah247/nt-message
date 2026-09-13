@@ -25,9 +25,6 @@ describe('WorkNotificationsService', () => {
       findMany: jest.fn(),
       updateMany: jest.fn(),
     },
-    departmentTeamMember: {
-      findMany: jest.fn(),
-    },
   } as unknown as PrismaService;
   const events = {
     emitNotificationCreated: jest.fn(),
@@ -60,7 +57,7 @@ describe('WorkNotificationsService', () => {
       actor: {
         id: 'manager',
         username: 'manager@ntc.test',
-        role: AccountRole.TEAM_MANAGER,
+        role: AccountRole.EMPLOYEE,
         profilePhotoKey: null,
         profileBio: null,
         showOnlineStatus: true,
@@ -103,11 +100,7 @@ describe('WorkNotificationsService', () => {
     );
   });
 
-  it('notifies the whole Primary Team, Sales Member and Supporting Staff once when work is created', async () => {
-    jest.mocked(prisma.departmentTeamMember.findMany).mockResolvedValue([
-      { employee: { account: { id: 'team-member' } } },
-      { employee: { account: { id: 'team-admin' } } },
-    ] as never);
+  it('notifies explicit participants and the Sales Member once when work is created', async () => {
     jest.mocked(prisma.messagingNotification.create).mockImplementation(
       async ({ data }: { data: { recipientAccountId: string } }) =>
         ({
@@ -136,7 +129,6 @@ describe('WorkNotificationsService', () => {
         ticketNumber: 'NT-PAT-NET-2026-000001',
         title: 'Repair wire',
         status: WorkItemStatus.ASSIGNED,
-        assignedTeamId: 'team-a',
         salesMemberAccountId: 'sales-member',
       },
       action: 'CREATED',
@@ -152,29 +144,19 @@ describe('WorkNotificationsService', () => {
       body: 'NT-PAT-NET-2026-000001: Repair wire',
     });
 
-    expect(prisma.messagingNotification.create).toHaveBeenCalledTimes(4);
+    expect(prisma.messagingNotification.create).toHaveBeenCalledTimes(3);
     expect(prisma.messagingNotification.create).toHaveBeenCalledWith(
       expect.objectContaining({
         data: expect.objectContaining({ recipientAccountId: 'support-member' }),
       }),
     );
     expect(events.emitWorkItemUpdated).toHaveBeenCalledWith(
-      [
-        'manager',
-        'team-admin',
-        'sales-member',
-        'support-member',
-        'team-member',
-      ],
+      ['manager', 'team-admin', 'sales-member', 'support-member'],
       expect.objectContaining({ workItemId: 'work-1' }),
     );
   });
 
-  it('keeps shared team Start realtime for everyone without creating noisy participant notifications', async () => {
-    jest.mocked(prisma.departmentTeamMember.findMany).mockResolvedValue([
-      { employee: { account: { id: 'starter' } } },
-      { employee: { account: { id: 'team-member' } } },
-    ] as never);
+  it('keeps Start realtime for explicit participants without creating noisy participant notifications', async () => {
     jest.mocked(prisma.messagingNotification.create).mockImplementation(
       async ({ data }: { data: { recipientAccountId: string } }) =>
         ({
@@ -203,7 +185,6 @@ describe('WorkNotificationsService', () => {
         ticketNumber: 'NT-PAT-NET-2026-000001',
         title: 'Repair wire',
         status: WorkItemStatus.IN_PROGRESS,
-        assignedTeamId: 'team-a',
         salesMemberAccountId: 'sales-member',
       },
       action: 'STARTED',
@@ -226,13 +207,7 @@ describe('WorkNotificationsService', () => {
       }),
     );
     expect(events.emitWorkItemUpdated).toHaveBeenCalledWith(
-      [
-        'starter',
-        'manager',
-        'support-member',
-        'sales-member',
-        'team-member',
-      ],
+      ['starter', 'manager', 'support-member', 'sales-member'],
       expect.objectContaining({ action: 'STARTED', workItemId: 'work-1' }),
     );
   });
@@ -248,7 +223,8 @@ describe('WorkNotificationsService', () => {
         dueAt,
         dueSoonNotifiedAt: null,
         overdueNotifiedAt: null,
-        responsibleManagerAccountId: 'manager',
+        createdByAccountId: 'creator',
+        salesMemberAccountId: 'sales-member',
         assignments: [{ assigneeAccountId: 'employee' }],
       },
     ] as never);
@@ -272,7 +248,7 @@ describe('WorkNotificationsService', () => {
     expect(publish).toHaveBeenCalledWith(
       expect.objectContaining({
         action: 'DUE_SOON',
-        recipientAccountIds: ['manager', 'employee'],
+        recipientAccountIds: ['creator', 'sales-member', 'employee'],
       }),
     );
     expect(prisma.workItem.updateMany).toHaveBeenCalledWith({
@@ -297,7 +273,8 @@ describe('WorkNotificationsService', () => {
         dueAt,
         dueSoonNotifiedAt: new Date(Date.now() - 60 * 60 * 1000),
         overdueNotifiedAt: null,
-        responsibleManagerAccountId: 'manager',
+        createdByAccountId: 'creator',
+        salesMemberAccountId: 'sales-member',
         assignments: [{ assigneeAccountId: 'employee' }],
       },
     ] as never);

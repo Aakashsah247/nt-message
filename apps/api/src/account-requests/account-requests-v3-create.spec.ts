@@ -1,11 +1,12 @@
 import type { AuthenticatedUser } from '../auth/types/auth.types';
-import { AccountRole } from '../generated/prisma/client';
+import { AccountClass, AccountRole } from '../generated/prisma/client';
 import { AccountRequestsService } from './account-requests.service';
 
 const user: AuthenticatedUser = {
   accountId: 'requester-account',
   sessionId: 'session-1',
   username: 'requester.com',
+  accountClass: AccountClass.OFFICE_USER,
   role: AccountRole.EMPLOYEE,
 };
 
@@ -61,8 +62,6 @@ describe('AccountRequestsService V3 create flow', () => {
           code: 'TECH',
           name: 'Technical',
         },
-        legacyDivisionId: 'division-legacy',
-        legacyDepartmentId: null,
       }),
     };
 
@@ -95,7 +94,6 @@ describe('AccountRequestsService V3 create flow', () => {
       {
         officeId: 'office-1',
         intendedOrgUnitId: 'org-unit-1',
-        legacyDepartmentId: undefined,
       },
     );
 
@@ -106,9 +104,6 @@ describe('AccountRequestsService V3 create flow', () => {
           lifecycleState: 'REQUESTED',
           officeId: 'office-1',
           intendedOrgUnitId: 'org-unit-1',
-          divisionId: 'division-legacy',
-          departmentId: null,
-          managementPositionId: null,
           requestedByAccountId: 'requester-account',
         }),
       }),

@@ -43,9 +43,10 @@ function workItem(
     ticketNumber: 'NT-PAT-2026-000001',
     title: 'New installation',
     status: WorkItemStatus.IN_PROGRESS,
-    assignedTeamId: 'team-1',
+    primaryOwnerOrgUnitId: 'org-a',
     salesMemberAccountId: 'sales-member',
-    responsibleManagerAccountId: 'manager',
+    orgUnitParticipants: [{ orgUnitId: 'org-a' }],
+    runtimeStages: [],
     salesCoordinationStatus: status,
     assignments: [
       {
@@ -61,9 +62,6 @@ describe('WorkSalesCommunicationService WM-V2-4B1', () => {
   const prisma = {
     workItem: {
       findUnique: jest.fn(),
-    },
-    departmentTeamMember: {
-      findFirst: jest.fn(),
     },
     workSalesMessage: {
       findMany: jest.fn(),
@@ -105,6 +103,8 @@ describe('WorkSalesCommunicationService WM-V2-4B1', () => {
       role: AccountRole.EMPLOYEE,
       divisionId: 'division-1',
       departmentId: 'department-1',
+      visibleOrgUnitIds: [],
+      operationalTeamMemberIds: [],
     });
     jest.mocked(prisma.workItem.findUnique).mockResolvedValue(workItem() as never);
     jest.mocked(storage.deleteFile).mockResolvedValue(true);
@@ -177,6 +177,8 @@ describe('WorkSalesCommunicationService WM-V2-4B1', () => {
       role: AccountRole.EMPLOYEE,
       divisionId: 'division-1',
       departmentId: 'sales-department',
+      visibleOrgUnitIds: [],
+      operationalTeamMemberIds: [],
     });
     jest.mocked(prisma.workSalesMessage.create).mockResolvedValue({
       id: 'message-sales',
@@ -214,6 +216,8 @@ describe('WorkSalesCommunicationService WM-V2-4B1', () => {
       role: AccountRole.EMPLOYEE,
       divisionId: 'division-1',
       departmentId: 'sales-department',
+      visibleOrgUnitIds: [],
+      operationalTeamMemberIds: [],
     });
     jest.mocked(prisma.workItem.findUnique).mockResolvedValue(
       workItem(WorkSalesCoordinationStatus.WAITING_FOR_DOCUMENTS) as never,
@@ -225,14 +229,15 @@ describe('WorkSalesCommunicationService WM-V2-4B1', () => {
     expect(prisma.workSalesMessage.findMany).not.toHaveBeenCalled();
   });
 
-  it('rejects a person who is not in the Primary Team, Sales or the responsible manager', async () => {
+  it('rejects a person who is not a V3 participant, Sales member or management viewer', async () => {
     jest.mocked(scope.resolveActorContext).mockResolvedValue({
       accountId: 'outsider',
       role: AccountRole.EMPLOYEE,
       divisionId: 'division-1',
       departmentId: 'department-1',
+      visibleOrgUnitIds: [],
+      operationalTeamMemberIds: [],
     });
-    jest.mocked(prisma.departmentTeamMember.findFirst).mockResolvedValue(null);
 
     await expect(service.listMessages(employeeUser, 'work-1')).rejects.toBeInstanceOf(
       ForbiddenException,
@@ -283,6 +288,8 @@ describe('WorkSalesCommunicationService WM-V2-4B1', () => {
       role: AccountRole.EMPLOYEE,
       divisionId: 'division-1',
       departmentId: 'support-department',
+      visibleOrgUnitIds: [],
+      operationalTeamMemberIds: [],
     });
     jest.mocked(prisma.workItem.findUnique).mockResolvedValue({
       ...workItem(),
@@ -295,7 +302,6 @@ describe('WorkSalesCommunicationService WM-V2-4B1', () => {
         },
       ],
     } as never);
-    jest.mocked(prisma.departmentTeamMember.findFirst).mockResolvedValue(null);
 
     await expect(
       service.listMessages(

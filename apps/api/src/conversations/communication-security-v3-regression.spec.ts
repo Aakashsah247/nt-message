@@ -242,8 +242,15 @@ describe('P12-L communication V3 security boundaries', () => {
     );
     expect(editSection).toContain('You can edit only messages that you sent.');
     expect(directorySource).toContain(
-      'canViewContactDetails: account.role !== AccountRole.EMPLOYEE',
+      'account.accountClass === AccountClass.SUPER_ADMIN',
     );
+    expect(directorySource).toContain(
+      '(employee?.orgLeadershipAssignments.length ?? 0) > 0',
+    );
+    expect(directorySource).toContain(
+      '(employee?.operationalTeamLeadAssignments.length ?? 0) > 0',
+    );
+    expect(directorySource).not.toContain('AccountRole.EMPLOYEE');
     expect(directorySource).toContain('officeId: viewer.officeId');
   });
 });

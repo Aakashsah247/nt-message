@@ -4,8 +4,8 @@ import { JwtService } from '@nestjs/jwt';
 
 import { PrismaService } from '../../database/prisma.service';
 import {
+  AccountClass,
   AccountRole,
-  ManagementPositionType,
 } from '../../generated/prisma/client';
 import type {
   AccessTokenPayload,
@@ -58,7 +58,12 @@ export class AccessTokenValidationService {
   async validatePayload(
     payload: AccessTokenPayload,
   ): Promise<AuthenticatedUser> {
-    if (payload.type !== 'access' || !payload.sub || !payload.sid) {
+    if (
+      payload.type !== 'access' ||
+      !payload.sub ||
+      !payload.sid ||
+      !payload.accountClass
+    ) {
       throw new UnauthorizedException('Invalid access token.');
     }
 
@@ -73,7 +78,7 @@ export class AccessTokenValidationService {
             id: true,
             employeeId: true,
             username: true,
-            role: true,
+            accountClass: true,
             isEnabled: true,
           },
         },
@@ -95,66 +100,28 @@ export class AccessTokenValidationService {
       );
     }
 
-    const effectiveRole = await this.resolveEffectiveRole(
-      session.account.employeeId,
-      session.account.role,
-    );
-
-    if (
-      session.account.role !== effectiveRole ||
-      payload.role !== effectiveRole
-    ) {
+    if (payload.accountClass !== session.account.accountClass) {
       throw new UnauthorizedException(
-        'Your account authority has changed. Sign in again.',
+        'Your account class has changed. Sign in again.',
       );
     }
+
+    // Leadership is resolved at authorization time. Tokens expose only the
+    // stable platform class plus a temporary non-authoritative legacy role
+    // value for clients that have not yet dropped the field.
+    const role =
+      session.account.accountClass === AccountClass.SUPER_ADMIN
+        ? AccountRole.SUPER_ADMIN
+        : AccountRole.EMPLOYEE;
 
     return {
       accountId: session.account.id,
       sessionId: session.id,
       username: session.account.username,
-      role: effectiveRole,
+      accountClass: session.account.accountClass,
+      role,
     };
   }
 
-  private async resolveEffectiveRole(
-    employeeId: string | null,
-    storedRole: AccountRole,
-  ): Promise<AccountRole> {
-    if (storedRole === AccountRole.SUPER_ADMIN) {
-      return AccountRole.SUPER_ADMIN;
-    }
 
-    if (!employeeId) {
-      return AccountRole.EMPLOYEE;
-    }
-
-    const activeAssignment = await this.prisma.managementAssignment.findFirst({
-      where: {
-        employeeId,
-        endedAt: null,
-
-        position: {
-          isActive: true,
-        },
-      },
-
-      select: {
-        position: {
-          select: {
-            positionType: true,
-          },
-        },
-      },
-    });
-
-    if (!activeAssignment) {
-      return AccountRole.EMPLOYEE;
-    }
-
-    return activeAssignment.position.positionType ===
-      ManagementPositionType.SENIOR_MANAGEMENT
-      ? AccountRole.SENIOR_MANAGEMENT
-      : AccountRole.TEAM_MANAGER;
-  }
 }

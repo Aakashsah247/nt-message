@@ -8,17 +8,17 @@ import { useTranslation } from "react-i18next";
 import { ActivityTracker } from "./ActivityTracker";
 import { useAuth } from "../context/AuthContext";
 import type {
-  AccountRole,
+  AccountClass,
 } from "../types/auth";
 
 interface ProtectedRouteProps {
   children: ReactNode;
-  roles?: AccountRole[];
+  accountClasses?: AccountClass[];
 }
 
 export function ProtectedRoute({
   children,
-  roles,
+  accountClasses,
 }: ProtectedRouteProps) {
   const { t } = useTranslation("common");
   const {
@@ -45,8 +45,8 @@ export function ProtectedRoute({
   }
 
   if (
-    roles &&
-    !roles.includes(account.role)
+    accountClasses &&
+    !accountClasses.includes(account.accountClass)
   ) {
     return (
       <Navigate

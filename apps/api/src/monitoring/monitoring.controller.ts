@@ -8,17 +8,17 @@ import {
 } from '@nestjs/common';
 
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
-import { Roles } from '../auth/decorators/roles.decorator';
+import { AccountClasses } from '../auth/decorators/account-classes.decorator';
 import { AccessTokenGuard } from '../auth/guards/access-token.guard';
-import { RolesGuard } from '../auth/guards/roles.guard';
+import { AccountClassesGuard } from '../auth/guards/account-classes.guard';
 import type { AuthenticatedUser } from '../auth/types/auth.types';
-import { AccountRole } from '../generated/prisma/client';
+import { AccountClass } from '../generated/prisma/client';
 import { RecordActivityEventDto } from './dto/record-activity-event.dto';
 import { SuperAdminActivityLogQueryDto } from './dto/super-admin-activity-log-query.dto';
 import { MonitoringService } from './monitoring.service';
 
 @Controller('monitoring')
-@UseGuards(AccessTokenGuard, RolesGuard)
+@UseGuards(AccessTokenGuard, AccountClassesGuard)
 export class MonitoringController {
   constructor(private readonly monitoringService: MonitoringService) {}
 
@@ -32,14 +32,14 @@ export class MonitoringController {
   }
 
   @Get('superadmin')
-  @Roles(AccountRole.SUPER_ADMIN)
+  @AccountClasses(AccountClass.SUPER_ADMIN)
   getSuperAdminMonitoring() {
     // Only Super Admin can view cross-employee monitoring summaries.
     return this.monitoringService.getSuperAdminDashboard();
   }
 
   @Get('superadmin/activity-logs')
-  @Roles(AccountRole.SUPER_ADMIN)
+  @AccountClasses(AccountClass.SUPER_ADMIN)
   getSuperAdminActivityLogs(@Query() query: SuperAdminActivityLogQueryDto) {
     // Detailed audit logs are still privacy-safe and hide all message content.
     return this.monitoringService.getSuperAdminActivityLogs(query);

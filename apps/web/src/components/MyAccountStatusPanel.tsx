@@ -269,14 +269,14 @@ export function MyAccountStatusPanel({
 
       <section className="my-account-status__facts" aria-label={t("myStatus.factsAria")}>
         <div>
-          <span>{t("common.division")}</span>
-          <strong>{employee?.division?.name ?? t("common.notAssigned")}</strong>
-          <small>{employee?.division?.code ?? "—"}</small>
+          <span>{t("common.office")}</span>
+          <strong>{accountRequest?.office?.name ?? t("common.notAssigned")}</strong>
+          <small>{accountRequest?.office?.code ?? "—"}</small>
         </div>
         <div>
-          <span>{t("common.department")}</span>
-          <strong>{employee?.departmentUnit?.name ?? t("common.notAssigned")}</strong>
-          <small>{employee?.departmentUnit?.code ?? "—"}</small>
+          <span>{t("common.orgUnit")}</span>
+          <strong>{accountRequest?.intendedOrgUnit?.name ?? t("common.notAssigned")}</strong>
+          <small>{accountRequest?.intendedOrgUnit?.code ?? "—"}</small>
         </div>
         <div>
           <span>{t("myStatus.employment")}</span>

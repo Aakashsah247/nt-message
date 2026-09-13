@@ -14,6 +14,7 @@ import {
 } from '../../common/normalization/account-identity-normalization';
 import { PrismaService } from '../../database/prisma.service';
 import {
+  AccountClass,
   AccountRole,
   ActivityEventType,
   EmployeeStatus,
@@ -41,6 +42,7 @@ const GENERIC_INVALID_TOKEN_MESSAGE =
 interface RecoveryAccount {
   id: string;
   username: string | null;
+  accountClass: AccountClass;
   role: AccountRole;
   passwordHash: string;
   isEnabled: boolean;
@@ -627,6 +629,7 @@ export class PasswordRecoveryService {
       select: {
         id: true,
         username: true,
+        accountClass: true,
         role: true,
         passwordHash: true,
         isEnabled: true,
@@ -659,7 +662,7 @@ export class PasswordRecoveryService {
       return false;
     }
 
-    if (account.role === AccountRole.SUPER_ADMIN) {
+    if (account.accountClass === AccountClass.SUPER_ADMIN) {
       return Boolean(
         account.superAdminProfile?.email ?? account.username,
       );

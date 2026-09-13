@@ -2,7 +2,6 @@ import {
   IsEmail,
   IsOptional,
   IsString,
-  IsUUID,
   Matches,
   MaxLength,
   MinLength,
@@ -42,18 +41,6 @@ export class UpdateEmployeeDto {
   )
   @MaxLength(255)
   officialEmail?: string;
-
-  @IsOptional()
-  @IsUUID('4', {
-    message: 'Division ID must be a valid UUID.',
-  })
-  divisionId?: string;
-
-  @IsOptional()
-  @IsUUID('4', {
-    message: 'Department ID must be a valid UUID.',
-  })
-  departmentId?: string;
 
   @IsOptional()
   @IsString()

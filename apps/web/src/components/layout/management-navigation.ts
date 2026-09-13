@@ -1,4 +1,4 @@
-import type { AccountRole } from "../../types/auth";
+import type { AccountClass } from "../../types/auth";
 import type { OrganizationNavigationMode } from "../../types/organization-v3";
 import type { WorkTypeNavigationMode } from "../../types/work-type-v3";
 import type { ManagementIconName } from "./ManagementIcon";
@@ -60,68 +60,74 @@ const OFFICE_MANAGEMENT_SECTION: ManagementNavigationSection = {
       labelKey: "navigation.items.organizationPeople",
       path: "/organization",
     },
-  ],
-};
-
-const MANAGEMENT_OPERATIONS_SECTION: ManagementNavigationSection = {
-  id: "operations",
-  label: "Operations",
-  labelKey: "navigation.sections.operations",
-  items: [
     {
-      icon: "work",
-      label: "Work Overview",
-      labelKey: "navigation.items.workOverview",
-      path: "/work",
-    },
-    {
-      icon: "work",
-      label: "My Work",
-      labelKey: "navigation.items.myWork",
-      path: "/my-work",
-    },
-    {
-      icon: "work",
-      label: "Incoming Work",
-      labelKey: "navigation.items.incomingWork",
-      path: "/incoming-work",
-    },
-    {
-      icon: "duty",
-      label: "Duty Roster",
-      labelKey: "navigation.items.dutyRoster",
-      path: "/duty-management",
-    },
-    {
-      icon: "teams",
-      label: "Team Management",
-      labelKey: "navigation.items.teamManagement",
-      path: "/team-management",
-    },
-    {
-      icon: "reports",
-      label: "Reports",
-      labelKey: "navigation.items.reports",
-      path: "/work-reports",
+      icon: "requests",
+      label: "Account requests",
+      labelKey: "navigation.items.accountRequests",
+      path: "/account-requests",
     },
   ],
 };
 
-const SUPER_ADMIN_OPERATIONS_SECTION: ManagementNavigationSection = {
-  ...MANAGEMENT_OPERATIONS_SECTION,
-  items: MANAGEMENT_OPERATIONS_SECTION.items
-    .map((item) =>
-      item.path === "/work"
-        ? {
-            ...item,
-            label: "Work Oversight",
-            labelKey: "navigation.items.workOversight",
-            path: "/work-oversight",
-          }
-        : item,
-    )
-    .filter((item) => item.path !== "/my-work" && item.path !== "/incoming-work"),
-};
+const OFFICE_USER_NAVIGATION: ManagementNavigationSection[] = [
+  {
+    id: "people-access",
+    label: "People & Access",
+    labelKey: "navigation.sections.peopleAccess",
+    items: [
+      {
+        icon: "directory",
+        label: "Directory",
+        labelKey: "navigation.items.directory",
+        path: "/directory",
+      },
+    ],
+  },
+  {
+    id: "operations",
+    label: "Operations",
+    labelKey: "navigation.sections.operations",
+    items: [
+      {
+        icon: "work",
+        label: "Work Overview",
+        labelKey: "navigation.items.workOverview",
+        path: "/work",
+      },
+      {
+        icon: "work",
+        label: "My Work",
+        labelKey: "navigation.items.myWork",
+        path: "/my-work",
+      },
+      {
+        icon: "duty",
+        label: "My Duty",
+        labelKey: "navigation.items.myDuty",
+        path: "/my-duty",
+      },
+      {
+        icon: "reports",
+        label: "Reports",
+        labelKey: "navigation.items.reports",
+        path: "/work-reports",
+      },
+    ],
+  },
+  {
+    id: "communication",
+    label: "Communication",
+    labelKey: "navigation.sections.communication",
+    items: [
+      {
+        icon: "messages",
+        label: "Messages",
+        labelKey: "navigation.items.messages",
+        path: "/messages",
+      },
+    ],
+  },
+];
 
 const SUPER_ADMIN_NAVIGATION: ManagementNavigationSection[] = [
   {
@@ -154,15 +160,33 @@ const SUPER_ADMIN_NAVIGATION: ManagementNavigationSection[] = [
         labelKey: "navigation.items.accountRequests",
         path: "/super-admin/account-requests",
       },
+    ],
+  },
+  {
+    id: "operations",
+    label: "Operations",
+    labelKey: "navigation.sections.operations",
+    items: [
       {
-        icon: "management",
-        label: "Management positions",
-        labelKey: "navigation.items.managementPositions",
-        path: "/super-admin/management-positions",
+        icon: "work",
+        label: "Work Oversight",
+        labelKey: "navigation.items.workOversight",
+        path: "/work-oversight",
+      },
+      {
+        icon: "duty",
+        label: "Duty Roster",
+        labelKey: "navigation.items.dutyRoster",
+        path: "/duty-management",
+      },
+      {
+        icon: "reports",
+        label: "Reports",
+        labelKey: "navigation.items.reports",
+        path: "/work-reports",
       },
     ],
   },
-  SUPER_ADMIN_OPERATIONS_SECTION,
   {
     id: "governance",
     label: "Governance",
@@ -211,133 +235,6 @@ const SUPER_ADMIN_NAVIGATION: ManagementNavigationSection[] = [
     ],
   },
 ];
-
-const EMPLOYEE_NAVIGATION: ManagementNavigationSection[] = [
-  {
-    id: "overview",
-    label: "Overview",
-    labelKey: "navigation.sections.overview",
-    items: [
-      {
-        icon: "dashboard",
-        label: "Dashboard",
-        labelKey: "navigation.items.dashboard",
-        path: "/employee",
-      },
-    ],
-  },
-  {
-    id: "operations",
-    label: "Operations",
-    labelKey: "navigation.sections.operations",
-    items: [
-      {
-        icon: "work",
-        label: "My Work",
-        labelKey: "navigation.items.myWork",
-        path: "/my-work",
-      },
-      {
-        icon: "duty",
-        label: "My Duty",
-        labelKey: "navigation.items.myDuty",
-        path: "/employee/duty",
-      },
-      {
-        icon: "reports",
-        label: "Reports",
-        labelKey: "navigation.items.reports",
-        path: "/work-reports",
-      },
-    ],
-  },
-  {
-    id: "communication",
-    label: "Communication",
-    labelKey: "navigation.sections.communication",
-    items: [
-      {
-        icon: "messages",
-        label: "Messages",
-        labelKey: "navigation.items.messages",
-        path: "/messages",
-      },
-    ],
-  },
-];
-
-function getManagerNavigation(
-  role: "SENIOR_MANAGEMENT" | "TEAM_MANAGER",
-): ManagementNavigationSection[] {
-  const dashboardPath = role === "SENIOR_MANAGEMENT"
-    ? "/senior-management"
-    : "/team-manager";
-
-  return [
-    {
-      id: "overview",
-      label: "Overview",
-      labelKey: "navigation.sections.overview",
-      items: [
-        {
-          icon: "dashboard",
-          label: "Dashboard",
-          labelKey: "navigation.items.dashboard",
-          path: dashboardPath,
-        },
-      ],
-    },
-    {
-      id: "people-access",
-      label: "People & Access",
-      labelKey: "navigation.sections.peopleAccess",
-      items: [
-        {
-          icon: "directory",
-          label: "Directory",
-          labelKey: "navigation.items.directory",
-          path: "/directory",
-        },
-        {
-          icon: "requests",
-          label: "Account requests",
-          labelKey: "navigation.items.accountRequests",
-          path: `${dashboardPath}/account-requests`,
-        },
-      ],
-    },
-    {
-      ...MANAGEMENT_OPERATIONS_SECTION,
-      // My Duty is personal schedule access; Duty Management remains the planning workspace.
-      items: MANAGEMENT_OPERATIONS_SECTION.items.flatMap((item) =>
-        item.path === "/duty-management"
-          ? [
-              item,
-              {
-                icon: "duty" as const,
-                label: "My Duty",
-                labelKey: "navigation.items.myDuty",
-                path: "/my-duty",
-              },
-            ]
-          : [item],
-      ),
-    },
-    {
-      id: "communication",
-      label: "Communication",
-      labelKey: "navigation.sections.communication",
-      items: [
-        {
-          icon: "messages",
-          label: "Messages",
-          labelKey: "navigation.items.messages",
-          path: "/messages",
-        },
-      ],
-    },
-  ];
-}
 
 function withOfficeManagement(
   sections: ManagementNavigationSection[],
@@ -395,41 +292,27 @@ function withWorkTypeNavigation(
   );
 }
 
-// Navigation visibility follows the server-resolved organization context.
-// ProtectedRoute and backend authorization remain the security boundaries.
+// Navigation is keyed only by platform account class. Office authority is
+// resolved server-side and exposed through organization/work-type contexts.
 export function getManagementNavigation(
-  role: AccountRole,
+  accountClass: AccountClass,
   organizationMode: OrganizationNavigationMode = "NONE",
   workTypeMode: WorkTypeNavigationMode = "NONE",
 ): ManagementNavigationSection[] {
-  if (role === "SUPER_ADMIN") {
+  if (accountClass === "SUPER_ADMIN") {
     return [
       ...withWorkTypeNavigation(SUPER_ADMIN_NAVIGATION, workTypeMode),
       ACCOUNT_SETTINGS_SECTION,
     ];
   }
 
-  if (role === "SENIOR_MANAGEMENT" || role === "TEAM_MANAGER") {
-    return [
-      ...withWorkTypeNavigation(
-        withOfficeManagement(getManagerNavigation(role), organizationMode),
-        workTypeMode,
-      ),
-      ACCOUNT_SETTINGS_SECTION,
-    ];
-  }
-
-  if (role === "EMPLOYEE") {
-    return [
-      ...withWorkTypeNavigation(
-        withOfficeManagement(EMPLOYEE_NAVIGATION, organizationMode),
-        workTypeMode,
-      ),
-      ACCOUNT_SETTINGS_SECTION,
-    ];
-  }
-
-  return [];
+  return [
+    ...withWorkTypeNavigation(
+      withOfficeManagement(OFFICE_USER_NAVIGATION, organizationMode),
+      workTypeMode,
+    ),
+    ACCOUNT_SETTINGS_SECTION,
+  ];
 }
 
 export function getDefaultAdminView(

@@ -2,8 +2,9 @@ import { Injectable, Logger } from '@nestjs/common';
 
 import { PrismaService } from '../database/prisma.service';
 import {
-  AccountRole,
+  AccountClass,
   MessagingNotificationType,
+  OrgMembershipType,
 } from '../generated/prisma/client';
 import type { Prisma } from '../generated/prisma/client';
 import {
@@ -31,6 +32,7 @@ const dutyNotificationSelect = {
       id: true,
       username: true,
       role: true,
+      accountClass: true,
       profilePhotoKey: true,
       profileBio: true,
       showOnlineStatus: true,
@@ -43,11 +45,23 @@ const dutyNotificationSelect = {
           designation: true,
           profilePhotoKey: true,
           profileBio: true,
-          division: {
-            select: { id: true, code: true, name: true },
-          },
-          departmentUnit: {
-            select: { id: true, code: true, name: true },
+          orgMemberships: {
+            where: {
+              membershipType: OrgMembershipType.PRIMARY,
+              endsAt: null,
+            },
+            orderBy: {
+              startsAt: 'desc' as const,
+            },
+            take: 1,
+            select: {
+              office: {
+                select: { id: true, code: true, name: true, isActive: true },
+              },
+              orgUnit: {
+                select: { id: true, code: true, name: true, isActive: true },
+              },
+            },
           },
         },
       },
@@ -163,7 +177,7 @@ export class DutyNotificationsService {
             displayName:
               employee?.empName ??
               actor.username ??
-              (actor.role === AccountRole.SUPER_ADMIN
+              (actor.accountClass === AccountClass.SUPER_ADMIN
                 ? 'Super Admin'
                 : 'NT Message User'),
             employee: employee
@@ -174,8 +188,9 @@ export class DutyNotificationsService {
                   designation: employee.designation,
                   profilePhotoKey,
                   profileBio,
-                  division: employee.division,
-                  department: employee.departmentUnit,
+                  office: employee.orgMemberships[0]?.office ?? null,
+                  primaryOrgUnit: employee.orgMemberships[0]?.orgUnit ?? null,
+                  orgUnitBreadcrumb: [],
                 }
               : null,
           }

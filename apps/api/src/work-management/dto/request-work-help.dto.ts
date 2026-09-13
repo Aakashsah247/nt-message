@@ -18,10 +18,6 @@ export class RequestWorkHelpDto {
   @IsUUID('4')
   requestedHelperAccountId?: string;
 
-  @IsOptional()
-  @IsUUID('4')
-  requestedDepartmentId?: string;
-
   @Transform(({ value }: { value: unknown }) =>
     typeof value === 'string' ? value.trim() : value,
   )

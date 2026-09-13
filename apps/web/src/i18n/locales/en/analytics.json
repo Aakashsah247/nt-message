@@ -25,9 +25,8 @@
     "refreshData": "Refresh data"
   },
   "scope": {
-    "division": "Assigned division",
-    "department": "Assigned department",
-    "allUnits": "All Nepal Telecom units"
+    "authorizedOrgUnits": "Authorized Office / OrgUnit scope",
+    "allUnits": "All authorized OrgUnits"
   },
   "account": {
     "aria": "Account overview",
@@ -65,12 +64,10 @@
   },
   "organization": {
     "eyebrow": "Organization coverage",
-    "title": "Division and department spread",
-    "description": "Top organization units by enabled account count.",
-    "divisions": "Divisions",
-    "departments": "Departments",
-    "noDivisions": "No division data is available.",
-    "noDepartments": "No department data is available.",
+    "title": "OrgUnit distribution",
+    "description": "Top OrgUnits by account count inside your authorized Office scope.",
+    "orgUnits": "OrgUnits",
+    "noOrgUnits": "No OrgUnit data is available.",
     "shown_one": "{{count}} shown",
     "shown_other": "{{count}} shown"
   },

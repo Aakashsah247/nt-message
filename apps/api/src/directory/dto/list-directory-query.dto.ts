@@ -10,7 +10,6 @@ import {
 } from 'class-validator';
 
 import {
-  AccountRole,
   EmployeeStatus,
   EmploymentStatus,
 } from '../../generated/prisma/client';
@@ -48,10 +47,6 @@ export class ListDirectoryQueryDto {
   @IsOptional()
   @IsEnum(DirectoryRecordStatus)
   recordStatus: DirectoryRecordStatus = DirectoryRecordStatus.CURRENT;
-
-  @IsOptional()
-  @IsEnum(AccountRole)
-  role?: AccountRole;
 
   @IsOptional()
   @IsEnum(DirectoryAccountStatus)

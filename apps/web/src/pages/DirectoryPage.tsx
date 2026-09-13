@@ -60,7 +60,7 @@ export function DirectoryPage() {
         <header className="directory-page-heading">
           <div>
             <span>
-              {account?.positionLabel ?? t(`roles.${account?.role ?? "EMPLOYEE"}`, { defaultValue: t("page.authorizedUser") })}
+              {account?.positionLabel ?? t("page.authorizedUser")}
             </span>
 
             <h1>{t("page.title")}</h1>
@@ -103,9 +103,9 @@ export function DirectoryPage() {
 
       {selectedEmployeeId && (
         <EmployeeDirectoryDetailPanel
-          viewerRole={
-            account?.role ??
-            "EMPLOYEE"
+          viewerAccountClass={
+            account?.accountClass ??
+            "OFFICE_USER"
           }
           onStatusChanged={() =>
             setDirectoryRefreshKey(

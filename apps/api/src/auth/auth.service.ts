@@ -6,9 +6,9 @@ import {
 } from '@nestjs/common';
 
 import {
+  AccountClass,
   AccountRole,
   EmployeeStatus,
-  ManagementPositionType,
 } from '../generated/prisma/client';
 import { AdminLoginDto } from './dto/admin-login.dto';
 import { EmployeeLoginDto } from './dto/employee-login.dto';
@@ -41,6 +41,7 @@ export interface TokenResult {
 export interface AccountResult {
   id: string;
   username: string | null;
+  accountClass: AccountClass;
   role: AccountRole;
   displayName: string;
   positionLabel: string;
@@ -118,7 +119,7 @@ export class AuthService {
           equals: identifier,
           mode: 'insensitive',
         },
-        role: AccountRole.SUPER_ADMIN,
+        accountClass: AccountClass.SUPER_ADMIN,
       },
       select: {
         id: true,
@@ -188,7 +189,10 @@ export class AuthService {
       throw this.invalidCredentials();
     }
 
-    if (account.role !== AccountRole.SUPER_ADMIN || !account.isEnabled) {
+    if (
+      account.accountClass !== AccountClass.SUPER_ADMIN ||
+      !account.isEnabled
+    ) {
       throw this.invalidCredentials();
     }
 
@@ -200,7 +204,7 @@ export class AuthService {
 
     const tokens = await this.createTokenPair(
       account.id,
-      account.role,
+      account.accountClass,
       sessionId,
       refreshTokenExpiresAt,
     );
@@ -236,10 +240,7 @@ export class AuthService {
     return {
       ...tokens,
 
-      account: await this.buildAccountResult(
-        account.id,
-        account.role,
-      ),
+      account: await this.buildAccountResult(account.id),
     };
   }
 
@@ -302,13 +303,8 @@ export class AuthService {
       throw this.invalidCredentials();
     }
 
-    const employeeRoleCanLogin =
-      account.role === AccountRole.EMPLOYEE ||
-      account.role === AccountRole.TEAM_MANAGER ||
-      account.role === AccountRole.SENIOR_MANAGEMENT;
-
     const employeeCanLogin =
-      employeeRoleCanLogin &&
+      account.accountClass === AccountClass.OFFICE_USER &&
       account.isEnabled &&
       employee.isActivated &&
       employee.status === EmployeeStatus.ACTIVE;
@@ -316,11 +312,6 @@ export class AuthService {
     if (!employeeCanLogin) {
       throw this.invalidCredentials();
     }
-
-    const effectiveRole = await this.resolveEffectiveEmployeeRole(
-      employee.id,
-      account.role,
-    );
 
     const sessionId = randomUUID();
 
@@ -330,7 +321,7 @@ export class AuthService {
 
     const tokens = await this.createTokenPair(
       account.id,
-      effectiveRole,
+      account.accountClass,
       sessionId,
       refreshTokenExpiresAt,
     );
@@ -342,8 +333,6 @@ export class AuthService {
         },
 
         data: {
-          role: effectiveRole,
-
           failedLoginAttempts: 0,
           lockedUntil: null,
           lastLoginAt: now,
@@ -369,10 +358,7 @@ export class AuthService {
     return {
       ...tokens,
 
-      account: await this.buildAccountResult(
-        account.id,
-        effectiveRole,
-      ),
+      account: await this.buildAccountResult(account.id),
     };
   }
 
@@ -400,7 +386,7 @@ export class AuthService {
             id: true,
             employeeId: true,
             username: true,
-            role: true,
+            accountClass: true,
             isEnabled: true,
           },
         },
@@ -422,17 +408,9 @@ export class AuthService {
       );
     }
 
-    const effectiveRole = await this.resolveEffectiveEmployeeRole(
-      session.account.employeeId,
-      session.account.role,
-    );
-
-    if (
-      session.account.role !== effectiveRole ||
-      payload.role !== effectiveRole
-    ) {
+    if (payload.accountClass !== session.account.accountClass) {
       throw new UnauthorizedException(
-        'Your account authority has changed. Sign in again.',
+        'Your account class has changed. Sign in again.',
       );
     }
 
@@ -451,7 +429,7 @@ export class AuthService {
 
     const tokens = await this.createTokenPair(
       session.account.id,
-      effectiveRole,
+      session.account.accountClass,
       session.id,
       session.expiresAt,
     );
@@ -489,21 +467,12 @@ export class AuthService {
     return {
       ...tokens,
 
-      account: await this.buildAccountResult(
-        session.account.id,
-        effectiveRole,
-      ),
+      account: await this.buildAccountResult(session.account.id),
     };
   }
 
-  async getCurrentAccountResult(
-    accountId: string,
-    role: AccountRole,
-  ): Promise<AccountResult> {
-    return this.buildAccountResult(
-      accountId,
-      role,
-    );
+  async getCurrentAccountResult(accountId: string): Promise<AccountResult> {
+    return this.buildAccountResult(accountId);
   }
 
   async logoutSession(refreshToken: string | undefined): Promise<void> {
@@ -553,7 +522,6 @@ export class AuthService {
 
   private async buildAccountResult(
     accountId: string,
-    effectiveRole: AccountRole,
   ): Promise<AccountResult> {
     const account = await this.prisma.account.findUnique({
       where: {
@@ -563,7 +531,8 @@ export class AuthService {
       select: {
         id: true,
         username: true,
-        role: true,
+        accountClass: true,
+        employeeId: true,
         interfaceLanguage: true,
 
         employee: {
@@ -585,14 +554,23 @@ export class AuthService {
       throw new UnauthorizedException('Authenticated account was not found.');
     }
 
+    // Phase 13: platform identity is AccountClass. Office leadership is
+    // resolved through V3 organization assignments, not projected into
+    // legacy hierarchy-role compatibility projections.
+    const effectiveRole =
+      account.accountClass === AccountClass.SUPER_ADMIN
+        ? AccountRole.SUPER_ADMIN
+        : AccountRole.EMPLOYEE;
+
     const fallbackName =
-      account.role === AccountRole.SUPER_ADMIN
+      account.accountClass === AccountClass.SUPER_ADMIN
         ? this.configService.get<string>('SUPER_ADMIN_NAME')?.trim()
         : null;
 
     return {
       id: account.id,
       username: account.username,
+      accountClass: account.accountClass,
       role: effectiveRole,
 
       // Headers show official identity, not login email or internal username.
@@ -600,80 +578,23 @@ export class AuthService {
         account.superAdminProfile?.fullName ??
         account.employee?.empName ??
         fallbackName ??
-        this.formatRoleLabel(effectiveRole),
+        (account.accountClass === AccountClass.SUPER_ADMIN
+          ? 'Super Admin'
+          : 'Office User'),
 
       // Position stays separate so every header can show name + authority clearly.
       positionLabel:
-        account.role === AccountRole.SUPER_ADMIN
+        account.accountClass === AccountClass.SUPER_ADMIN
           ? 'Super Admin'
-          : account.employee?.designation ??
-            this.formatRoleLabel(effectiveRole),
+          : account.employee?.designation ?? 'Office User',
 
       interfaceLanguage: account.interfaceLanguage,
     };
   }
 
-  private formatRoleLabel(role: AccountRole): string {
-    switch (role) {
-      case AccountRole.SUPER_ADMIN:
-        return 'Super Admin';
-
-      case AccountRole.SENIOR_MANAGEMENT:
-        return 'Senior Management';
-
-      case AccountRole.TEAM_MANAGER:
-        return 'Team Manager';
-
-      case AccountRole.EMPLOYEE:
-      default:
-        return 'Employee';
-    }
-  }
-
-  private async resolveEffectiveEmployeeRole(
-    employeeId: string | null,
-    storedRole: AccountRole,
-  ): Promise<AccountRole> {
-    if (storedRole === AccountRole.SUPER_ADMIN) {
-      return AccountRole.SUPER_ADMIN;
-    }
-
-    if (!employeeId) {
-      return AccountRole.EMPLOYEE;
-    }
-
-    const activeAssignment = await this.prisma.managementAssignment.findFirst({
-      where: {
-        employeeId,
-        endedAt: null,
-
-        position: {
-          isActive: true,
-        },
-      },
-
-      select: {
-        position: {
-          select: {
-            positionType: true,
-          },
-        },
-      },
-    });
-
-    if (!activeAssignment) {
-      return AccountRole.EMPLOYEE;
-    }
-
-    return activeAssignment.position.positionType ===
-      ManagementPositionType.SENIOR_MANAGEMENT
-      ? AccountRole.SENIOR_MANAGEMENT
-      : AccountRole.TEAM_MANAGER;
-  }
-
   private async createTokenPair(
     accountId: string,
-    role: AccountRole,
+    accountClass: AccountClass,
     sessionId: string,
     refreshTokenExpiresAt: Date,
   ): Promise<TokenResult> {
@@ -688,14 +609,14 @@ export class AuthService {
     const accessPayload = {
       sub: accountId,
       sid: sessionId,
-      role,
+      accountClass,
       type: 'access' as const,
     };
 
     const refreshPayload = {
       sub: accountId,
       sid: sessionId,
-      role,
+      accountClass,
       type: 'refresh' as const,
 
       /*

@@ -8,7 +8,7 @@ import { EmployeesService } from './employees.service';
 
 @Module({
   /*
-   * AuthModule provides AccessTokenGuard and RolesGuard.
+   * AuthModule provides the authentication and AccountClass guards.
    */
   imports: [AuthModule, ActivationInvitationsModule, MailModule],
 

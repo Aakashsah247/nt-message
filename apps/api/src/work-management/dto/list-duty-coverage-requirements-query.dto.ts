@@ -8,10 +8,6 @@ export class ListDutyCoverageRequirementsQueryDto {
 
   @IsOptional()
   @IsUUID('4')
-  departmentId?: string;
-
-  @IsOptional()
-  @IsUUID('4')
   shiftTemplateId?: string;
 
   @IsOptional()

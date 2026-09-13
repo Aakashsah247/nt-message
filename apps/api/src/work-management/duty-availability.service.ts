@@ -9,7 +9,8 @@ import {
 import type { AuthenticatedUser } from '../auth/types/auth.types';
 import { PrismaService } from '../database/prisma.service';
 import {
-  AccountRole,
+  AccountClass,
+  OrgLeadershipType,
   DutyActivityAction,
   DutyExceptionType,
   EmployeeStatus,
@@ -22,9 +23,8 @@ import type { Prisma } from '../generated/prisma/client';
 import { MessagingPresenceService } from '../realtime/messaging-presence.service';
 import { UpdateWorkAvailabilityDto } from './dto/update-work-availability.dto';
 import { DutyNotificationsService } from './duty-notifications.service';
-import { workAccountSummarySelect } from './work-items.service';
+import { workAccountSummarySelect } from './work-compatibility-selects';
 import { WorkScopeService } from './work-scope.service';
-import { requireLegacyWorkValue } from './work-v2-compatibility';
 
 const KATHMANDU_OFFSET_MINUTES = 5 * 60 + 45;
 const ACTIVE_WORK_STATUSES = [
@@ -72,8 +72,6 @@ const dutyAssignmentSummarySelect = {
   office: { select: { id: true, code: true, name: true } },
   operationalTeam: { select: { id: true, code: true, name: true, orgUnitId: true } },
   orgUnit: { select: { id: true, code: true, name: true } },
-  department: { select: { id: true, code: true, name: true } },
-  division: { select: { id: true, code: true, name: true } },
 } satisfies Prisma.DutyAssignmentSelect;
 
 const recommendationAccountSelect = {
@@ -87,8 +85,6 @@ const recommendationAccountSelect = {
       empId: true,
       empName: true,
       designation: true,
-      divisionId: true,
-      departmentId: true,
     },
   },
 } satisfies Prisma.AccountSelect;
@@ -278,8 +274,8 @@ export class DutyAvailabilityService {
         id: true,
         ticketNumber: true,
         title: true,
-        departmentId: true,
-        divisionId: true,
+        officeId: true,
+        primaryOwnerOrgUnitId: true,
         assignments: {
           where: { endedAt: null },
           select: { assigneeAccountId: true },
@@ -293,96 +289,94 @@ export class DutyAvailabilityService {
       );
     }
 
-    // Availability recommendations are department-scoped and cannot guess a division-level helper pool.
-    if (!workItem.departmentId) {
-      throw new BadRequestException(
-        'Division-level management work must be coordinated through an authorized department before requesting an employee helper.',
+    if (!workItem.officeId || !workItem.primaryOwnerOrgUnitId) {
+      throw new ConflictException(
+        'This work item must be reconciled to a V3 Office and OrgUnit before helper recommendations are available.',
       );
     }
-    const divisionId = requireLegacyWorkValue(
-      workItem.divisionId,
-      'division',
-    );
 
     const excludedIds = [
       actor.accountId,
       ...workItem.assignments.map((assignment) => assignment.assigneeAccountId),
     ];
-    // Recommendations remain department-scoped and never reveal unrelated branch employees.
-    const recommendations = await this.buildDepartmentRecommendations(
-      workItem.departmentId,
+    const recommendations = await this.buildOrgUnitRecommendations(
+      workItem.officeId,
+      workItem.primaryOwnerOrgUnitId,
       excludedIds,
     );
-
-    const departments = await this.prisma.department.findMany({
-      where: {
-        divisionId,
-        id: { not: workItem.departmentId },
-        isActive: true,
-      },
-      orderBy: { name: 'asc' },
-      select: { id: true, divisionId: true, code: true, name: true },
-    });
 
     return {
       workItem: {
         id: workItem.id,
         ticketNumber: workItem.ticketNumber,
         title: workItem.title,
-        divisionId,
-        departmentId: workItem.departmentId,
+        officeId: workItem.officeId,
+        orgUnitId: workItem.primaryOwnerOrgUnitId,
       },
       data: recommendations,
-      crossDepartmentOptions: departments,
     };
   }
 
   async listManagementHelpRecommendations(
     user: AuthenticatedUser,
-    departmentId: string,
+    orgUnitId: string,
   ) {
     const actor = await this.workScopeService.resolveActorContext(user);
     this.workScopeService.assertCanManageWork(actor);
-    const department = await this.prisma.department.findFirst({
-      where: {
-        id: departmentId,
-        isActive: true,
-        ...(actor.role === AccountRole.SENIOR_MANAGEMENT
-          ? { divisionId: actor.divisionId ?? '__missing_division__' }
-          : actor.role === AccountRole.TEAM_MANAGER
-            ? { id: actor.departmentId ?? '__missing_department__' }
-            : {}),
-      },
-      select: { id: true, divisionId: true, code: true, name: true },
+
+    if (
+      !actor.officeId ||
+      !(actor.assignableOrgUnitIds ?? []).includes(orgUnitId)
+    ) {
+      throw new ForbiddenException(
+        'The selected OrgUnit is outside your management scope.',
+      );
+    }
+
+    const orgUnit = await this.prisma.orgUnit.findFirst({
+      where: { id: orgUnitId, officeId: actor.officeId, isActive: true },
+      select: { id: true, officeId: true, code: true, name: true },
     });
 
-    if (!department) {
+    if (!orgUnit) {
       throw new ForbiddenException(
-        'The selected department is outside your management scope.',
+        'The selected OrgUnit is outside your management scope.',
       );
     }
 
     return {
-      department,
-      data: await this.buildDepartmentRecommendations(department.id, []),
+      orgUnit,
+      data: await this.buildOrgUnitRecommendations(
+        orgUnit.officeId,
+        orgUnit.id,
+        [],
+      ),
     };
   }
 
   async assertCanReceiveDirectHelp(
     helperAccountId: string,
-    departmentId: string,
+    orgUnitId: string,
   ): Promise<void> {
+    const now = new Date();
     const helper = await this.prisma.account.findFirst({
       where: {
         id: helperAccountId,
         isEnabled: true,
+        accountClass: AccountClass.OFFICE_USER,
         employee: {
           is: {
             status: EmployeeStatus.ACTIVE,
             employmentStatus: EmploymentStatus.ACTIVE,
             archivedAt: null,
             isActivated: true,
-            departmentId,
+            orgMemberships: {
+              some: {
+                orgUnitId,
+                startsAt: { lte: now },
+                OR: [{ endsAt: null }, { endsAt: { gt: now } }],
+              },
+            },
           },
         },
       },
@@ -391,16 +385,16 @@ export class DutyAvailabilityService {
 
     if (!helper) {
       throw new NotFoundException(
-        'The selected helper is not an eligible employee in this department.',
+        'The selected helper is not an eligible employee in this OrgUnit.',
       );
     }
 
-    const now = new Date();
     const today = this.parseDateOnly(this.localDateString(now));
     const [duty, exception, availability] = await Promise.all([
       this.prisma.dutyAssignment.findFirst({
         where: {
           employeeAccountId: helperAccountId,
+          orgUnitId,
           startsAt: { lte: now },
           endsAt: { gt: now },
           cancelledAt: null,
@@ -422,7 +416,6 @@ export class DutyAvailabilityService {
       }),
     ]);
 
-    // Presence alone is insufficient; direct help requires a current duty window.
     if (!duty || exception) {
       throw new ConflictException(
         'The selected employee is not currently on duty.',
@@ -436,53 +429,37 @@ export class DutyAvailabilityService {
     }
   }
 
-  async getCoordinationRecipients(divisionId: string): Promise<string[]> {
-    const accounts = await this.prisma.account.findMany({
-      where: {
-        isEnabled: true,
-        OR: [
-          { role: AccountRole.SUPER_ADMIN },
-          {
-            role: AccountRole.SENIOR_MANAGEMENT,
-            employee: {
-              is: {
-                status: EmployeeStatus.ACTIVE,
-                employmentStatus: EmploymentStatus.ACTIVE,
-                archivedAt: null,
-                divisionId,
-              },
-            },
-          },
-        ],
-      },
-      select: { id: true },
-    });
-    return accounts.map((account) => account.id);
-  }
-
-  private async buildDepartmentRecommendations(
-    departmentId: string,
+  private async buildOrgUnitRecommendations(
+    officeId: string,
+    orgUnitId: string,
     excludedIds: string[],
   ) {
+    const now = new Date();
     const candidates = await this.prisma.account.findMany({
       where: {
         id: excludedIds.length > 0 ? { notIn: excludedIds } : undefined,
         isEnabled: true,
-        role: { in: [AccountRole.EMPLOYEE, AccountRole.TEAM_MANAGER] },
+        accountClass: AccountClass.OFFICE_USER,
         employee: {
           is: {
             status: EmployeeStatus.ACTIVE,
             employmentStatus: EmploymentStatus.ACTIVE,
             archivedAt: null,
             isActivated: true,
-            departmentId,
+            orgMemberships: {
+              some: {
+                officeId,
+                orgUnitId,
+                startsAt: { lte: now },
+                OR: [{ endsAt: null }, { endsAt: { gt: now } }],
+              },
+            },
           },
         },
       },
       orderBy: { employee: { empName: 'asc' } },
       select: recommendationAccountSelect,
     });
-    const now = new Date();
     const today = this.parseDateOnly(this.localDateString(now));
     const candidateIds = candidates.map((candidate) => candidate.id);
 
@@ -492,6 +469,7 @@ export class DutyAvailabilityService {
       this.prisma.dutyAssignment.findMany({
         where: {
           employeeAccountId: { in: candidateIds },
+          orgUnitId,
           startsAt: { lte: now },
           endsAt: { gt: now },
           cancelledAt: null,

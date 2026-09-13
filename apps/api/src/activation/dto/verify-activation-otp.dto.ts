@@ -1,8 +1,6 @@
 import {
   IsEmail,
-  IsOptional,
   IsString,
-  IsUUID,
   Matches,
   MaxLength,
   MinLength,
@@ -36,20 +34,6 @@ export class VerifyActivationOtpDto {
   )
   @MaxLength(255)
   officialEmail!: string;
-
-  // Compatibility-only organization values. Canonical V3 activation is bound
-  // to the persisted Office, intended OrgUnit and current PRIMARY membership.
-  @IsOptional()
-  @IsUUID('4', {
-    message: 'Division ID must be a valid UUID.',
-  })
-  divisionId?: string | null;
-
-  @IsOptional()
-  @IsUUID('4', {
-    message: 'Department ID must be a valid UUID.',
-  })
-  departmentId?: string | null;
 
   @IsString()
   @Matches(/^[0-9]{6}$/, {

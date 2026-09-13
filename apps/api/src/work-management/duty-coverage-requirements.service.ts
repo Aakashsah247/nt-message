@@ -18,7 +18,6 @@ import { CreateDutyCoverageRequirementDto } from './dto/create-duty-coverage-req
 import { ListDutyCoverageRequirementsQueryDto } from './dto/list-duty-coverage-requirements-query.dto';
 import { UpdateDutyCoverageRequirementDto } from './dto/update-duty-coverage-requirement.dto';
 import { DutyAuthorizationService } from './duty-authorization.service';
-import { DutyScopeV3Service } from './duty-scope-v3.service';
 
 const KATHMANDU_OFFSET_MS = 5.75 * 60 * 60 * 1000;
 const FAR_FUTURE_DATE = new Date('9999-12-31T00:00:00.000Z');
@@ -27,7 +26,6 @@ const coverageRequirementSelect = {
   id: true,
   officeId: true,
   orgUnitId: true,
-  departmentId: true,
   shiftTemplateId: true,
   dayOfWeek: true,
   requiredStaff: true,
@@ -51,16 +49,6 @@ const coverageRequirementSelect = {
       orgUnitType: { select: { code: true, name: true, isTeam: true } },
     },
   },
-  department: {
-    select: {
-      id: true,
-      divisionId: true,
-      code: true,
-      name: true,
-      isActive: true,
-      division: { select: { id: true, code: true, name: true, isActive: true } },
-    },
-  },
   shift: {
     select: {
       id: true,
@@ -71,8 +59,6 @@ const coverageRequirementSelect = {
       isActive: true,
       officeId: true,
       orgUnitId: true,
-      divisionId: true,
-      departmentId: true,
     },
   },
   createdBy: {
@@ -96,7 +82,6 @@ type CoverageRequirementRecord = Prisma.DutyCoverageRequirementGetPayload<{
 interface CoverageRequirementState {
   officeId: string;
   orgUnitId: string;
-  departmentId: string | null;
   shiftTemplateId: string;
   dayOfWeek: number;
   requiredStaff: number;
@@ -112,7 +97,6 @@ export class DutyCoverageRequirementsService {
     private readonly prisma: PrismaService,
     private readonly dutyAuthorization: DutyAuthorizationService,
     private readonly organizationAuthorization: OrganizationAuthorizationService,
-    private readonly dutyScopeV3: DutyScopeV3Service,
   ) {}
 
   async listRequirements(
@@ -131,7 +115,6 @@ export class DutyCoverageRequirementsService {
         AND: [
           visibleWhere,
           ...(query.orgUnitId ? [{ orgUnitId: query.orgUnitId }] : []),
-          ...(query.departmentId ? [{ departmentId: query.departmentId }] : []),
           ...(query.shiftTemplateId
             ? [{ shiftTemplateId: query.shiftTemplateId }]
             : []),
@@ -175,22 +158,18 @@ export class DutyCoverageRequirementsService {
     const scope = await this.resolveManagedScope(
       user,
       dto.orgUnitId,
-      dto.departmentId,
       true,
     );
     await this.resolveShiftForOrgUnit(
       dto.shiftTemplateId,
       scope.officeId,
       scope.orgUnitId,
-      scope.divisionId,
-      scope.departmentId,
       true,
     );
 
     const state: CoverageRequirementState = {
       officeId: scope.officeId,
       orgUnitId: scope.orgUnitId,
-      departmentId: scope.departmentId,
       shiftTemplateId: dto.shiftTemplateId,
       dayOfWeek: dto.dayOfWeek,
       requiredStaff: dto.requiredStaff,
@@ -261,16 +240,9 @@ export class DutyCoverageRequirementsService {
       );
     }
 
-    const requestedDepartmentId =
-      dto.departmentId !== undefined
-        ? dto.departmentId
-        : dto.orgUnitId
-          ? undefined
-          : existing.departmentId ?? undefined;
     const scope = await this.resolveManagedScope(
       user,
       dto.orgUnitId ?? existing.orgUnitId,
-      requestedDepartmentId,
       !hasStarted,
     );
     const nextShiftTemplateId = dto.shiftTemplateId ?? existing.shiftTemplateId;
@@ -278,8 +250,6 @@ export class DutyCoverageRequirementsService {
       nextShiftTemplateId,
       scope.officeId,
       scope.orgUnitId,
-      scope.divisionId,
-      scope.departmentId,
       !hasStarted,
     );
 
@@ -293,7 +263,6 @@ export class DutyCoverageRequirementsService {
     const next: CoverageRequirementState = {
       officeId: scope.officeId,
       orgUnitId: scope.orgUnitId,
-      departmentId: scope.departmentId,
       shiftTemplateId: nextShiftTemplateId,
       dayOfWeek: dto.dayOfWeek ?? existing.dayOfWeek,
       requiredStaff: dto.requiredStaff ?? existing.requiredStaff,
@@ -465,13 +434,10 @@ export class DutyCoverageRequirementsService {
   private async resolveManagedScope(
     user: AuthenticatedUser,
     requestedOrgUnitId: string | undefined,
-    requestedDepartmentId: string | undefined,
     requireActive: boolean,
   ): Promise<{
     officeId: string;
     orgUnitId: string;
-    divisionId: string | null;
-    departmentId: string | null;
   }> {
     const context = await this.dutyAuthorization.assertCanUseManagement(
       user,
@@ -480,26 +446,13 @@ export class DutyCoverageRequirementsService {
     if (!context.officeId) {
       throw new ForbiddenException('Duty coverage requires an active Office scope.');
     }
-
-    let orgUnitId = requestedOrgUnitId;
-    if (!orgUnitId && requestedDepartmentId) {
-      const mapping = await this.prisma.legacyOrgUnitMapping.findFirst({
-        where: {
-          officeId: context.officeId,
-          legacyEntityType: 'DEPARTMENT',
-          legacyEntityId: requestedDepartmentId,
-        },
-        select: { orgUnitId: true },
-      });
-      orgUnitId = mapping?.orgUnitId;
-    }
-    if (!orgUnitId) {
+    if (!requestedOrgUnitId) {
       throw new BadRequestException('Select an OrgUnit for this coverage requirement.');
     }
 
     const orgUnit = await this.prisma.orgUnit.findFirst({
       where: {
-        id: orgUnitId,
+        id: requestedOrgUnitId,
         officeId: context.officeId,
         ...(requireActive ? { isActive: true } : {}),
       },
@@ -521,33 +474,13 @@ export class DutyCoverageRequirementsService {
       orgUnit.id,
     );
 
-    const compatibility = await this.dutyScopeV3.resolveLegacyCompatibilityScope(
-      orgUnit.officeId,
-      orgUnit.id,
-    );
-    if (
-      requestedDepartmentId &&
-      compatibility.departmentId !== requestedDepartmentId
-    ) {
-      throw new BadRequestException(
-        'The selected legacy Department does not match the selected OrgUnit.',
-      );
-    }
-
-    return {
-      officeId: orgUnit.officeId,
-      orgUnitId: orgUnit.id,
-      divisionId: compatibility.divisionId,
-      departmentId: compatibility.departmentId,
-    };
+    return { officeId: orgUnit.officeId, orgUnitId: orgUnit.id };
   }
 
   private async resolveShiftForOrgUnit(
     shiftTemplateId: string,
     officeId: string,
     orgUnitId: string,
-    divisionId: string | null,
-    departmentId: string | null,
     requireActive: boolean,
   ): Promise<void> {
     const shift = await this.prisma.dutyShiftTemplate.findUnique({
@@ -557,8 +490,6 @@ export class DutyCoverageRequirementsService {
         isActive: true,
         officeId: true,
         orgUnitId: true,
-        divisionId: true,
-        departmentId: true,
       },
     });
     if (!shift) {
@@ -569,33 +500,28 @@ export class DutyCoverageRequirementsService {
         'An inactive shift template cannot receive a coverage requirement.',
       );
     }
-    if (shift.officeId && shift.officeId !== officeId) {
+    if (!shift.officeId) {
+      throw new ConflictException(
+        'This historical shift template has not been reconciled to Office/OrgUnit scope and cannot receive new coverage requirements.',
+      );
+    }
+    if (shift.officeId !== officeId) {
       throw new ForbiddenException(
         'The selected shift template belongs to another Office.',
       );
     }
-    if (shift.orgUnitId) {
-      const insideScope = await this.prisma.orgUnitClosure.findFirst({
-        where: {
-          ancestorOrgUnitId: shift.orgUnitId,
-          descendantOrgUnitId: orgUnitId,
-        },
-        select: { ancestorOrgUnitId: true },
-      });
-      if (!insideScope) {
-        throw new ForbiddenException(
-          'The selected shift template is outside this OrgUnit scope.',
-        );
-      }
-      return;
-    }
+    if (!shift.orgUnitId) return;
 
-    const legacyMatches =
-      (!shift.departmentId || shift.departmentId === departmentId) &&
-      (!shift.divisionId || shift.divisionId === divisionId);
-    if (!legacyMatches) {
+    const insideScope = await this.prisma.orgUnitClosure.findFirst({
+      where: {
+        ancestorOrgUnitId: shift.orgUnitId,
+        descendantOrgUnitId: orgUnitId,
+      },
+      select: { ancestorOrgUnitId: true },
+    });
+    if (!insideScope) {
       throw new ForbiddenException(
-        'The selected legacy shift template is outside this OrgUnit scope.',
+        'The selected shift template is outside this OrgUnit scope.',
       );
     }
   }
@@ -726,7 +652,6 @@ export class DutyCoverageRequirementsService {
     return {
       officeId: record.officeId,
       orgUnitId: record.orgUnitId,
-      departmentId: record.departmentId,
       shiftTemplateId: record.shiftTemplateId,
       dayOfWeek: record.dayOfWeek,
       requiredStaff: record.requiredStaff,
@@ -744,7 +669,6 @@ export class DutyCoverageRequirementsService {
     return (
       previous.officeId !== next.officeId ||
       previous.orgUnitId !== next.orgUnitId ||
-      previous.departmentId !== next.departmentId ||
       previous.shiftTemplateId !== next.shiftTemplateId ||
       previous.dayOfWeek !== next.dayOfWeek ||
       previous.requiredStaff !== next.requiredStaff ||
@@ -768,7 +692,6 @@ export class DutyCoverageRequirementsService {
     return {
       officeId: state.officeId,
       orgUnitId: state.orgUnitId,
-      departmentId: state.departmentId,
       shiftTemplateId: state.shiftTemplateId,
       dayOfWeek: state.dayOfWeek,
       requiredStaff: state.requiredStaff,
@@ -783,15 +706,6 @@ export class DutyCoverageRequirementsService {
       id: record.id,
       office: record.office,
       orgUnit: record.orgUnit,
-      department: record.department
-        ? {
-            id: record.department.id,
-            divisionId: record.department.divisionId,
-            code: record.department.code,
-            name: record.department.name,
-            division: record.department.division,
-          }
-        : null,
       shift: record.shift,
       dayOfWeek: record.dayOfWeek,
       requiredStaff: record.requiredStaff,

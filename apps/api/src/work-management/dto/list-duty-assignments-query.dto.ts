@@ -42,10 +42,6 @@ export class ListDutyAssignmentsQueryDto {
   employeeAccountId?: string;
 
   @IsOptional()
-  @IsUUID('4')
-  departmentId?: string;
-
-  @IsOptional()
   @IsEnum(DutyAssignmentListView)
   view?: DutyAssignmentListView;
 

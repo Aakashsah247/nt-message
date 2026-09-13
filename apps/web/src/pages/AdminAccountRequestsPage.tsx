@@ -8,10 +8,6 @@ import { ProtectedAvatar } from "../components/ProtectedAvatar";
 import { ManagementIcon } from "../components/layout/ManagementIcon";
 import { useAuth } from "../context/AuthContext";
 import {
-  getAdminDepartments,
-  getAdminDivisions,
-} from "../services/admin-account.service";
-import {
   getAdminAccountRequestSummary,
   listAdminAccountRequests,
 } from "../services/account-request.service";
@@ -21,8 +17,6 @@ import type {
   AdminAccountRequestListQuery,
   AdminAccountRequestSummaryResponse,
 } from "../types/account-request";
-import type { AdminDepartment, AdminDivision } from "../types/admin-account";
-import type { AccountRole } from "../types/auth";
 
 const PAGE_SIZE = 20;
 const STATUS_OPTIONS: Array<{ value: AccountRequestStatus; labelKey: string }> = [
@@ -142,9 +136,6 @@ export function AdminAccountRequestsPage() {
 
   const [searchInput, setSearchInput] = useState("");
   const [debouncedSearch, setDebouncedSearch] = useState("");
-  const [requestedRole, setRequestedRole] = useState<AccountRole | "">("");
-  const [divisionId, setDivisionId] = useState("");
-  const [departmentId, setDepartmentId] = useState("");
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
   const [page, setPage] = useState(1);
@@ -153,12 +144,9 @@ export function AdminAccountRequestsPage() {
   const [totalPages, setTotalPages] = useState(0);
   const [summary, setSummary] =
     useState<AdminAccountRequestSummaryResponse | null>(null);
-  const [divisions, setDivisions] = useState<AdminDivision[]>([]);
-  const [departments, setDepartments] = useState<AdminDepartment[]>([]);
   const [loading, setLoading] = useState(true);
   const [summaryLoading, setSummaryLoading] = useState(true);
   const [error, setError] = useState("");
-  const [organizationError, setOrganizationError] = useState("");
   const [refreshKey, setRefreshKey] = useState(0);
   const [lastRefreshedAt, setLastRefreshedAt] = useState<string | null>(null);
 
@@ -178,43 +166,6 @@ export function AdminAccountRequestsPage() {
       setPage(1);
     });
   }, [status]);
-
-  useEffect(() => {
-    if (!accessToken) {
-      return;
-    }
-
-    let active = true;
-
-    Promise.all([
-      getAdminDivisions(accessToken),
-      getAdminDepartments(accessToken),
-    ])
-      .then(([divisionResponse, departmentResponse]) => {
-        if (!active) {
-          return;
-        }
-
-        setDivisions(divisionResponse.data);
-        setDepartments(departmentResponse.data);
-        setOrganizationError("");
-      })
-      .catch((requestError: unknown) => {
-        if (!active) {
-          return;
-        }
-
-        setOrganizationError(
-          requestError instanceof Error
-            ? requestError.message
-            : t("adminList.organizationError"),
-        );
-      });
-
-    return () => {
-      active = false;
-    };
-  }, [accessToken, t]);
 
   useEffect(() => {
     if (!accessToken) {
@@ -258,9 +209,6 @@ export function AdminAccountRequestsPage() {
       page,
       limit: PAGE_SIZE,
       search: debouncedSearch || undefined,
-      requestedRole: requestedRole || undefined,
-      divisionId: divisionId || undefined,
-      departmentId: departmentId || undefined,
       // Date-only inputs are expanded to the complete local calendar day before
       // the API receives UTC timestamps, preventing midnight boundary omissions.
       dateFrom: dateFrom
@@ -274,10 +222,7 @@ export function AdminAccountRequestsPage() {
       dateFrom,
       dateTo,
       debouncedSearch,
-      departmentId,
-      divisionId,
       page,
-      requestedRole,
       status,
     ],
   );
@@ -331,21 +276,8 @@ export function AdminAccountRequestsPage() {
     };
   }, [accessToken, query, refreshKey, t]);
 
-  const filteredDepartments = useMemo(
-    () =>
-      departments.filter(
-        (department) =>
-          department.isActive &&
-          (!divisionId || department.division.id === divisionId),
-      ),
-    [departments, divisionId],
-  );
-
   const activeFilterCount = [
     searchInput.trim(),
-    requestedRole,
-    divisionId,
-    departmentId,
     dateFrom,
     dateTo,
   ].filter(Boolean).length;
@@ -382,9 +314,6 @@ export function AdminAccountRequestsPage() {
   function resetFilters(): void {
     setSearchInput("");
     setDebouncedSearch("");
-    setRequestedRole("");
-    setDivisionId("");
-    setDepartmentId("");
     setDateFrom("");
     setDateTo("");
     setPage(1);
@@ -467,73 +396,6 @@ export function AdminAccountRequestsPage() {
         </label>
 
         <label>
-          <span>{t("common.requestedRole")}</span>
-          <select
-            value={requestedRole}
-            onChange={(event) => {
-              setRequestedRole(event.target.value as AccountRole | "");
-              setPage(1);
-            }}
-          >
-            <option value="">{t("adminList.allRoles")}</option>
-            <option value="EMPLOYEE">{t("common.employee")}</option>
-            <option value="TEAM_MANAGER">{t("common.teamManager")}</option>
-            <option value="SENIOR_MANAGEMENT">{t("common.seniorManagement")}</option>
-          </select>
-        </label>
-
-        <label>
-          <span>{t("common.division")}</span>
-          <select
-            value={divisionId}
-            onChange={(event) => {
-              const nextDivisionId = event.target.value;
-              setDivisionId(nextDivisionId);
-              setPage(1);
-
-              if (
-                departmentId &&
-                !departments.some(
-                  (department) =>
-                    department.id === departmentId &&
-                    (!nextDivisionId ||
-                      department.division.id === nextDivisionId),
-                )
-              ) {
-                setDepartmentId("");
-              }
-            }}
-          >
-            <option value="">{t("common.allDivisions")}</option>
-            {divisions
-              .filter((division) => division.isActive)
-              .map((division) => (
-                <option key={division.id} value={division.id}>
-                  {division.name} ({division.code})
-                </option>
-              ))}
-          </select>
-        </label>
-
-        <label>
-          <span>{t("common.department")}</span>
-          <select
-            value={departmentId}
-            onChange={(event) => {
-              setDepartmentId(event.target.value);
-              setPage(1);
-            }}
-          >
-            <option value="">{t("common.allDepartments")}</option>
-            {filteredDepartments.map((department) => (
-              <option key={department.id} value={department.id}>
-                {department.name} ({department.code})
-              </option>
-            ))}
-          </select>
-        </label>
-
-        <label>
           <span>{t("adminList.submittedFrom")}</span>
           <input
             type="date"
@@ -567,14 +429,6 @@ export function AdminAccountRequestsPage() {
           {t("adminList.clearFilters")}
         </button>
 
-        {organizationError && (
-          <p
-            className="admin-account-requests-page__filter-warning"
-            role="status"
-          >
-            {t("adminList.filterWarning", { error: organizationError })}
-          </p>
-        )}
       </section>
 
       <section className="admin-account-requests-page__records">
@@ -668,9 +522,9 @@ export function AdminAccountRequestsPage() {
                       </td>
                       <td>
                         <strong>
-                          {request.department?.name ?? t("common.noDepartment")}
+                          {request.intendedOrgUnit?.name ?? t("common.notAssigned")}
                         </strong>
-                        <span>{request.division?.name ?? t("common.noDivision")}</span>
+                        <span>{request.office?.name ?? t("common.notAssigned")}</span>
                       </td>
                       <td>
                         <strong>{getRequesterName(request, t)}</strong>
@@ -749,8 +603,8 @@ export function AdminAccountRequestsPage() {
                     <div>
                       <dt>{t("common.organization")}</dt>
                       <dd>
-                        {request.department?.name ??
-                          request.division?.name ??
+                        {request.intendedOrgUnit?.name ??
+                          request.office?.name ??
                           t("common.notAssigned")}
                       </dd>
                     </div>

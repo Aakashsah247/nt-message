@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import type { FormEvent } from "react";
 import { Trans, useTranslation } from "react-i18next";
 import { Link, useSearchParams } from "react-router";
@@ -6,8 +6,6 @@ import { Link, useSearchParams } from "react-router";
 import {
   completeActivation,
   getActivationInvitationPreview,
-  getPublicDepartments,
-  getPublicDivisions,
   requestActivationOtp,
   verifyActivationOtp,
 } from "../services/activation.service";
@@ -16,8 +14,6 @@ import type {
   ActivationIdentity,
   ActivationInvitationPreview,
   CompleteActivationResponse,
-  PublicDepartment,
-  PublicDivision,
   VerifyActivationOtpResponse,
 } from "../types/activation";
 import {
@@ -33,20 +29,10 @@ const emptyIdentity: ActivationIdentity = {
   empId: "",
   phoneNumber: "",
   officialEmail: "",
-  divisionId: "",
-  departmentId: null,
 };
 
 function getErrorMessage(error: unknown, fallback: string): string {
   return error instanceof Error ? error.message : fallback;
-}
-
-function formatRole(role: string): string {
-  return role
-    .toLowerCase()
-    .split("_")
-    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
-    .join(" ");
 }
 
 function formatDate(
@@ -78,10 +64,6 @@ export function ActivationPage() {
 
   const [stage, setStage] = useState<ActivationStage>("identity");
   const [identity, setIdentity] = useState<ActivationIdentity>(emptyIdentity);
-  const [divisions, setDivisions] = useState<PublicDivision[]>([]);
-  const [departments, setDepartments] = useState<PublicDepartment[]>([]);
-  const [organizationLoading, setOrganizationLoading] = useState(true);
-  const [organizationError, setOrganizationError] = useState("");
   const [invitation, setInvitation] =
     useState<ActivationInvitationPreview | null>(null);
   const [invitationLoading, setInvitationLoading] = useState(
@@ -104,56 +86,12 @@ export function ActivationPage() {
   const usingInvitation = Boolean(invitation && !manualMode);
 
   function getRoleLabel(role: string): string {
-    switch (role) {
-      case "SUPER_ADMIN":
-        return t("roles.superAdmin", { ns: "workspace" });
-      case "SENIOR_MANAGEMENT":
-        return t("roles.seniorManagement", { ns: "workspace" });
-      case "TEAM_MANAGER":
-        return t("roles.teamManager", { ns: "workspace" });
-      case "EMPLOYEE":
-        return t("roles.employee", { ns: "workspace" });
-      default:
-        return formatRole(role);
+    if (role === "SUPER_ADMIN") {
+      return t("accountClasses.superAdmin", { ns: "workspace" });
     }
+
+    return t("accountClasses.officeUser", { ns: "workspace" });
   }
-
-  const loadOrganization = useCallback(async (): Promise<void> => {
-    setOrganizationLoading(true);
-    setOrganizationError("");
-
-    try {
-      const [divisionResponse, departmentResponse] = await Promise.all([
-        getPublicDivisions(),
-        getPublicDepartments(),
-      ]);
-
-      setDivisions(divisionResponse.data);
-      setDepartments(departmentResponse.data);
-    } catch (requestError) {
-      setOrganizationError(
-        getErrorMessage(
-          requestError,
-          t("activation.errors.organizationLoad", { ns: "auth" }),
-        ),
-      );
-    } finally {
-      setOrganizationLoading(false);
-    }
-  }, [t]);
-
-  useEffect(() => {
-    let active = true;
-    queueMicrotask(() => {
-      if (active) {
-        void loadOrganization();
-      }
-    });
-
-    return () => {
-      active = false;
-    };
-  }, [loadOrganization]);
 
   useEffect(() => {
     let active = true;
@@ -198,8 +136,6 @@ export function ActivationPage() {
           empId: "",
           phoneNumber: "",
           officialEmail: preview.employee.officialEmail,
-          divisionId: preview.organization.divisionId,
-          departmentId: preview.organization.departmentId,
         });
         setManualMode(false);
       })
@@ -227,30 +163,11 @@ export function ActivationPage() {
     };
   }, [invitationToken, t]);
 
-  const visibleDepartments = useMemo(
-    () =>
-      departments.filter(
-        (department) => department.divisionId === identity.divisionId,
-      ),
-    [departments, identity.divisionId],
-  );
-
-  const selectedDivision = useMemo(
-    () => divisions.find((division) => division.id === identity.divisionId),
-    [divisions, identity.divisionId],
-  );
-
-  const selectedDepartment = useMemo(
-    () =>
-      departments.find((department) => department.id === identity.departmentId),
-    [departments, identity.departmentId],
-  );
-
   const currentStep = stage === "identity" ? 1 : stage === "otp" ? 2 : 3;
 
   function updateIdentity(
     field: keyof ActivationIdentity,
-    value: string | null,
+    value: string,
   ): void {
     setIdentity((current) => ({
       ...current,
@@ -274,18 +191,11 @@ export function ActivationPage() {
     setError("");
     setNotice("");
 
-    if (!identity.divisionId) {
-      setError(t("activation.errors.selectDivision", { ns: "auth" }));
-      return;
-    }
-
     const normalizedIdentity: ActivationIdentity = {
       empName: identity.empName.trim(),
       empId: identity.empId.trim().toUpperCase(),
       phoneNumber: identity.phoneNumber.trim(),
       officialEmail: identity.officialEmail.trim(),
-      divisionId: identity.divisionId,
-      departmentId: identity.departmentId || null,
     };
 
     setSubmitting(true);
@@ -536,15 +446,12 @@ export function ActivationPage() {
                       <strong>{getRoleLabel(invitation!.requestedRole)}</strong>
                     </div>
                     <div>
-                      <span>{t("activation.identity.officialDivision", { ns: "auth" })}</span>
-                      <strong>{invitation!.organization.divisionName}</strong>
+                      <span>{t("activation.identity.officialOffice", { ns: "auth" })}</span>
+                      <strong>{invitation!.organization.officeName}</strong>
                     </div>
                     <div>
-                      <span>{t("activation.identity.officialDepartment", { ns: "auth" })}</span>
-                      <strong>
-                        {invitation!.organization.departmentName ??
-                          t("activation.invitation.divisionLevelRole", { ns: "auth" })}
-                      </strong>
+                      <span>{t("activation.identity.officialOrgUnit", { ns: "auth" })}</span>
+                      <strong>{invitation!.organization.orgUnitName}</strong>
                     </div>
                   </section>
                 )}
@@ -620,104 +527,26 @@ export function ActivationPage() {
                     />
                   </label>
 
-                  {usingInvitation ? (
+                  {usingInvitation && (
                     <>
                       <label className="activation-field">
-                        <span>{t("activation.identity.officialDivision", { ns: "auth" })}</span>
+                        <span>{t("activation.identity.officialOffice", { ns: "auth" })}</span>
                         <input
                           type="text"
-                          value={invitation!.organization.divisionName}
+                          value={invitation!.organization.officeName}
                           readOnly
                         />
                       </label>
 
                       <label className="activation-field">
-                        <span>{t("activation.identity.officialDepartment", { ns: "auth" })}</span>
+                        <span>{t("activation.identity.officialOrgUnit", { ns: "auth" })}</span>
                         <input
                           type="text"
-                          value={
-                            invitation!.organization.departmentName ??
-                            t("activation.identity.noDepartment", { ns: "auth" })
-                          }
+                          value={invitation!.organization.orgUnitName}
                           readOnly
                         />
                       </label>
                     </>
-                  ) : (
-                    <>
-                      <label className="activation-field">
-                        <span>{t("activation.identity.officialDivision", { ns: "auth" })}</span>
-                        <select
-                          value={identity.divisionId}
-                          onChange={(event) => {
-                            updateIdentity("divisionId", event.target.value);
-                            updateIdentity("departmentId", null);
-                          }}
-                          disabled={
-                            organizationLoading || Boolean(organizationError)
-                          }
-                          required
-                        >
-                          <option value="">
-                            {organizationLoading
-                              ? t("activation.identity.loadingDivisions", { ns: "auth" })
-                              : t("activation.identity.selectDivision", { ns: "auth" })}
-                          </option>
-                          {divisions.map((division) => (
-                            <option key={division.id} value={division.id}>
-                              {division.name} ({division.code})
-                            </option>
-                          ))}
-                        </select>
-                      </label>
-
-                      <label className="activation-field">
-                        <span>{t("activation.identity.officialDepartment", { ns: "auth" })}</span>
-                        <select
-                          value={identity.departmentId ?? ""}
-                          onChange={(event) =>
-                            updateIdentity(
-                              "departmentId",
-                              event.target.value || null,
-                            )
-                          }
-                          disabled={
-                            organizationLoading ||
-                            Boolean(organizationError) ||
-                            !identity.divisionId
-                          }
-                        >
-                          <option value="">
-                            {t("activation.identity.noDepartment", { ns: "auth" })}
-                          </option>
-                          {visibleDepartments.map((department) => (
-                            <option key={department.id} value={department.id}>
-                              {department.name} ({department.code})
-                            </option>
-                          ))}
-                        </select>
-                        {selectedDivision && (
-                          <small>
-                            {t("activation.identity.divisionContext", { ns: "auth", division: selectedDivision.name })}
-                            {selectedDepartment
-                              ? t("activation.identity.departmentContext", { ns: "auth", department: selectedDepartment.name })
-                              : ""}
-                          </small>
-                        )}
-                      </label>
-                    </>
-                  )}
-
-                  {organizationError && !usingInvitation && (
-                    <div className="activation-load-error activation-field-wide">
-                      <span>{organizationError}</span>
-                      <button
-                        type="button"
-                        onClick={() => void loadOrganization()}
-                      >
-                        {t("actions.tryAgain", { ns: "common" })}
-                      </button>
-                    </div>
                   )}
 
                   {error && (
@@ -732,11 +561,7 @@ export function ActivationPage() {
                   <button
                     className="activation-primary activation-field-wide"
                     type="submit"
-                    disabled={
-                      submitting ||
-                      (!usingInvitation &&
-                        (organizationLoading || Boolean(organizationError)))
-                    }
+                    disabled={submitting}
                   >
                     {submitting
                       ? t("activation.identity.verifying", { ns: "auth" })

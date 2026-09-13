@@ -3,7 +3,7 @@ import { ForbiddenException, Injectable } from '@nestjs/common';
 import type { AuthenticatedUser } from '../auth/types/auth.types';
 import { PrismaService } from '../database/prisma.service';
 import {
-  AccountRole,
+  AccountClass,
   EmployeeStatus,
   EmploymentStatus,
   OrgMembershipType,
@@ -18,6 +18,8 @@ export interface DutyAuthorizationContext {
   officeId: string | null;
   primaryOrgUnitId: string | null;
   operationalTeamLeadIds: string[];
+  orgUnits: Array<{ id: string; code: string; name: string }>;
+  operationalTeams: Array<{ id: string; code: string; name: string; orgUnitId: string }>;
   canView: boolean;
   canCreate: boolean;
   canAssign: boolean;
@@ -40,7 +42,7 @@ export class DutyAuthorizationService {
       where: { id: user.accountId },
       select: {
         id: true,
-        role: true,
+        accountClass: true,
         isEnabled: true,
         employee: {
           select: {
@@ -57,7 +59,7 @@ export class DutyAuthorizationService {
       return this.emptyContext(false);
     }
 
-    if (account.role === AccountRole.SUPER_ADMIN) {
+    if (account.accountClass === AccountClass.SUPER_ADMIN) {
       return {
         ...this.emptyContext(true),
         canView: true,
@@ -137,10 +139,46 @@ export class DutyAuthorizationService {
     ]);
 
     const isOperationalTeamLead = teamLeads.length > 0;
+    const visibleOrgUnitIds = await this.organizationAuthorization.visibleOrgUnitIds(
+      user,
+      CAPABILITIES.DUTY_VIEW,
+      membership.officeId,
+    );
+    const [orgUnits, operationalTeams] = await Promise.all([
+      this.prisma.orgUnit.findMany({
+        where: {
+          id: { in: visibleOrgUnitIds },
+          officeId: membership.officeId,
+          isActive: true,
+        },
+        orderBy: [{ name: 'asc' }],
+        select: { id: true, code: true, name: true },
+      }),
+      this.prisma.operationalTeam.findMany({
+        where: {
+          isActive: true,
+          archivedAt: null,
+          orgUnit: { is: { officeId: membership.officeId, isActive: true } },
+          OR: [
+            ...(visibleOrgUnitIds.length
+              ? [{ orgUnitId: { in: visibleOrgUnitIds } }]
+              : []),
+            ...(teamLeads.length
+              ? [{ id: { in: teamLeads.map((row) => row.teamId) } }]
+              : []),
+          ],
+        },
+        orderBy: [{ name: 'asc' }],
+        select: { id: true, code: true, name: true, orgUnitId: true },
+      }),
+    ]);
+
     return {
       officeId: membership.officeId,
       primaryOrgUnitId: membership.orgUnitId,
       operationalTeamLeadIds: teamLeads.map((row) => row.teamId),
+      orgUnits,
+      operationalTeams,
       canView: canView || isOperationalTeamLead,
       canCreate,
       canAssign: canAssign || isOperationalTeamLead,
@@ -197,6 +235,8 @@ export class DutyAuthorizationService {
       officeId: null,
       primaryOrgUnitId: null,
       operationalTeamLeadIds: [],
+      orgUnits: [],
+      operationalTeams: [],
       canView: false,
       canCreate: false,
       canAssign: false,

@@ -1,8 +1,10 @@
-import { ConflictException } from '@nestjs/common';
+import { ConflictException, ForbiddenException } from '@nestjs/common';
 
 import type { PrismaService } from '../database/prisma.service';
 import {
+  AccountClass,
   AccountRole,
+  OrgLeadershipType,
   WorkAvailabilityPreference,
 } from '../generated/prisma/enums';
 import type { MessagingPresenceService } from '../realtime/messaging-presence.service';
@@ -23,6 +25,7 @@ const employeeUser = {
   sessionId: 'session',
   username: 'employee@ntc.test',
   role: AccountRole.EMPLOYEE,
+  accountClass: AccountClass.OFFICE_USER,
 };
 
 describe('DutyAvailabilityService M20 Phase 5', () => {
@@ -46,11 +49,13 @@ describe('DutyAvailabilityService M20 Phase 5', () => {
     },
     workItem: { findFirst: jest.fn() },
     account: { findMany: jest.fn(), findFirst: jest.fn() },
+    orgUnit: { findFirst: jest.fn() },
+    orgLeadershipAssignment: { findMany: jest.fn() },
     workAssignment: { findMany: jest.fn() },
-    department: { findMany: jest.fn() },
   } as unknown as PrismaService;
   const scope = {
     resolveActorContext: jest.fn(),
+    assertCanManageWork: jest.fn(),
   } as unknown as WorkScopeService;
   const presence = {
     getSnapshot: jest.fn().mockReturnValue([]),
@@ -70,6 +75,12 @@ describe('DutyAvailabilityService M20 Phase 5', () => {
     jest.mocked(scope.resolveActorContext).mockResolvedValue({
       accountId: 'employee',
       role: AccountRole.EMPLOYEE,
+      accountClass: AccountClass.OFFICE_USER,
+      officeId: 'office-a',
+      primaryOrgUnitId: 'org-unit-a',
+      visibleOrgUnitIds: ['org-unit-a'],
+      assignableOrgUnitIds: ['org-unit-a'],
+      operationalTeamLeadIds: [],
       divisionId: 'division-a',
       departmentId: 'department-a',
     });
@@ -186,4 +197,72 @@ describe('DutyAvailabilityService M20 Phase 5', () => {
       service.assertCanReceiveDirectHelp('helper', 'department-a'),
     ).rejects.toBeInstanceOf(ConflictException);
   });
+
+  it('uses V3 OrgUnit scope for management help recommendations', async () => {
+    jest.mocked(scope.resolveActorContext).mockResolvedValue({
+      accountId: 'manager',
+      role: AccountRole.EMPLOYEE,
+      accountClass: AccountClass.OFFICE_USER,
+      officeId: 'office-a',
+      primaryOrgUnitId: 'org-unit-a',
+      visibleOrgUnitIds: ['org-unit-a'],
+      assignableOrgUnitIds: ['org-unit-a'],
+      operationalTeamLeadIds: [],
+      divisionId: null,
+      departmentId: null,
+    });
+    jest.mocked(prisma.orgUnit.findFirst).mockResolvedValue({
+      id: 'org-unit-a',
+      officeId: 'office-a',
+      code: 'NET',
+      name: 'Network',
+    } as never);
+    jest.mocked(prisma.account.findMany).mockResolvedValue([]);
+
+    await expect(
+      service.listManagementHelpRecommendations(
+        { ...employeeUser, accountId: 'manager' },
+        'org-unit-a',
+      ),
+    ).resolves.toEqual({
+      orgUnit: {
+        id: 'org-unit-a',
+        officeId: 'office-a',
+        code: 'NET',
+        name: 'Network',
+      },
+      data: [],
+    });
+
+    expect(scope.assertCanManageWork).toHaveBeenCalled();
+    expect(prisma.account.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          accountClass: AccountClass.OFFICE_USER,
+        }),
+      }),
+    );
+  });
+
+  it('rejects management help recommendations outside V3 OrgUnit scope', async () => {
+    jest.mocked(scope.resolveActorContext).mockResolvedValue({
+      accountId: 'manager',
+      role: AccountRole.EMPLOYEE,
+      accountClass: AccountClass.OFFICE_USER,
+      officeId: 'office-a',
+      primaryOrgUnitId: 'org-unit-a',
+      visibleOrgUnitIds: ['org-unit-a'],
+      assignableOrgUnitIds: ['org-unit-a'],
+      operationalTeamLeadIds: [],
+      divisionId: null,
+      departmentId: null,
+    });
+    await expect(
+      service.listManagementHelpRecommendations(
+        { ...employeeUser, accountId: 'manager' },
+        'org-unit-b',
+      ),
+    ).rejects.toBeInstanceOf(ForbiddenException);
+  });
+
 });

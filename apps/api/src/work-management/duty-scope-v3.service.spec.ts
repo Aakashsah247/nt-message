@@ -15,7 +15,7 @@ const managerUser = {
   accountId: 'manager-account',
   sessionId: 'session-1',
   username: 'manager',
-  role: AccountRole.TEAM_MANAGER,
+  role: AccountRole.EMPLOYEE,
 };
 
 function account(id = 'employee-account') {
@@ -41,13 +41,13 @@ function account(id = 'employee-account') {
 
 function createHarness() {
   const prisma = {
+    account: { findMany: jest.fn() },
     orgMembership: { findMany: jest.fn() },
     operationalTeamMember: { findMany: jest.fn() },
     operationalTeam: { findFirst: jest.fn() },
     orgLeadershipAssignment: { findMany: jest.fn() },
     operationalTeamLeadAssignment: { findFirst: jest.fn(), findMany: jest.fn() },
     orgUnitClosure: { findUnique: jest.fn(), findMany: jest.fn() },
-    legacyOrgUnitMapping: { findMany: jest.fn(), findFirst: jest.fn() },
   };
   const dutyAuthorization = {
     getContext: jest.fn(),
@@ -97,6 +97,84 @@ function createHarness() {
 }
 
 describe('DutyScopeV3Service', () => {
+  it('lists Duty supervisors from V3 leadership and Operational Team authority', async () => {
+    const { service, prisma } = createHarness();
+    prisma.orgLeadershipAssignment.findMany.mockResolvedValue([
+      { employee: { account: { id: 'office-head' } } },
+      { employee: { account: { id: 'org-head' } } },
+    ]);
+    prisma.operationalTeamLeadAssignment.findMany.mockResolvedValue([
+      { employee: { account: { id: 'team-lead' } } },
+    ]);
+    prisma.account.findMany.mockResolvedValue([
+      {
+        id: 'manager-account',
+        username: 'manager',
+        superAdminProfile: null,
+        employee: {
+          id: 'manager-employee',
+          empId: 'NTC-1000',
+          empName: 'Manager',
+          designation: 'Supervisor',
+        },
+      },
+      {
+        id: 'org-head',
+        username: 'org-head',
+        superAdminProfile: null,
+        employee: {
+          id: 'org-head-employee',
+          empId: 'NTC-1002',
+          empName: 'Org Head',
+          designation: 'Head',
+        },
+      },
+    ]);
+
+    const result = await service.listSupervisorOptions(managerUser);
+
+    expect(result.data).toEqual([
+      expect.objectContaining({ account: expect.objectContaining({ id: 'manager-account' }) }),
+      expect.objectContaining({ account: expect.objectContaining({ id: 'org-head' }) }),
+    ]);
+    expect(prisma.account.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          accountClass: 'OFFICE_USER',
+          id: {
+            in: expect.arrayContaining([
+              'manager-account',
+              'office-head',
+              'org-head',
+              'team-lead',
+            ]),
+          },
+        }),
+      }),
+    );
+  });
+
+  it('resolves management Duty accounts from V3 leadership and Operational Team leads', async () => {
+    const { service, prisma } = createHarness();
+    prisma.orgLeadershipAssignment.findMany.mockResolvedValue([
+      { employee: { account: { id: 'office-head' } } },
+      { employee: { account: { id: 'org-head' } } },
+    ]);
+    prisma.operationalTeamLeadAssignment.findMany.mockResolvedValue([
+      { employee: { account: { id: 'team-lead' } } },
+    ]);
+
+    await expect(service.managementDutyAccountIds(managerUser as never)).resolves.toEqual(
+      expect.arrayContaining(['office-head', 'org-head', 'team-lead']),
+    );
+    expect(prisma.orgLeadershipAssignment.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({ officeId: 'office-1' }),
+      }),
+    );
+    expect(prisma.operationalTeamLeadAssignment.findMany).toHaveBeenCalled();
+  });
+
   it('resolves active employees from primary Office/OrgUnit membership', async () => {
     const { service } = createHarness();
 
@@ -180,66 +258,6 @@ describe('DutyScopeV3Service', () => {
   });
 
 
-  it('authorizes legacy Duty filters through their mapped V3 OrgUnit scope', async () => {
-    const { service, prisma, organizationAuthorization } = createHarness();
-    prisma.legacyOrgUnitMapping.findFirst.mockResolvedValue({
-      orgUnitId: 'org-unit-child',
-    });
-
-    await service.assertLegacyScopeFilter(managerUser, {
-      departmentId: 'department-1',
-    });
-
-    expect(organizationAuthorization.can).toHaveBeenCalledWith(
-      managerUser,
-      'duty.view',
-      'office-1',
-      'org-unit-child',
-      expect.any(Date),
-    );
-  });
-
-  it('rejects a legacy Duty filter mapped outside current V3 visibility', async () => {
-    const { service, prisma, organizationAuthorization } = createHarness();
-    prisma.legacyOrgUnitMapping.findFirst.mockResolvedValue({
-      orgUnitId: 'org-unit-outside',
-    });
-    organizationAuthorization.can.mockResolvedValue(false);
-
-    await expect(
-      service.assertLegacyScopeFilter(managerUser, {
-        divisionId: 'division-outside',
-      }),
-    ).rejects.toBeInstanceOf(ForbiddenException);
-  });
-
-  it('derives nearest legacy Department and Division only as compatibility data', async () => {
-    const { service, prisma } = createHarness();
-    prisma.orgUnitClosure.findMany.mockResolvedValue([
-      { ancestorOrgUnitId: 'org-unit-child', depth: 0 },
-      { ancestorOrgUnitId: 'org-unit-department', depth: 1 },
-      { ancestorOrgUnitId: 'org-unit-division', depth: 2 },
-    ]);
-    prisma.legacyOrgUnitMapping.findMany.mockResolvedValue([
-      {
-        orgUnitId: 'org-unit-division',
-        legacyEntityType: 'DIVISION',
-        legacyEntityId: 'division-1',
-      },
-      {
-        orgUnitId: 'org-unit-department',
-        legacyEntityType: 'DEPARTMENT',
-        legacyEntityId: 'department-1',
-      },
-    ]);
-
-    await expect(
-      service.resolveLegacyCompatibilityScope('office-1', 'org-unit-child'),
-    ).resolves.toEqual({
-      divisionId: 'division-1',
-      departmentId: 'department-1',
-    });
-  });
   it('routes Duty notifications to the assigned employee, Team Lead, and nearest OrgUnit Head', async () => {
     const { service, prisma } = createHarness();
     prisma.operationalTeamLeadAssignment.findMany.mockResolvedValue([

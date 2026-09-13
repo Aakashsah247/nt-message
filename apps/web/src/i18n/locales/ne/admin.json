@@ -48,7 +48,9 @@
       "positions": "व्यवस्थापन पदहरू",
       "positionsDescription": "भरिएका, सुरक्षित र रिक्त पदहरू जाँच गर्नुहोस्।",
       "analytics": "पूर्ण विश्लेषण हेर्नुहोस्",
-      "analyticsDescription": "गोपनीयता-सुरक्षित कर्मचारी र प्रशासनिक विश्लेषण खोल्नुहोस्।"
+      "analyticsDescription": "गोपनीयता-सुरक्षित कर्मचारी र प्रशासनिक विश्लेषण खोल्नुहोस्।",
+      "organization": "संगठन र कर्मचारी",
+      "organizationDescription": "कार्यालय संरचना, सदस्यता र हालको नेतृत्व सन्दर्भ हेर्नुहोस्।"
     },
     "lifecycle": {
       "eyebrow": "अनुरोध जीवनचक्र",
@@ -69,12 +71,30 @@
   },
   "accountRequest": {
     "status": {
-      "DRAFT": { "label": "मस्यौदा", "short": "मस्यौदा" },
-      "PENDING_APPROVAL": { "label": "स्वीकृतिको प्रतीक्षामा", "short": "प्रतीक्षामा" },
-      "APPROVED": { "label": "स्वीकृत", "short": "स्वीकृत" },
-      "REJECTED": { "label": "सुधारका लागि फिर्ता", "short": "सुधार" },
-      "ACTIVATION_PENDING": { "label": "सक्रियता बाँकी", "short": "सक्रिय हुँदै" },
-      "ACTIVATED": { "label": "सक्रिय", "short": "सक्रिय" }
+      "DRAFT": {
+        "label": "मस्यौदा",
+        "short": "मस्यौदा"
+      },
+      "PENDING_APPROVAL": {
+        "label": "स्वीकृतिको प्रतीक्षामा",
+        "short": "प्रतीक्षामा"
+      },
+      "APPROVED": {
+        "label": "स्वीकृत",
+        "short": "स्वीकृत"
+      },
+      "REJECTED": {
+        "label": "सुधारका लागि फिर्ता",
+        "short": "सुधार"
+      },
+      "ACTIVATION_PENDING": {
+        "label": "सक्रियता बाँकी",
+        "short": "सक्रिय हुँदै"
+      },
+      "ACTIVATED": {
+        "label": "सक्रिय",
+        "short": "सक्रिय"
+      }
     }
   },
   "roles": {

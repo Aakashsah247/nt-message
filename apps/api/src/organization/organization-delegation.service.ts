@@ -9,7 +9,7 @@ import {
 import type { AuthenticatedUser } from '../auth/types/auth.types';
 import { PrismaService } from '../database/prisma.service';
 import {
-  AccountRole,
+  AccountClass,
   EmployeeStatus,
   EmploymentStatus,
   OrgMembershipType,
@@ -126,7 +126,7 @@ export class OrganizationDelegationService {
         });
 
     const hasDelegationAuthority =
-      user.role !== AccountRole.SUPER_ADMIN &&
+      user.accountClass !== AccountClass.SUPER_ADMIN &&
       (officeHead || Boolean(activeRedelegableGrant));
 
     const availableCapabilities = hasDelegationAuthority
@@ -170,7 +170,7 @@ export class OrganizationDelegationService {
                 account: {
                   is: {
                     isEnabled: true,
-                    role: { not: AccountRole.SUPER_ADMIN },
+                    accountClass: { not: AccountClass.SUPER_ADMIN },
                   },
                 },
               },
@@ -194,7 +194,7 @@ export class OrganizationDelegationService {
                   select: {
                     id: true,
                     username: true,
-                    role: true,
+                    accountClass: true,
                     isEnabled: true,
                   },
                 },
@@ -342,7 +342,7 @@ export class OrganizationDelegationService {
     officeId: string,
     dto: CreateDelegatedPermissionDto,
   ) {
-    if (user.role === AccountRole.SUPER_ADMIN) {
+    if (user.accountClass === AccountClass.SUPER_ADMIN) {
       throw new ForbiddenException(
         'The system administrator cannot grant internal office delegation.',
       );
@@ -427,7 +427,7 @@ export class OrganizationDelegationService {
       },
       select: {
         id: true,
-        role: true,
+        accountClass: true,
         isEnabled: true,
         employeeId: true,
       },
@@ -439,7 +439,7 @@ export class OrganizationDelegationService {
       );
     }
 
-    if (grantee.role === AccountRole.SUPER_ADMIN) {
+    if (grantee.accountClass === AccountClass.SUPER_ADMIN) {
       throw new ForbiddenException(
         'The system administrator cannot receive office delegation.',
       );

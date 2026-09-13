@@ -28,8 +28,6 @@ jest.mock('../generated/prisma/client', () =>
   jest.requireActual('../generated/prisma/enums'),
 );
 
-const DIVISION_ID = '22222222-2222-4222-8222-222222222222';
-const DEPARTMENT_ID = '33333333-3333-4333-8333-333333333333';
 const OFFICE_ID = '44444444-4444-4444-8444-444444444444';
 const ORG_UNIT_ID = '99999999-9999-4999-8999-999999999999';
 const ANNOUNCEMENT_ID = '55555555-5555-4555-8555-555555555555';
@@ -57,21 +55,6 @@ function createAccount(id: string, role: AccountRole) {
           employmentStatus: EmploymentStatus.ACTIVE,
           archivedAt: null,
           isActivated: true,
-          divisionId: DIVISION_ID,
-          departmentId: DEPARTMENT_ID,
-          division: {
-            id: DIVISION_ID,
-            code: 'DIV-A',
-            name: 'Division A',
-            isActive: true,
-          },
-          departmentUnit: {
-            id: DEPARTMENT_ID,
-            divisionId: DIVISION_ID,
-            code: 'DEP-A',
-            name: 'Department A',
-            isActive: true,
-          },
         },
   };
 }
@@ -102,15 +85,13 @@ function authorizationStub(
 }
 
 function createAnnouncement(
-  creator = createAccount(MANAGER_ID, AccountRole.TEAM_MANAGER),
+  creator = createAccount(MANAGER_ID, AccountRole.EMPLOYEE),
   status: AnnouncementStatus = AnnouncementStatus.PUBLISHED,
 ) {
   return {
     id: ANNOUNCEMENT_ID,
     createdByAccountId: creator.id,
     audienceType: AnnouncementAudienceType.ORG_UNIT,
-    divisionId: null,
-    departmentId: null,
     officeId: OFFICE_ID,
     orgUnitId: ORG_UNIT_ID,
     includeDescendants: false,
@@ -133,13 +114,6 @@ function createAnnouncement(
     createdAt: NOW,
     updatedAt: NOW,
     createdBy: creator,
-    division: {
-      id: DIVISION_ID,
-      code: 'DIV-A',
-      name: 'Division A',
-      isActive: true,
-    },
-    department: null,
     office: {
       id: OFFICE_ID,
       code: 'PATAN',
@@ -205,7 +179,7 @@ function authenticatedUser(
 
 describe('AnnouncementsService', () => {
   it('exposes creator-owned edit and delete permissions to the Admin creator', async () => {
-    const manager = createAccount(MANAGER_ID, AccountRole.TEAM_MANAGER);
+    const manager = createAccount(MANAGER_ID, AccountRole.EMPLOYEE);
     const announcement = createAnnouncement(manager);
     const prisma = {
       account: { findUnique: jest.fn().mockResolvedValue(manager) },
@@ -219,7 +193,7 @@ describe('AnnouncementsService', () => {
     );
 
     const response = await service.getById(
-      authenticatedUser(MANAGER_ID, AccountRole.TEAM_MANAGER),
+      authenticatedUser(MANAGER_ID, AccountRole.EMPLOYEE),
       ANNOUNCEMENT_ID,
     );
 
@@ -234,7 +208,7 @@ describe('AnnouncementsService', () => {
 
   it('allows the Office Head to permanently delete a management announcement', async () => {
     const owner = createAccount(OWNER_ID, AccountRole.EMPLOYEE);
-    const creator = createAccount(MANAGER_ID, AccountRole.TEAM_MANAGER);
+    const creator = createAccount(MANAGER_ID, AccountRole.EMPLOYEE);
     const announcement = createAnnouncement(creator);
     const deleteMany = jest.fn().mockResolvedValue({ count: 1 });
     const emitAnnouncementDeleted = jest.fn();
@@ -295,7 +269,7 @@ describe('AnnouncementsService', () => {
 
   it('denies Super Admin operational announcement deletion', async () => {
     const superAdmin = createAccount(OWNER_ID, AccountRole.SUPER_ADMIN);
-    const creator = createAccount(MANAGER_ID, AccountRole.TEAM_MANAGER);
+    const creator = createAccount(MANAGER_ID, AccountRole.EMPLOYEE);
     const announcement = createAnnouncement(creator);
     const deleteMany = jest.fn();
     const prisma = {
@@ -322,7 +296,7 @@ describe('AnnouncementsService', () => {
   });
 
   it('does not delete an announcement while publication is in progress', async () => {
-    const manager = createAccount(MANAGER_ID, AccountRole.TEAM_MANAGER);
+    const manager = createAccount(MANAGER_ID, AccountRole.EMPLOYEE);
     const announcement = createAnnouncement(
       manager,
       AnnouncementStatus.PUBLISHING,
@@ -344,7 +318,7 @@ describe('AnnouncementsService', () => {
 
     await expect(
       service.deleteAnnouncement(
-        authenticatedUser(MANAGER_ID, AccountRole.TEAM_MANAGER),
+        authenticatedUser(MANAGER_ID, AccountRole.EMPLOYEE),
         ANNOUNCEMENT_ID,
       ),
     ).rejects.toThrow(

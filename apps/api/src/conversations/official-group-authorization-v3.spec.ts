@@ -1,6 +1,7 @@
 import type { AuthenticatedUser } from '../auth/types/auth.types';
 import type { PrismaService } from '../database/prisma.service';
 import {
+  AccountClass,
   AccountRole,
   ConversationParticipantRole,
   OfficialGroupMembershipMode,
@@ -32,12 +33,14 @@ describe('P12-E official-group V3 authorization', () => {
     accountId,
     sessionId: 'session-1',
     role: AccountRole.EMPLOYEE,
+    accountClass: AccountClass.OFFICE_USER,
   } as AuthenticatedUser;
 
   function activeAccount(role = AccountRole.EMPLOYEE) {
     return {
       id: accountId,
       role,
+      accountClass: AccountClass.OFFICE_USER,
       isEnabled: true,
       employee: {
         id: employeeId,
@@ -85,6 +88,7 @@ describe('P12-E official-group V3 authorization', () => {
     prisma.account.findUnique.mockResolvedValue({
       id: 'super-admin',
       role: AccountRole.SUPER_ADMIN,
+      accountClass: AccountClass.SUPER_ADMIN,
       isEnabled: true,
       employee: null,
     });
@@ -95,6 +99,7 @@ describe('P12-E official-group V3 authorization', () => {
       accountId: 'super-admin',
       sessionId: 'session-1',
       role: AccountRole.SUPER_ADMIN,
+      accountClass: AccountClass.SUPER_ADMIN,
     } as AuthenticatedUser;
 
     await expect(
@@ -296,73 +301,6 @@ describe('P12-E official-group V3 authorization', () => {
         OfficialGroupMembershipMode.ENTIRE_SUBTREE,
       ),
     ).resolves.toBe(false);
-  });
-
-  it('does not authorize a legacy management role without V3 scope authority', async () => {
-    const prisma = {
-      division: {
-        findUnique: jest.fn().mockResolvedValue({
-          id: 'division-1',
-          code: 'TECH',
-          name: 'Technical',
-          isActive: true,
-        }),
-      },
-    } as unknown as PrismaService;
-    const service = new ConversationsService(
-      prisma,
-      { emitConversationUpdated: jest.fn() } as never,
-      {} as never,
-    );
-    jest
-      .spyOn(
-        service as unknown as {
-          resolveLegacyOfficialGroupOfficeId: () => Promise<string>;
-        },
-        'resolveLegacyOfficialGroupOfficeId',
-      )
-      .mockResolvedValue(officeId);
-    jest
-      .spyOn(
-        service as unknown as {
-          resolveOfficialGroupOrgUnitId: () => Promise<string>;
-        },
-        'resolveOfficialGroupOrgUnitId',
-      )
-      .mockResolvedValue(rootOrgUnitId);
-    jest
-      .spyOn(
-        service as unknown as {
-          canManageOfficialGroupScope: () => Promise<boolean>;
-        },
-        'canManageOfficialGroupScope',
-      )
-      .mockResolvedValue(false);
-    const authorize = (
-      service as unknown as {
-        getAuthorizedOfficialGroupScope: (
-          viewer: unknown,
-          scope: OfficialGroupScopeType,
-          divisionId: string,
-        ) => Promise<unknown>;
-      }
-    ).getAuthorizedOfficialGroupScope.bind(service);
-
-    await expect(
-      authorize(
-        {
-          accountId,
-          employeeId,
-          role: AccountRole.SENIOR_MANAGEMENT,
-          divisionId: 'division-1',
-          departmentId: null,
-        },
-        OfficialGroupScopeType.DIVISION,
-        'division-1',
-      ),
-    ).rejects.toThrow(
-      'You do not have official-group management authority for this OrgUnit scope.',
-    );
   });
 
   it('derives group participant roles from V3 authority sets instead of legacy roles', () => {

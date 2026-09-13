@@ -7,7 +7,7 @@ import {
 import type { AuthenticatedUser } from '../auth/types/auth.types';
 import { PrismaService } from '../database/prisma.service';
 import {
-  AccountRole,
+  AccountClass,
   EmployeeStatus,
   EmploymentStatus,
   OrgLeadershipType,
@@ -18,7 +18,7 @@ export class OrganizationAuthorityService {
   constructor(private readonly prisma: PrismaService) {}
 
   assertPlatformAdmin(user: AuthenticatedUser): void {
-    if (user.role !== AccountRole.SUPER_ADMIN) {
+    if (user.accountClass !== AccountClass.SUPER_ADMIN) {
       throw new ForbiddenException(
         'Only the system administrator can manage office registration.',
       );
@@ -28,7 +28,7 @@ export class OrganizationAuthorityService {
   async listVisibleOfficeIds(
     user: AuthenticatedUser,
   ): Promise<string[] | null> {
-    if (user.role === AccountRole.SUPER_ADMIN) {
+    if (user.accountClass === AccountClass.SUPER_ADMIN) {
       return null;
     }
 
@@ -75,7 +75,7 @@ export class OrganizationAuthorityService {
       throw new NotFoundException('Office was not found.');
     }
 
-    if (user.role === AccountRole.SUPER_ADMIN) {
+    if (user.accountClass === AccountClass.SUPER_ADMIN) {
       return;
     }
 
@@ -92,7 +92,7 @@ export class OrganizationAuthorityService {
     user: AuthenticatedUser,
     officeId: string,
   ): Promise<void> {
-    if (user.role === AccountRole.SUPER_ADMIN) {
+    if (user.accountClass === AccountClass.SUPER_ADMIN) {
       throw new ForbiddenException(
         'The system administrator cannot manage the internal office structure.',
       );
@@ -125,7 +125,7 @@ export class OrganizationAuthorityService {
     officeId: string,
     orgUnitId: string,
   ): Promise<void> {
-    if (user.role === AccountRole.SUPER_ADMIN) {
+    if (user.accountClass === AccountClass.SUPER_ADMIN) {
       throw new ForbiddenException(
         'The system administrator cannot manage the internal office structure.',
       );

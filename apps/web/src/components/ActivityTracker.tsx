@@ -112,9 +112,6 @@ function getSafePageLabel(pathname: string): string {
     return "Directory";
   }
 
-  if (pathname.startsWith("/management-positions")) {
-    return "Management Positions";
-  }
 
   if (pathname.startsWith("/profile")) {
     return "Profile";

@@ -8,7 +8,7 @@ import {
 import type { AuthenticatedUser } from '../auth/types/auth.types';
 import { ConversationsService } from '../conversations/conversations.service';
 import { PrismaService } from '../database/prisma.service';
-import { AccountRole, type Prisma } from '../generated/prisma/client';
+import { AccountClass, type Prisma } from '../generated/prisma/client';
 
 import { CreateOfficeDto } from './dto/create-office.dto';
 import { CreateOrgUnitDto } from './dto/create-org-unit.dto';
@@ -122,7 +122,7 @@ export class OrganizationHierarchyService {
     const { data: offices } = await this.listOffices(user);
     const officeIds = offices.map((office) => office.id);
 
-    if (user.role === AccountRole.SUPER_ADMIN) {
+    if (user.accountClass === AccountClass.SUPER_ADMIN) {
       return {
         mode: 'VIEW' as const,
         officeIds,

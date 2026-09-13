@@ -93,15 +93,19 @@ test("P10-5 uses bilingual report copy and removes obsolete report-specific CSS"
   assert.deepEqual(Object.keys(JSON.parse(en)), Object.keys(JSON.parse(ne)));
 });
 
-test("P10-5 allows Employee personal report access through the canonical route and navigation", async () => {
+test("P10-5 allows Office users personal report access through the canonical route and navigation", async () => {
   const [app, navigation] = await Promise.all([
     source("App.tsx"),
     source("components/layout/management-navigation.ts"),
   ]);
 
-  const routeBlock = app.slice(app.indexOf('path="/work-reports"'), app.indexOf("</Route>", app.indexOf('path="/work-reports"')));
-  assert.match(routeBlock, /"EMPLOYEE"/);
-  const employeeStart = navigation.indexOf("const EMPLOYEE_NAVIGATION");
-  const employeeEnd = navigation.indexOf("function getManagerNavigation", employeeStart);
-  assert.match(navigation.slice(employeeStart, employeeEnd), /path:\s*"\/work-reports"/);
+  const routeBlock = app.slice(
+    app.indexOf('path="/work-reports"'),
+    app.indexOf("</Route>", app.indexOf('path="/work-reports"')),
+  );
+  assert.match(routeBlock, /ALL_ACCOUNT_CLASSES|OFFICE_USER_ONLY/);
+  assert.doesNotMatch(routeBlock, /"EMPLOYEE"/);
+  const officeStart = navigation.indexOf("const OFFICE_USER_NAVIGATION");
+  const officeEnd = navigation.indexOf("const SUPER_ADMIN_NAVIGATION", officeStart);
+  assert.match(navigation.slice(officeStart, officeEnd), /path:\s*"\/work-reports"/);
 });

@@ -345,19 +345,14 @@ export function MessagingAnalyticsPanel({
   }
 
   const visibleRoles = topItems(analytics.usersByRole, 8);
-  const visibleDivisions = topItems(analytics.usersByDivision);
-  const visibleDepartments = topItems(analytics.usersByDepartment);
+  const visibleOrgUnits = topItems(analytics.usersByOrgUnit, 10);
   const visibleConversationTypes = topItems(analytics.conversationsByType);
   const visibleMessageTypes = topItems(analytics.messagesByType);
   const visibleAttachmentTypes = topAttachmentItems(analytics.attachmentsByType);
   const largestRoleCount = Math.max(1, ...visibleRoles.map((item) => item.count));
-  const largestDivisionCount = Math.max(
+  const largestOrgUnitCount = Math.max(
     1,
-    ...visibleDivisions.map((item) => item.count),
-  );
-  const largestDepartmentCount = Math.max(
-    1,
-    ...visibleDepartments.map((item) => item.count),
+    ...visibleOrgUnits.map((item) => item.count),
   );
   const largestConversationCount = Math.max(
     1,
@@ -376,13 +371,9 @@ export function MessagingAnalyticsPanel({
     0,
   );
   const scopeLabel =
-    analytics.scope.role === "SENIOR_MANAGEMENT"
-      ? analytics.scope.division?.name ?? t("scope.division")
-      : analytics.scope.role === "TEAM_MANAGER"
-        ? analytics.scope.department?.name ??
-          analytics.scope.division?.name ??
-          t("scope.department")
-        : t("scope.allUnits");
+    analytics.scope.orgUnit?.name ??
+    analytics.scope.office?.name ??
+    t("scope.authorizedOrgUnits");
   const operationCards: OperationCard[] = [
     {
       label: t("personal.conversations"),
@@ -574,28 +565,14 @@ export function MessagingAnalyticsPanel({
           <div className="analytics-split-list">
             <section>
               <div className="analytics-split-list__title">
-                <strong>{t("organization.divisions")}</strong>
-                <span>{t("organization.shown", { count: visibleDivisions.length })}</span>
+                <strong>{t("organization.orgUnits")}</strong>
+                <span>{t("organization.shown", { count: visibleOrgUnits.length })}</span>
               </div>
               <div className="analytics-org-list">
                 {renderDistribution(
-                  visibleDivisions,
-                  largestDivisionCount,
-                  t("organization.noDivisions"),
-                )}
-              </div>
-            </section>
-
-            <section>
-              <div className="analytics-split-list__title">
-                <strong>{t("organization.departments")}</strong>
-                <span>{t("organization.shown", { count: visibleDepartments.length })}</span>
-              </div>
-              <div className="analytics-org-list">
-                {renderDistribution(
-                  visibleDepartments,
-                  largestDepartmentCount,
-                  t("organization.noDepartments"),
+                  visibleOrgUnits,
+                  largestOrgUnitCount,
+                  t("organization.noOrgUnits"),
                 )}
               </div>
             </section>

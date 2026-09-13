@@ -5,18 +5,14 @@ import test from "node:test";
 const checks = [
   ["../src/pages/AdminAccountRequestsPage.tsx", "requests"],
   ["../src/pages/ManagerAccountRequestsPage.tsx", "requests"],
-  ["../src/pages/ManagerRequestDashboardPage.tsx", "requests"],
-  ["../src/components/AdminAccountForm.tsx", "requests"],
   ["../src/components/AdminRequestDetailPanel.tsx", "requests"],
   ["../src/components/ManagerAccountRequestForm.tsx", "requests"],
   ["../src/components/ManagerRequestDetailPanel.tsx", "requests"],
   ["../src/components/ManagerRequestHistory.tsx", "requests"],
   ["../src/components/MyAccountStatusPanel.tsx", "requests"],
-  ["../src/pages/TeamManagementPage.tsx", "teams"],
-  ["../src/pages/ManagementPositionsPage.tsx", "positions"],
 ];
 
-test("account, team and management-position workspaces use dedicated bilingual namespaces", async () => {
+test("account-request governance workspaces use dedicated bilingual namespaces", async () => {
   for (const [relativePath, namespace] of checks) {
     const source = await readFile(new URL(relativePath, import.meta.url), "utf8");
     assert.match(

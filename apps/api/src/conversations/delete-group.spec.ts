@@ -79,9 +79,7 @@ describe('ConversationsService group deletion governance', () => {
       id: 'official-1',
       groupKind: GroupKind.OFFICIAL,
       groupPhotoKey: null,
-      officialScopeType: OfficialGroupScopeType.ORGANIZATION,
-      officialDivisionId: null,
-      officialDepartmentId: null,
+      officialScopeType: OfficialGroupScopeType.OFFICE,
       participants: [
         {
           accountId: 'office-head-1',
@@ -250,7 +248,7 @@ describe('ConversationsService group deletion governance', () => {
     viewerSpy.mockResolvedValue({
       accountId: 'management-1',
       employeeId: 'employee-management-1',
-      role: AccountRole.SENIOR_MANAGEMENT,
+      role: AccountRole.EMPLOYEE,
     });
     accessSpy.mockResolvedValue(officialOwnerAccess);
     officeHeadSpy.mockResolvedValue(false);

@@ -1,9 +1,6 @@
 import type { AccountRole } from "./auth";
 
 export type AnnouncementAudienceType =
-  | "ORGANIZATION"
-  | "DIVISION"
-  | "DEPARTMENT"
   | "OFFICIAL_GROUP"
   | "OFFICE"
   | "ORG_UNIT";
@@ -39,18 +36,6 @@ export interface AnnouncementPublisher {
   designation: string | null;
 }
 
-export interface AnnouncementDivision {
-  id: string;
-  code: string;
-  name: string;
-}
-
-export interface AnnouncementDepartment {
-  id: string;
-  divisionId: string;
-  code: string;
-  name: string;
-}
 
 
 export interface AnnouncementOffice {
@@ -74,8 +59,6 @@ export interface AnnouncementOfficialGroup {
 
 export interface AnnouncementAudience {
   type: AnnouncementAudienceType;
-  division: AnnouncementDivision | null;
-  department: AnnouncementDepartment | null;
   office: AnnouncementOffice | null;
   orgUnit: AnnouncementOrgUnit | null;
   includeDescendants: boolean;
@@ -168,12 +151,6 @@ export interface AnnouncementAudienceOptions {
   orgUnits: Array<
     AnnouncementOrgUnit & {
       orgUnitType: { name: string; isTeam: boolean };
-    }
-  >;
-  divisions: AnnouncementDivision[];
-  departments: Array<
-    AnnouncementDepartment & {
-      division: { name: string };
     }
   >;
   officialGroups: Array<{

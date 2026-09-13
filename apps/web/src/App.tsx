@@ -1,7 +1,6 @@
 import "./styles/manager-workspace.css";
 import "./styles/employee-dashboard.css";
 import "./styles/work-management.css";
-import "./styles/team-management.css";
 import "./styles/super-admin-workspace.css";
 import "./styles/organization-workspace.css";
 import "./styles/monitoring-workspace.css";
@@ -17,20 +16,14 @@ import { RoleHome } from "./components/RoleHome";
 import { ActivationPage } from "./pages/ActivationPage";
 import { AdminDashboardPage } from "./pages/AdminDashboardPage";
 import { AdminAccountRequestsPage } from "./pages/AdminAccountRequestsPage";
-import { ManagementPositionsPage } from "./pages/ManagementPositionsPage";
 import { ManagerAccountRequestsPage } from "./pages/ManagerAccountRequestsPage";
-import { ManagerRequestDashboardPage } from "./pages/ManagerRequestDashboardPage";
-import { ManagementWorkPage } from "./pages/ManagementWorkPage";
 import { ForgotPasswordPage } from "./pages/ForgotPasswordPage";
 import { LoginPage } from "./pages/LoginPage";
 import { MessageAppPage } from "./pages/MessageAppPage";
 import { DirectoryPage } from "./pages/DirectoryPage";
-import { EmployeeDashboardPage } from "./pages/EmployeeDashboardPage";
-import { EmployeeWorkPage } from "./pages/EmployeeWorkPage";
 import { EmployeeDutyPage } from "./pages/EmployeeDutyPage";
 import { ManagementDutyPage } from "./pages/ManagementDutyPage";
 import { WorkReportsPage } from "./pages/WorkReportsPage";
-import { TeamManagementPage } from "./pages/TeamManagementPage";
 import { SecurityPage } from "./pages/SecurityPage";
 import { SettingsPage } from "./pages/SettingsPage";
 import { OrganizationPage } from "./pages/OrganizationPage";
@@ -38,6 +31,10 @@ import { WorkTypeManagementPage } from "./pages/WorkTypeManagementPage";
 import { WorkRuntimeV3Page } from "./pages/WorkRuntimeV3Page";
 import { WorkRuntimeV3DetailPage } from "./pages/WorkRuntimeV3DetailPage";
 import { WorkRuntimeV3CreatePage } from "./pages/WorkRuntimeV3CreatePage";
+
+const ALL_ACCOUNT_CLASSES = ["SUPER_ADMIN", "OFFICE_USER"] as const;
+const OFFICE_USER_ONLY = ["OFFICE_USER"] as const;
+const SUPER_ADMIN_ONLY = ["SUPER_ADMIN"] as const;
 
 export default function App() {
   return (
@@ -78,18 +75,10 @@ export default function App() {
         }
       />
 
-      {/* The management directory is not available to regular employees. */}
       <Route
         path="/directory"
         element={
-          <ProtectedRoute
-            roles={[
-              "SUPER_ADMIN",
-              "SENIOR_MANAGEMENT",
-              "TEAM_MANAGER",
-              "EMPLOYEE",
-            ]}
-          >
+          <ProtectedRoute accountClasses={[...ALL_ACCOUNT_CLASSES]}>
             <ManagementLayout>
               <DirectoryPage />
             </ManagementLayout>
@@ -100,14 +89,7 @@ export default function App() {
       <Route
         path="/organization"
         element={
-          <ProtectedRoute
-            roles={[
-              "SUPER_ADMIN",
-              "SENIOR_MANAGEMENT",
-              "TEAM_MANAGER",
-              "EMPLOYEE",
-            ]}
-          >
+          <ProtectedRoute accountClasses={[...ALL_ACCOUNT_CLASSES]}>
             <ManagementLayout>
               <OrganizationPage />
             </ManagementLayout>
@@ -118,7 +100,7 @@ export default function App() {
       <Route
         path="/super-admin"
         element={
-          <ProtectedRoute roles={["SUPER_ADMIN"]}>
+          <ProtectedRoute accountClasses={[...SUPER_ADMIN_ONLY]}>
             <ManagementLayout>
               <AdminDashboardPage />
             </ManagementLayout>
@@ -129,7 +111,7 @@ export default function App() {
       <Route
         path="/super-admin/account-requests"
         element={
-          <ProtectedRoute roles={["SUPER_ADMIN"]}>
+          <ProtectedRoute accountClasses={[...SUPER_ADMIN_ONLY]}>
             <ManagementLayout>
               <AdminAccountRequestsPage />
             </ManagementLayout>
@@ -138,56 +120,9 @@ export default function App() {
       />
 
       <Route
-        path="/super-admin/management-positions"
+        path="/account-requests"
         element={
-          <ProtectedRoute roles={["SUPER_ADMIN"]}>
-            <ManagementLayout>
-              <ManagementPositionsPage />
-            </ManagementLayout>
-          </ProtectedRoute>
-        }
-      />
-
-      <Route path="/admin" element={<Navigate to="/super-admin" replace />} />
-
-      <Route
-        path="/senior-management"
-        element={
-          <ProtectedRoute roles={["SENIOR_MANAGEMENT"]}>
-            <ManagementLayout>
-              <ManagerRequestDashboardPage />
-            </ManagementLayout>
-          </ProtectedRoute>
-        }
-      />
-
-      <Route
-        path="/team-manager"
-        element={
-          <ProtectedRoute roles={["TEAM_MANAGER"]}>
-            <ManagementLayout>
-              <ManagerRequestDashboardPage />
-            </ManagementLayout>
-          </ProtectedRoute>
-        }
-      />
-
-
-      <Route
-        path="/senior-management/account-requests"
-        element={
-          <ProtectedRoute roles={["SENIOR_MANAGEMENT"]}>
-            <ManagementLayout>
-              <ManagerAccountRequestsPage />
-            </ManagementLayout>
-          </ProtectedRoute>
-        }
-      />
-
-      <Route
-        path="/team-manager/account-requests"
-        element={
-          <ProtectedRoute roles={["TEAM_MANAGER"]}>
+          <ProtectedRoute accountClasses={[...OFFICE_USER_ONLY]}>
             <ManagementLayout>
               <ManagerAccountRequestsPage />
             </ManagementLayout>
@@ -198,14 +133,7 @@ export default function App() {
       <Route
         path="/work-types"
         element={
-          <ProtectedRoute
-            roles={[
-              "SUPER_ADMIN",
-              "SENIOR_MANAGEMENT",
-              "TEAM_MANAGER",
-              "EMPLOYEE",
-            ]}
-          >
+          <ProtectedRoute accountClasses={[...ALL_ACCOUNT_CLASSES]}>
             <ManagementLayout>
               <WorkTypeManagementPage />
             </ManagementLayout>
@@ -213,14 +141,10 @@ export default function App() {
         }
       />
 
-      {/* Phase 9 canonical Work routes. Legacy Work routes remain temporarily
-          available until the V3 frontend cutover is fully validated. */}
       <Route
         path="/work"
         element={
-          <ProtectedRoute
-            roles={["SENIOR_MANAGEMENT", "TEAM_MANAGER", "EMPLOYEE"]}
-          >
+          <ProtectedRoute accountClasses={[...OFFICE_USER_ONLY]}>
             <ManagementLayout>
               <WorkRuntimeV3Page />
             </ManagementLayout>
@@ -231,9 +155,7 @@ export default function App() {
       <Route
         path="/work/create"
         element={
-          <ProtectedRoute
-            roles={["SENIOR_MANAGEMENT", "TEAM_MANAGER", "EMPLOYEE"]}
-          >
+          <ProtectedRoute accountClasses={[...OFFICE_USER_ONLY]}>
             <ManagementLayout>
               <WorkRuntimeV3CreatePage />
             </ManagementLayout>
@@ -244,14 +166,7 @@ export default function App() {
       <Route
         path="/work/:officeId/:workItemId"
         element={
-          <ProtectedRoute
-            roles={[
-              "SUPER_ADMIN",
-              "SENIOR_MANAGEMENT",
-              "TEAM_MANAGER",
-              "EMPLOYEE",
-            ]}
-          >
+          <ProtectedRoute accountClasses={[...ALL_ACCOUNT_CLASSES]}>
             <ManagementLayout>
               <WorkRuntimeV3DetailPage />
             </ManagementLayout>
@@ -262,9 +177,7 @@ export default function App() {
       <Route
         path="/my-work"
         element={
-          <ProtectedRoute
-            roles={["SENIOR_MANAGEMENT", "TEAM_MANAGER", "EMPLOYEE"]}
-          >
+          <ProtectedRoute accountClasses={[...OFFICE_USER_ONLY]}>
             <ManagementLayout>
               <WorkRuntimeV3Page />
             </ManagementLayout>
@@ -275,7 +188,7 @@ export default function App() {
       <Route
         path="/incoming-work"
         element={
-          <ProtectedRoute roles={["SENIOR_MANAGEMENT", "TEAM_MANAGER"]}>
+          <ProtectedRoute accountClasses={[...OFFICE_USER_ONLY]}>
             <ManagementLayout>
               <WorkRuntimeV3Page />
             </ManagementLayout>
@@ -286,7 +199,7 @@ export default function App() {
       <Route
         path="/work-oversight"
         element={
-          <ProtectedRoute roles={["SUPER_ADMIN"]}>
+          <ProtectedRoute accountClasses={[...SUPER_ADMIN_ONLY]}>
             <ManagementLayout>
               <WorkRuntimeV3Page />
             </ManagementLayout>
@@ -294,147 +207,10 @@ export default function App() {
         }
       />
 
-      <Route
-        path="/work-runtime-v3"
-        element={
-          <ProtectedRoute
-            roles={[
-              "SUPER_ADMIN",
-              "SENIOR_MANAGEMENT",
-              "TEAM_MANAGER",
-              "EMPLOYEE",
-            ]}
-          >
-            <ManagementLayout>
-              <WorkRuntimeV3Page />
-            </ManagementLayout>
-          </ProtectedRoute>
-        }
-      />
-
-      <Route
-        path="/work-runtime-v3/create"
-        element={
-          <ProtectedRoute
-            roles={[
-              "SUPER_ADMIN",
-              "SENIOR_MANAGEMENT",
-              "TEAM_MANAGER",
-              "EMPLOYEE",
-            ]}
-          >
-            <ManagementLayout>
-              <WorkRuntimeV3CreatePage />
-            </ManagementLayout>
-          </ProtectedRoute>
-        }
-      />
-
-      <Route
-        path="/work-runtime-v3/offices/:officeId/work-items/:workItemId"
-        element={
-          <ProtectedRoute
-            roles={[
-              "SUPER_ADMIN",
-              "SENIOR_MANAGEMENT",
-              "TEAM_MANAGER",
-              "EMPLOYEE",
-            ]}
-          >
-            <ManagementLayout>
-              <WorkRuntimeV3DetailPage />
-            </ManagementLayout>
-          </ProtectedRoute>
-        }
-      />
-
-      <Route
-        path="/work-management"
-        element={
-          <ProtectedRoute
-            roles={[
-              "SUPER_ADMIN",
-              "SENIOR_MANAGEMENT",
-              "TEAM_MANAGER",
-            ]}
-          >
-            <ManagementLayout>
-              <ManagementWorkPage />
-            </ManagementLayout>
-          </ProtectedRoute>
-        }
-      />
-
-      <Route
-        path="/work-management/create"
-        element={
-          <ProtectedRoute
-            roles={[
-              "SENIOR_MANAGEMENT",
-              "TEAM_MANAGER",
-            ]}
-          >
-            <Navigate replace to="/work/create" />
-          </ProtectedRoute>
-        }
-      />
-
-
-      <Route
-        path="/work-management/:workItemId/edit"
-        element={
-          <ProtectedRoute
-            roles={[
-              "SUPER_ADMIN",
-              "SENIOR_MANAGEMENT",
-              "TEAM_MANAGER",
-            ]}
-          >
-            <ManagementLayout>
-              <ManagementWorkPage />
-            </ManagementLayout>
-          </ProtectedRoute>
-        }
-      />
-
-      <Route
-        path="/employee"
-        element={
-          <ProtectedRoute roles={["EMPLOYEE"]}>
-            <ManagementLayout>
-              <EmployeeDashboardPage />
-            </ManagementLayout>
-          </ProtectedRoute>
-        }
-      />
-
-      <Route
-        path="/employee/work"
-        element={
-          <ProtectedRoute roles={["EMPLOYEE"]}>
-            <ManagementLayout>
-              <EmployeeWorkPage />
-            </ManagementLayout>
-          </ProtectedRoute>
-        }
-      />
-
-      <Route
-        path="/employee/duty"
-        element={
-          <ProtectedRoute roles={["EMPLOYEE"]}>
-            <ManagementLayout>
-              <EmployeeDutyPage />
-            </ManagementLayout>
-          </ProtectedRoute>
-        }
-      />
-
-      {/* Management roles use the same account-scoped My Duty page as employees. */}
       <Route
         path="/my-duty"
         element={
-          <ProtectedRoute roles={["SENIOR_MANAGEMENT", "TEAM_MANAGER"]}>
+          <ProtectedRoute accountClasses={[...OFFICE_USER_ONLY]}>
             <ManagementLayout>
               <EmployeeDutyPage />
             </ManagementLayout>
@@ -445,9 +221,7 @@ export default function App() {
       <Route
         path="/duty-management"
         element={
-          <ProtectedRoute
-            roles={["SUPER_ADMIN", "SENIOR_MANAGEMENT", "TEAM_MANAGER"]}
-          >
+          <ProtectedRoute accountClasses={[...ALL_ACCOUNT_CLASSES]}>
             <ManagementLayout>
               <ManagementDutyPage />
             </ManagementLayout>
@@ -456,29 +230,9 @@ export default function App() {
       />
 
       <Route
-        path="/team-management"
-        element={
-          <ProtectedRoute
-            roles={["SUPER_ADMIN", "SENIOR_MANAGEMENT", "TEAM_MANAGER"]}
-          >
-            <ManagementLayout>
-              <TeamManagementPage />
-            </ManagementLayout>
-          </ProtectedRoute>
-        }
-      />
-
-      <Route
         path="/work-reports"
         element={
-          <ProtectedRoute
-            roles={[
-              "SUPER_ADMIN",
-              "SENIOR_MANAGEMENT",
-              "TEAM_MANAGER",
-              "EMPLOYEE",
-            ]}
-          >
+          <ProtectedRoute accountClasses={[...ALL_ACCOUNT_CLASSES]}>
             <ManagementLayout>
               <WorkReportsPage />
             </ManagementLayout>
@@ -489,14 +243,7 @@ export default function App() {
       <Route
         path="/settings"
         element={
-          <ProtectedRoute
-            roles={[
-              "SUPER_ADMIN",
-              "SENIOR_MANAGEMENT",
-              "TEAM_MANAGER",
-              "EMPLOYEE",
-            ]}
-          >
+          <ProtectedRoute accountClasses={[...ALL_ACCOUNT_CLASSES]}>
             <ManagementLayout>
               <SettingsPage />
             </ManagementLayout>
@@ -507,14 +254,7 @@ export default function App() {
       <Route
         path="/settings/security"
         element={
-          <ProtectedRoute
-            roles={[
-              "SUPER_ADMIN",
-              "SENIOR_MANAGEMENT",
-              "TEAM_MANAGER",
-              "EMPLOYEE",
-            ]}
-          >
+          <ProtectedRoute accountClasses={[...ALL_ACCOUNT_CLASSES]}>
             <ManagementLayout>
               <SecurityPage />
             </ManagementLayout>
@@ -522,213 +262,60 @@ export default function App() {
         }
       />
 
-      <Route
-        path="/messages"
-        element={
-          <ProtectedRoute
-            roles={[
-              "SUPER_ADMIN",
-              "SENIOR_MANAGEMENT",
-              "TEAM_MANAGER",
-              "EMPLOYEE",
-            ]}
-          >
-            <MessageAppPage />
-          </ProtectedRoute>
-        }
-      />
+      {[
+        "/messages",
+        "/messages/announcements",
+        "/messages/starred",
+        "/messages/archived",
+        "/messages/requests",
+        "/messages/notifications",
+        "/messages/settings",
+        "/messages/lists/new",
+        "/messages/lists/:listId",
+        "/messages/lists/:listId/edit",
+        "/messages/profile",
+        "/messages/new",
+        "/messages/groups/new",
+      ].map((path) => (
+        <Route
+          key={path}
+          path={path}
+          element={
+            <ProtectedRoute accountClasses={[...ALL_ACCOUNT_CLASSES]}>
+              <MessageAppPage />
+            </ProtectedRoute>
+          }
+        />
+      ))}
 
+      {/* Phase 13 compatibility aliases. They no longer expose legacy pages or
+          fixed-role authorization and can be removed after deployment telemetry
+          confirms clients have moved to the canonical routes. */}
+      <Route path="/admin" element={<Navigate to="/super-admin" replace />} />
+      <Route path="/super-admin/management-positions" element={<Navigate to="/organization" replace />} />
+      <Route path="/senior-management" element={<Navigate to="/" replace />} />
+      <Route path="/team-manager" element={<Navigate to="/" replace />} />
+      <Route path="/employee" element={<Navigate to="/" replace />} />
+      <Route path="/senior-management/account-requests" element={<Navigate to="/account-requests" replace />} />
+      <Route path="/team-manager/account-requests" element={<Navigate to="/account-requests" replace />} />
+      <Route path="/work-runtime-v3" element={<Navigate to="/work" replace />} />
+      <Route path="/work-runtime-v3/create" element={<Navigate to="/work/create" replace />} />
       <Route
-        path="/messages/announcements"
+        path="/work-runtime-v3/offices/:officeId/work-items/:workItemId"
         element={
-          <ProtectedRoute
-            roles={[
-              "SUPER_ADMIN",
-              "SENIOR_MANAGEMENT",
-              "TEAM_MANAGER",
-              "EMPLOYEE",
-            ]}
-          >
-            <MessageAppPage />
+          <ProtectedRoute accountClasses={[...ALL_ACCOUNT_CLASSES]}>
+            <ManagementLayout>
+              <WorkRuntimeV3DetailPage />
+            </ManagementLayout>
           </ProtectedRoute>
         }
       />
-
-      <Route
-        path="/messages/starred"
-        element={
-          <ProtectedRoute
-            roles={[
-              "SUPER_ADMIN",
-              "SENIOR_MANAGEMENT",
-              "TEAM_MANAGER",
-              "EMPLOYEE",
-            ]}
-          >
-            <MessageAppPage />
-          </ProtectedRoute>
-        }
-      />
-
-      <Route
-        path="/messages/archived"
-        element={
-          <ProtectedRoute
-            roles={[
-              "SUPER_ADMIN",
-              "SENIOR_MANAGEMENT",
-              "TEAM_MANAGER",
-              "EMPLOYEE",
-            ]}
-          >
-            <MessageAppPage />
-          </ProtectedRoute>
-        }
-      />
-
-      <Route
-        path="/messages/requests"
-        element={
-          <ProtectedRoute
-            roles={[
-              "SUPER_ADMIN",
-              "SENIOR_MANAGEMENT",
-              "TEAM_MANAGER",
-              "EMPLOYEE",
-            ]}
-          >
-            <MessageAppPage />
-          </ProtectedRoute>
-        }
-      />
-
-      <Route
-        path="/messages/notifications"
-        element={
-          <ProtectedRoute
-            roles={[
-              "SUPER_ADMIN",
-              "SENIOR_MANAGEMENT",
-              "TEAM_MANAGER",
-              "EMPLOYEE",
-            ]}
-          >
-            <MessageAppPage />
-          </ProtectedRoute>
-        }
-      />
-
-      <Route
-        path="/messages/settings"
-        element={
-          <ProtectedRoute
-            roles={[
-              "SUPER_ADMIN",
-              "SENIOR_MANAGEMENT",
-              "TEAM_MANAGER",
-              "EMPLOYEE",
-            ]}
-          >
-            <MessageAppPage />
-          </ProtectedRoute>
-        }
-      />
-
-      <Route
-        path="/messages/lists/new"
-        element={
-          <ProtectedRoute
-            roles={[
-              "SUPER_ADMIN",
-              "SENIOR_MANAGEMENT",
-              "TEAM_MANAGER",
-              "EMPLOYEE",
-            ]}
-          >
-            <MessageAppPage />
-          </ProtectedRoute>
-        }
-      />
-
-      <Route
-        path="/messages/lists/:listId"
-        element={
-          <ProtectedRoute
-            roles={[
-              "SUPER_ADMIN",
-              "SENIOR_MANAGEMENT",
-              "TEAM_MANAGER",
-              "EMPLOYEE",
-            ]}
-          >
-            <MessageAppPage />
-          </ProtectedRoute>
-        }
-      />
-
-      <Route
-        path="/messages/lists/:listId/edit"
-        element={
-          <ProtectedRoute
-            roles={[
-              "SUPER_ADMIN",
-              "SENIOR_MANAGEMENT",
-              "TEAM_MANAGER",
-              "EMPLOYEE",
-            ]}
-          >
-            <MessageAppPage />
-          </ProtectedRoute>
-        }
-      />
-
-      <Route
-        path="/messages/profile"
-        element={
-          <ProtectedRoute
-            roles={[
-              "SUPER_ADMIN",
-              "SENIOR_MANAGEMENT",
-              "TEAM_MANAGER",
-              "EMPLOYEE",
-            ]}
-          >
-            <MessageAppPage />
-          </ProtectedRoute>
-        }
-      />
-
-      <Route
-        path="/messages/new"
-        element={
-          <ProtectedRoute
-            roles={[
-              "SUPER_ADMIN",
-              "SENIOR_MANAGEMENT",
-              "TEAM_MANAGER",
-              "EMPLOYEE",
-            ]}
-          >
-            <MessageAppPage />
-          </ProtectedRoute>
-        }
-      />
-
-      <Route
-        path="/messages/groups/new"
-        element={
-          <ProtectedRoute
-            roles={[
-              "SUPER_ADMIN",
-              "SENIOR_MANAGEMENT",
-              "TEAM_MANAGER",
-              "EMPLOYEE",
-            ]}
-          >
-            <MessageAppPage />
-          </ProtectedRoute>
-        }
-      />
+      <Route path="/work-management" element={<Navigate to="/work" replace />} />
+      <Route path="/work-management/create" element={<Navigate to="/work/create" replace />} />
+      <Route path="/work-management/:workItemId/edit" element={<Navigate to="/work" replace />} />
+      <Route path="/employee/work" element={<Navigate to="/my-work" replace />} />
+      <Route path="/employee/duty" element={<Navigate to="/my-duty" replace />} />
+      <Route path="/team-management" element={<Navigate to="/organization" replace />} />
 
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>

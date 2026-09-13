@@ -12,11 +12,11 @@ import {
 import type { Request } from 'express';
 
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
-import { Roles } from '../auth/decorators/roles.decorator';
+import { AccountClasses } from '../auth/decorators/account-classes.decorator';
 import { AccessTokenGuard } from '../auth/guards/access-token.guard';
-import { RolesGuard } from '../auth/guards/roles.guard';
+import { AccountClassesGuard } from '../auth/guards/account-classes.guard';
 import type { AuthenticatedUser } from '../auth/types/auth.types';
-import { AccountRole } from '../generated/prisma/client';
+import { AccountClass } from '../generated/prisma/client';
 
 import { AccountRequestsService } from './account-requests.service';
 import { CloseAccountRequestDto } from './dto/close-account-request.dto';
@@ -24,8 +24,8 @@ import { ListAccountRequestsQueryDto } from './dto/list-account-requests-query.d
 import { RejectAccountRequestDto } from './dto/reject-account-request.dto';
 
 @Controller('admin/account-requests')
-@UseGuards(AccessTokenGuard, RolesGuard)
-@Roles(AccountRole.SUPER_ADMIN)
+@UseGuards(AccessTokenGuard, AccountClassesGuard)
+@AccountClasses(AccountClass.SUPER_ADMIN)
 export class AdminAccountRequestsController {
   constructor(
     private readonly accountRequestsService: AccountRequestsService,

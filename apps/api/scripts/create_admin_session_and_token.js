@@ -31,7 +31,7 @@ const sessionId = crypto.randomUUID();
 const passwordHash = crypto.createHash('sha256').update(crypto.randomBytes(16)).digest('hex');
 const refreshHash = crypto.createHash('sha256').update(crypto.randomBytes(16)).digest('hex');
 
-const insertAccount = () => `INSERT INTO accounts (id, username, role, password_hash, is_enabled, password_changed_at, created_at, updated_at) VALUES ('${accountId}', '${email}', 'SUPER_ADMIN', '${passwordHash}', true, now(), now(), now()) ON CONFLICT (username) DO NOTHING;`;
+const insertAccount = () => `INSERT INTO accounts (id, username, account_class, role, password_hash, is_enabled, password_changed_at, created_at, updated_at) VALUES ('${accountId}', '${email}', 'SUPER_ADMIN', 'SUPER_ADMIN', '${passwordHash}', true, now(), now(), now()) ON CONFLICT (username) DO NOTHING;`;
 const insertSession = () => `INSERT INTO auth_sessions (id, account_id, refresh_token_hash, expires_at, last_used_at, created_at, revoked_at) VALUES ('${sessionId}', '${accountId}', '${refreshHash}', now() + interval '30 days', now(), now(), NULL) ON CONFLICT (id) DO NOTHING;`;
 
 try {
@@ -57,7 +57,7 @@ try {
 const payload = {
   sub: accountId,
   sid: sessionId,
-  role: 'SUPER_ADMIN',
+  accountClass: 'SUPER_ADMIN',
   type: 'access',
 };
 const token = jwt.sign(payload, accessSecret, { algorithm: 'HS256', expiresIn: '15m' });

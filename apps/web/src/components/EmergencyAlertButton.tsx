@@ -70,18 +70,13 @@ export function EmergencyAlertButton({
   } = useAuth();
 
   function getRoleLabel(role: string): string {
-    switch (role) {
-      case "SUPER_ADMIN":
-        return t("roles.superAdmin", { ns: "workspace" });
-      case "SENIOR_MANAGEMENT":
-        return t("roles.seniorManagement", { ns: "workspace" });
-      case "TEAM_MANAGER":
-        return t("roles.teamManager", { ns: "workspace" });
-      case "EMPLOYEE":
-        return t("roles.employee", { ns: "workspace" });
-      default:
-        return formatRole(role);
+    if (role === "SUPER_ADMIN") {
+      return t("roles.superAdmin", { ns: "workspace" });
     }
+
+    return role === "EMPLOYEE"
+      ? t("roles.employee", { ns: "workspace" })
+      : formatRole(role);
   }
 
   function getProfileSourceLabel(contact: EmergencyAlertContact): string {
@@ -302,11 +297,6 @@ export function EmergencyAlertButton({
                 <strong>{selectedContact.displayName}</strong>
                 <span>
                   {getRoleLabel(selectedContact.role)} · {getProfileSourceLabel(selectedContact)}
-                  {selectedContact.department
-                    ? ` · ${selectedContact.department}`
-                    : selectedContact.division
-                      ? ` · ${selectedContact.division}`
-                      : ""}
                 </span>
                 <small>
                   {selectedContact.phoneStatusMessage}

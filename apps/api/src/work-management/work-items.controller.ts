@@ -1,14 +1,11 @@
 import {
   Body,
-  ConflictException,
   Controller,
   Delete,
   Get,
   Param,
   ParseUUIDPipe,
-  Patch,
   Post,
-  Query,
   Res,
   StreamableFile,
   UploadedFiles,
@@ -22,30 +19,18 @@ import type { Response } from 'express';
 import { AttachmentTempCleanupInterceptor } from '../attachments/attachment-temp-cleanup.interceptor';
 import { createBoundedAttachmentTempStorage } from '../attachments/attachment-upload-temp-storage';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
-import { Roles } from '../auth/decorators/roles.decorator';
+import { AccountClasses } from '../auth/decorators/account-classes.decorator';
 import { AccessTokenGuard } from '../auth/guards/access-token.guard';
-import { RolesGuard } from '../auth/guards/roles.guard';
+import { AccountClassesGuard } from '../auth/guards/account-classes.guard';
 import type { AuthenticatedUser } from '../auth/types/auth.types';
 import type { UploadedMessageAttachmentFile } from '../conversations/types/uploaded-message-attachment-file';
-import { AccountRole } from '../generated/prisma/client';
-import { CancelWorkItemDto } from './dto/cancel-work-item.dto';
-import { CompleteSalesWorkDto } from './dto/complete-sales-work.dto';
+import { AccountClass } from '../generated/prisma/client';
 import { CoordinateWorkHelpDto } from './dto/coordinate-work-help.dto';
 import { CreateWorkSalesMessageDto } from './dto/create-work-sales-message.dto';
-import { ListWorkAssigneesQueryDto } from './dto/list-work-assignees-query.dto';
-import { ListWorkItemsQueryDto } from './dto/list-work-items-query.dto';
 import { ManageWorkRetentionDto } from './dto/manage-work-retention.dto';
-import { ManageWorkSupportDto } from './dto/manage-work-support.dto';
-import { ReassignWorkDto } from './dto/reassign-work.dto';
 import { RequestWorkHelpDto } from './dto/request-work-help.dto';
 import { RespondWorkHelpDto } from './dto/respond-work-help.dto';
-import { ReviewWorkCompletionDto } from './dto/review-work-completion.dto';
-import { SendWorkToSalesDto } from './dto/send-work-to-sales.dto';
-import { SubmitWorkCompletionDto } from './dto/submit-work-completion.dto';
-import { UpdateWorkItemDto } from './dto/update-work-item.dto';
-import { WorkItemsService } from './work-items.service';
 import { WorkLifecycleService } from './work-lifecycle.service';
-import { WorkManagementQueryService } from './work-management-query.service';
 import { WorkRetentionService } from './work-retention.service';
 import { WorkSalesCommunicationService } from './work-sales-communication.service';
 import {
@@ -54,85 +39,31 @@ import {
   MAX_WORK_SALES_ATTACHMENT_TOTAL_BYTES,
 } from './work-sales-attachment.constants';
 
-const ALL_ACCOUNT_ROLES = [
-  AccountRole.SUPER_ADMIN,
-  AccountRole.SENIOR_MANAGEMENT,
-  AccountRole.TEAM_MANAGER,
-  AccountRole.EMPLOYEE,
+const ALL_ACCOUNT_CLASSES = [
+  AccountClass.SUPER_ADMIN,
+  AccountClass.OFFICE_USER,
 ] as const;
 
-const WORK_ASSIGNER_ROLES = [
-  AccountRole.SUPER_ADMIN,
-  AccountRole.SENIOR_MANAGEMENT,
-  AccountRole.TEAM_MANAGER,
-] as const;
+const OFFICE_USER_ONLY = [AccountClass.OFFICE_USER] as const;
+const SYSTEM_ADMIN_ONLY = [AccountClass.SUPER_ADMIN] as const;
 
 @Controller('work-items')
-@UseGuards(AccessTokenGuard, RolesGuard)
+@UseGuards(AccessTokenGuard, AccountClassesGuard)
 export class WorkItemsController {
   constructor(
-    private readonly workItemsService: WorkItemsService,
     private readonly workLifecycleService: WorkLifecycleService,
-    private readonly workManagementQueryService: WorkManagementQueryService,
     private readonly workRetentionService: WorkRetentionService,
     private readonly workSalesCommunicationService: WorkSalesCommunicationService,
   ) {}
 
-  @Post()
-  @Roles(...WORK_ASSIGNER_ROLES)
-  create(): never {
-    throw new ConflictException(
-      'WM-V2 creation is closed after the Work Runtime V3 cutover. Create new Work from the Work Runtime workspace.',
-    );
-  }
-
-  @Get()
-  @Roles(...ALL_ACCOUNT_ROLES)
-  list(
-    @CurrentUser() user: AuthenticatedUser,
-    @Query() query: ListWorkItemsQueryDto,
-  ) {
-    return this.workItemsService.list(user, query);
-  }
-
-  @Get('employee/dashboard-summary')
-  @Roles(AccountRole.EMPLOYEE)
-  getEmployeeDashboardSummary(@CurrentUser() user: AuthenticatedUser) {
-    // The dashboard summary remains account-scoped and never exposes another employee's work.
-    return this.workItemsService.getEmployeeDashboardSummary(user);
-  }
-
-  @Get('management/dashboard-summary')
-  @Roles(...WORK_ASSIGNER_ROLES)
-  getManagementDashboardSummary(@CurrentUser() user: AuthenticatedUser) {
-    // Management summaries remain restricted to the current organization scope.
-    return this.workManagementQueryService.getDashboardSummary(user);
-  }
-
-  @Get('management/organization-summary')
-  @Roles(...WORK_ASSIGNER_ROLES)
-  getManagementOrganizationSummary(@CurrentUser() user: AuthenticatedUser) {
-    // Organization summaries use strict branch/division/department hierarchy scope.
-    return this.workManagementQueryService.getOrganizationSummary(user);
-  }
-
-  @Get('management/assignment-options')
-  @Roles(...WORK_ASSIGNER_ROLES)
-  listManagementAssignmentOptions(
-    @CurrentUser() user: AuthenticatedUser,
-    @Query() query: ListWorkAssigneesQueryDto,
-  ) {
-    return this.workManagementQueryService.listAssignmentOptions(user, query);
-  }
-
   @Get('help-requests/pending')
-  @Roles(...ALL_ACCOUNT_ROLES)
+  @AccountClasses(...ALL_ACCOUNT_CLASSES)
   listPendingHelpRequests(@CurrentUser() user: AuthenticatedUser) {
     return this.workLifecycleService.listPendingHelpRequests(user);
   }
 
   @Post('help-requests/:helpRequestId/respond')
-  @Roles(...ALL_ACCOUNT_ROLES)
+  @AccountClasses(...OFFICE_USER_ONLY)
   respondToHelpRequest(
     @CurrentUser() user: AuthenticatedUser,
     @Param('helpRequestId', new ParseUUIDPipe({ version: '4' }))
@@ -147,7 +78,7 @@ export class WorkItemsController {
   }
 
   @Post('help-requests/:helpRequestId/coordinate')
-  @Roles(...WORK_ASSIGNER_ROLES)
+  @AccountClasses(...OFFICE_USER_ONLY)
   coordinateHelpRequest(
     @CurrentUser() user: AuthenticatedUser,
     @Param('helpRequestId', new ParseUUIDPipe({ version: '4' }))
@@ -162,7 +93,7 @@ export class WorkItemsController {
   }
 
   @Post(':workItemId/retention/hold')
-  @Roles(AccountRole.SUPER_ADMIN)
+  @AccountClasses(...SYSTEM_ADMIN_ONLY)
   placeRetentionHold(
     @CurrentUser() user: AuthenticatedUser,
     @Param('workItemId', new ParseUUIDPipe({ version: '4' }))
@@ -173,7 +104,7 @@ export class WorkItemsController {
   }
 
   @Delete(':workItemId/retention/hold')
-  @Roles(AccountRole.SUPER_ADMIN)
+  @AccountClasses(...SYSTEM_ADMIN_ONLY)
   releaseRetentionHold(
     @CurrentUser() user: AuthenticatedUser,
     @Param('workItemId', new ParseUUIDPipe({ version: '4' }))
@@ -183,7 +114,7 @@ export class WorkItemsController {
   }
 
   @Post(':workItemId/retention/deletion-request')
-  @Roles(AccountRole.SUPER_ADMIN)
+  @AccountClasses(...SYSTEM_ADMIN_ONLY)
   requestDeletionReview(
     @CurrentUser() user: AuthenticatedUser,
     @Param('workItemId', new ParseUUIDPipe({ version: '4' }))
@@ -198,7 +129,7 @@ export class WorkItemsController {
   }
 
   @Delete(':workItemId/retention/deletion-request')
-  @Roles(AccountRole.SUPER_ADMIN)
+  @AccountClasses(...SYSTEM_ADMIN_ONLY)
   cancelDeletionReview(
     @CurrentUser() user: AuthenticatedUser,
     @Param('workItemId', new ParseUUIDPipe({ version: '4' }))
@@ -207,18 +138,8 @@ export class WorkItemsController {
     return this.workRetentionService.cancelDeletionReview(user, workItemId);
   }
 
-  @Get(':workItemId/activity')
-  @Roles(...ALL_ACCOUNT_ROLES)
-  listActivity(
-    @CurrentUser() user: AuthenticatedUser,
-    @Param('workItemId', new ParseUUIDPipe({ version: '4' }))
-    workItemId: string,
-  ) {
-    return this.workItemsService.listActivity(user, workItemId);
-  }
-
   @Get(':workItemId/completion-reports')
-  @Roles(...ALL_ACCOUNT_ROLES)
+  @AccountClasses(...ALL_ACCOUNT_CLASSES)
   listCompletionReports(
     @CurrentUser() user: AuthenticatedUser,
     @Param('workItemId', new ParseUUIDPipe({ version: '4' }))
@@ -228,7 +149,7 @@ export class WorkItemsController {
   }
 
   @Get(':workItemId/help-requests')
-  @Roles(...ALL_ACCOUNT_ROLES)
+  @AccountClasses(...ALL_ACCOUNT_CLASSES)
   listHelpRequests(
     @CurrentUser() user: AuthenticatedUser,
     @Param('workItemId', new ParseUUIDPipe({ version: '4' }))
@@ -237,28 +158,8 @@ export class WorkItemsController {
     return this.workLifecycleService.listHelpRequests(user, workItemId);
   }
 
-  @Post(':workItemId/acknowledge')
-  @Roles(...ALL_ACCOUNT_ROLES)
-  acknowledge(
-    @CurrentUser() user: AuthenticatedUser,
-    @Param('workItemId', new ParseUUIDPipe({ version: '4' }))
-    workItemId: string,
-  ) {
-    return this.workItemsService.acknowledge(user, workItemId);
-  }
-
-  @Post(':workItemId/start')
-  @Roles(...ALL_ACCOUNT_ROLES)
-  start(
-    @CurrentUser() user: AuthenticatedUser,
-    @Param('workItemId', new ParseUUIDPipe({ version: '4' }))
-    workItemId: string,
-  ) {
-    return this.workItemsService.start(user, workItemId);
-  }
-
   @Post(':workItemId/help-requests')
-  @Roles(...ALL_ACCOUNT_ROLES)
+  @AccountClasses(...OFFICE_USER_ONLY)
   requestHelp(
     @CurrentUser() user: AuthenticatedUser,
     @Param('workItemId', new ParseUUIDPipe({ version: '4' }))
@@ -269,7 +170,7 @@ export class WorkItemsController {
   }
 
   @Get(':workItemId/sales/messages')
-  @Roles(...ALL_ACCOUNT_ROLES)
+  @AccountClasses(...ALL_ACCOUNT_CLASSES)
   listSalesMessages(
     @CurrentUser() user: AuthenticatedUser,
     @Param('workItemId', new ParseUUIDPipe({ version: '4' }))
@@ -279,7 +180,7 @@ export class WorkItemsController {
   }
 
   @Post(':workItemId/sales/messages')
-  @Roles(...ALL_ACCOUNT_ROLES)
+  @AccountClasses(...OFFICE_USER_ONLY)
   @UseInterceptors(
     FileFieldsInterceptor(
       [
@@ -325,7 +226,7 @@ export class WorkItemsController {
   }
 
   @Get(':workItemId/sales/messages/:messageId/attachments/:attachmentId')
-  @Roles(...ALL_ACCOUNT_ROLES)
+  @AccountClasses(...ALL_ACCOUNT_CLASSES)
   async downloadSalesAttachment(
     @CurrentUser() user: AuthenticatedUser,
     @Param('workItemId', new ParseUUIDPipe({ version: '4' }))
@@ -361,138 +262,5 @@ export class WorkItemsController {
     return new StreamableFile(createReadStream(attachment.absolutePath));
   }
 
-  @Post(':workItemId/sales/send')
-  @Roles(...ALL_ACCOUNT_ROLES)
-  sendToSales(
-    @CurrentUser() user: AuthenticatedUser,
-    @Param('workItemId', new ParseUUIDPipe({ version: '4' }))
-    workItemId: string,
-    @Body() dto: SendWorkToSalesDto,
-  ) {
-    return this.workLifecycleService.sendToSales(user, workItemId, dto);
-  }
 
-  @Post(':workItemId/sales/complete')
-  @Roles(...ALL_ACCOUNT_ROLES)
-  completeSalesWork(
-    @CurrentUser() user: AuthenticatedUser,
-    @Param('workItemId', new ParseUUIDPipe({ version: '4' }))
-    workItemId: string,
-    @Body() dto: CompleteSalesWorkDto,
-  ) {
-    return this.workLifecycleService.completeSalesWork(user, workItemId, dto);
-  }
-
-  @Post(':workItemId/completion-reports')
-  @Roles(...ALL_ACCOUNT_ROLES)
-  submitCompletion(
-    @CurrentUser() user: AuthenticatedUser,
-    @Param('workItemId', new ParseUUIDPipe({ version: '4' }))
-    workItemId: string,
-    @Body() dto: SubmitWorkCompletionDto,
-  ) {
-    return this.workLifecycleService.submitCompletion(user, workItemId, dto);
-  }
-
-  @Patch(':workItemId')
-  @Roles(...WORK_ASSIGNER_ROLES)
-  update(
-    @CurrentUser() user: AuthenticatedUser,
-    @Param('workItemId', new ParseUUIDPipe({ version: '4' }))
-    workItemId: string,
-    @Body() dto: UpdateWorkItemDto,
-  ) {
-    return this.workLifecycleService.update(user, workItemId, dto);
-  }
-
-  @Post(':workItemId/review/request-information')
-  @Roles(...WORK_ASSIGNER_ROLES)
-  requestMoreInformation(
-    @CurrentUser() user: AuthenticatedUser,
-    @Param('workItemId', new ParseUUIDPipe({ version: '4' }))
-    workItemId: string,
-    @Body() dto: ReviewWorkCompletionDto,
-  ) {
-    return this.workLifecycleService.requestMoreInformation(
-      user,
-      workItemId,
-      dto,
-    );
-  }
-
-  @Post(':workItemId/review/close')
-  @Roles(...WORK_ASSIGNER_ROLES)
-  close(
-    @CurrentUser() user: AuthenticatedUser,
-    @Param('workItemId', new ParseUUIDPipe({ version: '4' }))
-    workItemId: string,
-    @Body() dto: ReviewWorkCompletionDto,
-  ) {
-    return this.workLifecycleService.close(user, workItemId, dto);
-  }
-
-  @Post(':workItemId/review/reopen')
-  @Roles(...WORK_ASSIGNER_ROLES)
-  reopen(
-    @CurrentUser() user: AuthenticatedUser,
-    @Param('workItemId', new ParseUUIDPipe({ version: '4' }))
-    workItemId: string,
-    @Body() dto: ReviewWorkCompletionDto,
-  ) {
-    return this.workLifecycleService.reopen(user, workItemId, dto);
-  }
-
-  @Post(':workItemId/cancel')
-  @Roles(...WORK_ASSIGNER_ROLES)
-  cancel(
-    @CurrentUser() user: AuthenticatedUser,
-    @Param('workItemId', new ParseUUIDPipe({ version: '4' }))
-    workItemId: string,
-    @Body() dto: CancelWorkItemDto,
-  ) {
-    return this.workLifecycleService.cancel(user, workItemId, dto);
-  }
-
-  @Post(':workItemId/reassign')
-  @Roles(...WORK_ASSIGNER_ROLES)
-  reassign(
-    @CurrentUser() user: AuthenticatedUser,
-    @Param('workItemId', new ParseUUIDPipe({ version: '4' }))
-    workItemId: string,
-    @Body() dto: ReassignWorkDto,
-  ) {
-    return this.workLifecycleService.reassignPrimary(user, workItemId, dto);
-  }
-
-  @Post(':workItemId/support/add')
-  @Roles(...WORK_ASSIGNER_ROLES)
-  addSupport(
-    @CurrentUser() user: AuthenticatedUser,
-    @Param('workItemId', new ParseUUIDPipe({ version: '4' }))
-    workItemId: string,
-    @Body() dto: ManageWorkSupportDto,
-  ) {
-    return this.workLifecycleService.addSupport(user, workItemId, dto);
-  }
-
-  @Post(':workItemId/support/remove')
-  @Roles(...WORK_ASSIGNER_ROLES)
-  removeSupport(
-    @CurrentUser() user: AuthenticatedUser,
-    @Param('workItemId', new ParseUUIDPipe({ version: '4' }))
-    workItemId: string,
-    @Body() dto: ManageWorkSupportDto,
-  ) {
-    return this.workLifecycleService.removeSupport(user, workItemId, dto);
-  }
-
-  @Get(':workItemId')
-  @Roles(...ALL_ACCOUNT_ROLES)
-  getById(
-    @CurrentUser() user: AuthenticatedUser,
-    @Param('workItemId', new ParseUUIDPipe({ version: '4' }))
-    workItemId: string,
-  ) {
-    return this.workItemsService.getById(user, workItemId);
-  }
 }

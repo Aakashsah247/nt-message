@@ -110,6 +110,25 @@ describe('ConversationsService group-member scalability', () => {
                 employmentStatus: 'ACTIVE',
                 archivedAt: null,
                 isActivated: true,
+                orgMemberships: [
+                  {
+                    startsAt: new Date('2026-01-01T00:00:00.000Z'),
+                    endsAt: null,
+                    office: {
+                      id: 'office-1',
+                      code: 'PATAN',
+                      name: 'Patan Telecom Office',
+                      isActive: true,
+                    },
+                    orgUnit: {
+                      id: 'org-unit-1',
+                      code: 'TECH',
+                      name: 'Technical',
+                      isActive: true,
+                      ancestorLinks: [],
+                    },
+                  },
+                ],
                 divisionId: 'division-1',
                 departmentId: 'department-1',
                 division: {

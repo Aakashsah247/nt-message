@@ -1232,7 +1232,17 @@
     "existing": "अवस्थित",
     "remove": "हटाउनुहोस्",
     "uploadingProgress": "अपलोड हुँदैछ {{percent}}%",
-    "removing": "हटाइँदैछ..."
+    "removing": "हटाइँदैछ...",
+    "audienceType": "प्राप्तकर्ता प्रकार",
+    "wholeOffice": "सम्पूर्ण कार्यालय",
+    "orgUnit": "संगठन इकाइ",
+    "officialGroup": "आधिकारिक समूह",
+    "selectOrgUnit": "संगठन इकाइ छान्नुहोस्",
+    "membershipScope": "सदस्यता क्षेत्र",
+    "directMembers": "प्रत्यक्ष सदस्य मात्र",
+    "entireSubtree": "सम्पूर्ण उप-शाखा",
+    "selectOfficialGroup": "आधिकारिक समूह छान्नुहोस्",
+    "audienceLockedAfterCreate": "घोषणा सिर्जना भएपछि प्राप्तकर्ता परिवर्तन गर्न मिल्दैन।"
   },
   "announcementAttachment": {
     "close": "घोषणा संलग्नक पूर्वावलोकन बन्द गर्नुहोस्",
@@ -1425,7 +1435,9 @@
     "historyClearError": "मेरो लागि च्याट खाली गर्ने कार्य पूरा हुन सकेन।",
     "deleteForMeError": "तपाईंका लागि सन्देश मेटाउन सकिएन।",
     "deleteForEveryoneError": "सबैका लागि सन्देश मेटाउन सकिएन।",
-    "messageSendError": "सन्देश पठाउन सकिएन।"
+    "messageSendError": "सन्देश पठाउन सकिएन।",
+    "announcementAudienceRequired": "मान्य घोषणा प्राप्तकर्ता छान्नुहोस्।",
+    "announcementAudienceLoadError": "घोषणा प्राप्तकर्ता लोड गर्न सकिएन।"
   },
   "roles": {
     "superAdmin": "सुपर एडमिन",

@@ -33,14 +33,6 @@ export class CreateAnnouncementDto {
 
   @IsOptional()
   @IsUUID('4')
-  divisionId?: string;
-
-  @IsOptional()
-  @IsUUID('4')
-  departmentId?: string;
-
-  @IsOptional()
-  @IsUUID('4')
   officeId?: string;
 
   @IsOptional()

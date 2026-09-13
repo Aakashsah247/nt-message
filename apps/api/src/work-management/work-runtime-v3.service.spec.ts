@@ -237,10 +237,6 @@ describe('WorkRuntimeV3Service creation', () => {
     expect(harness.tx.workItem.create).toHaveBeenCalledWith(
       expect.objectContaining({
         data: expect.objectContaining({
-          type: null,
-          divisionId: null,
-          departmentId: null,
-          responsibleManagerAccountId: null,
           registeredAt: null,
           officeId,
           workTypeVersionId: versionId,
@@ -266,6 +262,10 @@ describe('WorkRuntimeV3Service creation', () => {
         select: { id: true },
       }),
     );
+
+    const createData = jest.mocked(harness.tx.workItem.create).mock.calls[0]?.[0]?.data as Record<string, unknown>;
+    expect(createData).not.toHaveProperty('assignedTeamId');
+    expect(createData).not.toHaveProperty('responsibleManagerAccountId');
 
     expect(harness.tx.workStage.createMany).toHaveBeenCalledWith({
       data: [

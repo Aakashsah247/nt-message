@@ -30,8 +30,8 @@ describe('Phase 12 P12-A communication OrgUnit migration foundation', () => {
     expect(schema).toContain('officialOrgUnitId');
     expect(schema).toContain('officialMembershipMode');
     expect(schema).toContain('includeDescendants');
-    expect(schema).toContain('officialDivisionId');
-    expect(schema).toContain('officialDepartmentId');
+    expect(schema).not.toContain('officialDivisionId');
+    expect(schema).not.toContain('officialDepartmentId');
   });
 
   it('adds additive V3 Official Group scope and membership mode', () => {

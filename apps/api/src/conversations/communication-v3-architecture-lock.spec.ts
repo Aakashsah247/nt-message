@@ -117,12 +117,24 @@ describe('P12-M communication V3 architecture lock', () => {
     expect(analyticsPanel).not.toContain('organization.departments');
   });
 
-  it('retains legacy communication schema only for historical compatibility until Phase 13', () => {
-    expect(schema).toContain('ORGANIZATION');
-    expect(schema).toContain('DIVISION');
-    expect(schema).toContain('DEPARTMENT');
-    expect(schema).toContain('CROSS_DIVISION');
-    expect(schema).toContain('CROSS_DEPARTMENT');
-    expect(schema).toContain('OUTSIDE_ORG_SCOPE');
+  it('locks the post-Phase-13 communication schema to native V3 scope values', () => {
+    expect(schema).toMatch(
+      /enum OfficialGroupScopeType \{\s*OFFICE\s*ORG_UNIT\s*\}/s,
+    );
+    expect(schema).toMatch(
+      /enum AnnouncementAudienceType \{\s*OFFICIAL_GROUP\s*OFFICE\s*ORG_UNIT\s*\}/s,
+    );
+    expect(schema).toMatch(
+      /enum MessageRequestReason \{\s*PROTECTED_RECIPIENT\s*OUTSIDE_ORG_SCOPE\s*\}/s,
+    );
+    expect(schema).not.toMatch(
+      /enum OfficialGroupScopeType \{[^}]*\b(?:ORGANIZATION|DIVISION|DEPARTMENT)\b[^}]*\}/,
+    );
+    expect(schema).not.toMatch(
+      /enum AnnouncementAudienceType \{[^}]*\b(?:ORGANIZATION|DIVISION|DEPARTMENT)\b[^}]*\}/,
+    );
+    expect(schema).not.toMatch(
+      /enum MessageRequestReason \{[^}]*\b(?:CROSS_DIVISION|CROSS_DEPARTMENT)\b[^}]*\}/,
+    );
   });
 });

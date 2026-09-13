@@ -1,20 +1,10 @@
 import {
-  IsEnum,
   IsOptional,
   IsString,
   IsUUID,
   Matches,
   MaxLength,
 } from 'class-validator';
-
-import { WorkItemType } from '../../generated/prisma/client';
-
-export enum WorkReportWorkflowStageFilter {
-  OVERDUE = 'OVERDUE',
-  WAITING_FOR_SALES = 'WAITING_FOR_SALES',
-  WAITING_FOR_APPROVAL = 'WAITING_FOR_APPROVAL',
-  RETURNED_FOR_CORRECTION = 'RETURNED_FOR_CORRECTION',
-}
 
 export class WorkReportQueryDto {
   @IsOptional()
@@ -25,26 +15,13 @@ export class WorkReportQueryDto {
   @Matches(/^\d{4}-\d{2}-\d{2}$/)
   to?: string;
 
-
   @IsOptional()
-  @IsEnum(WorkItemType)
-  type?: WorkItemType;
+  @IsUUID('4')
+  officeId?: string;
 
   @IsOptional()
   @IsUUID('4')
-  divisionId?: string;
-
-  @IsOptional()
-  @IsUUID('4')
-  departmentId?: string;
-
-  @IsOptional()
-  @IsUUID('4')
-  teamId?: string;
-
-  @IsOptional()
-  @IsEnum(WorkReportWorkflowStageFilter)
-  workflowStage?: WorkReportWorkflowStageFilter;
+  orgUnitId?: string;
 
   @IsOptional()
   @IsString()

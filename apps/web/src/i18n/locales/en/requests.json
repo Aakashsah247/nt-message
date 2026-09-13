@@ -71,7 +71,9 @@
     "requestDetails": "Request details",
     "closeRequestDetails": "Close request details",
     "loadingRequestDetails": "Loading request details...",
-    "cancel": "Cancel"
+    "cancel": "Cancel",
+    "office": "Office",
+    "orgUnit": "OrgUnit"
   },
   "status": {
     "PENDING_APPROVAL": "Pending Approval",
@@ -172,7 +174,21 @@
     "backendProtection": "Backend scope protection is active",
     "seniorProtection": "Your account can create Team Manager requests and read Employee requests only inside your assigned division.",
     "managerProtection": "Your account can create and track Employee requests only for your assigned department.",
-    "requestRole": "Request {{role}}"
+    "requestRole": "Request {{role}}",
+    "v3": {
+      "eyebrow": "Office account governance",
+      "title": "Account Requests",
+      "description": "Create and track employee account requests using your authorized Office and OrgUnit scope.",
+      "scope": "Office / OrgUnit authority",
+      "requestAuthority": "Authorized Office requester",
+      "office": "Office",
+      "primaryOrgUnit": "Primary OrgUnit",
+      "availableOrgUnits": "Available OrgUnits",
+      "orgUnitScopeHelp": "OrgUnits available for account placement",
+      "requestManagement": "Request Management",
+      "requestManagementDescription": "Create and track employee requests inside your authorized OrgUnit scope.",
+      "backendProtection": "The backend validates Office membership, users.request_create capability and intended OrgUnit scope for every request."
+    }
   },
   "dashboard": {
     "senior": {
@@ -256,7 +272,19 @@
     "validationEmail": "Enter a valid official email address.",
     "validationManagedDepartment": "Select the department this Team Manager will manage.",
     "activationNote": "The person cannot activate the account until the Super Admin approves this request.",
-    "clear": "Clear form"
+    "clear": "Clear form",
+    "v3": {
+      "title": "Request an Office user account",
+      "description": "Enter the employee identity and choose the intended OrgUnit from your authorized Office scope.",
+      "officeScope": "Office scope",
+      "officeScopeHelp": "The Office is fixed by your current membership and cannot be changed here.",
+      "orgUnitHelp": "Choose the employee’s intended OrgUnit. Leadership is assigned separately after provisioning.",
+      "intendedOrgUnit": "Intended OrgUnit",
+      "selectOrgUnit": "Select OrgUnit",
+      "office": "Office",
+      "activationSeparation": "Super Admin provisions the account; Office authority manages organization placement and leadership.",
+      "validationOrgUnit": "Select an intended OrgUnit."
+    }
   },
   "adminForm": {
     "errorFallback": "The account could not be created.",
@@ -411,7 +439,9 @@
     "viewDetails": "View details",
     "previous": "Previous",
     "next": "Next",
-    "page": "Page {{page}} of {{total}}"
+    "page": "Page {{page}} of {{total}}",
+    "v3Title": "My submitted account requests",
+    "v3Description": "Track requests you submitted through the Office/OrgUnit account workflow."
   },
   "myStatus": {
     "loadError": "Your account status could not be loaded.",

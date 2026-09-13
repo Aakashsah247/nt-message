@@ -19,7 +19,7 @@ import {
 import { PrismaService } from '../database/prisma.service';
 import {
   AccountRequestStatus,
-  AccountRole,
+  AccountClass,
   IdentityCorrectionField,
   OtpPurpose,
 } from '../generated/prisma/client';
@@ -46,7 +46,7 @@ export class EmployeeIdentityCorrectionService {
   ) {}
 
   private assertSuperAdmin(user: AuthenticatedUser): void {
-    if (user.role !== AccountRole.SUPER_ADMIN) {
+    if (user.accountClass !== AccountClass.SUPER_ADMIN) {
       throw new ForbiddenException(
         'Only the Super Admin can correct protected employee identity information.',
       );
@@ -127,14 +127,13 @@ export class EmployeeIdentityCorrectionService {
           phoneNumber: true,
           officialEmail: true,
           designation: true,
-          divisionId: true,
-          departmentId: true,
           isActivated: true,
           account: {
             select: {
               id: true,
               username: true,
               role: true,
+              accountClass: true,
               isEnabled: true,
             },
           },
@@ -145,7 +144,7 @@ export class EmployeeIdentityCorrectionService {
         throw new NotFoundException('Employee was not found.');
       }
 
-      if (employee.account?.role === AccountRole.SUPER_ADMIN) {
+      if (employee.account?.accountClass === AccountClass.SUPER_ADMIN) {
         throw new ForbiddenException(
           'The Super Admin identity cannot be changed through the employee correction workflow.',
         );
@@ -402,8 +401,6 @@ export class EmployeeIdentityCorrectionService {
           phoneNumber: true,
           officialEmail: true,
           designation: true,
-          divisionId: true,
-          departmentId: true,
           status: true,
           employmentStatus: true,
           isActivated: true,
@@ -413,6 +410,7 @@ export class EmployeeIdentityCorrectionService {
               id: true,
               username: true,
               role: true,
+              accountClass: true,
               isEnabled: true,
             },
           },

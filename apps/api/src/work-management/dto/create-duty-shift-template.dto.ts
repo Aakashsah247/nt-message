@@ -2,9 +2,8 @@ import { Transform } from 'class-transformer';
 import { IsEnum, IsOptional, IsString, IsUUID, Matches, MaxLength, MinLength, ValidateIf } from 'class-validator';
 
 export enum DutyShiftScope {
-  BRANCH = 'BRANCH',
-  DIVISION = 'DIVISION',
-  DEPARTMENT = 'DEPARTMENT',
+  OFFICE = 'OFFICE',
+  ORG_UNIT = 'ORG_UNIT',
 }
 
 function trimText(value: unknown): unknown {
@@ -27,11 +26,7 @@ export class CreateDutyShiftTemplateDto {
   @IsEnum(DutyShiftScope)
   scope!: DutyShiftScope;
 
-  @ValidateIf((dto: CreateDutyShiftTemplateDto) => dto.scope !== DutyShiftScope.BRANCH)
+  @ValidateIf((dto: CreateDutyShiftTemplateDto) => dto.scope === DutyShiftScope.ORG_UNIT)
   @IsUUID('4')
-  divisionId?: string;
-
-  @ValidateIf((dto: CreateDutyShiftTemplateDto) => dto.scope === DutyShiftScope.DEPARTMENT)
-  @IsUUID('4')
-  departmentId?: string;
+  orgUnitId?: string;
 }

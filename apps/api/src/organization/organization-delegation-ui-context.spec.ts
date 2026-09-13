@@ -5,7 +5,7 @@ import {
 
 import type { AuthenticatedUser } from '../auth/types/auth.types';
 import { PrismaService } from '../database/prisma.service';
-import { AccountRole } from '../generated/prisma/client';
+import { AccountClass, AccountRole } from '../generated/prisma/client';
 
 import { CAPABILITIES } from './organization-capabilities';
 import { OrganizationAuthorizationService } from './organization-authorization.service';
@@ -13,6 +13,7 @@ import { OrganizationDelegationService } from './organization-delegation.service
 
 const user = {
   accountId: 'account-1',
+  accountClass: AccountClass.OFFICE_USER,
   role: AccountRole.EMPLOYEE,
 } as AuthenticatedUser;
 
@@ -31,6 +32,7 @@ describe('OrganizationDelegationService UI context', () => {
       account: {
         findUnique: jest.fn().mockResolvedValue({
           id: user.accountId,
+          accountClass: AccountClass.OFFICE_USER,
           role: AccountRole.EMPLOYEE,
           isEnabled: true,
           employeeId: 'employee-1',
@@ -72,6 +74,7 @@ describe('OrganizationDelegationService UI context', () => {
               account: {
                 id: user.accountId,
                 username: 'current',
+                accountClass: AccountClass.OFFICE_USER,
                 role: AccountRole.EMPLOYEE,
                 isEnabled: true,
               },
@@ -91,6 +94,7 @@ describe('OrganizationDelegationService UI context', () => {
               account: {
                 id: 'account-2',
                 username: 'eligible',
+                accountClass: AccountClass.OFFICE_USER,
                 role: AccountRole.EMPLOYEE,
                 isEnabled: true,
               },

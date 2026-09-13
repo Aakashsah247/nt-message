@@ -65,8 +65,6 @@ describe('ConversationsService conversation-list scalability', () => {
         groupPhotoKey: null,
         groupKind,
         officialScopeType: groupKind === 'OFFICIAL' ? 'ORGANIZATION' : null,
-        officialDivisionId: null,
-        officialDepartmentId: null,
         privateParticipantKey: null,
         createdByAccountId: viewerAccountId,
         lastMessageAt: null,

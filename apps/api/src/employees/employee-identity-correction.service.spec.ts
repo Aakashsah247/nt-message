@@ -6,6 +6,7 @@ import {
 import type { AuthenticatedUser } from '../auth/types/auth.types';
 import type { PrismaService } from '../database/prisma.service';
 import {
+  AccountClass,
   AccountRole,
   IdentityCorrectionField,
 } from '../generated/prisma/enums';
@@ -22,11 +23,13 @@ jest.mock('../generated/prisma/client', () =>
 
 const superAdminUser = {
   accountId: 'super-admin-account',
+  accountClass: AccountClass.SUPER_ADMIN,
   role: AccountRole.SUPER_ADMIN,
 } as AuthenticatedUser;
 
 const employeeUser = {
   accountId: 'employee-account',
+  accountClass: AccountClass.OFFICE_USER,
   role: AccountRole.EMPLOYEE,
 } as AuthenticatedUser;
 
@@ -45,6 +48,7 @@ function activeEmployee(overrides: Record<string, unknown> = {}) {
       id: 'account-1',
       username: 'ntc-1001',
       role: AccountRole.EMPLOYEE,
+      accountClass: AccountClass.OFFICE_USER,
       isEnabled: true,
     },
     ...overrides,
@@ -91,6 +95,7 @@ describe('EmployeeIdentityCorrectionService', () => {
             id: 'account-1',
             username: 'ntc-2001',
             role: AccountRole.EMPLOYEE,
+            accountClass: AccountClass.OFFICE_USER,
             isEnabled: true,
           },
         }),

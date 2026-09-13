@@ -13,7 +13,6 @@ const request = {
   officeId: 'office-a',
   intendedOrgUnitId: 'unit-a',
   requestedRole: AccountRole.EMPLOYEE,
-  managementPositionId: null,
 };
 
 describe('account request activation policy', () => {
@@ -30,17 +29,14 @@ describe('account request activation policy', () => {
     ).toBe(true);
   });
 
-  it.each([AccountRole.SENIOR_MANAGEMENT, AccountRole.TEAM_MANAGER])(
-    'does not treat legacy %s authority as canonical account provisioning',
-    (requestedRole) => {
-      expect(
-        isCanonicalOfficeActivationRequest({
-          ...request,
-          requestedRole,
-        }),
-      ).toBe(false);
-    },
-  );
+  it('requires the Office-user EMPLOYEE account role for canonical provisioning', () => {
+    expect(
+      isCanonicalOfficeActivationRequest({
+        ...request,
+        requestedRole: AccountRole.SUPER_ADMIN,
+      }),
+    ).toBe(false);
+  });
 
   it('requires the submitted Office and intended OrgUnit', () => {
     expect(
@@ -50,15 +46,6 @@ describe('account request activation policy', () => {
       isCanonicalOfficeActivationRequest({
         ...request,
         intendedOrgUnitId: null,
-      }),
-    ).toBe(false);
-  });
-
-  it('does not reinterpret a reserved legacy management position as V3 provisioning', () => {
-    expect(
-      isCanonicalOfficeActivationRequest({
-        ...request,
-        managementPositionId: 'legacy-position',
       }),
     ).toBe(false);
   });

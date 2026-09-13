@@ -460,7 +460,7 @@ export function WorkTypeManagementPage() {
     if (!term) return definitions;
     return definitions.filter((definition) => {
       const name = definition.currentDraftVersion?.name ?? definition.currentPublishedVersion?.name ?? definition.code;
-      return [definition.code, name, definition.legacyWorkItemType ?? ""]
+      return [definition.code, name]
         .some((value) => value.toLowerCase().includes(term));
     });
   }, [definitions, search]);

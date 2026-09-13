@@ -8,7 +8,7 @@ import {
 import type { AuthenticatedUser } from '../auth/types/auth.types';
 import { PrismaService } from '../database/prisma.service';
 import {
-  AccountRole,
+  AccountClass,
   EmployeeStatus,
   EmploymentStatus,
   OrgMembershipType,
@@ -1737,7 +1737,7 @@ export class WorkReportsV3Service {
       where: { id: user.accountId },
       select: {
         id: true,
-        role: true,
+        accountClass: true,
         isEnabled: true,
         employee: {
           select: {
@@ -1760,11 +1760,11 @@ export class WorkReportsV3Service {
       },
     });
 
-    if (!account || !account.isEnabled || account.role !== user.role) {
+    if (!account || !account.isEnabled || account.accountClass !== user.accountClass) {
       throw new ForbiddenException('Your account cannot access reports.');
     }
 
-    if (account.role === AccountRole.SUPER_ADMIN) {
+    if (account.accountClass === AccountClass.SUPER_ADMIN) {
       const view = await this.authorization.can(
         user,
         CAPABILITIES.REPORTS_VIEW,

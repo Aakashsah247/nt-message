@@ -7,10 +7,9 @@ import {
 
 import { PrismaService } from '../database/prisma.service';
 import {
-  AccountRole,
-  EmployeeStatus,
-  EmploymentStatus,
+  AccountClass,
   MessagingNotificationType,
+  OrgMembershipType,
   WorkItemStatus,
 } from '../generated/prisma/client';
 import type { Prisma } from '../generated/prisma/client';
@@ -18,7 +17,6 @@ import {
   MessagingEventsService,
   type WorkItemRealtimeAction,
 } from '../realtime/messaging-events.service';
-import { requireLegacyWorkValue } from './work-v2-compatibility';
 
 const workNotificationSelect = {
   id: true,
@@ -40,6 +38,7 @@ const workNotificationSelect = {
       id: true,
       username: true,
       role: true,
+      accountClass: true,
       profilePhotoKey: true,
       profileBio: true,
       showOnlineStatus: true,
@@ -52,18 +51,22 @@ const workNotificationSelect = {
           designation: true,
           profilePhotoKey: true,
           profileBio: true,
-          division: {
-            select: {
-              id: true,
-              code: true,
-              name: true,
+          orgMemberships: {
+            where: {
+              membershipType: OrgMembershipType.PRIMARY,
+              endsAt: null,
             },
-          },
-          departmentUnit: {
+            orderBy: {
+              startsAt: 'desc' as const,
+            },
+            take: 1,
             select: {
-              id: true,
-              code: true,
-              name: true,
+              office: {
+                select: { id: true, code: true, name: true, isActive: true },
+              },
+              orgUnit: {
+                select: { id: true, code: true, name: true, isActive: true },
+              },
             },
           },
         },
@@ -82,7 +85,6 @@ export interface PublishWorkUpdateInput {
     ticketNumber: string;
     title: string;
     status: string;
-    assignedTeamId?: string | null;
     salesMemberAccountId?: string | null;
   };
   action: WorkItemRealtimeAction;
@@ -249,8 +251,7 @@ export class WorkNotificationsService implements OnModuleInit, OnModuleDestroy {
           dueAt: true,
           dueSoonNotifiedAt: true,
           overdueNotifiedAt: true,
-          responsibleManagerAccountId: true,
-          assignedTeamId: true,
+          createdByAccountId: true,
           salesMemberAccountId: true,
           assignments: {
             where: {
@@ -274,10 +275,8 @@ export class WorkNotificationsService implements OnModuleInit, OnModuleDestroy {
         }
 
         const recipients = [
-          requireLegacyWorkValue(
-            workItem.responsibleManagerAccountId,
-            'responsible manager',
-          ),
+          workItem.createdByAccountId,
+          ...(workItem.salesMemberAccountId ? [workItem.salesMemberAccountId] : []),
           ...workItem.assignments.map(
             (assignment) => assignment.assigneeAccountId,
           ),
@@ -329,55 +328,9 @@ export class WorkNotificationsService implements OnModuleInit, OnModuleDestroy {
   }
 
   private async resolveRelationshipRecipients(workItem: {
-    assignedTeamId?: string | null;
     salesMemberAccountId?: string | null;
   }): Promise<string[]> {
-    const recipients = workItem.salesMemberAccountId
-      ? [workItem.salesMemberAccountId]
-      : [];
-
-    if (!workItem.assignedTeamId) {
-      return recipients;
-    }
-
-    try {
-      const memberships = await this.prisma.departmentTeamMember.findMany({
-        where: {
-          teamId: workItem.assignedTeamId,
-          team: { is: { isActive: true, archivedAt: null } },
-          employee: {
-            is: {
-              status: EmployeeStatus.ACTIVE,
-              employmentStatus: EmploymentStatus.ACTIVE,
-              archivedAt: null,
-              isActivated: true,
-              account: {
-                is: { isEnabled: true, role: AccountRole.EMPLOYEE },
-              },
-            },
-          },
-        },
-        select: {
-          employee: {
-            select: {
-              account: { select: { id: true } },
-            },
-          },
-        },
-      });
-      recipients.push(
-        ...memberships
-          .map((membership) => membership.employee.account?.id)
-          .filter((accountId): accountId is string => Boolean(accountId)),
-      );
-    } catch (error) {
-      // Notification expansion must never roll back the authoritative work action.
-      this.logger.warn(
-        `Unable to resolve work-team notification recipients: ${this.safeErrorMessage(error)}`,
-      );
-    }
-
-    return recipients;
+    return workItem.salesMemberAccountId ? [workItem.salesMemberAccountId] : [];
   }
 
   private serializeNotification(notification: WorkNotificationRecord) {
@@ -403,7 +356,7 @@ export class WorkNotificationsService implements OnModuleInit, OnModuleDestroy {
             displayName:
               employee?.empName ??
               actor.username ??
-              (actor.role === AccountRole.SUPER_ADMIN
+              (actor.accountClass === AccountClass.SUPER_ADMIN
                 ? 'Super Admin'
                 : 'NT Message User'),
             employee: employee
@@ -414,8 +367,9 @@ export class WorkNotificationsService implements OnModuleInit, OnModuleDestroy {
                   designation: employee.designation,
                   profilePhotoKey,
                   profileBio,
-                  division: employee.division,
-                  department: employee.departmentUnit,
+                  office: employee.orgMemberships[0]?.office ?? null,
+                  primaryOrgUnit: employee.orgMemberships[0]?.orgUnit ?? null,
+                  orgUnitBreadcrumb: [],
                 }
               : null,
           }

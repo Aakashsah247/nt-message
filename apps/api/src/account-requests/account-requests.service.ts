@@ -16,18 +16,17 @@ import {
   AccountRequestActionType,
   AccountRequestLifecycleState,
   AccountRequestStatus,
+  AccountClass,
   AccountRole,
   ActivationEmailDeliveryStatus,
   EmployeeStatus,
   EmploymentStatus,
-  ManagementPositionType,
   OrgAssignmentSource,
   OrgMembershipType,
 } from '../generated/prisma/client';
 
 import type { Prisma } from '../generated/prisma/client';
 
-import { resolveOrCreateVacantManagementPosition } from '../management-assignments/management-position-resolver';
 
 import { getActivationEmailResendPolicyViolation } from './account-request-activation-email-policy';
 import { AccountRequestAuthorityService } from './account-request-authority.service';
@@ -58,7 +57,7 @@ export class AccountRequestsService {
   ) {}
 
   private assertSuperAdmin(user: AuthenticatedUser) {
-    if (user.role !== AccountRole.SUPER_ADMIN) {
+    if (user.accountClass !== AccountClass.SUPER_ADMIN) {
       throw new ForbiddenException(
         'Only the Super Admin can review account requests.',
       );
@@ -67,91 +66,31 @@ export class AccountRequestsService {
 
   private async getRequester(user: AuthenticatedUser) {
     const requester = await this.prisma.account.findUnique({
-      where: {
-        id: user.accountId,
-      },
-
+      where: { id: user.accountId },
       select: {
         id: true,
-        role: true,
+        accountClass: true,
         isEnabled: true,
-
         employee: {
           select: {
             id: true,
             status: true,
             employmentStatus: true,
             archivedAt: true,
-            divisionId: true,
-            departmentId: true,
-
-            division: {
-              select: {
-                id: true,
-                code: true,
-                name: true,
-                isActive: true,
-              },
-            },
-
-            departmentUnit: {
-              select: {
-                id: true,
-                divisionId: true,
-                code: true,
-                name: true,
-                isActive: true,
-              },
-            },
-
-            managementAssignments: {
-              where: {
-                endedAt: null,
-
-                position: {
-                  is: {
-                    isActive: true,
-                  },
-                },
-              },
-
-              take: 1,
-
-              orderBy: {
-                startedAt: 'desc',
-              },
-
-              select: {
-                id: true,
-                startedAt: true,
-
-                position: {
-                  select: {
-                    id: true,
-                    positionType: true,
-                    divisionId: true,
-                    departmentId: true,
-                    isActive: true,
-                  },
-                },
-              },
-            },
           },
         },
       },
     });
 
-    if (!requester || !requester.isEnabled || requester.role !== user.role) {
-      throw new ForbiddenException(
-        'Your authenticated account cannot submit account requests.',
-      );
-    }
-
     if (
-      requester.role !== AccountRole.SENIOR_MANAGEMENT &&
-      requester.role !== AccountRole.TEAM_MANAGER
+      !requester ||
+      !requester.isEnabled ||
+      requester.accountClass !== AccountClass.OFFICE_USER ||
+      user.accountClass !== AccountClass.OFFICE_USER
     ) {
-      throw new ForbiddenException('Your role cannot submit account requests.');
+      throw new ForbiddenException(
+        'Your authenticated Office account cannot manage account requests.',
+      );
     }
 
     if (
@@ -163,41 +102,6 @@ export class AccountRequestsService {
       throw new ForbiddenException(
         'Your account does not have an active employee identity.',
       );
-    }
-
-    const activeManagementAssignment =
-      requester.employee.managementAssignments[0] ?? null;
-
-    if (!activeManagementAssignment) {
-      throw new ForbiddenException(
-        'Your management role does not have an active position assignment.',
-      );
-    }
-
-    const position = activeManagementAssignment.position;
-
-    if (requester.role === AccountRole.SENIOR_MANAGEMENT) {
-      if (
-        position.positionType !== ManagementPositionType.SENIOR_MANAGEMENT ||
-        position.divisionId !== requester.employee.divisionId ||
-        position.departmentId !== null
-      ) {
-        throw new ForbiddenException(
-          'Your Senior Management position assignment is invalid.',
-        );
-      }
-    }
-
-    if (requester.role === AccountRole.TEAM_MANAGER) {
-      if (
-        position.positionType !== ManagementPositionType.TEAM_MANAGER ||
-        position.divisionId !== requester.employee.divisionId ||
-        position.departmentId !== requester.employee.departmentId
-      ) {
-        throw new ForbiddenException(
-          'Your Team Manager position assignment is invalid.',
-        );
-      }
     }
 
     return requester;
@@ -218,9 +122,6 @@ export class AccountRequestsService {
 
     return {
       ...(query.status ? { status: query.status } : {}),
-      ...(query.requestedRole ? { requestedRole: query.requestedRole } : {}),
-      ...(query.divisionId ? { divisionId: query.divisionId } : {}),
-      ...(query.departmentId ? { departmentId: query.departmentId } : {}),
       ...(dateFrom || dateTo
         ? {
             submittedAt: {
@@ -282,27 +183,7 @@ export class AccountRequestsService {
             status: true,
             employmentStatus: true,
             isActivated: true,
-            divisionId: true,
-            departmentId: true,
 
-            division: {
-              select: {
-                id: true,
-                code: true,
-                name: true,
-                isActive: true,
-              },
-            },
-
-            departmentUnit: {
-              select: {
-                id: true,
-                divisionId: true,
-                code: true,
-                name: true,
-                isActive: true,
-              },
-            },
           },
         },
       },
@@ -315,135 +196,6 @@ export class AccountRequestsService {
     }
 
     return account;
-  }
-
-  private async validateManagementPositionVacancy(
-    transaction: Prisma.TransactionClient,
-    managementPositionId: string,
-    requestedRole: AccountRole,
-    divisionId: string,
-    departmentId: string | null,
-  ) {
-    const requiredPositionType =
-      requestedRole === AccountRole.SENIOR_MANAGEMENT
-        ? ManagementPositionType.SENIOR_MANAGEMENT
-        : requestedRole === AccountRole.TEAM_MANAGER
-          ? ManagementPositionType.TEAM_MANAGER
-          : null;
-
-    if (!requiredPositionType) {
-      throw new BadRequestException(
-        'A normal employee request must not reference a management position.',
-      );
-    }
-
-    const position = await transaction.managementPosition.findUnique({
-      where: {
-        id: managementPositionId,
-      },
-
-      select: {
-        id: true,
-        positionType: true,
-        divisionId: true,
-        departmentId: true,
-        isActive: true,
-        reservedByAccountRequestId: true,
-
-        assignments: {
-          where: {
-            endedAt: null,
-          },
-
-          take: 1,
-
-          select: {
-            id: true,
-          },
-        },
-      },
-    });
-
-    if (!position) {
-      throw new NotFoundException(
-        'No active management position exists for the selected organization scope.',
-      );
-    }
-
-    if (position.positionType !== requiredPositionType) {
-      throw new BadRequestException(
-        'The selected management position does not match the requested role.',
-      );
-    }
-
-    if (position.divisionId !== divisionId) {
-      throw new BadRequestException(
-        'The selected management position does not belong to the selected division.',
-      );
-    }
-
-    if (
-      requiredPositionType === ManagementPositionType.SENIOR_MANAGEMENT &&
-      position.departmentId !== null
-    ) {
-      throw new BadRequestException(
-        'The selected Senior Management position has an invalid organization scope.',
-      );
-    }
-
-    if (
-      requiredPositionType === ManagementPositionType.TEAM_MANAGER &&
-      position.departmentId !== departmentId
-    ) {
-      throw new BadRequestException(
-        'The selected Team Manager position does not belong to the selected department.',
-      );
-    }
-
-    if (!position.isActive) {
-      throw new ConflictException(
-        'The selected management position is inactive.',
-      );
-    }
-
-    if (position.reservedByAccountRequestId) {
-      throw new ConflictException(
-        'The selected management position is already reserved for another approved account request.',
-      );
-    }
-
-    if (position.assignments.length > 0) {
-      throw new ConflictException(
-        'The selected management position is not vacant.',
-      );
-    }
-
-    return position;
-  }
-
-  private async resolveManagementPositionId(
-    transaction: Prisma.TransactionClient,
-
-    suppliedManagementPositionId: string | null,
-
-    requestedRole: AccountRole,
-
-    divisionId: string,
-
-    departmentId: string | null,
-  ): Promise<string> {
-    const position = await resolveOrCreateVacantManagementPosition(
-      transaction,
-      {
-        requestedRole,
-        divisionId,
-        departmentId,
-
-        suppliedManagementPositionId,
-      },
-    );
-
-    return position.id;
   }
 
   async getOwnAccountStatus(user: AuthenticatedUser) {
@@ -479,7 +231,7 @@ export class AccountRequestsService {
             createdAt: true,
             updatedAt: true,
 
-            division: {
+            office: {
               select: {
                 id: true,
                 code: true,
@@ -488,10 +240,9 @@ export class AccountRequestsService {
               },
             },
 
-            department: {
+            intendedOrgUnit: {
               select: {
                 id: true,
-                divisionId: true,
                 code: true,
                 name: true,
                 isActive: true,
@@ -548,31 +299,26 @@ export class AccountRequestsService {
     const context = await this.requestAuthority.getCreatorContext(user);
 
     return {
-      role: context.requester.role,
+      accountClass: context.requester.accountClass,
 
       /*
-       * New account requests provision a normal Office account. Leadership is
-       * assigned separately through the organization leadership workflow.
+       * Account requests now target the requester's active Office and a
+       * capability-authorized OrgUnit. Leadership is assigned separately.
        */
       requestedRole: AccountRole.EMPLOYEE,
-
       office: context.office,
       primaryOrgUnit: context.primaryOrgUnit,
       orgUnits: context.requestableOrgUnits,
-
-      /*
-       * Temporary compatibility shape for the current manager request UI.
-       * Phase 4 UI switches to office/orgUnits and this legacy projection can
-       * then be removed without changing authorization semantics.
-       */
       scope: {
         office: context.office,
         orgUnit: context.primaryOrgUnit,
-        division: context.requester.employee?.division ?? null,
-        department: context.requester.employee?.departmentUnit ?? null,
       },
 
-      departments: context.compatibilityDepartments,
+      /*
+       * Kept as empty response arrays for one compatibility release so older
+       * clients fail closed rather than receiving legacy hierarchy data.
+       */
+      departments: [],
       availableManagementPositions: [],
     };
   }
@@ -582,16 +328,9 @@ export class AccountRequestsService {
     dto: CreateAccountRequestDto,
     metadata: RequestMetadata,
   ) {
-    if (dto.managementPositionId) {
-      throw new BadRequestException(
-        'Management positions are not part of the V3 account-request workflow. Assign leadership separately after provisioning.',
-      );
-    }
-
     const target = await this.requestAuthority.resolveCreateTarget(user, {
       officeId: dto.officeId,
       intendedOrgUnitId: dto.intendedOrgUnitId,
-      legacyDepartmentId: dto.departmentId,
     });
 
     const {
@@ -719,13 +458,9 @@ export class AccountRequestsService {
             intendedOrgUnitId: target.intendedOrgUnit.id,
 
             /*
-             * Compatibility projection only. New authorization and placement
-             * decisions use Office + intended OrgUnit above.
+             * Phase 13 stops projecting new account requests back into the
+             * retired fixed hierarchy.
              */
-            divisionId: target.legacyDivisionId,
-            departmentId: target.legacyDepartmentId,
-            managementPositionId: null,
-
             requestedByAccountId: target.requesterId,
             status: AccountRequestStatus.PENDING_APPROVAL,
           },
@@ -741,9 +476,6 @@ export class AccountRequestsService {
             lifecycleState: true,
             officeId: true,
             intendedOrgUnitId: true,
-            divisionId: true,
-            departmentId: true,
-            managementPositionId: true,
             requestedByAccountId: true,
             revisionNumber: true,
             status: true,
@@ -767,22 +499,6 @@ export class AccountRequestsService {
                 name: true,
               },
             },
-
-            division: {
-              select: {
-                id: true,
-                code: true,
-                name: true,
-              },
-            },
-
-            department: {
-              select: {
-                id: true,
-                code: true,
-                name: true,
-              },
-            },
           },
         });
 
@@ -798,8 +514,6 @@ export class AccountRequestsService {
               lifecycleState: AccountRequestLifecycleState.REQUESTED,
               officeId: target.office.id,
               intendedOrgUnitId: target.intendedOrgUnit.id,
-              legacyDivisionId: target.legacyDivisionId,
-              legacyDepartmentId: target.legacyDepartmentId,
             },
           },
         });
@@ -820,22 +534,11 @@ export class AccountRequestsService {
     dto: ResubmitAccountRequestDto,
     metadata: RequestMetadata,
   ) {
-    const requester = await this.getRequester(user);
-
-    const requesterEmployee = requester.employee;
-
-    if (!requesterEmployee) {
-      throw new ForbiddenException(
-        'Your account does not have an active employee identity.',
-      );
-    }
-
     const rejectedRequest = await this.prisma.accountRequest.findFirst({
       where: {
         id,
-        requestedByAccountId: requester.id,
+        requestedByAccountId: user.accountId,
       },
-
       select: {
         id: true,
         empId: true,
@@ -843,10 +546,8 @@ export class AccountRequestsService {
         phoneNumber: true,
         officialEmail: true,
         designation: true,
-        requestedRole: true,
-        divisionId: true,
-        departmentId: true,
-        managementPositionId: true,
+        officeId: true,
+        intendedOrgUnitId: true,
         revisionNumber: true,
         status: true,
       },
@@ -861,6 +562,20 @@ export class AccountRequestsService {
         'Only a rejected account request can be resubmitted.',
       );
     }
+
+    const intendedOrgUnitId =
+      dto.intendedOrgUnitId ?? rejectedRequest.intendedOrgUnitId;
+
+    if (!intendedOrgUnitId) {
+      throw new BadRequestException(
+        'Intended OrgUnit is required when resubmitting an account request.',
+      );
+    }
+
+    const target = await this.requestAuthority.resolveCreateTarget(user, {
+      officeId: rejectedRequest.officeId ?? undefined,
+      intendedOrgUnitId,
+    });
 
     const {
       empId,
@@ -887,155 +602,18 @@ export class AccountRequestsService {
       );
     }
 
-    let requestedRole: AccountRole;
-    let divisionId: string;
-    let departmentId: string;
-    let managementPositionId: string | null = null;
-
-    if (requester.role === AccountRole.SENIOR_MANAGEMENT) {
-      requestedRole = AccountRole.TEAM_MANAGER;
-
-      if (
-        !requesterEmployee.divisionId ||
-        !requesterEmployee.division ||
-        !requesterEmployee.division.isActive
-      ) {
-        throw new ForbiddenException(
-          'Your Senior Management account does not have an active division assignment.',
-        );
-      }
-
-      const targetDepartmentId =
-        dto.departmentId ?? rejectedRequest.departmentId;
-
-      if (!targetDepartmentId) {
-        throw new BadRequestException(
-          'Department ID is required when resubmitting a Team Manager request.',
-        );
-      }
-
-      const targetManagementPositionId =
-        dto.managementPositionId ?? rejectedRequest.managementPositionId;
-
-      const department = await this.prisma.department.findUnique({
-        where: {
-          id: targetDepartmentId,
-        },
-
-        select: {
-          id: true,
-          divisionId: true,
-          isActive: true,
-
-          division: {
-            select: {
-              id: true,
-              isActive: true,
-            },
-          },
-        },
-      });
-
-      if (!department) {
-        throw new NotFoundException('Department was not found.');
-      }
-
-      if (!department.isActive || !department.division.isActive) {
-        throw new ConflictException(
-          'The selected organization assignment is inactive.',
-        );
-      }
-
-      if (department.divisionId !== requesterEmployee.divisionId) {
-        throw new ForbiddenException(
-          'You can resubmit Team Manager requests only inside your assigned division.',
-        );
-      }
-
-      divisionId = requesterEmployee.divisionId;
-
-      departmentId = department.id;
-
-      managementPositionId = targetManagementPositionId;
-    } else {
-      requestedRole = AccountRole.EMPLOYEE;
-
-      if (
-        !requesterEmployee.divisionId ||
-        !requesterEmployee.departmentId ||
-        !requesterEmployee.division ||
-        !requesterEmployee.departmentUnit
-      ) {
-        throw new ForbiddenException(
-          'Your Team Manager account does not have a complete organization assignment.',
-        );
-      }
-
-      if (
-        !requesterEmployee.division.isActive ||
-        !requesterEmployee.departmentUnit.isActive
-      ) {
-        throw new ForbiddenException(
-          'Your organization assignment is inactive.',
-        );
-      }
-
-      if (
-        requesterEmployee.departmentUnit.divisionId !==
-        requesterEmployee.divisionId
-      ) {
-        throw new ForbiddenException(
-          'Your organization assignment is invalid.',
-        );
-      }
-
-      if (
-        dto.departmentId &&
-        dto.departmentId !== requesterEmployee.departmentId
-      ) {
-        throw new ForbiddenException(
-          'You can resubmit employee requests only inside your assigned department.',
-        );
-      }
-
-      if (dto.managementPositionId) {
-        throw new BadRequestException(
-          'A normal employee request must not reference a management position.',
-        );
-      }
-
-      divisionId = requesterEmployee.divisionId;
-
-      departmentId = requesterEmployee.departmentId;
-    }
-
-    if (rejectedRequest.requestedRole !== requestedRole) {
-      throw new ForbiddenException(
-        'Your current role cannot resubmit this account request.',
-      );
-    }
-
     const ipAddress = metadata.ipAddress?.slice(0, 45) || null;
-
     const userAgent = metadata.userAgent?.slice(0, 500) || null;
 
     const resubmittedRequest = await this.prisma.$transaction(
       async (transaction) => {
-        /*
-         * Re-read the original inside the transaction
-         * so its state is verified again before creating
-         * the next revision.
-         */
         const previousRequest = await transaction.accountRequest.findFirst({
           where: {
             id: rejectedRequest.id,
-            requestedByAccountId: requester.id,
+            requestedByAccountId: target.requesterId,
           },
-
           select: {
             id: true,
-            requestedRole: true,
-            managementPositionId: true,
             revisionNumber: true,
             status: true,
           },
@@ -1053,22 +631,10 @@ export class AccountRequestsService {
           );
         }
 
-        if (previousRequest.requestedRole !== requestedRole) {
-          throw new ForbiddenException(
-            'Your current role cannot resubmit this account request.',
-          );
-        }
-
-        /*
-         * A rejected request can have only one direct
-         * revision. A later rejection must be resubmitted
-         * from the latest rejected revision.
-         */
         const existingRevision = await transaction.accountRequest.findFirst({
           where: {
             previousRequestId: previousRequest.id,
           },
-
           select: {
             id: true,
             status: true,
@@ -1081,23 +647,27 @@ export class AccountRequestsService {
           );
         }
 
-        if (requestedRole !== AccountRole.EMPLOYEE) {
-          // Resolve and recheck the official vacancy for this revision.
-          managementPositionId = await this.resolveManagementPositionId(
-            transaction,
-            managementPositionId,
-            requestedRole,
-            divisionId,
-            departmentId,
+        const currentTarget = await transaction.orgUnit.findFirst({
+          where: {
+            id: target.intendedOrgUnit.id,
+            officeId: target.office.id,
+            isActive: true,
+          },
+          select: {
+            id: true,
+          },
+        });
+
+        if (!currentTarget) {
+          throw new ConflictException(
+            'The intended OrgUnit is no longer active in the selected Office.',
           );
         }
 
         const existingEmployee = await transaction.employee.findFirst({
           where: {
             OR: [
-              {
-                empId,
-              },
+              { empId },
               {
                 officialEmail: {
                   equals: officialEmailLookup,
@@ -1111,7 +681,6 @@ export class AccountRequestsService {
               },
             ],
           },
-
           select: {
             id: true,
           },
@@ -1129,11 +698,8 @@ export class AccountRequestsService {
               status: {
                 not: AccountRequestStatus.REJECTED,
               },
-
               OR: [
-                {
-                  empId,
-                },
+                { empId },
                 {
                   officialEmail: {
                     equals: officialEmailLookup,
@@ -1147,7 +713,6 @@ export class AccountRequestsService {
                 },
               ],
             },
-
             select: {
               id: true,
               status: true,
@@ -1169,20 +734,15 @@ export class AccountRequestsService {
             phoneNumber,
             officialEmail,
             designation,
-            requestedRole,
-            divisionId,
-            departmentId,
-            managementPositionId,
-
-            requestedByAccountId: requester.id,
-
+            requestedRole: AccountRole.EMPLOYEE,
+            lifecycleState: AccountRequestLifecycleState.REQUESTED,
+            officeId: target.office.id,
+            intendedOrgUnitId: target.intendedOrgUnit.id,
+            requestedByAccountId: target.requesterId,
             previousRequestId: previousRequest.id,
-
             revisionNumber,
-
             status: AccountRequestStatus.PENDING_APPROVAL,
           },
-
           select: {
             id: true,
             empId: true,
@@ -1191,9 +751,9 @@ export class AccountRequestsService {
             officialEmail: true,
             designation: true,
             requestedRole: true,
-            divisionId: true,
-            departmentId: true,
-            managementPositionId: true,
+            lifecycleState: true,
+            officeId: true,
+            intendedOrgUnitId: true,
             requestedByAccountId: true,
             previousRequestId: true,
             revisionNumber: true,
@@ -1202,16 +762,14 @@ export class AccountRequestsService {
             submittedAt: true,
             createdAt: true,
             updatedAt: true,
-
-            division: {
+            office: {
               select: {
                 id: true,
                 code: true,
                 name: true,
               },
             },
-
-            department: {
+            intendedOrgUnit: {
               select: {
                 id: true,
                 code: true,
@@ -1224,25 +782,16 @@ export class AccountRequestsService {
         await transaction.accountRequestAction.create({
           data: {
             accountRequestId: createdRequest.id,
-
-            actorAccountId: requester.id,
-
+            actorAccountId: target.requesterId,
             action: AccountRequestActionType.RESUBMITTED,
-
             ipAddress,
             userAgent,
-
             metadata: {
               previousRequestId: previousRequest.id,
-
               previousRevisionNumber: previousRequest.revisionNumber,
-
               revisionNumber,
-
-              requestedRole,
-              divisionId,
-              departmentId,
-              managementPositionId,
+              officeId: target.office.id,
+              intendedOrgUnitId: target.intendedOrgUnit.id,
             },
           },
         });
@@ -1253,7 +802,6 @@ export class AccountRequestsService {
 
     return {
       message: 'Account request resubmitted successfully.',
-
       accountRequest: resubmittedRequest,
     };
   }
@@ -1268,7 +816,6 @@ export class AccountRequestsService {
       officialEmail: true,
       designation: true,
       requestedRole: true,
-      managementPositionId: true,
       revisionNumber: true,
       status: true,
       ...activationEmailDeliverySelect,
@@ -1278,7 +825,7 @@ export class AccountRequestsService {
       createdAt: true,
       updatedAt: true,
 
-      division: {
+      office: {
         select: {
           id: true,
           code: true,
@@ -1287,7 +834,7 @@ export class AccountRequestsService {
         },
       },
 
-      department: {
+      intendedOrgUnit: {
         select: {
           id: true,
           code: true,
@@ -1453,7 +1000,6 @@ export class AccountRequestsService {
           officialEmail: true,
           designation: true,
           requestedRole: true,
-          managementPositionId: true,
           revisionNumber: true,
           status: true,
           ...activationEmailDeliverySelect,
@@ -1463,23 +1009,7 @@ export class AccountRequestsService {
           createdAt: true,
           updatedAt: true,
 
-          division: {
-            select: {
-              id: true,
-              code: true,
-              name: true,
-              isActive: true,
-            },
-          },
 
-          department: {
-            select: {
-              id: true,
-              code: true,
-              name: true,
-              isActive: true,
-            },
-          },
 
           requestedBy: {
             select: {
@@ -1544,9 +1074,6 @@ export class AccountRequestsService {
         officialEmail: true,
         designation: true,
         requestedRole: true,
-        divisionId: true,
-        departmentId: true,
-        managementPositionId: true,
         employeeId: true,
         previousRequestId: true,
         revisionNumber: true,
@@ -1558,7 +1085,7 @@ export class AccountRequestsService {
         createdAt: true,
         updatedAt: true,
 
-        division: {
+        office: {
           select: {
             id: true,
             code: true,
@@ -1567,10 +1094,9 @@ export class AccountRequestsService {
           },
         },
 
-        department: {
+        intendedOrgUnit: {
           select: {
             id: true,
-            divisionId: true,
             code: true,
             name: true,
             isActive: true,
@@ -1669,13 +1195,11 @@ export class AccountRequestsService {
     officeId: string | null;
     intendedOrgUnitId: string | null;
     requestedRole: AccountRole;
-    managementPositionId: string | null;
   }): boolean {
     return Boolean(
       request.officeId &&
         request.intendedOrgUnitId &&
-        request.requestedRole === AccountRole.EMPLOYEE &&
-        request.managementPositionId === null,
+        request.requestedRole === AccountRole.EMPLOYEE,
     );
   }
 
@@ -1873,9 +1397,6 @@ export class AccountRequestsService {
           status: true,
           officeId: true,
           intendedOrgUnitId: true,
-          divisionId: true,
-          departmentId: true,
-          managementPositionId: true,
           office: {
             select: {
               id: true,
@@ -1896,21 +1417,6 @@ export class AccountRequestsService {
                   isActive: true,
                 },
               },
-            },
-          },
-          division: {
-            select: {
-              id: true,
-              name: true,
-              isActive: true,
-            },
-          },
-          department: {
-            select: {
-              id: true,
-              divisionId: true,
-              name: true,
-              isActive: true,
             },
           },
         },
@@ -2075,18 +1581,6 @@ export class AccountRequestsService {
         },
       });
 
-      const legacyDivisionId =
-        request.divisionId && request.division?.isActive
-          ? request.divisionId
-          : null;
-      const legacyDepartmentId =
-        request.departmentId &&
-        request.department?.isActive &&
-        (!legacyDivisionId ||
-          request.department.divisionId === legacyDivisionId)
-          ? request.departmentId
-          : null;
-
       const employee = await transaction.employee.create({
         data: {
           empId,
@@ -2094,24 +1588,9 @@ export class AccountRequestsService {
           phoneNumber,
           officialEmail,
           designation: request.designation,
-          department:
-            request.department?.name ?? request.intendedOrgUnit.name,
+          department: request.intendedOrgUnit.name,
           status: EmployeeStatus.ACTIVE,
           isActivated: false,
-          ...(legacyDivisionId
-            ? {
-                division: {
-                  connect: { id: legacyDivisionId },
-                },
-              }
-            : {}),
-          ...(legacyDepartmentId
-            ? {
-                departmentUnit: {
-                  connect: { id: legacyDepartmentId },
-                },
-              }
-            : {}),
         },
         select: {
           id: true,
@@ -2119,10 +1598,7 @@ export class AccountRequestsService {
           empName: true,
           phoneNumber: true,
           officialEmail: true,
-          divisionId: true,
-          departmentId: true,
-          department: true,
-          designation: true,
+              designation: true,
           status: true,
           isActivated: true,
           createdAt: true,
@@ -2178,9 +1654,6 @@ export class AccountRequestsService {
           lifecycleState: true,
           officeId: true,
           intendedOrgUnitId: true,
-          divisionId: true,
-          departmentId: true,
-          managementPositionId: true,
           employeeId: true,
           revisionNumber: true,
           status: true,
@@ -2274,418 +1747,20 @@ export class AccountRequestsService {
         officeId: true,
         intendedOrgUnitId: true,
         requestedRole: true,
-        managementPositionId: true,
       },
     });
 
-    if (
-      provisioningCandidate &&
-      this.isV3ProvisioningCandidate(provisioningCandidate)
-    ) {
-      return this.approveV3Request(user, id, metadata);
+    if (!provisioningCandidate) {
+      throw new NotFoundException('Account request was not found.');
     }
 
-    const reviewedAt = new Date();
-    const ipAddress = metadata.ipAddress?.slice(0, 45) || null;
-    const userAgent = metadata.userAgent?.slice(0, 500) || null;
-
-    /*
-     * The raw invitation token is never stored. Only its SHA-256 hash is
-     * committed with the approval transaction before email delivery begins.
-     */
-    const preparedInvitation =
-      this.activationInvitationsService.prepareInvitation(reviewedAt);
-
-    try {
-      const accountRequest = await this.prisma.$transaction(
-        async (transaction) => {
-          const request = await transaction.accountRequest.findUnique({
-            where: {
-              id,
-            },
-
-            select: {
-              id: true,
-              empId: true,
-              empName: true,
-              phoneNumber: true,
-              officialEmail: true,
-              designation: true,
-              requestedRole: true,
-              divisionId: true,
-              departmentId: true,
-              managementPositionId: true,
-              status: true,
-
-              division: {
-                select: {
-                  id: true,
-                  name: true,
-                  isActive: true,
-                },
-              },
-
-              department: {
-                select: {
-                  id: true,
-                  divisionId: true,
-                  name: true,
-                  isActive: true,
-                },
-              },
-            },
-          });
-
-          if (!request) {
-            throw new NotFoundException('Account request was not found.');
-          }
-
-          if (request.status !== AccountRequestStatus.PENDING_APPROVAL) {
-            throw new ConflictException(
-              'Only a pending account request can be approved.',
-            );
-          }
-
-          if (
-            request.requestedRole !== AccountRole.TEAM_MANAGER &&
-            request.requestedRole !== AccountRole.EMPLOYEE
-          ) {
-            throw new BadRequestException(
-              'The requested role is not supported by this approval workflow.',
-            );
-          }
-
-          if (
-            !request.divisionId ||
-            !request.departmentId ||
-            !request.division ||
-            !request.department
-          ) {
-            throw new BadRequestException(
-              'The request does not have a complete organization assignment.',
-            );
-          }
-
-          if (!request.division.isActive || !request.department.isActive) {
-            throw new ConflictException(
-              'The request organization assignment is inactive.',
-            );
-          }
-
-          if (request.department.divisionId !== request.divisionId) {
-            throw new BadRequestException(
-              'The request department does not belong to its division.',
-            );
-          }
-
-          const {
-            empId,
-            empName,
-            phoneNumber,
-            phoneLookupValues,
-            officialEmail,
-            officialEmailLookup,
-          } = normalizeAccountIdentity(request);
-
-          let managementPositionId: string | null = null;
-
-          if (request.requestedRole === AccountRole.TEAM_MANAGER) {
-            if (!request.managementPositionId) {
-              throw new BadRequestException(
-                'The Team Manager request does not reference a management position.',
-              );
-            }
-
-            await this.validateManagementPositionVacancy(
-              transaction,
-              request.managementPositionId,
-              request.requestedRole,
-              request.divisionId,
-              request.departmentId,
-            );
-
-            managementPositionId = request.managementPositionId;
-          } else if (request.managementPositionId) {
-            throw new BadRequestException(
-              'A normal employee request must not reference a management position.',
-            );
-          }
-
-          /*
-           * A request may contain an older approved phone representation or
-           * mixed-case email. Normalize once and check all unique identities
-           * in one query before the employee row is created.
-           */
-          const duplicateEmployee = await transaction.employee.findFirst({
-            where: {
-              OR: [
-                {
-                  empId,
-                },
-                {
-                  officialEmail: {
-                    equals: officialEmailLookup,
-                    mode: 'insensitive',
-                  },
-                },
-                {
-                  phoneNumber: {
-                    in: phoneLookupValues,
-                  },
-                },
-              ],
-            },
-
-            select: {
-              id: true,
-            },
-          });
-
-          if (duplicateEmployee) {
-            throw new ConflictException(
-              'An employee with this employee ID, phone number, or official email already exists.',
-            );
-          }
-
-          /*
-           * Claim the pending request before creating the employee.
-           * If another review has already changed the status,
-           * this update affects zero rows and the transaction rolls back.
-           */
-          const reviewClaim = await transaction.accountRequest.updateMany({
-            where: {
-              id: request.id,
-              status: AccountRequestStatus.PENDING_APPROVAL,
-            },
-
-            data: {
-              status: AccountRequestStatus.APPROVED,
-              reviewedByAccountId: user.accountId,
-              reviewedAt,
-              rejectionReason: null,
-            },
-          });
-
-          if (reviewClaim.count !== 1) {
-            throw new ConflictException(
-              'This account request has already been reviewed.',
-            );
-          }
-
-          if (managementPositionId) {
-            /*
-             * Atomically change the official position from
-             * VACANT to RESERVED for this approved request.
-             */
-            const reservationClaim =
-              await transaction.managementPosition.updateMany({
-                where: {
-                  id: managementPositionId,
-                  isActive: true,
-                  reservedByAccountRequestId: null,
-
-                  assignments: {
-                    none: {
-                      endedAt: null,
-                    },
-                  },
-                },
-
-                data: {
-                  reservedByAccountRequestId: request.id,
-                },
-              });
-
-            if (reservationClaim.count !== 1) {
-              throw new ConflictException(
-                'The selected management position is no longer vacant.',
-              );
-            }
-          }
-
-          const employee = await transaction.employee.create({
-            data: {
-              empId,
-              empName,
-              phoneNumber,
-              officialEmail,
-              designation: request.designation,
-
-              /*
-               * Temporary legacy department text.
-               */
-              department: request.department.name,
-
-              status: EmployeeStatus.ACTIVE,
-              isActivated: false,
-
-              division: {
-                connect: {
-                  id: request.divisionId,
-                },
-              },
-
-              departmentUnit: {
-                connect: {
-                  id: request.departmentId,
-                },
-              },
-            },
-
-            select: {
-              id: true,
-              empId: true,
-              empName: true,
-              phoneNumber: true,
-              officialEmail: true,
-              divisionId: true,
-              departmentId: true,
-              department: true,
-              designation: true,
-              status: true,
-              isActivated: true,
-              createdAt: true,
-            },
-          });
-
-          const approvedRequest = await transaction.accountRequest.update({
-            where: {
-              id: request.id,
-            },
-
-            data: {
-              /*
-               * Keep the approved request aligned with the canonical identity
-               * written to Employee, including older request records.
-               */
-              empId,
-              empName,
-              phoneNumber,
-              officialEmail,
-              employeeId: employee.id,
-            },
-
-            select: {
-              id: true,
-              empId: true,
-              empName: true,
-              officialEmail: true,
-              requestedRole: true,
-              divisionId: true,
-              departmentId: true,
-              managementPositionId: true,
-              employeeId: true,
-              revisionNumber: true,
-              status: true,
-              ...activationEmailDeliverySelect,
-              rejectionReason: true,
-              submittedAt: true,
-              reviewedAt: true,
-              updatedAt: true,
-
-              division: {
-                select: {
-                  id: true,
-                  code: true,
-                  name: true,
-                },
-              },
-
-              department: {
-                select: {
-                  id: true,
-                  code: true,
-                  name: true,
-                },
-              },
-            },
-          });
-
-          await transaction.accountRequestAction.create({
-            data: {
-              accountRequestId: request.id,
-              actorAccountId: user.accountId,
-              action: AccountRequestActionType.APPROVED,
-              ipAddress,
-              userAgent,
-
-              metadata: {
-                employeeId: employee.id,
-                requestedRole: request.requestedRole,
-                divisionId: request.divisionId,
-                departmentId: request.departmentId,
-                managementPositionId,
-              },
-            },
-          });
-
-          const invitation =
-            await this.activationInvitationsService.queueInvitation(
-              transaction,
-              {
-                accountRequestId: request.id,
-                employeeId: employee.id,
-                actorAccountId: user.accountId,
-                source: 'SUPER_ADMIN_APPROVAL',
-                ipAddress,
-                userAgent,
-              },
-              preparedInvitation,
-            );
-
-          return {
-            approvedRequest,
-            employee,
-            invitation,
-            divisionName: request.division.name,
-            departmentName: request.department.name,
-          };
-        },
+    if (!this.isV3ProvisioningCandidate(provisioningCandidate)) {
+      throw new ConflictException(
+        'This historical account request must be reconciled to an Office and OrgUnit before approval.',
       );
-
-      /*
-       * The request and employee are already committed. Email failure changes
-       * only delivery state and must never reverse the approval decision.
-       */
-      const activationEmailDelivery =
-        await this.activationInvitationsService.deliverQueuedInvitation({
-          ...accountRequest.invitation,
-          employeeName: accountRequest.employee.empName,
-          employeeCode: accountRequest.employee.empId,
-          officialEmail: accountRequest.employee.officialEmail,
-          phoneNumber: accountRequest.employee.phoneNumber,
-          divisionName: accountRequest.divisionName,
-          departmentName: accountRequest.departmentName,
-          requestedRole: accountRequest.approvedRequest.requestedRole,
-        });
-
-      return {
-        message: 'Account request approved successfully.',
-        accountRequest: {
-          ...accountRequest.approvedRequest,
-          activationEmailStatus: activationEmailDelivery.status,
-          activationEmailLastAttemptAt: activationEmailDelivery.attemptedAt,
-          activationEmailSentAt: activationEmailDelivery.sentAt,
-          activationEmailFailureCategory:
-            activationEmailDelivery.failureCategory,
-        },
-        employee: accountRequest.employee,
-        activationEmailDelivery,
-      };
-    } catch (error: unknown) {
-      if (
-        typeof error === 'object' &&
-        error !== null &&
-        'code' in error &&
-        error.code === 'P2002'
-      ) {
-        throw new ConflictException(
-          'An employee with this employee ID, phone number, or official email already exists.',
-        );
-      }
-
-      throw error;
     }
+
+    return this.approveV3Request(user, id, metadata);
   }
 
   async resendActivationEmail(
@@ -2693,10 +1768,10 @@ export class AccountRequestsService {
     id: string,
     metadata: RequestMetadata,
   ) {
-    const requester =
-      user.role === AccountRole.SUPER_ADMIN
+    const requesterContext =
+      user.accountClass === AccountClass.SUPER_ADMIN
         ? null
-        : await this.getRequester(user);
+        : await this.requestAuthority.getCreatorContext(user);
 
     const now = new Date();
     const ipAddress = metadata.ipAddress?.slice(0, 45) || null;
@@ -2722,24 +1797,26 @@ export class AccountRequestsService {
           requestedRole: true,
           requestedByAccountId: true,
           status: true,
-          divisionId: true,
-          departmentId: true,
+          officeId: true,
+          intendedOrgUnitId: true,
           employeeId: true,
+          office: {
+            select: {
+              id: true,
+              name: true,
+              isActive: true,
+            },
+          },
+          intendedOrgUnit: {
+            select: {
+              id: true,
+              name: true,
+              officeId: true,
+              isActive: true,
+            },
+          },
           activationEmailStatus: true,
           activationEmailLastAttemptAt: true,
-          division: {
-            select: {
-              name: true,
-              isActive: true,
-            },
-          },
-          department: {
-            select: {
-              name: true,
-              divisionId: true,
-              isActive: true,
-            },
-          },
           employee: {
             select: {
               id: true,
@@ -2767,24 +1844,30 @@ export class AccountRequestsService {
 
       /*
        * Authorization is derived from authenticated and persisted records.
-       * No requester identity, role, division, or department from the browser
+       * No requester identity or organizational scope from the browser
        * is trusted for this decision.
        */
       const policyViolation = getActivationEmailResendPolicyViolation(
-        requester
+        requesterContext
           ? {
-              accountId: requester.id,
-              role: requester.role,
-              divisionId: requester.employee!.divisionId,
-              departmentId: requester.employee!.departmentId,
+              accountId: requesterContext.requester.id,
+              accountClass: AccountClass.OFFICE_USER,
+              officeId: requesterContext.office.id,
+              requestableOrgUnitIds: requesterContext.requestableOrgUnits.map(
+                (orgUnit) => orgUnit.id,
+              ),
             }
           : {
               accountId: user.accountId,
-              role: user.role,
-              divisionId: null,
-              departmentId: null,
+              accountClass: AccountClass.SUPER_ADMIN,
+              officeId: null,
+              requestableOrgUnitIds: [],
             },
-        request,
+        {
+          requestedByAccountId: request.requestedByAccountId,
+          officeId: request.officeId,
+          intendedOrgUnitId: request.intendedOrgUnitId,
+        },
       );
 
       if (policyViolation) {
@@ -2817,16 +1900,15 @@ export class AccountRequestsService {
         );
       }
 
-      if (
-        !request.divisionId ||
-        !request.division ||
-        !request.division.isActive ||
-        (request.departmentId
-          ? !request.department ||
-            !request.department.isActive ||
-            request.department.divisionId !== request.divisionId
-          : request.requestedRole !== AccountRole.SENIOR_MANAGEMENT)
-      ) {
+      const v3OrganizationEligible = Boolean(
+        request.officeId &&
+          request.intendedOrgUnitId &&
+          request.office?.isActive &&
+          request.intendedOrgUnit?.isActive &&
+          request.intendedOrgUnit.officeId === request.officeId,
+      );
+
+      if (!v3OrganizationEligible) {
         throw new ConflictException(
           'The request organization assignment is not eligible for activation.',
         );
@@ -2900,7 +1982,7 @@ export class AccountRequestsService {
           metadata: {
             source: 'AUTHORIZED_RESEND',
             authorization:
-              user.role === AccountRole.SUPER_ADMIN
+              user.accountClass === AccountClass.SUPER_ADMIN
                 ? 'SUPER_ADMIN'
                 : 'ORIGINAL_REQUESTER',
             employeeId: request.employee.id,
@@ -2920,8 +2002,8 @@ export class AccountRequestsService {
           requestedRole: request.requestedRole,
         },
         employee: request.employee,
-        divisionName: request.division.name,
-        departmentName: request.department?.name ?? null,
+        divisionName: request.office?.name ?? 'Not assigned',
+        departmentName: request.intendedOrgUnit?.name ?? null,
       };
     });
 
@@ -3110,9 +2192,6 @@ export class AccountRequestsService {
             lifecycleState: true,
             officeId: true,
             intendedOrgUnitId: true,
-            divisionId: true,
-            departmentId: true,
-            managementPositionId: true,
             employeeId: true,
             revisionNumber: true,
             status: true,
@@ -3121,22 +2200,6 @@ export class AccountRequestsService {
             submittedAt: true,
             reviewedAt: true,
             updatedAt: true,
-
-            division: {
-              select: {
-                id: true,
-                code: true,
-                name: true,
-              },
-            },
-
-            department: {
-              select: {
-                id: true,
-                code: true,
-                name: true,
-              },
-            },
 
             reviewedBy: {
               select: {
@@ -3211,9 +2274,6 @@ export class AccountRequestsService {
           empName: true,
           officialEmail: true,
           requestedRole: true,
-          divisionId: true,
-          departmentId: true,
-          managementPositionId: true,
           employeeId: true,
           revisionNumber: true,
           status: true,
@@ -3232,22 +2292,6 @@ export class AccountRequestsService {
                   id: true,
                 },
               },
-            },
-          },
-
-          division: {
-            select: {
-              id: true,
-              code: true,
-              name: true,
-            },
-          },
-
-          department: {
-            select: {
-              id: true,
-              code: true,
-              name: true,
             },
           },
         },
@@ -3315,21 +2359,6 @@ export class AccountRequestsService {
         );
       }
 
-      /*
-       * Release only the position reserved by this exact
-       * account request. Another request cannot be affected.
-       */
-      const reservationRelease =
-        await transaction.managementPosition.updateMany({
-          where: {
-            reservedByAccountRequestId: request.id,
-          },
-
-          data: {
-            reservedByAccountRequestId: null,
-          },
-        });
-
       let provisionalEmployeeDeleted = false;
 
       if (request.employee) {
@@ -3386,9 +2415,6 @@ export class AccountRequestsService {
             previousStatus: request.status,
 
             newStatus: AccountRequestStatus.REJECTED,
-
-            releasedReservation: reservationRelease.count === 1,
-
             provisionalEmployeeDeleted,
           },
         },
@@ -3405,9 +2431,6 @@ export class AccountRequestsService {
           empName: true,
           officialEmail: true,
           requestedRole: true,
-          divisionId: true,
-          departmentId: true,
-          managementPositionId: true,
           employeeId: true,
           revisionNumber: true,
           status: true,
@@ -3416,22 +2439,6 @@ export class AccountRequestsService {
           submittedAt: true,
           reviewedAt: true,
           updatedAt: true,
-
-          division: {
-            select: {
-              id: true,
-              code: true,
-              name: true,
-            },
-          },
-
-          department: {
-            select: {
-              id: true,
-              code: true,
-              name: true,
-            },
-          },
         },
       });
     });
@@ -3507,243 +2514,6 @@ export class AccountRequestsService {
     };
   }
 
-  async listDivisionEmployeeRequests(
-    user: AuthenticatedUser,
-    query: ListAccountRequestsQueryDto,
-  ) {
-    const requester = await this.getRequester(user);
-    const divisionId = requester.employee?.divisionId;
-
-    if (requester.role !== AccountRole.SENIOR_MANAGEMENT || !divisionId) {
-      throw new ForbiddenException(
-        'Only Senior Management can view employee requests inside its assigned division.',
-      );
-    }
-
-    const page = query.page;
-    const limit = query.limit;
-    const skip = (page - 1) * limit;
-
-    // The authenticated division is the security boundary. Frontend filters can only narrow it.
-    const where: Prisma.AccountRequestWhereInput = {
-      ...this.buildRequestListFilters(query),
-      requestedRole: AccountRole.EMPLOYEE,
-      divisionId,
-      requestedBy: {
-        is: {
-          role: AccountRole.TEAM_MANAGER,
-          employee: {
-            is: {
-              divisionId,
-            },
-          },
-        },
-      },
-    };
-
-    const [accountRequests, total] = await this.prisma.$transaction([
-      this.prisma.accountRequest.findMany({
-        where,
-        skip,
-        take: limit,
-
-        orderBy: {
-          createdAt: 'desc',
-        },
-
-        select: {
-          id: true,
-          empId: true,
-          empName: true,
-          officialEmail: true,
-          designation: true,
-          requestedRole: true,
-          managementPositionId: true,
-          revisionNumber: true,
-          status: true,
-          ...activationEmailDeliverySelect,
-          rejectionReason: true,
-          submittedAt: true,
-          reviewedAt: true,
-          createdAt: true,
-          updatedAt: true,
-
-          division: {
-            select: {
-              id: true,
-              code: true,
-              name: true,
-            },
-          },
-
-          department: {
-            select: {
-              id: true,
-              code: true,
-              name: true,
-            },
-          },
-
-          requestedBy: {
-            select: {
-              id: true,
-              username: true,
-              role: true,
-
-              employee: {
-                select: {
-                  empId: true,
-                  empName: true,
-                  officialEmail: true,
-                },
-              },
-            },
-          },
-
-          reviewedBy: {
-            select: {
-              id: true,
-              username: true,
-              role: true,
-            },
-          },
-        },
-      }),
-
-      this.prisma.accountRequest.count({
-        where,
-      }),
-    ]);
-
-    return {
-      data: accountRequests,
-      scope: {
-        divisionId,
-        requestedRole: AccountRole.EMPLOYEE,
-      },
-      pagination: {
-        page,
-        limit,
-        total,
-        totalPages: total === 0 ? 0 : Math.ceil(total / limit),
-      },
-    };
-  }
-
-  async getDivisionEmployeeRequest(user: AuthenticatedUser, id: string) {
-    const requester = await this.getRequester(user);
-    const divisionId = requester.employee?.divisionId;
-
-    if (requester.role !== AccountRole.SENIOR_MANAGEMENT || !divisionId) {
-      throw new ForbiddenException(
-        'Only Senior Management can view employee requests inside its assigned division.',
-      );
-    }
-
-    const accountRequest = await this.prisma.accountRequest.findFirst({
-      where: {
-        id,
-        requestedRole: AccountRole.EMPLOYEE,
-        divisionId,
-        requestedBy: {
-          is: {
-            role: AccountRole.TEAM_MANAGER,
-            employee: {
-              is: {
-                divisionId,
-              },
-            },
-          },
-        },
-      },
-
-      select: {
-        id: true,
-        empId: true,
-        empName: true,
-        phoneNumber: true,
-        officialEmail: true,
-        designation: true,
-        requestedRole: true,
-        divisionId: true,
-        departmentId: true,
-        managementPositionId: true,
-        employeeId: true,
-        previousRequestId: true,
-        revisionNumber: true,
-        status: true,
-        ...activationEmailDeliverySelect,
-        rejectionReason: true,
-        submittedAt: true,
-        reviewedAt: true,
-        createdAt: true,
-        updatedAt: true,
-
-        division: {
-          select: {
-            id: true,
-            code: true,
-            name: true,
-          },
-        },
-
-        department: {
-          select: {
-            id: true,
-            code: true,
-            name: true,
-          },
-        },
-
-        requestedBy: {
-          select: {
-            id: true,
-            username: true,
-            role: true,
-
-            employee: {
-              select: {
-                empId: true,
-                empName: true,
-                officialEmail: true,
-              },
-            },
-          },
-        },
-
-        reviewedBy: {
-          select: {
-            id: true,
-            username: true,
-            role: true,
-          },
-        },
-
-        actions: {
-          orderBy: {
-            createdAt: 'asc',
-          },
-
-          select: {
-            id: true,
-            action: true,
-            reason: true,
-            createdAt: true,
-          },
-        },
-      },
-    });
-
-    if (!accountRequest) {
-      throw new NotFoundException(
-        'The employee request was not found inside your assigned division.',
-      );
-    }
-
-    return {
-      accountRequest,
-    };
-  }
 
   async listMyRequests(
     user: AuthenticatedUser,
@@ -3775,7 +2545,6 @@ export class AccountRequestsService {
           officialEmail: true,
           designation: true,
           requestedRole: true,
-          managementPositionId: true,
           revisionNumber: true,
           status: true,
           ...activationEmailDeliverySelect,
@@ -3784,22 +2553,6 @@ export class AccountRequestsService {
           reviewedAt: true,
           createdAt: true,
           updatedAt: true,
-
-          division: {
-            select: {
-              id: true,
-              code: true,
-              name: true,
-            },
-          },
-
-          department: {
-            select: {
-              id: true,
-              code: true,
-              name: true,
-            },
-          },
 
           reviewedBy: {
             select: {
@@ -3843,9 +2596,6 @@ export class AccountRequestsService {
         officialEmail: true,
         designation: true,
         requestedRole: true,
-        divisionId: true,
-        departmentId: true,
-        managementPositionId: true,
         employeeId: true,
         previousRequestId: true,
         revisionNumber: true,
@@ -3856,22 +2606,6 @@ export class AccountRequestsService {
         reviewedAt: true,
         createdAt: true,
         updatedAt: true,
-
-        division: {
-          select: {
-            id: true,
-            code: true,
-            name: true,
-          },
-        },
-
-        department: {
-          select: {
-            id: true,
-            code: true,
-            name: true,
-          },
-        },
 
         reviewedBy: {
           select: {

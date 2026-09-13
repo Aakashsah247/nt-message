@@ -48,7 +48,9 @@
       "positions": "Management positions",
       "positionsDescription": "Inspect occupied, reserved and vacant positions.",
       "analytics": "View full analytics",
-      "analyticsDescription": "Open privacy-safe workforce and governance analytics."
+      "analyticsDescription": "Open privacy-safe workforce and governance analytics.",
+      "organization": "Organization & people",
+      "organizationDescription": "View the Office hierarchy, memberships and current leadership context."
     },
     "lifecycle": {
       "eyebrow": "Request lifecycle",
@@ -69,12 +71,30 @@
   },
   "accountRequest": {
     "status": {
-      "DRAFT": { "label": "Draft", "short": "Draft" },
-      "PENDING_APPROVAL": { "label": "Pending approval", "short": "Pending" },
-      "APPROVED": { "label": "Approved", "short": "Approved" },
-      "REJECTED": { "label": "Returned for correction", "short": "Correction" },
-      "ACTIVATION_PENDING": { "label": "Activation pending", "short": "Activating" },
-      "ACTIVATED": { "label": "Activated", "short": "Activated" }
+      "DRAFT": {
+        "label": "Draft",
+        "short": "Draft"
+      },
+      "PENDING_APPROVAL": {
+        "label": "Pending approval",
+        "short": "Pending"
+      },
+      "APPROVED": {
+        "label": "Approved",
+        "short": "Approved"
+      },
+      "REJECTED": {
+        "label": "Returned for correction",
+        "short": "Correction"
+      },
+      "ACTIVATION_PENDING": {
+        "label": "Activation pending",
+        "short": "Activating"
+      },
+      "ACTIVATED": {
+        "label": "Activated",
+        "short": "Activated"
+      }
     }
   },
   "roles": {

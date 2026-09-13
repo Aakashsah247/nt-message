@@ -22,10 +22,6 @@ export class CreateDutyCoverageRequirementDto {
   @IsUUID('4')
   orgUnitId?: string;
 
-  @IsOptional()
-  @IsUUID('4')
-  departmentId?: string;
-
   @IsUUID('4')
   shiftTemplateId!: string;
 

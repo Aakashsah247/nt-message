@@ -12,24 +12,18 @@ const superAdmin = {
   accountId: 'super-admin',
   role: AccountRole.SUPER_ADMIN,
   isOfficeHead: false,
-  divisionId: null,
-  departmentId: null,
 };
 
 const officeHead = {
   accountId: 'office-head',
   role: AccountRole.EMPLOYEE,
   isOfficeHead: true,
-  divisionId: null,
-  departmentId: null,
 };
 
 const delegatedEmployee = {
   accountId: 'delegated-employee',
   role: AccountRole.EMPLOYEE,
   isOfficeHead: false,
-  divisionId: null,
-  departmentId: null,
 };
 
 describe('announcement audience policy', () => {
@@ -37,8 +31,6 @@ describe('announcement audience policy', () => {
     expect(
       getAnnouncementAudiencePolicyViolation(superAdmin, {
         audienceType: AnnouncementAudienceType.OFFICE,
-        divisionId: null,
-        departmentId: null,
         officeId: 'office-a',
         orgUnitId: null,
       }),
@@ -49,8 +41,6 @@ describe('announcement audience policy', () => {
     expect(
       getAnnouncementAudiencePolicyViolation(delegatedEmployee, {
         audienceType: AnnouncementAudienceType.ORG_UNIT,
-        divisionId: null,
-        departmentId: null,
         officeId: 'office-a',
         orgUnitId: 'unit-a',
         includeDescendants: true,
@@ -61,8 +51,6 @@ describe('announcement audience policy', () => {
   it('requires an active official-group owner or admin role', () => {
     const audience = {
       audienceType: AnnouncementAudienceType.OFFICIAL_GROUP,
-      divisionId: null,
-      departmentId: null,
       officeId: 'office-a',
       orgUnitId: 'unit-a',
     };
@@ -108,7 +96,7 @@ describe('announcement creator mutation policy', () => {
     expect(
       canModifyAnnouncementByCreator(officeHead, {
         id: 'legacy-manager',
-        role: AccountRole.TEAM_MANAGER,
+        role: AccountRole.EMPLOYEE,
       }),
     ).toBe(true);
     expect(

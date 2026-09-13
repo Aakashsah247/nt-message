@@ -5,7 +5,6 @@ import {
   IsInt,
   IsOptional,
   IsString,
-  IsUUID,
   Max,
   MaxLength,
   Min,
@@ -22,18 +21,6 @@ export class ListEmployeesQueryDto {
   @IsOptional()
   @IsEnum(EmployeeStatus)
   status?: EmployeeStatus;
-
-  @IsOptional()
-  @IsUUID('4', {
-    message: 'Division ID must be a valid UUID.',
-  })
-  divisionId?: string;
-
-  @IsOptional()
-  @IsUUID('4', {
-    message: 'Department ID must be a valid UUID.',
-  })
-  departmentId?: string;
 
   @IsOptional()
   @Type(() => Number)

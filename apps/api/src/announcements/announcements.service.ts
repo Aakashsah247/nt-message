@@ -88,8 +88,6 @@ interface AnnouncementViewer extends AnnouncementPolicyViewer {
 }
 
 interface ResolvedAnnouncementAudience extends AnnouncementPolicyAudience {
-  divisionId: string | null;
-  departmentId: string | null;
   officeId: string;
   orgUnitId: string | null;
   includeDescendants: boolean;
@@ -117,25 +115,6 @@ const announcementAccountSelect = {
       employmentStatus: true,
       archivedAt: true,
       isActivated: true,
-      divisionId: true,
-      departmentId: true,
-      division: {
-        select: {
-          id: true,
-          code: true,
-          name: true,
-          isActive: true,
-        },
-      },
-      departmentUnit: {
-        select: {
-          id: true,
-          divisionId: true,
-          code: true,
-          name: true,
-          isActive: true,
-        },
-      },
     },
   },
 } satisfies Prisma.AccountSelect;
@@ -143,23 +122,6 @@ const announcementAccountSelect = {
 const announcementDetailInclude = {
   createdBy: {
     select: announcementAccountSelect,
-  },
-  division: {
-    select: {
-      id: true,
-      code: true,
-      name: true,
-      isActive: true,
-    },
-  },
-  department: {
-    select: {
-      id: true,
-      divisionId: true,
-      code: true,
-      name: true,
-      isActive: true,
-    },
   },
   office: {
     select: {
@@ -185,8 +147,6 @@ const announcementDetailInclude = {
       title: true,
       groupKind: true,
       officialScopeType: true,
-      officialDivisionId: true,
-      officialDepartmentId: true,
       officialOfficeId: true,
       officialOrgUnitId: true,
       officialMembershipMode: true,
@@ -394,10 +354,6 @@ export class AnnouncementsService implements OnModuleInit, OnModuleDestroy {
         canTargetOffice,
         office,
         orgUnits,
-        // Legacy arrays remain in the response contract until P12-I removes the
-        // old client surface. New announcement creation uses Office/OrgUnit.
-        divisions: [],
-        departments: [],
         officialGroups: authorizedOfficialGroups.map((group) => ({
           id: group.id,
           title: group.title ?? 'Official group',
@@ -430,8 +386,6 @@ export class AnnouncementsService implements OnModuleInit, OnModuleDestroy {
         data: {
           createdByAccountId: viewer.accountId,
           audienceType: audience.audienceType,
-          divisionId: audience.divisionId,
-          departmentId: audience.departmentId,
           officeId: audience.officeId,
           orgUnitId: audience.orgUnitId,
           includeDescendants: audience.includeDescendants,
@@ -780,10 +734,6 @@ export class AnnouncementsService implements OnModuleInit, OnModuleDestroy {
       ...(query.cursor ? { cursor: { id: query.cursor }, skip: 1 } : {}),
       include: {
         createdBy: { select: announcementAccountSelect },
-        division: { select: { id: true, code: true, name: true } },
-        department: {
-          select: { id: true, divisionId: true, code: true, name: true },
-        },
         office: { select: { id: true, code: true, name: true } },
         orgUnit: {
           select: {
@@ -1931,8 +1881,6 @@ export class AnnouncementsService implements OnModuleInit, OnModuleDestroy {
     viewer: AnnouncementViewer,
     input: {
       audienceType: AnnouncementAudienceType;
-      divisionId?: string;
-      departmentId?: string;
       officeId?: string;
       orgUnitId?: string;
       includeDescendants?: boolean;
@@ -1970,8 +1918,6 @@ export class AnnouncementsService implements OnModuleInit, OnModuleDestroy {
   private async resolveAudience(
     input: {
       audienceType: AnnouncementAudienceType;
-      divisionId?: string;
-      departmentId?: string;
       officeId?: string;
       orgUnitId?: string;
       includeDescendants?: boolean;
@@ -1982,8 +1928,6 @@ export class AnnouncementsService implements OnModuleInit, OnModuleDestroy {
     if (input.audienceType === AnnouncementAudienceType.OFFICE) {
       if (
         !input.officeId ||
-        input.divisionId ||
-        input.departmentId ||
         input.orgUnitId ||
         input.officialConversationId ||
         input.includeDescendants
@@ -2003,8 +1947,6 @@ export class AnnouncementsService implements OnModuleInit, OnModuleDestroy {
 
       return {
         audienceType: input.audienceType,
-        divisionId: null,
-        departmentId: null,
         officeId: office.id,
         orgUnitId: null,
         includeDescendants: false,
@@ -2017,8 +1959,6 @@ export class AnnouncementsService implements OnModuleInit, OnModuleDestroy {
       if (
         !input.officeId ||
         !input.orgUnitId ||
-        input.divisionId ||
-        input.departmentId ||
         input.officialConversationId
       ) {
         throw new BadRequestException(
@@ -2045,8 +1985,6 @@ export class AnnouncementsService implements OnModuleInit, OnModuleDestroy {
 
       return {
         audienceType: input.audienceType,
-        divisionId: null,
-        departmentId: null,
         officeId: orgUnit.officeId,
         orgUnitId: orgUnit.id,
         includeDescendants: input.includeDescendants ?? false,
@@ -2055,148 +1993,8 @@ export class AnnouncementsService implements OnModuleInit, OnModuleDestroy {
       };
     }
 
-    if (input.audienceType === AnnouncementAudienceType.ORGANIZATION) {
-      if (
-        input.divisionId ||
-        input.departmentId ||
-        input.officeId ||
-        input.orgUnitId ||
-        input.officialConversationId ||
-        input.includeDescendants
-      ) {
-        throw new BadRequestException(
-          'Organization announcements must not specify another audience target.',
-        );
-      }
-
-      return {
-        audienceType: input.audienceType,
-        divisionId: null,
-        departmentId: null,
-        officeId: this.requireViewerOffice(viewer),
-        orgUnitId: null,
-        includeDescendants: true,
-        officialConversationId: null,
-        label: 'Entire Office',
-      };
-    }
-
-    if (input.audienceType === AnnouncementAudienceType.DIVISION) {
-      if (
-        !input.divisionId ||
-        input.departmentId ||
-        input.officeId ||
-        input.orgUnitId ||
-        input.officialConversationId ||
-        input.includeDescendants
-      ) {
-        throw new BadRequestException(
-          'A division announcement requires exactly one division.',
-        );
-      }
-
-      const [division, mapping] = await Promise.all([
-        this.prisma.division.findFirst({
-          where: { id: input.divisionId, isActive: true },
-          select: { id: true, name: true },
-        }),
-        this.prisma.legacyOrgUnitMapping.findFirst({
-          where: {
-            legacyEntityType: 'DIVISION',
-            legacyEntityId: input.divisionId,
-          },
-          select: { officeId: true, orgUnitId: true },
-        }),
-      ]);
-
-      if (!division) {
-        throw new NotFoundException('Active announcement division was not found.');
-      }
-      if (!mapping) {
-        throw new ConflictException(
-          'The legacy announcement division is not mapped to the V3 hierarchy.',
-        );
-      }
-
-      await this.assertActiveV3Scope(mapping.officeId, mapping.orgUnitId);
-
-      return {
-        audienceType: input.audienceType,
-        divisionId: division.id,
-        departmentId: null,
-        officeId: mapping.officeId,
-        orgUnitId: mapping.orgUnitId,
-        includeDescendants: true,
-        officialConversationId: null,
-        label: division.name,
-      };
-    }
-
-    if (input.audienceType === AnnouncementAudienceType.DEPARTMENT) {
-      if (
-        !input.divisionId ||
-        !input.departmentId ||
-        input.officeId ||
-        input.orgUnitId ||
-        input.officialConversationId ||
-        input.includeDescendants
-      ) {
-        throw new BadRequestException(
-          'A department announcement requires its division and department.',
-        );
-      }
-
-      const [department, mapping] = await Promise.all([
-        this.prisma.department.findFirst({
-          where: {
-            id: input.departmentId,
-            divisionId: input.divisionId,
-            isActive: true,
-            division: { is: { isActive: true } },
-          },
-          select: {
-            id: true,
-            divisionId: true,
-            name: true,
-            division: { select: { name: true } },
-          },
-        }),
-        this.prisma.legacyOrgUnitMapping.findFirst({
-          where: {
-            legacyEntityType: 'DEPARTMENT',
-            legacyEntityId: input.departmentId,
-          },
-          select: { officeId: true, orgUnitId: true },
-        }),
-      ]);
-
-      if (!department) {
-        throw new NotFoundException('Active announcement department was not found.');
-      }
-      if (!mapping) {
-        throw new ConflictException(
-          'The legacy announcement department is not mapped to the V3 hierarchy.',
-        );
-      }
-
-      await this.assertActiveV3Scope(mapping.officeId, mapping.orgUnitId);
-
-      return {
-        audienceType: input.audienceType,
-        divisionId: department.divisionId,
-        departmentId: department.id,
-        officeId: mapping.officeId,
-        orgUnitId: mapping.orgUnitId,
-        includeDescendants: true,
-        officialConversationId: null,
-        label: `${department.division.name} / ${department.name}`,
-      };
-    }
-
     if (
       !input.officialConversationId ||
-      input.divisionId ||
-      input.departmentId ||
       input.officeId ||
       input.orgUnitId ||
       input.includeDescendants
@@ -2217,8 +2015,6 @@ export class AnnouncementsService implements OnModuleInit, OnModuleDestroy {
         id: true,
         title: true,
         officialScopeType: true,
-        officialDivisionId: true,
-        officialDepartmentId: true,
         officialOfficeId: true,
         officialOrgUnitId: true,
         officialMembershipMode: true,
@@ -2248,8 +2044,6 @@ export class AnnouncementsService implements OnModuleInit, OnModuleDestroy {
 
     return {
       audienceType: input.audienceType,
-      divisionId: null,
-      departmentId: null,
       officeId: group.officialOfficeId,
       orgUnitId: group.officialOrgUnitId,
       // Official-group recipients come from the synchronized group membership.
@@ -2257,8 +2051,6 @@ export class AnnouncementsService implements OnModuleInit, OnModuleDestroy {
       includeDescendants: false,
       officialConversationId: group.id,
       officialScopeType: group.officialScopeType,
-      officialDivisionId: group.officialDivisionId,
-      officialDepartmentId: group.officialDepartmentId,
       officialOfficeId: group.officialOfficeId,
       officialOrgUnitId: group.officialOrgUnitId,
       officialParticipantRole: group.participants[0]?.role ?? null,
@@ -2676,8 +2468,6 @@ export class AnnouncementsService implements OnModuleInit, OnModuleDestroy {
       officeId: primaryMembership?.officeId ?? null,
       primaryOrgUnitId: primaryMembership?.orgUnitId ?? null,
       isOfficeHead,
-      divisionId: account.employee?.divisionId ?? null,
-      departmentId: account.employee?.departmentId ?? null,
       displayName: this.displayName(account),
       isEnabled: account.isEnabled,
     };
@@ -2758,16 +2548,10 @@ export class AnnouncementsService implements OnModuleInit, OnModuleDestroy {
       : null;
     const policyAudience: AnnouncementPolicyAudience = {
       audienceType: announcement.audienceType,
-      divisionId: announcement.divisionId,
-      departmentId: announcement.departmentId,
       officeId: announcement.officeId,
       orgUnitId: announcement.orgUnitId,
       includeDescendants: announcement.includeDescendants,
       officialScopeType: announcement.officialConversation?.officialScopeType,
-      officialDivisionId:
-        announcement.officialConversation?.officialDivisionId,
-      officialDepartmentId:
-        announcement.officialConversation?.officialDepartmentId,
       officialOfficeId: announcement.officialConversation?.officialOfficeId,
       officialOrgUnitId: announcement.officialConversation?.officialOrgUnitId,
       officialParticipantRole: officialParticipant?.role ?? null,
@@ -2820,8 +2604,8 @@ export class AnnouncementsService implements OnModuleInit, OnModuleDestroy {
     id: string;
     isPinned: boolean;
     audienceType: AnnouncementAudienceType;
-    divisionId: string | null;
-    departmentId: string | null;
+    officeId: string | null;
+    orgUnitId: string | null;
     officialConversationId: string | null;
   }): Promise<void> {
     if (!announcement.isPinned) {
@@ -2835,8 +2619,6 @@ export class AnnouncementsService implements OnModuleInit, OnModuleDestroy {
         isPinned: true,
         OR: [{ expiresAt: null }, { expiresAt: { gt: new Date() } }],
         audienceType: announcement.audienceType,
-        divisionId: announcement.divisionId,
-        departmentId: announcement.departmentId,
         officialConversationId: announcement.officialConversationId,
       },
     });
@@ -2998,13 +2780,6 @@ export class AnnouncementsService implements OnModuleInit, OnModuleDestroy {
   private serializeAudience(announcement: {
     audienceType: AnnouncementAudienceType;
     includeDescendants: boolean;
-    division: { id: string; code: string; name: string } | null;
-    department: {
-      id: string;
-      divisionId: string;
-      code: string;
-      name: string;
-    } | null;
     office: { id: string; code: string; name: string } | null;
     orgUnit: {
       id: string;
@@ -3017,8 +2792,6 @@ export class AnnouncementsService implements OnModuleInit, OnModuleDestroy {
   }) {
     return {
       type: announcement.audienceType,
-      division: announcement.division,
-      department: announcement.department,
       office: announcement.office,
       orgUnit: announcement.orgUnit,
       includeDescendants: announcement.includeDescendants,
@@ -3103,8 +2876,6 @@ export class AnnouncementsService implements OnModuleInit, OnModuleDestroy {
   private safeAuditMetadata(announcement: {
     id: string;
     audienceType: AnnouncementAudienceType;
-    divisionId: string | null;
-    departmentId: string | null;
     officeId: string | null;
     orgUnitId: string | null;
     includeDescendants: boolean;
@@ -3121,12 +2892,6 @@ export class AnnouncementsService implements OnModuleInit, OnModuleDestroy {
       requiresAcknowledgement: announcement.requiresAcknowledgement,
     };
 
-    if (announcement.divisionId) {
-      metadata.divisionId = announcement.divisionId;
-    }
-    if (announcement.departmentId) {
-      metadata.departmentId = announcement.departmentId;
-    }
     if (announcement.officeId) {
       metadata.officeId = announcement.officeId;
     }
