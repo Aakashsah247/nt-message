@@ -38,7 +38,9 @@ test-results/
 generated/
 apps/api/src/generated/
 
-**/.env.localf
+# Local environment overrides (examples remain allowed by rules above)
+**/.env.local
+**/.env.*.local
 apps/api/storage/message-attachments/
 
 # TypeScript build cache
