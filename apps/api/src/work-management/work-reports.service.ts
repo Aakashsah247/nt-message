@@ -12,6 +12,8 @@ import {
   DutyExceptionType,
 } from '../generated/prisma/client';
 import type { Prisma } from '../generated/prisma/client';
+import { CAPABILITIES } from '../organization/organization-capabilities';
+import { OrganizationAuthorizationService } from '../organization/organization-authorization.service';
 import {
   ExportWorkReportQueryDto,
   WorkReportDataset,
@@ -60,9 +62,15 @@ export interface WorkReportDrilldownDutyRow {
   employee: string;
   employeeId: string | null;
   employeeRole: AccountRole;
+  designation: string | null;
   shift: string;
   orgUnit: { id: string; code: string; name: string } | null;
+  operationalTeam: { id: string; code: string; name: string } | null;
+  supervisor: string;
+  supervisorEmployeeId: string | null;
   reportingLocation: string;
+  notes: string | null;
+  status: 'Scheduled' | 'On Duty' | 'Past Schedule' | 'Cancelled';
   cancelledAt: string | null;
   cancellationReason: string | null;
 }
@@ -113,6 +121,7 @@ export class WorkReportsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly workScopeService: WorkScopeService,
+    private readonly authorization: OrganizationAuthorizationService,
   ) {}
 
   async getDrilldown(
@@ -126,13 +135,21 @@ export class WorkReportsService {
     }
 
     const actor = await this.workScopeService.resolveActorContext(user);
+    if (user.accountClass !== AccountClass.SUPER_ADMIN && actor.officeId) {
+      await this.authorization.assertCan(
+        user,
+        CAPABILITIES.REPORTS_VIEW,
+        query.officeId ?? actor.officeId,
+        null,
+      );
+    }
     const range = this.resolveRange(query);
     await this.assertReportFiltersInsideScope(actor, query);
 
     const page = query.page ?? 1;
     const limit = query.limit ?? 25;
     const [scopeLabel, duty, dutySummary] = await Promise.all([
-      this.resolveScopeLabel(actor),
+      this.resolveScopeLabel(actor, query),
       this.listDrilldownDutyRows(actor, range, query, page, limit),
       this.getDutyDrilldownSummary(actor, range, query),
     ]);
@@ -145,8 +162,8 @@ export class WorkReportsService {
         role: actor.role,
         type: this.getScopeType(actor),
         label: scopeLabel,
-        officeId: actor.officeId ?? null,
-        orgUnitId: actor.primaryOrgUnitId ?? null,
+        officeId: query.officeId ?? actor.officeId ?? null,
+        orgUnitId: query.orgUnitId ?? actor.primaryOrgUnitId ?? null,
       },
       period: {
         from: range.from,
@@ -175,6 +192,14 @@ export class WorkReportsService {
     }
 
     const actor = await this.workScopeService.resolveActorContext(user);
+    if (user.accountClass !== AccountClass.SUPER_ADMIN && actor.officeId) {
+      await this.authorization.assertCan(
+        user,
+        CAPABILITIES.REPORTS_EXPORT,
+        query.officeId ?? actor.officeId,
+        null,
+      );
+    }
     const range = this.resolveRange(query);
     await this.assertReportFiltersInsideScope(actor, query);
     return this.exportDutyAssignments(actor, range, query);
@@ -185,11 +210,11 @@ export class WorkReportsService {
     range: ReportRange,
     query: WorkReportQueryDto,
   ): Promise<WorkReportDrilldownResponse['dutySummary']> {
-    const baseDutyWhere = this.buildDutyWhere(actor, query);
+    const baseDutyWhere = await this.buildDutyWhere(actor, query);
     const periodWhere = {
       startsAt: { gte: range.start, lt: range.endExclusive },
     } satisfies Prisma.DutyAssignmentWhereInput;
-    const baseExceptionWhere = this.buildDutyExceptionWhere(actor, query);
+    const baseExceptionWhere = await this.buildDutyExceptionWhere(actor, query);
 
     const [scheduledRows, cancelled, leaveDays] = await Promise.all([
       this.prisma.dutyAssignment.findMany({
@@ -233,7 +258,7 @@ export class WorkReportsService {
     page: number,
     limit: number,
   ): Promise<WorkReportDrilldownResponse['sections']['duty']> {
-    const baseWhere = this.buildDutyWhere(actor, query);
+    const baseWhere = await this.buildDutyWhere(actor, query);
     const where: Prisma.DutyAssignmentWhereInput = {
       AND: [
         baseWhere,
@@ -258,12 +283,24 @@ export class WorkReportsService {
           cancellationReason: true,
           shiftName: true,
           orgUnit: { select: { id: true, code: true, name: true } },
+          operationalTeam: { select: { id: true, code: true, name: true } },
           shift: { select: { name: true } },
+          supervisor: {
+            select: {
+              username: true,
+              employee: {
+                select: { empName: true, empId: true, designation: true },
+              },
+            },
+          },
+          notes: true,
           employee: {
             select: {
               role: true,
               username: true,
-              employee: { select: { empName: true, empId: true } },
+              employee: {
+                select: { empName: true, empId: true, designation: true },
+              },
             },
           },
         },
@@ -282,9 +319,19 @@ export class WorkReportsService {
         employee: this.accountName(record.employee),
         employeeId: record.employee.employee?.empId ?? null,
         employeeRole: record.employee.role,
+        designation: record.employee.employee?.designation ?? null,
         shift: record.shift?.name ?? record.shiftName ?? 'Deleted shift',
         orgUnit: record.orgUnit,
+        operationalTeam: record.operationalTeam,
+        supervisor: this.accountName(record.supervisor),
+        supervisorEmployeeId: record.supervisor.employee?.empId ?? null,
         reportingLocation: record.reportingLocation,
+        notes: record.notes,
+        status: this.dutyStatus(
+          record.startsAt,
+          record.endsAt,
+          record.cancelledAt,
+        ),
         cancelledAt: record.cancelledAt?.toISOString() ?? null,
         cancellationReason: record.cancellationReason,
       })),
@@ -298,7 +345,7 @@ export class WorkReportsService {
   ): Promise<WorkReportExport> {
     const where: Prisma.DutyAssignmentWhereInput = {
       AND: [
-        this.buildDutyWhere(actor, query),
+        await this.buildDutyWhere(actor, query),
         { startsAt: { gte: range.start, lt: range.endExclusive } },
       ],
     };
@@ -318,10 +365,13 @@ export class WorkReportsService {
           shiftName: true,
           shift: { select: { name: true } },
           orgUnit: { select: { code: true, name: true } },
+          operationalTeam: { select: { code: true, name: true } },
           employee: {
             select: {
               username: true,
-              employee: { select: { empName: true, empId: true } },
+              employee: {
+                select: { empName: true, empId: true, designation: true },
+              },
             },
           },
           supervisor: {
@@ -339,10 +389,13 @@ export class WorkReportsService {
       [
         'Duty Date',
         'Employee',
+        'Employee ID',
+        'Designation',
         'Shift',
         'Starts At',
         'Ends At',
         'Org Unit',
+        'Operational Team',
         'Reporting Location',
         'Supervisor',
         'Status',
@@ -352,13 +405,18 @@ export class WorkReportsService {
       rows.map((row) => [
         this.formatKathmanduDate(row.dutyDate),
         this.accountName(row.employee),
+        row.employee.employee?.empId ?? '',
+        row.employee.employee?.designation ?? '',
         row.shift?.name ?? row.shiftName ?? 'Deleted shift',
         row.startsAt.toISOString(),
         row.endsAt.toISOString(),
         row.orgUnit ? `${row.orgUnit.code} - ${row.orgUnit.name}` : '',
+        row.operationalTeam
+          ? `${row.operationalTeam.code} - ${row.operationalTeam.name}`
+          : '',
         row.reportingLocation,
         this.accountName(row.supervisor),
-        row.cancelledAt ? 'Cancelled' : 'Scheduled',
+        this.dutyStatus(row.startsAt, row.endsAt, row.cancelledAt),
         row.cancellationReason ?? '',
         row.notes ?? '',
       ]),
@@ -366,111 +424,180 @@ export class WorkReportsService {
     );
   }
 
-  private buildDutyWhere(
+  private async buildDutyWhere(
     actor: WorkActorContext,
     query: WorkReportQueryDto,
-  ): Prisma.DutyAssignmentWhereInput {
-    const where: Prisma.DutyAssignmentWhereInput = {};
+  ): Promise<Prisma.DutyAssignmentWhereInput> {
+    const filters: Prisma.DutyAssignmentWhereInput[] = [];
     const hasManagementScope = this.hasV3ManagementAuthority(actor);
 
     if (actor.accountClass !== AccountClass.SUPER_ADMIN) {
       if (!hasManagementScope) {
-        where.employeeAccountId = actor.accountId;
+        filters.push({ employeeAccountId: actor.accountId });
       } else {
-        where.officeId = actor.officeId ?? '__missing_office__';
+        filters.push({ officeId: actor.officeId ?? '__missing_office__' });
         const visibleOrgUnitIds = actor.visibleOrgUnitIds ?? [];
         if (visibleOrgUnitIds.length > 0) {
-          where.orgUnitId = { in: visibleOrgUnitIds };
+          filters.push({ orgUnitId: { in: visibleOrgUnitIds } });
         }
       }
     }
 
-    if (query.officeId) where.officeId = query.officeId;
-    if (query.orgUnitId) where.orgUnitId = query.orgUnitId;
-    if (query.search?.trim()) {
-      const search = query.search.trim();
-      where.OR = [
-        { reportingLocation: { contains: search, mode: 'insensitive' } },
-        { shiftName: { contains: search, mode: 'insensitive' } },
-        { shift: { is: { name: { contains: search, mode: 'insensitive' } } } },
-        {
-          employee: {
-            is: { username: { contains: search, mode: 'insensitive' } },
+    if (query.officeId) filters.push({ officeId: query.officeId });
+    if (query.orgUnitId) {
+      const descendantIds = await this.descendantOrgUnitIds(query.orgUnitId);
+      filters.push({ orgUnitId: { in: descendantIds } });
+    }
+    if (query.operationalTeamId) {
+      filters.push({ operationalTeamId: query.operationalTeamId });
+    }
+
+    const search = query.search?.trim();
+    if (search) {
+      filters.push({
+        OR: [
+          { reportingLocation: { contains: search, mode: 'insensitive' } },
+          { notes: { contains: search, mode: 'insensitive' } },
+          { shiftName: { contains: search, mode: 'insensitive' } },
+          {
+            shift: { is: { name: { contains: search, mode: 'insensitive' } } },
           },
-        },
-        {
-          employee: {
-            is: {
-              employee: {
-                is: {
-                  OR: [
-                    { empName: { contains: search, mode: 'insensitive' } },
-                    { empId: { contains: search, mode: 'insensitive' } },
-                  ],
+          {
+            orgUnit: {
+              is: { name: { contains: search, mode: 'insensitive' } },
+            },
+          },
+          {
+            orgUnit: {
+              is: { code: { contains: search, mode: 'insensitive' } },
+            },
+          },
+          {
+            operationalTeam: {
+              is: { name: { contains: search, mode: 'insensitive' } },
+            },
+          },
+          {
+            operationalTeam: {
+              is: { code: { contains: search, mode: 'insensitive' } },
+            },
+          },
+          {
+            employee: {
+              is: { username: { contains: search, mode: 'insensitive' } },
+            },
+          },
+          {
+            employee: {
+              is: {
+                employee: {
+                  is: {
+                    OR: [
+                      { empName: { contains: search, mode: 'insensitive' } },
+                      { empId: { contains: search, mode: 'insensitive' } },
+                      {
+                        designation: { contains: search, mode: 'insensitive' },
+                      },
+                    ],
+                  },
                 },
               },
             },
           },
-        },
-      ];
+          {
+            supervisor: {
+              is: { username: { contains: search, mode: 'insensitive' } },
+            },
+          },
+          {
+            supervisor: {
+              is: {
+                employee: {
+                  is: {
+                    OR: [
+                      { empName: { contains: search, mode: 'insensitive' } },
+                      { empId: { contains: search, mode: 'insensitive' } },
+                    ],
+                  },
+                },
+              },
+            },
+          },
+        ],
+      });
     }
-    return where;
+
+    return filters.length > 0 ? { AND: filters } : {};
   }
 
-  private buildDutyExceptionWhere(
+  private async buildDutyExceptionWhere(
     actor: WorkActorContext,
     query: WorkReportQueryDto,
-  ): Prisma.DutyExceptionWhereInput {
-    const where: Prisma.DutyExceptionWhereInput = {};
+  ): Promise<Prisma.DutyExceptionWhereInput> {
+    const filters: Prisma.DutyExceptionWhereInput[] = [];
     const hasManagementScope = this.hasV3ManagementAuthority(actor);
 
     if (actor.accountClass !== AccountClass.SUPER_ADMIN) {
       if (!hasManagementScope) {
-        where.employeeAccountId = actor.accountId;
+        filters.push({ employeeAccountId: actor.accountId });
       } else {
-        where.officeId = actor.officeId ?? '__missing_office__';
+        filters.push({ officeId: actor.officeId ?? '__missing_office__' });
         const visibleOrgUnitIds = actor.visibleOrgUnitIds ?? [];
         if (visibleOrgUnitIds.length > 0) {
-          where.orgUnitId = { in: visibleOrgUnitIds };
+          filters.push({ orgUnitId: { in: visibleOrgUnitIds } });
         }
       }
     }
 
-    if (query.officeId) where.officeId = query.officeId;
-    if (query.orgUnitId) where.orgUnitId = query.orgUnitId;
+    if (query.officeId) filters.push({ officeId: query.officeId });
+    if (query.orgUnitId) {
+      const descendantIds = await this.descendantOrgUnitIds(query.orgUnitId);
+      filters.push({ orgUnitId: { in: descendantIds } });
+    }
     if (query.search?.trim()) {
       const search = query.search.trim();
-      where.OR = [
-        { note: { contains: search, mode: 'insensitive' } },
-        {
-          employee: {
-            is: { username: { contains: search, mode: 'insensitive' } },
+      filters.push({
+        OR: [
+          { note: { contains: search, mode: 'insensitive' } },
+          {
+            employee: {
+              is: { username: { contains: search, mode: 'insensitive' } },
+            },
           },
-        },
-        {
-          employee: {
-            is: {
-              employee: {
-                is: {
-                  OR: [
-                    { empName: { contains: search, mode: 'insensitive' } },
-                    { empId: { contains: search, mode: 'insensitive' } },
-                  ],
+          {
+            employee: {
+              is: {
+                employee: {
+                  is: {
+                    OR: [
+                      { empName: { contains: search, mode: 'insensitive' } },
+                      { empId: { contains: search, mode: 'insensitive' } },
+                      {
+                        designation: { contains: search, mode: 'insensitive' },
+                      },
+                    ],
+                  },
                 },
               },
             },
           },
-        },
-      ];
+        ],
+      });
     }
-    return where;
+
+    return filters.length > 0 ? { AND: filters } : {};
   }
 
   private async assertReportFiltersInsideScope(
     actor: WorkActorContext,
     query: WorkReportQueryDto,
   ): Promise<void> {
-    if (!query.officeId && !query.orgUnitId) return;
+    if (actor.accountClass === AccountClass.SUPER_ADMIN && !query.officeId) {
+      throw new BadRequestException(
+        'Select an Office before generating a Duty report.',
+      );
+    }
+    if (!query.officeId && !query.orgUnitId && !query.operationalTeamId) return;
 
     if (
       actor.accountClass !== AccountClass.SUPER_ADMIN &&
@@ -506,28 +633,86 @@ export class WorkReportsService {
       );
     }
 
-    if (!query.orgUnitId) return;
-    const orgUnit = await this.prisma.orgUnit.findFirst({
-      where: { id: query.orgUnitId, officeId, isActive: true },
-      select: { id: true },
-    });
-    if (!orgUnit) {
-      throw new ForbiddenException(
-        'The selected Org Unit is outside your authorized report scope.',
-      );
+    if (query.orgUnitId) {
+      const orgUnit = await this.prisma.orgUnit.findFirst({
+        where: { id: query.orgUnitId, officeId, isActive: true },
+        select: { id: true },
+      });
+      if (!orgUnit) {
+        throw new ForbiddenException(
+          'The selected Org Unit is outside your authorized report scope.',
+        );
+      }
+      if (
+        actor.accountClass !== AccountClass.SUPER_ADMIN &&
+        !(actor.visibleOrgUnitIds ?? []).includes(query.orgUnitId)
+      ) {
+        throw new ForbiddenException(
+          'The selected Org Unit is outside your authorized report scope.',
+        );
+      }
     }
-    if (
-      actor.accountClass !== AccountClass.SUPER_ADMIN &&
-      !(actor.visibleOrgUnitIds ?? []).includes(query.orgUnitId)
-    ) {
-      throw new ForbiddenException(
-        'The selected Org Unit is outside your authorized report scope.',
-      );
+
+    if (query.operationalTeamId) {
+      const team = await this.prisma.operationalTeam.findFirst({
+        where: {
+          id: query.operationalTeamId,
+          isActive: true,
+          orgUnit: { is: { officeId } },
+        },
+        select: { id: true, orgUnitId: true },
+      });
+      if (!team) {
+        throw new ForbiddenException(
+          'The selected Operational Team is outside your authorized report scope.',
+        );
+      }
+      const teamScopeIds = query.orgUnitId
+        ? await this.descendantOrgUnitIds(query.orgUnitId)
+        : (actor.visibleOrgUnitIds ?? []);
+      if (query.orgUnitId && !teamScopeIds.includes(team.orgUnitId)) {
+        throw new ForbiddenException(
+          'The selected Operational Team is outside the selected Org Unit subtree.',
+        );
+      }
+      if (
+        actor.accountClass !== AccountClass.SUPER_ADMIN &&
+        !query.orgUnitId &&
+        !teamScopeIds.includes(team.orgUnitId)
+      ) {
+        throw new ForbiddenException(
+          'The selected Operational Team is outside your authorized report scope.',
+        );
+      }
     }
   }
 
-  private async resolveScopeLabel(actor: WorkActorContext): Promise<string> {
-    if (actor.accountClass === AccountClass.SUPER_ADMIN) return 'Patan Branch';
+  private async resolveScopeLabel(
+    actor: WorkActorContext,
+    query: WorkReportQueryDto,
+  ): Promise<string> {
+    const officeId = query.officeId ?? actor.officeId ?? null;
+    if (query.orgUnitId) {
+      const orgUnit = await this.prisma.orgUnit.findUnique({
+        where: { id: query.orgUnitId },
+        select: { name: true },
+      });
+      if (orgUnit?.name) return orgUnit.name;
+    }
+
+    if (officeId) {
+      const office = await this.prisma.office.findUnique({
+        where: { id: officeId },
+        select: { name: true },
+      });
+      if (
+        office?.name &&
+        (actor.accountClass === AccountClass.SUPER_ADMIN ||
+          !actor.primaryOrgUnitId)
+      ) {
+        return office.name;
+      }
+    }
 
     if (this.hasV3ManagementAuthority(actor) && actor.officeId) {
       if (actor.primaryOrgUnitId) {
@@ -553,17 +738,35 @@ export class WorkReportsService {
 
   private hasV3ManagementAuthority(actor: WorkActorContext): boolean {
     if (actor.accountClass === AccountClass.SUPER_ADMIN) return true;
-    return (
-      (actor.assignableOrgUnitIds?.length ?? 0) > 0 ||
-      (actor.operationalTeamLeadIds?.length ?? 0) > 0
-    );
+    return (actor.assignableOrgUnitIds?.length ?? 0) > 0;
   }
 
   private getScopeType(actor: WorkActorContext): WorkReportScopeType {
-    if (actor.accountClass === AccountClass.SUPER_ADMIN) return 'ORGANIZATION';
+    if (actor.accountClass === AccountClass.SUPER_ADMIN) return 'OFFICE';
     if (!this.hasV3ManagementAuthority(actor)) return 'PERSONAL';
     if (actor.primaryOrgUnitId) return 'ORG_UNIT';
     return 'OFFICE';
+  }
+
+  private async descendantOrgUnitIds(orgUnitId: string): Promise<string[]> {
+    const rows = await this.prisma.orgUnitClosure.findMany({
+      where: { ancestorOrgUnitId: orgUnitId },
+      select: { descendantOrgUnitId: true },
+    });
+    const ids = rows.map((row) => row.descendantOrgUnitId);
+    return ids.length > 0 ? ids : [orgUnitId];
+  }
+
+  private dutyStatus(
+    startsAt: Date,
+    endsAt: Date,
+    cancelledAt: Date | null,
+  ): 'Scheduled' | 'On Duty' | 'Past Schedule' | 'Cancelled' {
+    if (cancelledAt) return 'Cancelled';
+    const now = new Date();
+    if (startsAt <= now && endsAt > now) return 'On Duty';
+    if (endsAt <= now) return 'Past Schedule';
+    return 'Scheduled';
   }
 
   private resolveRange(query: WorkReportQueryDto): ReportRange {
@@ -668,10 +871,7 @@ export class WorkReportsService {
       account.username && !account.username.includes('@')
         ? account.username
         : null;
-    const name = account.employee?.empName ?? safeUsername ?? 'NT Message user';
-    return account.employee?.empId
-      ? `${name} (${account.employee.empId})`
-      : name;
+    return account.employee?.empName ?? safeUsername ?? 'NT Message user';
   }
 
   private createCsvExport(

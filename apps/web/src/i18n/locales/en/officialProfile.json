@@ -1,6 +1,6 @@
 {
   "errors": {
-    "load": "Unable to load Super Admin official profile.",
+    "load": "Unable to load the official contact record.",
     "copy": "Copy was not supported by this browser."
   },
   "source": {
@@ -23,9 +23,9 @@
     "notRecorded": "Not recorded"
   },
   "hero": {
-    "eyebrow": "Official Super Admin profile",
-    "title": "Official identity and emergency contact",
-    "description": "System-managed contact information used for authorized governance and emergency workflows.",
+    "eyebrow": "Official contact",
+    "title": "Protected system contact",
+    "description": "Read-only system-managed contact information used for authorized administration and support workflows.",
     "profileStatus": "Profile status"
   },
   "state": {
@@ -40,7 +40,7 @@
     "locked": "Read-only",
     "profileAria": "{{name}} profile",
     "role": "Super Admin",
-    "description": "System-managed official profile"
+    "description": "System-managed administrative identity"
   },
   "contact": {
     "eyebrow": "Contact details",
@@ -63,7 +63,7 @@
     "status": "Status"
   },
   "notice": {
-    "title": "Protected official identity",
-    "description": "This profile is used only for authorized governance and emergency workflows. Changes must be made through secure system configuration."
+    "title": "Protected official contact",
+    "description": "This record is read-only in NT Message. Changes must be made through secure system configuration."
   }
 }

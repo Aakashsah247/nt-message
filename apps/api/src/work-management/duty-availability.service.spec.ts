@@ -80,8 +80,6 @@ describe('DutyAvailabilityService M20 Phase 5', () => {
       visibleOrgUnitIds: ['org-unit-a'],
       assignableOrgUnitIds: ['org-unit-a'],
       operationalTeamLeadIds: [],
-      divisionId: 'division-a',
-      departmentId: 'department-a',
     });
     jest
       .mocked(prisma.$transaction)
@@ -212,8 +210,6 @@ describe('DutyAvailabilityService M20 Phase 5', () => {
       visibleOrgUnitIds: ['org-unit-a'],
       assignableOrgUnitIds: ['org-unit-a'],
       operationalTeamLeadIds: [],
-      divisionId: null,
-      departmentId: null,
     });
     jest.mocked(prisma.orgUnit.findFirst).mockResolvedValue({
       id: 'org-unit-a',
@@ -258,8 +254,6 @@ describe('DutyAvailabilityService M20 Phase 5', () => {
       visibleOrgUnitIds: ['org-unit-a'],
       assignableOrgUnitIds: ['org-unit-a'],
       operationalTeamLeadIds: [],
-      divisionId: null,
-      departmentId: null,
     });
     await expect(
       service.listManagementHelpRecommendations(

@@ -26,8 +26,12 @@ import { AccessTokenGuard } from './guards/access-token.guard';
 import { PasswordManagementService } from './services/password-management.service';
 import { PasswordRecoveryService } from './services/password-recovery.service';
 import type { AuthenticatedUser } from './types/auth.types';
+import { CookieAuthOriginGuard } from '../security/cookie-auth-origin.guard';
+import { RateLimit } from '../security/rate-limit.decorator';
+import { RateLimitGuard } from '../security/rate-limit.guard';
 
 @Controller('auth')
+@UseGuards(RateLimitGuard)
 export class AuthController {
   private readonly cookieName: string;
   private readonly isProduction: boolean;
@@ -51,6 +55,12 @@ export class AuthController {
   }
 
   @Post('login')
+  @RateLimit({
+    scope: 'auth-login',
+    limit: 10,
+    windowMs: 15 * 60_000,
+    keys: ['ip', 'identity'],
+  })
   @HttpCode(HttpStatus.OK)
   async login(
     @Body()
@@ -86,6 +96,12 @@ export class AuthController {
   }
 
   @Post('admin/login')
+  @RateLimit({
+    scope: 'auth-admin-login',
+    limit: 8,
+    windowMs: 15 * 60_000,
+    keys: ['ip', 'identity'],
+  })
   @HttpCode(HttpStatus.OK)
   async adminLogin(
     @Body()
@@ -121,6 +137,12 @@ export class AuthController {
   }
 
   @Post('employee/login')
+  @RateLimit({
+    scope: 'auth-employee-login',
+    limit: 10,
+    windowMs: 15 * 60_000,
+    keys: ['ip', 'identity'],
+  })
   @HttpCode(HttpStatus.OK)
   async employeeLogin(
     @Body()
@@ -156,6 +178,13 @@ export class AuthController {
   }
 
   @Post('refresh')
+  @UseGuards(CookieAuthOriginGuard)
+  @RateLimit({
+    scope: 'auth-refresh',
+    limit: 120,
+    windowMs: 60_000,
+    keys: ['ip'],
+  })
   @HttpCode(HttpStatus.OK)
   async refresh(
     @Req()
@@ -186,6 +215,12 @@ export class AuthController {
   }
 
   @Post('forgot-password/request')
+  @RateLimit({
+    scope: 'password-reset-request',
+    limit: 5,
+    windowMs: 15 * 60_000,
+    keys: ['ip', 'identity'],
+  })
   @HttpCode(HttpStatus.OK)
   requestPasswordReset(
     @Body()
@@ -199,6 +234,12 @@ export class AuthController {
   }
 
   @Post('forgot-password/verify')
+  @RateLimit({
+    scope: 'password-reset-verify',
+    limit: 10,
+    windowMs: 15 * 60_000,
+    keys: ['ip', 'identity'],
+  })
   @HttpCode(HttpStatus.OK)
   verifyPasswordResetOtp(
     @Body()
@@ -211,6 +252,12 @@ export class AuthController {
   }
 
   @Post('forgot-password/complete')
+  @RateLimit({
+    scope: 'password-reset-complete',
+    limit: 5,
+    windowMs: 15 * 60_000,
+    keys: ['ip', 'identity'],
+  })
   @HttpCode(HttpStatus.OK)
   async completePasswordReset(
     @Body()
@@ -268,6 +315,7 @@ export class AuthController {
   }
 
   @Post('logout')
+  @UseGuards(CookieAuthOriginGuard)
   @HttpCode(HttpStatus.OK)
   async logout(
     @Req()

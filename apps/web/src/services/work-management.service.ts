@@ -27,6 +27,12 @@ import type {
   PendingWorkHelpRequestsResponse,
   WorkAvailabilityPreference,
   WorkMutationResponse,
+  WorkCreateContext,
+  CreateWorkInput,
+  CreateWorkResponse,
+  WorkItemDetail,
+  WorkItemListResponse,
+  WorkItemStatus,
 } from "../types/work-management";
 
 function authorizationHeaders(accessToken: string): HeadersInit {
@@ -69,6 +75,7 @@ function buildQueryString(
     | DutyAssignmentQuery
     | DutyRosterQuery
     | DutyCoverageRequirementQuery
+    | WorkItemQuery
     | Record<string, string | number | boolean | undefined>,
 ): string {
   const params = new URLSearchParams();
@@ -87,6 +94,76 @@ function buildQueryString(
   const value = params.toString();
   return value ? `?${value}` : "";
 }
+
+
+export interface WorkItemQuery {
+  view?: "ACTIVE" | "HISTORY";
+  page?: number;
+  limit?: number;
+  search?: string;
+  status?: WorkItemStatus;
+  workTypeVersionId?: string;
+  orgUnitId?: string;
+  operationalTeamId?: string;
+  assigneeAccountId?: string;
+}
+
+export function getWorkCreateContext(
+  accessToken: string,
+  officeId: string,
+): Promise<WorkCreateContext> {
+  return apiRequest<WorkCreateContext>(`/work-items/offices/${officeId}/create-context`, {
+    headers: authorizationHeaders(accessToken),
+  });
+}
+
+export function createWork(
+  accessToken: string,
+  officeId: string,
+  payload: CreateWorkInput,
+): Promise<CreateWorkResponse> {
+  return apiRequest<CreateWorkResponse>(`/work-items/offices/${officeId}`, {
+    method: "POST",
+    headers: authorizationHeaders(accessToken),
+    body: JSON.stringify(payload),
+  });
+}
+
+export function listWorkItems(
+  accessToken: string,
+  query: WorkItemQuery = {},
+): Promise<WorkItemListResponse> {
+  return apiRequest<WorkItemListResponse>(`/work-items${buildQueryString(query)}`, {
+    headers: authorizationHeaders(accessToken),
+  });
+}
+
+export function getWorkItem(accessToken: string, workItemId: string): Promise<WorkItemDetail> {
+  return apiRequest<WorkItemDetail>(`/work-items/${workItemId}`, {
+    headers: authorizationHeaders(accessToken),
+  });
+}
+
+function workMutation(accessToken: string, path: string, payload?: unknown): Promise<WorkMutationResponse> {
+  return apiRequest<WorkMutationResponse>(path, {
+    method: "POST",
+    headers: authorizationHeaders(accessToken),
+    ...(payload === undefined ? {} : { body: JSON.stringify(payload) }),
+  });
+}
+
+export const acknowledgeWork = (accessToken: string, id: string) => workMutation(accessToken, `/work-items/${id}/acknowledge`);
+export const startWork = (accessToken: string, id: string) => workMutation(accessToken, `/work-items/${id}/start`);
+export const submitWorkCompletion = (accessToken: string, id: string, payload: { result: string; summary: string; customerId?: string; rxLevelDbm?: number; fields?: Array<{ code: string; value: unknown }>; moreWorkRequired?: boolean }) => workMutation(accessToken, `/work-items/${id}/completion-reports`, payload);
+export const requestWorkCorrection = (accessToken: string, id: string, note: string) => workMutation(accessToken, `/work-items/${id}/review/request-information`, { note });
+export const approveWorkCompletion = (accessToken: string, id: string, note: string) => workMutation(accessToken, `/work-items/${id}/review/close`, { note });
+export const reopenWork = (accessToken: string, id: string, note: string) => workMutation(accessToken, `/work-items/${id}/review/reopen`, { note });
+export const cancelWork = (accessToken: string, id: string, reason: string) => workMutation(accessToken, `/work-items/${id}/cancel`, { reason });
+export const reassignWork = (accessToken: string, id: string, payload: { mainOperationalTeamId?: string; mainAssigneeAccountId?: string; reason: string }) => workMutation(accessToken, `/work-items/${id}/reassign`, payload);
+export const addWorkSupport = (accessToken: string, id: string, accountId: string, reason?: string) => workMutation(accessToken, `/work-items/${id}/support/add`, { accountId, reason });
+export const removeWorkSupport = (accessToken: string, id: string, accountId: string, reason?: string) => workMutation(accessToken, `/work-items/${id}/support/remove`, { accountId, reason });
+export const sendWorkToSales = (accessToken: string, id: string, note?: string) => workMutation(accessToken, `/work-items/${id}/sales/send`, { note });
+export const completeSalesWork = (accessToken: string, id: string, note?: string) => workMutation(accessToken, `/work-items/${id}/sales/complete`, { note });
 
 export function listPendingEmployeeHelpRequests(
   accessToken: string,

@@ -27,8 +27,8 @@ describe('Phase 13 checkpoint 20 runtime/schema cutover', () => {
     expect(
       source('src/work-management/work-lifecycle.service.ts'),
     ).not.toContain('requestedDepartmentId');
-    expect(
-      source('src/work-management/work-runtime-v3.service.ts'),
-    ).not.toMatch(/\btype:\s*null/);
+    expect(source('src/work-management/work-items.service.ts')).not.toMatch(
+      /\bruntimeStatus\b|V3_RUNTIME|WorkRuntimeV3/,
+    );
   });
 });

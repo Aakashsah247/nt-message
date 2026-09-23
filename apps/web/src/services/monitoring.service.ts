@@ -4,6 +4,7 @@ import type {
   MonitoringActivityLogsResponse,
   RecordActivityEventPayload,
   SuperAdminMonitoringResponse,
+  SystemAnalyticsRangeDays,
 } from "../types/monitoring";
 
 export function recordActivityEvent(
@@ -21,12 +22,16 @@ export function recordActivityEvent(
 
 export function getSuperAdminMonitoring(
   accessToken: string,
+  days: SystemAnalyticsRangeDays = 1,
 ): Promise<SuperAdminMonitoringResponse> {
-  return apiRequest<SuperAdminMonitoringResponse>("/monitoring/superadmin", {
-    headers: {
-      Authorization: `Bearer ${accessToken}`,
+  return apiRequest<SuperAdminMonitoringResponse>(
+    `/monitoring/superadmin?days=${days}`,
+    {
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+      },
     },
-  });
+  );
 }
 
 export function getSuperAdminActivityLogs(

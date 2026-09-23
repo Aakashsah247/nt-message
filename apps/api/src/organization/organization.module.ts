@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 
 import { AuthModule } from '../auth/auth.module';
+import { ActivationInvitationsModule } from '../activation-invitations/activation-invitations.module';
 
 import { OrganizationAuthorityService } from './organization-authority.service';
 import { OrganizationDelegationService } from './organization-delegation.service';
@@ -12,7 +13,7 @@ import { OrganizationPeopleController } from './organization-people.controller';
 import { OrganizationPeopleService } from './organization-people.service';
 
 @Module({
-  imports: [AuthModule],
+  imports: [AuthModule, ActivationInvitationsModule],
 
   controllers: [
     OrganizationHierarchyController,

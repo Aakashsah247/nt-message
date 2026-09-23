@@ -10,6 +10,7 @@ export interface OrganizationOfficeSummary {
     orgUnits: number;
     memberships: number;
   };
+  currentPeopleCount?: number;
 }
 
 export interface OrganizationUnitType {
@@ -53,7 +54,15 @@ export interface OrganizationUnitNode {
     childOrgUnits: number;
     leadershipAssignments: number;
   };
+  linkedRecordCount: number;
+  deletionProtected: boolean;
   children: OrganizationUnitNode[];
+}
+
+export interface OrganizationDeactivationBlockers {
+  activeChildUnits: number;
+  activeMemberships: number;
+  activeLeadershipAssignments: number;
 }
 
 export interface OrganizationAvailableActions {
@@ -61,6 +70,9 @@ export interface OrganizationAvailableActions {
   renameUnit: boolean;
   moveUnit: boolean;
   changeUnitStatus: boolean;
+  deactivationBlockers: OrganizationDeactivationBlockers;
+  deleteUnit: boolean;
+  deleteBlockers: string[];
 }
 
 export interface OrganizationActionContext {
@@ -75,6 +87,11 @@ export interface OrganizationNavigationContextResponse {
   mode: OrganizationNavigationMode;
   officeIds: string[];
   manageableOfficeIds: string[];
+}
+
+export interface OrganizationOfficeHeadContextResponse {
+  isOfficeHead: boolean;
+  officeIds: string[];
 }
 
 export interface OrganizationOfficeListResponse {
@@ -118,6 +135,15 @@ export interface OrganizationUnitMutationResponse {
   orgUnit: OrganizationUnitNode;
 }
 
+export interface DeleteOrganizationUnitResponse {
+  message: string;
+  deletedOrgUnit: {
+    id: string;
+    code: string;
+    name: string;
+  };
+}
+
 export type OrganizationMembershipType =
   | "PRIMARY"
   | "SECONDARY"
@@ -152,6 +178,7 @@ export interface OrganizationPersonSummary {
     empId: string;
     empName: string;
     designation: string | null;
+    profilePhotoKey: string | null;
     status: string;
     employmentStatus: string;
     isActivated: boolean;
@@ -285,6 +312,7 @@ export interface OrganizationLeadershipRecord {
     empId: string;
     empName: string;
     designation: string | null;
+    profilePhotoKey: string | null;
   };
   orgUnit: {
     id: string;
@@ -356,6 +384,17 @@ export type OrganizationDelegationCapability =
   | "leadership.assign_deputy"
   | "users.request_create";
 
+export type OrganizationSharedResponsibility =
+  | "shared.organization_directory_view"
+  | "shared.organization_management"
+  | "shared.work_management"
+  | "shared.work_type_management"
+  | "shared.duty_roster_management"
+  | "shared.team_management"
+  | "shared.reports_export"
+  | "shared.account_request_coordination"
+  | "shared.official_communication_management";
+
 export interface OrganizationDelegationCandidate {
   accountId: string;
   username: string;
@@ -375,7 +414,7 @@ export interface OrganizationDelegationContextResponse {
   orgUnitId: string | null;
   includeDescendants: boolean;
   hasDelegationAuthority: boolean;
-  availableCapabilities: OrganizationDelegationCapability[];
+  availableResponsibilities: OrganizationSharedResponsibility[];
   candidates: OrganizationDelegationCandidate[];
 }
 
@@ -428,7 +467,7 @@ export interface OrganizationDelegationListResponse {
 
 export interface CreateOrganizationDelegationInput {
   granteeAccountId: string;
-  capability: OrganizationDelegationCapability;
+  capability: OrganizationSharedResponsibility;
   orgUnitId?: string | null;
   includeDescendants?: boolean;
   canRedelegate?: boolean;
@@ -456,4 +495,75 @@ export interface OrganizationDelegationMutationResponse {
     effectiveUntil: string | null;
     revokedAt: string | null;
   };
+}
+
+export interface CreateOrganizationOfficeInput { code: string; name: string; }
+export interface CreateOrganizationOfficeResponse { message: string; office: OrganizationOfficeSummary; }
+export interface AssignOfficeHeadInput { employeeId: string; effectiveFrom?: string; reason: string; }
+export interface ReplaceOfficeHeadInput { employeeId: string; effectiveAt?: string; reason: string; }
+export interface CreateOfficeHeadAccountInput { empId: string; empName: string; phoneNumber: string; officialEmail: string; designation: string; reason: string; replaceCurrent?: boolean; effectiveFrom?: string; }
+export interface ReplaceOfficeHeadResponse { message: string; previousAssignmentId: string; assignment: { id: string; employeeId: string; officeId: string; orgUnitId: string | null; leadershipType: OrganizationLeadershipType; effectiveFrom: string; effectiveUntil: string | null }; }
+export interface CreateOfficeHeadAccountResponse { message: string; employee: { id: string; empId: string; empName: string; phoneNumber: string; officialEmail: string; designation: string | null }; assignment: { id: string; employeeId: string; officeId: string; leadershipType: OrganizationLeadershipType }; activationEmailDelivery: { status: string; attemptedAt: string; sentAt: string | null; failureCategory: string | null }; }
+
+
+export type OrganizationWorkspaceAuthorityKind =
+  | "SUPER_ADMIN"
+  | "OFFICE_HEAD"
+  | "ORGANIZATION_HEAD"
+  | "ORG_UNIT_HEAD"
+  | "EMPLOYEE";
+
+export interface OrganizationWorkspaceFeatures {
+  dashboard: boolean;
+  directory: boolean;
+  organizationView: boolean;
+  organizationManage: boolean;
+  accountRequests: boolean;
+  workManagement: boolean;
+  myWork: boolean;
+  dutyRoster: boolean;
+  myDuty: boolean;
+  teamManagement: boolean;
+  reports: boolean;
+  workTypes: boolean;
+  messages: boolean;
+  settings: boolean;
+  emergency: boolean;
+  workOversight: boolean;
+}
+
+export type OrganizationWorkspaceFeature = keyof OrganizationWorkspaceFeatures;
+
+export interface OrganizationWorkspaceContext {
+  primaryPlacement: {
+    office: {
+      id: string;
+      code: string;
+      name: string;
+    };
+    orgUnit: {
+      id: string;
+      code: string;
+      name: string;
+      orgUnitType: {
+        id: string;
+        code: string;
+        name: string;
+      };
+    } | null;
+  } | null;
+  authority: {
+    kind: OrganizationWorkspaceAuthorityKind;
+    isOfficeHead: boolean;
+    isOrganizationHead: boolean;
+    isOrgUnitHead: boolean;
+    isOperationalTeamLead: boolean;
+  };
+  scope: {
+    officeIds: string[];
+    headedOrgUnitIds: string[];
+    topLevelHeadedOrgUnitIds: string[];
+    operationalTeamLeadIds: string[];
+  };
+  features: OrganizationWorkspaceFeatures;
 }

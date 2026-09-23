@@ -1,11 +1,9 @@
+import { readMessageAppRuntimeSourceSync } from "./message-app-runtime-source.mjs";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
 
-const messagePage = readFileSync(
-  new URL("../src/pages/MessageAppPage.tsx", import.meta.url),
-  "utf8",
-);
+const messagePage = readMessageAppRuntimeSourceSync();
 
 test("P12-L keeps communication management controls backend-authoritative", () => {
   assert.match(

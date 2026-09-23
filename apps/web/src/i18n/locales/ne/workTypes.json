@@ -16,7 +16,7 @@
   "filters": {
     "office": "कार्यालय",
     "search": "कार्य प्रकार खोज्नुहोस्",
-    "searchPlaceholder": "नाम, कोड वा पुरानो प्रकार"
+    "searchPlaceholder": "नाम वा कोड"
   },
   "list": {
     "aria": "कार्य प्रकार सूची"
@@ -226,5 +226,272 @@
     "DRAFT": "ड्राफ्ट",
     "PUBLISHED": "प्रकाशित",
     "RETIRED": "निवृत्त"
+  },
+  "simple": {
+    "eyebrow": "Work Types",
+    "title": "Work Types",
+    "description": "Set up the types of Work used by your Office.",
+    "office": "Office",
+    "addWorkType": "+ Add Work Type",
+    "loading": "Loading Work Types…",
+    "search": "Search Work Types",
+    "searchPlaceholder": "Search by name",
+    "viewRemoved": "View removed",
+    "backToWorkTypes": "Back to Work Types",
+    "removedEmpty": "No removed Work Types",
+    "removedEmptyDescription": "Deleted Work Types will appear here and can be restored.",
+    "empty": "No Work Types found",
+    "emptyDescription": "Add a Work Type to get started.",
+    "open": "Open",
+    "restore": "Restore",
+    "cancel": "Cancel",
+    "save": "Save",
+    "remove": "Remove",
+    "delete": "Delete Work Type",
+    "deleteConfirm": "Confirm delete",
+    "discardChanges": "Discard changes",
+    "discardConfirm": "Confirm discard",
+    "setupNavigation": "Work Type setup",
+    "changeNeeded": "Start changes before editing this Work Type.",
+    "changeReasonPlaceholder": "What needs to change?",
+    "startChanges": "Start changes",
+    "noDescription": "No description added.",
+    "history": "Previous versions",
+    "historyReady": "Available",
+    "historyChanges": "Changes",
+    "historyOlder": "Older version",
+    "status": {
+      "ready": "Ready to use",
+      "setup": "Needs setup",
+      "changes": "Changes not active yet"
+    },
+    "new": {
+      "title": "Add Work Type",
+      "description": "Give the Work Type a clear name and short description. You can set up its form, steps and rules next.",
+      "name": "Work Type name",
+      "descriptionLabel": "Description",
+      "create": "Create Work Type"
+    },
+    "tabs": {
+      "details": "विवरण",
+      "assignment": "जिम्मेवारी",
+      "information": "जानकारी",
+      "workflow": "कार्यप्रवाह",
+      "rules": "नियम",
+      "review": "समीक्षा र प्रकाशन"
+    },
+    "details": {
+      "title": "Details",
+      "description": "Keep the name and description clear for the people who will use this Work Type.",
+      "name": "Name",
+      "descriptionLabel": "Description"
+    },
+    "makeAvailable": {
+      "title": "Make this Work Type available",
+      "description": "Changes affect new Work only. Existing Work keeps its original rules.",
+      "action": "Make available",
+      "confirm": "Confirm and make available",
+      "notReady": "यो कार्य प्रकार उपलब्ध गराउनु अघि यी कुरा पूरा गर्नुहोस्:"
+    },
+    "form": {
+      "title": "Form",
+      "description": "These are the questions shown when someone creates this Work Type.",
+      "add": "+ Add field",
+      "empty": "No questions yet",
+      "emptyDescription": "Add only the information people need to create this Work.",
+      "question": "Question",
+      "answerType": "Answer type",
+      "required": "Required",
+      "collectedDuring": "कहिले भर्ने",
+      "whenCreated": "कार्य सिर्जना गर्दा",
+      "options": "विकल्पहरू",
+      "optionsPlaceholder": "Choice हरू एक-एक गरी थप्नुहोस्",
+      "minimum": "न्यूनतम",
+      "maximum": "अधिकतम",
+      "maxLength": "अधिकतम लम्बाइ",
+      "attachmentOptional": "आवश्यक फाइल र तस्बिर कार्य चरणमा सङ्कलन गरिन्छ।",
+      "addChoice": "+ Choice थप्नुहोस्",
+      "moveUp": "Choice माथि सार्नुहोस्",
+      "moveDown": "Choice तल सार्नुहोस्",
+      "allowOther": "Other / custom value अनुमति दिनुहोस्",
+      "otherLabel": "Other को label",
+      "whenCompleted": "कार्य पूरा गर्दा",
+      "whenCreatedAndCompleted": "कार्य सिर्जना + पूरा गर्दा",
+      "completionBehavior": "पूरा गर्दा",
+      "recallReadOnly": "पहिलेको मान देखाउनुहोस् (परिवर्तन गर्न नमिल्ने)",
+      "recallEditable": "पहिलेको मान देखाएर सुधार गर्न दिनुहोस्",
+      "workStep": "कार्य चरण"
+    },
+    "steps": {
+      "title": "Work steps",
+      "description": "Set the steps people follow to finish this Work.",
+      "add": "+ Add step",
+      "name": "Step name",
+      "handledBy": "Handled by",
+      "assignedTo": "Assigned to",
+      "approvedBy": "Approved by",
+      "required": "Required step",
+      "executionName": "कार्य कार्यान्वयन",
+      "executionBadge": "कार्यान्वयन चरण",
+      "organization": "संगठन एकाइ",
+      "approvalLeadership": "अनुमोदन नेतृत्व",
+      "executionApprovalHelp": "कार्यान्वयन चरणमा छुट्टै अनुमोदन हुँदैन। अन्तिम समीक्षा जिम्मेवार समीक्षकले गर्छ।"
+    },
+    "rules": {
+      "title": "Rules",
+      "description": "Choose who owns this Work, who can create it and when it is complete.",
+      "owner": "Who handles this Work?",
+      "selectOwner": "Select organization unit",
+      "whoCanCreate": "Who can create this Work?",
+      "close": "When is the Work closed?",
+      "timeLimit": "Time limit (minutes)",
+      "optionalMinutes": "Optional",
+      "moreOptions": "More options",
+      "creatorScope": "Creator area",
+      "slaBasis": "Time calculation",
+      "finalReview": "अन्तिम समीक्षा",
+      "responsibleReviewer": "प्रत्येक कार्यका लागि जिम्मेवार समीक्षक",
+      "responsibleReviewerHelp": "समीक्षक मुख्य टोली वा प्राथमिक मालिकको पदानुक्रममा सक्रिय प्रमुख हुनुपर्छ र कार्य सिर्जना गर्दा छनोट गरिन्छ।",
+      "creatorOrganizations": "अनुमति प्राप्त संगठन एकाइहरू",
+      "includeDescendants": "बाल एकाइहरू समावेश गर्नुहोस्"
+    },
+    "creator": {
+      "OFFICE_HEAD": "Office Head",
+      "ORG_UNIT_HEAD": "Division / Department / Section / Unit Heads",
+      "TEAM_LEAD": "Team Leads",
+      "EMPLOYEE": "Employees"
+    },
+    "creatorScope": {
+      "OFFICE_WIDE": "Whole Office",
+      "PRIMARY_OWNER_SUBTREE": "Owner's branch",
+      "SPECIFIC_ORG_UNITS": "Selected organization units"
+    },
+    "closure": {
+      "AUTO_AFTER_REQUIRED_STAGES": "After all required steps",
+      "PRIMARY_OWNER_HEAD": "Owner Head approval",
+      "SPECIFIC_LEADERSHIP": "Selected Head approval",
+      "OFFICE_HEAD": "Office Head approval"
+    },
+    "sla": {
+      "CALENDAR_DURATION": "Calendar time",
+      "OFFICE_WORKING_DURATION": "Office working time"
+    },
+    "responsibility": {
+      "PRIMARY_OWNER": "Primary owner",
+      "SPECIFIC_ORG_UNIT": "Selected organization unit",
+      "RUNTIME_REQUESTED_PARTICIPANT": "Selected when Work is created"
+    },
+    "assignment": {
+      "ORG_UNIT_QUEUE": "Organization queue",
+      "TEAM": "Team",
+      "INDIVIDUAL": "Person",
+      "ORG_UNIT_OR_TEAM": "Organization unit or team",
+      "ORG_UNIT_OR_USER": "Organization unit or person",
+      "RESPONSIBLE_ORG_UNIT_HEAD": "Organization Head",
+      "TEAM_OR_USER": "Team वा Individual"
+    },
+    "approval": {
+      "NONE": "No approval",
+      "RESPONSIBLE_ORG_UNIT_HEAD": "Organization Head",
+      "TEAM_LEAD": "Team Lead",
+      "SPECIFIC_LEADERSHIP": "Selected Head",
+      "OFFICE_HEAD": "Office Head"
+    },
+    "fieldTypes": {
+      "TEXT": "Text",
+      "LONG_TEXT": "Long text",
+      "NUMBER": "Number",
+      "DECIMAL": "Decimal",
+      "DATE": "Date",
+      "DATETIME": "Date and time",
+      "BOOLEAN": "Yes / No",
+      "SELECT": "Single choice",
+      "MULTI_SELECT": "Multiple choice",
+      "USER": "Person",
+      "ORG_UNIT": "Organization unit",
+      "REFERENCE": "Reference",
+      "IMAGE": "Image",
+      "FILE": "File"
+    },
+    "errors": {
+      "create": "Could not create the Work Type.",
+      "remove": "Could not delete the Work Type.",
+      "restore": "Could not restore the Work Type."
+    },
+    "messages": {
+      "restored": "Work Type restored."
+    },
+    "assignmentSection": {
+      "title": "जिम्मेवारी",
+      "description": "मुख्य Work कुन संगठनको हो र कसरी कार्यान्वयन हुन्छ छान्नुहोस्।",
+      "owner": "जिम्मेवार संगठन",
+      "selectOwner": "संगठन एकाइ छान्नुहोस्",
+      "performer": "मुख्य Work कसले गर्छ?",
+      "performerHelp": "Work सिर्जना गर्दा प्रयोग हुने कार्यान्वयन मोड छान्नुहोस्।",
+      "executionMissing": "जिम्मेवारी सेट गर्नु अघि आवश्यक Work execution step थप्नुहोस्।",
+      "supportTitle": "Support र cross-organization सहयोग स्वतः उपलब्ध हुन्छ",
+      "supportHelp": "Support Members, Need Help र अन्य सहभागी संगठन common Work foundation बाट आउँछन्; प्रत्येक Work Type मा फेरि सेट गर्नुपर्दैन।",
+      "help": {
+        "ORG_UNIT_QUEUE": "Work जिम्मेवार संगठनको queue मा सुरु हुन्छ।",
+        "TEAM": "Work सिर्जना गर्दा Main Team छानिन्छ।",
+        "ORG_UNIT_OR_TEAM": "Work संगठन queue वा Main Team मा दिन सकिन्छ।",
+        "ORG_UNIT_OR_USER": "Work संगठन वा व्यक्तिगत कर्मचारीलाई दिन सकिन्छ।",
+        "TEAM_OR_USER": "Work सिर्जना गर्दा Main Team वा एक जना कर्मचारीमध्ये एक छान्न सकिन्छ।"
+      }
+    },
+    "information": {
+      "title": "जानकारी",
+      "description": "यस Work Type का लागि फरक पर्ने business जानकारी मात्र सेट गर्नुहोस् र प्रत्येक field कहिले भरिने हो छान्नुहोस्।",
+      "creationForm": "Creation Form",
+      "executionForm": "Work Execution Form",
+      "stageForms": "थप stage forms",
+      "foundationNote": "Start Work, Need Help, Support Members, notes, evidence र final review common Work foundation बाट स्वतः उपलब्ध हुन्छन्।",
+      "commonCompletionEyebrow": "साझा समापन",
+      "commonCompletionTitle": "हरेक Work Type मा स्वतः समावेश हुन्छ",
+      "commonCompletionDescription": "यी आवश्यक समापन प्रश्नहरू Work foundation को भाग हुन्। काम समाप्त गर्दा कर्मचारीलाई स्वतः देखाइन्छ र कुनै Work Type बाट हटाउन मिल्दैन।",
+      "alwaysIncluded": "सधैं समावेश",
+      "workResultTitle": "कार्य नतिजा *",
+      "workResultValues": "काम सम्पन्न भयो / अस्थायी काम भयो / काम पूरा गर्न सकिएन",
+      "summaryTitle": "तपाईंले के गर्नुभयो? *",
+      "summaryRequired": "समीक्षाका लागि पठाउनुअघि कर्मचारीले गरेको कामको विवरण लेख्नुपर्छ।",
+      "moreWorkTitle": "अझै थप काम आवश्यक छ? *",
+      "moreWorkValues": "हो / होइन",
+      "creationAndCompletionForm": "सिर्जना + समाप्ति"
+    },
+    "workflow": {
+      "title": "कार्यप्रवाह",
+      "description": "थप संगठन steps र तिनको क्रम सेट गर्नुहोस्। मुख्य execution step common Work foundation को भाग हो।",
+      "presets": "छिटो workflow setup",
+      "presetsHelp": "Preset बाट सुरु गरेर आवश्यक कुरा मात्र परिवर्तन गर्नुहोस्।",
+      "currentSetup": "हालको setup:",
+      "customSetup": "Custom workflow",
+      "preset": {
+        "STANDARD_TEAM": "Standard Team Work",
+        "TEAM_SALES": "Team + Sales",
+        "ADMINISTRATIVE": "Administrative Team / Individual"
+      },
+      "additionalStep": "थप step",
+      "dependencies": "Step क्रम",
+      "dependenciesHelp": "कुन step पूरा भएपछि अर्को step अगाडि बढ्छ सेट गर्नुहोस्।",
+      "addDependency": "+ Dependency थप्नुहोस्",
+      "noDependencies": "कुनै step dependency सेट गरिएको छैन।",
+      "waitsFor": "पछि चल्छ"
+    },
+    "review": {
+      "title": "समीक्षा र प्रकाशन",
+      "description": "उपलब्ध गराउनु अघि Work Type लाई सरल business भाषामा जाँच्नुहोस्। पुरानो Work ले आफ्नै version कायम राख्छ।",
+      "owner": "जिम्मेवार संगठन",
+      "performer": "मुख्य execution",
+      "creationFields": "Creation fields",
+      "steps": "Work steps",
+      "creators": "कसले सिर्जना गर्न सक्छ",
+      "sla": "Due-time नियम",
+      "minutes": "मिनेट",
+      "defaultSla": "Default: 4 घण्टा",
+      "notSet": "सेट गरिएको छैन",
+      "foundationTitle": "Common Work controls स्वतः समावेश हुन्छन्",
+      "foundationHelp": "Start Work, Need Help, Support Members, notes, evidence, completion controls, Responsible Reviewer, Return for Correction, Approve & Complete, history, automatic Registered/Due time र AD/BS platform-owned हुन्।",
+      "ready": "यो Work Type प्रकाशनका लागि तयार छ।"
+    }
   }
 }

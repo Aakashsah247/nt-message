@@ -41,7 +41,10 @@ import {
   getMessageAttachmentExpiresAt,
   isAttachmentReferenceExpired,
 } from '../attachments/attachment-retention';
-import { CAPABILITIES } from '../organization/organization-capabilities';
+import {
+  CAPABILITIES,
+  delegationGrantKeysForCapability,
+} from '../organization/organization-capabilities';
 import { OrganizationAuthorizationService } from '../organization/organization-authorization.service';
 import { MessagingEventsService } from '../realtime/messaging-events.service';
 import type { MessagingMessageUpdateAction } from '../realtime/messaging-events.service';
@@ -85,6 +88,19 @@ import { ManageFolderItemDto } from './dto/manage-folder-item.dto';
 import type { UploadedMessageAttachmentFile } from './types/uploaded-message-attachment-file';
 import { ConversationStorageService } from './conversation-storage.service';
 import { MessagingPushService } from './messaging-push.service';
+import {
+  MESSAGE_INTEGRITY_FAILURE_TEXT,
+  MessageContentIntegrityError,
+  MessageContentSecurity,
+  type MessageTextSecurityContext,
+  type StoredMessageTextSecurityFields,
+} from './message-content-security';
+import {
+  MessageAttachmentContentSecurity,
+  MessageAttachmentIntegrityError,
+  type MessageAttachmentSecurityContext,
+  type StoredMessageAttachmentSecurityFields,
+} from './message-attachment-content-security';
 import { requiresMessageRequestApproval } from './message-request-policy';
 import {
   MAX_MESSAGE_ATTACHMENT_FILES,
@@ -415,6 +431,13 @@ const messageSelect = {
   clientMessageId: true,
   contentType: true,
   textContent: true,
+  textSecurityVersion: true,
+  textEncryptionKeyVersion: true,
+  textEncryptionIv: true,
+  textEncryptionTag: true,
+  textSignatureKeyVersion: true,
+  textSignature: true,
+  textSearchTokens: true,
   payload: true,
   replyToMessageId: true,
   sentAt: true,
@@ -431,11 +454,20 @@ const messageSelect = {
   replyTo: {
     select: {
       id: true,
+      conversationId: true,
       senderAccountId: true,
       contentType: true,
       textContent: true,
+      textSecurityVersion: true,
+      textEncryptionKeyVersion: true,
+      textEncryptionIv: true,
+      textEncryptionTag: true,
+      textSignatureKeyVersion: true,
+      textSignature: true,
+      textSearchTokens: true,
       deletedAt: true,
       sentAt: true,
+      editedAt: true,
 
       hiddenForAccounts: {
         select: {
@@ -532,6 +564,14 @@ const messageSelect = {
       fileSizeBytes: true,
       contentType: true,
       scanStatus: true,
+      contentSecurityVersion: true,
+      contentEncryptionKeyVersion: true,
+      contentEncryptionIv: true,
+      contentEncryptionTag: true,
+      contentSignatureKeyVersion: true,
+      contentSignature: true,
+      ciphertextSha256: true,
+      encryptedSizeBytes: true,
       expiresAt: true,
       expiredAt: true,
       createdAt: true,
@@ -572,6 +612,13 @@ const conversationListMessageSelect = {
   clientMessageId: true,
   contentType: true,
   textContent: true,
+  textSecurityVersion: true,
+  textEncryptionKeyVersion: true,
+  textEncryptionIv: true,
+  textEncryptionTag: true,
+  textSignatureKeyVersion: true,
+  textSignature: true,
+  textSearchTokens: true,
   payload: true,
   replyToMessageId: true,
   sentAt: true,
@@ -595,6 +642,14 @@ const conversationListMessageSelect = {
       fileSizeBytes: true,
       contentType: true,
       scanStatus: true,
+      contentSecurityVersion: true,
+      contentEncryptionKeyVersion: true,
+      contentEncryptionIv: true,
+      contentEncryptionTag: true,
+      contentSignatureKeyVersion: true,
+      contentSignature: true,
+      ciphertextSha256: true,
+      encryptedSizeBytes: true,
       expiresAt: true,
       expiredAt: true,
       createdAt: true,
@@ -897,11 +952,81 @@ export class ConversationsService {
     private readonly conversationStorageService: ConversationStorageService,
     private readonly attachmentStorageService: AttachmentStorageService = new AttachmentStorageService(),
     private readonly attachmentSecurityService: AttachmentSecurityService = new AttachmentSecurityService(),
+    private readonly messageContentSecurity: MessageContentSecurity = new MessageContentSecurity(),
+    private readonly messageAttachmentContentSecurity: MessageAttachmentContentSecurity = new MessageAttachmentContentSecurity(),
     private readonly messagingPushService?: MessagingPushService,
   ) {
     this.organizationAuthorization = new OrganizationAuthorizationService(
       prisma,
     );
+  }
+
+  private buildMessageTextSecurityContext(message: {
+    id: string;
+    conversationId: string;
+    senderAccountId: string;
+    contentType: MessageContentType;
+    sentAt: Date;
+    editedAt: Date | null;
+  }): MessageTextSecurityContext {
+    return {
+      id: message.id,
+      conversationId: message.conversationId,
+      senderAccountId: message.senderAccountId,
+      contentType: message.contentType,
+      sentAt: message.sentAt,
+      editedAt: message.editedAt,
+    };
+  }
+
+  private readMessageText(
+    message: StoredMessageTextSecurityFields & {
+      id: string;
+      conversationId: string;
+      senderAccountId: string;
+      contentType: MessageContentType;
+      sentAt: Date;
+      editedAt: Date | null;
+    },
+  ): string | null {
+    try {
+      return this.messageContentSecurity.unprotectText(
+        message,
+        this.buildMessageTextSecurityContext(message),
+      );
+    } catch (error) {
+      if (error instanceof MessageContentIntegrityError) {
+        this.logger.error(
+          `Message ${message.id} failed content integrity verification: ${error.message}`,
+        );
+        return MESSAGE_INTEGRITY_FAILURE_TEXT;
+      }
+
+      throw error;
+    }
+  }
+
+  private requireMessageText(
+    message: StoredMessageTextSecurityFields & {
+      id: string;
+      conversationId: string;
+      senderAccountId: string;
+      contentType: MessageContentType;
+      sentAt: Date;
+      editedAt: Date | null;
+    },
+  ): string | null {
+    return this.messageContentSecurity.unprotectText(
+      message,
+      this.buildMessageTextSecurityContext(message),
+    );
+  }
+
+  private protectMessageText(
+    plaintext: string | null,
+    context: MessageTextSecurityContext,
+  ) {
+    return this.messageContentSecurity.protectText(plaintext, context);
   }
 
   private usesDetailedMessageReceipts(
@@ -2840,7 +2965,7 @@ export class ConversationsService {
       senderAccountId: message.senderAccountId,
       sender: this.serializeAccount(message.sender),
       contentType: message.contentType,
-      textContent: message.deletedAt ? null : message.textContent,
+      textContent: message.deletedAt ? null : this.readMessageText(message),
       sentAt: message.sentAt,
       isDeleted: message.deletedAt !== null,
       isUnavailable: false,
@@ -3202,7 +3327,7 @@ export class ConversationsService {
       clientMessageId: message.clientMessageId,
       sender: this.serializeAccount(message.sender),
       contentType: message.contentType,
-      textContent: message.deletedAt ? null : message.textContent,
+      textContent: message.deletedAt ? null : this.readMessageText(message),
       payload: message.deletedAt
         ? null
         : this.getPublicMessagePayload(message.payload),
@@ -3701,17 +3826,31 @@ export class ConversationsService {
               }
             : null;
 
-      // Search only approved visible fields so private payload data is not exposed accidentally.
-      // In-conversation search pre-resolves sender identities to account IDs so the
-      // million-row message query does not join employee/profile tables per candidate row.
+      const protectedTextSearchTokens =
+        this.messageContentSecurity.buildSearchQueryTokens(filters.searchText);
+
+      // Version-0 historical rows keep the legacy plaintext search until the
+      // controlled backfill is complete. Version-1 rows use keyed blind-index
+      // tokens so PostgreSQL never needs the plaintext message body.
       andConditions.push({
         OR: [
           {
+            textSecurityVersion: 0,
             textContent: {
               contains: filters.searchText,
               mode: 'insensitive',
             },
           },
+          ...(protectedTextSearchTokens.length > 0
+            ? [
+                {
+                  textSecurityVersion: 1,
+                  textSearchTokens: {
+                    hasEvery: protectedTextSearchTokens,
+                  },
+                } satisfies Prisma.MessageWhereInput,
+              ]
+            : []),
           {
             attachments: {
               some: {
@@ -3837,7 +3976,7 @@ export class ConversationsService {
       return attachmentName;
     }
 
-    const text = message.textContent?.trim();
+    const text = this.readMessageText(message)?.trim();
 
     if (!text) {
       return (
@@ -4219,15 +4358,67 @@ export class ConversationsService {
       : MessageContentType.FILE;
   }
 
-  private async writeAttachmentFile(
-    storageKey: string,
+  private buildAttachmentSecurityContext(attachment: {
+    id: string;
+    messageId: string;
+    storageKey: string;
+    originalFileName: string;
+    mimeType: string;
+    fileSizeBytes: number;
+    contentType: MessageContentType;
+  }): MessageAttachmentSecurityContext {
+    return {
+      id: attachment.id,
+      messageId: attachment.messageId,
+      storageKey: attachment.storageKey,
+      originalFileName: attachment.originalFileName,
+      mimeType: attachment.mimeType,
+      fileSizeBytes: attachment.fileSizeBytes,
+      contentType: attachment.contentType,
+    };
+  }
+
+  private async readUploadedAttachmentFile(
     file: UploadedMessageAttachmentFile,
-  ): Promise<void> {
-    await this.attachmentStorageService.writeUploadedFile(
+  ): Promise<Buffer> {
+    if (file.path) {
+      try {
+        return await fs.readFile(file.path);
+      } finally {
+        await fs.rm(file.path, { force: true }).catch(() => undefined);
+        delete file.path;
+      }
+    }
+    if (!file.buffer) {
+      throw new ConflictException('Attachment upload data is unavailable.');
+    }
+    return Buffer.from(file.buffer);
+  }
+
+  private async writeAttachmentFile(attachment: {
+    id: string;
+    messageId: string;
+    storageKey: string;
+    originalFileName: string;
+    mimeType: string;
+    fileSizeBytes: number;
+    contentType: MessageContentType;
+    file: UploadedMessageAttachmentFile;
+  }): Promise<StoredMessageAttachmentSecurityFields> {
+    const plaintext = await this.readUploadedAttachmentFile(attachment.file);
+    const protectedContent =
+      this.messageAttachmentContentSecurity.protectBuffer(
+        plaintext,
+        this.buildAttachmentSecurityContext(attachment),
+      );
+    plaintext.fill(0);
+    await this.attachmentStorageService.writeFile(
       'messages',
-      storageKey,
-      file,
+      attachment.storageKey,
+      protectedContent.ciphertext,
+      'application/octet-stream',
     );
+    return protectedContent.fields;
   }
 
   private async deleteAttachmentFileIfExists(
@@ -4479,7 +4670,11 @@ export class ConversationsService {
         where: {
           granteeAccountId: viewer.accountId,
           officeId,
-          capability: CAPABILITIES.OFFICIAL_GROUP_MANAGE,
+          capability: {
+            in: delegationGrantKeysForCapability(
+              CAPABILITIES.OFFICIAL_GROUP_MANAGE,
+            ),
+          },
           revokedAt: null,
           effectiveFrom: { lte: at },
           OR: [{ effectiveUntil: null }, { effectiveUntil: { gt: at } }],
@@ -4887,7 +5082,11 @@ export class ConversationsService {
     const delegations = await this.prisma.delegatedPermission.findMany({
       where: {
         officeId,
-        capability: CAPABILITIES.OFFICIAL_GROUP_MANAGE,
+        capability: {
+          in: delegationGrantKeysForCapability(
+            CAPABILITIES.OFFICIAL_GROUP_MANAGE,
+          ),
+        },
         revokedAt: null,
         effectiveFrom: { lte: now },
         OR: [{ effectiveUntil: null }, { effectiveUntil: { gt: now } }],
@@ -5212,8 +5411,31 @@ export class ConversationsService {
     }
 
     const now = new Date();
+    const desiredOwnerAccountId = [...officeHeadAccountIds][0] ?? null;
 
     await this.prisma.$transaction(async (transaction) => {
+      // Official groups have a partial unique index that permits only one
+      // active OWNER per conversation. Release any previous active OWNER
+      // before promoting the newly elected Office Head; otherwise an upsert
+      // can violate the unique index during an ownership handover.
+      await transaction.conversationParticipant.updateMany({
+        where: {
+          conversationId,
+          leftAt: null,
+          role: ConversationParticipantRole.OWNER,
+          ...(desiredOwnerAccountId
+            ? {
+                accountId: {
+                  not: desiredOwnerAccountId,
+                },
+              }
+            : {}),
+        },
+        data: {
+          role: ConversationParticipantRole.MEMBER,
+        },
+      });
+
       for (const account of desiredAccounts) {
         const current = currentByAccountId.get(account.id);
         const role = this.getOfficialGroupParticipantRole(
@@ -7173,14 +7395,27 @@ export class ConversationsService {
       select: sharedContentAttachmentSelect,
     });
 
+    const protectedHttpSearchTokens =
+      this.messageContentSecurity.buildSearchQueryTokens('http');
     const linkMessages = await this.prisma.message.findMany({
       where: {
         conversationId,
         deletedAt: null,
-        textContent: {
-          contains: 'http',
-          mode: 'insensitive',
-        },
+        OR: [
+          {
+            textSecurityVersion: 0,
+            textContent: {
+              contains: 'http',
+              mode: 'insensitive',
+            },
+          },
+          {
+            textSecurityVersion: 1,
+            textSearchTokens: {
+              hasEvery: protectedHttpSearchTokens,
+            },
+          },
+        ],
         ...buildViewerMessageVisibilityWhere(
           viewer.accountId,
           viewerParticipant,
@@ -7229,7 +7464,7 @@ export class ConversationsService {
 
     const links = linkMessages
       .flatMap((message) =>
-        this.extractSharedLinks(message.textContent).map((url) => ({
+        this.extractSharedLinks(this.readMessageText(message)).map((url) => ({
           url,
           label: url,
           message,
@@ -8315,13 +8550,24 @@ export class ConversationsService {
         });
 
         for (const sourceMessage of contextMessages) {
+          const contextCopyId = randomUUID();
+          const contextCopyText = this.requireMessageText(sourceMessage);
+          const contextCopySecurity = this.protectMessageText(contextCopyText, {
+            id: contextCopyId,
+            conversationId: conversation.id,
+            senderAccountId: sourceMessage.senderAccountId,
+            contentType: sourceMessage.contentType,
+            sentAt: sourceMessage.sentAt,
+            editedAt: sourceMessage.editedAt,
+          });
           const contextCopy = await transaction.message.create({
             data: {
+              id: contextCopyId,
               conversationId: conversation.id,
               senderAccountId: sourceMessage.senderAccountId,
               clientMessageId: `context-${conversation.id}-${sourceMessage.id}`,
               contentType: sourceMessage.contentType,
-              textContent: sourceMessage.textContent,
+              ...contextCopySecurity,
               payload:
                 sourceMessage.payload === null
                   ? undefined
@@ -8368,14 +8614,29 @@ export class ConversationsService {
           void contextCopy;
         }
 
+        const systemMessageId = randomUUID();
+        const systemMessageText =
+          'Private group created. Your original one-to-one private chat remains unchanged.';
+        const systemMessageSecurity = this.protectMessageText(
+          systemMessageText,
+          {
+            id: systemMessageId,
+            conversationId: conversation.id,
+            senderAccountId: viewer.accountId,
+            contentType: MessageContentType.SYSTEM,
+            sentAt: now,
+            editedAt: null,
+          },
+        );
         const systemMessage = await transaction.message.create({
           data: {
+            id: systemMessageId,
             conversationId: conversation.id,
             senderAccountId: viewer.accountId,
             clientMessageId: `private-group-created-${conversation.id}`,
             contentType: MessageContentType.SYSTEM,
-            textContent:
-              'Private group created. Your original one-to-one private chat remains unchanged.',
+            ...systemMessageSecurity,
+            sentAt: now,
             payload: {
               kind: 'PRIVATE_GROUP_CREATED',
               sourceConversationId: conversationId,
@@ -10813,10 +11074,11 @@ export class ConversationsService {
   }
 
   private buildNotificationBody(message: MessageRecord): string {
-    if (message.textContent) {
-      return message.textContent.length > 140
-        ? `${message.textContent.slice(0, 137)}...`
-        : message.textContent;
+    const textContent = this.readMessageText(message);
+    if (textContent) {
+      return textContent.length > 140
+        ? `${textContent.slice(0, 137)}...`
+        : textContent;
     }
 
     const attachment = message.attachments[0];
@@ -10826,6 +11088,23 @@ export class ConversationsService {
     }
 
     return 'New message';
+  }
+
+  private buildStoredNotificationBody(message: MessageRecord): string {
+    switch (message.contentType) {
+      case MessageContentType.IMAGE:
+        return 'New image';
+      case MessageContentType.VIDEO:
+        return 'New video';
+      case MessageContentType.AUDIO:
+        return 'New audio message';
+      case MessageContentType.FILE:
+        return 'New file';
+      case MessageContentType.LOCATION:
+        return 'New location';
+      default:
+        return 'New message';
+    }
   }
 
   private async createAndEmitMessageNotifications(
@@ -10855,6 +11134,10 @@ export class ConversationsService {
     }
 
     const unreadCounts = new Map<string, number>();
+    const liveNotificationBody = this.buildNotificationBody(input.message);
+    const storedNotificationBody = this.buildStoredNotificationBody(
+      input.message,
+    );
 
     for (const recipient of recipients) {
       const recipientNotificationType = mentionedAccountIds.has(
@@ -10880,7 +11163,7 @@ export class ConversationsService {
                     MessagingNotificationType.GROUP_EVENT
                   ? 'Official announcement'
                   : `${actor.displayName} sent a message`,
-          body: this.buildNotificationBody(input.message),
+          body: storedNotificationBody,
           metadata: {
             contentType: input.message.contentType,
             replyToMessageId: input.message.replyToMessageId,
@@ -10900,7 +11183,10 @@ export class ConversationsService {
         }));
       unreadCounts.set(recipient.accountId, unreadCount);
 
-      const serializedNotification = this.serializeNotification(notification);
+      const serializedNotification = {
+        ...this.serializeNotification(notification),
+        body: liveNotificationBody,
+      };
       this.messagingEventsService.emitNotificationCreated(recipient.accountId, {
         notification: serializedNotification,
         unreadCount,
@@ -10962,6 +11248,7 @@ export class ConversationsService {
     }
 
     const actor = this.serializeAccount(actorAccount);
+    const liveNotificationBody = this.buildNotificationBody(message);
     // Reaction notifications are sent only to the original sender, never to all participants.
     const notification = await this.prisma.messagingNotification.create({
       data: {
@@ -10971,7 +11258,7 @@ export class ConversationsService {
         messageId: message.id,
         type: MessagingNotificationType.REACTION,
         title: `${actor.displayName} reacted ${reactionValue}`,
-        body: this.buildNotificationBody(message),
+        body: 'Message reaction',
         metadata: {
           reactionValue,
         },
@@ -10986,7 +11273,10 @@ export class ConversationsService {
       },
     });
 
-    const serializedNotification = this.serializeNotification(notification);
+    const serializedNotification = {
+      ...this.serializeNotification(notification),
+      body: liveNotificationBody,
+    };
     this.messagingEventsService.emitNotificationCreated(
       message.senderAccountId,
       {
@@ -11196,16 +11486,29 @@ export class ConversationsService {
       .map((participant) => participant.accountId)
       .filter((accountId) => accountId !== viewer.accountId);
 
+    const messageId = randomUUID();
+    const messageSentAt = new Date();
+    const securedText = this.protectMessageText(textContent, {
+      id: messageId,
+      conversationId,
+      senderAccountId: viewer.accountId,
+      contentType: MessageContentType.TEXT,
+      sentAt: messageSentAt,
+      editedAt: null,
+    });
+
     try {
       const createdMessage = await this.prisma.$transaction(
         async (transaction) => {
           const created = await transaction.message.create({
             data: {
+              id: messageId,
               conversationId,
               senderAccountId: viewer.accountId,
               clientMessageId: dto.clientMessageId,
               contentType: MessageContentType.TEXT,
-              textContent,
+              ...securedText,
+              sentAt: messageSentAt,
               replyToMessageId: dto.replyToMessageId ?? null,
               payload: this.buildTextMessagePayload(
                 mentions,
@@ -11466,15 +11769,28 @@ export class ConversationsService {
       .map((participant) => participant.accountId)
       .filter((accountId) => accountId !== viewer.accountId);
 
+    const locationMessageId = randomUUID();
+    const locationMessageSentAt = new Date();
+    const securedLocationText = this.protectMessageText(textContent, {
+      id: locationMessageId,
+      conversationId,
+      senderAccountId: viewer.accountId,
+      contentType: MessageContentType.LOCATION,
+      sentAt: locationMessageSentAt,
+      editedAt: null,
+    });
+
     const createdMessage = await this.prisma.$transaction(
       async (transaction) => {
         const created = await transaction.message.create({
           data: {
+            id: locationMessageId,
             conversationId,
             senderAccountId: viewer.accountId,
             clientMessageId: dto.clientMessageId,
             contentType: MessageContentType.LOCATION,
-            textContent,
+            ...securedLocationText,
+            sentAt: locationMessageSentAt,
             payload: this.buildLocationPayload(
               dto,
               isLive ? 'LIVE' : 'CURRENT',
@@ -11911,13 +12227,33 @@ export class ConversationsService {
       attachmentReferenceAt,
     );
     const storedAttachments: Array<{
+      id: string;
+      messageId: string;
       storageKey: string;
       originalFileName: string;
       mimeType: string;
       fileSizeBytes: number;
       contentType: MessageContentType;
       scanStatus: 'FORMAT_VALIDATED' | 'CLEAN';
+      contentSecurityVersion: number;
+      contentEncryptionKeyVersion: number | null;
+      contentEncryptionIv: string | null;
+      contentEncryptionTag: string | null;
+      contentSignatureKeyVersion: number | null;
+      contentSignature: string | null;
+      ciphertextSha256: string | null;
+      encryptedSizeBytes: number | null;
     }> = [];
+
+    const attachmentMessageId = randomUUID();
+    const securedAttachmentCaption = this.protectMessageText(caption, {
+      id: attachmentMessageId,
+      conversationId,
+      senderAccountId: viewer.accountId,
+      contentType: messageContentType,
+      sentAt: attachmentReferenceAt,
+      editedAt: null,
+    });
 
     try {
       /*
@@ -11930,7 +12266,10 @@ export class ConversationsService {
         // protected database metadata and are never used as disk identifiers.
         const storageKey = [conversationId, randomUUID()].join('/');
 
-        storedAttachments.push({
+        const attachmentId = randomUUID();
+        const baseAttachment = {
+          id: attachmentId,
+          messageId: attachmentMessageId,
           storageKey,
           originalFileName: attachment.originalFileName,
           mimeType: attachment.file.mimetype,
@@ -11938,20 +12277,27 @@ export class ConversationsService {
           contentType: attachment.contentType,
           scanStatus:
             scanStatuses[storedAttachments.length] ?? 'FORMAT_VALIDATED',
+        };
+        const securityFields = await this.writeAttachmentFile({
+          ...baseAttachment,
+          file: attachment.file,
         });
-
-        await this.writeAttachmentFile(storageKey, attachment.file);
+        storedAttachments.push({
+          ...baseAttachment,
+          ...securityFields,
+        });
       }
 
       const createdMessage = await this.prisma.$transaction(
         async (transaction) => {
           const created = await transaction.message.create({
             data: {
+              id: attachmentMessageId,
               conversationId,
               senderAccountId: viewer.accountId,
               clientMessageId: dto.clientMessageId,
               contentType: messageContentType,
-              textContent: caption,
+              ...securedAttachmentCaption,
               replyToMessageId: dto.replyToMessageId ?? null,
               sentAt: attachmentReferenceAt,
               payload: {
@@ -11962,12 +12308,23 @@ export class ConversationsService {
 
               attachments: {
                 create: storedAttachments.map((attachment) => ({
+                  id: attachment.id,
                   storageKey: attachment.storageKey,
                   originalFileName: attachment.originalFileName,
                   mimeType: attachment.mimeType,
                   fileSizeBytes: attachment.fileSizeBytes,
                   contentType: attachment.contentType,
                   scanStatus: attachment.scanStatus,
+                  contentSecurityVersion: attachment.contentSecurityVersion,
+                  contentEncryptionKeyVersion:
+                    attachment.contentEncryptionKeyVersion,
+                  contentEncryptionIv: attachment.contentEncryptionIv,
+                  contentEncryptionTag: attachment.contentEncryptionTag,
+                  contentSignatureKeyVersion:
+                    attachment.contentSignatureKeyVersion,
+                  contentSignature: attachment.contentSignature,
+                  ciphertextSha256: attachment.ciphertextSha256,
+                  encryptedSizeBytes: attachment.encryptedSizeBytes,
                   expiresAt: attachmentExpiresAt,
                 })),
               },
@@ -12134,11 +12491,22 @@ export class ConversationsService {
       },
 
       select: {
+        id: true,
+        messageId: true,
         storageKey: true,
         originalFileName: true,
         mimeType: true,
         fileSizeBytes: true,
+        contentType: true,
         scanStatus: true,
+        contentSecurityVersion: true,
+        contentEncryptionKeyVersion: true,
+        contentEncryptionIv: true,
+        contentEncryptionTag: true,
+        contentSignatureKeyVersion: true,
+        contentSignature: true,
+        ciphertextSha256: true,
+        encryptedSizeBytes: true,
         expiresAt: true,
         expiredAt: true,
       },
@@ -12166,11 +12534,6 @@ export class ConversationsService {
       );
     }
 
-    const absolutePath = this.attachmentStorageService.resolvePath(
-      'messages',
-      attachment.storageKey,
-    );
-
     if (
       !(await this.attachmentStorageService.exists(
         'messages',
@@ -12182,8 +12545,40 @@ export class ConversationsService {
       );
     }
 
+    const storedBytes = await this.attachmentStorageService.readFile(
+      'messages',
+      attachment.storageKey,
+    );
+    let data: Buffer;
+    try {
+      data = this.messageAttachmentContentSecurity.unprotectBuffer(
+        storedBytes,
+        this.buildAttachmentSecurityContext(attachment),
+        {
+          contentSecurityVersion: attachment.contentSecurityVersion,
+          contentEncryptionKeyVersion: attachment.contentEncryptionKeyVersion,
+          contentEncryptionIv: attachment.contentEncryptionIv,
+          contentEncryptionTag: attachment.contentEncryptionTag,
+          contentSignatureKeyVersion: attachment.contentSignatureKeyVersion,
+          contentSignature: attachment.contentSignature,
+          ciphertextSha256: attachment.ciphertextSha256,
+          encryptedSizeBytes: attachment.encryptedSizeBytes,
+        },
+      );
+    } catch (error) {
+      if (error instanceof MessageAttachmentIntegrityError) {
+        this.logger.error(
+          `Attachment integrity verification failed for ${attachment.id}.`,
+        );
+        throw new ConflictException(
+          'Attachment integrity verification failed. The stored file may have been modified.',
+        );
+      }
+      throw error;
+    }
+
     return {
-      absolutePath,
+      data,
       originalFileName: attachment.originalFileName,
       mimeType: attachment.mimeType,
       fileSizeBytes: attachment.fileSizeBytes,
@@ -12223,10 +12618,11 @@ export class ConversationsService {
     }
 
     const sourceAttachments = sourceMessage.attachments ?? [];
+    const sourcePlainTextContent = this.requireMessageText(sourceMessage);
     // Forwarding is allowed only for active visible content that the requester can read.
     const isTextForward =
       sourceMessage.contentType === MessageContentType.TEXT &&
-      Boolean(sourceMessage.textContent);
+      Boolean(sourcePlainTextContent);
     const forwardableAttachmentTypes = new Set<MessageContentType>([
       MessageContentType.IMAGE,
       MessageContentType.VIDEO,
@@ -12277,13 +12673,16 @@ export class ConversationsService {
       fileSizeBytes: attachment.fileSizeBytes,
       contentType: attachment.contentType,
       scanStatus: attachment.scanStatus,
+      contentSecurityVersion: attachment.contentSecurityVersion,
+      contentEncryptionKeyVersion: attachment.contentEncryptionKeyVersion,
+      contentEncryptionIv: attachment.contentEncryptionIv,
+      contentEncryptionTag: attachment.contentEncryptionTag,
+      contentSignatureKeyVersion: attachment.contentSignatureKeyVersion,
+      ciphertextSha256: attachment.ciphertextSha256,
+      encryptedSizeBytes: attachment.encryptedSizeBytes,
     }));
     const sourcePayload = this.getPlainMessagePayload(sourceMessage.payload);
-    const forwardedTextContent = sourceMessage.textContent;
-    const forwardedPreviewText =
-      forwardedTextContent ??
-      forwardedAttachments[0]?.originalFileName ??
-      sourceMessage.contentType;
+    const forwardedTextContent = sourcePlainTextContent;
     const destinationConversationIds = [
       ...new Set(dto.destinationConversationIds),
     ];
@@ -12360,7 +12759,7 @@ export class ConversationsService {
       originalSenderAccountId: sourceMessage.senderAccountId,
       originalSenderDisplayName: sourceSender.displayName,
       originalSentAt: sourceMessage.sentAt.toISOString(),
-      originalTextContent: forwardedPreviewText,
+      originalTextContent: '',
     };
     const forwardedReferenceAt = new Date();
 
@@ -12448,6 +12847,19 @@ export class ConversationsService {
             continue;
           }
 
+          const forwardedMessageId = randomUUID();
+          const securedForwardedText = this.protectMessageText(
+            forwardedTextContent,
+            {
+              id: forwardedMessageId,
+              conversationId: conversation.id,
+              senderAccountId: viewer.accountId,
+              contentType: sourceMessage.contentType,
+              sentAt: forwardedReferenceAt,
+              editedAt: null,
+            },
+          );
+
           const createdMessage = await transaction.message.upsert({
             where: {
               senderAccountId_clientMessageId: {
@@ -12457,11 +12869,12 @@ export class ConversationsService {
             },
             update: {},
             create: {
+              id: forwardedMessageId,
               conversationId: conversation.id,
               senderAccountId: viewer.accountId,
               clientMessageId,
               contentType: sourceMessage.contentType,
-              textContent: forwardedTextContent,
+              ...securedForwardedText,
               sentAt: forwardedReferenceAt,
               payload: {
                 ...sourcePayload,
@@ -12474,23 +12887,67 @@ export class ConversationsService {
                   originalSenderDisplayName:
                     forwardedFrom.originalSenderDisplayName,
                   originalSentAt: forwardedFrom.originalSentAt,
-                  originalTextContent: forwardedFrom.originalTextContent,
+                  originalTextContent: '',
                 },
               },
               // Create new attachment rows that point to the existing protected file object.
               ...(forwardedAttachments.length > 0
                 ? {
                     attachments: {
-                      create: forwardedAttachments.map((attachment) => ({
-                        ...attachment,
-                        // A forward is a new logical reference with its own
-                        // destination-specific retention window.
-                        expiresAt: getMessageAttachmentExpiresAt(
-                          conversation.type,
-                          conversation.groupKind,
-                          forwardedReferenceAt,
-                        ),
-                      })),
+                      create: forwardedAttachments.map((attachment) => {
+                        const attachmentId = randomUUID();
+                        const baseAttachment = {
+                          id: attachmentId,
+                          messageId: forwardedMessageId,
+                          storageKey: attachment.storageKey,
+                          originalFileName: attachment.originalFileName,
+                          mimeType: attachment.mimeType,
+                          fileSizeBytes: attachment.fileSizeBytes,
+                          contentType: attachment.contentType,
+                        };
+                        if (attachment.contentSecurityVersion !== 1) {
+                          throw new ConflictException(
+                            'This attachment has not completed the encrypted-storage security migration.',
+                          );
+                        }
+
+                        const securityFields =
+                          this.messageAttachmentContentSecurity.signExistingProtectedReference(
+                            this.buildAttachmentSecurityContext(baseAttachment),
+                            {
+                              contentSecurityVersion:
+                                attachment.contentSecurityVersion,
+                              contentEncryptionKeyVersion:
+                                attachment.contentEncryptionKeyVersion,
+                              contentEncryptionIv:
+                                attachment.contentEncryptionIv,
+                              contentEncryptionTag:
+                                attachment.contentEncryptionTag,
+                              contentSignatureKeyVersion:
+                                attachment.contentSignatureKeyVersion,
+                              ciphertextSha256: attachment.ciphertextSha256,
+                              encryptedSizeBytes: attachment.encryptedSizeBytes,
+                            },
+                          );
+
+                        return {
+                          id: attachmentId,
+                          storageKey: attachment.storageKey,
+                          originalFileName: attachment.originalFileName,
+                          mimeType: attachment.mimeType,
+                          fileSizeBytes: attachment.fileSizeBytes,
+                          contentType: attachment.contentType,
+                          scanStatus: attachment.scanStatus,
+                          ...securityFields,
+                          // A forward is a new logical reference with its own
+                          // destination-specific retention window.
+                          expiresAt: getMessageAttachmentExpiresAt(
+                            conversation.type,
+                            conversation.groupKind,
+                            forwardedReferenceAt,
+                          ),
+                        };
+                      }),
                     },
                   }
                 : {}),
@@ -12636,6 +13093,16 @@ export class ConversationsService {
       );
     }
 
+    const editedAt = new Date();
+    const securedEditedText = this.protectMessageText(textContent, {
+      id: message.id,
+      conversationId: message.conversationId,
+      senderAccountId: message.senderAccountId,
+      contentType: message.contentType,
+      sentAt: message.sentAt,
+      editedAt,
+    });
+
     const [updatedMessage, participants] = await this.prisma.$transaction([
       this.prisma.message.update({
         where: {
@@ -12643,8 +13110,8 @@ export class ConversationsService {
         },
 
         data: {
-          textContent,
-          editedAt: new Date(),
+          ...securedEditedText,
+          editedAt,
         },
 
         select: messageSelect,

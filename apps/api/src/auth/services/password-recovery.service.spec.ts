@@ -164,8 +164,23 @@ describe('PasswordRecoveryService', () => {
       mailService,
       configService,
     );
+    const warningLog = jest
+      .spyOn(
+        (
+          service as unknown as {
+            logger: { warn: (...args: unknown[]) => void };
+          }
+        ).logger,
+        'warn',
+      )
+      .mockImplementation(() => undefined);
 
     await service.requestPasswordReset('employee@example.test');
+
+    expect(warningLog).toHaveBeenCalledWith(
+      'Password recovery code was prepared but not delivered.',
+    );
+    warningLog.mockRestore();
 
     expect(prisma.passwordResetChallenge.updateMany).toHaveBeenCalledWith({
       where: {

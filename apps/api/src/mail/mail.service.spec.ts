@@ -16,6 +16,12 @@ describe('MailService security messages', () => {
     jest
       .mocked(nodemailer.createTransport)
       .mockReturnValue({ sendMail } as never);
+
+    sendMail.mockResolvedValue({
+      accepted: ['Test6@gmail.com'],
+      rejected: [],
+      response: '250 2.0.0 queued',
+    });
   });
 
   function createService(overrides: Record<string, string> = {}): MailService {
@@ -145,6 +151,33 @@ describe('MailService security messages', () => {
         '',
         'Do not share your OTP or password with anyone. Nepal Telecom administrators will never ask you to provide your password or OTP.',
       ].join('\n'),
+    });
+  });
+
+  it('treats an SMTP recipient rejection as activation delivery failure', async () => {
+    const service = createService();
+    sendMail.mockResolvedValueOnce({
+      accepted: [],
+      rejected: ['Test6@gmail.com'],
+      response: '550 5.1.1 recipient rejected',
+    });
+
+    await expect(
+      service.sendActivationInvitation({
+        to: 'Test6@gmail.com',
+        employeeName: 'Y32 Direct Test',
+        employeeId: 'NTC-Y32',
+        officialEmail: 'Test6@gmail.com',
+        divisionName: 'IT Division',
+        departmentName: 'Engineering department',
+        roleName: 'Employee',
+        maskedPhoneNumber: '+97798******71',
+        activationUrl:
+          'http://localhost:5173/activate?invitation=opaque-test-token',
+      }),
+    ).rejects.toMatchObject({
+      name: 'MailDeliveryError',
+      category: 'SMTP_DELIVERY_FAILED',
     });
   });
 

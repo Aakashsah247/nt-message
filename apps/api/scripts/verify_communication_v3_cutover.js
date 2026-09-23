@@ -19,15 +19,15 @@ WITH official_groups AS (
   SELECT
     COUNT(*) FILTER (
       WHERE conversation."group_kind" = 'OFFICIAL'
-        AND conversation."official_scope_type" IN ('ORGANIZATION', 'DIVISION', 'DEPARTMENT')
+        AND conversation."official_scope_type"::text IN ('ORGANIZATION', 'DIVISION', 'DEPARTMENT')
     )::bigint AS legacy_groups,
     COUNT(*) FILTER (
       WHERE conversation."group_kind" = 'OFFICIAL'
-        AND conversation."official_scope_type" IN ('ORGANIZATION', 'DIVISION', 'DEPARTMENT')
+        AND conversation."official_scope_type"::text IN ('ORGANIZATION', 'DIVISION', 'DEPARTMENT')
         AND conversation."official_office_id" IS NOT NULL
         AND conversation."official_membership_mode" = 'ENTIRE_SUBTREE'
         AND (
-          conversation."official_scope_type" = 'ORGANIZATION'
+          conversation."official_scope_type"::text = 'ORGANIZATION'
           OR conversation."official_org_unit_id" IS NOT NULL
         )
     )::bigint AS legacy_groups_bound,
@@ -42,8 +42,6 @@ WITH official_groups AS (
           conversation."official_office_id" IS NULL
           OR conversation."official_org_unit_id" IS NOT NULL
           OR conversation."official_membership_mode" IS DISTINCT FROM 'ENTIRE_SUBTREE'
-          OR conversation."official_division_id" IS NOT NULL
-          OR conversation."official_department_id" IS NOT NULL
         )
     )::bigint AS invalid_native_office_groups,
     COUNT(*) FILTER (
@@ -53,8 +51,6 @@ WITH official_groups AS (
           conversation."official_office_id" IS NULL
           OR conversation."official_org_unit_id" IS NULL
           OR conversation."official_membership_mode" IS NULL
-          OR conversation."official_division_id" IS NOT NULL
-          OR conversation."official_department_id" IS NOT NULL
         )
     )::bigint AS invalid_native_orgunit_groups
   FROM "conversations" conversation
@@ -73,18 +69,18 @@ legacy_group_evidence AS (
   JOIN "conversations" conversation
     ON conversation."id" = message."conversation_id"
   WHERE conversation."group_kind" = 'OFFICIAL'
-    AND conversation."official_scope_type" IN ('ORGANIZATION', 'DIVISION', 'DEPARTMENT')
+    AND conversation."official_scope_type"::text IN ('ORGANIZATION', 'DIVISION', 'DEPARTMENT')
 ),
 announcement_counts AS (
   SELECT
     COUNT(*) FILTER (
-      WHERE announcement."audience_type" IN ('ORGANIZATION', 'DIVISION', 'DEPARTMENT')
+      WHERE announcement."audience_type"::text IN ('ORGANIZATION', 'DIVISION', 'DEPARTMENT')
     )::bigint AS legacy_announcements,
     COUNT(*) FILTER (
-      WHERE announcement."audience_type" IN ('ORGANIZATION', 'DIVISION', 'DEPARTMENT')
+      WHERE announcement."audience_type"::text IN ('ORGANIZATION', 'DIVISION', 'DEPARTMENT')
         AND announcement."office_id" IS NOT NULL
         AND (
-          announcement."audience_type" = 'ORGANIZATION'
+          announcement."audience_type"::text = 'ORGANIZATION'
           OR announcement."org_unit_id" IS NOT NULL
         )
     )::bigint AS legacy_announcements_bound,
@@ -96,8 +92,6 @@ announcement_counts AS (
         AND (
           announcement."office_id" IS NULL
           OR announcement."org_unit_id" IS NOT NULL
-          OR announcement."division_id" IS NOT NULL
-          OR announcement."department_id" IS NOT NULL
         )
     )::bigint AS invalid_native_office_announcements,
     COUNT(*) FILTER (
@@ -105,8 +99,6 @@ announcement_counts AS (
         AND (
           announcement."office_id" IS NULL
           OR announcement."org_unit_id" IS NULL
-          OR announcement."division_id" IS NOT NULL
-          OR announcement."department_id" IS NOT NULL
         )
     )::bigint AS invalid_native_orgunit_announcements
   FROM "announcements" announcement
@@ -136,15 +128,15 @@ legacy_announcement_evidence AS (
   FROM "announcement_recipients" recipient
   JOIN "announcements" announcement
     ON announcement."id" = recipient."announcement_id"
-  WHERE announcement."audience_type" IN ('ORGANIZATION', 'DIVISION', 'DEPARTMENT')
+  WHERE announcement."audience_type"::text IN ('ORGANIZATION', 'DIVISION', 'DEPARTMENT')
 ),
 message_request_history AS (
   SELECT
     COUNT(*) FILTER (
-      WHERE request."reason" IN ('CROSS_DIVISION', 'CROSS_DEPARTMENT')
+      WHERE request."reason"::text IN ('CROSS_DIVISION', 'CROSS_DEPARTMENT')
     )::bigint AS legacy_reasons,
     COUNT(*) FILTER (
-      WHERE request."reason" = 'OUTSIDE_ORG_SCOPE'
+      WHERE request."reason"::text = 'OUTSIDE_ORG_SCOPE'
     )::bigint AS generic_reasons
   FROM "message_requests" request
 )

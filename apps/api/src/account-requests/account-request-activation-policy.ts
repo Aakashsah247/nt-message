@@ -28,7 +28,6 @@ export function isCanonicalOfficeActivationRequest(
 ): boolean {
   return Boolean(
     request.officeId &&
-    request.intendedOrgUnitId &&
     request.requestedRole === AccountRole.EMPLOYEE &&
     (request.lifecycleState === AccountRequestLifecycleState.APPROVED ||
       request.lifecycleState === AccountRequestLifecycleState.PROVISIONED),
@@ -44,7 +43,6 @@ export function primaryMembershipMatchesActivationScope(
 ): boolean {
   return Boolean(
     request.officeId &&
-    request.intendedOrgUnitId &&
     membership &&
     membership.membershipType === OrgMembershipType.PRIMARY &&
     membership.endsAt === null &&

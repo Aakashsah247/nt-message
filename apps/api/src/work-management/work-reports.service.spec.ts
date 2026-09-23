@@ -23,10 +23,16 @@ describe('WorkReportsService — Duty compatibility only', () => {
     },
     dutyException: { count: jest.fn() },
     office: { findUnique: jest.fn() },
+    orgUnit: { findFirst: jest.fn(), findUnique: jest.fn() },
+    orgUnitClosure: { findMany: jest.fn() },
+    operationalTeam: { findFirst: jest.fn() },
     account: { findUnique: jest.fn() },
   };
   const scope = {
     resolveActorContext: jest.fn().mockResolvedValue(actor),
+  };
+  const authorization = {
+    assertCan: jest.fn().mockResolvedValue(undefined),
   };
 
   beforeEach(() => {
@@ -37,10 +43,28 @@ describe('WorkReportsService — Duty compatibility only', () => {
       .mockResolvedValueOnce([]);
     prisma.dutyAssignment.count.mockResolvedValue(0);
     prisma.dutyException.count.mockResolvedValue(0);
+    prisma.office.findUnique.mockResolvedValue({
+      id: 'office-1',
+      isActive: true,
+      name: 'Patan Office',
+    });
+    prisma.orgUnit.findFirst.mockResolvedValue({ id: 'org-1' });
+    prisma.orgUnit.findUnique.mockResolvedValue({ name: 'Access Network' });
+    prisma.orgUnitClosure.findMany.mockResolvedValue([
+      { descendantOrgUnitId: 'org-1' },
+    ]);
+    prisma.operationalTeam.findFirst.mockResolvedValue({
+      id: 'team-1',
+      orgUnitId: 'org-1',
+    });
   });
 
   it('serves only the retained Duty drill-down compatibility dataset', async () => {
-    const service = new WorkReportsService(prisma as never, scope as never);
+    const service = new WorkReportsService(
+      prisma as never,
+      scope as never,
+      authorization as never,
+    );
 
     const result = await service.getDrilldown(
       { accountId: actor.accountId } as never,
@@ -73,9 +97,14 @@ describe('WorkReportsService — Duty compatibility only', () => {
         shiftName: 'Morning',
         shift: { name: 'Morning' },
         orgUnit: { code: 'AN', name: 'Access Network' },
+        operationalTeam: { code: 'OUT', name: 'Outside Maintenance' },
         employee: {
           username: 'employee',
-          employee: { empName: 'Employee One', empId: 'NTC-1' },
+          employee: {
+            empName: 'Employee One',
+            empId: 'NTC-1',
+            designation: 'Technician',
+          },
         },
         supervisor: {
           username: 'supervisor',
@@ -84,7 +113,11 @@ describe('WorkReportsService — Duty compatibility only', () => {
       },
     ]);
 
-    const service = new WorkReportsService(prisma as never, scope as never);
+    const service = new WorkReportsService(
+      prisma as never,
+      scope as never,
+      authorization as never,
+    );
     const result = await service.exportCsv(
       { accountId: actor.accountId } as never,
       {
@@ -98,11 +131,16 @@ describe('WorkReportsService — Duty compatibility only', () => {
       'duty-assignments-2026-09-01-to-2026-09-02.csv',
     );
     expect(result.rowCount).toBe(1);
-    expect(result.content).toContain('Employee One (NTC-1)');
+    expect(result.content).toContain('"Employee","Employee ID"');
+    expect(result.content).toContain('"Employee One","NTC-1"');
   });
 
   it('rejects retired legacy Work report datasets defensively', async () => {
-    const service = new WorkReportsService(prisma as never, scope as never);
+    const service = new WorkReportsService(
+      prisma as never,
+      scope as never,
+      authorization as never,
+    );
 
     await expect(
       service.getDrilldown({ accountId: actor.accountId } as never, {
@@ -111,5 +149,67 @@ describe('WorkReportsService — Duty compatibility only', () => {
         limit: 25,
       }),
     ).rejects.toBeInstanceOf(BadRequestException);
+  });
+
+  it('requires Super Admin Duty reports to remain Office-scoped', async () => {
+    scope.resolveActorContext.mockResolvedValue({
+      ...actor,
+      accountClass: AccountClass.SUPER_ADMIN,
+      officeId: null,
+      primaryOrgUnitId: null,
+      visibleOrgUnitIds: [],
+      assignableOrgUnitIds: [],
+    });
+    const service = new WorkReportsService(
+      prisma as never,
+      scope as never,
+      authorization as never,
+    );
+
+    await expect(
+      service.getDrilldown({ accountId: 'admin' } as never, {
+        dataset: WorkReportDrilldownDataset.DUTY_ASSIGNMENTS,
+        from: '2026-09-01',
+        to: '2026-09-02',
+        page: 1,
+        limit: 25,
+      }),
+    ).rejects.toThrow('Select an Office');
+  });
+
+  it('expands an Org Unit Duty filter to its recursive subtree and keeps Team filtering independent', async () => {
+    scope.resolveActorContext.mockResolvedValue({
+      ...actor,
+      visibleOrgUnitIds: ['org-1', 'org-child'],
+      assignableOrgUnitIds: ['org-1'],
+    });
+    prisma.orgUnitClosure.findMany.mockResolvedValue([
+      { descendantOrgUnitId: 'org-1' },
+      { descendantOrgUnitId: 'org-child' },
+    ]);
+    prisma.dutyAssignment.findMany
+      .mockReset()
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([]);
+    const service = new WorkReportsService(
+      prisma as never,
+      scope as never,
+      authorization as never,
+    );
+
+    await service.getDrilldown({ accountId: actor.accountId } as never, {
+      dataset: WorkReportDrilldownDataset.DUTY_ASSIGNMENTS,
+      officeId: 'office-1',
+      orgUnitId: 'org-1',
+      operationalTeamId: 'team-1',
+      from: '2026-09-01',
+      to: '2026-09-02',
+      page: 1,
+      limit: 25,
+    });
+
+    const dutyWhere = prisma.dutyAssignment.findMany.mock.calls[1]?.[0]?.where;
+    expect(JSON.stringify(dutyWhere)).toContain('org-child');
+    expect(JSON.stringify(dutyWhere)).toContain('team-1');
   });
 });

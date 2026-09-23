@@ -5,9 +5,9 @@ import { useAuth } from "../context/AuthContext";
 
 export function OrganizationPage() {
   const { t } = useTranslation("organization");
-  const { accessToken } = useAuth();
+  const { accessToken, account } = useAuth();
 
-  if (!accessToken) {
+  if (!accessToken || !account) {
     return (
       <main className="management-page">
         <section className="organization-page-state" role="alert">
@@ -20,7 +20,10 @@ export function OrganizationPage() {
 
   return (
     <main className="management-page organization-page">
-      <AdminOrganizationPanel accessToken={accessToken} />
+      <AdminOrganizationPanel
+        accessToken={accessToken}
+        viewerAccountClass={account.accountClass}
+      />
     </main>
   );
 }

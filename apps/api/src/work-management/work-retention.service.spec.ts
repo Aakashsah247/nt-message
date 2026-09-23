@@ -74,8 +74,6 @@ describe('WorkRetentionService', () => {
       visibleOrgUnitIds: [],
       assignableOrgUnitIds: [],
       operationalTeamLeadIds: [],
-      divisionId: null,
-      departmentId: null,
     });
     jest.mocked(scope.buildVisibleWorkWhere).mockReturnValue({});
     jest
@@ -103,8 +101,6 @@ describe('WorkRetentionService', () => {
       visibleOrgUnitIds: ['org-department-a'],
       assignableOrgUnitIds: ['org-department-a'],
       operationalTeamLeadIds: [],
-      divisionId: 'division-a',
-      departmentId: 'department-a',
     });
 
     await expect(

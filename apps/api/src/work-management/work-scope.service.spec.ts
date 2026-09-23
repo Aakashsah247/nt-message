@@ -7,7 +7,6 @@ import {
   EmployeeStatus,
   EmploymentStatus,
   OrgLeadershipType,
-  WorkItemStatus,
 } from '../generated/prisma/enums';
 import { WorkScopeService, type WorkActorContext } from './work-scope.service';
 
@@ -309,33 +308,12 @@ describe('WorkScopeService', () => {
     ).rejects.toBeInstanceOf(ForbiddenException);
   });
 
-  it('allows an Operational Team Lead to assign a current member of that team', async () => {
+  it('does not grant Work assignment authority from Operational Team Lead status', async () => {
     const target = createAccount({
       id: 'team-member',
       role: AccountRole.EMPLOYEE,
       orgUnitId: 'org-team',
       teamMembershipIds: ['team-a'],
-    });
-    jest.mocked(prisma.account.findMany).mockResolvedValue([target] as never);
-
-    await expect(
-      service.resolveAssignableAccounts(
-        actor({
-          id: 'team-lead',
-          role: AccountRole.EMPLOYEE,
-          operationalTeamLeadIds: ['team-a'],
-        }),
-        [target.id],
-      ),
-    ).resolves.toEqual([target]);
-  });
-
-  it('rejects a Team Lead target who is not a current member of the led team', async () => {
-    const target = createAccount({
-      id: 'not-team-member',
-      role: AccountRole.EMPLOYEE,
-      orgUnitId: 'org-team',
-      teamMembershipIds: ['team-b'],
     });
     jest.mocked(prisma.account.findMany).mockResolvedValue([target] as never);
 
@@ -393,18 +371,13 @@ describe('WorkScopeService', () => {
 
     expect(where).toEqual(
       expect.objectContaining({
-        AND: expect.arrayContaining([
-          { status: { not: WorkItemStatus.V3_RUNTIME } },
-          expect.objectContaining({
-            OR: expect.arrayContaining([
-              { primaryOwnerOrgUnitId: { in: ['org-a', 'org-b'] } },
-              {
-                orgUnitParticipants: {
-                  some: { orgUnitId: { in: ['org-a', 'org-b'] } },
-                },
-              },
-            ]),
-          }),
+        OR: expect.arrayContaining([
+          { primaryOwnerOrgUnitId: { in: ['org-a', 'org-b'] } },
+          {
+            orgUnitParticipants: {
+              some: { orgUnitId: { in: ['org-a', 'org-b'] } },
+            },
+          },
         ]),
       }),
     );
@@ -412,7 +385,7 @@ describe('WorkScopeService', () => {
     expect(JSON.stringify(where)).not.toContain('departmentId');
   });
 
-  it('builds hierarchy overview from V3 OrgUnit and Operational Team scope', () => {
+  it('keeps Team Lead identity out of the management hierarchy overview scope', () => {
     const where = service.buildOrganizationHierarchyWorkWhere(
       actor({
         id: 'team-lead',
@@ -423,9 +396,25 @@ describe('WorkScopeService', () => {
     );
 
     expect(JSON.stringify(where)).toContain('primaryOwnerOrgUnitId');
-    expect(JSON.stringify(where)).toContain('targetOperationalTeamId');
+    expect(JSON.stringify(where)).not.toContain('targetOperationalTeamId');
     expect(JSON.stringify(where)).not.toContain('divisionId');
     expect(JSON.stringify(where)).not.toContain('departmentId');
+  });
+
+  it('keeps Team Lead team Work visible through the normal employee Work scope', () => {
+    const where = service.buildVisibleWorkWhere(
+      actor({
+        id: 'team-lead',
+        role: AccountRole.EMPLOYEE,
+        operationalTeamLeadIds: ['team-a'],
+      }),
+    );
+
+    const serialized = JSON.stringify(where);
+    expect(serialized).toContain('assignedOperationalTeamId');
+    expect(serialized).toContain('team-a');
+    expect(serialized).not.toContain('divisionId');
+    expect(serialized).not.toContain('departmentId');
   });
 
   it('keeps ordinary Employee visibility assignment/personal-work scoped', () => {

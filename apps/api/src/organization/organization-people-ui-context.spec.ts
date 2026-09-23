@@ -54,6 +54,7 @@ describe('OrganizationPeopleService UI read context', () => {
       prisma,
       authority(),
       authorization,
+      {} as never,
     );
 
     await expect(
@@ -151,6 +152,7 @@ describe('OrganizationPeopleService UI read context', () => {
       prisma,
       authority(),
       authorization,
+      {} as never,
     );
 
     const result = await service.listOfficePeople(superAdminUser, 'office-1');
@@ -188,6 +190,7 @@ describe('OrganizationPeopleService UI read context', () => {
       prisma,
       authority(),
       authorization,
+      {} as never,
     );
 
     const result = await service.listOfficePeople(employeeUser, 'office-1');
@@ -218,6 +221,7 @@ describe('OrganizationPeopleService UI read context', () => {
       prisma,
       authority(),
       authorization,
+      {} as never,
     );
 
     await expect(

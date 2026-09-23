@@ -89,6 +89,16 @@ describe('AttachmentStorageService', () => {
   });
   it('fails an upload safely when NTC storage cannot write the object', async () => {
     const service = new AttachmentStorageService();
+    const errorLog = jest
+      .spyOn(
+        (
+          service as unknown as {
+            logger: { error: (...args: unknown[]) => void };
+          }
+        ).logger,
+        'error',
+      )
+      .mockImplementation(() => undefined);
     const writeError = Object.assign(new Error('disk full'), {
       code: 'ENOSPC',
     });
@@ -102,8 +112,10 @@ describe('AttachmentStorageService', () => {
           Buffer.from('x'),
         ),
       ).rejects.toThrow('Attachment storage is temporarily unavailable');
+      expect(errorLog).toHaveBeenCalled();
     } finally {
       writeSpy.mockRestore();
+      errorLog.mockRestore();
     }
   });
 

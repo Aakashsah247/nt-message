@@ -43,19 +43,29 @@
     "errorFallback": "Emergency alert could not be completed.",
     "dialog": {
       "eyebrow": "Emergency SMS",
-      "title": "Send fixed-format alert",
+      "title": "Send Emergency SMS",
+      "subtitle": "Send a direct mobile SMS to an office contact or System Support.",
       "closeAria": "Close emergency alert panel",
-      "contact": "Emergency contact",
+      "contact": "Recipient",
+      "contactHint": "Same-office contacts and System Support",
+      "searchContacts": "Search recipient...",
       "loadingContacts": "Loading contacts...",
       "noContacts": "No contacts available",
+      "noMatchingContacts": "No matching recipients",
       "noPhone": "No phone",
-      "superAdminProfile": "Super Admin profile",
-      "employeeProfile": "Employee profile",
-      "previewLabel": "Stored long format",
-      "resultTitle": "Alert stored and processed",
-      "statusProvider": "Status: {{status}} · Provider: {{provider}}",
+      "previewLabel": "SMS preview",
+      "resultTitle": "SMS processed",
       "sending": "Sending...",
-      "send": "Send alert"
+      "send": "Send SMS",
+      "systemSupport": "System support",
+      "officeContacts": "Office contacts",
+      "systemSupportHint": "NT Message system administrator",
+      "language": "SMS language",
+      "messageType": "Message",
+      "quick": "Quick",
+      "custom": "Custom",
+      "customMessage": "Your message",
+      "status": "Status: {{status}}"
     }
   }
 }

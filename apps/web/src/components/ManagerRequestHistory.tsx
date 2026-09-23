@@ -37,8 +37,6 @@ const statusFilters: StatusFilter[] = [
 
 const emptyFilters: AccountRequestListFilters = {
   search: "",
-  dateFrom: "",
-  dateTo: "",
 };
 
 function getErrorMessage(error: unknown, t: TFunction<"requests">): string {
@@ -81,6 +79,17 @@ function getStatusClass(status: string): string {
   return status.toLowerCase().replaceAll("_", "-");
 }
 
+function getOrganizationRoleLabel(
+  request: MyAccountRequestListItem,
+  t: TFunction<"requests">,
+): string {
+  if (request.requestedOrganizationRole !== "ORG_UNIT_HEAD") {
+    return t("form.v3.employeeRole");
+  }
+
+  const unitType = request.intendedOrgUnit?.orgUnitType?.name;
+  return unitType ? `${unitType} Head` : t("form.v3.unitHeadRole");
+}
 
 export function ManagerRequestHistory({
   accessToken,
@@ -198,28 +207,9 @@ export function ManagerRequestHistory({
 
   function applyFilters(event: FormEvent<HTMLFormElement>): void {
     event.preventDefault();
-
-    if (
-      draftFilters.dateFrom &&
-      draftFilters.dateTo &&
-      draftFilters.dateFrom > draftFilters.dateTo
-    ) {
-      setError(t("history.dateError"));
-      return;
-    }
-
     setError("");
     setPage(1);
-    setAppliedFilters({
-      ...draftFilters,
-      // Convert the manager's local calendar boundaries to UTC before calling the API.
-      dateFrom: draftFilters.dateFrom
-        ? new Date(`${draftFilters.dateFrom}T00:00:00`).toISOString()
-        : "",
-      dateTo: draftFilters.dateTo
-        ? new Date(`${draftFilters.dateTo}T23:59:59.999`).toISOString()
-        : "",
-    });
+    setAppliedFilters({ search: draftFilters.search?.trim() ?? "" });
   }
 
   function clearFilters(): void {
@@ -245,16 +235,8 @@ export function ManagerRequestHistory({
     statusFilters.find((filter) => filter.value === statusFilter)?.labelKey ??
       "common.all",
   );
-  const hasAdvancedFilters = Boolean(
-    appliedFilters.search ||
-      appliedFilters.dateFrom ||
-      appliedFilters.dateTo,
-  );
-  const hasDraftFilters = Boolean(
-    draftFilters.search ||
-      draftFilters.dateFrom ||
-      draftFilters.dateTo,
-  );
+  const hasAdvancedFilters = Boolean(appliedFilters.search);
+  const hasDraftFilters = Boolean(draftFilters.search);
 
   return (
     <>
@@ -311,36 +293,6 @@ export function ManagerRequestHistory({
                 }))
               }
               placeholder={t("history.searchOwnPlaceholder")}
-            />
-          </label>
-
-
-
-          <label>
-            <span>{t("common.from")}</span>
-            <input
-              type="date"
-              value={draftFilters.dateFrom ?? ""}
-              onChange={(event) =>
-                setDraftFilters((current) => ({
-                  ...current,
-                  dateFrom: event.target.value,
-                }))
-              }
-            />
-          </label>
-
-          <label>
-            <span>{t("common.to")}</span>
-            <input
-              type="date"
-              value={draftFilters.dateTo ?? ""}
-              onChange={(event) =>
-                setDraftFilters((current) => ({
-                  ...current,
-                  dateTo: event.target.value,
-                }))
-              }
             />
           </label>
 
@@ -401,10 +353,9 @@ export function ManagerRequestHistory({
               <thead>
                 <tr>
                   <th>{t("common.employee")}</th>
-                  <th>{t("common.role")}</th>
+                  <th>{t("form.v3.organizationRole")}</th>
                   <th>{t("common.orgUnit")}</th>
                   <th>{t("common.status")}</th>
-                  <th>{t("common.activationEmail")}</th>
                   <th>{t("common.submitted")}</th>
                   <th>{t("common.action")}</th>
                 </tr>
@@ -426,9 +377,8 @@ export function ManagerRequestHistory({
                       <small>{request.officialEmail}</small>
                     </td>
 
-                    <td data-label={t("common.role")}>
-                      <strong>{formatStatus(request.requestedRole, t)}</strong>
-                      <small>{t("history.revision", { number: request.revisionNumber })}</small>
+                    <td data-label={t("form.v3.organizationRole")}>
+                      <strong>{getOrganizationRoleLabel(request, t)}</strong>
                     </td>
 
                     <td data-label={t("common.orgUnit")}>
@@ -437,7 +387,6 @@ export function ManagerRequestHistory({
                       </strong>
                       <small>{request.office?.name ?? t("common.notAssigned")}</small>
                     </td>
-
 
                     <td data-label={t("common.status")}>
                       <span
@@ -454,32 +403,8 @@ export function ManagerRequestHistory({
                       )}
                     </td>
 
-                    <td data-label={t("common.activationEmail")}>
-                      <strong
-                        className={`activation-delivery-status activation-delivery-status--${request.activationEmailStatus.toLowerCase()}`}
-                      >
-                        {formatStatus(request.activationEmailStatus, t)}
-                      </strong>
-                      <small>
-                        {request.activationEmailSentAt
-                          ? t("history.sentDate", {
-                              date: formatDate(request.activationEmailSentAt, i18n.language, t),
-                            })
-                          : request.activationEmailLastAttemptAt
-                            ? t("history.attemptedDate", {
-                                date: formatDate(
-                                  request.activationEmailLastAttemptAt,
-                                  i18n.language,
-                                  t,
-                                ),
-                              })
-                            : t("common.notAttempted")}
-                      </small>
-                    </td>
-
                     <td data-label={t("common.submitted")}>
                       <strong>{formatDate(request.submittedAt, i18n.language, t)}</strong>
-                      <small>{t("history.updatedDate", { date: formatDate(request.updatedAt, i18n.language, t) })}</small>
                     </td>
 
                     <td data-label={t("common.action")}>

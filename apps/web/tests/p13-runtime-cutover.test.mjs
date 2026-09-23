@@ -33,7 +33,7 @@ test("P13-C account-class home routing replaces fixed-role home routing", async 
   ]);
 
   assert.match(homePath, /SUPER_ADMIN/);
-  assert.match(homePath, /OFFICE_USER|\/work/);
+  assert.match(homePath, /OFFICE_USER|\/dashboard/);
   assert.doesNotMatch(homePath, /\/messages/);
   assert.doesNotMatch(homePath, /SENIOR_MANAGEMENT|TEAM_MANAGER|EMPLOYEE/);
   assert.match(roleHome, /getAccountHomePath\(account\.accountClass\)/);
@@ -82,7 +82,7 @@ test("P13-C retires WM-V2 management query runtime and uses V3 Duty supervisor s
   assert.doesNotMatch(dutyPage, /listManagementAssignmentOptions/);
 });
 
-test("P13-C WorkScope derives V3 authority from account class and leadership", async () => {
+test("WorkScope keeps V3 organization authority while classic WorkItems is authoritative", async () => {
   const [workScope, workModule, workController] = await Promise.all([
     apiSource("work-management/work-scope.service.ts"),
     apiSource("work-management/work-management.module.ts"),
@@ -96,13 +96,13 @@ test("P13-C WorkScope derives V3 authority from account class and leadership", a
   assert.match(workScope, /AccountClass\.SUPER_ADMIN/);
   assert.match(workScope, /OrgLeadershipType\.OFFICE_HEAD/);
   assert.match(workScope, /OrgLeadershipType\.ORG_UNIT_HEAD/);
-  assert.doesNotMatch(workScope, /role:\s*true/);
   assert.doesNotMatch(workScope, /managementAssignments:/);
   assert.doesNotMatch(workScope, /ManagementPositionType/);
-  assert.doesNotMatch(workScope, /account\.role/);
-  assert.doesNotMatch(workModule, /WorkItemsService|work-items\.service/);
-  assert.doesNotMatch(workController, /WorkItemsService|work-items\.service/);
-  assert.doesNotMatch(workController, /CreateWorkItemDto/);
+  assert.match(workModule, /WorkItemsService/);
+  assert.match(workController, /WorkItemsService/);
+  assert.match(workController, /CreateWorkItemDto/);
+  assert.match(workController, /:workItemId\/acknowledge/);
+  assert.match(workController, /:workItemId\/start/);
 });
 
 test("P13-C WorkScope authorization no longer uses Division or Department scope decisions", async () => {
@@ -188,19 +188,19 @@ test("P13-C Duty shift and holiday configuration uses Office/OrgUnit scope", asy
   assert.match(webTypes, /DutyHolidayScope = "OFFICE" \| "ORG_UNIT"/);
   assert.doesNotMatch(webClient, /targetScope\?: DutyShiftScope; divisionId/);
   assert.match(dutyPage, /One Org Unit/);
-  assert.match(dutyPage, /orgUnits\.map\(\(orgUnit\)/);
+  assert.match(dutyPage, /manageableOrgUnits\.map\(\(orgUnit\)/);
   assert.doesNotMatch(dutyPage, /dutyOrgUnits/);
   assert.doesNotMatch(dutyPage, /Department or Division scope is for approved local closures/);
 });
 
-test("P13-D retires WM-V2 mutation routes while preserving help compatibility reads", async () => {
+test("classic Work lifecycle routes are restored on the V3 organization model", async () => {
   const [controller, lifecycle, workModule] = await Promise.all([
     apiSource("work-management/work-items.controller.ts"),
     apiSource("work-management/work-lifecycle.service.ts"),
     apiSource("work-management/work-management.module.ts"),
   ]);
 
-  for (const legacyMutation of [
+  for (const route of [
     /:workItemId\/acknowledge/,
     /:workItemId\/start/,
     /:workItemId\/sales\/send/,
@@ -211,19 +211,22 @@ test("P13-D retires WM-V2 mutation routes while preserving help compatibility re
     /:workItemId\/support\/add/,
     /:workItemId\/support\/remove/,
   ]) {
-    assert.doesNotMatch(controller, legacyMutation);
+    assert.match(controller, route);
   }
 
-  assert.doesNotMatch(lifecycle, /WorkItemType/);
-  assert.doesNotMatch(lifecycle, /async (?:update|sendToSales|completeSalesWork|submitCompletion|requestMoreInformation|close|reopen|cancel|reassignPrimary|addSupport|removeSupport)\(/);
-  assert.doesNotMatch(workModule, /WorkItemsService|work-items\.service/);
+  assert.match(lifecycle, /async submitCompletion\(/);
+  assert.match(lifecycle, /async requestMoreInformation\(/);
+  assert.match(lifecycle, /async close\(/);
+  assert.match(lifecycle, /async reopen\(/);
+  assert.match(lifecycle, /async cancel\(/);
+  assert.match(lifecycle, /async reassign\(/);
+  assert.match(lifecycle, /async addSupport\(/);
+  assert.match(lifecycle, /async removeSupport\(/);
+  assert.match(lifecycle, /async sendToSales\(/);
+  assert.match(lifecycle, /async completeSalesWork\(/);
+  assert.match(workModule, /WorkItemsService/);
   assert.match(controller, /help-requests\/pending/);
   assert.match(lifecycle, /async requestHelp\(/);
   assert.match(lifecycle, /async respondToHelpRequest\(/);
-  assert.match(lifecycle, /coordinateHelpRequest\(/);
-  assert.match(lifecycle, /Promise<never>/);
-  assert.match(
-    lifecycle,
-    /The legacy cross-department coordination flow is retired\. Use V3 OrgUnit collaboration instead\./,
-  );
+  assert.doesNotMatch(lifecycle, /coordinateHelpRequest|Use V3 OrgUnit collaboration instead/);
 });

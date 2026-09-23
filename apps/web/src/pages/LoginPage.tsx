@@ -186,10 +186,33 @@ export function LoginPage() {
                       ? t("actions.hidePassword", { ns: "common" })
                       : t("actions.showPassword", { ns: "common" })
                   }
+                  aria-pressed={showPassword}
                 >
-                  {showPassword
-                    ? t("actions.hide", { ns: "common" })
-                    : t("actions.show", { ns: "common" })}
+                  <svg
+                    className="password-toggle-icon"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    aria-hidden="true"
+                    focusable="false"
+                  >
+                    {showPassword ? (
+                      <>
+                        <path d="M3 3l18 18" />
+                        <path d="M10.6 10.6a2 2 0 002.8 2.8" />
+                        <path d="M9.9 4.24A10.42 10.42 0 0112 4c5.5 0 9.5 4.5 10 8a10.98 10.98 0 01-2.02 4.35" />
+                        <path d="M6.61 6.61C4.62 7.93 2.96 9.91 2 12c.5 3.5 4.5 8 10 8a10.5 10.5 0 005.39-1.61" />
+                      </>
+                    ) : (
+                      <>
+                        <path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z" />
+                        <circle cx="12" cy="12" r="3" />
+                      </>
+                    )}
+                  </svg>
                 </button>
               </div>
             </label>

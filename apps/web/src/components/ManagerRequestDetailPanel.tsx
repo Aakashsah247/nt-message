@@ -5,6 +5,13 @@ import type { TFunction } from "i18next";
 import { useTranslation } from "react-i18next";
 
 import {
+  AccountRequestHierarchySelector,
+} from "./AccountRequestHierarchySelector";
+import {
+  getDefaultAccountRequestTargetId,
+} from "../utils/account-request-hierarchy";
+
+import {
   cancelMyAccountRequest,
   getMyAccountRequest,
   resendActivationEmail,
@@ -14,6 +21,7 @@ import {
 import type {
   ManagerRequestContextResponse,
   MyAccountRequestDetail,
+  AccountRequestOrganizationRole,
 } from "../types/account-request";
 
 interface ManagerRequestDetailPanelProps {
@@ -32,6 +40,7 @@ interface ResubmitFormState {
   officialEmail: string;
   designation: string;
   intendedOrgUnitId: string;
+  requestedOrganizationRole: AccountRequestOrganizationRole;
 }
 
 const emptyForm: ResubmitFormState = {
@@ -41,6 +50,7 @@ const emptyForm: ResubmitFormState = {
   officialEmail: "",
   designation: "",
   intendedOrgUnitId: "",
+  requestedOrganizationRole: "EMPLOYEE",
 };
 
 function getErrorMessage(error: unknown, t: TFunction<"requests">): string {
@@ -119,6 +129,7 @@ export function ManagerRequestDetailPanel({
     requestContext.orgUnits.find(
       (orgUnit) => orgUnit.id === form.intendedOrgUnitId,
     ) ?? null;
+  const defaultOrgUnitId = getDefaultAccountRequestTargetId(requestContext);
 
   useEffect(() => {
     let active = true;
@@ -146,7 +157,10 @@ export function ManagerRequestDetailPanel({
 
           designation: accountRequest.designation ?? "",
 
-          intendedOrgUnitId: accountRequest.intendedOrgUnitId ?? requestContext.primaryOrgUnit.id,
+          intendedOrgUnitId:
+            accountRequest.intendedOrgUnitId ?? defaultOrgUnitId,
+
+          requestedOrganizationRole: accountRequest.requestedOrganizationRole,
         });
 
         setError("");
@@ -167,19 +181,23 @@ export function ManagerRequestDetailPanel({
     return () => {
       active = false;
     };
-  }, [
-    accessToken,
-    requestContext.primaryOrgUnit.id,
-    requestId,
-    retryKey,
-    t,
-  ]);
+  }, [accessToken, defaultOrgUnitId, requestId, retryKey, t]);
 
   function updateField(field: keyof ResubmitFormState, value: string): void {
-    setForm((current) => ({
-      ...current,
-      [field]: value,
-    }));
+    setForm((current) => {
+      const next = { ...current, [field]: value };
+
+      if (field === "intendedOrgUnitId") {
+        const nextUnit = requestContext.orgUnits.find(
+          (unit) => unit.id === value,
+        );
+        if (!nextUnit?.canRequestHead) {
+          next.requestedOrganizationRole = "EMPLOYEE";
+        }
+      }
+
+      return next;
+    });
 
     setError("");
     setSuccess("");
@@ -213,8 +231,8 @@ export function ManagerRequestDetailPanel({
       return t("form.validationNameShort");
     }
 
-    if (!/^\+?[0-9]{7,20}$/.test(phoneNumber)) {
-      return t("form.validationPhone");
+    if (!/^(?:9\d{9}|9779\d{9}|\+9779\d{9})$/.test(phoneNumber)) {
+      return t("form.validationPhoneNepal");
     }
 
     if (!officialEmail.includes("@")) {
@@ -223,6 +241,13 @@ export function ManagerRequestDetailPanel({
 
     if (!form.intendedOrgUnitId) {
       return t("form.v3.validationOrgUnit");
+    }
+
+    if (
+      form.requestedOrganizationRole === "ORG_UNIT_HEAD" &&
+      !selectedOrgUnit?.canRequestHead
+    ) {
+      return t("form.v3.headNotAvailable");
     }
 
     return null;
@@ -338,6 +363,7 @@ export function ManagerRequestDetailPanel({
         designation: form.designation.trim(),
 
         intendedOrgUnitId: form.intendedOrgUnitId,
+        requestedOrganizationRole: form.requestedOrganizationRole,
       });
 
       setSuccess(response.message);
@@ -419,9 +445,15 @@ export function ManagerRequestDetailPanel({
               </div>
 
               <div>
-                <span>{t("common.requestedRole")}</span>
+                <span>{t("form.v3.organizationRole")}</span>
 
-                <strong>{formatValue(detail.requestedRole, t)}</strong>
+                <strong>
+                  {detail.requestedOrganizationRole === "ORG_UNIT_HEAD"
+                    ? (detail.intendedOrgUnit?.orgUnitType?.name
+                        ? `${detail.intendedOrgUnit.orgUnitType.name} Head`
+                        : t("form.v3.unitHeadRole"))
+                    : t("form.v3.employeeRole")}
+                </strong>
 
                 <small>{t("managerDetail.revision", { number: detail.revisionNumber })}</small>
               </div>
@@ -739,27 +771,33 @@ export function ManagerRequestDetailPanel({
                     />
                   </label>
 
+                  <AccountRequestHierarchySelector
+                    units={requestContext.orgUnits}
+                    value={form.intendedOrgUnitId}
+                    onChange={(orgUnitId) =>
+                      updateField("intendedOrgUnitId", orgUnitId)
+                    }
+                    disabled={submitting}
+                  />
                   <label>
-                    <span>{t("form.v3.intendedOrgUnit")}</span>
-
+                    <span>{t("form.v3.organizationRole")}</span>
                     <select
-                      value={form.intendedOrgUnitId}
+                      value={form.requestedOrganizationRole}
                       onChange={(event) =>
-                        updateField("intendedOrgUnitId", event.target.value)
+                        updateField(
+                          "requestedOrganizationRole",
+                          event.target.value as AccountRequestOrganizationRole,
+                        )
                       }
                       disabled={submitting}
-                      required
                     >
-                      <option value="">{t("form.v3.selectOrgUnit")}</option>
-
-                      {requestContext.orgUnits.map((orgUnit) => (
-                        <option key={orgUnit.id} value={orgUnit.id}>
-                          {orgUnit.name} ({orgUnit.code})
+                      <option value="EMPLOYEE">{t("form.v3.employeeRole")}</option>
+                      {selectedOrgUnit?.canRequestHead && (
+                        <option value="ORG_UNIT_HEAD">
+                          {selectedOrgUnit.headTitle ?? t("form.v3.unitHeadRole")}
                         </option>
-                      ))}
+                      )}
                     </select>
-
-                    <small>{t("form.v3.orgUnitHelp")}</small>
                   </label>
                 </div>
 

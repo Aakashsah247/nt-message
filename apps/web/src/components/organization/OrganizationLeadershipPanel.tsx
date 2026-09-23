@@ -696,7 +696,7 @@ export function OrganizationLeadershipPanel({
                   <option value="">{t("leadership.selectEmployee")}</option>
                   {people.map((person) => (
                     <option key={person.employee.id} value={person.employee.id}>
-                      {person.employee.empName} ({person.employee.empId})
+                      {person.employee.empName} ({person.employee.empId}) — {person.primaryMembership.orgUnit?.name ?? office.name}
                     </option>
                   ))}
                 </select>
@@ -735,6 +735,12 @@ export function OrganizationLeadershipPanel({
                   required
                 />
               </label>
+
+              {assignmentKind === "ORG_UNIT_HEAD" && (
+                <div className="organization-editor-note organization-form-wide">
+                  {t("leadership.headPlacementNotice")}
+                </div>
+              )}
 
               {assignmentKind === "DEPUTY" && (
                 <div className="organization-editor-note organization-form-wide">

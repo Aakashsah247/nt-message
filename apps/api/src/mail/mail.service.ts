@@ -1,6 +1,7 @@
 import { Injectable, ServiceUnavailableException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import * as nodemailer from 'nodemailer';
+import type SMTPTransport from 'nodemailer/lib/smtp-transport';
 
 interface ActivationOtpEmail {
   to: string;
@@ -59,7 +60,10 @@ export class MailDeliveryError extends Error {
 
 @Injectable()
 export class MailService {
-  private readonly transporter: nodemailer.Transporter;
+  private readonly transporter: nodemailer.Transporter<
+    SMTPTransport.SentMessageInfo,
+    SMTPTransport.Options
+  >;
 
   private readonly fromAddress: string;
 
@@ -101,7 +105,7 @@ export class MailService {
 
     this.fromAddress = configService.getOrThrow<string>('SMTP_FROM');
 
-    this.transporter = nodemailer.createTransport({
+    const smtpConfig: SMTPTransport.Options = {
       host,
       port,
       secure,
@@ -122,7 +126,9 @@ export class MailService {
       connectionTimeout,
       greetingTimeout,
       socketTimeout,
-    });
+    };
+
+    this.transporter = nodemailer.createTransport(smtpConfig);
   }
 
   private readPositiveInteger(
@@ -170,7 +176,7 @@ export class MailService {
     email: ActivationInvitationEmail,
   ): Promise<void> {
     try {
-      await this.transporter.sendMail({
+      const delivery = await this.transporter.sendMail({
         from: this.fromAddress,
         to: email.to,
         subject: 'Your NT Message account is ready for activation',
@@ -211,11 +217,32 @@ export class MailService {
           'Do not share your OTP or password with anyone. Nepal Telecom administrators will never ask you to provide your password or OTP.',
         ].join('\n'),
       });
-    } catch {
+
+      /*
+       * A resolved sendMail() call is not enough to claim successful delivery.
+       * SMTP transports can resolve while rejecting one or more recipients.
+       * Only mark the invitation SENT when the intended mailbox is present in
+       * Nodemailer's accepted-recipient list. Final Inbox placement remains
+       * controlled by the recipient mail provider.
+       */
+      const intendedRecipient = email.to.trim().toLowerCase();
+      const acceptedRecipients = Array.isArray(delivery.accepted)
+        ? delivery.accepted
+            .map((recipient: unknown) => String(recipient).trim().toLowerCase())
+            .filter(Boolean)
+        : [];
+
+      if (!acceptedRecipients.includes(intendedRecipient)) {
+        throw new MailDeliveryError('SMTP_DELIVERY_FAILED');
+      }
+    } catch (error: unknown) {
       /*
        * Expose only a stable provider category. SMTP responses and transport
        * errors can contain infrastructure details and must not enter audits.
        */
+      if (error instanceof MailDeliveryError) {
+        throw error;
+      }
       throw new MailDeliveryError('SMTP_DELIVERY_FAILED');
     }
   }

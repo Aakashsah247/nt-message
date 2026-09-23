@@ -7,6 +7,7 @@ import {
   AccountRole,
   PrismaClient,
 } from "../src/generated/prisma/client";
+import { ensureDefaultWorkTypeCatalog } from "../src/work-management/default-work-type-catalog";
 
 config({
   path: resolve(process.cwd(), "../../.env"),
@@ -223,10 +224,42 @@ async function findSuperAdminAccount() {
   return officialEmailAccount ?? existingSuperAdmin ?? legacyAccount;
 }
 
+async function ensureDefaultWorkTypesForActiveOffices(
+  actorAccountId: string,
+): Promise<void> {
+  const offices = await prisma.office.findMany({
+    where: {
+      isActive: true,
+    },
+    orderBy: {
+      createdAt: "asc",
+    },
+    select: {
+      id: true,
+      code: true,
+      name: true,
+    },
+  });
+
+  for (const office of offices) {
+    const result = await prisma.$transaction((tx) =>
+      ensureDefaultWorkTypeCatalog(tx, office.id, actorAccountId),
+    );
+
+    if (result.createdDefinitions > 0 || result.createdDrafts > 0) {
+      console.log(
+        `Default Work Types restored for ${office.name} (${office.code}): ` +
+          `${result.createdDefinitions} definitions, ${result.createdDrafts} drafts.`,
+      );
+    }
+  }
+}
+
 async function main(): Promise<void> {
   await assertSuperAdminIdentityIsUnique();
 
   const existingAdmin = await findSuperAdminAccount();
+  let superAdminId: string;
 
   if (existingAdmin) {
     /*
@@ -265,40 +298,47 @@ async function main(): Promise<void> {
       }),
     ]);
 
+    superAdminId = existingAdmin.id;
+
     console.log(
       `Super Admin account "${superAdminEmail}" updated successfully.`,
     );
+  } else {
+    const passwordHash = await argon2.hash(
+      superAdminPassword,
+      {
+        type: argon2.argon2id,
+      },
+    );
 
-    return;
-  }
-
-  const passwordHash = await argon2.hash(
-    superAdminPassword,
-    {
-      type: argon2.argon2id,
-    },
-  );
-
-  await prisma.account.create({
-    data: {
-      username: superAdminEmail,
-      accountClass: AccountClass.SUPER_ADMIN,
-      role: AccountRole.SUPER_ADMIN,
-      passwordHash,
-      isEnabled: true,
-      superAdminProfile: {
-        create: {
-          fullName: superAdminName,
-          email: superAdminEmail,
-          phoneNumber: superAdminPhone,
+    const createdAdmin = await prisma.account.create({
+      data: {
+        username: superAdminEmail,
+        accountClass: AccountClass.SUPER_ADMIN,
+        role: AccountRole.SUPER_ADMIN,
+        passwordHash,
+        isEnabled: true,
+        superAdminProfile: {
+          create: {
+            fullName: superAdminName,
+            email: superAdminEmail,
+            phoneNumber: superAdminPhone,
+          },
         },
       },
-    },
-  });
+      select: {
+        id: true,
+      },
+    });
 
-  console.log(
-    `Super Admin account "${superAdminEmail}" created successfully.`,
-  );
+    superAdminId = createdAdmin.id;
+
+    console.log(
+      `Super Admin account "${superAdminEmail}" created successfully.`,
+    );
+  }
+
+  await ensureDefaultWorkTypesForActiveOffices(superAdminId);
 }
 
 main()

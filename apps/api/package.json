@@ -41,7 +41,18 @@
     "db:verify-phase13-cutover-readiness": "node scripts/verify_phase13_cutover_readiness.js",
     "phase13:cutover-preflight": "prisma validate --schema prisma/schema.prisma && prisma migrate status --schema prisma/schema.prisma && node scripts/audit_phase13_legacy_dependencies.js && node scripts/verify_phase13_schema_cleanup.js && node scripts/verify_phase13_cutover_readiness.js",
     "phase13:cutover-postflight": "prisma migrate status --schema prisma/schema.prisma && node scripts/verify_phase13_schema_cleanup.js && node scripts/verify_phase13_cutover_readiness.js && node scripts/audit_phase13_legacy_dependencies.js",
-    "phase13:final-lock": "prisma validate --schema prisma/schema.prisma && prisma migrate status --schema prisma/schema.prisma && node scripts/audit_phase13_legacy_dependencies.js && node scripts/verify_phase13_schema_cleanup.js && node scripts/verify_phase13_cutover_readiness.js && node scripts/verify_phase13_final_architecture_lock.js"
+    "phase13:final-lock": "prisma validate --schema prisma/schema.prisma && prisma migrate status --schema prisma/schema.prisma && node scripts/audit_phase13_legacy_dependencies.js && node scripts/verify_phase13_schema_cleanup.js && node scripts/verify_phase13_cutover_readiness.js && node scripts/verify_phase13_final_architecture_lock.js",
+    "phase14:verify-role-feature-lock": "node scripts/verify_phase14_role_feature_lock.js",
+    "phase15:reset-dev-data": "node scripts/phase15_reset_development_data.js",
+    "phase15:verify-clean-v3": "node scripts/verify_phase15_clean_v3_foundation.js",
+    "db:ensure-default-work-types": "tsx scripts/ensure_default_work_types.ts",
+    "message:security:backfill": "tsx scripts/backfill_message_text_security.ts",
+    "db:verify-work-classic-cutover": "node scripts/verify_work_classic_cutover.js",
+    "db:repair-work-classic-cutover": "node scripts/repair_work_classic_cutover.js",
+    "message:security:audit": "tsx scripts/verify_message_security_audit.ts",
+    "message:security:backfill-attachments": "tsx scripts/backfill_message_attachment_security.ts",
+    "message:security:architecture-lock": "node scripts/verify_message_security_architecture_lock.mjs",
+    "message:security:final-lock": "prisma validate --schema prisma/schema.prisma && prisma migrate status --schema prisma/schema.prisma && node scripts/verify_message_security_architecture_lock.mjs && tsx scripts/verify_message_security_audit.ts && jest message-content-security.spec.ts message-deletion-tombstone-audit.spec.ts message-attachment-content-security.spec.ts multi-attachment-message.service.spec.ts message-attachment-stream.service.spec.ts --runInBand"
   },
   "dependencies": {
     "@nestjs/common": "^11.0.1",
@@ -60,7 +71,7 @@
     "cookie-parser": "^1.4.7",
     "dotenv": "^17.4.2",
     "helmet": "^8.2.0",
-    "nodemailer": "^9.0.0",
+    "nodemailer": "^9.1.1",
     "passport": "^0.7.0",
     "passport-jwt": "^4.0.1",
     "pg": "^8.21.0",

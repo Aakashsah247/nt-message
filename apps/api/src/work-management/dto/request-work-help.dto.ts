@@ -8,11 +8,18 @@ import {
   MinLength,
 } from 'class-validator';
 
-import { WorkHelpReason } from '../../generated/prisma/client';
+import {
+  WorkHelpMaterialType,
+  WorkHelpReason,
+} from '../../generated/prisma/client';
 
 export class RequestWorkHelpDto {
   @IsEnum(WorkHelpReason)
   reason!: WorkHelpReason;
+
+  @IsOptional()
+  @IsEnum(WorkHelpMaterialType)
+  materialType?: WorkHelpMaterialType;
 
   @IsOptional()
   @IsUUID('4')

@@ -6,9 +6,9 @@ import type { OrganizationUnitNode } from "../../types/organization-v3";
 interface OrganizationTreeProps {
   node: OrganizationUnitNode;
   depth: number;
-  selectedUnitId: string | null;
   expandedIds: Set<string>;
   forceExpanded: boolean;
+  peopleCountByUnit: ReadonlyMap<string, number>;
   onSelect: (unitId: string) => void;
   onToggle: (unitId: string) => void;
 }
@@ -16,34 +16,30 @@ interface OrganizationTreeProps {
 export function OrganizationTree({
   node,
   depth,
-  selectedUnitId,
   expandedIds,
   forceExpanded,
+  peopleCountByUnit,
   onSelect,
   onToggle,
 }: OrganizationTreeProps) {
   const { t } = useTranslation("organization");
   const hasChildren = node.children.length > 0;
   const expanded = forceExpanded || expandedIds.has(node.id);
+  const directPeople = peopleCountByUnit.get(node.id) ?? 0;
 
   return (
-    <div className="organization-tree-branch" role="none">
-      <div
-        role="treeitem"
-        aria-level={depth + 1}
-        aria-expanded={hasChildren ? expanded : undefined}
-        className={
-          selectedUnitId === node.id
-            ? "organization-tree-row is-selected"
-            : "organization-tree-row"
-        }
-        style={{
-          "--organization-indent": `${Math.min(depth, 6) * 0.65}rem`,
-        } as CSSProperties}
-      >
+    <article
+      className="organization-hierarchy-item"
+      style={
+        {
+          "--organization-depth": Math.min(depth, 6),
+        } as CSSProperties
+      }
+    >
+      <div className="organization-hierarchy-item__summary">
         <button
           type="button"
-          className="organization-tree-toggle"
+          className="organization-hierarchy-item__badge"
           onClick={() => onToggle(node.id)}
           disabled={!hasChildren}
           aria-expanded={hasChildren ? expanded : undefined}
@@ -55,57 +51,67 @@ export function OrganizationTree({
               : undefined
           }
         >
-          {hasChildren ? (expanded ? "−" : "+") : "·"}
+          <span aria-hidden="true">{hasChildren ? (expanded ? "−" : "+") : "•"}</span>
         </button>
 
-        <button
-          type="button"
-          className="organization-tree-select"
-          onClick={() => onSelect(node.id)}
-        >
-          <span className="organization-tree-type">
-            {node.orgUnitType.name}
-          </span>
-          <span className="organization-tree-identity">
-            <strong>{node.name}</strong>
-            <small>{node.code}</small>
-          </span>
-          <span
-            className={
-              node.isActive
-                ? "organization-status is-active"
-                : "organization-status"
-            }
+        <span className="organization-hierarchy-item__identity">
+          <strong>{node.name}</strong>
+          <small>
+            {node.orgUnitType.name} · {node.code}
+          </small>
+        </span>
+
+        <div className="organization-hierarchy-item__context" aria-label={node.name}>
+          <span>{t("tree.people", { count: directPeople })}</span>
+          <span>{t("tree.branches", { count: node.children.length })}</span>
+          {node.deletionProtected && (
+            <span className="organization-protection-badge">
+              {t("tree.protected", { count: node.linkedRecordCount })}
+            </span>
+          )}
+        </div>
+
+        <div className="organization-hierarchy-item__row-actions">
+          {hasChildren && (
+            <button
+              type="button"
+              className="organization-action organization-action--quiet"
+              onClick={() => onToggle(node.id)}
+              aria-expanded={expanded}
+            >
+              {expanded
+                ? t("tree.hideBranches")
+                : t("tree.viewBranches", { count: node.children.length })}
+            </button>
+          )}
+          <button
+            type="button"
+            className="organization-action organization-action--toggle"
+            onClick={() => onSelect(node.id)}
           >
-            {node.isActive ? t("common.active") : t("common.inactive")}
-          </span>
-          <span className="organization-tree-counts">
-            <small>{t("tree.people", { count: node._count.memberships })}</small>
-            <small>
-              {t("tree.leaders", {
-                count: node._count.leadershipAssignments,
-              })}
-            </small>
-          </span>
-        </button>
+            {t("tree.manage")}
+          </button>
+        </div>
       </div>
 
       {hasChildren && expanded && (
-        <div className="organization-tree-children" role="group">
-          {node.children.map((child) => (
-            <OrganizationTree
-              key={child.id}
-              node={child}
-              depth={depth + 1}
-              selectedUnitId={selectedUnitId}
-              expandedIds={expandedIds}
-              forceExpanded={forceExpanded}
-              onSelect={onSelect}
-              onToggle={onToggle}
-            />
-          ))}
+        <div className="organization-hierarchy-item__details" role="group">
+          <div className="organization-hierarchy-children">
+            {node.children.map((child) => (
+              <OrganizationTree
+                key={child.id}
+                node={child}
+                depth={depth + 1}
+                expandedIds={expandedIds}
+                forceExpanded={forceExpanded}
+                peopleCountByUnit={peopleCountByUnit}
+                onSelect={onSelect}
+                onToggle={onToggle}
+              />
+            ))}
+          </div>
         </div>
       )}
-    </div>
+    </article>
   );
 }

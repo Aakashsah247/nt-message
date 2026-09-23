@@ -17,7 +17,11 @@ import {
 
 import {
   CAPABILITIES,
+  ALL_SHARED_RESPONSIBILITIES,
+  SHARED_RESPONSIBILITIES,
   DELEGABLE_CAPABILITIES,
+  ORGANIZATION_ACCESS_CAPABILITIES,
+  isSharedResponsibility,
   isCapability,
 } from './organization-capabilities';
 import type { Capability } from './organization-capabilities';
@@ -26,19 +30,8 @@ import { CreateDelegatedPermissionDto } from './dto/create-delegated-permission.
 import { OrganizationDelegationContextQueryDto } from './dto/organization-delegation-context-query.dto';
 import { RevokeDelegatedPermissionDto } from './dto/revoke-delegated-permission.dto';
 
-const ORGANIZATION_UI_DELEGATION_CAPABILITIES = [
-  CAPABILITIES.ORGANIZATION_VIEW,
-  CAPABILITIES.ORGANIZATION_CREATE_UNIT,
-  CAPABILITIES.ORGANIZATION_RENAME_UNIT,
-  CAPABILITIES.ORGANIZATION_MOVE_UNIT,
-  CAPABILITIES.ORGANIZATION_DEACTIVATE_UNIT,
-  CAPABILITIES.MEMBERSHIP_VIEW,
-  CAPABILITIES.MEMBERSHIP_TRANSFER_INTERNAL,
-  CAPABILITIES.MEMBERSHIP_ASSIGN_SECONDARY,
-  CAPABILITIES.LEADERSHIP_VIEW,
-  CAPABILITIES.LEADERSHIP_ASSIGN,
-  CAPABILITIES.LEADERSHIP_ASSIGN_ACTING,
-  CAPABILITIES.LEADERSHIP_ASSIGN_DEPUTY,
+const LEGACY_UI_DELEGATION_CAPABILITIES = [
+  ...ORGANIZATION_ACCESS_CAPABILITIES,
   CAPABILITIES.USERS_REQUEST_CREATE,
 ] satisfies Capability[];
 
@@ -82,6 +75,8 @@ export class OrganizationDelegationService {
     const now = new Date();
     const probeUntil = new Date(now.getTime() + 60_000);
 
+    let selectedOrgUnitTypeCode: string | null = null;
+
     if (orgUnitId) {
       const orgUnit = await this.prisma.orgUnit.findFirst({
         where: {
@@ -89,7 +84,10 @@ export class OrganizationDelegationService {
           officeId,
           isActive: true,
         },
-        select: { id: true },
+        select: {
+          id: true,
+          orgUnitType: { select: { code: true } },
+        },
       });
 
       if (!orgUnit) {
@@ -97,6 +95,7 @@ export class OrganizationDelegationService {
           'Select an active organizational unit from this office.',
         );
       }
+      selectedOrgUnitTypeCode = orgUnit.orgUnitType.code;
     }
 
     const officeHead = await this.authorization.isOfficeHead(
@@ -112,7 +111,10 @@ export class OrganizationDelegationService {
             granteeAccountId: user.accountId,
             officeId,
             capability: {
-              in: [...ORGANIZATION_UI_DELEGATION_CAPABILITIES],
+              in: [
+                ...ALL_SHARED_RESPONSIBILITIES,
+                ...LEGACY_UI_DELEGATION_CAPABILITIES,
+              ],
             },
             canRedelegate: true,
             revokedAt: null,
@@ -126,25 +128,31 @@ export class OrganizationDelegationService {
       user.accountClass !== AccountClass.SUPER_ADMIN &&
       (officeHead || Boolean(activeRedelegableGrant));
 
-    const availableCapabilities = hasDelegationAuthority
+    const availableResponsibilities = hasDelegationAuthority
       ? (
           await Promise.all(
-            ORGANIZATION_UI_DELEGATION_CAPABILITIES.map(async (capability) => ({
-              capability,
-              allowed: await this.authorization.canRedelegate(
-                user,
-                capability,
-                officeId,
-                orgUnitId,
-                includeDescendants,
-                now,
-                probeUntil,
-              ),
+            ALL_SHARED_RESPONSIBILITIES.map(async (responsibility) => ({
+              responsibility,
+              allowed:
+                responsibility ===
+                  SHARED_RESPONSIBILITIES.WORK_TYPE_MANAGEMENT &&
+                orgUnitId !== null &&
+                selectedOrgUnitTypeCode !== 'DIVISION'
+                  ? false
+                  : await this.authorization.canRedelegateResponsibility(
+                      user,
+                      responsibility,
+                      officeId,
+                      orgUnitId,
+                      includeDescendants,
+                      now,
+                      probeUntil,
+                    ),
             })),
           )
         )
           .filter((entry) => entry.allowed)
-          .map((entry) => entry.capability)
+          .map((entry) => entry.responsibility)
       : [];
 
     const memberships = hasDelegationAuthority
@@ -218,7 +226,7 @@ export class OrganizationDelegationService {
       orgUnitId,
       includeDescendants,
       hasDelegationAuthority,
-      availableCapabilities,
+      availableResponsibilities,
       candidates,
     };
   }
@@ -327,13 +335,21 @@ export class OrganizationDelegationService {
       );
     }
 
-    if (!isCapability(dto.capability)) {
+    const requestedGrantKey = dto.capability;
+    const sharedResponsibility = isSharedResponsibility(requestedGrantKey)
+      ? requestedGrantKey
+      : null;
+    const atomicCapability = isCapability(requestedGrantKey)
+      ? requestedGrantKey
+      : null;
+
+    if (!sharedResponsibility && !atomicCapability) {
       throw new BadRequestException(
-        'The selected capability is not supported.',
+        'The selected responsibility is not supported.',
       );
     }
 
-    if (!DELEGABLE_CAPABILITIES.has(dto.capability)) {
+    if (atomicCapability && !DELEGABLE_CAPABILITIES.has(atomicCapability)) {
       throw new ForbiddenException('This capability cannot be delegated.');
     }
 
@@ -356,6 +372,8 @@ export class OrganizationDelegationService {
       );
     }
 
+    let selectedOrgUnitTypeCode: string | null = null;
+
     if (orgUnitId) {
       const orgUnit = await this.prisma.orgUnit.findFirst({
         where: {
@@ -365,6 +383,7 @@ export class OrganizationDelegationService {
         },
         select: {
           id: true,
+          orgUnitType: { select: { code: true } },
         },
       });
 
@@ -373,21 +392,44 @@ export class OrganizationDelegationService {
           'Select an active organizational unit from this office.',
         );
       }
+      selectedOrgUnitTypeCode = orgUnit.orgUnitType.code;
     }
 
     if (
-      !(await this.authorization.canRedelegate(
-        user,
-        dto.capability,
-        officeId,
-        orgUnitId,
-        includeDescendants,
-        effectiveFrom,
-        effectiveUntil,
-      ))
+      sharedResponsibility === SHARED_RESPONSIBILITIES.WORK_TYPE_MANAGEMENT &&
+      orgUnitId !== null &&
+      (selectedOrgUnitTypeCode !== 'DIVISION' || !includeDescendants)
     ) {
+      throw new BadRequestException(
+        'Work Type Management must be delegated Office-wide or to a Division including its child OrgUnits.',
+      );
+    }
+
+    const canDelegate = sharedResponsibility
+      ? await this.authorization.canRedelegateResponsibility(
+          user,
+          sharedResponsibility,
+          officeId,
+          orgUnitId,
+          includeDescendants,
+          effectiveFrom,
+          effectiveUntil,
+        )
+      : atomicCapability
+        ? await this.authorization.canRedelegate(
+            user,
+            atomicCapability,
+            officeId,
+            orgUnitId,
+            includeDescendants,
+            effectiveFrom,
+            effectiveUntil,
+          )
+        : false;
+
+    if (!canDelegate) {
       throw new ForbiddenException(
-        'You cannot delegate this capability or organizational scope.',
+        'You cannot delegate this responsibility or organizational scope.',
       );
     }
 

@@ -16,12 +16,14 @@ import {
   AccountRequestActionType,
   AccountRequestLifecycleState,
   AccountRequestStatus,
+  AccountRequestOrganizationRole,
   AccountClass,
   AccountRole,
   ActivationEmailDeliveryStatus,
   EmployeeStatus,
   EmploymentStatus,
   OrgAssignmentSource,
+  OrgLeadershipType,
   OrgMembershipType,
 } from '../generated/prisma/client';
 
@@ -121,6 +123,7 @@ export class AccountRequestsService {
 
     return {
       ...(query.status ? { status: query.status } : {}),
+      ...(query.officeId ? { officeId: query.officeId } : {}),
       ...(dateFrom || dateTo
         ? {
             submittedAt: {
@@ -157,153 +160,13 @@ export class AccountRequestsService {
     };
   }
 
-  private async getCurrentAccountIdentity(user: AuthenticatedUser) {
-    const account = await this.prisma.account.findUnique({
-      where: {
-        id: user.accountId,
-      },
-
-      select: {
-        id: true,
-        username: true,
-        role: true,
-        isEnabled: true,
-        lastLoginAt: true,
-        createdAt: true,
-        updatedAt: true,
-
-        employee: {
-          select: {
-            id: true,
-            empId: true,
-            empName: true,
-            officialEmail: true,
-            designation: true,
-            status: true,
-            employmentStatus: true,
-            isActivated: true,
-          },
-        },
-      },
-    });
-
-    if (!account || account.role !== user.role) {
-      throw new ForbiddenException(
-        'Your authenticated account identity is unavailable.',
-      );
-    }
-
-    return account;
-  }
-
-  async getOwnAccountStatus(user: AuthenticatedUser) {
-    const account = await this.getCurrentAccountIdentity(user);
-
-    const accountRequest = account.employee
-      ? await this.prisma.accountRequest.findFirst({
-          where: {
-            OR: [
-              { employeeId: account.employee.id },
-              {
-                empId: account.employee.empId,
-                officialEmail: account.employee.officialEmail,
-              },
-            ],
-          },
-
-          orderBy: [{ revisionNumber: 'desc' }, { createdAt: 'desc' }],
-
-          select: {
-            id: true,
-            empId: true,
-            empName: true,
-            officialEmail: true,
-            designation: true,
-            requestedRole: true,
-            revisionNumber: true,
-            status: true,
-            ...activationEmailDeliverySelect,
-            rejectionReason: true,
-            submittedAt: true,
-            reviewedAt: true,
-            createdAt: true,
-            updatedAt: true,
-
-            office: {
-              select: {
-                id: true,
-                code: true,
-                name: true,
-                isActive: true,
-              },
-            },
-
-            intendedOrgUnit: {
-              select: {
-                id: true,
-                code: true,
-                name: true,
-                isActive: true,
-              },
-            },
-
-            requestedBy: {
-              select: {
-                id: true,
-                username: true,
-                role: true,
-
-                employee: {
-                  select: {
-                    empId: true,
-                    empName: true,
-                    officialEmail: true,
-                  },
-                },
-              },
-            },
-
-            reviewedBy: {
-              select: {
-                id: true,
-                username: true,
-                role: true,
-              },
-            },
-
-            actions: {
-              orderBy: {
-                createdAt: 'asc',
-              },
-
-              select: {
-                id: true,
-                action: true,
-                reason: true,
-                createdAt: true,
-              },
-            },
-          },
-        })
-      : null;
-
-    return {
-      account,
-      accountRequest,
-    };
-  }
-
   async getRequestContext(user: AuthenticatedUser) {
     const context = await this.requestAuthority.getCreatorContext(user);
 
     return {
       accountClass: context.requester.accountClass,
 
-      /*
-       * Account requests now target the requester's active Office and a
-       * capability-authorized OrgUnit. Leadership is assigned separately.
-       */
-      requestedRole: AccountRole.EMPLOYEE,
+      authority: context.authority,
       office: context.office,
       primaryOrgUnit: context.primaryOrgUnit,
       orgUnits: context.requestableOrgUnits,
@@ -311,13 +174,6 @@ export class AccountRequestsService {
         office: context.office,
         orgUnit: context.primaryOrgUnit,
       },
-
-      /*
-       * Kept as empty response arrays for one compatibility release so older
-       * clients fail closed rather than receiving legacy hierarchy data.
-       */
-      departments: [],
-      availableManagementPositions: [],
     };
   }
 
@@ -329,6 +185,7 @@ export class AccountRequestsService {
     const target = await this.requestAuthority.resolveCreateTarget(user, {
       officeId: dto.officeId,
       intendedOrgUnitId: dto.intendedOrgUnitId,
+      requestedOrganizationRole: dto.requestedOrganizationRole,
     });
 
     const {
@@ -360,6 +217,7 @@ export class AccountRequestsService {
             },
           },
           {
+            employmentStatus: EmploymentStatus.ACTIVE,
             phoneNumber: {
               in: phoneLookupValues,
             },
@@ -450,6 +308,7 @@ export class AccountRequestsService {
              * requests therefore provision the ordinary Office-user class.
              */
             requestedRole: AccountRole.EMPLOYEE,
+            requestedOrganizationRole: target.requestedOrganizationRole,
 
             lifecycleState: AccountRequestLifecycleState.REQUESTED,
             officeId: target.office.id,
@@ -471,6 +330,7 @@ export class AccountRequestsService {
             officialEmail: true,
             designation: true,
             requestedRole: true,
+            requestedOrganizationRole: true,
             lifecycleState: true,
             officeId: true,
             intendedOrgUnitId: true,
@@ -512,6 +372,7 @@ export class AccountRequestsService {
               lifecycleState: AccountRequestLifecycleState.REQUESTED,
               officeId: target.office.id,
               intendedOrgUnitId: target.intendedOrgUnit.id,
+              requestedOrganizationRole: target.requestedOrganizationRole,
             },
           },
         });
@@ -546,6 +407,7 @@ export class AccountRequestsService {
         designation: true,
         officeId: true,
         intendedOrgUnitId: true,
+        requestedOrganizationRole: true,
         revisionNumber: true,
         status: true,
       },
@@ -570,9 +432,14 @@ export class AccountRequestsService {
       );
     }
 
+    const requestedOrganizationRole =
+      dto.requestedOrganizationRole ??
+      rejectedRequest.requestedOrganizationRole;
+
     const target = await this.requestAuthority.resolveCreateTarget(user, {
       officeId: rejectedRequest.officeId ?? undefined,
       intendedOrgUnitId,
+      requestedOrganizationRole,
     });
 
     const {
@@ -673,6 +540,7 @@ export class AccountRequestsService {
                 },
               },
               {
+                employmentStatus: EmploymentStatus.ACTIVE,
                 phoneNumber: {
                   in: phoneLookupValues,
                 },
@@ -733,6 +601,7 @@ export class AccountRequestsService {
             officialEmail,
             designation,
             requestedRole: AccountRole.EMPLOYEE,
+            requestedOrganizationRole: target.requestedOrganizationRole,
             lifecycleState: AccountRequestLifecycleState.REQUESTED,
             officeId: target.office.id,
             intendedOrgUnitId: target.intendedOrgUnit.id,
@@ -749,6 +618,7 @@ export class AccountRequestsService {
             officialEmail: true,
             designation: true,
             requestedRole: true,
+            requestedOrganizationRole: true,
             lifecycleState: true,
             officeId: true,
             intendedOrgUnitId: true,
@@ -790,6 +660,7 @@ export class AccountRequestsService {
               revisionNumber,
               officeId: target.office.id,
               intendedOrgUnitId: target.intendedOrgUnit.id,
+              requestedOrganizationRole: target.requestedOrganizationRole,
             },
           },
         });
@@ -804,8 +675,12 @@ export class AccountRequestsService {
     };
   }
 
-  async getAdminRequestSummary(user: AuthenticatedUser) {
+  async getAdminRequestSummary(user: AuthenticatedUser, officeId?: string) {
     this.assertSuperAdmin(user);
+
+    const officeWhere: Prisma.AccountRequestWhereInput = officeId
+      ? { officeId }
+      : {};
 
     const requestListSelect = {
       id: true,
@@ -814,6 +689,7 @@ export class AccountRequestsService {
       officialEmail: true,
       designation: true,
       requestedRole: true,
+      requestedOrganizationRole: true,
       revisionNumber: true,
       status: true,
       ...activationEmailDeliverySelect,
@@ -838,6 +714,7 @@ export class AccountRequestsService {
           code: true,
           name: true,
           isActive: true,
+          orgUnitType: { select: { code: true, name: true } },
         },
       },
 
@@ -875,6 +752,7 @@ export class AccountRequestsService {
       await this.prisma.$transaction([
         this.prisma.accountRequest.groupBy({
           by: ['status'],
+          where: officeWhere,
           orderBy: {
             status: 'asc',
           },
@@ -885,6 +763,7 @@ export class AccountRequestsService {
 
         this.prisma.accountRequest.findMany({
           where: {
+            ...officeWhere,
             status: {
               in: [
                 AccountRequestStatus.PENDING_APPROVAL,
@@ -902,6 +781,7 @@ export class AccountRequestsService {
 
         this.prisma.accountRequest.findMany({
           where: {
+            ...officeWhere,
             status: {
               not: AccountRequestStatus.DRAFT,
             },
@@ -956,6 +836,7 @@ export class AccountRequestsService {
             ),
       attentionRequests,
       recentActivity,
+      officeId: officeId ?? null,
       generatedAt: new Date().toISOString(),
     };
   }
@@ -998,6 +879,7 @@ export class AccountRequestsService {
           officialEmail: true,
           designation: true,
           requestedRole: true,
+          requestedOrganizationRole: true,
           revisionNumber: true,
           status: true,
           ...activationEmailDeliverySelect,
@@ -1023,6 +905,19 @@ export class AccountRequestsService {
             },
           },
 
+          office: {
+            select: { id: true, code: true, name: true, isActive: true },
+          },
+          intendedOrgUnit: {
+            select: {
+              id: true,
+              code: true,
+              name: true,
+              isActive: true,
+              orgUnitType: { select: { code: true, name: true } },
+            },
+          },
+
           reviewedBy: {
             select: {
               id: true,
@@ -1043,6 +938,7 @@ export class AccountRequestsService {
 
       filters: {
         status,
+        officeId: query.officeId,
       },
 
       pagination: {
@@ -1070,6 +966,7 @@ export class AccountRequestsService {
         officialEmail: true,
         designation: true,
         requestedRole: true,
+        requestedOrganizationRole: true,
         employeeId: true,
         previousRequestId: true,
         revisionNumber: true,
@@ -1096,6 +993,7 @@ export class AccountRequestsService {
             code: true,
             name: true,
             isActive: true,
+            orgUnitType: { select: { code: true, name: true } },
           },
         },
 
@@ -1191,11 +1089,16 @@ export class AccountRequestsService {
     officeId: string | null;
     intendedOrgUnitId: string | null;
     requestedRole: AccountRole;
+    requestedOrganizationRole: AccountRequestOrganizationRole;
   }): boolean {
     return Boolean(
       request.officeId &&
       request.intendedOrgUnitId &&
-      request.requestedRole === AccountRole.EMPLOYEE,
+      request.requestedRole === AccountRole.EMPLOYEE &&
+      (request.requestedOrganizationRole ===
+        AccountRequestOrganizationRole.EMPLOYEE ||
+        request.requestedOrganizationRole ===
+          AccountRequestOrganizationRole.ORG_UNIT_HEAD),
     );
   }
 
@@ -1388,6 +1291,7 @@ export class AccountRequestsService {
           officialEmail: true,
           designation: true,
           requestedRole: true,
+          requestedOrganizationRole: true,
           lifecycleState: true,
           status: true,
           officeId: true,
@@ -1409,7 +1313,10 @@ export class AccountRequestsService {
               isActive: true,
               orgUnitType: {
                 select: {
+                  code: true,
+                  name: true,
                   isActive: true,
+                  isTeam: true,
                 },
               },
             },
@@ -1457,11 +1364,39 @@ export class AccountRequestsService {
       if (
         !request.office.isActive ||
         !request.intendedOrgUnit.isActive ||
-        !request.intendedOrgUnit.orgUnitType.isActive
+        !request.intendedOrgUnit.orgUnitType.isActive ||
+        request.intendedOrgUnit.orgUnitType.isTeam
       ) {
         throw new ConflictException(
           'The intended Office or OrgUnit is inactive.',
         );
+      }
+
+      if (
+        request.requestedOrganizationRole ===
+        AccountRequestOrganizationRole.ORG_UNIT_HEAD
+      ) {
+        const currentHead = await transaction.orgLeadershipAssignment.findFirst(
+          {
+            where: {
+              officeId: request.officeId,
+              orgUnitId: request.intendedOrgUnitId,
+              leadershipType: OrgLeadershipType.ORG_UNIT_HEAD,
+              effectiveFrom: { lte: reviewedAt },
+              OR: [
+                { effectiveUntil: null },
+                { effectiveUntil: { gt: reviewedAt } },
+              ],
+            },
+            select: { id: true },
+          },
+        );
+
+        if (currentHead) {
+          throw new ConflictException(
+            'This organization unit already has a current Head. Change the existing Head through Organization Management instead.',
+          );
+        }
       }
 
       const {
@@ -1484,6 +1419,7 @@ export class AccountRequestsService {
               },
             },
             {
+              employmentStatus: EmploymentStatus.ACTIVE,
               phoneNumber: {
                 in: phoneLookupValues,
               },
@@ -1572,6 +1508,7 @@ export class AccountRequestsService {
           metadata: {
             officeId: request.officeId,
             intendedOrgUnitId: request.intendedOrgUnitId,
+            requestedOrganizationRole: request.requestedOrganizationRole,
           },
         },
       });
@@ -1583,7 +1520,7 @@ export class AccountRequestsService {
           phoneNumber,
           officialEmail,
           designation: request.designation,
-          department: request.intendedOrgUnit.name,
+          department: null,
           status: EmployeeStatus.ACTIVE,
           isActivated: false,
         },
@@ -1622,6 +1559,31 @@ export class AccountRequestsService {
         },
       });
 
+      const leadership =
+        request.requestedOrganizationRole ===
+        AccountRequestOrganizationRole.ORG_UNIT_HEAD
+          ? await transaction.orgLeadershipAssignment.create({
+              data: {
+                employeeId: employee.id,
+                officeId: request.officeId,
+                orgUnitId: request.intendedOrgUnitId,
+                leadershipType: OrgLeadershipType.ORG_UNIT_HEAD,
+                assignmentSource: OrgAssignmentSource.ACCOUNT_PROVISIONING,
+                effectiveFrom: reviewedAt,
+                assignedByAccountId: user.accountId,
+                assignmentReason:
+                  'Leadership requested by the authorized parent Head and provisioned after Super Admin approval.',
+              },
+              select: {
+                id: true,
+                officeId: true,
+                orgUnitId: true,
+                leadershipType: true,
+                effectiveFrom: true,
+              },
+            })
+          : null;
+
       this.lifecycle.assertTransition(
         AccountRequestLifecycleState.APPROVED,
         AccountRequestLifecycleState.PROVISIONED,
@@ -1646,6 +1608,7 @@ export class AccountRequestsService {
           empName: true,
           officialEmail: true,
           requestedRole: true,
+          requestedOrganizationRole: true,
           lifecycleState: true,
           officeId: true,
           intendedOrgUnitId: true,
@@ -1673,6 +1636,8 @@ export class AccountRequestsService {
             officeId: request.officeId,
             intendedOrgUnitId: request.intendedOrgUnitId,
             assignmentSource: OrgAssignmentSource.ACCOUNT_PROVISIONING,
+            requestedOrganizationRole: request.requestedOrganizationRole,
+            leadershipAssignmentId: leadership?.id ?? null,
           },
         },
       });
@@ -1695,6 +1660,7 @@ export class AccountRequestsService {
         accountRequest: provisionedRequest,
         employee,
         membership,
+        leadership,
         invitation,
         officeName: request.office.name,
         orgUnitName: request.intendedOrgUnit.name,
@@ -1724,6 +1690,7 @@ export class AccountRequestsService {
       },
       employee: provisioned.employee,
       membership: provisioned.membership,
+      leadership: provisioned.leadership,
       activationEmailDelivery,
     };
   }
@@ -1741,6 +1708,7 @@ export class AccountRequestsService {
         officeId: true,
         intendedOrgUnitId: true,
         requestedRole: true,
+        requestedOrganizationRole: true,
       },
     });
 
@@ -1789,6 +1757,7 @@ export class AccountRequestsService {
           phoneNumber: true,
           officialEmail: true,
           requestedRole: true,
+          requestedOrganizationRole: true,
           requestedByAccountId: true,
           status: true,
           officeId: true,
@@ -2180,6 +2149,7 @@ export class AccountRequestsService {
             empName: true,
             officialEmail: true,
             requestedRole: true,
+            requestedOrganizationRole: true,
             lifecycleState: true,
             officeId: true,
             intendedOrgUnitId: true,
@@ -2265,6 +2235,7 @@ export class AccountRequestsService {
           empName: true,
           officialEmail: true,
           requestedRole: true,
+          requestedOrganizationRole: true,
           employeeId: true,
           revisionNumber: true,
           status: true,
@@ -2354,12 +2325,29 @@ export class AccountRequestsService {
 
       if (request.employee) {
         /*
-         * Remove all unused OTP records before deleting
-         * the unactivated provisional employee identity.
+         * Remove all records owned only by this unactivated provisional
+         * employee before deleting the employee identity. OrgMembership and
+         * OrgLeadershipAssignment deliberately use RESTRICT so normal employee
+         * history cannot be erased accidentally; account-request cancellation
+         * is the exceptional pre-activation cleanup path.
          */
         await transaction.otpVerification.deleteMany({
           where: {
             employeeId: request.employee.id,
+          },
+        });
+
+        await transaction.orgLeadershipAssignment.deleteMany({
+          where: {
+            employeeId: request.employee.id,
+            assignmentSource: OrgAssignmentSource.ACCOUNT_PROVISIONING,
+          },
+        });
+
+        await transaction.orgMembership.deleteMany({
+          where: {
+            employeeId: request.employee.id,
+            assignmentSource: OrgAssignmentSource.ACCOUNT_PROVISIONING,
           },
         });
 
@@ -2422,6 +2410,7 @@ export class AccountRequestsService {
           empName: true,
           officialEmail: true,
           requestedRole: true,
+          requestedOrganizationRole: true,
           employeeId: true,
           revisionNumber: true,
           status: true,
@@ -2535,6 +2524,7 @@ export class AccountRequestsService {
           officialEmail: true,
           designation: true,
           requestedRole: true,
+          requestedOrganizationRole: true,
           revisionNumber: true,
           status: true,
           ...activationEmailDeliverySelect,
@@ -2543,6 +2533,19 @@ export class AccountRequestsService {
           reviewedAt: true,
           createdAt: true,
           updatedAt: true,
+
+          office: {
+            select: { id: true, code: true, name: true, isActive: true },
+          },
+          intendedOrgUnit: {
+            select: {
+              id: true,
+              code: true,
+              name: true,
+              isActive: true,
+              orgUnitType: { select: { code: true, name: true } },
+            },
+          },
 
           reviewedBy: {
             select: {
@@ -2586,6 +2589,7 @@ export class AccountRequestsService {
         officialEmail: true,
         designation: true,
         requestedRole: true,
+        requestedOrganizationRole: true,
         employeeId: true,
         previousRequestId: true,
         revisionNumber: true,
@@ -2596,6 +2600,19 @@ export class AccountRequestsService {
         reviewedAt: true,
         createdAt: true,
         updatedAt: true,
+
+        office: {
+          select: { id: true, code: true, name: true, isActive: true },
+        },
+        intendedOrgUnit: {
+          select: {
+            id: true,
+            code: true,
+            name: true,
+            isActive: true,
+            orgUnitType: { select: { code: true, name: true } },
+          },
+        },
 
         reviewedBy: {
           select: {

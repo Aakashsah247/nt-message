@@ -57,11 +57,29 @@ describe('AttachmentSecurityBackfillService', () => {
 
   it('quarantines and removes a legacy object rejected by the scanner', async () => {
     const { service, prisma, storage, security } = createFixture();
+    const warningLog = jest
+      .spyOn(
+        (
+          service as unknown as {
+            logger: { warn: (...args: unknown[]) => void };
+          }
+        ).logger,
+        'warn',
+      )
+      .mockImplementation(() => undefined);
     security.scanStoredFile.mockRejectedValue(
       new BadRequestException('malware'),
     );
 
-    await service.processBackfillBatch();
+    try {
+      await service.processBackfillBatch();
+
+      expect(warningLog).toHaveBeenCalledWith(
+        'Legacy messages attachment was quarantined by the production scanner.',
+      );
+    } finally {
+      warningLog.mockRestore();
+    }
 
     expect(storage.deleteFile).toHaveBeenCalledWith(
       'messages',
@@ -77,11 +95,28 @@ describe('AttachmentSecurityBackfillService', () => {
 
   it('leaves legacy status unchanged when the scanner is temporarily unavailable', async () => {
     const { service, prisma, security } = createFixture();
+    const warningLog = jest
+      .spyOn(
+        (
+          service as unknown as {
+            logger: { warn: (...args: unknown[]) => void };
+          }
+        ).logger,
+        'warn',
+      )
+      .mockImplementation(() => undefined);
     security.scanStoredFile.mockRejectedValue(
       new ServiceUnavailableException('scanner unavailable'),
     );
 
-    await service.processBackfillBatch();
+    try {
+      await service.processBackfillBatch();
+      expect(warningLog).toHaveBeenCalledWith(
+        'Legacy attachment security backfill paused because the scanner is unavailable.',
+      );
+    } finally {
+      warningLog.mockRestore();
+    }
 
     expect(prisma.messageAttachment.updateMany).not.toHaveBeenCalled();
   });

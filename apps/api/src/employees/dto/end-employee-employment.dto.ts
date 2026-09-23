@@ -14,7 +14,6 @@ export class EndEmployeeEmploymentDto {
     EmploymentStatus.RESIGNED,
     EmploymentStatus.RETIRED,
     EmploymentStatus.TERMINATED,
-    EmploymentStatus.TRANSFERRED,
   ])
   employmentStatus!: EmploymentStatus;
 

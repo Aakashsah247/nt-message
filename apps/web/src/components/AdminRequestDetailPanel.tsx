@@ -73,6 +73,18 @@ function getStatusClass(status: AccountRequestStatus): string {
   return status.toLowerCase().replaceAll("_", "-");
 }
 
+
+function getOrganizationRoleLabel(
+  request: AdminAccountRequestDetail,
+  t: TFunction<"requests">,
+): string {
+  if (request.requestedOrganizationRole !== "ORG_UNIT_HEAD") {
+    return t("form.v3.employeeRole");
+  }
+
+  const unitType = request.intendedOrgUnit?.orgUnitType?.name;
+  return unitType ? `${unitType} Head` : t("form.v3.unitHeadRole");
+}
 function formatDate(
   value: string | null,
   language: string,
@@ -443,7 +455,7 @@ export function AdminRequestDetailPanel({
                 <p>
                   {request.empId}
                   {" · "}
-                  {formatLabel(request.requestedRole, t)}
+                  {getOrganizationRoleLabel(request, t)}
                 </p>
               </div>
 
@@ -723,8 +735,8 @@ export function AdminRequestDetailPanel({
                 />
 
                 <DetailField
-                  label={t("common.requestedRole")}
-                  value={formatLabel(request.requestedRole, t)}
+                  label={t("form.v3.organizationRole")}
+                  value={getOrganizationRoleLabel(request, t)}
                 />
               </div>
             </section>
@@ -758,7 +770,11 @@ export function AdminRequestDetailPanel({
                     request.requestedBy.username ??
                     t("common.unknownRequester")
                   }
-                  secondary={formatLabel(request.requestedBy.role, t)}
+                  secondary={
+                    request.requestedBy.employee?.empId ??
+                    request.requestedBy.employee?.officialEmail ??
+                    undefined
+                  }
                 />
 
                 <DetailField

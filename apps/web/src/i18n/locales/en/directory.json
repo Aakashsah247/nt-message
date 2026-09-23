@@ -4,8 +4,8 @@
     "sessionTitle": "Secure session unavailable",
     "sessionDescription": "Sign in again to access the employee directory.",
     "returnToLogin": "Return to login",
-    "title": "Organization Directory",
-    "description": "Find verified Nepal Telecom employees within your authorized organization scope.",
+    "title": "Directory",
+    "description": "Find employees in your authorized organization scope.",
     "scopedAccess": "Scoped access",
     "scopedAccessDescription": "The backend controls which employees and contact details your role can view."
   },
@@ -39,7 +39,9 @@
     "STATUS_CHANGED": "Status changed",
     "EMPLOYMENT_ENDED": "Employment ended",
     "ARCHIVED_EMPLOYEE": "Employee archived",
-    "OFFICE_USER": "Office user"
+    "OFFICE_USER": "Office user",
+    "OFFICE": "Office",
+    "ORG_UNIT": "Organization branch"
   },
   "common": {
     "never": "Never",
@@ -58,8 +60,8 @@
   },
   "list": {
     "errorFallback": "The employee directory could not be loaded.",
-    "defaultTitle": "Employee Directory",
-    "defaultDescription": "Search authorized Nepal Telecom employees within your permitted organization scope.",
+    "defaultTitle": "Directory",
+    "defaultDescription": "Search employees and review their current organization information.",
     "avatarAria": "{{name}} profile",
     "eyebrow": "Organization directory",
     "archivedTitle": "Archived Employee Records",
@@ -73,7 +75,9 @@
       "office": "Office",
       "orgUnit": "OrgUnit",
       "allOffices": "All Offices",
-      "allOrgUnits": "All OrgUnits"
+      "allOrgUnits": "All OrgUnits",
+      "branch": "{{name}} and its branches",
+      "authorizedBranches": "Your authorized branches"
     },
     "toolbarAria": "Directory search and filters",
     "search": {
@@ -90,7 +94,16 @@
       "allAccounts": "All accounts",
       "activation": "Activation",
       "allActivation": "All activation states",
-      "clear": "Clear filters"
+      "clear": "Clear filters",
+      "office": "Office",
+      "division": "Division",
+      "department": "Department",
+      "section": "Section",
+      "unit": "Unit",
+      "allDivisions": "All divisions",
+      "allDepartments": "All departments",
+      "allSections": "All sections",
+      "allUnits": "All units"
     },
     "errorTitle": "Directory unavailable",
     "loading": "Loading employee directory...",
@@ -116,11 +129,10 @@
       "lastLogin": "Last login",
       "archivedOn": "Archived on",
       "profileActions": "Profile actions",
-      "noDesignation": "No designation",
       "viewProfileAria": "View {{name}} profile",
       "noOrgUnit": "No OrgUnit",
       "noOffice": "No Office",
-      "leadership": "Leadership"
+      "organizationRole": "Organization Role"
     },
     "pagination": {
       "previous": "Previous",
@@ -136,13 +148,11 @@
     "closeAria": "Close employee details",
     "loading": "Loading employee details...",
     "errorTitle": "Employee details unavailable",
-    "noDesignation": "No designation assigned",
     "organization": {
       "title": "Organization",
       "office": "Office",
       "primaryOrgUnit": "Primary OrgUnit",
       "breadcrumb": "Organization path",
-      "position": "Position",
       "leadership": "Leadership"
     },
     "employment": {
@@ -188,12 +198,11 @@
     },
     "lifecycle": {
       "eyebrow": "Employment lifecycle",
-      "title": "End Patan Branch access",
-      "description": "This permanently ends the current Patan Branch employment record, disables login and revokes every active session.",
+      "title": "End employment",
+      "description": "Use only when employment has ended. The account is disabled and active sessions are revoked.",
       "resigned": "Resigned",
       "retired": "Retired",
       "terminated": "Terminated",
-      "transferred": "Transferred",
       "selectedAction": "Selected action",
       "effectiveDate": "Effective date",
       "reason": "Official reason",
@@ -201,6 +210,7 @@
       "reasonError": "Enter a reason of at least 3 characters.",
       "processing": "Processing...",
       "confirm": "Confirm {{status}}",
+      "success": "Employment updated to {{status}}. {{count}} active session(s) were revoked.",
       "success_one": "Employment updated to {{status}}. {{count}} active session was revoked.",
       "success_other": "Employment updated to {{status}}. {{count}} active sessions were revoked."
     },
@@ -218,7 +228,7 @@
     "archive": {
       "eyebrow": "Historical record",
       "title": "Archive former employee",
-      "description": "Archiving keeps messages, audit records and employment history, but marks the profile as a historical Patan Branch record.",
+      "description": "Archiving preserves messages, audit records and employment history while marking the former employee as historical.",
       "open": "Archive employee record",
       "reason": "Archive reason",
       "reasonPlaceholder": "Enter why this former employee record is being archived.",
@@ -232,14 +242,54 @@
       "title": "Record information",
       "created": "Created",
       "updated": "Last updated"
+    },
+    "correction": {
+      "eyebrow": "Super Admin correction",
+      "title": "Employee information",
+      "description": "Correct protected identity, contact or designation information with an audit reason.",
+      "open": "Correct employee information",
+      "employeeId": "Employee ID",
+      "fullName": "Full name",
+      "designation": "Designation",
+      "reason": "Reason for correction",
+      "reasonError": "Enter a reason of at least 3 characters.",
+      "noChanges": "Change at least one employee field before saving.",
+      "save": "Save audited correction",
+      "success": "Employee information updated successfully."
+    },
+    "transfer": {
+      "eyebrow": "Office transfer",
+      "title": "Transfer employee",
+      "description": "Move this employee to another Office without replacing the employee identity, account or history. Current Office memberships and Office-scoped responsibilities are ended safely.",
+      "open": "Transfer to another Office",
+      "targetOffice": "Target Office",
+      "selectOffice": "Select Office",
+      "targetUnit": "Target organization unit",
+      "selectUnit": "Select organization unit",
+      "effectiveDate": "Effective date",
+      "reason": "Official transfer reason",
+      "reasonError": "Enter a transfer reason of at least 3 characters.",
+      "confirm": "Transfer employee",
+      "success": "Employee transferred to {{office}} successfully.",
+      "officeHeadDescription": "This employee is the current permanent Office Head. Transfer the leadership and select the source-office replacement from Office Head Management.",
+      "manageOfficeHead": "Manage in Office Head Management"
     }
   },
   "leadership": {
-    "OFFICE_HEAD": "Office Head — {{unit}}{{acting}}",
-    "ORG_UNIT_HEAD": "Org Unit Head — {{unit}}{{acting}}",
-    "TEAM_LEAD": "Team Lead — {{unit}}{{acting}}",
-    "DEPUTY": "Deputy — {{unit}}{{acting}}",
-    "actingSuffix": " (Acting)",
-    "none": "No active leadership assignment"
+    "officeHead": "Office Head — {{unit}}",
+    "divisionHead": "Division Head — {{unit}}",
+    "departmentHead": "Department Head — {{unit}}",
+    "sectionHead": "Section Head — {{unit}}",
+    "unitHead": "Unit Head — {{unit}}",
+    "none": "No active hierarchy leadership"
+  },
+  "organizationRole": {
+    "superAdmin": "Super Admin",
+    "officeHead": "Office Head",
+    "divisionHead": "Division Head",
+    "departmentHead": "Department Head",
+    "sectionHead": "Section Head",
+    "unitHead": "Unit Head",
+    "employee": "Employee"
   }
 }

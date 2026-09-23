@@ -39,6 +39,9 @@ describe('OrganizationHierarchyService navigation context', () => {
           },
         ]),
       },
+      orgMembership: {
+        findMany: jest.fn().mockResolvedValue([]),
+      },
     } as unknown as PrismaService;
   }
 

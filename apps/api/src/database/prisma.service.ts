@@ -36,11 +36,17 @@ export class PrismaService
       } catch (error) {
         attempt += 1;
         if (attempt >= maxAttempts) {
+          const reason =
+            error instanceof Error
+              ? error.message
+              : typeof error === 'string'
+                ? error
+                : 'Unknown database connection error';
           throw new Error(
             `Prisma failed to connect to the database after ${maxAttempts} attempts. ` +
               `Please verify DATABASE_URL is correct and the PostgreSQL server is running on localhost:5433.
 ` +
-              `Original error: ${error instanceof Error ? error.message : String(error)}`,
+              `Original error: ${reason}`,
           );
         }
         await this.delay(delayMs);

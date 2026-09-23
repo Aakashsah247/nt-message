@@ -22,6 +22,7 @@ describe('WorkNotificationsService', () => {
       count: jest.fn(),
     },
     workItem: {
+      findUnique: jest.fn(),
       findMany: jest.fn(),
       updateMany: jest.fn(),
     },
@@ -36,6 +37,7 @@ describe('WorkNotificationsService', () => {
     // Restore service spies so one deadline test cannot replace later realtime behavior.
     jest.restoreAllMocks();
     jest.clearAllMocks();
+    jest.mocked(prisma.workItem.findUnique).mockResolvedValue(null);
   });
 
   it('creates recipient notifications and emits an account-scoped work update', async () => {
@@ -97,12 +99,13 @@ describe('WorkNotificationsService', () => {
     expect(events.emitWorkItemUpdated).toHaveBeenCalledWith(
       ['manager', 'employee'],
       expect.objectContaining({ action: 'CREATED', workItemId: 'work-1' }),
+      ['employee'],
     );
   });
 
   it('notifies explicit participants and the Sales Member once when work is created', async () => {
     jest.mocked(prisma.messagingNotification.create).mockImplementation(
-      async ({ data }: { data: { recipientAccountId: string } }) =>
+      (async ({ data }: { data: { recipientAccountId: string } }) =>
         ({
           id: `notification-${data.recipientAccountId}`,
           recipientAccountId: data.recipientAccountId,
@@ -119,7 +122,7 @@ describe('WorkNotificationsService', () => {
           createdAt: new Date(),
           updatedAt: new Date(),
           actor: null,
-        }) as never,
+        }) as never) as never,
     );
     jest.mocked(prisma.messagingNotification.count).mockResolvedValue(1);
 
@@ -153,12 +156,13 @@ describe('WorkNotificationsService', () => {
     expect(events.emitWorkItemUpdated).toHaveBeenCalledWith(
       ['manager', 'team-admin', 'sales-member', 'support-member'],
       expect.objectContaining({ workItemId: 'work-1' }),
+      ['team-admin', 'sales-member', 'support-member'],
     );
   });
 
   it('keeps Start realtime for explicit participants without creating noisy participant notifications', async () => {
     jest.mocked(prisma.messagingNotification.create).mockImplementation(
-      async ({ data }: { data: { recipientAccountId: string } }) =>
+      (async ({ data }: { data: { recipientAccountId: string } }) =>
         ({
           id: `notification-${data.recipientAccountId}`,
           recipientAccountId: data.recipientAccountId,
@@ -175,7 +179,7 @@ describe('WorkNotificationsService', () => {
           createdAt: new Date(),
           updatedAt: new Date(),
           actor: null,
-        }) as never,
+        }) as never) as never,
     );
     jest.mocked(prisma.messagingNotification.count).mockResolvedValue(1);
 
@@ -195,20 +199,16 @@ describe('WorkNotificationsService', () => {
         'support-member',
         'sales-member',
       ],
-      notificationRecipientAccountIds: ['manager'],
+      notificationRecipientAccountIds: [],
       title: 'Work started',
       body: 'NT-PAT-NET-2026-000001: Repair wire',
     });
 
-    expect(prisma.messagingNotification.create).toHaveBeenCalledTimes(1);
-    expect(prisma.messagingNotification.create).toHaveBeenCalledWith(
-      expect.objectContaining({
-        data: expect.objectContaining({ recipientAccountId: 'manager' }),
-      }),
-    );
+    expect(prisma.messagingNotification.create).not.toHaveBeenCalled();
     expect(events.emitWorkItemUpdated).toHaveBeenCalledWith(
       ['starter', 'manager', 'support-member', 'sales-member'],
       expect.objectContaining({ action: 'STARTED', workItemId: 'work-1' }),
+      [],
     );
   });
 
@@ -239,7 +239,7 @@ describe('WorkNotificationsService', () => {
       expect.objectContaining({
         where: expect.objectContaining({
           status: {
-            notIn: expect.arrayContaining([WorkItemStatus.V3_RUNTIME]),
+            notIn: [WorkItemStatus.CLOSED, WorkItemStatus.CANCELLED],
           },
         }),
       }),
@@ -300,6 +300,16 @@ describe('WorkNotificationsService', () => {
   });
 
   it('keeps realtime delivery available when a notification record fails', async () => {
+    const warningLog = jest
+      .spyOn(
+        (
+          service as unknown as {
+            logger: { warn: (...args: unknown[]) => void };
+          }
+        ).logger,
+        'warn',
+      )
+      .mockImplementation(() => undefined);
     jest
       .mocked(prisma.messagingNotification.create)
       .mockRejectedValue(new Error('temporary database error'));
@@ -323,6 +333,13 @@ describe('WorkNotificationsService', () => {
     expect(events.emitWorkItemUpdated).toHaveBeenCalledWith(
       ['employee', 'manager'],
       expect.objectContaining({ action: 'STARTED' }),
+      ['manager'],
     );
+    expect(warningLog).toHaveBeenCalledWith(
+      expect.stringContaining(
+        'Unable to create work notification for account manager:',
+      ),
+    );
+    warningLog.mockRestore();
   });
 });

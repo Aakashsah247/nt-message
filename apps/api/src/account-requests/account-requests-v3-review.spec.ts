@@ -4,9 +4,11 @@ import {
   AccountRequestActionType,
   AccountRequestLifecycleState,
   AccountRequestStatus,
+  AccountRequestOrganizationRole,
   AccountRole,
   ActivationEmailDeliveryStatus,
   OrgAssignmentSource,
+  OrgLeadershipType,
   OrgMembershipType,
 } from '../generated/prisma/client';
 import { AccountRequestsService } from './account-requests.service';
@@ -31,7 +33,7 @@ function lifecycleMock() {
 }
 
 describe('AccountRequestsService V3 review/provision flow', () => {
-  it('walks REQUESTED -> UNDER_REVIEW -> APPROVED -> PROVISIONED and creates the primary OrgMembership', async () => {
+  it('provisions a requested OrgUnit Head with primary membership and formal leadership', async () => {
     const transaction = {
       accountRequest: {
         findUnique: jest.fn().mockResolvedValue({
@@ -42,6 +44,8 @@ describe('AccountRequestsService V3 review/provision flow', () => {
           officialEmail: 'provisioned@ntc.net.np',
           designation: 'Engineer',
           requestedRole: AccountRole.EMPLOYEE,
+          requestedOrganizationRole:
+            AccountRequestOrganizationRole.ORG_UNIT_HEAD,
           lifecycleState: AccountRequestLifecycleState.REQUESTED,
           status: AccountRequestStatus.PENDING_APPROVAL,
           officeId: 'office-1',
@@ -61,7 +65,10 @@ describe('AccountRequestsService V3 review/provision flow', () => {
             name: 'Technical',
             isActive: true,
             orgUnitType: {
+              code: 'DEPARTMENT',
+              name: 'Department',
               isActive: true,
+              isTeam: false,
             },
           },
           division: null,
@@ -74,6 +81,8 @@ describe('AccountRequestsService V3 review/provision flow', () => {
           empName: 'Provisioned Employee',
           officialEmail: 'provisioned@ntc.net.np',
           requestedRole: AccountRole.EMPLOYEE,
+          requestedOrganizationRole:
+            AccountRequestOrganizationRole.ORG_UNIT_HEAD,
           lifecycleState: AccountRequestLifecycleState.PROVISIONED,
           officeId: 'office-1',
           intendedOrgUnitId: 'unit-1',
@@ -102,11 +111,21 @@ describe('AccountRequestsService V3 review/provision flow', () => {
           officialEmail: 'provisioned@ntc.net.np',
           divisionId: null,
           departmentId: null,
-          department: 'Technical',
+          department: null,
           designation: 'Engineer',
           status: 'ACTIVE',
           isActivated: false,
           createdAt: new Date(),
+        }),
+      },
+      orgLeadershipAssignment: {
+        findFirst: jest.fn().mockResolvedValue(null),
+        create: jest.fn().mockResolvedValue({
+          id: 'leadership-1',
+          officeId: 'office-1',
+          orgUnitId: 'unit-1',
+          leadershipType: OrgLeadershipType.ORG_UNIT_HEAD,
+          effectiveFrom: new Date(),
         }),
       },
       orgMembership: {
@@ -130,6 +149,8 @@ describe('AccountRequestsService V3 review/provision flow', () => {
           officeId: 'office-1',
           intendedOrgUnitId: 'unit-1',
           requestedRole: AccountRole.EMPLOYEE,
+          requestedOrganizationRole:
+            AccountRequestOrganizationRole.ORG_UNIT_HEAD,
         }),
       },
       $transaction: jest.fn(
@@ -187,6 +208,14 @@ describe('AccountRequestsService V3 review/provision flow', () => {
       AccountRequestLifecycleState.PROVISIONED,
     );
 
+    expect(transaction.employee.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          department: null,
+        }),
+      }),
+    );
+
     expect(transaction.orgMembership.create).toHaveBeenCalledWith(
       expect.objectContaining({
         data: expect.objectContaining({
@@ -194,6 +223,29 @@ describe('AccountRequestsService V3 review/provision flow', () => {
           officeId: 'office-1',
           orgUnitId: 'unit-1',
           membershipType: OrgMembershipType.PRIMARY,
+          assignmentSource: OrgAssignmentSource.ACCOUNT_PROVISIONING,
+          assignedByAccountId: 'super-admin',
+        }),
+      }),
+    );
+
+    expect(transaction.orgLeadershipAssignment.findFirst).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          officeId: 'office-1',
+          orgUnitId: 'unit-1',
+          leadershipType: OrgLeadershipType.ORG_UNIT_HEAD,
+        }),
+      }),
+    );
+
+    expect(transaction.orgLeadershipAssignment.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          employeeId: 'employee-1',
+          officeId: 'office-1',
+          orgUnitId: 'unit-1',
+          leadershipType: OrgLeadershipType.ORG_UNIT_HEAD,
           assignmentSource: OrgAssignmentSource.ACCOUNT_PROVISIONING,
           assignedByAccountId: 'super-admin',
         }),

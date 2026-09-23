@@ -31,7 +31,9 @@
     "workType": "कार्य प्रकार",
     "workStatus": "कार्य स्थिति",
     "stageStatus": "चरण स्थिति",
-    "sla": "SLA स्थिति"
+    "sla": "SLA स्थिति",
+    "operationalTeam": "सञ्चालन टोली",
+    "status": "स्थिति"
   },
   "scope": {
     "PERSONAL": "व्यक्तिगत क्षेत्र",
@@ -85,7 +87,16 @@
     "organizationDescription": "दोहोरो गणना रोक्न मुख्य स्वामित्व, सहभागिता र चरण जिम्मेवारी अलग देखाइन्छ।",
     "teamTitle": "अपरेशनल टिम कार्यसम्पादन",
     "teamDescription": "टिम गतिविधि औपचारिक OrgUnit संरचनाअन्तर्गत कार्यान्वयन विवरण हो।",
-    "teamExecutionOnly": "कार्यान्वयन विवरण मात्र"
+    "teamExecutionOnly": "कार्यान्वयन विवरण मात्र",
+    "workflowTitle": "कार्यप्रवाह स्थिति",
+    "newWork": "नयाँ कार्य",
+    "inProgress": "प्रगतिमा",
+    "waitingForSales": "बिक्री टोलीको प्रतीक्षामा",
+    "waitingForApproval": "समीक्षा आवश्यक",
+    "returnedForCorrection": "सुधारका लागि फिर्ता",
+    "completedDuring": "अवधिमा सम्पन्न",
+    "activeWork": "सक्रिय",
+    "noTeams": "यस क्षेत्र र अवधिका लागि कुनै टोली रिपोर्ट पङ्क्ति उपलब्ध छैन।"
   },
   "records": {
     "title": "कार्य अभिलेख",

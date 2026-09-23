@@ -29,11 +29,6 @@ export class AccountRequestsController {
     private readonly accountRequestsService: AccountRequestsService,
   ) {}
 
-  @Get('own-status')
-  getOwnAccountStatus(@CurrentUser() user: AuthenticatedUser) {
-    return this.accountRequestsService.getOwnAccountStatus(user);
-  }
-
   @Get('context')
   getRequestContext(@CurrentUser() user: AuthenticatedUser) {
     return this.accountRequestsService.getRequestContext(user);

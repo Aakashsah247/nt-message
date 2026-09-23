@@ -1,7 +1,12 @@
-import { BadRequestException, ForbiddenException } from '@nestjs/common';
+import { ForbiddenException } from '@nestjs/common';
 
 import type { AuthenticatedUser } from '../auth/types/auth.types';
-import { AccountClass, AccountRole } from '../generated/prisma/client';
+import {
+  AccountClass,
+  AccountRequestOrganizationRole,
+  AccountRole,
+  OrgLeadershipType,
+} from '../generated/prisma/client';
 import { AccountRequestAuthorityService } from './account-request-authority.service';
 
 const user: AuthenticatedUser = {
@@ -14,10 +19,10 @@ const user: AuthenticatedUser = {
 
 function buildService() {
   const prisma = {
-    account: {
-      findUnique: jest.fn(),
-    },
-    orgMembership: {
+    account: { findUnique: jest.fn() },
+    orgMembership: { findFirst: jest.fn() },
+    orgLeadershipAssignment: {
+      findMany: jest.fn(),
       findFirst: jest.fn(),
     },
     orgUnit: {
@@ -26,20 +31,23 @@ function buildService() {
     },
     orgUnitClosure: {
       findMany: jest.fn(),
+      findFirst: jest.fn(),
     },
+    accountRequest: { findFirst: jest.fn() },
   };
 
   const authorization = {
-    visibleOrgUnitIds: jest.fn(),
-    assertCan: jest.fn(),
+    visibleOrgUnitIds: jest.fn().mockResolvedValue([]),
   };
 
-  const service = new AccountRequestAuthorityService(
-    prisma as never,
-    authorization as never,
-  );
-
-  return { service, prisma, authorization };
+  return {
+    prisma,
+    authorization,
+    service: new AccountRequestAuthorityService(
+      prisma as never,
+      authorization as never,
+    ),
+  };
 }
 
 function allowActiveOfficeUser(
@@ -61,7 +69,7 @@ function allowActiveOfficeUser(
   prisma.orgMembership.findFirst.mockResolvedValue({
     id: 'membership-1',
     officeId: 'office-1',
-    orgUnitId: 'unit-home',
+    orgUnitId: 'department-x',
     office: {
       id: 'office-1',
       code: 'PATAN',
@@ -69,50 +77,147 @@ function allowActiveOfficeUser(
       isActive: true,
     },
     orgUnit: {
-      id: 'unit-home',
-      code: 'HOME',
-      name: 'Home Unit',
+      id: 'department-x',
+      code: 'DEPT-X',
+      name: 'Department X',
       isActive: true,
-      parentOrgUnitId: null,
+      parentOrgUnitId: 'division-tech',
       orgUnitType: {
-        code: 'UNIT',
-        name: 'Unit',
+        code: 'DEPARTMENT',
+        name: 'Department',
+        isTeam: false,
       },
     },
   });
 }
 
-describe('AccountRequestAuthorityService', () => {
-  it('uses users.request_create scope instead of the legacy account role', async () => {
-    const { service, prisma, authorization } = buildService();
-    allowActiveOfficeUser(prisma);
+function departmentTarget() {
+  return {
+    id: 'department-x',
+    officeId: 'office-1',
+    code: 'DEPT-X',
+    name: 'Department X',
+    isActive: true,
+    parentOrgUnitId: 'division-tech',
+    orgUnitType: {
+      code: 'DEPARTMENT',
+      name: 'Department',
+      isActive: true,
+      isTeam: false,
+    },
+  };
+}
 
-    authorization.visibleOrgUnitIds.mockResolvedValue(['unit-requestable']);
+describe('AccountRequestAuthorityService V3 head authority', () => {
+  it('does not allow a normal employee to request user accounts', async () => {
+    const { service, prisma } = buildService();
+    allowActiveOfficeUser(prisma);
+    prisma.orgLeadershipAssignment.findMany.mockResolvedValue([]);
+
+    await expect(service.getCreatorContext(user)).rejects.toBeInstanceOf(
+      ForbiddenException,
+    );
+  });
+
+  it('allows the Office Head to request employees and Heads across formal Office units', async () => {
+    const { service, prisma } = buildService();
+    allowActiveOfficeUser(prisma);
+    prisma.orgLeadershipAssignment.findMany
+      .mockResolvedValueOnce([
+        { leadershipType: OrgLeadershipType.OFFICE_HEAD, orgUnitId: null },
+      ])
+      .mockResolvedValueOnce([]);
     prisma.orgUnit.findMany.mockResolvedValue([
       {
-        id: 'unit-requestable',
-        code: 'ADMIN',
-        name: 'Administration',
+        id: 'division-tech',
+        code: 'TECH',
+        name: 'Technical Division',
         parentOrgUnitId: null,
-        sortOrder: 0,
-        orgUnitType: {
-          code: 'UNIT',
-          name: 'Unit',
-        },
+        sortOrder: 1,
+        orgUnitType: { code: 'DIVISION', name: 'Division' },
+      },
+      {
+        id: 'department-x',
+        code: 'DEPT-X',
+        name: 'Department X',
+        parentOrgUnitId: 'division-tech',
+        sortOrder: 2,
+        orgUnitType: { code: 'DEPARTMENT', name: 'Department' },
       },
     ]);
 
     const context = await service.getCreatorContext(user);
 
-    expect(authorization.visibleOrgUnitIds).toHaveBeenCalledWith(
-      user,
-      'users.request_create',
-      'office-1',
+    expect(context.authority.kind).toBe('OFFICE_HEAD');
+    expect(context.requestableOrgUnits).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: 'division-tech',
+          headTitle: 'Division Head',
+          canRequestHead: true,
+        }),
+        expect.objectContaining({
+          id: 'department-x',
+          headTitle: 'Department Head',
+          canRequestHead: true,
+        }),
+      ]),
     );
-    expect(context.requestableOrgUnits).toHaveLength(1);
   });
 
-  it('rejects Super Admin from the normal Office request-creation flow', async () => {
+  it('allows an Org Unit Head to request accounts only in their own branch and Heads only below their own unit', async () => {
+    const { service, prisma } = buildService();
+    allowActiveOfficeUser(prisma);
+    prisma.orgLeadershipAssignment.findMany
+      .mockResolvedValueOnce([
+        {
+          leadershipType: OrgLeadershipType.ORG_UNIT_HEAD,
+          orgUnitId: 'department-x',
+        },
+      ])
+      .mockResolvedValueOnce([]);
+    prisma.orgUnitClosure.findMany.mockResolvedValue([
+      { descendantOrgUnitId: 'department-x' },
+      { descendantOrgUnitId: 'section-x1' },
+    ]);
+    prisma.orgUnitClosure.findFirst.mockImplementation(({ where }) =>
+      Promise.resolve(
+        where.descendantOrgUnitId === 'section-x1' ? { depth: 1 } : null,
+      ),
+    );
+    prisma.orgUnit.findMany.mockResolvedValue([
+      {
+        id: 'department-x',
+        code: 'DEPT-X',
+        name: 'Department X',
+        parentOrgUnitId: 'division-tech',
+        sortOrder: 1,
+        orgUnitType: { code: 'DEPARTMENT', name: 'Department' },
+      },
+      {
+        id: 'section-x1',
+        code: 'X1',
+        name: 'Section X1',
+        parentOrgUnitId: 'department-x',
+        sortOrder: 2,
+        orgUnitType: { code: 'SECTION', name: 'Section' },
+      },
+    ]);
+
+    const context = await service.getCreatorContext(user);
+
+    expect(context.authority.kind).toBe('ORG_UNIT_HEAD');
+    expect(
+      context.requestableOrgUnits.find((unit) => unit.id === 'department-x')
+        ?.canRequestHead,
+    ).toBe(false);
+    expect(
+      context.requestableOrgUnits.find((unit) => unit.id === 'section-x1')
+        ?.canRequestHead,
+    ).toBe(true);
+  });
+
+  it('rejects Super Admin from the Office-side request creation flow', async () => {
     const { service, prisma } = buildService();
     allowActiveOfficeUser(prisma, AccountClass.SUPER_ADMIN);
 
@@ -127,60 +232,75 @@ describe('AccountRequestAuthorityService', () => {
     ).rejects.toBeInstanceOf(ForbiddenException);
   });
 
-  it('rejects a requested Office outside the requester primary membership', async () => {
+  it('allows a Department Head to request an employee in the Department itself', async () => {
     const { service, prisma } = buildService();
     allowActiveOfficeUser(prisma);
+    prisma.orgUnit.findUnique.mockResolvedValue(departmentTarget());
+    prisma.orgLeadershipAssignment.findMany.mockResolvedValue([
+      {
+        leadershipType: OrgLeadershipType.ORG_UNIT_HEAD,
+        orgUnitId: 'department-x',
+      },
+    ]);
+    prisma.orgUnitClosure.findMany.mockResolvedValue([
+      { descendantOrgUnitId: 'department-x' },
+    ]);
+
+    const target = await service.resolveCreateTarget(user, {
+      officeId: 'office-1',
+      intendedOrgUnitId: 'department-x',
+      requestedOrganizationRole: AccountRequestOrganizationRole.EMPLOYEE,
+    });
+
+    expect(target.requestedOrganizationRole).toBe(
+      AccountRequestOrganizationRole.EMPLOYEE,
+    );
+  });
+
+  it('does not allow a Department Head to create a second Head for their own Department', async () => {
+    const { service, prisma } = buildService();
+    allowActiveOfficeUser(prisma);
+    prisma.orgUnit.findUnique.mockResolvedValue(departmentTarget());
+    prisma.orgLeadershipAssignment.findMany.mockResolvedValue([
+      {
+        leadershipType: OrgLeadershipType.ORG_UNIT_HEAD,
+        orgUnitId: 'department-x',
+      },
+    ]);
+    prisma.orgUnitClosure.findMany.mockResolvedValue([
+      { descendantOrgUnitId: 'department-x' },
+    ]);
+    prisma.orgUnitClosure.findFirst.mockResolvedValue(null);
 
     await expect(
       service.resolveCreateTarget(user, {
-        officeId: 'office-2',
-        intendedOrgUnitId: 'unit-requestable',
+        officeId: 'office-1',
+        intendedOrgUnitId: 'department-x',
+        requestedOrganizationRole: AccountRequestOrganizationRole.ORG_UNIT_HEAD,
       }),
     ).rejects.toBeInstanceOf(ForbiddenException);
   });
 
-  it('requires an intended OrgUnit for V3 account provisioning', async () => {
+  it('never accepts an Operational Team as a hierarchy account target', async () => {
     const { service, prisma } = buildService();
     allowActiveOfficeUser(prisma);
-
-    await expect(service.resolveCreateTarget(user, {})).rejects.toBeInstanceOf(
-      BadRequestException,
-    );
-  });
-
-  it('uses the canonical intended OrgUnit and checks central capability scope', async () => {
-    const { service, prisma, authorization } = buildService();
-    allowActiveOfficeUser(prisma);
-
     prisma.orgUnit.findUnique.mockResolvedValue({
-      id: 'unit-department',
-      officeId: 'office-1',
-      code: 'OPS',
-      name: 'Operations',
-      isActive: true,
-      parentOrgUnitId: 'unit-division',
+      ...departmentTarget(),
+      id: 'team-1',
       orgUnitType: {
-        code: 'DEPARTMENT',
-        name: 'Department',
+        code: 'TEAM',
+        name: 'Operational Team',
+        isActive: true,
+        isTeam: true,
       },
     });
 
-    const target = await service.resolveCreateTarget(user, {
-      officeId: 'office-1',
-      intendedOrgUnitId: 'unit-department',
-    });
-
-    expect(authorization.assertCan).toHaveBeenCalledWith(
-      user,
-      'users.request_create',
-      'office-1',
-      'unit-department',
-    );
-    expect(target).toMatchObject({
-      requesterId: 'account-1',
-      intendedOrgUnit: {
-        id: 'unit-department',
-      },
-    });
+    await expect(
+      service.resolveCreateTarget(user, {
+        officeId: 'office-1',
+        intendedOrgUnitId: 'team-1',
+        requestedOrganizationRole: AccountRequestOrganizationRole.EMPLOYEE,
+      }),
+    ).rejects.toBeInstanceOf(ForbiddenException);
   });
 });

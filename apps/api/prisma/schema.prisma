@@ -18,6 +18,11 @@ enum AccountRole {
   EMPLOYEE
 }
 
+enum AccountRequestOrganizationRole {
+  EMPLOYEE
+  ORG_UNIT_HEAD
+}
+
 enum EmployeeStatus {
   ACTIVE
   INACTIVE
@@ -268,6 +273,7 @@ enum WorkStageAssignmentMode {
   ORG_UNIT_QUEUE
   TEAM
   INDIVIDUAL
+  TEAM_OR_USER
   ORG_UNIT_OR_TEAM
   ORG_UNIT_OR_USER
   RESPONSIBLE_ORG_UNIT_HEAD
@@ -383,6 +389,12 @@ enum WorkEventType {
   OWNERSHIP_TRANSFERRED
   FIELD_UPDATED
   REFERENCE_UPDATED
+  NOTE_ADDED
+  EVIDENCE_ADDED
+  HELP_REQUESTED
+  HELP_ACCEPTED
+  HELP_DECLINED
+  HELP_CANCELLED
 }
 
 enum WorkServiceType {
@@ -399,7 +411,6 @@ enum WorkContactType {
 }
 
 enum WorkItemStatus {
-  V3_RUNTIME
   ASSIGNED
   ACKNOWLEDGED
   IN_PROGRESS
@@ -469,8 +480,15 @@ enum WorkHelpReason {
   NEED_ANOTHER_EMPLOYEE
   TECHNICAL_GUIDANCE
   TOOLS_OR_MATERIALS
+  FAP_MAINTENANCE
   SAFETY_CONCERN
   OTHER
+}
+
+enum WorkHelpMaterialType {
+  STB
+  CPE
+  DROP_FIBER
 }
 
 enum WorkHelpRequestStatus {
@@ -570,8 +588,10 @@ model Office {
   dutyCoverageV3        DutyCoverageRequirement[] @relation("DutyCoverageRequirementsOfficeV3")
   dutyExceptionsV3      DutyException[]           @relation("DutyExceptionsOfficeV3")
   dutyHolidaysV3        DutyHoliday[]             @relation("DutyHolidaysOfficeV3")
+  dutyWeeklyOffSettings DutyWeeklyOffSetting[]    @relation("DutyWeeklyOffSettingsOfficeV3")
   officialGroupsV3      Conversation[]            @relation("OfficialGroupOfficeV3")
   announcementsV3       Announcement[]            @relation("AnnouncementOfficeV3")
+  workReportSnapshots   WorkReportSnapshot[]
 
   @@index([isActive, sortOrder], map: "offices_active_sort_idx")
   @@map("offices")
@@ -823,7 +843,9 @@ model Employee {
   id            String @id @default(uuid()) @db.Uuid
   empId         String @unique @map("emp_id") @db.VarChar(50)
   empName       String @map("emp_name") @db.VarChar(150)
-  phoneNumber   String @unique(map: "employees_phone_number_key") @map("phone_number") @db.VarChar(20)
+  /// Phone uniqueness applies only to current ACTIVE employment through the
+  /// employees_active_phone_number_key partial unique index created by migration.
+  phoneNumber   String @map("phone_number") @db.VarChar(20)
   officialEmail String @unique @map("official_email") @db.VarChar(255)
 
 
@@ -939,6 +961,7 @@ model Account {
   announcementAcknowledgements       AnnouncementAcknowledgement[]
   workItemsCreated                   WorkItem[]                        @relation("WorkItemsCreatedBy")
   workItemsAsSalesMember             WorkItem[]                        @relation("WorkItemsSalesMember")
+  workItemsAsResponsibleReviewer     WorkItem[]                        @relation("WorkItemsResponsibleReviewer")
   workRetentionHolds                 WorkItem[]                        @relation("WorkItemsRetentionHoldBy")
   workDeletionRequests               WorkItem[]                        @relation("WorkItemsDeletionRequestedBy")
   workAssignments                    WorkAssignment[]                  @relation("WorkAssignmentsAssignee")
@@ -950,6 +973,7 @@ model Account {
   workHelpRequestsReceived           WorkHelpRequest[]                 @relation("WorkHelpRequestsRequestedHelper")
   workHelpRequestsResponded          WorkHelpRequest[]                 @relation("WorkHelpRequestsRespondedBy")
   workHelpRequestsCoordinated        WorkHelpRequest[]                 @relation("WorkHelpRequestsCoordinatedBy")
+  workEvidenceUploaded               WorkEvidence[]                    @relation("WorkEvidenceUploadedBy")
   workSalesMessagesSent              WorkSalesMessage[]                @relation("WorkSalesMessagesSender")
   dutyShiftTemplatesCreated          DutyShiftTemplate[]               @relation("DutyShiftTemplatesCreatedBy")
   dutyScheduleSeriesCreated          DutyScheduleSeries[]              @relation("DutyScheduleSeriesCreatedBy")
@@ -981,6 +1005,7 @@ model Account {
   workTypeVersionsPublished          WorkTypeVersion[]                 @relation("WorkTypeVersionsPublishedBy")
   workTypeVersionsRetired            WorkTypeVersion[]                 @relation("WorkTypeVersionsRetiredBy")
   workTypeCreatorRules               WorkTypeCreatorAccount[]
+  workReportSnapshotsCreated         WorkReportSnapshot[]               @relation("WorkReportSnapshotsCreatedBy")
   workParticipantsAdded              WorkOrgUnitParticipant[]          @relation("WorkParticipantsAddedBy")
   workParticipantsEnded              WorkOrgUnitParticipant[]          @relation("WorkParticipantsEndedBy")
   workCollaborationRequestsCreated   WorkCollaborationRequest[]        @relation("WorkCollaborationRequestsRequestedBy")
@@ -1095,6 +1120,7 @@ model OperationalTeam {
   workStageAssignments WorkStageAssignment[]           @relation("WorkStageAssignmentsTargetOperationalTeam")
   dutyScheduleSeries   DutyScheduleSeries[]            @relation("DutyScheduleSeriesOperationalTeamV3")
   dutyAssignments      DutyAssignment[]                @relation("DutyAssignmentsOperationalTeamV3")
+  assignedWorkItems     WorkItem[]                      @relation("WorkItemsAssignedOperationalTeam")
 
   @@unique([orgUnitId, code], map: "operational_teams_org_unit_code_key")
   @@unique([orgUnitId, nameKey], map: "operational_teams_org_unit_name_key")
@@ -1170,7 +1196,8 @@ model AccountRequest {
   officialEmail String  @map("official_email") @db.VarChar(255)
   designation   String? @db.VarChar(120)
 
-  requestedRole AccountRole @map("requested_role")
+  requestedRole             AccountRole                    @map("requested_role")
+  requestedOrganizationRole AccountRequestOrganizationRole @default(EMPLOYEE) @map("requested_organization_role")
 
   lifecycleState    AccountRequestLifecycleState @default(REQUESTED) @map("lifecycle_state")
   officeId          String?                      @map("office_id") @db.Uuid
@@ -1222,6 +1249,7 @@ model AccountRequest {
   @@index([requestedByAccountId, status], map: "account_requests_requester_status_idx")
   @@index([reviewedByAccountId], map: "account_requests_reviewer_idx")
   @@index([requestedRole], map: "account_requests_requested_role_idx")
+  @@index([requestedOrganizationRole, status], map: "account_requests_org_role_status_idx")
   @@index([empId], map: "account_requests_emp_id_idx")
   @@index([officialEmail], map: "account_requests_official_email_idx")
   @@index([phoneNumber], map: "account_requests_phone_number_idx")
@@ -1554,7 +1582,18 @@ model Message {
 
   contentType MessageContentType @default(TEXT) @map("content_type")
   textContent String?            @map("text_content") @db.Text
-  payload     Json?
+
+  // Version 0 is historical plaintext. Version 1 stores AES-256-GCM
+  // ciphertext in textContent and verifies the record with Ed25519.
+  textSecurityVersion       Int      @default(0) @map("text_security_version")
+  textEncryptionKeyVersion Int?     @map("text_encryption_key_version")
+  textEncryptionIv         String?  @map("text_encryption_iv") @db.VarChar(32)
+  textEncryptionTag        String?  @map("text_encryption_tag") @db.VarChar(32)
+  textSignatureKeyVersion  Int?     @map("text_signature_key_version")
+  textSignature            String?  @map("text_signature") @db.Text
+  textSearchTokens         String[] @default([]) @map("text_search_tokens")
+
+  payload Json?
 
   replyToMessageId String? @map("reply_to_message_id") @db.Uuid
 
@@ -1585,11 +1624,43 @@ model Message {
   @@unique([senderAccountId, clientMessageId], map: "messages_sender_client_message_key")
   @@index([conversationId, sentAt, id], map: "messages_conversation_sent_idx")
   @@index([conversationId, senderAccountId, sentAt, id], map: "messages_conversation_sender_sent_idx")
-  @@index([textContent(ops: raw("gin_trgm_ops"))], type: Gin, map: "messages_text_content_trgm_idx")
+  @@index([textSecurityVersion], map: "messages_text_security_version_idx")
+  @@index([textSearchTokens], type: Gin, map: "messages_text_search_tokens_idx")
   @@index([senderAccountId, sentAt], map: "messages_sender_sent_idx")
   @@index([replyToMessageId], map: "messages_reply_to_idx")
   @@index([deletedAt], map: "messages_deleted_at_idx")
   @@map("messages")
+}
+
+model MessageSecurityTombstone {
+  messageId       String             @id @map("message_id") @db.Uuid
+  conversationId  String             @map("conversation_id") @db.Uuid
+  senderAccountId String             @map("sender_account_id") @db.Uuid
+  clientMessageId String             @map("client_message_id") @db.VarChar(100)
+  contentType     MessageContentType @map("content_type")
+
+  // Ciphertext/signature evidence is intentionally preserved after a hard
+  // delete. There is no relation back to Message or Conversation so cascades
+  // cannot erase the audit record.
+  textContent              String?  @map("text_content") @db.Text
+  textSecurityVersion      Int      @map("text_security_version")
+  textEncryptionKeyVersion Int?     @map("text_encryption_key_version")
+  textEncryptionIv         String?  @map("text_encryption_iv") @db.VarChar(32)
+  textEncryptionTag        String?  @map("text_encryption_tag") @db.VarChar(32)
+  textSignatureKeyVersion  Int?     @map("text_signature_key_version")
+  textSignature            String?  @map("text_signature") @db.Text
+  textSearchTokens         String[] @default([]) @map("text_search_tokens")
+
+  sentAt                    DateTime  @map("sent_at") @db.Timestamptz(3)
+  editedAt                  DateTime? @map("edited_at") @db.Timestamptz(3)
+  messageDeletedAt          DateTime? @map("message_deleted_at") @db.Timestamptz(3)
+  messageDeletedByAccountId String?   @map("message_deleted_by_account_id") @db.Uuid
+  recordedAt                DateTime  @default(now()) @map("recorded_at") @db.Timestamptz(3)
+
+  @@index([conversationId, sentAt], map: "message_security_tombstones_conversation_idx")
+  @@index([senderAccountId, sentAt], map: "message_security_tombstones_sender_idx")
+  @@index([recordedAt], map: "message_security_tombstones_recorded_idx")
+  @@map("message_security_tombstones")
 }
 
 model MessageAttachment {
@@ -1603,6 +1674,17 @@ model MessageAttachment {
   fileSizeBytes    Int                @map("file_size_bytes")
   contentType      MessageContentType @map("content_type")
   scanStatus       String             @default("PENDING") @map("scan_status") @db.VarChar(40)
+
+  // Server-side authenticated encryption for the physical attachment object.
+  // Version 0 is a legacy plaintext object; version 1 is AES-256-GCM + Ed25519.
+  contentSecurityVersion      Int     @default(0) @map("content_security_version")
+  contentEncryptionKeyVersion Int?    @map("content_encryption_key_version")
+  contentEncryptionIv         String? @map("content_encryption_iv") @db.VarChar(32)
+  contentEncryptionTag        String? @map("content_encryption_tag") @db.VarChar(32)
+  contentSignatureKeyVersion  Int?    @map("content_signature_key_version")
+  contentSignature            String? @map("content_signature") @db.VarChar(128)
+  ciphertextSha256            String? @map("ciphertext_sha256") @db.VarChar(64)
+  encryptedSizeBytes          Int?    @map("encrypted_size_bytes")
 
   // Retention belongs to the logical message reference, not the shared physical file.
   // Forwarding therefore gets a fresh expiry while the same storageKey can be reused.
@@ -1621,6 +1703,7 @@ model MessageAttachment {
   @@index([expiresAt, expiredAt], map: "message_attachments_expiry_idx")
   @@index([purgedAt, expiresAt], map: "message_attachments_purge_idx")
   @@index([contentType], map: "message_attachments_content_type_idx")
+  @@index([contentSecurityVersion], map: "message_attachments_content_security_version_idx")
   @@map("message_attachments")
 }
 
@@ -1986,6 +2069,27 @@ model EmergencyAlertRecipient {
   @@map("emergency_alert_recipients")
 }
 
+
+model WorkReportSnapshot {
+  id                 String   @id @default(uuid()) @db.Uuid
+  officeId           String   @map("office_id") @db.Uuid
+  createdByAccountId String   @map("created_by_account_id") @db.Uuid
+  name               String   @db.VarChar(200)
+  dataset            String   @db.VarChar(40)
+  periodFrom         String?  @map("period_from") @db.VarChar(10)
+  periodTo           String?  @map("period_to") @db.VarChar(10)
+  query              Json     @db.JsonB
+  payload            Json     @db.JsonB
+  createdAt          DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  office    Office  @relation(fields: [officeId], references: [id], onDelete: Restrict)
+  createdBy Account @relation("WorkReportSnapshotsCreatedBy", fields: [createdByAccountId], references: [id], onDelete: Restrict)
+
+  @@index([officeId, createdAt], map: "work_report_snapshots_office_created_idx")
+  @@index([createdByAccountId, createdAt], map: "work_report_snapshots_creator_created_idx")
+  @@map("work_report_snapshots")
+}
+
 model WorkTypeDefinition {
   id                 String        @id @default(uuid()) @db.Uuid
   officeId           String        @map("office_id") @db.Uuid
@@ -2013,6 +2117,8 @@ model WorkTypeVersion {
   status                     WorkTypeVersionStatus     @default(DRAFT)
   name                       String                    @db.VarChar(150)
   description                String?                   @db.VarChar(1000)
+  salesDisplayLabel          String?                   @map("sales_display_label") @db.VarChar(80)
+  template                   String                    @default("STANDARD") @db.VarChar(40)
   changeReason               String?                   @map("change_reason") @db.VarChar(500)
   primaryOwnerOrgUnitId      String?                   @map("primary_owner_org_unit_id") @db.Uuid
   creatorCategories          WorkTypeCreatorCategory[] @default([]) @map("creator_categories")
@@ -2100,6 +2206,7 @@ model WorkFieldDefinition {
   activationStages  WorkStageDefinition[] @relation("WorkStageActivationField")
   runtimeValues     WorkFieldValue[]
   runtimeReferences WorkReference[]
+  evidence          WorkEvidence[]
 
   @@unique([workTypeVersionId, code], map: "work_field_definitions_version_code_key")
   @@index([workTypeVersionId, stageDefinitionId, sortOrder], map: "work_field_definitions_version_stage_sort_idx")
@@ -2287,6 +2394,8 @@ model WorkStage {
   fieldValues           WorkFieldValue[]
   events                WorkEvent[]
   collaborationRequests WorkCollaborationRequest[] @relation("WorkCollaborationRequestsStage")
+  helpRequests          WorkHelpRequest[]
+  evidence              WorkEvidence[]
 
   @@unique([workItemId, stageDefinitionId], map: "work_stages_item_definition_key")
   @@index([workItemId, status], map: "work_stages_item_status_idx")
@@ -2489,10 +2598,11 @@ model WorkItem {
   officeId                   String?            @map("office_id") @db.Uuid
   workTypeVersionId          String?            @map("work_type_version_id") @db.Uuid
   primaryOwnerOrgUnitId      String?            @map("primary_owner_org_unit_id") @db.Uuid
-  runtimeStatus              WorkRuntimeStatus? @map("runtime_status")
   openedAt                   DateTime?          @map("opened_at") @db.Timestamptz(3)
   creationRequestId          String?            @map("creation_request_id") @db.Uuid
   creationRequestFingerprint String?            @map("creation_request_fingerprint") @db.VarChar(64)
+  responsibleReviewerAccountId String?          @map("responsible_reviewer_account_id") @db.Uuid
+  assignedOperationalTeamId    String?          @map("assigned_operational_team_id") @db.Uuid
 
   customerName          String?           @map("customer_name") @db.VarChar(160)
   customerContactType   WorkContactType?  @map("customer_contact_type")
@@ -2516,6 +2626,7 @@ model WorkItem {
   locationText   String?   @map("location_text") @db.VarChar(300)
   registeredAt   DateTime? @map("registered_at") @db.Timestamptz(3)
   plannedStartAt DateTime? @map("planned_start_at") @db.Timestamptz(3)
+  plannedEndAt   DateTime? @map("planned_end_at") @db.Timestamptz(3)
   dueAt          DateTime  @map("due_at") @db.Timestamptz(3)
 
   createdByAccountId          String  @map("created_by_account_id") @db.Uuid
@@ -2544,6 +2655,8 @@ model WorkItem {
   office              Office?          @relation("WorkItemsOfficeV3", fields: [officeId], references: [id], onDelete: Restrict)
   workTypeVersion     WorkTypeVersion? @relation("WorkItemsWorkTypeVersionV3", fields: [workTypeVersionId], references: [id], onDelete: Restrict)
   primaryOwnerOrgUnit OrgUnit?         @relation("WorkItemsPrimaryOwnerOrgUnitV3", fields: [primaryOwnerOrgUnitId], references: [id], onDelete: Restrict)
+  responsibleReviewer Account?         @relation("WorkItemsResponsibleReviewer", fields: [responsibleReviewerAccountId], references: [id], onDelete: Restrict)
+  assignedOperationalTeam OperationalTeam? @relation("WorkItemsAssignedOperationalTeam", fields: [assignedOperationalTeamId], references: [id], onDelete: Restrict)
 
   salesMember         Account?        @relation("WorkItemsSalesMember", fields: [salesMemberAccountId], references: [id], onDelete: Restrict)
   createdBy           Account         @relation("WorkItemsCreatedBy", fields: [createdByAccountId], references: [id], onDelete: Restrict)
@@ -2564,15 +2677,16 @@ model WorkItem {
   events                WorkEvent[]
   ownershipTransfers    WorkOwnershipTransfer[]
   collaborationRequests WorkCollaborationRequest[]
+  evidence              WorkEvidence[]
 
-  @@index([officeId, runtimeStatus, createdAt], map: "work_items_office_runtime_status_created_idx")
-  @@index([primaryOwnerOrgUnitId, runtimeStatus, dueAt], map: "work_items_primary_owner_runtime_status_due_idx")
   @@index([workTypeVersionId, createdAt], map: "work_items_work_type_version_created_idx")
   @@index([createdByAccountId, creationRequestId], map: "work_items_creator_creation_request_idx")
+  @@index([assignedOperationalTeamId, status, dueAt], map: "work_items_operational_team_status_due_idx")
   @@index([status, dueAt], map: "work_items_status_due_idx")
   @@index([salesMemberAccountId, status, dueAt], map: "work_items_sales_member_status_due_idx")
   @@index([salesMemberAccountId, salesCoordinationStatus, dueAt], map: "work_items_sales_coordination_due_idx")
   @@index([registeredAt], map: "work_items_registered_at_idx")
+  @@index([plannedEndAt], map: "work_items_planned_end_at_idx")
   @@index([createdByAccountId, createdAt], map: "work_items_creator_created_idx")
   @@index([requestNumber], map: "work_items_request_number_idx")
   @@index([cpcSerial], map: "work_items_cpc_serial_idx")
@@ -2647,6 +2761,7 @@ model WorkCompletionReport {
   fdcName              String?                    @map("fdc_name") @db.VarChar(100)
   fapName              String?                    @map("fap_name") @db.VarChar(100)
   moreWorkRequired     Boolean                    @default(false) @map("more_work_required")
+  fieldValuesSnapshot  Json?                      @map("field_values_snapshot") @db.JsonB
   reviewStatus         WorkCompletionReviewStatus @default(PENDING_REVIEW) @map("review_status")
   managerNote          String?                    @map("manager_note") @db.VarChar(1500)
   reviewedByAccountId  String?                    @map("reviewed_by_account_id") @db.Uuid
@@ -2658,6 +2773,7 @@ model WorkCompletionReport {
   workItem    WorkItem @relation(fields: [workItemId], references: [id], onDelete: Cascade)
   submittedBy Account  @relation("WorkCompletionReportsSubmittedBy", fields: [submittedByAccountId], references: [id], onDelete: Restrict)
   reviewedBy  Account? @relation("WorkCompletionReportsReviewedBy", fields: [reviewedByAccountId], references: [id], onDelete: Restrict)
+  evidence    WorkEvidence[]
 
   @@index([workItemId, createdAt], map: "work_completion_reports_item_created_idx")
   @@index([submittedByAccountId, createdAt], map: "work_completion_reports_submitter_created_idx")
@@ -2693,28 +2809,70 @@ model WorkSalesAttachment {
   mimeType         String @map("mime_type") @db.VarChar(120)
   fileSizeBytes    Int    @map("file_size_bytes")
   scanStatus       String @default("PENDING") @map("scan_status") @db.VarChar(40)
+  expiresAt        DateTime? @map("expires_at") @db.Timestamptz(3)
+  expiredAt        DateTime? @map("expired_at") @db.Timestamptz(3)
+  purgedAt         DateTime? @map("purged_at") @db.Timestamptz(3)
 
-  // Work evidence follows the work record. Physical deletion is handled only
-  // when the parent work eventually enters an approved deletion flow.
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
 
   message WorkSalesMessage @relation(fields: [messageId], references: [id], onDelete: Cascade)
 
   @@index([messageId], map: "work_sales_attachments_message_idx")
   @@index([storageKey], map: "work_sales_attachments_storage_key_idx")
+  @@index([expiresAt, purgedAt], map: "work_sales_attachments_expires_purged_idx")
   @@map("work_sales_attachments")
+}
+
+model WorkEvidence {
+  id String @id @default(uuid()) @db.Uuid
+
+  workItemId        String  @map("work_item_id") @db.Uuid
+  workStageId       String? @map("work_stage_id") @db.Uuid
+  fieldDefinitionId   String? @map("field_definition_id") @db.Uuid
+  completionReportId String? @map("completion_report_id") @db.Uuid
+  uploadedByAccountId String @map("uploaded_by_account_id") @db.Uuid
+
+  storageKey       String @map("storage_key") @db.VarChar(500)
+  originalFileName String @map("original_file_name") @db.VarChar(255)
+  mimeType         String @map("mime_type") @db.VarChar(120)
+  fileSizeBytes    Int    @map("file_size_bytes")
+  scanStatus       String @default("PENDING") @map("scan_status") @db.VarChar(40)
+  note             String? @db.VarChar(1000)
+  expiresAt        DateTime? @map("expires_at") @db.Timestamptz(3)
+  expiredAt        DateTime? @map("expired_at") @db.Timestamptz(3)
+  purgedAt         DateTime? @map("purged_at") @db.Timestamptz(3)
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  workItem       WorkItem             @relation(fields: [workItemId], references: [id], onDelete: Cascade)
+  workStage      WorkStage?           @relation(fields: [workStageId], references: [id], onDelete: SetNull)
+  fieldDefinition WorkFieldDefinition? @relation(fields: [fieldDefinitionId], references: [id], onDelete: SetNull)
+  completionReport WorkCompletionReport? @relation(fields: [completionReportId], references: [id], onDelete: SetNull)
+  uploadedBy     Account              @relation("WorkEvidenceUploadedBy", fields: [uploadedByAccountId], references: [id], onDelete: Restrict)
+
+  @@index([workItemId, createdAt], map: "work_evidence_item_created_idx")
+  @@index([workStageId, createdAt], map: "work_evidence_stage_created_idx")
+  @@index([fieldDefinitionId, createdAt], map: "work_evidence_field_created_idx")
+  @@index([completionReportId, createdAt], map: "work_evidence_completion_report_created_idx")
+  @@index([uploadedByAccountId, createdAt], map: "work_evidence_uploader_created_idx")
+  @@index([expiresAt, purgedAt], map: "work_evidence_expires_purged_idx")
+  @@index([storageKey], map: "work_evidence_storage_key_idx")
+  @@map("work_evidence")
 }
 
 model WorkHelpRequest {
   id String @id @default(uuid()) @db.Uuid
 
   workItemId               String                @map("work_item_id") @db.Uuid
+  workStageId              String?               @map("work_stage_id") @db.Uuid
   requestedByAccountId     String                @map("requested_by_account_id") @db.Uuid
   requestedHelperAccountId String?               @map("requested_helper_account_id") @db.Uuid
   reason                   WorkHelpReason
+  materialType             WorkHelpMaterialType?    @map("material_type")
   note                     String?               @db.VarChar(1000)
   status                   WorkHelpRequestStatus @default(PENDING)
   previousStatus           WorkItemStatus        @map("previous_status")
+  previousRuntimeStatus    WorkRuntimeStatus?    @map("previous_runtime_status")
   respondedByAccountId     String?               @map("responded_by_account_id") @db.Uuid
   responseNote             String?               @map("response_note") @db.VarChar(1000)
   respondedAt              DateTime?             @map("responded_at") @db.Timestamptz(3)
@@ -2725,12 +2883,14 @@ model WorkHelpRequest {
   updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
 
   workItem            WorkItem    @relation(fields: [workItemId], references: [id], onDelete: Cascade)
+  workStage           WorkStage?  @relation(fields: [workStageId], references: [id], onDelete: SetNull)
   requestedBy         Account     @relation("WorkHelpRequestsCreatedBy", fields: [requestedByAccountId], references: [id], onDelete: Restrict)
   requestedHelper     Account?    @relation("WorkHelpRequestsRequestedHelper", fields: [requestedHelperAccountId], references: [id], onDelete: Restrict)
   respondedBy         Account?    @relation("WorkHelpRequestsRespondedBy", fields: [respondedByAccountId], references: [id], onDelete: Restrict)
   coordinatedBy       Account?    @relation("WorkHelpRequestsCoordinatedBy", fields: [coordinatedByAccountId], references: [id], onDelete: Restrict)
 
   @@index([workItemId, status, createdAt], map: "work_help_requests_item_status_created_idx")
+  @@index([workStageId, status, createdAt], map: "work_help_requests_stage_status_created_idx")
   @@index([requestedByAccountId, createdAt], map: "work_help_requests_requester_created_idx")
   @@index([requestedHelperAccountId, status, createdAt], map: "work_help_requests_helper_status_created_idx")
   @@index([coordinatedByAccountId, coordinatedAt], map: "work_help_requests_coordinator_idx")
@@ -2962,13 +3122,17 @@ model DutyHoliday {
 }
 
 model DutyWeeklyOffSetting {
-  dayOfWeek          Int      @id @map("day_of_week")
+  officeId           String   @map("office_id") @db.Uuid
+  dayOfWeek          Int      @map("day_of_week")
   updatedByAccountId String   @map("updated_by_account_id") @db.Uuid
   createdAt          DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt          DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
 
+  office    Office  @relation("DutyWeeklyOffSettingsOfficeV3", fields: [officeId], references: [id], onDelete: Restrict)
   updatedBy Account @relation("DutyWeeklyOffSettingsUpdatedBy", fields: [updatedByAccountId], references: [id], onDelete: Restrict)
 
+  @@id([officeId, dayOfWeek])
+  @@index([officeId, dayOfWeek], map: "duty_weekly_off_settings_office_day_idx")
   @@map("duty_weekly_off_settings")
 }
 

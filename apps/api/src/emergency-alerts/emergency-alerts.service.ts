@@ -12,11 +12,14 @@ import { randomUUID } from 'node:crypto';
 import type { AuthenticatedUser } from '../auth/types/auth.types';
 import { PrismaService } from '../database/prisma.service';
 import {
+  AccountClass,
   AccountRole,
   ActivityEventType,
   EmployeeStatus,
   EmploymentStatus,
   MessagingNotificationType,
+  OrgLeadershipType,
+  OrgMembershipType,
 } from '../generated/prisma/client';
 import type { Prisma } from '../generated/prisma/client';
 import { MonitoringService } from '../monitoring/monitoring.service';
@@ -36,6 +39,7 @@ const EMERGENCY_ALERT_COOLDOWN_MS = 60 * 1000;
 const emergencyAccountSelect = {
   id: true,
   username: true,
+  accountClass: true,
   role: true,
   isEnabled: true,
   profilePhotoKey: true,
@@ -68,6 +72,50 @@ const emergencyAccountSelect = {
       employmentStatus: true,
       archivedAt: true,
       isActivated: true,
+      orgMemberships: {
+        where: {
+          membershipType: OrgMembershipType.PRIMARY,
+          endsAt: null,
+        },
+        orderBy: { startsAt: 'desc' },
+        take: 1,
+        select: {
+          officeId: true,
+          orgUnitId: true,
+          office: { select: { id: true, name: true, isActive: true } },
+          orgUnit: {
+            select: {
+              id: true,
+              name: true,
+              isActive: true,
+              orgUnitType: { select: { name: true, isTeam: true } },
+            },
+          },
+        },
+      },
+      orgLeadershipAssignments: {
+        where: { effectiveUntil: null },
+        select: {
+          officeId: true,
+          orgUnitId: true,
+          leadershipType: true,
+          isActing: true,
+        },
+      },
+      operationalTeamLeadAssignments: {
+        where: { effectiveUntil: null },
+        select: {
+          isActing: true,
+          team: {
+            select: {
+              id: true,
+              name: true,
+              isActive: true,
+              orgUnit: { select: { officeId: true } },
+            },
+          },
+        },
+      },
     },
   },
 } satisfies Prisma.AccountSelect;
@@ -148,42 +196,51 @@ export class EmergencyAlertsService {
   ) {}
 
   async listEmergencyContacts(user: AuthenticatedUser) {
+    this.ensureOperationalEmergencySender(user);
     const sender = await this.getAccount(user.accountId);
+    const senderOffice = this.getActivePrimaryOffice(sender);
+
+    if (!senderOffice) {
+      throw new ForbiddenException(
+        'An active primary Office membership is required to use Emergency SMS.',
+      );
+    }
+
     const contacts = await this.prisma.account.findMany({
       where: {
-        id: {
-          not: sender.id,
-        },
+        id: { not: sender.id },
         isEnabled: true,
         OR: [
+          { accountClass: AccountClass.SUPER_ADMIN },
           {
-            role: AccountRole.SUPER_ADMIN,
-          },
-          {
+            accountClass: AccountClass.OFFICE_USER,
             employee: {
               is: {
                 status: EmployeeStatus.ACTIVE,
                 employmentStatus: EmploymentStatus.ACTIVE,
                 archivedAt: null,
+                orgMemberships: {
+                  some: {
+                    officeId: senderOffice.officeId,
+                    membershipType: OrgMembershipType.PRIMARY,
+                    endsAt: null,
+                  },
+                },
               },
             },
           },
         ],
       },
-      orderBy: [
-        {
-          role: 'asc',
-        },
-        {
-          username: 'asc',
-        },
-      ],
+      orderBy: [{ accountClass: 'desc' }, { username: 'asc' }],
       select: emergencyAccountSelect,
     });
 
     return {
+      office: { id: senderOffice.officeId, name: senderOffice.officeName },
       data: await Promise.all(
-        contacts.map((contact) => this.toEmergencyContact(contact)),
+        contacts.map((contact) =>
+          this.toEmergencyContact(contact, senderOffice.officeId),
+        ),
       ),
     };
   }
@@ -201,6 +258,7 @@ export class EmergencyAlertsService {
     user: AuthenticatedUser,
     dto: SendEmergencyAlertDto,
   ) {
+    this.ensureOperationalEmergencySender(user);
     const sender = await this.getAccount(user.accountId);
     const recipient = await this.getAccount(dto.recipientAccountId);
 
@@ -210,9 +268,23 @@ export class EmergencyAlertsService {
       );
     }
 
-    if (!this.canReceiveEmergencyAlert(recipient)) {
+    const senderOffice = this.getActivePrimaryOffice(sender);
+    if (!senderOffice) {
+      throw new ForbiddenException(
+        'An active primary Office membership is required to use Emergency SMS.',
+      );
+    }
+
+    if (!this.canReceiveEmergencyAlert(recipient, senderOffice.officeId)) {
+      throw new ForbiddenException(
+        'Emergency SMS recipients must belong to your Office, except the official Super Admin support contact.',
+      );
+    }
+
+    const phoneNumber = await this.getEmergencyPhone(recipient);
+    if (!phoneNumber) {
       throw new BadRequestException(
-        'Selected recipient cannot receive emergency alerts.',
+        'Selected recipient does not have a valid mobile number for Emergency SMS.',
       );
     }
 
@@ -221,8 +293,12 @@ export class EmergencyAlertsService {
     const alertId = randomUUID();
     const recipientRowId = randomUUID();
     const occurredAt = new Date();
-    const messages = this.buildEmergencyMessages(sender, recipient, occurredAt);
-    const phoneNumber = await this.getEmergencyPhone(recipient);
+    const messages = this.buildEmergencyMessages(
+      sender,
+      dto.language,
+      dto.messageMode,
+      dto.customMessage,
+    );
 
     await this.createStoredEmergencyAlert({
       alertId,
@@ -279,10 +355,17 @@ export class EmergencyAlertsService {
         failureReason: delivery.failureReason,
         sentAt: delivery.sentAt?.toISOString() ?? null,
       },
-      architectureNote:
-        'SMS sending is provider-based. MockSmsProvider is active now; ' +
-        'NepalTelecomSmsProvider can replace it later without changing business logic.',
+      language: dto.language,
+      messageMode: dto.messageMode,
     };
+  }
+
+  private ensureOperationalEmergencySender(user: AuthenticatedUser): void {
+    if (user.accountClass !== 'OFFICE_USER') {
+      throw new ForbiddenException(
+        'Only active Office users can send Emergency SMS.',
+      );
+    }
   }
 
   private async getAccount(accountId: string): Promise<EmergencyAccountRecord> {
@@ -309,11 +392,10 @@ export class EmergencyAlertsService {
   }
 
   private async ensureCooldown(accountId: string): Promise<void> {
-    const recentCount = await this.prisma.activityEvent.count({
+    const recentCount = await this.prisma.emergencyAlert.count({
       where: {
-        accountId,
-        eventType: ActivityEventType.EMERGENCY_ALERT_SENT,
-        occurredAt: {
+        senderAccountId: accountId,
+        createdAt: {
           gte: new Date(Date.now() - EMERGENCY_ALERT_COOLDOWN_MS),
         },
       },
@@ -327,17 +409,49 @@ export class EmergencyAlertsService {
     }
   }
 
-  private canReceiveEmergencyAlert(account: EmergencyAccountRecord): boolean {
-    if (account.role === AccountRole.SUPER_ADMIN) {
+  private canReceiveEmergencyAlert(
+    account: EmergencyAccountRecord,
+    senderOfficeId: string,
+  ): boolean {
+    if (account.accountClass === AccountClass.SUPER_ADMIN) {
       return true;
     }
 
+    const recipientOffice = this.getActivePrimaryOffice(account);
+
     return Boolean(
+      account.accountClass === AccountClass.OFFICE_USER &&
       account.employee &&
       account.employee.status === EmployeeStatus.ACTIVE &&
       account.employee.employmentStatus === EmploymentStatus.ACTIVE &&
-      !account.employee.archivedAt,
+      !account.employee.archivedAt &&
+      recipientOffice?.officeId === senderOfficeId,
     );
+  }
+
+  private getActivePrimaryOffice(account: EmergencyAccountRecord): {
+    officeId: string;
+    officeName: string;
+    orgUnitId: string | null;
+    orgUnitName: string | null;
+    orgUnitType: string | null;
+  } | null {
+    const membership = account.employee?.orgMemberships[0];
+    if (
+      !membership ||
+      !membership.office.isActive ||
+      membership.orgUnit?.isActive === false
+    ) {
+      return null;
+    }
+
+    return {
+      officeId: membership.officeId,
+      officeName: membership.office.name,
+      orgUnitId: membership.orgUnitId,
+      orgUnitName: membership.orgUnit?.name ?? null,
+      orgUnitType: membership.orgUnit?.orgUnitType.name ?? null,
+    };
   }
 
   private async createStoredEmergencyAlert(input: {
@@ -500,32 +614,27 @@ export class EmergencyAlertsService {
 
   private buildEmergencyMessages(
     sender: EmergencyAccountRecord,
-    recipient: EmergencyAccountRecord,
-    occurredAt: Date,
+    language: 'EN' | 'NE',
+    messageMode: 'QUICK' | 'CUSTOM',
+    customMessage?: string,
   ): EmergencyMessagePair {
     const senderName = this.getDisplayName(sender);
-    const receiverName = this.getDisplayName(recipient);
-    const dateTime = this.formatKathmanduDateTime(occurredAt);
-    const longMessage = [
-      '[NT Message Emergency Alert]',
-      '',
-      `From: ${senderName}`,
-      `To: ${receiverName}`,
-      '',
-      `${senderName} has marked this as urgent and needs your immediate attention.`,
-      '',
-      'Please open NT Message or contact your team as soon as possible.',
-      '',
-      `Time: ${dateTime}`,
-    ].join('\n');
-    const shortMessage =
-      `NT Emergency Alert: ${senderName} needs your immediate attention. ` +
-      `Please open NT Message or contact your team ASAP. Time: ${dateTime}.`;
 
-    return {
-      longMessage,
-      shortMessage,
-    };
+    if (messageMode === 'CUSTOM') {
+      const message = customMessage?.trim();
+      if (!message) {
+        throw new BadRequestException('Custom Emergency SMS cannot be empty.');
+      }
+
+      return { longMessage: message, shortMessage: message };
+    }
+
+    const message =
+      language === 'NE'
+        ? `आपतकालीन SMS: ${senderName} लाई तपाईंको तुरुन्त ध्यान आवश्यक छ। कृपया सकेसम्म छिटो ${senderName} लाई सम्पर्क गर्नुहोस्।`
+        : `Emergency SMS: ${senderName} needs your immediate attention. Please contact ${senderName} as soon as possible.`;
+
+    return { longMessage: message, shortMessage: message };
   }
 
   private serializeNotification(notification: EmergencyNotificationRecord) {
@@ -600,19 +709,54 @@ export class EmergencyAlertsService {
     return account.username ?? 'NT Message User';
   }
 
-  private async toEmergencyContact(account: EmergencyAccountRecord) {
+  private async toEmergencyContact(
+    account: EmergencyAccountRecord,
+    senderOfficeId: string,
+  ) {
     const phoneStatus = await this.getEmergencyPhoneStatus(account);
+    const office = this.getActivePrimaryOffice(account);
+    const isSuperAdmin = account.accountClass === AccountClass.SUPER_ADMIN;
+    const officeHead = account.employee?.orgLeadershipAssignments.find(
+      (assignment) =>
+        assignment.officeId === senderOfficeId &&
+        assignment.leadershipType === OrgLeadershipType.OFFICE_HEAD,
+    );
+    const orgUnitHead = account.employee?.orgLeadershipAssignments.find(
+      (assignment) =>
+        assignment.officeId === senderOfficeId &&
+        assignment.leadershipType === OrgLeadershipType.ORG_UNIT_HEAD,
+    );
+    const teamLead = account.employee?.operationalTeamLeadAssignments.find(
+      (assignment) =>
+        assignment.team.orgUnit.officeId === senderOfficeId &&
+        assignment.team.isActive,
+    );
+
+    let authorityLabel = 'Employee';
+    if (isSuperAdmin) authorityLabel = 'Super Admin';
+    else if (officeHead) authorityLabel = 'Office Head';
+    else if (orgUnitHead)
+      authorityLabel = `${office?.orgUnitType ?? 'Org Unit'} Head`;
+    else if (teamLead) authorityLabel = 'Team Lead';
 
     return {
       accountId: account.id,
       displayName: this.getDisplayName(account),
       role: account.role,
+      recipientKind: isSuperAdmin ? 'SYSTEM_SUPPORT' : 'OFFICE_USER',
+      authorityLabel,
       designation: account.employee?.designation ?? null,
-      profileSource:
-        account.role === AccountRole.SUPER_ADMIN
-          ? 'SUPER_ADMIN_PROFILE'
-          : 'EMPLOYEE_PROFILE',
+      officeId: isSuperAdmin ? null : (office?.officeId ?? null),
+      officeName: isSuperAdmin ? null : (office?.officeName ?? null),
+      orgUnitId: isSuperAdmin ? null : (office?.orgUnitId ?? null),
+      orgUnitName: isSuperAdmin ? null : (office?.orgUnitName ?? null),
+      orgUnitType: isSuperAdmin ? null : (office?.orgUnitType ?? null),
+      teamName: teamLead?.team.name ?? null,
+      profileSource: isSuperAdmin ? 'SUPER_ADMIN_PROFILE' : 'EMPLOYEE_PROFILE',
       phoneAvailable: Boolean(phoneStatus.phoneNumber),
+      phoneDisplay: phoneStatus.phoneNumber
+        ? this.maskPhone(phoneStatus.phoneNumber)
+        : null,
       phoneStatus: phoneStatus.status,
       phoneStatusMessage: phoneStatus.message,
     };
@@ -856,18 +1000,6 @@ export class EmergencyAlertsService {
     const localNumber = phoneNumber.replace(/^\+977/, '');
 
     return [phoneNumber, localNumber, `0${localNumber}`];
-  }
-
-  private formatKathmanduDateTime(value: Date): string {
-    return new Intl.DateTimeFormat('en-GB', {
-      day: '2-digit',
-      month: 'short',
-      year: 'numeric',
-      hour: '2-digit',
-      minute: '2-digit',
-      hour12: true,
-      timeZone: 'Asia/Kathmandu',
-    }).format(value);
   }
 
   private toNepalE164Phone(value: string | null): string | null {

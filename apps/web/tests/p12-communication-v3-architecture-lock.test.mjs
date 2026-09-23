@@ -2,10 +2,6 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
 
-const analytics = readFileSync(
-  new URL("../src/components/MessagingAnalyticsPanel.tsx", import.meta.url),
-  "utf8",
-);
 const directory = readFileSync(
   new URL("../src/components/EmployeeDirectory.tsx", import.meta.url),
   "utf8",
@@ -23,10 +19,6 @@ test("P12-M locks communication analytics to Office and OrgUnit contracts", () =
   assert.match(messagingTypes, /usersByOrgUnit/);
   assert.doesNotMatch(messagingTypes, /usersByDivision/);
   assert.doesNotMatch(messagingTypes, /usersByDepartment/);
-  assert.match(analytics, /analytics\.usersByOrgUnit/);
-  assert.match(analytics, /organization\.orgUnits/);
-  assert.doesNotMatch(analytics, /organization\.divisions/);
-  assert.doesNotMatch(analytics, /organization\.departments/);
 });
 
 test("P12-M keeps Directory scope and active query surface on Office and OrgUnit", () => {

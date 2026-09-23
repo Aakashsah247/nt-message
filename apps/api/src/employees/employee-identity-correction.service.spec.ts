@@ -259,6 +259,72 @@ describe('EmployeeIdentityCorrectionService', () => {
     expect(result.security.notificationSent).toBeNull();
   });
 
+  it('repairs a malformed legacy phone with a valid Nepal number', async () => {
+    const legacyEmployee = activeEmployee({ phoneNumber: '986666661' });
+    const transaction = {
+      employee: {
+        findUnique: jest.fn().mockResolvedValue(legacyEmployee),
+        findFirst: jest.fn().mockResolvedValue(null),
+        update: jest.fn().mockResolvedValue({
+          ...legacyEmployee,
+          phoneNumber: '+9779817879609',
+        }),
+      },
+      accountRequest: {
+        findFirst: jest.fn().mockResolvedValue(null),
+      },
+      account: {
+        findFirst: jest.fn(),
+        update: jest.fn(),
+      },
+      authSession: { updateMany: jest.fn() },
+      passwordResetChallenge: { updateMany: jest.fn() },
+      otpVerification: { updateMany: jest.fn() },
+      identityCorrectionAudit: {
+        createMany: jest.fn().mockResolvedValue({ count: 1 }),
+      },
+    };
+    const prisma = {
+      $transaction: jest.fn(
+        async (callback: (tx: typeof transaction) => Promise<unknown>) =>
+          callback(transaction),
+      ),
+    } as unknown as PrismaService;
+    const mail = {
+      sendIdentityCorrectionNotification: jest.fn(),
+    } as unknown as MailService;
+    const service = new EmployeeIdentityCorrectionService(prisma, mail);
+
+    await expect(
+      service.correctIdentity(
+        superAdminUser,
+        'employee-1',
+        {
+          phoneNumber: '9817879609',
+          reason: 'Repair legacy phone number',
+        },
+        { ipAddress: null, userAgent: null },
+      ),
+    ).resolves.toBeDefined();
+
+    expect(transaction.employee.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({ phoneNumber: '+9779817879609' }),
+      }),
+    );
+    expect(transaction.identityCorrectionAudit.createMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.arrayContaining([
+          expect.objectContaining({
+            field: IdentityCorrectionField.PHONE_NUMBER,
+            oldValue: '986666661',
+            newValue: '+9779817879609',
+          }),
+        ]),
+      }),
+    );
+  });
+
   it('rejects corrections before account activation', async () => {
     const transaction = {
       employee: {

@@ -24,6 +24,7 @@ import {
   sanitizeOfficialEmail,
 } from '../common/normalization/account-identity-normalization';
 import { PrismaService } from '../database/prisma.service';
+import { NativeBloomFilterService } from '../security/native-bloom-filter.service';
 import type { RefreshTokenPayload } from './types/auth.types';
 
 interface LoginMetadata {
@@ -78,6 +79,7 @@ export class AuthService {
     private readonly prisma: PrismaService,
     private readonly jwtService: JwtService,
     private readonly configService: ConfigService,
+    private readonly nativeBloomFilter: NativeBloomFilterService,
   ) {
     this.accessSecret =
       this.configService.getOrThrow<string>('JWT_ACCESS_SECRET');
@@ -370,6 +372,11 @@ export class AuthService {
 
     const payload = await this.verifyRefreshToken(refreshToken);
 
+    const probableRefreshReplay =
+      typeof payload.jti === 'string' && payload.jti.length > 0
+        ? this.nativeBloomFilter.mightContain('auth:refresh-used', payload.jti)
+        : false;
+
     if (payload.type !== 'refresh' || !payload.sub || !payload.sid) {
       throw new UnauthorizedException('Invalid refresh token.');
     }
@@ -421,6 +428,12 @@ export class AuthService {
     );
 
     if (!tokenHashMatches) {
+      /*
+       * Bloom positives are never authoritative because false positives are
+       * possible. The persisted refresh-token hash remains the final replay
+       * decision. probableRefreshReplay is intentionally only a fast signal.
+       */
+      void probableRefreshReplay;
       throw new UnauthorizedException(
         'Refresh token is invalid or has already been used.',
       );
@@ -461,6 +474,10 @@ export class AuthService {
       throw new UnauthorizedException(
         'Refresh token is invalid or has already been used.',
       );
+    }
+
+    if (typeof payload.jti === 'string' && payload.jti.length > 0) {
+      this.nativeBloomFilter.add('auth:refresh-used', payload.jti);
     }
 
     return {

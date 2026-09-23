@@ -62,6 +62,7 @@ describe('OrganizationDelegationService', () => {
       orgUnit: {
         findFirst: jest.fn().mockResolvedValue({
           id: 'unit-1',
+          orgUnitType: { code: 'DEPARTMENT' },
         }),
       },
     } as unknown as PrismaService;

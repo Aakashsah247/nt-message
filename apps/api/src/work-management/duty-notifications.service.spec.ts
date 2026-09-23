@@ -64,6 +64,16 @@ describe('DutyNotificationsService M20 Phase 5', () => {
   });
 
   it('keeps realtime delivery available when notification persistence fails', async () => {
+    const warningLog = jest
+      .spyOn(
+        (
+          service as unknown as {
+            logger: { warn: (...args: unknown[]) => void };
+          }
+        ).logger,
+        'warn',
+      )
+      .mockImplementation(() => undefined);
     jest
       .mocked(prisma.messagingNotification.create)
       .mockRejectedValue(new Error('temporary database error'));
@@ -84,5 +94,11 @@ describe('DutyNotificationsService M20 Phase 5', () => {
       ['employee'],
       expect.objectContaining({ action: 'CHANGED' }),
     );
+    expect(warningLog).toHaveBeenCalledWith(
+      expect.stringContaining(
+        'Unable to create duty notification for account employee:',
+      ),
+    );
+    warningLog.mockRestore();
   });
 });

@@ -69,9 +69,26 @@ describe('AttachmentSecurityService', () => {
     process.env.ALLOW_UNSCANNED_STAGING_ATTACHMENTS = 'true';
 
     const service = new AttachmentSecurityService();
+    const warningLog = jest
+      .spyOn(
+        (
+          service as unknown as {
+            logger: { warn: (...args: unknown[]) => void };
+          }
+        ).logger,
+        'warn',
+      )
+      .mockImplementation(() => undefined);
 
-    await expect(service.onModuleInit()).resolves.toBeUndefined();
-    expect(service.isStrictScanMode()).toBe(false);
+    try {
+      await expect(service.onModuleInit()).resolves.toBeUndefined();
+      expect(service.isStrictScanMode()).toBe(false);
+      expect(warningLog).toHaveBeenCalledWith(
+        'Temporary external staging is running without ClamAV. Use synthetic test attachments only; do not upload confidential NTC files.',
+      );
+    } finally {
+      warningLog.mockRestore();
+    }
   });
 
   it('still refuses production when only one temporary staging guard is present', async () => {

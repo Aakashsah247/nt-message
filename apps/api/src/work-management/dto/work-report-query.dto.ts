@@ -24,6 +24,10 @@ export class WorkReportQueryDto {
   orgUnitId?: string;
 
   @IsOptional()
+  @IsUUID('4')
+  operationalTeamId?: string;
+
+  @IsOptional()
   @IsString()
   @MaxLength(160)
   search?: string;

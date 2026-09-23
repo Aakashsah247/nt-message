@@ -2,6 +2,7 @@ import {
   BadRequestException,
   ConflictException,
   ForbiddenException,
+  GoneException,
   Injectable,
   Logger,
   NotFoundException,
@@ -60,6 +61,9 @@ const salesMessageSelect = {
       mimeType: true,
       fileSizeBytes: true,
       scanStatus: true,
+      expiresAt: true,
+      expiredAt: true,
+      purgedAt: true,
       createdAt: true,
     },
   },
@@ -78,12 +82,7 @@ interface SalesAccessContext {
     primaryOwnerOrgUnitId: string | null;
     salesMemberAccountId: string | null;
     orgUnitParticipants: Array<{ orgUnitId: string }>;
-    runtimeStages: Array<{
-      assignments: Array<{
-        targetAccountId: string | null;
-        targetOperationalTeamId: string | null;
-      }>;
-    }>;
+    assignedOperationalTeamId: string | null;
     salesCoordinationStatus: WorkSalesCoordinationStatus | null;
     assignments: Array<{
       assigneeAccountId: string;
@@ -258,10 +257,22 @@ export class WorkSalesCommunicationService {
         mimeType: true,
         fileSizeBytes: true,
         scanStatus: true,
+        expiresAt: true,
+        expiredAt: true,
+        purgedAt: true,
       },
     });
     if (!attachment) {
       throw new NotFoundException('File not found.');
+    }
+    if (
+      attachment.purgedAt ||
+      attachment.expiredAt ||
+      (attachment.expiresAt && attachment.expiresAt.getTime() <= Date.now())
+    ) {
+      throw new GoneException(
+        'This Sales attachment expired 90 days after Sales coordination completed.',
+      );
     }
     if (
       !this.attachmentSecurityService.canAccessStoredAttachment(
@@ -310,17 +321,7 @@ export class WorkSalesCommunicationService {
           where: { endedAt: null },
           select: { orgUnitId: true },
         },
-        runtimeStages: {
-          select: {
-            assignments: {
-              where: { endsAt: null },
-              select: {
-                targetAccountId: true,
-                targetOperationalTeamId: true,
-              },
-            },
-          },
-        },
+        assignedOperationalTeamId: true,
         salesCoordinationStatus: true,
         assignments: {
           where: { endedAt: null },
@@ -341,19 +342,13 @@ export class WorkSalesCommunicationService {
         assignment.assignmentRole === WorkAssignmentRole.PRIMARY &&
         assignment.assigneeAccountId === actor.accountId,
     );
-    const stageAssignments = workItem.runtimeStages.flatMap(
-      (stage) => stage.assignments,
-    );
     const operationalTeamMemberIds = new Set(
       actor.operationalTeamMemberIds ?? [],
     );
-    const isV3StageAssignee = stageAssignments.some(
-      (assignment) =>
-        assignment.targetAccountId === actor.accountId ||
-        (assignment.targetOperationalTeamId !== null &&
-          operationalTeamMemberIds.has(assignment.targetOperationalTeamId)),
-    );
-    const isPrimaryTeamMember = isActivePrimary || isV3StageAssignee;
+    const isAssignedTeamMember =
+      workItem.assignedOperationalTeamId !== null &&
+      operationalTeamMemberIds.has(workItem.assignedOperationalTeamId);
+    const isPrimaryTeamMember = isActivePrimary || isAssignedTeamMember;
 
     const visibleOrgUnitIds = new Set(actor.visibleOrgUnitIds ?? []);
     const isManagementViewer =
@@ -485,6 +480,9 @@ export class WorkSalesCommunicationService {
         originalFileName: attachment.originalFileName,
         mimeType: attachment.mimeType,
         fileSizeBytes: attachment.fileSizeBytes,
+        expiresAt: attachment.expiresAt,
+        expiredAt: attachment.expiredAt,
+        purgedAt: attachment.purgedAt,
         createdAt: attachment.createdAt,
       })),
       createdAt: message.createdAt,

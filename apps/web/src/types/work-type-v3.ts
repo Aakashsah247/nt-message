@@ -2,6 +2,8 @@ export type WorkTypeNavigationMode = "NONE" | "VIEW" | "DRAFT" | "PUBLISH";
 
 export type WorkTypeVersionStatus = "DRAFT" | "PUBLISHED" | "RETIRED";
 
+export type WorkTypeTemplate = "STANDARD" | "TEAM_SALES" | "ADMINISTRATIVE";
+
 export type WorkTypeCreatorCategory =
   | "OFFICE_HEAD"
   | "ORG_UNIT_HEAD"
@@ -28,32 +30,6 @@ export type WorkFieldType =
   | "REFERENCE"
   | "IMAGE"
   | "FILE";
-
-export type WorkStageResponsibleOrgUnitRule =
-  | "PRIMARY_OWNER"
-  | "SPECIFIC_ORG_UNIT"
-  | "RUNTIME_REQUESTED_PARTICIPANT";
-
-export type WorkStageAssignmentMode =
-  | "ORG_UNIT_QUEUE"
-  | "TEAM"
-  | "INDIVIDUAL"
-  | "ORG_UNIT_OR_TEAM"
-  | "ORG_UNIT_OR_USER"
-  | "RESPONSIBLE_ORG_UNIT_HEAD";
-
-export type WorkStageApprovalMode =
-  | "NONE"
-  | "RESPONSIBLE_ORG_UNIT_HEAD"
-  | "TEAM_LEAD"
-  | "SPECIFIC_LEADERSHIP"
-  | "OFFICE_HEAD";
-
-export type WorkStageActivationMode =
-  | "ALWAYS"
-  | "MANUAL_WHEN_REQUIRED"
-  | "FIELD_TRUE"
-  | "FIELD_EQUALS";
 
 export type WorkFinalClosureMode =
   | "AUTO_AFTER_REQUIRED_STAGES"
@@ -96,6 +72,7 @@ export interface WorkTypeVersionSummary {
   status: WorkTypeVersionStatus;
   name: string;
   description: string | null;
+  template: WorkTypeTemplate;
   changeReason: string | null;
   createdByAccountId?: string | null;
   publishedByAccountId?: string | null;
@@ -104,6 +81,7 @@ export interface WorkTypeVersionSummary {
   retiredAt?: string | null;
   createdAt: string;
   updatedAt: string;
+  salesDisplayLabel: string | null;
 }
 
 export interface WorkTypeDefinitionListItem {
@@ -147,6 +125,8 @@ export interface WorkTypeConfigurationContextResponse {
   office: WorkTypeOfficeSummary;
   orgUnits: WorkTypeConfigurationOrgUnit[];
   creatorAccounts: WorkTypeConfigurationCreatorAccount[];
+  officeWideManagement: boolean;
+  manageableDivisionOrgUnitIds: string[];
 }
 
 export interface WorkTypeListResponse {
@@ -173,31 +153,6 @@ export interface WorkTypeFieldDefinition {
   isRequired: boolean;
   sortOrder: number;
   config: Record<string, unknown> | null;
-  stageDefinitionId: string | null;
-}
-
-export interface WorkTypeStageDefinition {
-  id: string;
-  code: string;
-  name: string;
-  description: string | null;
-  sortOrder: number;
-  isRequired: boolean;
-  responsibleOrgUnitRule: WorkStageResponsibleOrgUnitRule;
-  responsibleOrgUnitId: string | null;
-  assignmentMode: WorkStageAssignmentMode;
-  approvalMode: WorkStageApprovalMode;
-  approvalLeadershipType: WorkLeadershipType | null;
-  activationMode: WorkStageActivationMode;
-  activationFieldDefinitionId: string | null;
-  activationExpectedValue: unknown;
-  slaMinutes: number | null;
-}
-
-export interface WorkTypeStageDependency {
-  id: string;
-  stageDefinitionId: string;
-  prerequisiteStageId: string;
 }
 
 export interface WorkTypeVersionDetail extends WorkTypeVersionSummary {
@@ -211,8 +166,6 @@ export interface WorkTypeVersionDetail extends WorkTypeVersionSummary {
   creatorOrgUnits: WorkTypeCreatorOrgUnit[];
   creatorAccounts: WorkTypeCreatorAccount[];
   fields: WorkTypeFieldDefinition[];
-  stages: WorkTypeStageDefinition[];
-  stageDependencies: WorkTypeStageDependency[];
   createdBy?: { id: string; username: string } | null;
   publishedBy?: { id: string; username: string } | null;
   retiredBy?: { id: string; username: string } | null;
@@ -260,32 +213,11 @@ export interface WorkTypeFieldDefinitionInput {
   isRequired?: boolean;
   sortOrder?: number;
   config?: Record<string, unknown>;
-  stageCode?: string;
-}
-
-export interface WorkTypeStageDefinitionInput {
-  code: string;
-  name: string;
-  description?: string | null;
-  sortOrder?: number;
-  isRequired?: boolean;
-  responsibleOrgUnitRule: WorkStageResponsibleOrgUnitRule;
-  responsibleOrgUnitId?: string | null;
-  assignmentMode: WorkStageAssignmentMode;
-  approvalMode?: WorkStageApprovalMode;
-  approvalLeadershipType?: WorkLeadershipType | null;
-  activationMode?: WorkStageActivationMode;
-  activationFieldCode?: string | null;
-  activationExpectedValue?: string | number | boolean;
-  slaMinutes?: number | null;
-}
-
-export interface WorkTypeStageDependencyInput {
-  stageCode: string;
-  prerequisiteStageCode: string;
 }
 
 export interface ReplaceWorkTypeConfigurationInput {
+  template: WorkTypeTemplate;
+  salesDisplayLabel?: string | null;
   primaryOwnerOrgUnitId?: string | null;
   creatorCategories: WorkTypeCreatorCategory[];
   creatorScope: WorkTypeCreatorScope;
@@ -296,8 +228,6 @@ export interface ReplaceWorkTypeConfigurationInput {
   slaBasis: WorkSlaBasis;
   overallSlaMinutes?: number | null;
   fields: WorkTypeFieldDefinitionInput[];
-  stages: WorkTypeStageDefinitionInput[];
-  dependencies: WorkTypeStageDependencyInput[];
 }
 
 export interface WorkTypeDraftMutationResponse {
@@ -313,4 +243,20 @@ export interface WorkTypeDiscardDraftResponse {
 export interface WorkTypePublishResponse {
   office: WorkTypeOfficeSummary;
   publishedVersion: WorkTypeVersionSummary;
+}
+
+export interface CreateWorkTypeDefinitionInput {
+  template: WorkTypeTemplate;
+  name: string;
+  description?: string | null;
+}
+
+export interface WorkTypeDefinitionMutationResponse {
+  office: WorkTypeOfficeSummary;
+  definition?: WorkTypeDefinitionListItem;
+  draft?: WorkTypeVersionSummary;
+  removedWorkType?: { id: string };
+  restoredWorkType?: { id: string };
+  permanentlyDeletedWorkType?: { id: string };
+  message?: string;
 }

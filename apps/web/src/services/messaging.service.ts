@@ -1,4 +1,4 @@
-import { apiRequest } from "../lib/api";
+import { API_URL, apiRequest } from "../lib/api";
 
 import type {
   AcceptMessageRequestResponse,
@@ -70,10 +70,7 @@ function authorizationHeaders(accessToken: string): HeadersInit {
   };
 }
 
-const MESSAGING_API_BASE_URL =
-  import.meta.env.VITE_API_URL ??
-  import.meta.env.VITE_API_BASE_URL ??
-  "http://localhost:4000/api/v1";
+const MESSAGING_API_BASE_URL = API_URL;
 
 function messagingApiUrl(path: string): string {
   return `${MESSAGING_API_BASE_URL}${path}`;
@@ -1733,4 +1730,3 @@ export function removeFolderItem(
     },
   );
 }
-

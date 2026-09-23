@@ -526,6 +526,28 @@ export class AttachmentStorageService implements OnModuleInit, OnModuleDestroy {
     return `${signedUrl}${separator}download=${encodeURIComponent(value)}`;
   }
 
+  async readFile(
+    namespace: AttachmentStorageNamespace,
+    storageKey: string,
+  ): Promise<Buffer> {
+    const stream = await this.openReadStream(namespace, storageKey);
+    const chunks: Uint8Array[] = [];
+    for await (const value of stream) {
+      if (Buffer.isBuffer(value) || value instanceof Uint8Array) {
+        chunks.push(value);
+        continue;
+      }
+      if (typeof value === 'string') {
+        chunks.push(Buffer.from(value));
+        continue;
+      }
+      throw new ServiceUnavailableException(
+        'Stored file stream returned an unsupported chunk type.',
+      );
+    }
+    return Buffer.concat(chunks);
+  }
+
   async openReadStream(
     namespace: AttachmentStorageNamespace,
     storageKey: string,

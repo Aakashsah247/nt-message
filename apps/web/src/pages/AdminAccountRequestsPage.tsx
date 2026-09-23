@@ -11,12 +11,14 @@ import {
   getAdminAccountRequestSummary,
   listAdminAccountRequests,
 } from "../services/account-request.service";
+import { getOrganizationOffices } from "../services/organization-v3.service";
 import type {
   AccountRequestStatus,
   AdminAccountRequestListItem,
   AdminAccountRequestListQuery,
   AdminAccountRequestSummaryResponse,
 } from "../types/account-request";
+import type { OrganizationOfficeSummary } from "../types/organization-v3";
 
 const PAGE_SIZE = 20;
 const STATUS_OPTIONS: Array<{ value: AccountRequestStatus; labelKey: string }> = [
@@ -25,7 +27,6 @@ const STATUS_OPTIONS: Array<{ value: AccountRequestStatus; labelKey: string }> =
   { value: "REJECTED", labelKey: "common.rejected" },
   { value: "ACTIVATION_PENDING", labelKey: "common.activating" },
   { value: "ACTIVATED", labelKey: "common.activated" },
-  { value: "DRAFT", labelKey: "common.draft" },
 ];
 const VALID_STATUSES = new Set<AccountRequestStatus>(
   STATUS_OPTIONS.map((option) => option.value),
@@ -78,6 +79,12 @@ function getStatusClass(status: AccountRequestStatus): string {
   return status.toLowerCase().replaceAll("_", "-");
 }
 
+function getActivationEmailTimestamp(
+  request: AdminAccountRequestListItem,
+): string | null {
+  return request.activationEmailSentAt ?? request.activationEmailLastAttemptAt;
+}
+
 function getRequesterName(
   request: AdminAccountRequestListItem,
   t: TFunction<"requests">,
@@ -89,15 +96,6 @@ function getRequesterName(
   );
 }
 
-function getLifecycleText(
-  request: AdminAccountRequestListItem,
-  t: TFunction<"requests">,
-): string {
-  return t(`lifecycle.${request.status}`, {
-    ns: "requests",
-    defaultValue: t("lifecycle.DRAFT", { ns: "requests" }),
-  });
-}
 
 function RequestEmployeeAvatar({
   request,
@@ -136,8 +134,8 @@ export function AdminAccountRequestsPage() {
 
   const [searchInput, setSearchInput] = useState("");
   const [debouncedSearch, setDebouncedSearch] = useState("");
-  const [dateFrom, setDateFrom] = useState("");
-  const [dateTo, setDateTo] = useState("");
+  const [officeId, setOfficeId] = useState("");
+  const [offices, setOffices] = useState<OrganizationOfficeSummary[]>([]);
   const [page, setPage] = useState(1);
   const [requests, setRequests] = useState<AdminAccountRequestListItem[]>([]);
   const [total, setTotal] = useState(0);
@@ -168,6 +166,21 @@ export function AdminAccountRequestsPage() {
   }, [status]);
 
   useEffect(() => {
+    if (!accessToken) return;
+    let active = true;
+    getOrganizationOffices(accessToken)
+      .then((response) => {
+        if (active) setOffices(response.data.filter((office) => office.isActive));
+      })
+      .catch(() => {
+        if (active) setOffices([]);
+      });
+    return () => {
+      active = false;
+    };
+  }, [accessToken]);
+
+  useEffect(() => {
     if (!accessToken) {
       return;
     }
@@ -179,7 +192,7 @@ export function AdminAccountRequestsPage() {
       }
     });
 
-    getAdminAccountRequestSummary(accessToken)
+    getAdminAccountRequestSummary(accessToken, officeId || undefined)
       .then((response) => {
         if (!active) {
           return;
@@ -201,30 +214,17 @@ export function AdminAccountRequestsPage() {
     return () => {
       active = false;
     };
-  }, [accessToken, refreshKey]);
+  }, [accessToken, officeId, refreshKey]);
 
   const query = useMemo<AdminAccountRequestListQuery>(
     () => ({
       status,
       page,
       limit: PAGE_SIZE,
+      officeId: officeId || undefined,
       search: debouncedSearch || undefined,
-      // Date-only inputs are expanded to the complete local calendar day before
-      // the API receives UTC timestamps, preventing midnight boundary omissions.
-      dateFrom: dateFrom
-        ? new Date(`${dateFrom}T00:00:00`).toISOString()
-        : undefined,
-      dateTo: dateTo
-        ? new Date(`${dateTo}T23:59:59.999`).toISOString()
-        : undefined,
     }),
-    [
-      dateFrom,
-      dateTo,
-      debouncedSearch,
-      page,
-      status,
-    ],
+    [debouncedSearch, officeId, page, status],
   );
 
   useEffect(() => {
@@ -276,11 +276,7 @@ export function AdminAccountRequestsPage() {
     };
   }, [accessToken, query, refreshKey, t]);
 
-  const activeFilterCount = [
-    searchInput.trim(),
-    dateFrom,
-    dateTo,
-  ].filter(Boolean).length;
+  const activeFilterCount = [officeId, searchInput.trim()].filter(Boolean).length;
 
   const firstResult = total === 0 ? 0 : (page - 1) * PAGE_SIZE + 1;
   const lastResult = Math.min(page * PAGE_SIZE, total);
@@ -312,10 +308,9 @@ export function AdminAccountRequestsPage() {
   }
 
   function resetFilters(): void {
+    setOfficeId("");
     setSearchInput("");
     setDebouncedSearch("");
-    setDateFrom("");
-    setDateTo("");
     setPage(1);
   }
 
@@ -385,6 +380,24 @@ export function AdminAccountRequestsPage() {
           </span>
         </div>
 
+        <label>
+          <span>{t("adminList.officeFilter")}</span>
+          <select
+            value={officeId}
+            onChange={(event) => {
+              setOfficeId(event.target.value);
+              setPage(1);
+            }}
+          >
+            <option value="">{t("adminList.allOffices")}</option>
+            {offices.map((office) => (
+              <option key={office.id} value={office.id}>
+                {office.name}
+              </option>
+            ))}
+          </select>
+        </label>
+
         <label className="admin-account-requests-page__search">
           <span>{t("adminList.employeeOrRequester")}</span>
           <input
@@ -395,30 +408,7 @@ export function AdminAccountRequestsPage() {
           />
         </label>
 
-        <label>
-          <span>{t("adminList.submittedFrom")}</span>
-          <input
-            type="date"
-            value={dateFrom}
-            onChange={(event) => {
-              setDateFrom(event.target.value);
-              setPage(1);
-            }}
-          />
-        </label>
 
-        <label>
-          <span>{t("adminList.submittedTo")}</span>
-          <input
-            type="date"
-            value={dateTo}
-            min={dateFrom || undefined}
-            onChange={(event) => {
-              setDateTo(event.target.value);
-              setPage(1);
-            }}
-          />
-        </label>
 
         <button
           type="button"
@@ -494,10 +484,9 @@ export function AdminAccountRequestsPage() {
                 <thead>
                   <tr>
                     <th>{t("adminList.tableEmployee")}</th>
-                    <th>{t("adminList.tableRequest")}</th>
                     <th>{t("common.organization")}</th>
                     <th>{t("common.requestedBy")}</th>
-                    <th>{t("common.lifecycle")}</th>
+                    <th>{t("common.status")}</th>
                     <th>{t("common.activationEmail")}</th>
                     <th>{t("common.submitted")}</th>
                     <th aria-label={t("common.actions")} />
@@ -517,18 +506,21 @@ export function AdminAccountRequestsPage() {
                         </span>
                       </td>
                       <td>
-                        <strong>{formatValue(request.requestedRole, t)}</strong>
-                        <span>{t("adminList.revision", { number: request.revisionNumber })}</span>
-                      </td>
-                      <td>
                         <strong>
                           {request.intendedOrgUnit?.name ?? t("common.notAssigned")}
                         </strong>
-                        <span>{request.office?.name ?? t("common.notAssigned")}</span>
+                        <span>
+                          {request.requestedOrganizationRole === "ORG_UNIT_HEAD"
+                            ? request.intendedOrgUnit?.orgUnitType?.name
+                              ? `${request.intendedOrgUnit.orgUnitType.name} Head`
+                              : t("form.v3.unitHeadRole")
+                            : t("form.v3.employeeRole")}
+                          {" · "}
+                          {request.office?.name ?? t("common.notAssigned")}
+                        </span>
                       </td>
                       <td>
                         <strong>{getRequesterName(request, t)}</strong>
-                        <span>{formatValue(request.requestedBy.role, t)}</span>
                       </td>
                       <td>
                         <span
@@ -536,33 +528,35 @@ export function AdminAccountRequestsPage() {
                         >
                           {formatValue(request.status, t)}
                         </span>
-                        <small>{getLifecycleText(request, t)}</small>
                       </td>
                       <td>
-                        <strong
+                        <span
                           className={`activation-delivery-status activation-delivery-status--${request.activationEmailStatus.toLowerCase()}`}
                         >
                           {formatValue(request.activationEmailStatus, t)}
-                        </strong>
-                        <span>
-                          {request.activationEmailSentAt
-                            ? t("adminList.sentDate", { date: formatDate(request.activationEmailSentAt, i18n.language, t) })
-                            : request.activationEmailLastAttemptAt
-                              ? t("adminList.attemptedDate", { date: formatDate(
-                                  request.activationEmailLastAttemptAt,
-                                  i18n.language,
-                                  t,
-                                ) })
-                              : t("common.notAttempted")}
                         </span>
+                        <small>
+                          {getActivationEmailTimestamp(request)
+                            ? request.activationEmailStatus === "SENT"
+                              ? t("adminList.sentDate", {
+                                  date: formatDate(
+                                    getActivationEmailTimestamp(request),
+                                    i18n.language,
+                                    t,
+                                  ),
+                                })
+                              : t("adminList.attemptedDate", {
+                                  date: formatDate(
+                                    getActivationEmailTimestamp(request),
+                                    i18n.language,
+                                    t,
+                                  ),
+                                })
+                            : t("common.notAttempted")}
+                        </small>
                       </td>
                       <td>
                         <strong>{formatDate(request.submittedAt, i18n.language, t)}</strong>
-                        <span>
-                          {request.reviewedAt
-                            ? t("adminList.reviewedDate", { date: formatDate(request.reviewedAt, i18n.language, t) })
-                            : t("common.notReviewed")}
-                        </span>
                       </td>
                       <td>
                         <button
@@ -597,8 +591,8 @@ export function AdminAccountRequestsPage() {
                   </header>
                   <dl>
                     <div>
-                      <dt>{t("common.requestedRole")}</dt>
-                      <dd>{formatValue(request.requestedRole, t)}</dd>
+                      <dt>{t("form.v3.organizationRole")}</dt>
+                      <dd>{request.requestedOrganizationRole === "ORG_UNIT_HEAD" ? (request.intendedOrgUnit?.orgUnitType?.name ? `${request.intendedOrgUnit.orgUnitType.name} Head` : t("form.v3.unitHeadRole")) : t("form.v3.employeeRole")}</dd>
                     </div>
                     <div>
                       <dt>{t("common.organization")}</dt>
@@ -609,19 +603,24 @@ export function AdminAccountRequestsPage() {
                       </dd>
                     </div>
                     <div>
-                      <dt>{t("common.activationEmail")}</dt>
-                      <dd>{formatValue(request.activationEmailStatus, t)}</dd>
-                    </div>
-                    <div>
                       <dt>{t("common.requestedBy")}</dt>
                       <dd>{getRequesterName(request, t)}</dd>
+                    </div>
+                    <div>
+                      <dt>{t("common.activationEmail")}</dt>
+                      <dd>
+                        <span
+                          className={`activation-delivery-status activation-delivery-status--${request.activationEmailStatus.toLowerCase()}`}
+                        >
+                          {formatValue(request.activationEmailStatus, t)}
+                        </span>
+                      </dd>
                     </div>
                     <div>
                       <dt>{t("common.submitted")}</dt>
                       <dd>{formatDate(request.submittedAt, i18n.language, t)}</dd>
                     </div>
                   </dl>
-                  <p>{getLifecycleText(request, t)}</p>
                   <button type="button" onClick={() => openRequest(request.id)}>
                     {t("adminList.viewRequestDetails")} <span aria-hidden="true">→</span>
                   </button>

@@ -932,6 +932,57 @@
   font-size: var(--message-font-micro);
 }
 
+/* Collection landing states reuse the main Messages welcome canvas. Only the
+   request counters need collection-specific structure. */
+.message-app-shell .message-collection-welcome-state--workspace .message-welcome-brand .message-nav-svg {
+  width: 30px;
+  height: 30px;
+}
+
+.message-app-shell .message-collection-welcome-metrics {
+  display: grid;
+  width: min(100%, 360px);
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  margin-top: 8px;
+}
+
+.message-app-shell .message-collection-welcome-metrics>span {
+  display: grid;
+  min-height: 58px;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  gap: 10px;
+  box-sizing: border-box;
+  padding: 10px 12px;
+  border: 1px solid #dce7ef;
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.82);
+  box-shadow: 0 8px 20px rgba(20, 67, 104, 0.06);
+  text-align: left;
+}
+
+.message-app-shell .message-collection-welcome-metrics strong {
+  display: grid;
+  width: 36px;
+  height: 36px;
+  place-items: center;
+  border-radius: 10px;
+  color: #0a5f9e;
+  background: #edf6fc;
+  font-size: 17px;
+  font-weight: 850;
+  font-variant-numeric: tabular-nums;
+}
+
+.message-app-shell .message-collection-welcome-metrics>span>span {
+  min-width: 0;
+  color: #36566f;
+  font-size: 12px;
+  font-weight: 800;
+  line-height: 1.35;
+}
+
 /* Overlays and panels */
 .message-app-shell .message-contact-backdrop {
   z-index: 100;
@@ -5883,6 +5934,20 @@ body.message-attachment-viewer-open {
   color: #a6b5bd;
 }
 
+.message-app-shell.theme-dark .message-collection-welcome-metrics>span {
+  border-color: #344b5b;
+  background: #182f3f;
+}
+
+.message-app-shell.theme-dark .message-collection-welcome-metrics strong {
+  color: #7fc7f3;
+  background: #203e52;
+}
+
+.message-app-shell.theme-dark .message-collection-welcome-metrics>span>span {
+  color: #d7e6ef;
+}
+
 /* Normal laptop: information opens as an overlay drawer. */
 
 /* Messages are rendered oldest-to-newest in normal document order so date
@@ -7070,6 +7135,19 @@ body.message-attachment-viewer-open {
   padding: 18px 18px 12px;
 }
 
+.message-app-shell .message-sidebar.message-sidebar--conversation-home {
+  position: relative;
+  isolation: isolate;
+  background: #ffffff;
+}
+
+/* Keep the normal Conversations panel light and neutral. Nepal Telecom gold
+   remains an accent elsewhere; it is no longer used as a large header surface. */
+.message-app-shell .message-sidebar.message-sidebar--conversation-home {
+  background: #ffffff;
+}
+
+
 .message-app-shell .message-sidebar-heading>div:first-child span {
   display: block;
   margin-bottom: 4px;
@@ -7141,8 +7219,8 @@ body.message-attachment-viewer-open {
 }
 
 .message-app-shell .message-conversation-search:focus-within {
-  border-color: #4d92d1;
-  box-shadow: 0 0 0 4px rgba(0, 106, 190, 0.12);
+  border-color: var(--color-nt-gold);
+  box-shadow: 0 0 0 4px rgba(233, 184, 62, 0.16);
 }
 
 .message-app-shell .message-conversation-search-icon {
@@ -7150,7 +7228,7 @@ body.message-attachment-viewer-open {
   width: 24px;
   height: 24px;
   place-items: center;
-  color: #5b7285;
+  color: #9b741b;
 }
 
 .message-app-shell .message-conversation-search-icon .message-nav-svg {
@@ -7660,7 +7738,7 @@ body.message-attachment-viewer-open {
 .message-app-shell .message-sidebar-heading>div:first-of-type span {
   display: block;
   margin-bottom: 5px;
-  color: #0b5da0;
+  color: var(--color-nt-gold);
   font-size: var(--message-font-secondary);
   font-weight: 850;
   letter-spacing: 0.17em;
@@ -7717,9 +7795,9 @@ body.message-attachment-viewer-open {
 
 .message-app-shell .message-group-new-button:hover,
 .message-app-shell .message-group-new-button:focus-visible {
-  border-color: #0b6fbd;
-  color: #0b6fbd;
-  background: #edf7ff;
+  border-color: var(--color-nt-gold);
+  color: #8a6718;
+  background: #fff8e7;
   outline: none;
 }
 
@@ -12901,6 +12979,17 @@ body.message-attachment-viewer-open {
   background: #f0f4f8;
 }
 
+@keyframes messageCreateGroupEnter {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
 /* --- Header --- */
 .message-app-shell .message-create-flow-header {
   display: flex;
@@ -12942,7 +13031,7 @@ body.message-attachment-viewer-open {
   display: block;
   font-size: 11px;
   font-weight: 600;
-  color: #1a73e8;
+  color: #0873ba;
   text-transform: uppercase;
   letter-spacing: 0.05em;
   margin-bottom: 2px;
@@ -13010,6 +13099,7 @@ body.message-attachment-viewer-open {
   border: 1px solid #e8eaed;
   overflow: hidden;
   min-height: 0;
+  animation: messageCreateGroupEnter 180ms ease-out both;
 }
 
 /* --- Setup aside --- */
@@ -13021,6 +13111,7 @@ body.message-attachment-viewer-open {
   border: 1px solid #e8eaed;
   overflow: hidden;
   min-height: 0;
+  animation: messageCreateGroupEnter 200ms 35ms ease-out both;
 }
 
 /* --- Panel header --- */
@@ -13070,8 +13161,8 @@ body.message-attachment-viewer-open {
   flex: 0 0 auto;
   font-size: 12px;
   font-weight: 700;
-  color: #1a73e8;
-  background: #e8f0fe;
+  color: #0767a6;
+  background: #eaf5fc;
   padding: 3px 8px;
   border-radius: 12px;
   margin-top: 2px;
@@ -13099,8 +13190,26 @@ body.message-attachment-viewer-open {
 }
 
 .message-app-shell .message-create-group-search input:focus {
-  border-color: #1a73e8;
+  border-color: #0873ba;
   background: #fff;
+}
+
+.message-app-shell .message-create-group-search-hint {
+  margin: -5px 14px 9px;
+  color: #6f8597;
+  font-size: 11px;
+  line-height: 1.4;
+}
+
+.message-app-shell .message-create-group-searching-inline {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  min-height: 32px;
+  padding: 0.35rem 0.5rem;
+  color: var(--msg-text-muted, #61758a);
+  font-size: 0.75rem;
+  font-weight: 700;
 }
 
 /* --- Selected members strip --- */
@@ -13121,9 +13230,9 @@ body.message-attachment-viewer-open {
   gap: 5px;
   padding: 4px 8px 4px 4px;
   border-radius: 20px;
-  border: 1px solid #d2e3fc;
-  background: #e8f0fe;
-  color: #1a73e8;
+  border: 1px solid #b8d8eb;
+  background: #edf7fc;
+  color: #0767a6;
   font-size: 12px;
   font-weight: 500;
   cursor: pointer;
@@ -13131,7 +13240,8 @@ body.message-attachment-viewer-open {
 }
 
 .message-app-shell .message-create-group-selected-strip > button:hover {
-  background: #d2e3fc;
+  border-color: #7eb8da;
+  background: #e2f2fb;
 }
 
 .message-app-shell .message-create-group-selected-strip > button em {
@@ -13169,7 +13279,7 @@ body.message-attachment-viewer-open {
 }
 
 .message-app-shell .message-group-contact-row.selected {
-  background: #e8f0fe;
+  background: #eaf6fc;
 }
 
 .message-app-shell .message-group-contact-row.disabled {
@@ -13222,8 +13332,8 @@ body.message-attachment-viewer-open {
 }
 
 .message-app-shell .message-group-contact-row.selected .message-create-group-member-state {
-  border-color: #1a73e8;
-  background: #1a73e8;
+  border-color: #0873ba;
+  background: #0873ba;
   color: #fff;
 }
 
@@ -13242,8 +13352,9 @@ body.message-attachment-viewer-open {
   width: 64px;
   height: 64px;
   border-radius: 50%;
-  background: linear-gradient(135deg, #e6f4ea 0%, #ceead6 100%);
-  color: #34a853;
+  border: 1px solid rgba(245, 181, 27, 0.5);
+  background: linear-gradient(135deg, #e9f6fd 0%, #d7edf9 100%);
+  color: #0873ba;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -13279,7 +13390,7 @@ body.message-attachment-viewer-open {
 }
 
 .message-app-shell .message-group-scope-field select:focus {
-  border-color: #1a73e8;
+  border-color: #0873ba;
   background: #fff;
 }
 
@@ -13349,17 +13460,23 @@ body.message-attachment-viewer-open {
   border-radius: 8px;
   background: #fff;
   cursor: pointer;
-  transition: border-color 0.15s ease, background 0.15s ease;
+  transition:
+    border-color 0.15s ease,
+    background 0.15s ease,
+    color 0.15s ease,
+    transform 0.15s ease;
 }
 
 .message-app-shell .message-group-kind-options > button.active {
-  border-color: #1a73e8;
-  background: #e8f0fe;
+  border-color: #0873ba;
+  background: #edf7fc;
+  box-shadow: inset 0 -2px 0 #f5b51b;
 }
 
 .message-app-shell .message-group-kind-options > button:hover:not(.active):not(:disabled) {
-  border-color: #dadce0;
-  background: #f8f9fa;
+  border-color: #a8cada;
+  background: #f4f9fc;
+  transform: translateY(-1px);
 }
 
 .message-app-shell .message-group-kind-options > button:disabled {
@@ -13379,7 +13496,7 @@ body.message-attachment-viewer-open {
 }
 
 .message-app-shell .message-group-kind-options > button.active strong {
-  color: #1a73e8;
+  color: #0873ba;
 }
 
 /* --- Group fields (name, description) --- */
@@ -13428,7 +13545,7 @@ body.message-attachment-viewer-open {
 
 .message-app-shell .message-create-group-fields input:focus,
 .message-app-shell .message-create-group-fields textarea:focus {
-  border-color: #1a73e8;
+  border-color: #0873ba;
   background: #fff;
 }
 
@@ -13493,14 +13610,14 @@ body.message-attachment-viewer-open {
 }
 
 .message-app-shell .message-create-group-setup-actions > button.primary {
-  background: #1a73e8;
+  background: #0873ba;
   color: #fff;
-  border-color: #1a73e8;
+  border-color: #0873ba;
 }
 
 .message-app-shell .message-create-group-setup-actions > button.primary:hover:not(:disabled) {
-  background: #1557b0;
-  border-color: #1557b0;
+  background: #075f9d;
+  border-color: #075f9d;
 }
 
 .message-app-shell .message-create-group-setup-actions > button:disabled {
@@ -13724,29 +13841,14 @@ body.message-attachment-viewer-open {
   }
 }
 
-/* ============================================================
-   RESPONSIVE: tablet / mobile for create-group
-   ============================================================ */
-
-@media (max-width: 900px) {
-  .message-app-shell .message-create-group-layout {
-    grid-template-columns: 1fr;
-    grid-template-rows: 1fr auto;
-    overflow-y: auto;
-  }
-
-  .message-app-shell .message-create-group-people-panel {
-    max-height: 50vh;
-  }
-
-  .message-app-shell .message-create-group-canvas {
-    overflow-y: auto;
-  }
-}
-
 @media (max-width: 600px) {
   .message-app-shell .message-new-conversation-workspace {
     padding: 24px 16px;
+  }
+
+  .message-app-shell .message-collection-welcome-metrics {
+    width: min(100%, 300px);
+    grid-template-columns: 1fr;
   }
 
   .message-app-shell .message-collection-welcome-icon {
@@ -15941,6 +16043,21 @@ body.message-attachment-viewer-open {
 
 .message-app-shell .message-create-group-canvas.official-group .message-create-group-layout {
   grid-template-columns: minmax(0, 1fr) 390px;
+  min-height: 0;
+  align-items: start;
+}
+
+.message-app-shell .message-create-group-canvas.official-group .message-create-group-people-panel,
+.message-app-shell .message-create-group-canvas.official-group .message-create-group-setup-panel {
+  min-height: 0;
+  height: auto;
+  align-self: start;
+}
+
+.message-app-shell .message-create-group-canvas.official-group .message-create-group-official-scope,
+.message-app-shell .message-create-group-canvas.official-group .message-create-group-fields {
+  flex: 0 0 auto;
+  overflow: visible;
 }
 
 .message-app-shell .message-create-group-people-panel,
@@ -16078,36 +16195,190 @@ body.message-attachment-viewer-open {
   height: 28px;
 }
 
-/* The SVG must keep its white stroke on the blue compose button in every
-   interaction state; earlier generic hover rules were allowing it to fade. */
+/* Preserve the existing shared compose treatment everywhere else. */
 .message-app-shell .message-new-button,
 .message-app-shell .message-new-button:hover,
 .message-app-shell .message-new-button:focus-visible {
-  border-color: #0873ba;
-  color: #ffffff;
-  background: #0873ba;
+  border-color: var(--color-nt-gold);
+  color: #17314d;
+  background: var(--color-nt-gold);
 }
 
 .message-app-shell .message-new-button:hover,
 .message-app-shell .message-new-button:focus-visible {
-  border-color: #075f9d;
-  background: #075f9d;
-  box-shadow: 0 8px 18px rgba(7, 95, 157, 0.24);
+  border-color: #d39f22;
+  background: #d39f22;
+  box-shadow: 0 8px 18px rgba(180, 132, 21, 0.24);
   outline: none;
 }
 
 .message-app-shell .message-new-button .message-nav-svg,
 .message-app-shell .message-new-button:hover .message-nav-svg,
 .message-app-shell .message-new-button:focus-visible .message-nav-svg {
-  color: #ffffff;
+  color: #17314d;
+  stroke: currentColor;
+}
+
+/* Only the normal Conversations gold surface uses neutral action buttons. */
+.message-app-shell .message-sidebar--conversation-home .message-new-button,
+.message-app-shell .message-sidebar--conversation-home .message-new-button:hover,
+.message-app-shell .message-sidebar--conversation-home .message-new-button:focus-visible {
+  border-color: #b8d1e5;
+  color: #0b5f9f;
+  background: #ffffff;
+}
+
+.message-app-shell .message-sidebar--conversation-home .message-new-button:hover,
+.message-app-shell .message-sidebar--conversation-home .message-new-button:focus-visible {
+  border-color: #0b6fbd;
+  color: #084f86;
+  background: #f2f8fd;
+  box-shadow: 0 8px 18px rgba(10, 92, 151, 0.16);
+}
+
+.message-app-shell .message-sidebar--conversation-home .message-new-button .message-nav-svg,
+.message-app-shell .message-sidebar--conversation-home .message-new-button:hover .message-nav-svg,
+.message-app-shell .message-sidebar--conversation-home .message-new-button:focus-visible .message-nav-svg {
+  color: currentColor;
   stroke: currentColor;
 }
 
 @media (max-width: 900px) {
+  .message-app-shell .message-create-group-workspace {
+    min-height: 100%;
+    overflow: hidden;
+  }
+
+  .message-app-shell .message-create-flow-header {
+    min-height: 76px;
+    padding: max(12px, env(safe-area-inset-top)) 14px 12px;
+  }
+
+  .message-app-shell .message-create-flow-header > div > h2 {
+    font-size: 18px;
+  }
+
+  .message-app-shell .message-create-flow-header > div > p {
+    margin-top: 2px;
+    font-size: 11px;
+  }
+
+  .message-app-shell .message-create-group-canvas {
+    display: block;
+    width: 100%;
+    min-height: 0;
+    padding: 12px;
+    overflow-x: hidden;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    -webkit-overflow-scrolling: touch;
+  }
+
   .message-app-shell .message-create-group-layout,
   .message-app-shell .message-create-group-canvas.official-group .message-create-group-layout {
+    display: flex;
+    width: 100%;
     min-height: 0;
-    grid-template-columns: 1fr;
+    height: auto;
+    flex: 0 0 auto;
+    flex-direction: column;
+    gap: 12px;
+    overflow: visible;
+  }
+
+  .message-app-shell .message-create-group-people-panel,
+  .message-app-shell .message-create-group-setup-panel,
+  .message-app-shell .message-create-group-canvas.official-group .message-create-group-people-panel,
+  .message-app-shell .message-create-group-canvas.official-group .message-create-group-setup-panel {
+    width: 100%;
+    min-height: 0;
+    max-height: none;
+    height: auto;
+    flex: 0 0 auto;
+    align-self: stretch;
+    overflow: visible;
+    border-radius: 14px;
+  }
+
+  .message-app-shell .message-create-group-member-list,
+  .message-app-shell .message-create-group-official-scope,
+  .message-app-shell .message-create-group-fields,
+  .message-app-shell .message-create-group-canvas.official-group .message-create-group-official-scope,
+  .message-app-shell .message-create-group-canvas.official-group .message-create-group-fields {
+    max-height: none;
+    flex: 0 0 auto;
+    overflow: visible;
+  }
+
+  .message-app-shell .message-create-group-member-list {
+    padding: 8px;
+  }
+
+  .message-app-shell .message-create-group-member-list .message-group-contact-row {
+    min-height: 56px;
+    touch-action: manipulation;
+  }
+
+  .message-app-shell .message-create-group-selected-strip {
+    max-height: none;
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    overflow-y: hidden;
+    overscroll-behavior-inline: contain;
+    scrollbar-width: thin;
+  }
+
+  .message-app-shell .message-create-group-selected-strip > button {
+    min-height: 40px;
+    flex: 0 0 auto;
+  }
+
+  .message-app-shell .message-create-group-official-scope {
+    align-items: stretch;
+    gap: 12px;
+    padding: 16px 14px;
+  }
+
+  .message-app-shell .message-create-group-scope-visual {
+    width: 48px;
+    height: 48px;
+    align-self: center;
+    font-size: 22px;
+  }
+
+  .message-app-shell .message-group-scope-field select,
+  .message-app-shell .message-create-group-search input,
+  .message-app-shell .message-create-group-fields input,
+  .message-app-shell .message-create-group-fields textarea {
+    min-height: 44px;
+    font-size: 16px;
+  }
+
+  .message-app-shell .message-create-group-type-field {
+    margin: 12px 12px 0;
+    padding: 10px;
+  }
+
+  .message-app-shell .message-group-kind-options > button {
+    min-height: 64px;
+  }
+
+  .message-app-shell .message-create-group-fields {
+    gap: 10px;
+    padding: 12px;
+  }
+
+  .message-app-shell .message-create-group-status-card {
+    margin-inline: 12px;
+  }
+
+  .message-app-shell .message-create-group-setup-actions {
+    padding: 12px;
+    padding-bottom: max(12px, env(safe-area-inset-bottom));
+  }
+
+  .message-app-shell .message-create-group-setup-actions > button {
+    min-height: 44px;
   }
 }
 
@@ -20122,9 +20393,17 @@ body.message-attachment-viewer-open {
 }
 
 .message-app-shell .message-conversation-filter-strip > button.active {
-  border-color: #0874bd;
-  color: #fff;
-  background: #0874bd;
+  border-color: var(--color-nt-gold);
+  color: #17314d;
+  background: var(--color-nt-gold);
+  box-shadow: 0 4px 12px rgba(180, 132, 21, 0.2);
+}
+
+.message-app-shell .message-sidebar--conversation-home .message-conversation-filter-strip > button.active {
+  border-color: #0b6fbd;
+  color: #0b5f9f;
+  background: #ffffff;
+  box-shadow: 0 5px 14px rgba(10, 92, 151, 0.14);
 }
 
 .message-app-shell .message-filter-divider {
@@ -20150,15 +20429,15 @@ body.message-attachment-viewer-open {
   min-width: 34px;
   padding: 0;
   place-items: center;
-  color: #0874bd;
+  color: #8a6718;
   border-style: dashed;
-  border-color: #afd0e3;
+  border-color: rgba(233, 184, 62, 0.72);
   font-size: 16px;
 }
 
 .message-app-shell .message-conversation-filter-strip > button.message-filter-create-list:hover {
-  border-color: #7eb8d9;
-  background: #edf8fe;
+  border-color: var(--color-nt-gold);
+  background: #fff8e7;
 }
 
 .message-app-shell .message-filter-loading {
@@ -21598,8 +21877,14 @@ body.message-attachment-viewer-open {
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .message-app-shell .message-realtime-state-indicator {
+  .message-app-shell .message-realtime-state-indicator,
+  .message-app-shell .message-create-group-people-panel,
+  .message-app-shell .message-create-group-setup-panel,
+  .message-app-shell .message-group-kind-options > button,
+  .message-app-shell .message-create-group-member-list .message-group-contact-row,
+  .message-app-shell .message-create-group-setup-actions > button {
     animation: none !important;
+    transition: none !important;
   }
 }
 

@@ -153,4 +153,64 @@ describe('work type V3 authorization', () => {
       ),
     ).resolves.toBe(false);
   });
+
+  it('gives Division Head Work Type view, draft and publish authority without granting it to lower OrgUnit Heads', async () => {
+    const makePrisma = (typeCode: string) =>
+      ({
+        account: {
+          findUnique: jest.fn().mockResolvedValue({
+            id: officeHeadUser.accountId,
+            role: AccountRole.EMPLOYEE,
+            accountClass: AccountClass.OFFICE_USER,
+            isEnabled: true,
+            employee: {
+              id: 'employee-division-head',
+              status: EmployeeStatus.ACTIVE,
+              employmentStatus: EmploymentStatus.ACTIVE,
+              archivedAt: null,
+            },
+          }),
+        },
+        orgMembership: {
+          findFirst: jest.fn().mockResolvedValue({
+            id: 'membership-division',
+            orgUnitId: 'unit-1',
+          }),
+        },
+        orgLeadershipAssignment: {
+          findMany: jest.fn().mockResolvedValue([
+            {
+              leadershipType: OrgLeadershipType.ORG_UNIT_HEAD,
+              orgUnitId: 'unit-1',
+              orgUnit: { orgUnitType: { code: typeCode } },
+            },
+          ]),
+        },
+        delegatedPermission: { findMany: jest.fn().mockResolvedValue([]) },
+      }) as unknown as PrismaService;
+
+    for (const capability of [
+      CAPABILITIES.WORK_TYPE_VIEW,
+      CAPABILITIES.WORK_TYPE_DRAFT,
+      CAPABILITIES.WORK_TYPE_PUBLISH,
+    ]) {
+      await expect(
+        new OrganizationAuthorizationService(makePrisma('DIVISION')).can(
+          officeHeadUser,
+          capability,
+          'office-1',
+          null,
+        ),
+      ).resolves.toBe(true);
+
+      await expect(
+        new OrganizationAuthorizationService(makePrisma('DEPARTMENT')).can(
+          officeHeadUser,
+          capability,
+          'office-1',
+          null,
+        ),
+      ).resolves.toBe(false);
+    }
+  });
 });

@@ -8,7 +8,10 @@ import {
   OrgLeadershipType,
 } from '../generated/prisma/client';
 
-import { CAPABILITIES } from './organization-capabilities';
+import {
+  CAPABILITIES,
+  SHARED_RESPONSIBILITIES,
+} from './organization-capabilities';
 import { OrganizationAuthorizationService } from './organization-authorization.service';
 
 describe('OrganizationAuthorizationService', () => {
@@ -354,6 +357,98 @@ describe('OrganizationAuthorizationService', () => {
     ).resolves.toBe(false);
   });
 
+  it.each([
+    [
+      SHARED_RESPONSIBILITIES.ORGANIZATION_DIRECTORY_VIEW,
+      CAPABILITIES.MEMBERSHIP_VIEW,
+    ],
+    [
+      SHARED_RESPONSIBILITIES.ORGANIZATION_MANAGEMENT,
+      CAPABILITIES.ORGANIZATION_RENAME_UNIT,
+    ],
+    [SHARED_RESPONSIBILITIES.WORK_MANAGEMENT, CAPABILITIES.WORK_ASSIGN],
+    [
+      SHARED_RESPONSIBILITIES.WORK_TYPE_MANAGEMENT,
+      CAPABILITIES.WORK_TYPE_DRAFT,
+    ],
+    [SHARED_RESPONSIBILITIES.DUTY_ROSTER_MANAGEMENT, CAPABILITIES.DUTY_MANAGE],
+    [SHARED_RESPONSIBILITIES.TEAM_MANAGEMENT, CAPABILITIES.TEAM_MANAGE],
+    [SHARED_RESPONSIBILITIES.REPORTS_EXPORT, CAPABILITIES.REPORTS_EXPORT],
+    [
+      SHARED_RESPONSIBILITIES.ACCOUNT_REQUEST_COORDINATION,
+      CAPABILITIES.USERS_REQUEST_CREATE,
+    ],
+    [
+      SHARED_RESPONSIBILITIES.OFFICIAL_COMMUNICATION_MANAGEMENT,
+      CAPABILITIES.ANNOUNCEMENT_PUBLISH,
+    ],
+  ])(
+    'activates the real backend capability for shared responsibility %s',
+    async (responsibility, requestedCapability) => {
+      const prisma = createPrisma();
+
+      prisma.delegatedPermission.findMany.mockImplementation(async (args) => {
+        const capabilityFilter = args?.where?.capability as
+          | { in?: string[] }
+          | string
+          | undefined;
+        const grantKeys =
+          typeof capabilityFilter === 'string'
+            ? [capabilityFilter]
+            : (capabilityFilter?.in ?? []);
+
+        return grantKeys.includes(responsibility)
+          ? [
+              {
+                orgUnitId: 'unit-1',
+                includeDescendants: false,
+              },
+            ]
+          : [];
+      });
+
+      const service = new OrganizationAuthorizationService(
+        prisma as unknown as PrismaService,
+      );
+
+      await expect(
+        service.can(employeeUser, requestedCapability, 'office-1', 'unit-1'),
+      ).resolves.toBe(true);
+    },
+  );
+
+  it('keeps Work Type publishing outside the shared Work Type Management bundle', async () => {
+    const prisma = createPrisma();
+
+    prisma.delegatedPermission.findMany.mockImplementation(async (args) => {
+      const capabilityFilter = args?.where?.capability as
+        | { in?: string[] }
+        | string
+        | undefined;
+      const grantKeys =
+        typeof capabilityFilter === 'string'
+          ? [capabilityFilter]
+          : (capabilityFilter?.in ?? []);
+
+      return grantKeys.includes(SHARED_RESPONSIBILITIES.WORK_TYPE_MANAGEMENT)
+        ? [{ orgUnitId: 'unit-1', includeDescendants: false }]
+        : [];
+    });
+
+    const service = new OrganizationAuthorizationService(
+      prisma as unknown as PrismaService,
+    );
+
+    await expect(
+      service.can(
+        employeeUser,
+        CAPABILITIES.WORK_TYPE_PUBLISH,
+        'office-1',
+        'unit-1',
+      ),
+    ).resolves.toBe(false);
+  });
+
   it('allows an explicit delegated capability without changing role', async () => {
     const prisma = createPrisma();
 
@@ -383,6 +478,71 @@ describe('OrganizationAuthorizationService', () => {
         'unit-1',
       ),
     ).resolves.toBe(true);
+  });
+
+  it('lets delegated Acting-assignment authority read the organization context it needs', async () => {
+    const prisma = createPrisma();
+
+    prisma.delegatedPermission.findMany.mockImplementation(async (args) => {
+      const capabilityFilter = args?.where?.capability as
+        | { in?: string[] }
+        | string
+        | undefined;
+      const capabilities =
+        typeof capabilityFilter === 'string'
+          ? [capabilityFilter]
+          : (capabilityFilter?.in ?? []);
+
+      return capabilities.includes(CAPABILITIES.LEADERSHIP_ASSIGN_ACTING)
+        ? [
+            {
+              orgUnitId: 'division-1',
+              includeDescendants: true,
+            },
+          ]
+        : [];
+    });
+
+    prisma.orgUnitClosure.findUnique.mockResolvedValue({ depth: 1 });
+
+    const service = new OrganizationAuthorizationService(
+      prisma as unknown as PrismaService,
+    );
+
+    await expect(
+      service.can(
+        employeeUser,
+        CAPABILITIES.ORGANIZATION_VIEW,
+        'office-1',
+        'division-child',
+      ),
+    ).resolves.toBe(true);
+    await expect(
+      service.can(
+        employeeUser,
+        CAPABILITIES.MEMBERSHIP_VIEW,
+        'office-1',
+        'division-child',
+      ),
+    ).resolves.toBe(true);
+    await expect(
+      service.can(
+        employeeUser,
+        CAPABILITIES.LEADERSHIP_VIEW,
+        'office-1',
+        'division-child',
+      ),
+    ).resolves.toBe(true);
+
+    // Read dependencies do not silently widen mutation authority.
+    await expect(
+      service.can(
+        employeeUser,
+        CAPABILITIES.MEMBERSHIP_TRANSFER_INTERNAL,
+        'office-1',
+        'division-child',
+      ),
+    ).resolves.toBe(false);
   });
 
   it('does not grant current authority from historical Team OrgUnit leadership', async () => {
@@ -1001,16 +1161,25 @@ describe('OrganizationAuthorizationService', () => {
       },
     ]);
 
-    prisma.delegatedPermission.findMany.mockImplementation(async (args) =>
-      args.where.capability === CAPABILITIES.MEMBERSHIP_TRANSFER_INTERNAL
+    prisma.delegatedPermission.findMany.mockImplementation(async (args) => {
+      const capabilityFilter = args?.where?.capability as
+        | { in?: string[] }
+        | string
+        | undefined;
+      const grantKeys =
+        typeof capabilityFilter === 'string'
+          ? [capabilityFilter]
+          : (capabilityFilter?.in ?? []);
+
+      return grantKeys.includes(CAPABILITIES.MEMBERSHIP_TRANSFER_INTERNAL)
         ? [
             {
               orgUnitId: 'unit-1',
               includeDescendants: false,
             },
           ]
-        : [],
-    );
+        : [];
+    });
 
     const service = new OrganizationAuthorizationService(
       prisma as unknown as PrismaService,

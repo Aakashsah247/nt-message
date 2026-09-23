@@ -1,8 +1,7 @@
+import { readMessageAppRuntimeSourceSync } from "./message-app-runtime-source.mjs";
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
-
-const pageUrl = new URL("../src/pages/MessageAppPage.tsx", import.meta.url);
 const englishCatalogUrl = new URL(
   "../src/i18n/locales/en/messaging.json",
   import.meta.url,
@@ -18,12 +17,14 @@ const workspaceEnglishCatalogUrl = new URL(
 );
 
 function getPath(value, path) {
-  return path.split(".").reduce((current, segment) => current?.[segment], value);
+  return path
+    .split(".")
+    .reduce((current, segment) => current?.[segment], value);
 }
 
 test("messaging shell uses the messaging namespace for bilingual navigation", async () => {
   const [source, english, nepali] = await Promise.all([
-    readFile(pageUrl, "utf8"),
+    readMessageAppRuntimeSourceSync(),
     readFile(englishCatalogUrl, "utf8").then(JSON.parse),
     readFile(nepaliCatalogUrl, "utf8").then(JSON.parse),
   ]);
@@ -55,8 +56,13 @@ test("messaging shell uses the messaging namespace for bilingual navigation", as
     assert.match(source, new RegExp(`t\\(\\"${key.replaceAll(".", "\\.")}\\"`));
   }
 
-  const shellStart = source.indexOf('<main\n      className={`message-app-shell');
-  const shellEnd = source.indexOf('<section className="message-chat-panel">', shellStart);
+  const shellStart = source.indexOf(
+    "<main\n      className={`message-app-shell",
+  );
+  const shellEnd = source.indexOf(
+    '<section className="message-chat-panel">',
+    shellStart,
+  );
   assert.notEqual(shellStart, -1, "messaging shell start must exist");
   assert.notEqual(shellEnd, -1, "messaging shell sidebar boundary must exist");
   const primaryShellSource = source.slice(shellStart, shellEnd);
@@ -80,9 +86,8 @@ test("messaging shell uses the messaging namespace for bilingual navigation", as
   }
 });
 
-
 test("active conversation and composer use the messaging catalog", async () => {
-  const source = await readFile(pageUrl, "utf8");
+  const source = await readMessageAppRuntimeSourceSync();
 
   for (const key of [
     "thread.loadOlder",
@@ -108,7 +113,7 @@ test("active conversation and composer use the messaging catalog", async () => {
 
 test("remaining messaging workspaces use bilingual catalog keys", async () => {
   const [source, english, nepali] = await Promise.all([
-    readFile(pageUrl, "utf8"),
+    readMessageAppRuntimeSourceSync(),
     readFile(englishCatalogUrl, "utf8").then(JSON.parse),
     readFile(nepaliCatalogUrl, "utf8").then(JSON.parse),
   ]);
@@ -145,7 +150,6 @@ test("remaining messaging workspaces use bilingual catalog keys", async () => {
     assert.doesNotMatch(source, pattern);
   }
 });
-
 
 test("messaging helper keys stay in the messaging namespace", async () => {
   const [english, nepali, workspaceEnglish] = await Promise.all([

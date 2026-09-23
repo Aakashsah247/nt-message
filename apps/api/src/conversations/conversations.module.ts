@@ -14,6 +14,8 @@ import { ConversationStorageService } from './conversation-storage.service';
 import { MessageAttachmentStreamController } from './message-attachment-stream.controller';
 import { MessageAttachmentStreamService } from './message-attachment-stream.service';
 import { MessagingPushService } from './messaging-push.service';
+import { MessageContentSecurity } from './message-content-security';
+import { MessageAttachmentContentSecurity } from './message-attachment-content-security';
 
 @Global()
 @Module({
@@ -30,6 +32,8 @@ import { MessagingPushService } from './messaging-push.service';
     MessagingSocketSessionService,
     MessageAttachmentStreamService,
     MessagingPushService,
+    MessageContentSecurity,
+    MessageAttachmentContentSecurity,
   ],
 
   exports: [

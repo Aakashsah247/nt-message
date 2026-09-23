@@ -1,3 +1,5 @@
+import type { AttachmentSecurityService } from '../attachments/attachment-security.service';
+import type { AttachmentStorageService } from '../attachments/attachment-storage.service';
 import type { PrismaService } from '../database/prisma.service';
 import {
   AccountRole,
@@ -107,8 +109,13 @@ describe('WorkLifecycleService M20 Phase 2', () => {
     },
     workCompletionReport: {
       create: jest.fn(),
+      findFirst: jest.fn(),
+      findUniqueOrThrow: jest.fn(),
       findMany: jest.fn(),
       update: jest.fn(),
+    },
+    workEvidence: {
+      createMany: jest.fn(),
     },
     workAssignment: {
       create: jest.fn(),
@@ -170,12 +177,24 @@ describe('WorkLifecycleService M20 Phase 2', () => {
     assertCanReceiveDirectHelp: jest.fn(),
     getCoordinationRecipients: jest.fn().mockResolvedValue(['manager']),
   } as unknown as DutyAvailabilityService;
+  const attachmentStorage = {
+    writeUploadedFile: jest.fn(),
+    deleteFile: jest.fn(),
+    exists: jest.fn(),
+    resolvePath: jest.fn(),
+  } as unknown as AttachmentStorageService;
+  const attachmentSecurity = {
+    scanValidatedUpload: jest.fn().mockResolvedValue('FORMAT_VALIDATED'),
+    canAccessStoredAttachment: jest.fn().mockReturnValue(true),
+  } as unknown as AttachmentSecurityService;
   const service = new WorkLifecycleService(
     prisma,
     scope,
     transitions,
     notifications,
     dutyAvailability,
+    attachmentStorage,
+    attachmentSecurity,
   );
 
   beforeEach(() => {
@@ -240,7 +259,15 @@ describe('WorkLifecycleService M20 Phase 2', () => {
       }),
     );
     expect(notifications.publishWorkUpdate).toHaveBeenCalledWith(
-      expect.objectContaining({ action: 'HELP_REQUESTED' }),
+      expect.objectContaining({
+        action: 'HELP_REQUESTED',
+        title: 'Help requested for work',
+        body: expect.stringContaining('Need another employee'),
+        metadata: expect.objectContaining({
+          helpRequestId: 'help-1',
+          reason: WorkHelpReason.NEED_ANOTHER_EMPLOYEE,
+        }),
+      }),
     );
     expect(result.helpRequest).toEqual(
       expect.objectContaining({ id: 'help-1' }),

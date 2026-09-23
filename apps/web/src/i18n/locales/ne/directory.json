@@ -4,8 +4,8 @@
     "sessionTitle": "सुरक्षित सत्र उपलब्ध छैन",
     "sessionDescription": "कर्मचारी निर्देशिका प्रयोग गर्न फेरि साइन इन गर्नुहोस्।",
     "returnToLogin": "लगइनमा फर्कनुहोस्",
-    "title": "संगठन निर्देशिका",
-    "description": "तपाईंको अधिकृत संगठन दायराभित्रका प्रमाणित नेपाल टेलिकम कर्मचारी खोज्नुहोस्।",
+    "title": "कर्मचारी निर्देशिका",
+    "description": "आफ्नो अधिकार भएको संगठन क्षेत्रमा कर्मचारी खोज्नुहोस्।",
     "scopedAccess": "सीमित पहुँच",
     "scopedAccessDescription": "तपाईंको भूमिकाले कुन कर्मचारी र सम्पर्क विवरण हेर्न सक्छ भन्ने नियन्त्रण ब्याकएन्डले गर्छ।"
   },
@@ -39,7 +39,9 @@
     "STATUS_CHANGED": "स्थिति परिवर्तन",
     "EMPLOYMENT_ENDED": "रोजगारी समाप्त",
     "ARCHIVED_EMPLOYEE": "कर्मचारी अभिलेखित",
-    "OFFICE_USER": "Office प्रयोगकर्ता"
+    "OFFICE_USER": "Office प्रयोगकर्ता",
+    "OFFICE": "कार्यालय",
+    "ORG_UNIT": "संगठन शाखा"
   },
   "common": {
     "never": "कहिल्यै होइन",
@@ -59,7 +61,7 @@
   "list": {
     "errorFallback": "कर्मचारी निर्देशिका लोड गर्न सकिएन।",
     "defaultTitle": "कर्मचारी निर्देशिका",
-    "defaultDescription": "तपाईंको अनुमति प्राप्त संगठन दायराभित्रका नेपाल टेलिकम कर्मचारी खोज्नुहोस्।",
+    "defaultDescription": "कर्मचारी खोज्नुहोस् र हालको संगठन जानकारी हेर्नुहोस्।",
     "avatarAria": "{{name}} को प्रोफाइल",
     "eyebrow": "संगठन निर्देशिका",
     "archivedTitle": "अभिलेखित कर्मचारी रेकर्ड",
@@ -73,7 +75,9 @@
       "office": "कार्यालय",
       "orgUnit": "संगठन एकाइ",
       "allOffices": "सबै कार्यालय",
-      "allOrgUnits": "सबै संगठन एकाइ"
+      "allOrgUnits": "सबै संगठन एकाइ",
+      "branch": "{{name}} र यसका शाखाहरू",
+      "authorizedBranches": "तपाईंका अधिकार भएका शाखाहरू"
     },
     "toolbarAria": "निर्देशिका खोज र फिल्टर",
     "search": {
@@ -90,7 +94,16 @@
       "allAccounts": "सबै खाता",
       "activation": "सक्रियता",
       "allActivation": "सबै सक्रियता स्थिति",
-      "clear": "फिल्टर हटाउनुहोस्"
+      "clear": "फिल्टर हटाउनुहोस्",
+      "office": "कार्यालय",
+      "division": "डिभिजन",
+      "department": "विभाग",
+      "section": "सेक्सन",
+      "unit": "एकाइ",
+      "allDivisions": "सबै डिभिजन",
+      "allDepartments": "सबै विभाग",
+      "allSections": "सबै सेक्सन",
+      "allUnits": "सबै एकाइ"
     },
     "errorTitle": "निर्देशिका उपलब्ध छैन",
     "loading": "कर्मचारी निर्देशिका लोड हुँदैछ...",
@@ -116,11 +129,10 @@
       "lastLogin": "पछिल्लो लगइन",
       "archivedOn": "अभिलेखित मिति",
       "profileActions": "प्रोफाइल कार्यहरू",
-      "noDesignation": "पदनाम छैन",
       "viewProfileAria": "{{name}} को प्रोफाइल हेर्नुहोस्",
       "noOrgUnit": "OrgUnit छैन",
       "noOffice": "Office छैन",
-      "leadership": "नेतृत्व"
+      "organizationRole": "संगठन भूमिका"
     },
     "pagination": {
       "previous": "अघिल्लो",
@@ -136,13 +148,11 @@
     "closeAria": "कर्मचारी विवरण बन्द गर्नुहोस्",
     "loading": "कर्मचारी विवरण लोड हुँदैछ...",
     "errorTitle": "कर्मचारी विवरण उपलब्ध छैन",
-    "noDesignation": "पदनाम तोकिएको छैन",
     "organization": {
       "title": "संगठन",
       "office": "Office",
       "primaryOrgUnit": "प्राथमिक OrgUnit",
       "breadcrumb": "संगठन मार्ग",
-      "position": "पद",
       "leadership": "नेतृत्व"
     },
     "employment": {
@@ -188,12 +198,11 @@
     },
     "lifecycle": {
       "eyebrow": "रोजगारी जीवनचक्र",
-      "title": "पाटन शाखा पहुँच समाप्त गर्नुहोस्",
-      "description": "यसले हालको पाटन शाखा रोजगारी रेकर्ड स्थायी रूपमा समाप्त गर्छ, लगइन अक्षम गर्छ र सबै सक्रिय सत्र रद्द गर्छ।",
+      "title": "रोजगारी समाप्त गर्नुहोस्",
+      "description": "रोजगारी साँच्चिकै समाप्त भएको अवस्थामा मात्र प्रयोग गर्नुहोस्। खाता निष्क्रिय हुन्छ र सक्रिय सत्रहरू रद्द हुन्छन्।",
       "resigned": "राजीनामा",
       "retired": "सेवानिवृत्त",
       "terminated": "सेवा समाप्त",
-      "transferred": "सरुवा",
       "selectedAction": "चयन गरिएको कार्य",
       "effectiveDate": "लागू हुने मिति",
       "reason": "आधिकारिक कारण",
@@ -201,6 +210,7 @@
       "reasonError": "कम्तीमा ३ अक्षरको कारण लेख्नुहोस्।",
       "processing": "प्रक्रिया हुँदैछ...",
       "confirm": "{{status}} पुष्टि गर्नुहोस्",
+      "success": "रोजगारी स्थिति {{status}} मा अद्यावधिक भयो। {{count}} सक्रिय सत्र रद्द गरियो।",
       "success_one": "रोजगारी स्थिति {{status}} मा अद्यावधिक भयो। {{count}} सक्रिय सत्र रद्द गरियो।",
       "success_other": "रोजगारी स्थिति {{status}} मा अद्यावधिक भयो। {{count}} सक्रिय सत्रहरू रद्द गरिए।"
     },
@@ -218,7 +228,7 @@
     "archive": {
       "eyebrow": "ऐतिहासिक रेकर्ड",
       "title": "पूर्व कर्मचारी अभिलेखित गर्नुहोस्",
-      "description": "अभिलेखीकरणले सन्देश, अडिट रेकर्ड र रोजगारी इतिहास सुरक्षित राख्छ तर प्रोफाइललाई पाटन शाखाको ऐतिहासिक रेकर्डका रूपमा चिन्हित गर्छ।",
+      "description": "अभिलेखीकरणले सन्देश, अडिट र रोजगारी इतिहास सुरक्षित राख्दै पूर्व कर्मचारीलाई ऐतिहासिक अभिलेख बनाउँछ।",
       "open": "कर्मचारी रेकर्ड अभिलेखित गर्नुहोस्",
       "reason": "अभिलेख कारण",
       "reasonPlaceholder": "यो पूर्व कर्मचारी रेकर्ड किन अभिलेखित गरिँदैछ लेख्नुहोस्।",
@@ -232,14 +242,54 @@
       "title": "रेकर्ड जानकारी",
       "created": "सिर्जना मिति",
       "updated": "पछिल्लो अद्यावधिक"
+    },
+    "correction": {
+      "eyebrow": "सुपर एडमिन सुधार",
+      "title": "कर्मचारी जानकारी",
+      "description": "अडिट कारणसहित सुरक्षित पहिचान, सम्पर्क वा पदनाम सच्याउनुहोस्।",
+      "open": "कर्मचारी जानकारी सच्याउनुहोस्",
+      "employeeId": "कर्मचारी आईडी",
+      "fullName": "पूरा नाम",
+      "designation": "पदनाम",
+      "reason": "सुधारको कारण",
+      "reasonError": "कम्तीमा ३ अक्षरको कारण लेख्नुहोस्।",
+      "noChanges": "सुरक्षित गर्नु अघि कम्तीमा एउटा कर्मचारी विवरण परिवर्तन गर्नुहोस्।",
+      "save": "अडिट गरिएको सुधार सुरक्षित गर्नुहोस्",
+      "success": "कर्मचारी जानकारी सफलतापूर्वक अद्यावधिक भयो।"
+    },
+    "transfer": {
+      "eyebrow": "कार्यालय सरुवा",
+      "title": "कर्मचारी सरुवा",
+      "description": "कर्मचारीको पहिचान, खाता वा इतिहास नहटाई अर्को कार्यालयमा सार्नुहोस्।",
+      "open": "अर्को कार्यालयमा सरुवा",
+      "targetOffice": "लक्षित कार्यालय",
+      "selectOffice": "कार्यालय छान्नुहोस्",
+      "targetUnit": "लक्षित संगठन एकाइ",
+      "selectUnit": "संगठन एकाइ छान्नुहोस्",
+      "effectiveDate": "लागू मिति",
+      "reason": "आधिकारिक सरुवा कारण",
+      "reasonError": "कम्तीमा ३ अक्षरको सरुवा कारण लेख्नुहोस्।",
+      "confirm": "कर्मचारी सरुवा गर्नुहोस्",
+      "success": "कर्मचारी {{office}} मा सफलतापूर्वक सरुवा भयो।",
+      "officeHeadDescription": "यो कर्मचारी हालको स्थायी Office Head हो। नेतृत्व सरुवा र पुरानो कार्यालयको प्रतिस्थापन Office Head Management बाट गर्नुहोस्।",
+      "manageOfficeHead": "Office Head Management मा व्यवस्थापन गर्नुहोस्"
     }
   },
   "leadership": {
-    "OFFICE_HEAD": "Office Head — {{unit}}{{acting}}",
-    "ORG_UNIT_HEAD": "Org Unit Head — {{unit}}{{acting}}",
-    "TEAM_LEAD": "Team Lead — {{unit}}{{acting}}",
-    "DEPUTY": "Deputy — {{unit}}{{acting}}",
-    "actingSuffix": " (कार्यवाहक)",
-    "none": "सक्रिय नेतृत्व जिम्मेवारी छैन"
+    "officeHead": "Office Head — {{unit}}",
+    "divisionHead": "Division Head — {{unit}}",
+    "departmentHead": "Department Head — {{unit}}",
+    "sectionHead": "Section Head — {{unit}}",
+    "unitHead": "Unit Head — {{unit}}",
+    "none": "कुनै सक्रिय पदानुक्रम नेतृत्व छैन"
+  },
+  "organizationRole": {
+    "superAdmin": "सुपर एडमिन",
+    "officeHead": "कार्यालय प्रमुख",
+    "divisionHead": "डिभिजन प्रमुख",
+    "departmentHead": "विभाग प्रमुख",
+    "sectionHead": "सेक्सन प्रमुख",
+    "unitHead": "युनिट प्रमुख",
+    "employee": "कर्मचारी"
   }
 }

@@ -1,20 +1,22 @@
+import { readMessageAppRuntimeSourceSync } from "./message-app-runtime-source.mjs";
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
-
-const pageUrl = new URL("../src/pages/MessageAppPage.tsx", import.meta.url);
 const enUrl = new URL("../src/i18n/locales/en/messaging.json", import.meta.url);
 const neUrl = new URL("../src/i18n/locales/ne/messaging.json", import.meta.url);
 
 test("P12-I presents Office and OrgUnit communication context", async () => {
-  const source = await readFile(pageUrl, "utf8");
+  const source = await readMessageAppRuntimeSourceSync();
 
   assert.match(source, /scope\.scopeType === "OFFICE"/);
   assert.match(source, /scope\.scopeType === "ORG_UNIT"/);
   assert.match(source, /employeeOrgContextLabel/);
   assert.match(source, /profileData\.official\?\.primaryOrgUnit/);
   assert.match(source, /profileData\.official\?\.orgUnitBreadcrumb/);
-  assert.match(source, /scope\.scopeType === "OFFICE" \|\| scope\.scopeType === "ORG_UNIT"/);
+  assert.match(
+    source,
+    /scope\.scopeType === "OFFICE" \|\| scope\.scopeType === "ORG_UNIT"/,
+  );
   assert.doesNotMatch(
     source,
     /contact\.employee\?\.department\?\.name\s*\?\?\s*contact\.employee\?\.division\?\.name/,

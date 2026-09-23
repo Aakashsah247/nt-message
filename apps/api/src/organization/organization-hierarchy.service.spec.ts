@@ -5,6 +5,7 @@ import {
 } from '@nestjs/common';
 
 import type { AuthenticatedUser } from '../auth/types/auth.types';
+import type { ConversationsService } from '../conversations/conversations.service';
 import { PrismaService } from '../database/prisma.service';
 import { AccountClass, AccountRole } from '../generated/prisma/client';
 
@@ -454,5 +455,206 @@ describe('OrganizationHierarchyService', () => {
         ],
       }),
     );
+  });
+  it('deactivates an empty unit without waiting for official-group synchronization', async () => {
+    const prisma = {
+      orgUnit: {
+        findFirst: jest.fn().mockResolvedValue({
+          id: 'unit-1',
+          officeId: 'office-1',
+          parentOrgUnitId: null,
+          orgUnitTypeId: 'type-1',
+          isActive: true,
+        }),
+        count: jest.fn().mockResolvedValue(0),
+        update: jest.fn().mockResolvedValue({
+          id: 'unit-1',
+          officeId: 'office-1',
+          parentOrgUnitId: null,
+          orgUnitTypeId: 'type-1',
+          isActive: false,
+        }),
+      },
+      orgMembership: {
+        count: jest.fn().mockResolvedValue(0),
+      },
+      orgLeadershipAssignment: {
+        count: jest.fn().mockResolvedValue(0),
+      },
+    } as unknown as PrismaService;
+
+    const authority = {
+      assertCanManageOrgUnit: jest.fn(),
+      assertOfficeHead: jest.fn(),
+    } as unknown as OrganizationAuthorityService;
+
+    const authorization = {
+      assertCan: jest.fn().mockResolvedValue(undefined),
+    } as unknown as OrganizationAuthorizationService;
+
+    const conversations = {
+      synchronizeAllOfficialGroupsSafely: jest
+        .fn()
+        .mockReturnValue(new Promise<void>(() => undefined)),
+    } as unknown as ConversationsService;
+
+    const service = new OrganizationHierarchyService(
+      prisma,
+      authority,
+      authorization,
+      conversations,
+    );
+
+    const result = await service.setOrgUnitStatus(user, 'office-1', 'unit-1', {
+      isActive: false,
+    });
+
+    expect(result.message).toBe('Unit deactivated successfully.');
+    expect(prisma.orgUnit.update).toHaveBeenCalledWith({
+      where: { id: 'unit-1' },
+      data: { isActive: false },
+    });
+    expect(
+      conversations.synchronizeAllOfficialGroupsSafely,
+    ).toHaveBeenCalledWith(user.accountId, 'ORG_UNIT_DEACTIVATED');
+  });
+
+  it('reactivates the reserved Placement Pending unit even though its internal type stays inactive', async () => {
+    const prisma = {
+      orgUnit: {
+        findFirst: jest.fn().mockResolvedValue({
+          id: 'placement-pending',
+          officeId: 'office-1',
+          parentOrgUnitId: null,
+          orgUnitTypeId: 'type-placement-pending',
+          code: 'UNASSIGNED',
+          isActive: false,
+        }),
+        update: jest.fn().mockResolvedValue({
+          id: 'placement-pending',
+          officeId: 'office-1',
+          parentOrgUnitId: null,
+          orgUnitTypeId: 'type-placement-pending',
+          code: 'UNASSIGNED',
+          isActive: true,
+        }),
+      },
+      orgUnitType: {
+        findUnique: jest.fn().mockResolvedValue({
+          code: 'PLACEMENT_PENDING',
+          isActive: false,
+        }),
+      },
+    } as unknown as PrismaService;
+
+    const authorization = {
+      assertCan: jest.fn().mockResolvedValue(undefined),
+    } as unknown as OrganizationAuthorizationService;
+
+    const service = new OrganizationHierarchyService(
+      prisma,
+      {} as OrganizationAuthorityService,
+      authorization,
+    );
+
+    const result = await service.setOrgUnitStatus(
+      user,
+      'office-1',
+      'placement-pending',
+      { isActive: true },
+    );
+
+    expect(result.message).toBe('Unit activated successfully.');
+    expect(prisma.orgUnit.update).toHaveBeenCalledWith({
+      where: { id: 'placement-pending' },
+      data: { isActive: true },
+    });
+  });
+
+  it('still blocks reactivation for ordinary units whose organization type is inactive', async () => {
+    const prisma = {
+      orgUnit: {
+        findFirst: jest.fn().mockResolvedValue({
+          id: 'legacy-unit',
+          officeId: 'office-1',
+          parentOrgUnitId: null,
+          orgUnitTypeId: 'type-other',
+          code: 'LEGACY',
+          isActive: false,
+        }),
+      },
+      orgUnitType: {
+        findUnique: jest.fn().mockResolvedValue({
+          code: 'OTHER',
+          isActive: false,
+        }),
+      },
+    } as unknown as PrismaService;
+
+    const authorization = {
+      assertCan: jest.fn().mockResolvedValue(undefined),
+    } as unknown as OrganizationAuthorizationService;
+
+    const service = new OrganizationHierarchyService(
+      prisma,
+      {} as OrganizationAuthorityService,
+      authorization,
+    );
+
+    await expect(
+      service.setOrgUnitStatus(user, 'office-1', 'legacy-unit', {
+        isActive: true,
+      }),
+    ).rejects.toThrow('Activate this organization type first.');
+  });
+
+  it('keeps ended membership history from blocking unit deactivation', async () => {
+    const prisma = {
+      orgUnit: {
+        findFirst: jest.fn().mockResolvedValue({
+          id: 'unit-1',
+          officeId: 'office-1',
+          parentOrgUnitId: null,
+          orgUnitTypeId: 'type-1',
+          isActive: true,
+        }),
+        count: jest.fn().mockResolvedValue(0),
+        update: jest.fn().mockResolvedValue({
+          id: 'unit-1',
+          isActive: false,
+        }),
+      },
+      orgMembership: {
+        count: jest.fn().mockResolvedValue(0),
+      },
+      orgLeadershipAssignment: {
+        count: jest.fn().mockResolvedValue(0),
+      },
+    } as unknown as PrismaService;
+
+    const authorization = {
+      assertCan: jest.fn().mockResolvedValue(undefined),
+    } as unknown as OrganizationAuthorizationService;
+
+    const service = new OrganizationHierarchyService(
+      prisma,
+      {} as OrganizationAuthorityService,
+      authorization,
+    );
+
+    await service.setOrgUnitStatus(user, 'office-1', 'unit-1', {
+      isActive: false,
+    });
+
+    expect(prisma.orgMembership.count).toHaveBeenCalledWith({
+      where: expect.objectContaining({
+        orgUnitId: 'unit-1',
+        startsAt: expect.objectContaining({ lte: expect.any(Date) }),
+        OR: [
+          { endsAt: null },
+          { endsAt: expect.objectContaining({ gt: expect.any(Date) }) },
+        ],
+      }),
+    });
   });
 });

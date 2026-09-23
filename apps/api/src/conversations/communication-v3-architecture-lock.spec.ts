@@ -20,12 +20,12 @@ const conversations = read('src/conversations/conversations.service.ts');
 const directory = read('src/directory/directory.service.ts');
 const directoryQueryDto = read('src/directory/dto/list-directory-query.dto.ts');
 const schema = read('prisma/schema.prisma');
-const analyticsPanel = read(
-  '../web/src/components/MessagingAnalyticsPanel.tsx',
-);
 const directoryPanel = read('../web/src/components/EmployeeDirectory.tsx');
 const messagingTypes = read('../web/src/types/messaging.ts');
 const directoryService = read('../web/src/services/directory.service.ts');
+const emergencyAlertsService = read(
+  'src/emergency-alerts/emergency-alerts.service.ts',
+);
 
 describe('P12-M communication V3 architecture lock', () => {
   it('authorizes employee messaging from active V3 Office membership, not legacy hierarchy state', () => {
@@ -111,10 +111,6 @@ describe('P12-M communication V3 architecture lock', () => {
     expect(messagingTypes).toContain('usersByOrgUnit');
     expect(messagingTypes).not.toContain('usersByDivision');
     expect(messagingTypes).not.toContain('usersByDepartment');
-    expect(analyticsPanel).toContain('analytics.usersByOrgUnit');
-    expect(analyticsPanel).toContain('organization.orgUnits');
-    expect(analyticsPanel).not.toContain('organization.divisions');
-    expect(analyticsPanel).not.toContain('organization.departments');
   });
 
   it('locks the post-Phase-13 communication schema to native V3 scope values', () => {
@@ -135,6 +131,17 @@ describe('P12-M communication V3 architecture lock', () => {
     );
     expect(schema).not.toMatch(
       /enum MessageRequestReason \{[^}]*\b(?:CROSS_DIVISION|CROSS_DEPARTMENT)\b[^}]*\}/,
+    );
+  });
+  it('keeps Super Admin outside operational emergency sending', () => {
+    expect(emergencyAlertsService).toContain(
+      "user.accountClass !== 'OFFICE_USER'",
+    );
+    expect(emergencyAlertsService).toContain(
+      'Only active Office users can send Emergency SMS.',
+    );
+    expect(emergencyAlertsService).not.toContain(
+      "user.accountClass === 'SUPER_ADMIN'",
     );
   });
 });

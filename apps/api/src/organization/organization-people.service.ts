@@ -7,10 +7,17 @@ import {
 } from '@nestjs/common';
 
 import type { AuthenticatedUser } from '../auth/types/auth.types';
+import { ActivationInvitationsService } from '../activation-invitations/activation-invitations.service';
 import { ConversationsService } from '../conversations/conversations.service';
+import { normalizeAccountIdentity } from '../common/normalization/account-identity-normalization';
 import { PrismaService } from '../database/prisma.service';
+import { MessagingEventsService } from '../realtime/messaging-events.service';
 import {
   AccountClass,
+  AccountRequestActionType,
+  AccountRequestLifecycleState,
+  AccountRequestStatus,
+  AccountRole,
   EmployeeStatus,
   EmploymentStatus,
   OrgAssignmentSource,
@@ -19,10 +26,12 @@ import {
 } from '../generated/prisma/client';
 
 import { AssignOfficeHeadDto } from './dto/assign-office-head.dto';
+import { CreateOfficeHeadAccountDto } from './dto/create-office-head-account.dto';
 import { AssignOrgLeadershipDto } from './dto/assign-org-leadership.dto';
 import { AssignOrgMembershipDto } from './dto/assign-org-membership.dto';
 import { EndOrgLeadershipDto } from './dto/end-org-leadership.dto';
 import { EndOrgMembershipDto } from './dto/end-org-membership.dto';
+import { ReplaceOfficeHeadDto } from './dto/replace-office-head.dto';
 import { TransferPrimaryMembershipDto } from './dto/transfer-primary-membership.dto';
 import { CAPABILITIES } from './organization-capabilities';
 import { OrganizationAuthorityService } from './organization-authority.service';
@@ -34,7 +43,9 @@ export class OrganizationPeopleService {
     private readonly prisma: PrismaService,
     private readonly authority: OrganizationAuthorityService,
     private readonly authorization: OrganizationAuthorizationService,
+    private readonly activationInvitations: ActivationInvitationsService,
     private readonly conversationsService?: ConversationsService,
+    private readonly messagingEvents?: MessagingEventsService,
   ) {}
 
   private async synchronizeOfficialGroupsForAccount(
@@ -51,6 +62,13 @@ export class OrganizationPeopleService {
       actorAccountId,
       reason,
     );
+  }
+
+  private emitDirectoryChanged(reason: string): void {
+    this.messagingEvents?.emitDirectoryChanged({
+      reason,
+      occurredAt: new Date().toISOString(),
+    });
   }
 
   private normalizeReason(value: string): string {
@@ -237,6 +255,16 @@ export class OrganizationPeopleService {
       select: {
         id: true,
         orgUnitId: true,
+        orgUnit: {
+          select: {
+            code: true,
+            orgUnitType: {
+              select: {
+                code: true,
+              },
+            },
+          },
+        },
       },
     });
 
@@ -435,6 +463,7 @@ export class OrganizationPeopleService {
             empId: true,
             empName: true,
             designation: true,
+            profilePhotoKey: true,
             status: true,
             employmentStatus: true,
             isActivated: true,
@@ -733,6 +762,8 @@ export class OrganizationPeopleService {
       );
     }
 
+    this.emitDirectoryChanged('ORG_MEMBERSHIP_ASSIGNED');
+
     return {
       message: 'Employee placement added successfully.',
       membership,
@@ -873,6 +904,8 @@ export class OrganizationPeopleService {
       'ORG_PRIMARY_MEMBERSHIP_TRANSFERRED',
     );
 
+    this.emitDirectoryChanged('ORG_PRIMARY_MEMBERSHIP_TRANSFERRED');
+
     return {
       message: 'Employee primary placement transferred successfully.',
       ...result,
@@ -938,6 +971,8 @@ export class OrganizationPeopleService {
         endReason: this.normalizeReason(dto.reason),
       },
     });
+
+    this.emitDirectoryChanged('ORG_MEMBERSHIP_ENDED');
 
     return {
       message: 'Employee placement ended successfully.',
@@ -1008,6 +1043,7 @@ export class OrganizationPeopleService {
             empId: true,
             empName: true,
             designation: true,
+            profilePhotoKey: true,
           },
         },
         orgUnit: {
@@ -1041,6 +1077,239 @@ export class OrganizationPeopleService {
 
     return {
       data,
+    };
+  }
+
+  async createOfficeHeadAccount(
+    user: AuthenticatedUser,
+    officeId: string,
+    dto: CreateOfficeHeadAccountDto,
+  ) {
+    this.authority.assertPlatformAdmin(user);
+    const office = await this.assertOfficeActive(officeId);
+    const now = new Date();
+    const effectiveFrom = this.parseDate(
+      dto.effectiveFrom,
+      'Effective time',
+      now,
+    );
+    if (effectiveFrom.getTime() > now.getTime()) {
+      throw new BadRequestException(
+        'Office Head assignment cannot start in the future.',
+      );
+    }
+
+    const reason = this.normalizeReason(dto.reason);
+    const {
+      empId,
+      empName,
+      phoneNumber,
+      phoneLookupValues,
+      officialEmail,
+      officialEmailLookup,
+    } = normalizeAccountIdentity({
+      empId: dto.empId,
+      empName: dto.empName,
+      phoneNumber: dto.phoneNumber,
+      officialEmail: dto.officialEmail.trim().toLowerCase(),
+    });
+    const designation = dto.designation.trim();
+    const prepared = this.activationInvitations.prepareInvitation(now);
+
+    const result = await this.prisma.$transaction(async (transaction) => {
+      const duplicate = await transaction.employee.findFirst({
+        where: {
+          OR: [
+            { empId },
+            {
+              officialEmail: {
+                equals: officialEmailLookup,
+                mode: 'insensitive',
+              },
+            },
+            {
+              employmentStatus: EmploymentStatus.ACTIVE,
+              phoneNumber: { in: phoneLookupValues },
+            },
+          ],
+        },
+        select: { id: true },
+      });
+      if (duplicate) {
+        throw new ConflictException(
+          'An employee with this ID, phone number, or official email already exists.',
+        );
+      }
+
+      const existingHead = await transaction.orgLeadershipAssignment.findFirst({
+        where: {
+          officeId,
+          orgUnitId: null,
+          leadershipType: OrgLeadershipType.OFFICE_HEAD,
+          isActing: false,
+          effectiveFrom: { lte: effectiveFrom },
+          OR: [
+            { effectiveUntil: null },
+            { effectiveUntil: { gt: effectiveFrom } },
+          ],
+        },
+        select: { id: true, effectiveFrom: true },
+      });
+
+      if (existingHead && !dto.replaceCurrent) {
+        throw new ConflictException(
+          'This office already has a permanent Office Head. Use the replacement workflow.',
+        );
+      }
+      if (
+        existingHead &&
+        effectiveFrom.getTime() <= existingHead.effectiveFrom.getTime()
+      ) {
+        throw new BadRequestException(
+          'Replacement time must be later than the current Office Head start time.',
+        );
+      }
+
+      if (existingHead) {
+        await transaction.orgLeadershipAssignment.update({
+          where: { id: existingHead.id },
+          data: {
+            effectiveUntil: effectiveFrom,
+            endedByAccountId: user.accountId,
+            endReason: `Replaced: ${reason}`,
+          },
+        });
+      }
+
+      const employee = await transaction.employee.create({
+        data: {
+          empId,
+          empName,
+          phoneNumber,
+          officialEmail,
+          designation,
+          status: EmployeeStatus.ACTIVE,
+          isActivated: false,
+        },
+        select: {
+          id: true,
+          empId: true,
+          empName: true,
+          phoneNumber: true,
+          officialEmail: true,
+          designation: true,
+        },
+      });
+      const request = await transaction.accountRequest.create({
+        data: {
+          empId,
+          empName,
+          phoneNumber,
+          officialEmail,
+          designation,
+          requestedRole: AccountRole.EMPLOYEE,
+          lifecycleState: AccountRequestLifecycleState.PROVISIONED,
+          status: AccountRequestStatus.APPROVED,
+          officeId,
+          intendedOrgUnitId: null,
+          employeeId: employee.id,
+          requestedByAccountId: user.accountId,
+          reviewedByAccountId: user.accountId,
+          reviewedAt: now,
+        },
+        select: { id: true },
+      });
+      await transaction.accountRequestAction.create({
+        data: {
+          accountRequestId: request.id,
+          actorAccountId: user.accountId,
+          action: AccountRequestActionType.PROVISIONED,
+          metadata: {
+            source: existingHead
+              ? 'SUPER_ADMIN_OFFICE_HEAD_REPLACEMENT'
+              : 'SUPER_ADMIN_DIRECT_OFFICE_HEAD',
+            officeId,
+            reason,
+          },
+        },
+      });
+      const membership = await transaction.orgMembership.create({
+        data: {
+          employeeId: employee.id,
+          officeId,
+          orgUnitId: null,
+          membershipType: OrgMembershipType.PRIMARY,
+          assignmentSource: OrgAssignmentSource.SYSTEM,
+          startsAt: effectiveFrom,
+          assignedByAccountId: user.accountId,
+          assignmentReason: reason,
+        },
+      });
+      const assignment = await transaction.orgLeadershipAssignment.create({
+        data: {
+          employeeId: employee.id,
+          officeId,
+          orgUnitId: null,
+          leadershipType: OrgLeadershipType.OFFICE_HEAD,
+          assignmentSource: OrgAssignmentSource.SYSTEM,
+          isActing: false,
+          effectiveFrom,
+          assignedByAccountId: user.accountId,
+          assignmentReason: reason,
+        },
+      });
+      const invitation = await this.activationInvitations.queueInvitation(
+        transaction,
+        {
+          accountRequestId: request.id,
+          employeeId: employee.id,
+          actorAccountId: user.accountId,
+          source: 'SUPER_ADMIN_DIRECT_CREATION',
+          ipAddress: null,
+          userAgent: null,
+        },
+        prepared,
+      );
+      return {
+        employee,
+        membership,
+        assignment,
+        invitation,
+        replacedAssignmentId: existingHead?.id ?? null,
+      };
+    });
+
+    const activationEmailDelivery =
+      await this.activationInvitations.deliverQueuedInvitation({
+        ...result.invitation,
+        employeeName: result.employee.empName,
+        employeeCode: result.employee.empId,
+        officialEmail: result.employee.officialEmail,
+        phoneNumber: result.employee.phoneNumber,
+        divisionName: office.name,
+        departmentName: null,
+        requestedRole: AccountRole.EMPLOYEE,
+      });
+
+    await this.conversationsService?.synchronizeAllOfficialGroupsSafely(
+      user.accountId,
+      result.replacedAssignmentId
+        ? 'OFFICE_HEAD_REPLACED'
+        : 'OFFICE_HEAD_ASSIGNED',
+    );
+    this.emitDirectoryChanged(
+      result.replacedAssignmentId
+        ? 'OFFICE_HEAD_REPLACED'
+        : 'OFFICE_HEAD_ASSIGNED',
+    );
+
+    return {
+      message: result.replacedAssignmentId
+        ? 'Office Head account created and replacement completed successfully.'
+        : 'Office Head account created and assigned successfully.',
+      employee: result.employee,
+      assignment: result.assignment,
+      activationEmailDelivery,
     };
   }
 
@@ -1095,9 +1364,10 @@ export class OrganizationPeopleService {
       let bootstrapMembership = currentPrimary;
 
       /*
-       * First-office bootstrap exception:
-       * Super Admin may establish the initial Office membership only
-       * when assigning the protected Office Head.
+       * Office Head is an Office-level responsibility. A promoted office
+       * member therefore moves from a child OrgUnit primary placement to an
+       * Office-level primary placement while the old placement is preserved
+       * in history.
        */
       if (!bootstrapMembership) {
         bootstrapMembership = await transaction.orgMembership.create({
@@ -1118,6 +1388,40 @@ export class OrganizationPeopleService {
             startsAt: true,
           },
         });
+      } else if (bootstrapMembership.orgUnitId) {
+        if (effectiveFrom.getTime() <= bootstrapMembership.startsAt.getTime()) {
+          throw new BadRequestException(
+            'Office Head start time must be later than the current organizational placement start time.',
+          );
+        }
+
+        await transaction.orgMembership.update({
+          where: { id: bootstrapMembership.id },
+          data: {
+            endsAt: effectiveFrom,
+            endedByAccountId: user.accountId,
+            endReason: `Promoted to Office Head: ${reason}`,
+          },
+        });
+
+        bootstrapMembership = await transaction.orgMembership.create({
+          data: {
+            employeeId: employee.id,
+            officeId,
+            orgUnitId: null,
+            membershipType: OrgMembershipType.PRIMARY,
+            assignmentSource: OrgAssignmentSource.SYSTEM,
+            startsAt: effectiveFrom,
+            assignedByAccountId: user.accountId,
+            assignmentReason: `Office-level placement for Office Head: ${reason}`,
+          },
+          select: {
+            id: true,
+            officeId: true,
+            orgUnitId: true,
+            startsAt: true,
+          },
+        });
       }
 
       const existing = await transaction.orgLeadershipAssignment.findFirst({
@@ -1126,7 +1430,11 @@ export class OrganizationPeopleService {
           orgUnitId: null,
           leadershipType: OrgLeadershipType.OFFICE_HEAD,
           isActing: false,
-          effectiveUntil: null,
+          effectiveFrom: { lte: effectiveFrom },
+          OR: [
+            { effectiveUntil: null },
+            { effectiveUntil: { gt: effectiveFrom } },
+          ],
         },
         select: {
           id: true,
@@ -1136,9 +1444,25 @@ export class OrganizationPeopleService {
 
       if (existing) {
         throw new ConflictException(
-          'This office already has a permanent Office Head. End that assignment before assigning another.',
+          'This office already has a permanent Office Head. Use the replacement workflow.',
         );
       }
+
+      await transaction.orgLeadershipAssignment.updateMany({
+        where: {
+          employeeId: employee.id,
+          officeId,
+          leadershipType: OrgLeadershipType.ORG_UNIT_HEAD,
+          isActing: false,
+          effectiveUntil: null,
+          effectiveFrom: { lte: effectiveFrom },
+        },
+        data: {
+          effectiveUntil: effectiveFrom,
+          endedByAccountId: user.accountId,
+          endReason: `Promoted to Office Head: ${reason}`,
+        },
+      });
 
       const assignment = await transaction.orgLeadershipAssignment.create({
         data: {
@@ -1165,8 +1489,167 @@ export class OrganizationPeopleService {
       'OFFICE_HEAD_ASSIGNED',
     );
 
+    this.emitDirectoryChanged('OFFICE_HEAD_ASSIGNED');
+
     return {
       message: 'Office Head assigned successfully.',
+      ...result,
+    };
+  }
+
+  async replaceOfficeHead(
+    user: AuthenticatedUser,
+    officeId: string,
+    dto: ReplaceOfficeHeadDto,
+  ) {
+    this.authority.assertPlatformAdmin(user);
+    await this.assertOfficeActive(officeId);
+
+    const employee = await this.getEligibleEmployee(dto.employeeId);
+    const now = new Date();
+    const effectiveAt = this.parseDate(dto.effectiveAt, 'Effective time', now);
+    if (effectiveAt.getTime() > now.getTime()) {
+      throw new BadRequestException(
+        'Office Head replacement cannot take effect in the future.',
+      );
+    }
+    const reason = this.normalizeReason(dto.reason);
+
+    const result = await this.prisma.$transaction(async (transaction) => {
+      const currentHead = await transaction.orgLeadershipAssignment.findFirst({
+        where: {
+          officeId,
+          orgUnitId: null,
+          leadershipType: OrgLeadershipType.OFFICE_HEAD,
+          isActing: false,
+          effectiveFrom: { lte: effectiveAt },
+          OR: [
+            { effectiveUntil: null },
+            { effectiveUntil: { gt: effectiveAt } },
+          ],
+        },
+        select: {
+          id: true,
+          employeeId: true,
+          effectiveFrom: true,
+        },
+      });
+
+      if (!currentHead) {
+        throw new ConflictException(
+          'This office does not have a current permanent Office Head to replace.',
+        );
+      }
+      if (currentHead.employeeId === employee.id) {
+        throw new ConflictException(
+          'The selected employee is already the current Office Head.',
+        );
+      }
+      if (effectiveAt.getTime() <= currentHead.effectiveFrom.getTime()) {
+        throw new BadRequestException(
+          'Replacement time must be later than the current Office Head start time.',
+        );
+      }
+
+      let membership = await transaction.orgMembership.findFirst({
+        where: {
+          employeeId: employee.id,
+          officeId,
+          membershipType: OrgMembershipType.PRIMARY,
+          startsAt: { lte: effectiveAt },
+          OR: [{ endsAt: null }, { endsAt: { gt: effectiveAt } }],
+        },
+        select: { id: true, startsAt: true, orgUnitId: true },
+      });
+      if (!membership) {
+        throw new ConflictException(
+          'Select an active member of this office as the replacement Office Head.',
+        );
+      }
+
+      if (membership.orgUnitId) {
+        if (effectiveAt.getTime() <= membership.startsAt.getTime()) {
+          throw new BadRequestException(
+            'Office Head replacement time must be later than the employee organizational placement start time.',
+          );
+        }
+        await transaction.orgMembership.update({
+          where: { id: membership.id },
+          data: {
+            endsAt: effectiveAt,
+            endedByAccountId: user.accountId,
+            endReason: `Promoted to Office Head: ${reason}`,
+          },
+        });
+        membership = await transaction.orgMembership.create({
+          data: {
+            employeeId: employee.id,
+            officeId,
+            orgUnitId: null,
+            membershipType: OrgMembershipType.PRIMARY,
+            assignmentSource: OrgAssignmentSource.SYSTEM,
+            startsAt: effectiveAt,
+            assignedByAccountId: user.accountId,
+            assignmentReason: `Office-level placement for Office Head: ${reason}`,
+          },
+          select: { id: true, startsAt: true, orgUnitId: true },
+        });
+      }
+
+      await transaction.orgLeadershipAssignment.update({
+        where: { id: currentHead.id },
+        data: {
+          effectiveUntil: effectiveAt,
+          endedByAccountId: user.accountId,
+          endReason: `Replaced: ${reason}`,
+        },
+      });
+
+      await transaction.orgLeadershipAssignment.updateMany({
+        where: {
+          employeeId: employee.id,
+          officeId,
+          leadershipType: OrgLeadershipType.ORG_UNIT_HEAD,
+          isActing: false,
+          effectiveUntil: null,
+          effectiveFrom: { lte: effectiveAt },
+        },
+        data: {
+          effectiveUntil: effectiveAt,
+          endedByAccountId: user.accountId,
+          endReason: `Promoted to Office Head: ${reason}`,
+        },
+      });
+
+      const assignment = await transaction.orgLeadershipAssignment.create({
+        data: {
+          employeeId: employee.id,
+          officeId,
+          orgUnitId: null,
+          leadershipType: OrgLeadershipType.OFFICE_HEAD,
+          assignmentSource: OrgAssignmentSource.SYSTEM,
+          isActing: false,
+          effectiveFrom: effectiveAt,
+          assignedByAccountId: user.accountId,
+          assignmentReason: reason,
+        },
+      });
+
+      return {
+        previousAssignmentId: currentHead.id,
+        membership,
+        assignment,
+      };
+    });
+
+    await this.conversationsService?.synchronizeAllOfficialGroupsSafely(
+      user.accountId,
+      'OFFICE_HEAD_REPLACED',
+    );
+    this.emitDirectoryChanged('OFFICE_HEAD_REPLACED');
+
+    return {
+      message: 'Office Head replaced successfully.',
       ...result,
     };
   }
@@ -1249,11 +1732,32 @@ export class OrganizationPeopleService {
       await this.validateOrgUnit(officeId, orgUnitId);
     }
 
-    await this.assertPrimaryOfficeMembership(
+    const primaryMembership = await this.assertPrimaryOfficeMembership(
       employee.id,
       officeId,
       effectiveFrom,
     );
+
+    const isPermanentOrgUnitHead =
+      dto.leadershipType === OrgLeadershipType.ORG_UNIT_HEAD && !isActing;
+
+    const shouldAlignPrimaryPlacement =
+      isPermanentOrgUnitHead && primaryMembership.orgUnitId !== orgUnitId;
+
+    if (shouldAlignPrimaryPlacement) {
+      await this.authorization.assertCan(
+        user,
+        CAPABILITIES.MEMBERSHIP_TRANSFER_INTERNAL,
+        officeId,
+        primaryMembership.orgUnitId,
+      );
+      await this.authorization.assertCan(
+        user,
+        CAPABILITIES.MEMBERSHIP_TRANSFER_INTERNAL,
+        officeId,
+        orgUnitId,
+      );
+    }
 
     if (dto.leadershipType !== OrgLeadershipType.DEPUTY) {
       const overlapping = await this.prisma.orgLeadershipAssignment.findFirst({
@@ -1294,20 +1798,153 @@ export class OrganizationPeopleService {
       }
     }
 
-    const assignment = await this.prisma.orgLeadershipAssignment.create({
-      data: {
-        employeeId: employee.id,
-        officeId,
-        orgUnitId,
-        leadershipType: dto.leadershipType,
-        assignmentSource: OrgAssignmentSource.MANUAL,
-        isActing,
-        effectiveFrom,
-        effectiveUntil,
-        assignedByAccountId: user.accountId,
-        assignmentReason: this.normalizeReason(dto.reason),
-      },
+    const reason = this.normalizeReason(dto.reason);
+
+    const result = await this.prisma.$transaction(async (transaction) => {
+      let primaryPlacementMoved = false;
+      let primaryPlacement = null;
+      let previousPermanentHeadsEnded = 0;
+
+      if (shouldAlignPrimaryPlacement) {
+        const currentPrimary = await transaction.orgMembership.findFirst({
+          where: {
+            employeeId: employee.id,
+            officeId,
+            membershipType: OrgMembershipType.PRIMARY,
+            startsAt: {
+              lte: effectiveFrom,
+            },
+            OR: [
+              {
+                endsAt: null,
+              },
+              {
+                endsAt: {
+                  gt: effectiveFrom,
+                },
+              },
+            ],
+          },
+          select: {
+            id: true,
+            orgUnitId: true,
+            startsAt: true,
+            orgUnit: {
+              select: {
+                code: true,
+                orgUnitType: {
+                  select: {
+                    code: true,
+                  },
+                },
+              },
+            },
+          },
+        });
+
+        if (!currentPrimary) {
+          throw new ConflictException(
+            'The employee no longer has an active primary membership in this office.',
+          );
+        }
+
+        if (currentPrimary.orgUnitId !== orgUnitId) {
+          if (effectiveFrom.getTime() <= currentPrimary.startsAt.getTime()) {
+            throw new BadRequestException(
+              'Permanent Org Unit Head start time must be later than the current primary placement start time.',
+            );
+          }
+
+          await transaction.orgMembership.update({
+            where: {
+              id: currentPrimary.id,
+            },
+            data: {
+              endsAt: effectiveFrom,
+              endedByAccountId: user.accountId,
+              endReason: `Leadership placement alignment: ${reason}`,
+            },
+          });
+
+          primaryPlacement = await transaction.orgMembership.create({
+            data: {
+              employeeId: employee.id,
+              officeId,
+              orgUnitId,
+              membershipType: OrgMembershipType.PRIMARY,
+              assignmentSource: OrgAssignmentSource.TRANSFER,
+              startsAt: effectiveFrom,
+              assignedByAccountId: user.accountId,
+              assignmentReason: `Permanent Org Unit Head assignment: ${reason}`,
+            },
+          });
+          primaryPlacementMoved = true;
+        }
+      }
+
+      if (isPermanentOrgUnitHead) {
+        const ended = await transaction.orgLeadershipAssignment.updateMany({
+          where: {
+            employeeId: employee.id,
+            officeId,
+            leadershipType: OrgLeadershipType.ORG_UNIT_HEAD,
+            isActing: false,
+            orgUnitId: {
+              not: orgUnitId,
+            },
+            effectiveFrom: {
+              lte: effectiveFrom,
+            },
+            OR: [
+              {
+                effectiveUntil: null,
+              },
+              {
+                effectiveUntil: {
+                  gt: effectiveFrom,
+                },
+              },
+            ],
+          },
+          data: {
+            effectiveUntil: effectiveFrom,
+            endedByAccountId: user.accountId,
+            endReason: `Reassigned as permanent Org Unit Head: ${reason}`,
+          },
+        });
+        previousPermanentHeadsEnded = ended.count;
+      }
+
+      const assignment = await transaction.orgLeadershipAssignment.create({
+        data: {
+          employeeId: employee.id,
+          officeId,
+          orgUnitId,
+          leadershipType: dto.leadershipType,
+          assignmentSource: OrgAssignmentSource.MANUAL,
+          isActing,
+          effectiveFrom,
+          effectiveUntil,
+          assignedByAccountId: user.accountId,
+          assignmentReason: reason,
+        },
+      });
+
+      return {
+        assignment,
+        primaryPlacementMoved,
+        primaryPlacement,
+        previousPermanentHeadsEnded,
+      };
     });
+
+    if (result.primaryPlacementMoved) {
+      await this.synchronizeOfficialGroupsForAccount(
+        employee.account?.id,
+        user.accountId,
+        'ORG_HEAD_PRIMARY_MEMBERSHIP_ALIGNED',
+      );
+    }
 
     if (dto.leadershipType === OrgLeadershipType.OFFICE_HEAD) {
       await this.conversationsService?.synchronizeAllOfficialGroupsSafely(
@@ -1316,11 +1953,18 @@ export class OrganizationPeopleService {
       );
     }
 
+    this.emitDirectoryChanged('ORG_LEADERSHIP_ASSIGNED');
+
     return {
-      message: isActing
-        ? 'Acting leadership assigned successfully.'
-        : 'Leadership assigned successfully.',
-      assignment,
+      message: result.primaryPlacementMoved
+        ? 'Leadership assigned and primary placement moved to the headed organizational unit.'
+        : isActing
+          ? 'Acting leadership assigned successfully.'
+          : 'Leadership assigned successfully.',
+      assignment: result.assignment,
+      primaryPlacementMoved: result.primaryPlacementMoved,
+      primaryPlacement: result.primaryPlacement,
+      previousPermanentHeadsEnded: result.previousPermanentHeadsEnded,
     };
   }
 
@@ -1401,6 +2045,8 @@ export class OrganizationPeopleService {
         'OFFICE_HEAD_ASSIGNMENT_ENDED',
       );
     }
+
+    this.emitDirectoryChanged('ORG_LEADERSHIP_ENDED');
 
     return {
       message: 'Leadership assignment ended successfully.',

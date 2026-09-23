@@ -19,15 +19,15 @@ WITH official_group_counts AS (
   SELECT
     COUNT(*) FILTER (
       WHERE conversation."group_kind" = 'OFFICIAL'
-        AND conversation."official_scope_type" IN ('ORGANIZATION', 'DIVISION', 'DEPARTMENT')
+        AND conversation."official_scope_type"::text IN ('ORGANIZATION', 'DIVISION', 'DEPARTMENT')
     )::bigint AS legacy_official_groups,
     COUNT(*) FILTER (
       WHERE conversation."group_kind" = 'OFFICIAL'
-        AND conversation."official_scope_type" IN ('ORGANIZATION', 'DIVISION', 'DEPARTMENT')
+        AND conversation."official_scope_type"::text IN ('ORGANIZATION', 'DIVISION', 'DEPARTMENT')
         AND conversation."official_office_id" IS NOT NULL
         AND conversation."official_membership_mode" = 'ENTIRE_SUBTREE'
         AND (
-          conversation."official_scope_type" = 'ORGANIZATION'
+          conversation."official_scope_type"::text = 'ORGANIZATION'
           OR conversation."official_org_unit_id" IS NOT NULL
         )
     )::bigint AS legacy_official_groups_bound,
@@ -51,13 +51,13 @@ official_group_office_mismatch AS (
 announcement_counts AS (
   SELECT
     COUNT(*) FILTER (
-      WHERE announcement."audience_type" IN ('ORGANIZATION', 'DIVISION', 'DEPARTMENT')
+      WHERE announcement."audience_type"::text IN ('ORGANIZATION', 'DIVISION', 'DEPARTMENT')
     )::bigint AS legacy_scoped_announcements,
     COUNT(*) FILTER (
-      WHERE announcement."audience_type" IN ('ORGANIZATION', 'DIVISION', 'DEPARTMENT')
+      WHERE announcement."audience_type"::text IN ('ORGANIZATION', 'DIVISION', 'DEPARTMENT')
         AND announcement."office_id" IS NOT NULL
         AND (
-          announcement."audience_type" = 'ORGANIZATION'
+          announcement."audience_type"::text = 'ORGANIZATION'
           OR announcement."org_unit_id" IS NOT NULL
         )
         AND announcement."include_descendants" = true

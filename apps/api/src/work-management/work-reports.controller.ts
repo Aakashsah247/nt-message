@@ -1,9 +1,11 @@
 import {
   BadRequestException,
+  Body,
   Controller,
   Get,
   Param,
   ParseUUIDPipe,
+  Post,
   Query,
   Res,
   UseGuards,
@@ -25,27 +27,16 @@ import {
   WorkReportDrilldownQueryDto,
 } from './dto/work-report-drilldown-query.dto';
 import {
-  WorkReportV3QueryDto,
-  WorkReportV3RecordsQueryDto,
-  WorkReportV3StageAnalysisQueryDto,
-} from './dto/work-report-v3-query.dto';
-import { WorkReportV3ExportQueryDto } from './dto/work-report-v3-export-query.dto';
+  WorkReportQueryDto,
+  WorkReportRecordsQueryDto,
+} from './dto/work-report-office-query.dto';
+import { WorkReportOfficeExportQueryDto } from './dto/work-report-office-export-query.dto';
+import { SaveWorkReportSnapshotDto } from './dto/save-work-report-snapshot.dto';
 import {
   WorkReportsService,
   type WorkReportDrilldownResponse,
 } from './work-reports.service';
-import {
-  WorkReportsV3Service,
-  type WorkReportV3Context,
-  type WorkReportV3DutyCompatibility,
-  type WorkReportV3CountResult,
-  type WorkReportV3Overview,
-  type WorkReportV3PrintPayload,
-  type WorkReportV3Reconciliation,
-  type WorkReportV3StageAnalysis,
-  type WorkReportV3TechnicalPerformance,
-  type WorkReportV3WorkRecords,
-} from './work-reports-v3.service';
+import { WorkReportsClassicService } from './work-reports-classic.service';
 
 const REPORT_ACCOUNT_CLASSES = [
   AccountClass.SUPER_ADMIN,
@@ -57,78 +48,67 @@ const REPORT_ACCOUNT_CLASSES = [
 export class WorkReportsController {
   constructor(
     private readonly workReportsService: WorkReportsService,
-    private readonly workReportsV3Service: WorkReportsV3Service,
+    private readonly workReportsClassicService: WorkReportsClassicService,
   ) {}
 
-  @Get('v3/offices/:officeId/context')
-  getV3Context(
+  @Get('offices/:officeId/context')
+  getContext(
     @CurrentUser() user: AuthenticatedUser,
     @Param('officeId', new ParseUUIDPipe({ version: '4' })) officeId: string,
-  ): Promise<WorkReportV3Context> {
-    return this.workReportsV3Service.getContext(user, officeId);
+  ) {
+    return this.workReportsClassicService.getContext(user, officeId);
   }
 
-  @Get('v3/offices/:officeId/count')
-  getV3Count(
+  @Get('offices/:officeId/count')
+  getCount(
     @CurrentUser() user: AuthenticatedUser,
     @Param('officeId', new ParseUUIDPipe({ version: '4' })) officeId: string,
-    @Query() query: WorkReportV3QueryDto,
-  ): Promise<WorkReportV3CountResult> {
-    return this.workReportsV3Service.getDistinctWorkCount(
+    @Query() query: WorkReportQueryDto,
+  ) {
+    return this.workReportsClassicService
+      .getOverview(user, officeId, query)
+      .then((report) => ({ count: report.totalWork }));
+  }
+
+  @Get('offices/:officeId/overview')
+  getOverview(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('officeId', new ParseUUIDPipe({ version: '4' })) officeId: string,
+    @Query() query: WorkReportQueryDto,
+  ) {
+    return this.workReportsClassicService.getOverview(user, officeId, query);
+  }
+
+  @Get('offices/:officeId/work-records')
+  getWorkRecords(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('officeId', new ParseUUIDPipe({ version: '4' })) officeId: string,
+    @Query() query: WorkReportRecordsQueryDto,
+  ) {
+    return this.workReportsClassicService.getWorkRecords(user, officeId, query);
+  }
+
+  @Get('offices/:officeId/technical-performance')
+  getTechnicalPerformance(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('officeId', new ParseUUIDPipe({ version: '4' })) officeId: string,
+    @Query() query: WorkReportQueryDto,
+  ) {
+    return this.workReportsClassicService.getTechnicalPerformance(
       user,
       officeId,
       query,
     );
   }
 
-  @Get('v3/offices/:officeId/overview')
-  getV3Overview(
+  @Get('offices/:officeId/export')
+  async exportOfficeCsv(
     @CurrentUser() user: AuthenticatedUser,
     @Param('officeId', new ParseUUIDPipe({ version: '4' })) officeId: string,
-    @Query() query: WorkReportV3QueryDto,
-  ): Promise<WorkReportV3Overview> {
-    return this.workReportsV3Service.getOverview(user, officeId, query);
-  }
-
-  @Get('v3/offices/:officeId/work-records')
-  getV3WorkRecords(
-    @CurrentUser() user: AuthenticatedUser,
-    @Param('officeId', new ParseUUIDPipe({ version: '4' })) officeId: string,
-    @Query() query: WorkReportV3RecordsQueryDto,
-  ): Promise<WorkReportV3WorkRecords> {
-    return this.workReportsV3Service.getWorkRecords(user, officeId, query);
-  }
-
-  @Get('v3/offices/:officeId/technical-performance')
-  getV3TechnicalPerformance(
-    @CurrentUser() user: AuthenticatedUser,
-    @Param('officeId', new ParseUUIDPipe({ version: '4' })) officeId: string,
-    @Query() query: WorkReportV3QueryDto,
-  ): Promise<WorkReportV3TechnicalPerformance> {
-    return this.workReportsV3Service.getTechnicalPerformance(
-      user,
-      officeId,
-      query,
-    );
-  }
-
-  @Get('v3/offices/:officeId/stage-sla')
-  getV3StageAnalysis(
-    @CurrentUser() user: AuthenticatedUser,
-    @Param('officeId', new ParseUUIDPipe({ version: '4' })) officeId: string,
-    @Query() query: WorkReportV3StageAnalysisQueryDto,
-  ): Promise<WorkReportV3StageAnalysis> {
-    return this.workReportsV3Service.getStageAnalysis(user, officeId, query);
-  }
-
-  @Get('v3/offices/:officeId/export')
-  async exportV3Csv(
-    @CurrentUser() user: AuthenticatedUser,
-    @Param('officeId', new ParseUUIDPipe({ version: '4' })) officeId: string,
-    @Query() query: WorkReportV3ExportQueryDto,
+    @Query() query: WorkReportOfficeExportQueryDto,
     @Res({ passthrough: true }) response: Response,
   ): Promise<string> {
-    const report = await this.workReportsV3Service.exportCsv(
+    const report = await this.workReportsClassicService.exportCsv(
       user,
       officeId,
       query,
@@ -143,29 +123,60 @@ export class WorkReportsController {
     return report.content;
   }
 
-  @Get('v3/offices/:officeId/print-data')
-  getV3PrintPayload(
+  @Get('offices/:officeId/print-data')
+  getPrintPayload(
     @CurrentUser() user: AuthenticatedUser,
     @Param('officeId', new ParseUUIDPipe({ version: '4' })) officeId: string,
-    @Query() query: WorkReportV3ExportQueryDto,
-  ): Promise<WorkReportV3PrintPayload> {
-    return this.workReportsV3Service.getPrintPayload(user, officeId, query);
+    @Query() query: WorkReportOfficeExportQueryDto,
+  ) {
+    return this.workReportsClassicService.getPrintPayload(
+      user,
+      officeId,
+      query,
+    );
   }
 
-  @Get('v3/offices/:officeId/duty-compatibility')
-  getV3DutyCompatibility(
+  @Post('offices/:officeId/snapshots')
+  saveSnapshot(
     @CurrentUser() user: AuthenticatedUser,
     @Param('officeId', new ParseUUIDPipe({ version: '4' })) officeId: string,
-  ): Promise<WorkReportV3DutyCompatibility> {
-    return this.workReportsV3Service.getDutyCompatibility(user, officeId);
+    @Body() dto: SaveWorkReportSnapshotDto,
+  ) {
+    return this.workReportsClassicService.saveSnapshot(user, officeId, dto);
   }
 
-  @Get('v3/offices/:officeId/reconciliation')
-  getV3Reconciliation(
+  @Get('offices/:officeId/snapshots')
+  listSnapshots(
     @CurrentUser() user: AuthenticatedUser,
     @Param('officeId', new ParseUUIDPipe({ version: '4' })) officeId: string,
-  ): Promise<WorkReportV3Reconciliation> {
-    return this.workReportsV3Service.getReconciliation(user, officeId);
+  ) {
+    return this.workReportsClassicService.listSnapshots(user, officeId);
+  }
+
+  @Get('offices/:officeId/snapshots/:snapshotId')
+  getSnapshot(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('officeId', new ParseUUIDPipe({ version: '4' })) officeId: string,
+    @Param('snapshotId', new ParseUUIDPipe({ version: '4' }))
+    snapshotId: string,
+  ) {
+    return this.workReportsClassicService.getSnapshot(
+      user,
+      officeId,
+      snapshotId,
+    );
+  }
+
+  @Get('offices/:officeId/duty-compatibility')
+  getDutyCompatibility(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('officeId', new ParseUUIDPipe({ version: '4' })) officeId: string,
+  ) {
+    void user;
+    void officeId;
+    return Promise.resolve(
+      this.workReportsClassicService.getDutyCompatibility(),
+    );
   }
 
   @Get('drilldown')
@@ -176,7 +187,7 @@ export class WorkReportsController {
   ): Promise<WorkReportDrilldownResponse> {
     if (query.dataset !== WorkReportDrilldownDataset.DUTY_ASSIGNMENTS) {
       throw new BadRequestException(
-        'Legacy Work report drill-downs are retired. Use the Reports V3 Office endpoints.',
+        'This dataset is not available through the Duty drill-down endpoint.',
       );
     }
 
@@ -193,7 +204,7 @@ export class WorkReportsController {
   ): Promise<string> {
     if (query.dataset !== WorkReportDataset.DUTY_ASSIGNMENTS) {
       throw new BadRequestException(
-        'Legacy Work report exports are retired. Use the Reports V3 Office export endpoint.',
+        'This dataset is not available through the Duty export endpoint.',
       );
     }
 

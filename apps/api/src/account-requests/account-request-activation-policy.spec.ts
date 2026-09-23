@@ -38,7 +38,7 @@ describe('account request activation policy', () => {
     ).toBe(false);
   });
 
-  it('requires the submitted Office and intended OrgUnit', () => {
+  it('requires an Office and allows protected Office-level bootstrap activation', () => {
     expect(
       isCanonicalOfficeActivationRequest({ ...request, officeId: null }),
     ).toBe(false);
@@ -47,10 +47,10 @@ describe('account request activation policy', () => {
         ...request,
         intendedOrgUnitId: null,
       }),
-    ).toBe(false);
+    ).toBe(true);
   });
 
-  it('requires an open PRIMARY membership in the exact Office and OrgUnit', () => {
+  it('requires an open PRIMARY membership in the exact Office and optional OrgUnit', () => {
     expect(
       primaryMembershipMatchesActivationScope(request, {
         officeId: 'office-a',
@@ -58,6 +58,18 @@ describe('account request activation policy', () => {
         membershipType: OrgMembershipType.PRIMARY,
         endsAt: null,
       }),
+    ).toBe(true);
+
+    expect(
+      primaryMembershipMatchesActivationScope(
+        { ...request, intendedOrgUnitId: null },
+        {
+          officeId: 'office-a',
+          orgUnitId: null,
+          membershipType: OrgMembershipType.PRIMARY,
+          endsAt: null,
+        },
+      ),
     ).toBe(true);
 
     expect(

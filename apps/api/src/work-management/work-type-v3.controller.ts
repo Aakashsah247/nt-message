@@ -14,15 +14,42 @@ import {
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import { AccessTokenGuard } from '../auth/guards/access-token.guard';
 import type { AuthenticatedUser } from '../auth/types/auth.types';
+import { CreateWorkTypeDefinitionDto } from './dto/create-work-type-definition.dto';
 import { CreateWorkTypeDraftDto } from './dto/create-work-type-draft.dto';
 import { ReplaceWorkTypeDraftConfigurationDto } from './dto/replace-work-type-draft-configuration.dto';
 import { UpdateWorkTypeDraftDto } from './dto/update-work-type-draft.dto';
+import { ReplaceOfficeWorkingCalendarDto } from './dto/work-sla.dto';
 import { WorkTypeV3Service } from './work-type-v3.service';
+import { WorkSlaService } from './work-sla.service';
 
 @Controller('work-types/offices/:officeId')
 @UseGuards(AccessTokenGuard)
 export class WorkTypeV3Controller {
-  constructor(private readonly workTypeService: WorkTypeV3Service) {}
+  constructor(
+    private readonly workTypeService: WorkTypeV3Service,
+    private readonly workSlaService: WorkSlaService,
+  ) {}
+
+  @Get('working-calendar')
+  getWorkingCalendar(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('officeId', new ParseUUIDPipe({ version: '4' })) officeId: string,
+  ) {
+    return this.workSlaService.getOfficeWorkingCalendar(user, officeId);
+  }
+
+  @Put('working-calendar')
+  replaceWorkingCalendar(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('officeId', new ParseUUIDPipe({ version: '4' })) officeId: string,
+    @Body() dto: ReplaceOfficeWorkingCalendarDto,
+  ) {
+    return this.workSlaService.replaceOfficeWorkingCalendar(
+      user,
+      officeId,
+      dto,
+    );
+  }
 
   @Get('actions')
   getActions(
@@ -40,6 +67,16 @@ export class WorkTypeV3Controller {
     officeId: string,
   ) {
     return this.workTypeService.getConfigurationContext(user, officeId);
+  }
+
+  @Post()
+  createDefinition(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('officeId', new ParseUUIDPipe({ version: '4' }))
+    officeId: string,
+    @Body() dto: CreateWorkTypeDefinitionDto,
+  ) {
+    return this.workTypeService.createDefinition(user, officeId, dto);
   }
 
   @Get()
@@ -140,6 +177,48 @@ export class WorkTypeV3Controller {
       officeId,
       workTypeDefinitionId,
       versionId,
+    );
+  }
+
+  @Delete(':workTypeDefinitionId/permanent')
+  permanentlyDeleteDefinition(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('officeId', new ParseUUIDPipe({ version: '4' })) officeId: string,
+    @Param('workTypeDefinitionId', new ParseUUIDPipe({ version: '4' }))
+    workTypeDefinitionId: string,
+  ) {
+    return this.workTypeService.permanentlyDeleteDefinition(
+      user,
+      officeId,
+      workTypeDefinitionId,
+    );
+  }
+
+  @Delete(':workTypeDefinitionId')
+  removeDefinition(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('officeId', new ParseUUIDPipe({ version: '4' })) officeId: string,
+    @Param('workTypeDefinitionId', new ParseUUIDPipe({ version: '4' }))
+    workTypeDefinitionId: string,
+  ) {
+    return this.workTypeService.removeDefinition(
+      user,
+      officeId,
+      workTypeDefinitionId,
+    );
+  }
+
+  @Post(':workTypeDefinitionId/restore')
+  restoreDefinition(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('officeId', new ParseUUIDPipe({ version: '4' })) officeId: string,
+    @Param('workTypeDefinitionId', new ParseUUIDPipe({ version: '4' }))
+    workTypeDefinitionId: string,
+  ) {
+    return this.workTypeService.restoreDefinition(
+      user,
+      officeId,
+      workTypeDefinitionId,
     );
   }
 

@@ -37,14 +37,14 @@ export interface DirectoryOrganizationUnit {
   code: string;
   name: string;
   isActive: boolean;
+  typeCode?: "DIVISION" | "DEPARTMENT" | "SECTION" | "UNIT" | string;
+  typeName?: string;
 }
 
 
 export type DirectoryLeadershipType =
   | "OFFICE_HEAD"
-  | "ORG_UNIT_HEAD"
-  | "TEAM_LEAD"
-  | "DEPUTY";
+  | "ORG_UNIT_HEAD";
 
 export interface DirectoryLeadershipAssignment {
   id: string;
@@ -136,6 +136,8 @@ export interface DirectoryFilters {
     | DirectoryActivationStatus
     | null;
 
+  officeId: string | null;
+  orgUnitId: string | null;
 }
 
 export interface DirectoryPagination {
@@ -176,8 +178,67 @@ export interface DirectoryListQuery {
   activationStatus?:
     DirectoryActivationStatus;
 
+  officeId?: string;
+  orgUnitId?: string;
+
   page?: number;
   limit?: number;
+}
+
+export interface TransferDirectoryEmployeeOfficeInput {
+  targetOfficeId: string;
+  targetOrgUnitId: string;
+  reason: string;
+  effectiveAt?: string;
+}
+
+export interface TransferDirectoryEmployeeOfficeResponse {
+  message: string;
+  employee: {
+    id: string;
+    empId: string;
+    empName: string;
+    status: DirectoryEmployeeStatus;
+    employmentStatus: DirectoryEmploymentStatus;
+  };
+  transfer: {
+    sourceOffice: DirectoryOrganizationUnit;
+    sourceOrgUnit: DirectoryOrganizationUnit | null;
+    targetOffice: DirectoryOrganizationUnit;
+    targetOrgUnit: DirectoryOrganizationUnit;
+    effectiveAt: string;
+  };
+  revokedSessions: number;
+}
+
+export type OfficeHeadTransferMode = "EMPLOYEE" | "OFFICE_HEAD";
+
+export interface TransferOfficeHeadInput {
+  targetOfficeId: string;
+  targetOrgUnitId?: string;
+  replacementEmployeeId: string;
+  transferAs: OfficeHeadTransferMode;
+  reason: string;
+  effectiveAt?: string;
+}
+
+export interface TransferOfficeHeadResponse {
+  message: string;
+  employee: {
+    id: string;
+    empId: string;
+    empName: string;
+    status: DirectoryEmployeeStatus;
+    employmentStatus: DirectoryEmploymentStatus;
+  };
+  transfer: {
+    sourceOffice: DirectoryOrganizationUnit;
+    sourceOrgUnit: DirectoryOrganizationUnit | null;
+    targetOffice: DirectoryOrganizationUnit;
+    targetOrgUnit: DirectoryOrganizationUnit | null;
+    effectiveAt: string;
+  };
+  revokedSessions: number;
 }
 export interface UpdateDirectoryEmployeeStatusResponse {
   message: string;
@@ -198,7 +259,7 @@ export interface EndDirectoryEmployeeEmploymentInput {
   employmentStatus:
     Exclude<
       DirectoryEmploymentStatus,
-      "ACTIVE"
+      "ACTIVE" | "TRANSFERRED"
     >;
 
   reason: string;

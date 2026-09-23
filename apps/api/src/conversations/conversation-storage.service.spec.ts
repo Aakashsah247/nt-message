@@ -75,23 +75,23 @@ describe('ConversationStorageService M18 acceptance', () => {
     conversations?: typeof conversationRows;
     largestFiles?: typeof largestFileRows;
   }): void {
-    jest
-      .mocked(prisma.$queryRawUnsafe)
-      .mockImplementation(async (query: string) => {
-        if (query.includes('GROUP BY ma."content_type"')) {
-          return input?.categories ?? categoryRows;
-        }
+    jest.mocked(prisma.$queryRawUnsafe).mockImplementation((async (
+      query: string,
+    ) => {
+      if (query.includes('GROUP BY ma."content_type"')) {
+        return input?.categories ?? categoryRows;
+      }
 
-        if (query.includes('GROUP BY c."id"')) {
-          return input?.conversations ?? conversationRows;
-        }
+      if (query.includes('GROUP BY c."id"')) {
+        return input?.conversations ?? conversationRows;
+      }
 
-        if (query.includes('ORDER BY ma."file_size_bytes" DESC')) {
-          return input?.largestFiles ?? largestFileRows;
-        }
+      if (query.includes('ORDER BY ma."file_size_bytes" DESC')) {
+        return input?.largestFiles ?? largestFileRows;
+      }
 
-        return [];
-      });
+      return [];
+    }) as never);
   }
 
   beforeEach(() => {
@@ -267,21 +267,21 @@ describe('ConversationStorageService M18 acceptance', () => {
 
   it('recalculates Delete for me totals by excluding viewer-hidden messages', async () => {
     let deletedForViewer = false;
-    jest
-      .mocked(prisma.$queryRawUnsafe)
-      .mockImplementation(async (query: string) => {
-        if (query.includes('GROUP BY ma."content_type"')) {
-          return [
-            {
-              contentType: 'IMAGE',
-              logicalBytes: deletedForViewer ? 10 : 20,
-              itemCount: deletedForViewer ? 1 : 2,
-            },
-          ];
-        }
+    jest.mocked(prisma.$queryRawUnsafe).mockImplementation((async (
+      query: string,
+    ) => {
+      if (query.includes('GROUP BY ma."content_type"')) {
+        return [
+          {
+            contentType: 'IMAGE',
+            logicalBytes: deletedForViewer ? 10 : 20,
+            itemCount: deletedForViewer ? 1 : 2,
+          },
+        ];
+      }
 
-        return [];
-      });
+      return [];
+    }) as never);
 
     const before = await service.getUserStorageUsage(user as never, 30);
     deletedForViewer = true;
@@ -301,7 +301,6 @@ describe('ConversationStorageService M18 acceptance', () => {
   it('recalculates Clear Chat totals using the participant history boundary', async () => {
     configureStorageQueries({
       categories: [],
-      objects: [],
       conversations: [],
       largestFiles: [],
     });
@@ -556,11 +555,15 @@ describe('ConversationStorageService M18 acceptance', () => {
       ),
     } as unknown as PrismaService;
     const cleanupService = new ConversationStorageService(cleanupPrisma);
-    jest
-      .spyOn(
-        (cleanupService as unknown as { logger: { error(): void } }).logger,
-        'error',
-      )
+    const attachmentStorage = (
+      cleanupService as unknown as {
+        attachmentStorageService: {
+          logger: { error: (...args: unknown[]) => void };
+        };
+      }
+    ).attachmentStorageService;
+    const storageErrorLog = jest
+      .spyOn(attachmentStorage.logger, 'error')
       .mockImplementation(() => undefined);
 
     try {
@@ -574,8 +577,10 @@ describe('ConversationStorageService M18 acceptance', () => {
         failedObjectCount: 1,
       });
       expect(outerUpdateMany).not.toHaveBeenCalled();
+      expect(storageErrorLog).toHaveBeenCalled();
     } finally {
       unlink.mockRestore();
+      storageErrorLog.mockRestore();
     }
   });
 });

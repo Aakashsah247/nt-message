@@ -11,6 +11,10 @@ import type {
   EndDirectoryEmployeeEmploymentInput,
   EndDirectoryEmployeeEmploymentResponse,
   UpdateDirectoryEmployeeStatusResponse,
+  TransferDirectoryEmployeeOfficeInput,
+  TransferDirectoryEmployeeOfficeResponse,
+  TransferOfficeHeadInput,
+  TransferOfficeHeadResponse,
 } from "../types/directory";
 
 function createAuthorizationHeaders(
@@ -75,6 +79,14 @@ function createDirectoryQuery(
     );
   }
 
+  if (query.officeId) {
+    searchParams.set("officeId", query.officeId);
+  }
+
+  if (query.orgUnitId) {
+    searchParams.set("orgUnitId", query.orgUnitId);
+  }
+
   searchParams.set(
     "page",
     String(query.page ?? 1),
@@ -120,6 +132,36 @@ export function getDirectoryEmployee(
     },
   );
 }
+export function transferDirectoryEmployeeOffice(
+  accessToken: string,
+  employeeId: string,
+  input: TransferDirectoryEmployeeOfficeInput,
+): Promise<TransferDirectoryEmployeeOfficeResponse> {
+  return apiRequest<TransferDirectoryEmployeeOfficeResponse>(
+    `/admin/employees/${employeeId}/office-transfer`,
+    {
+      method: "PATCH",
+      headers: createAuthorizationHeaders(accessToken),
+      body: JSON.stringify(input),
+    },
+  );
+}
+
+export function transferOfficeHead(
+  accessToken: string,
+  employeeId: string,
+  input: TransferOfficeHeadInput,
+): Promise<TransferOfficeHeadResponse> {
+  return apiRequest<TransferOfficeHeadResponse>(
+    `/admin/employees/${employeeId}/office-head-transfer`,
+    {
+      method: "PATCH",
+      headers: createAuthorizationHeaders(accessToken),
+      body: JSON.stringify(input),
+    },
+  );
+}
+
 export function updateDirectoryEmployeeStatus(
   accessToken: string,
   employeeId: string,
@@ -203,3 +245,9 @@ export function getDirectoryEmployeeLifecycleHistory(
     },
   );
 }
+
+export function listAdminEmployees(accessToken: string, search = '', page = 1, limit = 20) { const q = new URLSearchParams({ page: String(page), limit: String(limit) }); if (search.trim()) q.set('search', search.trim()); return apiRequest(`/admin/employees?${q.toString()}`, { headers: createAuthorizationHeaders(accessToken) }); }
+export function getAdminEmployee(accessToken: string, employeeId: string) { return apiRequest(`/admin/employees/${employeeId}`, { headers: createAuthorizationHeaders(accessToken) }); }
+export function correctAdminEmployeeIdentity(accessToken: string, employeeId: string, input: { empId?: string; empName?: string; phoneNumber?: string; officialEmail?: string; reason: string }) { return apiRequest(`/admin/employees/${employeeId}/identity`, { method: 'PATCH', headers: createAuthorizationHeaders(accessToken), body: JSON.stringify(input) }); }
+export function updateAdminEmployeeDesignation(accessToken: string, employeeId: string, designation: string) { return apiRequest(`/admin/employees/${employeeId}`, { method: 'PATCH', headers: createAuthorizationHeaders(accessToken), body: JSON.stringify({ designation }) }); }
+export function getAdminEmployeeIdentityHistory(accessToken: string, employeeId: string) { return apiRequest(`/admin/employees/${employeeId}/identity-corrections`, { headers: createAuthorizationHeaders(accessToken) }); }

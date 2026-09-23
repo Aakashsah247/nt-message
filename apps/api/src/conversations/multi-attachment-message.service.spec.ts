@@ -203,7 +203,14 @@ describe('ConversationsService multi-attachment messages', () => {
       expect.objectContaining({
         data: expect.objectContaining({
           contentType: 'FILE',
-          textContent: 'Field evidence',
+          textContent: expect.not.stringMatching(/Field evidence/),
+          textSecurityVersion: 1,
+          textEncryptionKeyVersion: 1,
+          textEncryptionIv: expect.any(String),
+          textEncryptionTag: expect.any(String),
+          textSignatureKeyVersion: 1,
+          textSignature: expect.any(String),
+          textSearchTokens: expect.any(Array),
           payload: {
             attachmentCount: 3,
           },

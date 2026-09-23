@@ -10,6 +10,7 @@ import {
   deleteDutyShiftTemplate,
   createBulkDutySchedule,
   cancelDutyHoliday,
+  createDutyCoverageRequirement,
   createDutyHoliday,
   createDutyLeave,
   createDutyShiftTemplate,
@@ -18,10 +19,12 @@ import {
   getDutyManagementSummary,
   getDutyRoster,
   listDutyAssignments,
+  listDutyCoverageRequirements,
   listDutyShiftTemplates,
   listDutySupervisorOptions,
   previewBulkDutySchedule,
   updateDutyAssignment,
+  updateDutyCoverageRequirement,
   updateDutyShiftTemplate,
   updateDutyWeeklyOff,
 } from "../services/work-management.service";
@@ -32,6 +35,7 @@ import type {
   DutyAuthorizationContext,
   DutyAssignmentListView,
   DutyCalendarResponse,
+  DutyCoverageRequirement,
   DutyHolidayScope,
   DutyHolidayType,
   DutyManagementSummary,
@@ -59,7 +63,8 @@ type DutyView =
   | "PEOPLE"
   | "WEEKLY"
   | "ASSIGNMENTS"
-  | "HISTORY";
+  | "HISTORY"
+  | "COVERAGE";
 type DutyDialog =
   | "SHIFTS"
   | "SHIFT_DELETE"
@@ -216,12 +221,13 @@ export function ManagementDutyPage() {
   const [summary, setSummary] = useState<DutyManagementSummary | null>(null);
   const [accessContext, setAccessContext] = useState<DutyAuthorizationContext | null>(null);
   const canAssignDuty = accessContext?.canAssign ?? false;
-  const canCreateDuty = accessContext?.canCreate ?? false;
   const canManageDuty = accessContext?.canManage ?? false;
+  const canManageOfficeConfiguration = accessContext?.canManageOfficeConfiguration ?? false;
   const readOnlyOversight = accessContext?.readOnlyOversight ?? false;
   const [roster, setRoster] = useState<DutyRosterResponse | null>(null);
   const [templates, setTemplates] = useState<DutyShiftTemplate[]>([]);
   const [assignmentTemplates, setAssignmentTemplates] = useState<DutyShiftTemplate[]>([]);
+  const [coverageRequirements, setCoverageRequirements] = useState<DutyCoverageRequirement[]>([]);
   const [calendar, setCalendar] = useState<DutyCalendarResponse | null>(null);
   const [history, setHistory] = useState<DutyAssignment[]>([]);
   const [historyTotal, setHistoryTotal] = useState(0);
@@ -241,7 +247,10 @@ export function ManagementDutyPage() {
   const weekTo = addDays(weekFrom, 6);
   const [orgUnitId, setOrgUnitId] = useState("");
   const [operationalTeamId, setOperationalTeamId] = useState("");
+  const [assignmentOrgUnitId, setAssignmentOrgUnitId] = useState("");
+  const [assignmentOperationalTeamId, setAssignmentOperationalTeamId] = useState("");
   const [peopleSearch, setPeopleSearch] = useState("");
+  const [peopleSearchDebounced, setPeopleSearchDebounced] = useState("");
   const [historyFrom, setHistoryFrom] = useState(today);
   const [historyTo, setHistoryTo] = useState(addDays(today, 30));
   const [historyPage, setHistoryPage] = useState(1);
@@ -256,6 +265,7 @@ export function ManagementDutyPage() {
   const [preview, setPreview] = useState<BulkDutyPreviewResponse | null>(null);
   const dialogPanelRef = useRef<HTMLFormElement>(null);
   const busyRef = useRef(busy);
+  const hasLoadedRef = useRef(false);
 
   const [shiftForm, setShiftForm] = useState({
     name: "",
@@ -271,7 +281,7 @@ export function ManagementDutyPage() {
     startDate: today,
     endDate: today,
     weekdays: [0, 1, 2, 3, 4] as number[],
-    reportingLocation: "Patan Branch",
+    reportingLocation: "",
     notes: "",
     createValidAssignmentsOnly: false,
   });
@@ -281,6 +291,11 @@ export function ManagementDutyPage() {
     endDate: today,
     note: "",
   });
+  const [leaveOrgUnitId, setLeaveOrgUnitId] = useState("");
+  const [leaveOperationalTeamId, setLeaveOperationalTeamId] = useState("");
+  const [leaveSearch, setLeaveSearch] = useState("");
+  const [leaveCandidates, setLeaveCandidates] = useState<DutyRosterPerson[]>([]);
+  const [leaveCandidatesLoading, setLeaveCandidatesLoading] = useState(false);
   const [holidayForm, setHolidayForm] = useState({
     name: "",
     type: "GOVERNMENT" as DutyHolidayType,
@@ -289,6 +304,15 @@ export function ManagementDutyPage() {
     scope: "OFFICE" as DutyHolidayScope,
     orgUnitId: "",
     note: "",
+  });
+  const [coverageForm, setCoverageForm] = useState({
+    orgUnitId: "",
+    shiftTemplateId: "",
+    dayOfWeek: 0,
+    requiredStaff: 1,
+    reportingLocation: "",
+    effectiveFrom: today,
+    effectiveUntil: "",
   });
   const [weeklyOffDays, setWeeklyOffDays] = useState<number[]>([]);
   const [editForm, setEditForm] = useState({
@@ -329,11 +353,16 @@ export function ManagementDutyPage() {
 
   const loadData = useCallback(async () => {
     if (!accessToken) return;
-    setLoading(true);
+    const initialLoad = !hasLoadedRef.current;
+    if (initialLoad) setLoading(true);
     setError("");
     try {
-      const [accessResponse, summaryResponse, templateResponse, calendarResponse, rosterResponse, historyResponse, optionResponse] = await Promise.all([
-        getDutyManagementAccessContext(accessToken),
+      // Load authority first so one secondary data request can never make an authorized
+      // manager look read-only or hide Assign Duty / Shifts / Leave controls.
+      const accessResponse = await getDutyManagementAccessContext(accessToken);
+      setAccessContext(accessResponse);
+
+      const [summaryResponse, templateResponse, calendarResponse, rosterResponse, optionResponse] = await Promise.all([
         getDutyManagementSummary(accessToken),
         listDutyShiftTemplates(accessToken),
         getDutyCalendar(accessToken, { from: today, to: addDays(today, 365) }),
@@ -342,47 +371,64 @@ export function ManagementDutyPage() {
           to: weekTo,
           orgUnitId: orgUnitId || undefined,
           operationalTeamId: operationalTeamId || undefined,
-          search: peopleSearch || undefined,
-        }),
-        listDutyAssignments(accessToken, {
-          from: historyFrom,
-          to: historyTo,
-          orgUnitId: orgUnitId || undefined,
-          page: historyPage,
-          limit: 25,
-          view: activeAssignmentListView ?? "ALL",
-          includeCancelled: view === "HISTORY",
+          search: peopleSearchDebounced || undefined,
         }),
         listDutySupervisorOptions(accessToken),
       ]);
-      setAccessContext(accessResponse);
       setSummary(summaryResponse);
       setTemplates(templateResponse.data);
       setCalendar(calendarResponse);
       setWeeklyOffDays(calendarResponse.weeklyOffDays);
       setRoster(rosterResponse);
-      setHistory(historyResponse.data);
-      setHistoryTotal(historyResponse.pagination.total);
       setManagers(optionResponse.data);
     } catch (loadError) {
       setError(errorMessage(loadError));
     } finally {
-      setLoading(false);
+      if (initialLoad) {
+        hasLoadedRef.current = true;
+        setLoading(false);
+      }
     }
-  }, [accessToken, activeAssignmentListView, historyFrom, historyPage, historyTo, operationalTeamId, orgUnitId, peopleSearch, view, weekFrom, weekTo]);
+  }, [accessToken, operationalTeamId, orgUnitId, peopleSearchDebounced, weekFrom, weekTo]);
+
+  const loadHistory = useCallback(async () => {
+    if (!accessToken || (view !== "ASSIGNMENTS" && view !== "HISTORY")) return;
+    try {
+      const response = await listDutyAssignments(accessToken, {
+        from: historyFrom,
+        to: historyTo,
+        orgUnitId: orgUnitId || undefined,
+        page: historyPage,
+        limit: 25,
+        view: activeAssignmentListView ?? "ALL",
+        includeCancelled: view === "HISTORY",
+      });
+      setHistory(response.data);
+      setHistoryTotal(response.pagination.total);
+    } catch (loadError) {
+      setError(errorMessage(loadError));
+    }
+  }, [accessToken, activeAssignmentListView, historyFrom, historyPage, historyTo, orgUnitId, view]);
 
   useEffect(() => {
     let active = true;
     queueMicrotask(() => {
-      if (active) {
-        void loadData();
-      }
+      if (active) void loadData();
     });
-
     return () => {
       active = false;
     };
   }, [loadData, refreshKey]);
+
+  useEffect(() => {
+    let active = true;
+    queueMicrotask(() => {
+      if (active) void loadHistory();
+    });
+    return () => {
+      active = false;
+    };
+  }, [loadHistory, refreshKey]);
 
   useEffect(() => {
     if (view === "ASSIGNMENTS" || view === "HISTORY") {
@@ -445,20 +491,124 @@ export function ManagementDutyPage() {
   }, [dialog]);
 
   const people = useMemo(() => roster?.people ?? [], [roster?.people]);
-  const orgUnits = accessContext?.orgUnits ?? [];
-  const operationalTeams = useMemo(
-    () => (accessContext?.operationalTeams ?? []).filter((team) => !orgUnitId || team.orgUnitId === orgUnitId),
-    [accessContext?.operationalTeams, orgUnitId],
+  const orgUnits = useMemo(
+    () => accessContext?.orgUnits ?? [],
+    [accessContext?.orgUnits],
   );
-  const assignmentScopeReady = Boolean(
-    orgUnitId || accessContext?.primaryOrgUnitId || operationalTeamId,
-  );
+  const assignableOrgUnits = useMemo(() => {
+    const allowed = new Set(accessContext?.assignableOrgUnitIds ?? []);
+    return orgUnits.filter((unit) => allowed.has(unit.id));
+  }, [accessContext?.assignableOrgUnitIds, orgUnits]);
+  const manageableOrgUnits = useMemo(() => {
+    const allowed = new Set(accessContext?.manageableOrgUnitIds ?? []);
+    return orgUnits.filter((unit) => allowed.has(unit.id));
+  }, [accessContext?.manageableOrgUnitIds, orgUnits]);
+  const descendantOrgUnitIds = useCallback((rootOrgUnitId: string) => {
+    const ids = new Set<string>([rootOrgUnitId]);
+    let changed = true;
+    while (changed) {
+      changed = false;
+      for (const unit of orgUnits) {
+        if (unit.parentOrgUnitId && ids.has(unit.parentOrgUnitId) && !ids.has(unit.id)) {
+          ids.add(unit.id);
+          changed = true;
+        }
+      }
+    }
+    return ids;
+  }, [orgUnits]);
+  const orgUnitLabel = useCallback((orgUnitId: string) => {
+    const byId = new Map(orgUnits.map((unit) => [unit.id, unit]));
+    const parts: string[] = [];
+    const seen = new Set<string>();
+    let current = byId.get(orgUnitId);
+    while (current && !seen.has(current.id)) {
+      seen.add(current.id);
+      parts.unshift(current.name);
+      current = current.parentOrgUnitId ? byId.get(current.parentOrgUnitId) : undefined;
+    }
+    return parts.join(" › ");
+  }, [orgUnits]);
+
+  const operationalTeams = useMemo(() => {
+    if (!orgUnitId) return accessContext?.operationalTeams ?? [];
+    const allowed = descendantOrgUnitIds(orgUnitId);
+    return (accessContext?.operationalTeams ?? []).filter((team) => allowed.has(team.orgUnitId));
+  }, [accessContext?.operationalTeams, descendantOrgUnitIds, orgUnitId]);
+  const assignmentTeams = useMemo(() => {
+    if (!assignmentOrgUnitId) return [];
+    const allowed = descendantOrgUnitIds(assignmentOrgUnitId);
+    return (accessContext?.operationalTeams ?? []).filter((team) => allowed.has(team.orgUnitId));
+  }, [accessContext?.operationalTeams, assignmentOrgUnitId, descendantOrgUnitIds]);
+  const leaveTeams = useMemo(() => {
+    if (!leaveOrgUnitId) return [];
+    const allowed = descendantOrgUnitIds(leaveOrgUnitId);
+    return (accessContext?.operationalTeams ?? []).filter((team) => allowed.has(team.orgUnitId));
+  }, [accessContext?.operationalTeams, descendantOrgUnitIds, leaveOrgUnitId]);
+  const coverageShiftOptions = useMemo(() => {
+    if (!coverageForm.orgUnitId) return templates.filter((template) => template.isActive && template.scope === "OFFICE");
+    return templates.filter((template) => {
+      if (!template.isActive) return false;
+      if (!template.orgUnitId) return true;
+      return descendantOrgUnitIds(template.orgUnitId).has(coverageForm.orgUnitId);
+    });
+  }, [coverageForm.orgUnitId, descendantOrgUnitIds, templates]);
+  const editShiftOptions = useMemo(() => {
+    const assignmentOrgUnitId = selectedAssignment?.orgUnit?.id;
+    return templates.filter((template) => {
+      if (!template.isActive) return false;
+      if (!template.orgUnitId) return true;
+      if (!assignmentOrgUnitId) return false;
+      return descendantOrgUnitIds(template.orgUnitId).has(assignmentOrgUnitId);
+    });
+  }, [descendantOrgUnitIds, selectedAssignment?.orgUnit?.id, templates]);
+  const assignmentScopeReady = Boolean(assignmentOrgUnitId);
   const currentManagerName = account?.displayName || account?.username || roleLabel(account?.role ?? "MANAGER");
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => setPeopleSearchDebounced(peopleSearch.trim()), 250);
+    return () => window.clearTimeout(timer);
+  }, [peopleSearch]);
 
   useEffect(() => {
     const timer = window.setTimeout(() => setAssignmentSearchDebounced(assignmentSearch.trim()), 250);
     return () => window.clearTimeout(timer);
   }, [assignmentSearch]);
+
+  useEffect(() => {
+    let cancelled = false;
+    if (!accessToken || dialog !== "LEAVE" || !leaveOrgUnitId) {
+      queueMicrotask(() => {
+        if (!cancelled) {
+          setLeaveCandidates([]);
+          setLeaveCandidatesLoading(false);
+        }
+      });
+      return () => { cancelled = true; };
+    }
+    queueMicrotask(() => { if (!cancelled) setLeaveCandidatesLoading(true); });
+    const timer = window.setTimeout(() => {
+      void getDutyRoster(accessToken, {
+        from: leaveForm.startDate,
+        to: leaveForm.startDate,
+        orgUnitId: leaveOrgUnitId,
+        operationalTeamId: leaveOperationalTeamId || undefined,
+        search: leaveSearch.trim() || undefined,
+        limit: 40,
+      }).then((response) => {
+        if (!cancelled) setLeaveCandidates(response.people);
+      }).catch((leaveError) => {
+        if (!cancelled) {
+          setLeaveCandidates([]);
+          setError(errorMessage(leaveError));
+        }
+      }).finally(() => { if (!cancelled) setLeaveCandidatesLoading(false); });
+    }, 250);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
+  }, [accessToken, dialog, leaveForm.startDate, leaveOperationalTeamId, leaveOrgUnitId, leaveSearch]);
 
   useEffect(() => {
     let cancelled = false;
@@ -490,8 +640,8 @@ export function ManagementDutyPage() {
     void getDutyRoster(accessToken, {
       from: scheduleForm.startDate,
       to: scheduleForm.startDate,
-      orgUnitId: orgUnitId || accessContext?.primaryOrgUnitId || undefined,
-      operationalTeamId: operationalTeamId || undefined,
+      orgUnitId: assignmentOrgUnitId || undefined,
+      operationalTeamId: assignmentOperationalTeamId || undefined,
       search: assignmentSearchDebounced || undefined,
       limit: 40,
     })
@@ -513,12 +663,11 @@ export function ManagementDutyPage() {
     };
   }, [
     accessToken,
-    accessContext?.primaryOrgUnitId,
+    assignmentOperationalTeamId,
+    assignmentOrgUnitId,
     assignmentScopeReady,
     assignmentSearchDebounced,
     dialog,
-    operationalTeamId,
-    orgUnitId,
     scheduleForm.startDate,
   ]);
 
@@ -540,8 +689,8 @@ export function ManagementDutyPage() {
       };
     }
 
-    void listDutyShiftTemplates(accessToken, orgUnitId
-      ? { targetScope: "ORG_UNIT", orgUnitId }
+    void listDutyShiftTemplates(accessToken, assignmentOrgUnitId
+      ? { targetScope: "ORG_UNIT", orgUnitId: assignmentOrgUnitId }
       : {}).then((response) => {
       if (cancelled) return;
       const active = response.data.filter((template) => template.isActive);
@@ -559,7 +708,16 @@ export function ManagementDutyPage() {
       }
     });
     return () => { cancelled = true; };
-  }, [accessToken, dialog, orgUnitId, selectedStaff]);
+  }, [accessToken, assignmentOrgUnitId, dialog, selectedStaff]);
+
+  useEffect(() => {
+    let cancelled = false;
+    if (!accessToken || view !== "COVERAGE" || !canManageDuty) return;
+    void listDutyCoverageRequirements(accessToken, orgUnitId ? { orgUnitId } : {})
+      .then((response) => { if (!cancelled) setCoverageRequirements(response.items); })
+      .catch((coverageError) => { if (!cancelled) setError(errorMessage(coverageError)); });
+    return () => { cancelled = true; };
+  }, [accessToken, canManageDuty, orgUnitId, refreshKey, view]);
 
   useEffect(() => {
     // Roster selections follow the visible list, but the Assign Duty picker owns its own scoped selection.
@@ -574,8 +732,8 @@ export function ManagementDutyPage() {
   }, [dialog, people]);
   const schedulePayload = useCallback((): BulkDutyScheduleInput => ({
     employeeAccountIds: selectedIds,
-    orgUnitId: orgUnitId || accessContext?.primaryOrgUnitId || undefined,
-    operationalTeamId: operationalTeamId || undefined,
+    orgUnitId: assignmentOrgUnitId || undefined,
+    operationalTeamId: assignmentOperationalTeamId || undefined,
     shiftTemplateId: scheduleForm.shiftTemplateId,
     supervisorAccountId: scheduleForm.supervisorAccountId || undefined,
     recurrenceType: scheduleForm.recurrenceType,
@@ -585,7 +743,7 @@ export function ManagementDutyPage() {
     reportingLocation: scheduleForm.reportingLocation,
     notes: scheduleForm.notes || undefined,
     createValidAssignmentsOnly: scheduleForm.createValidAssignmentsOnly,
-  }), [accessContext?.primaryOrgUnitId, operationalTeamId, orgUnitId, scheduleForm, selectedIds]);
+  }), [assignmentOperationalTeamId, assignmentOrgUnitId, scheduleForm, selectedIds]);
 
   function openSchedule(ids: string[]) {
     const preselectedPeople = people.filter((person) => ids.includes(person.account.id));
@@ -597,11 +755,15 @@ export function ManagementDutyPage() {
     setAssignmentCandidates([]);
     setAssignmentCandidatesError("");
     setPreview(null);
+    const initialOrgUnitId = orgUnitId || (assignableOrgUnits.length === 1 ? assignableOrgUnits[0].id : "");
+    setAssignmentOrgUnitId(initialOrgUnitId);
+    setAssignmentOperationalTeamId(initialOrgUnitId && operationalTeamId ? operationalTeamId : "");
     // Each assignment starts from the current manager as the supervisor.
     setScheduleForm((current) => ({
       ...current,
       supervisorAccountId: "",
       shiftTemplateId: "",
+      reportingLocation: current.reportingLocation || accessContext?.office?.name || "",
       createValidAssignmentsOnly: false,
     }));
     setDialog("SCHEDULE");
@@ -649,7 +811,7 @@ export function ManagementDutyPage() {
       name: "",
       startTime: "09:00",
       endTime: "18:00",
-      scope: "OFFICE",
+      scope: canManageOfficeConfiguration ? "OFFICE" : "ORG_UNIT",
       orgUnitId: accessContext?.primaryOrgUnitId ?? "",
     });
     setDialog("SHIFTS");
@@ -688,7 +850,7 @@ export function ManagementDutyPage() {
       setSelectedTemplate(null);
       setShiftForm({
         name: "", startTime: "09:00", endTime: "18:00",
-        scope: "OFFICE",
+        scope: canManageOfficeConfiguration ? "OFFICE" : "ORG_UNIT",
         orgUnitId: accessContext?.primaryOrgUnitId ?? "",
       });
       setRefreshKey((value) => value + 1);
@@ -717,6 +879,16 @@ export function ManagementDutyPage() {
     }
   }
 
+  function openLeave() {
+    const initialOrgUnitId = orgUnitId || (assignableOrgUnits.length === 1 ? assignableOrgUnits[0].id : "");
+    setLeaveOrgUnitId(initialOrgUnitId);
+    setLeaveOperationalTeamId(initialOrgUnitId && operationalTeamId ? operationalTeamId : "");
+    setLeaveSearch("");
+    setLeaveCandidates([]);
+    setLeaveForm((current) => ({ ...current, employeeAccountId: "" }));
+    setDialog("LEAVE");
+  }
+
   async function submitLeave(event: FormEvent) {
     event.preventDefault();
     if (!accessToken) return;
@@ -733,6 +905,17 @@ export function ManagementDutyPage() {
     } finally {
       setBusy("");
     }
+  }
+
+  function openHolidayCalendar() {
+    setHolidayForm((current) => ({
+      ...current,
+      scope: canManageOfficeConfiguration ? current.scope : "ORG_UNIT",
+      orgUnitId: canManageOfficeConfiguration
+        ? current.orgUnitId
+        : (current.orgUnitId || accessContext?.primaryOrgUnitId || ""),
+    }));
+    setDialog("HOLIDAYS");
   }
 
   async function submitHoliday(event: FormEvent) {
@@ -755,7 +938,7 @@ export function ManagementDutyPage() {
         type: "GOVERNMENT",
         startDate: today,
         endDate: today,
-        scope: "OFFICE",
+        scope: canManageOfficeConfiguration ? "OFFICE" : "ORG_UNIT",
         orgUnitId: accessContext?.primaryOrgUnitId ?? "",
         note: "",
       });
@@ -767,7 +950,7 @@ export function ManagementDutyPage() {
   }
 
   async function saveWeeklyOff() {
-    if (!accessToken || !canManageDuty) return;
+    if (!accessToken || !canManageOfficeConfiguration) return;
     setBusy("weekly-off");
     setError("");
     try {
@@ -833,6 +1016,46 @@ export function ManagementDutyPage() {
     } finally { setBusy(""); }
   }
 
+  async function submitCoverageRequirement(event: FormEvent) {
+    event.preventDefault();
+    if (!accessToken || !canManageDuty || !coverageForm.orgUnitId || !coverageForm.shiftTemplateId) return;
+    setBusy("coverage");
+    setError("");
+    try {
+      await createDutyCoverageRequirement(accessToken, {
+        orgUnitId: coverageForm.orgUnitId,
+        shiftTemplateId: coverageForm.shiftTemplateId,
+        dayOfWeek: coverageForm.dayOfWeek,
+        requiredStaff: coverageForm.requiredStaff,
+        reportingLocation: coverageForm.reportingLocation.trim() || undefined,
+        effectiveFrom: coverageForm.effectiveFrom,
+        effectiveUntil: coverageForm.effectiveUntil || undefined,
+      });
+      setSuccess("Coverage requirement saved.");
+      setCoverageForm((current) => ({ ...current, shiftTemplateId: "", requiredStaff: 1, reportingLocation: "", effectiveUntil: "" }));
+      setRefreshKey((value) => value + 1);
+    } catch (coverageError) {
+      setError(errorMessage(coverageError));
+    } finally {
+      setBusy("");
+    }
+  }
+
+  async function endCoverageRequirement(requirement: DutyCoverageRequirement) {
+    if (!accessToken || !canManageDuty) return;
+    setBusy(`coverage-${requirement.id}`);
+    setError("");
+    try {
+      await updateDutyCoverageRequirement(accessToken, requirement.id, { effectiveUntil: today });
+      setSuccess("Coverage requirement ended.");
+      setRefreshKey((value) => value + 1);
+    } catch (coverageError) {
+      setError(errorMessage(coverageError));
+    } finally {
+      setBusy("");
+    }
+  }
+
   function changeView(nextView: DutyView) {
     setView(nextView);
     setHistoryPage(1);
@@ -848,6 +1071,7 @@ export function ManagementDutyPage() {
   function clearDutyFilters() {
     setWeekFrom(initialWeek);
     setPeopleSearch("");
+    setPeopleSearchDebounced("");
     setHistoryFrom(today);
     setHistoryTo(addDays(today, 30));
     setHistoryPage(1);
@@ -926,12 +1150,12 @@ export function ManagementDutyPage() {
               <DutyIcon name="settings" /> Shifts
             </button>
           )}
-          {(canCreateDuty || canAssignDuty) && (
-            <button type="button" onClick={() => setDialog("LEAVE")}>
+          {canAssignDuty && (
+            <button type="button" onClick={openLeave}>
               <DutyIcon name="leave" /> Leave
             </button>
           )}
-          <button type="button" onClick={() => setDialog("HOLIDAYS")}>
+          <button type="button" onClick={openHolidayCalendar}>
             <DutyIcon name="calendar" /> Holiday Calendar
           </button>
           <button
@@ -980,6 +1204,7 @@ export function ManagementDutyPage() {
             ["PEOPLE", "Staff"],
             ["ASSIGNMENTS", "Assignments"],
             ["HISTORY", "History"],
+            ...(canManageDuty ? [["COVERAGE", "Coverage"] as [DutyView, string]] : []),
           ] as Array<[DutyView, string]>).map(([value, label]) => (
             <button
               key={value}
@@ -1070,7 +1295,7 @@ export function ManagementDutyPage() {
                 <article key={person.account.id} className={selectedIds.includes(person.account.id) ? "is-selected" : ""}>
                   <input type="checkbox" aria-label={`Select ${accountName(person)}`} checked={selectedIds.includes(person.account.id)} onChange={(event) => setSelectedIds((current) => event.target.checked ? [...new Set([...current, person.account.id])] : current.filter((id) => id !== person.account.id))} />
                   <button type="button" className="management-duty-person" onClick={() => void openRoutine(person)}>
-                    <span><strong>{accountName(person)}</strong><small>{roleLabel(person.account.role)} · {person.account.employee?.designation || "NTC staff"}</small></span>
+                    <span><strong>{accountName(person)}</strong><small>{person.account.employee?.designation || "NTC staff"} · {person.account.employee?.empId || "Office user"}</small></span>
                     <span><small>Today</small><strong>{statusLabel(person.todayStatus)}</strong></span>
                     <span><small>This week</small><strong>{formatHours(person.totalScheduledMinutes)}</strong></span>
                     <span><small>Next duty</small><strong>{person.next ? formatDateTime(person.next.startsAt) : "Not scheduled"}</strong></span>
@@ -1093,7 +1318,7 @@ export function ManagementDutyPage() {
                 <tbody>
                   {people.map((person) => (
                     <tr key={person.account.id}>
-                      <th><button type="button" onClick={() => void openRoutine(person)}><strong>{accountName(person)}</strong><small>{person.account.employee?.designation || roleLabel(person.account.role)}</small></button></th>
+                      <th><button type="button" onClick={() => void openRoutine(person)}><strong>{accountName(person)}</strong><small>{person.account.employee?.designation || person.account.employee?.empId || "Office staff"}</small></button></th>
                       {roster?.period.days.map((date) => {
                         const assignment = assignmentFor(person, date);
                         const exception = exceptionFor(person, date);
@@ -1137,6 +1362,31 @@ export function ManagementDutyPage() {
           </section>
         )}
 
+        {view === "COVERAGE" && canManageDuty && (
+          <section className="management-duty-panel">
+            <header><div><span>Duty settings</span><h2>Coverage Requirements</h2><p>Set the minimum planned staffing for an Org Unit, shift and weekday. This is a planning target, not attendance.</p></div><strong>{coverageRequirements.length}</strong></header>
+            <form className="management-duty-dialog__grid" onSubmit={submitCoverageRequirement}>
+              <label><span>Org Unit</span><select required value={coverageForm.orgUnitId} onChange={(event) => setCoverageForm((current) => ({ ...current, orgUnitId: event.target.value, shiftTemplateId: "" }))}><option value="">Select manageable Org Unit</option>{manageableOrgUnits.map((unit) => <option key={unit.id} value={unit.id}>{orgUnitLabel(unit.id)}</option>)}</select></label>
+              <label><span>Shift</span><select required disabled={!coverageForm.orgUnitId} value={coverageForm.shiftTemplateId} onChange={(event) => setCoverageForm((current) => ({ ...current, shiftTemplateId: event.target.value }))}><option value="">Select applicable shift</option>{coverageShiftOptions.map((template) => <option key={template.id} value={template.id}>{template.name} · {template.startTime}–{template.endTime}</option>)}</select></label>
+              <label><span>Weekday</span><select value={coverageForm.dayOfWeek} onChange={(event) => setCoverageForm((current) => ({ ...current, dayOfWeek: Number(event.target.value) }))}>{WEEKDAYS.map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label>
+              <label><span>Required staff</span><input required min={1} max={500} type="number" value={coverageForm.requiredStaff} onChange={(event) => setCoverageForm((current) => ({ ...current, requiredStaff: Number(event.target.value) }))} /></label>
+              <label><span>Effective from</span><input required type="date" value={coverageForm.effectiveFrom} onChange={(event) => setCoverageForm((current) => ({ ...current, effectiveFrom: event.target.value }))} /></label>
+              <label><span>Effective until (optional)</span><input type="date" min={coverageForm.effectiveFrom} value={coverageForm.effectiveUntil} onChange={(event) => setCoverageForm((current) => ({ ...current, effectiveUntil: event.target.value }))} /></label>
+              <label className="wide"><span>Reporting location (optional)</span><input value={coverageForm.reportingLocation} onChange={(event) => setCoverageForm((current) => ({ ...current, reportingLocation: event.target.value }))} /></label>
+              <div className="wide"><button type="submit" className="is-primary" disabled={busy === "coverage"}>{busy === "coverage" ? "Saving…" : "Add Coverage Requirement"}</button></div>
+            </form>
+            <div className="management-duty-table-wrap">
+              <table>
+                <thead><tr><th>Org Unit</th><th>Shift</th><th>Day</th><th>Required</th><th>Location</th><th>Effective</th><th>Action</th></tr></thead>
+                <tbody>
+                  {coverageRequirements.map((requirement) => <tr key={requirement.id}><td>{requirement.orgUnit.name}</td><td>{requirement.shift.name}</td><td>{WEEKDAYS.find(([value]) => value === requirement.dayOfWeek)?.[1] ?? requirement.dayOfWeek}</td><td>{requirement.requiredStaff}</td><td>{requirement.reportingLocation || "—"}</td><td>{formatDate(requirement.effectiveFrom)}{requirement.effectiveUntil ? ` – ${formatDate(requirement.effectiveUntil)}` : " onward"}</td><td>{!requirement.effectiveUntil && <button type="button" className="is-danger" disabled={busy === `coverage-${requirement.id}`} onClick={() => void endCoverageRequirement(requirement)}>End</button>}</td></tr>)}
+                  {!coverageRequirements.length && <tr><td colSpan={7}>No coverage requirements are configured for this scope.</td></tr>}
+                </tbody>
+              </table>
+            </div>
+          </section>
+        )}
+
         {assignmentViews.has(view) && (
           <section className="management-duty-panel">
             <header>
@@ -1165,12 +1415,12 @@ export function ManagementDutyPage() {
                     const protectedOverride = false;
                     return (
                       <tr key={assignment.id}>
-                        <td><strong>{accountName(assignment.employee)}</strong><small>{roleLabel(assignment.employee.role)}</small></td>
+                        <td><strong>{accountName(assignment.employee)}</strong><small>{assignment.operationalTeam?.name || assignment.orgUnit?.name || assignment.employee.employee?.designation || "Office staff"}</small></td>
                         <td><strong>{formatDateTime(assignment.startsAt)}</strong><small>{assignment.shift.name} · {assignment.shift.startTime}–{assignment.shift.endTime}</small></td>
-                        <td><strong>{accountName(assignment.createdBy)}</strong><small>{roleLabel(assignment.createdBy.role)}</small></td>
+                        <td><strong>{accountName(assignment.createdBy)}</strong><small>{assignment.createdBy.employee?.designation || "Office user"}</small></td>
                         <td>{assignment.reportingLocation}</td>
                         <td>{accountName(assignment.supervisor)}</td>
-                        <td><span className={assignment.cancelledAt ? "is-cancelled" : "is-scheduled"}>{assignment.cancelledAt ? "Cancelled" : new Date(assignment.startsAt) <= new Date() && new Date(assignment.endsAt) > new Date() ? "On Duty" : "Scheduled"}</span></td>
+                        <td><span className={assignment.cancelledAt ? "is-cancelled" : "is-scheduled"}>{assignment.cancelledAt ? "Cancelled" : new Date(assignment.startsAt) <= new Date() && new Date(assignment.endsAt) > new Date() ? "On Duty" : new Date(assignment.endsAt) <= new Date() ? "Past Schedule" : "Scheduled"}</span></td>
                         {view === "ASSIGNMENTS" && canAssignDuty && (
                           <td>
                             <button type="button" disabled={Boolean(assignment.cancelledAt) || protectedOverride} title={protectedOverride ? "Only Super Admin can change this special assignment." : undefined} onClick={() => { setSelectedAssignment(assignment); setEditForm({ shiftTemplateId: assignment.shiftTemplateId ?? "", supervisorAccountId: assignment.supervisorAccountId, reportingLocation: assignment.reportingLocation, notes: assignment.notes || "" }); setDialog("EDIT"); }}>Change</button>
@@ -1205,7 +1455,7 @@ export function ManagementDutyPage() {
                       setSelectedTemplate(null);
                       setShiftForm({
                         name: "", startTime: "09:00", endTime: "18:00",
-                        scope: "OFFICE",
+                        scope: canManageOfficeConfiguration ? "OFFICE" : "ORG_UNIT",
                         orgUnitId: accessContext?.primaryOrgUnitId ?? "",
                       });
                     }}>New Shift</button>
@@ -1241,11 +1491,11 @@ export function ManagementDutyPage() {
                   {!selectedTemplate && (
                     <>
                       <label><span>Available for</span><select value={shiftForm.scope} onChange={(event) => { const scope = event.target.value as DutyShiftScope; setShiftForm((current) => ({ ...current, scope, orgUnitId: scope === "ORG_UNIT" ? current.orgUnitId : "" })); }}>
-                        <option value="OFFICE">Entire Office</option>
+                        {canManageOfficeConfiguration && <option value="OFFICE">Entire Office</option>}
                         <option value="ORG_UNIT">One Org Unit</option>
                       </select></label>
                       {shiftForm.scope === "ORG_UNIT" && (
-                        <label><span>Org Unit</span><select required value={shiftForm.orgUnitId} onChange={(event) => setShiftForm((current) => ({ ...current, orgUnitId: event.target.value }))}><option value="">Select Org Unit</option>{orgUnits.map((orgUnit) => <option key={orgUnit.id} value={orgUnit.id}>{orgUnit.name}</option>)}</select></label>
+                        <label><span>Org Unit</span><select required value={shiftForm.orgUnitId} onChange={(event) => setShiftForm((current) => ({ ...current, orgUnitId: event.target.value }))}><option value="">Select Org Unit</option>{manageableOrgUnits.map((orgUnit) => <option key={orgUnit.id} value={orgUnit.id}>{orgUnitLabel(orgUnit.id)}</option>)}</select></label>
                       )}
                     </>
                   )}
@@ -1272,11 +1522,32 @@ export function ManagementDutyPage() {
                   <div><strong>Choose staff</strong><small>Select the organization scope first, then choose one or more people.</small></div>
                 </div>
                 <div className="management-duty-assignment-scope">
-                  <div className="management-duty-assignment-scope__fixed">
-                    <span>Org Unit scope</span>
-                    <strong>{orgUnits.find((unit) => unit.id === (orgUnitId || accessContext?.primaryOrgUnitId))?.name || "Your authorized Org Unit scope"}</strong>
-                    <small>{operationalTeamId ? operationalTeams.find((team) => team.id === operationalTeamId)?.name || "Selected Operational Team" : "Org Unit and descendant members you are authorized to assign"}</small>
-                  </div>
+                  <label>
+                    <span>Org Unit</span>
+                    <select required value={assignmentOrgUnitId} onChange={(event) => {
+                      setAssignmentOrgUnitId(event.target.value);
+                      setAssignmentOperationalTeamId("");
+                      setSelectedIds([]);
+                      setSelectedStaff([]);
+                      setPreview(null);
+                    }}>
+                      <option value="">Select authorized Org Unit</option>
+                      {assignableOrgUnits.map((unit) => <option key={unit.id} value={unit.id}>{orgUnitLabel(unit.id)}</option>)}
+                    </select>
+                    <small>Includes members in this Org Unit and its descendants.</small>
+                  </label>
+                  <label>
+                    <span>Operational Team (optional)</span>
+                    <select disabled={!assignmentOrgUnitId} value={assignmentOperationalTeamId} onChange={(event) => {
+                      setAssignmentOperationalTeamId(event.target.value);
+                      setSelectedIds([]);
+                      setSelectedStaff([]);
+                      setPreview(null);
+                    }}>
+                      <option value="">All teams in selected subtree</option>
+                      {assignmentTeams.map((team) => <option key={team.id} value={team.id}>{team.name}</option>)}
+                    </select>
+                  </label>
                 </div>
 
                 <div className="management-duty-staff-picker management-duty-staff-picker--searchable">
@@ -1326,7 +1597,7 @@ export function ManagementDutyPage() {
                             }}
                           >
                             <span className="management-duty-staff-picker__avatar">{accountName(person).slice(0, 1).toUpperCase()}</span>
-                            <span><strong>{accountName(person)}</strong><small>{person.account.employee?.empId || roleLabel(person.account.role)}{person.account.employee?.designation ? ` · ${person.account.employee.designation}` : ""}</small></span>
+                            <span><strong>{accountName(person)}</strong><small>{person.account.employee?.empId || "Office user"}{person.account.employee?.designation ? ` · ${person.account.employee.designation}` : ""}</small></span>
                             <em>{selected ? "Selected" : "Add"}</em>
                           </button>
                         );
@@ -1351,7 +1622,7 @@ export function ManagementDutyPage() {
                   <div className="management-duty-assignment-supervisor">
                     <span>Supervisor</span>
                     <strong>{currentManagerName}</strong>
-                    <small>{roleLabel(account?.role ?? "MANAGER")} · automatic</small>
+                    <small>Eligible V3 Duty supervisor · automatic</small>
                   </div>
                   <label><span>Place</span><input required minLength={2} value={scheduleForm.reportingLocation} onChange={(event) => { setScheduleForm({ ...scheduleForm, reportingLocation: event.target.value }); setPreview(null); }} /></label>
                   {scheduleForm.recurrenceType === "WEEKLY" && <fieldset className="wide management-duty-weekday-fieldset"><legend>Repeat on</legend><div className="management-duty-weekday-shortcuts"><button type="button" onClick={() => { setScheduleForm((current) => ({ ...current, weekdays: WEEKDAYS.map(([value]) => value).filter((value) => !weeklyOffDays.includes(value)) })); setPreview(null); }}>Working days</button><button type="button" onClick={() => { setScheduleForm((current) => ({ ...current, weekdays: [0,1,2,3,4,5,6] })); setPreview(null); }}>All days</button><button type="button" onClick={() => { setScheduleForm((current) => ({ ...current, weekdays: [] })); setPreview(null); }}>Clear</button></div><div className="management-duty-weekdays">{WEEKDAYS.map(([value, label]) => { const active = scheduleForm.weekdays.includes(value); return <button key={value} type="button" aria-pressed={active} className={active ? "is-selected" : ""} onClick={() => { setScheduleForm((current) => ({ ...current, weekdays: active ? current.weekdays.filter((day) => day !== value) : [...current.weekdays, value].sort((a,b) => a-b) })); setPreview(null); }}><span>{label}</span><small>{active ? "Selected" : "Off"}</small></button>; })}</div></fieldset>}
@@ -1388,7 +1659,7 @@ export function ManagementDutyPage() {
                         <tbody>
                           {preview.people.map((person) => (
                             <tr key={person.account.id}>
-                              <td><strong>{accountName(person.account)}</strong><small>{person.account.employee?.empId || roleLabel(person.account.role)}</small></td>
+                              <td><strong>{accountName(person.account)}</strong><small>{person.account.employee?.empId || "Office user"}</small></td>
                               <td><strong>{preview.dates.length === 1 ? formatDate(preview.dates[0]) : `${formatDate(preview.dates[0])} – ${formatDate(preview.dates[preview.dates.length - 1])}`}</strong><small>{person.validDates.length} ready · {person.conflicts.length} blocked</small></td>
                               <td>{preview.reportingLocation}</td>
                               <td>{accountName(person.supervisor)}</td>
@@ -1426,7 +1697,10 @@ export function ManagementDutyPage() {
             {dialog === "LEAVE" && (
               <div className="management-duty-dialog__grid">
                 <div className="management-duty-dialog__context wide"><strong>Employee leave</strong><p>Leave is employee-specific and blocks duty assignment for the selected dates.</p></div>
-                <label className="wide"><span>Staff member</span><select required value={leaveForm.employeeAccountId} onChange={(event) => setLeaveForm({ ...leaveForm, employeeAccountId: event.target.value })}><option value="">Select staff member</option>{people.map((person) => <option key={person.account.id} value={person.account.id}>{accountName(person)} · {person.account.employee?.empId || roleLabel(person.account.role)}</option>)}</select></label>
+                <label><span>Org Unit</span><select required value={leaveOrgUnitId} onChange={(event) => { setLeaveOrgUnitId(event.target.value); setLeaveOperationalTeamId(""); setLeaveForm((current) => ({ ...current, employeeAccountId: "" })); }}><option value="">Select authorized Org Unit</option>{assignableOrgUnits.map((unit) => <option key={unit.id} value={unit.id}>{orgUnitLabel(unit.id)}</option>)}</select></label>
+                <label><span>Operational Team (optional)</span><select disabled={!leaveOrgUnitId} value={leaveOperationalTeamId} onChange={(event) => { setLeaveOperationalTeamId(event.target.value); setLeaveForm((current) => ({ ...current, employeeAccountId: "" })); }}><option value="">All teams in subtree</option>{leaveTeams.map((team) => <option key={team.id} value={team.id}>{team.name}</option>)}</select></label>
+                <label className="wide"><span>Find staff</span><input value={leaveSearch} onChange={(event) => setLeaveSearch(event.target.value)} placeholder="Search name, employee ID or position" disabled={!leaveOrgUnitId} /></label>
+                <label className="wide"><span>Staff member</span><select required disabled={!leaveOrgUnitId || leaveCandidatesLoading} value={leaveForm.employeeAccountId} onChange={(event) => setLeaveForm({ ...leaveForm, employeeAccountId: event.target.value })}><option value="">{leaveCandidatesLoading ? "Searching…" : "Select staff member"}</option>{leaveCandidates.map((person) => <option key={person.account.id} value={person.account.id}>{accountName(person)} · {person.account.employee?.empId || "Office user"}</option>)}</select><small>Showing up to 40 matching staff in the selected V3 scope.</small></label>
                 <label><span>Start date</span><input required type="date" value={leaveForm.startDate} onChange={(event) => setLeaveForm((current) => ({ ...current, startDate: event.target.value, endDate: current.endDate < event.target.value ? event.target.value : current.endDate }))} /></label>
                 <label><span>End date</span><input required type="date" min={leaveForm.startDate} value={leaveForm.endDate} onChange={(event) => setLeaveForm({ ...leaveForm, endDate: event.target.value })} /></label>
                 <label className="wide"><span>Reason / note</span><textarea value={leaveForm.note} onChange={(event) => setLeaveForm({ ...leaveForm, note: event.target.value })} placeholder="Optional leave note" /></label>
@@ -1436,9 +1710,9 @@ export function ManagementDutyPage() {
             {dialog === "HOLIDAYS" && (
               <div className="management-duty-holiday-calendar">
                 <section className="management-duty-holiday-weekly">
-                  <div><strong>Weekly off</strong><span>Configured once for the branch calendar.</span></div>
-                  <div className="management-duty-weekdays is-calendar">{WEEKDAYS.map(([value, label]) => { const active = weeklyOffDays.includes(value); return <button key={value} type="button" disabled={!canManageDuty} aria-pressed={active} className={active ? "is-selected" : ""} onClick={() => setWeeklyOffDays((current) => active ? current.filter((day) => day !== value) : [...current, value].sort((a,b) => a-b))}><span>{label}</span><small>{active ? "Weekly off" : "Working"}</small></button>; })}</div>
-                  {canManageDuty && <button type="button" className="is-primary" disabled={Boolean(busy)} onClick={() => void saveWeeklyOff()}>{busy === "weekly-off" ? "Saving…" : "Save weekly off"}</button>}
+                  <div><strong>Weekly off</strong><span>Configured once for this Office calendar.</span></div>
+                  <div className="management-duty-weekdays is-calendar">{WEEKDAYS.map(([value, label]) => { const active = weeklyOffDays.includes(value); return <button key={value} type="button" disabled={!canManageOfficeConfiguration} aria-pressed={active} className={active ? "is-selected" : ""} onClick={() => setWeeklyOffDays((current) => active ? current.filter((day) => day !== value) : [...current, value].sort((a,b) => a-b))}><span>{label}</span><small>{active ? "Weekly off" : "Working"}</small></button>; })}</div>
+                  {canManageOfficeConfiguration && <button type="button" className="is-primary" disabled={Boolean(busy)} onClick={() => void saveWeeklyOff()}>{busy === "weekly-off" ? "Saving…" : "Save weekly off"}</button>}
                 </section>
 
                 <section className="management-duty-holiday-list">
@@ -1446,7 +1720,7 @@ export function ManagementDutyPage() {
                   {calendar?.holidays.filter((holiday) => !holiday.cancelledAt).length ? calendar.holidays.filter((holiday) => !holiday.cancelledAt).map((holiday) => (
                     <article key={holiday.id}>
                       <div><strong>{holiday.name}</strong><span>{formatDate(holiday.startDate)}{holiday.endDate !== holiday.startDate ? ` – ${formatDate(holiday.endDate)}` : ""} · {holiday.type.toLowerCase().replaceAll("_", " ")}</span><small>{holiday.scope === "OFFICE" ? "Entire Office" : holiday.orgUnit?.name ?? "Org Unit"}</small></div>
-                      {canManageDuty && <button type="button" className="is-danger" disabled={Boolean(busy)} onClick={() => void removeHoliday(holiday.id)}>Cancel holiday</button>}
+                      {((holiday.scope === "OFFICE" && canManageOfficeConfiguration) || (holiday.orgUnit?.id && accessContext?.manageableOrgUnitIds.includes(holiday.orgUnit.id))) && <button type="button" className="is-danger" disabled={Boolean(busy)} onClick={() => void removeHoliday(holiday.id)}>Cancel holiday</button>}
                     </article>
                   )) : <p className="management-duty-shifts__empty">No upcoming holidays are recorded.</p>}
                 </section>
@@ -1457,8 +1731,8 @@ export function ManagementDutyPage() {
                     <div className="management-duty-dialog__grid">
                       <label className="wide"><span>Holiday name</span><input required minLength={2} value={holidayForm.name} onChange={(event) => setHolidayForm({ ...holidayForm, name: event.target.value })} placeholder="e.g. Dashain Holiday" /></label>
                       <label><span>Type</span><select value={holidayForm.type} onChange={(event) => setHolidayForm({ ...holidayForm, type: event.target.value as DutyHolidayType })}><option value="GOVERNMENT">Government</option><option value="FESTIVAL">Festival</option><option value="ORGANIZATION">Organization</option><option value="OTHER">Other</option></select></label>
-                      <label><span>Scope</span><select value={holidayForm.scope} onChange={(event) => setHolidayForm((current) => ({ ...current, scope: event.target.value as DutyHolidayScope, orgUnitId: "" }))}><option value="OFFICE">Entire Office</option><option value="ORG_UNIT">Org Unit</option></select></label>
-                      {holidayForm.scope === "ORG_UNIT" && <label><span>Org Unit</span><select required value={holidayForm.orgUnitId} onChange={(event) => setHolidayForm({ ...holidayForm, orgUnitId: event.target.value })}><option value="">Select Org Unit</option>{orgUnits.map((orgUnit) => <option key={orgUnit.id} value={orgUnit.id}>{orgUnit.name}</option>)}</select></label>}
+                      <label><span>Scope</span><select value={holidayForm.scope} onChange={(event) => setHolidayForm((current) => ({ ...current, scope: event.target.value as DutyHolidayScope, orgUnitId: "" }))}>{canManageOfficeConfiguration && <option value="OFFICE">Entire Office</option>}<option value="ORG_UNIT">Org Unit</option></select></label>
+                      {holidayForm.scope === "ORG_UNIT" && <label><span>Org Unit</span><select required value={holidayForm.orgUnitId} onChange={(event) => setHolidayForm({ ...holidayForm, orgUnitId: event.target.value })}><option value="">Select Org Unit</option>{manageableOrgUnits.map((orgUnit) => <option key={orgUnit.id} value={orgUnit.id}>{orgUnitLabel(orgUnit.id)}</option>)}</select></label>}
                       <label><span>From</span><input required type="date" value={holidayForm.startDate} onChange={(event) => setHolidayForm((current) => ({ ...current, startDate: event.target.value, endDate: current.endDate < event.target.value ? event.target.value : current.endDate }))} /></label>
                       <label><span>To</span><input required type="date" min={holidayForm.startDate} value={holidayForm.endDate} onChange={(event) => setHolidayForm({ ...holidayForm, endDate: event.target.value })} /></label>
                       <label className="wide"><span>Note (optional)</span><textarea value={holidayForm.note} onChange={(event) => setHolidayForm({ ...holidayForm, note: event.target.value })} /></label>
@@ -1468,12 +1742,12 @@ export function ManagementDutyPage() {
               </div>
             )}
 
-            {dialog === "EDIT" && selectedAssignment && <div className="management-duty-dialog__grid"><div className="management-duty-dialog__context wide"><strong>{accountName(selectedAssignment.employee)}</strong><p>{formatDateTime(selectedAssignment.startsAt)} · {selectedAssignment.shift.name}</p></div><label><span>Shift</span><select value={editForm.shiftTemplateId} onChange={(event) => setEditForm({ ...editForm, shiftTemplateId: event.target.value })}>{templates.filter((template) => template.isActive).map((template) => <option key={template.id} value={template.id}>{template.name}</option>)}</select></label><label><span>Supervisor</span><select value={editForm.supervisorAccountId} onChange={(event) => setEditForm({ ...editForm, supervisorAccountId: event.target.value })}>{managers.map((manager) => <option key={manager.account.id} value={manager.account.id}>{manager.account.employee?.empName || manager.account.superAdminProfile?.fullName || manager.account.username}</option>)}</select></label><label className="wide"><span>Place</span><input required value={editForm.reportingLocation} onChange={(event) => setEditForm({ ...editForm, reportingLocation: event.target.value })} /></label><label className="wide"><span>Notes</span><textarea value={editForm.notes} onChange={(event) => setEditForm({ ...editForm, notes: event.target.value })} /></label></div>}
+            {dialog === "EDIT" && selectedAssignment && <div className="management-duty-dialog__grid"><div className="management-duty-dialog__context wide"><strong>{accountName(selectedAssignment.employee)}</strong><p>{formatDateTime(selectedAssignment.startsAt)} · {selectedAssignment.shift.name}</p></div><label><span>Shift</span><select value={editForm.shiftTemplateId} onChange={(event) => setEditForm({ ...editForm, shiftTemplateId: event.target.value })}>{editShiftOptions.map((template) => <option key={template.id} value={template.id}>{template.name}</option>)}</select></label><label><span>Supervisor</span><select value={editForm.supervisorAccountId} onChange={(event) => setEditForm({ ...editForm, supervisorAccountId: event.target.value })}>{managers.map((manager) => <option key={manager.account.id} value={manager.account.id}>{manager.account.employee?.empName || manager.account.superAdminProfile?.fullName || manager.account.username}</option>)}</select></label><label className="wide"><span>Place</span><input required value={editForm.reportingLocation} onChange={(event) => setEditForm({ ...editForm, reportingLocation: event.target.value })} /></label><label className="wide"><span>Notes</span><textarea value={editForm.notes} onChange={(event) => setEditForm({ ...editForm, notes: event.target.value })} /></label></div>}
 
             {dialog === "CANCEL" && selectedAssignment && <div className="management-duty-dialog__grid"><div className="management-duty-cancel-summary wide"><DutyIcon name="warning" /><div><strong>Cancel {accountName(selectedAssignment.employee)} duty?</strong><p>{formatDateTime(selectedAssignment.startsAt)} · {selectedAssignment.shift.name}</p></div></div><label className="wide"><span>Cancellation reason</span><textarea required minLength={3} maxLength={500} value={cancelReason} onChange={(event) => setCancelReason(event.target.value)} /></label></div>}
 
 
-            {dialog === "ROUTINE" && selectedPerson && (routineLoading ? <div className="management-duty-dialog__loading">Loading the next 31 days of duty…</div> : <div className="management-duty-routine"><div className="management-duty-routine__summary"><article><span>Role</span><strong>{roleLabel(selectedPerson.account.role)}</strong></article><article><span>Next 31 days</span><strong>{formatHours(selectedPerson.totalScheduledMinutes)}</strong></article><article><span>Current status</span><strong>{statusLabel(selectedPerson.todayStatus)}</strong></article></div><div className="management-duty-routine__list">{routineDates.map((date) => { const assignment = assignmentFor(selectedPerson, date); const exception = exceptionFor(selectedPerson, date); return <article key={date}><strong>{formatDate(date)}</strong>{assignment ? <><span>{assignment.shift.name} · {assignment.shift.startTime}–{assignment.shift.endTime}</span><small>{assignment.reportingLocation} · Supervisor {accountName(assignment.supervisor)}</small></> : exception ? <><span>{exception.type === "LEAVE" ? "Leave" : "Holiday exception"}</span><small>{exception.note || "No note"}</small></> : <span>Off duty</span>}</article>; })}</div></div>)}
+            {dialog === "ROUTINE" && selectedPerson && (routineLoading ? <div className="management-duty-dialog__loading">Loading the next 31 days of duty…</div> : <div className="management-duty-routine"><div className="management-duty-routine__summary"><article><span>Staff</span><strong>{selectedPerson.account.employee?.designation || selectedPerson.account.employee?.empId || "Office staff"}</strong></article><article><span>Next 31 days</span><strong>{formatHours(selectedPerson.totalScheduledMinutes)}</strong></article><article><span>Current status</span><strong>{statusLabel(selectedPerson.todayStatus)}</strong></article></div><div className="management-duty-routine__list">{routineDates.map((date) => { const assignment = assignmentFor(selectedPerson, date); const exception = exceptionFor(selectedPerson, date); return <article key={date}><strong>{formatDate(date)}</strong>{assignment ? <><span>{assignment.shift.name} · {assignment.shift.startTime}–{assignment.shift.endTime}</span><small>{assignment.reportingLocation} · Supervisor {accountName(assignment.supervisor)}</small></> : exception ? <><span>{exception.type === "LEAVE" ? "Leave" : "Holiday exception"}</span><small>{exception.note || "No note"}</small></> : <span>Off duty</span>}</article>; })}</div></div>)}
 
             <footer>
               <button type="button" disabled={Boolean(busy)} onClick={() => setDialog(null)}>Close</button>

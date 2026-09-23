@@ -39,6 +39,9 @@ export function sendEmergencyAlert(
   accessToken: string,
   payload: {
     recipientAccountId: string;
+    language: "EN" | "NE";
+    messageMode: "QUICK" | "CUSTOM";
+    customMessage?: string;
   },
 ): Promise<SendEmergencyAlertResponse> {
   return apiRequest<SendEmergencyAlertResponse>(

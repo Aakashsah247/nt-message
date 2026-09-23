@@ -13,7 +13,6 @@ import type {
   ManagerRequestContextResponse,
   MyAccountRequestDetailResponse,
   MyAccountRequestListResponse,
-  OwnAccountStatusResponse,
   RejectAccountRequestResponse,
   ResendActivationEmailResponse,
   ResubmitMyAccountRequestInput,
@@ -22,8 +21,6 @@ import type {
 
 export interface AccountRequestListFilters {
   search?: string;
-  dateFrom?: string;
-  dateTo?: string;
 }
 
 function appendListFilters(
@@ -32,15 +29,6 @@ function appendListFilters(
 ): void {
   if (filters.search?.trim()) {
     query.set("search", filters.search.trim());
-  }
-
-
-  if (filters.dateFrom) {
-    query.set("dateFrom", filters.dateFrom);
-  }
-
-  if (filters.dateTo) {
-    query.set("dateTo", filters.dateTo);
   }
 }
 
@@ -100,15 +88,6 @@ export function listMyAccountRequests(
   );
 }
 
-export function getOwnAccountStatus(
-  accessToken: string,
-): Promise<OwnAccountStatusResponse> {
-  return apiRequest<OwnAccountStatusResponse>("/account-requests/own-status", {
-    headers: createAuthorizationHeaders(accessToken),
-  });
-}
-
-
 export function getMyAccountRequest(
   accessToken: string,
   requestId: string,
@@ -167,7 +146,7 @@ export function listAdminAccountRequests(
     limit: String(input.limit ?? 20),
   });
 
-  if (input.requestedRole) query.set("requestedRole", input.requestedRole);
+  if (input.officeId) query.set("officeId", input.officeId);
   if (input.search) query.set("search", input.search);
   if (input.dateFrom) query.set("dateFrom", input.dateFrom);
   if (input.dateTo) query.set("dateTo", input.dateTo);
@@ -182,9 +161,14 @@ export function listAdminAccountRequests(
 
 export function getAdminAccountRequestSummary(
   accessToken: string,
+  officeId?: string,
 ): Promise<AdminAccountRequestSummaryResponse> {
+  const query = new URLSearchParams();
+  if (officeId) query.set("officeId", officeId);
+  const suffix = query.size > 0 ? `?${query.toString()}` : "";
+
   return apiRequest<AdminAccountRequestSummaryResponse>(
-    "/admin/account-requests/dashboard/summary",
+    `/admin/account-requests/dashboard/summary${suffix}`,
     {
       headers: createAuthorizationHeaders(accessToken),
     },

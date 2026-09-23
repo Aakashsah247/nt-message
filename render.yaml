@@ -18,6 +18,14 @@ services:
         value: "true"
       - key: API_HOST
         value: 0.0.0.0
+      - key: TRUST_PROXY_MODE
+        value: render
+      - key: RATE_LIMIT_STORE
+        value: native
+      - key: API_INSTANCE_COUNT
+        value: "1"
+      - key: NATIVE_RATE_LIMIT_MAX_BUCKETS
+        value: "100000"
       - key: WEB_ORIGIN
         sync: false
       - key: DATABASE_URL
@@ -44,6 +52,16 @@ services:
         generateValue: true
       - key: ACTIVATION_TOKEN_SECRET
         generateValue: true
+      - key: MESSAGE_CRYPTO_ACTIVE_KEY_VERSION
+        value: "1"
+      - key: MESSAGE_ENCRYPTION_KEY_V1_B64
+        sync: false
+      - key: MESSAGE_SEARCH_INDEX_KEY_V1_B64
+        sync: false
+      - key: MESSAGE_SIGNING_PRIVATE_KEY_V1_DER_B64
+        sync: false
+      - key: MESSAGE_SIGNING_PUBLIC_KEY_V1_DER_B64
+        sync: false
       - key: ACCESS_TOKEN_TTL_SECONDS
         value: "900"
       - key: REFRESH_TOKEN_TTL_SECONDS
@@ -119,6 +137,25 @@ services:
         sync: false
       - key: VITE_SOCKET_URL
         sync: false
+    headers:
+      - path: /*
+        name: Content-Security-Policy
+        value: "default-src 'self'; base-uri 'self'; object-src 'none'; frame-ancestors 'none'; form-action 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; font-src 'self' data:; connect-src 'self' https: wss:; media-src 'self' blob: https:; frame-src 'self' blob:; worker-src 'self' blob:; manifest-src 'self'; upgrade-insecure-requests"
+      - path: /*
+        name: Strict-Transport-Security
+        value: "max-age=31536000; includeSubDomains; preload"
+      - path: /*
+        name: X-Content-Type-Options
+        value: nosniff
+      - path: /*
+        name: X-Frame-Options
+        value: DENY
+      - path: /*
+        name: Referrer-Policy
+        value: no-referrer
+      - path: /*
+        name: Permissions-Policy
+        value: "camera=(), microphone=(self), geolocation=(self), payment=(), usb=()"
     routes:
       - type: rewrite
         source: /*

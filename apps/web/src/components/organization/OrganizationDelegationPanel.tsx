@@ -19,6 +19,7 @@ import type {
   OrganizationDelegationContextResponse,
   OrganizationDelegationRecord,
   OrganizationOfficeDetail,
+  OrganizationSharedResponsibility,
   OrganizationUnitNode,
 } from "../../types/organization-v3";
 
@@ -30,6 +31,62 @@ interface OrganizationDelegationPanelProps {
 
 type DelegationFilter = "CURRENT" | "UPCOMING" | "HISTORY" | "ALL";
 type DelegationActionMode = "GRANT" | "REVOKE" | null;
+type AccessDurationMode = "UNTIL_REVOKED" | "TEMPORARY";
+
+const RESPONSIBILITY_KEYS: Record<OrganizationSharedResponsibility, string> = {
+  "shared.organization_directory_view": "organizationDirectoryView",
+  "shared.organization_management": "organizationManagement",
+  "shared.work_management": "workManagement",
+  "shared.work_type_management": "workTypeManagement",
+  "shared.duty_roster_management": "dutyRosterManagement",
+  "shared.team_management": "teamManagement",
+  "shared.reports_export": "reportsExport",
+  "shared.account_request_coordination": "accountRequestCoordination",
+  "shared.official_communication_management": "officialCommunicationManagement",
+};
+
+
+const RESPONSIBILITY_DETAIL_KEYS: Record<
+  OrganizationSharedResponsibility,
+  { can: readonly string[]; cannot: readonly string[] }
+> = {
+  "shared.organization_directory_view": {
+    can: ["can1", "can2", "can3"],
+    cannot: ["cannot1", "cannot2", "cannot3"],
+  },
+  "shared.organization_management": {
+    can: ["can1", "can2", "can3"],
+    cannot: ["cannot1", "cannot2", "cannot3"],
+  },
+  "shared.work_management": {
+    can: ["can1", "can2", "can3", "can4", "can5"],
+    cannot: ["cannot1", "cannot2", "cannot3", "cannot4"],
+  },
+  "shared.work_type_management": {
+    can: ["can1", "can2", "can3", "can4", "can5"],
+    cannot: ["cannot1", "cannot2", "cannot3", "cannot4"],
+  },
+  "shared.duty_roster_management": {
+    can: ["can1", "can2", "can3"],
+    cannot: ["cannot1", "cannot2", "cannot3"],
+  },
+  "shared.team_management": {
+    can: ["can1", "can2", "can3"],
+    cannot: ["cannot1", "cannot2", "cannot3"],
+  },
+  "shared.reports_export": {
+    can: ["can1", "can2", "can3", "can4"],
+    cannot: ["cannot1", "cannot2", "cannot3"],
+  },
+  "shared.account_request_coordination": {
+    can: ["can1", "can2", "can3"],
+    cannot: ["cannot1", "cannot2", "cannot3", "cannot4"],
+  },
+  "shared.official_communication_management": {
+    can: ["can1", "can2"],
+    cannot: ["cannot1", "cannot2", "cannot3"],
+  },
+};
 
 const CAPABILITY_KEYS: Record<OrganizationDelegationCapability, string> = {
   "organization.view": "organizationView",
@@ -87,9 +144,10 @@ export function OrganizationDelegationPanel({
   const [selectedPermissionId, setSelectedPermissionId] = useState<string | null>(null);
   const [scopeOrgUnitId, setScopeOrgUnitId] = useState("");
   const [includeDescendants, setIncludeDescendants] = useState(false);
-  const [capability, setCapability] = useState<OrganizationDelegationCapability | "">("");
+  const [capability, setCapability] = useState<OrganizationSharedResponsibility | "">("");
   const [granteeAccountId, setGranteeAccountId] = useState("");
   const [canRedelegate, setCanRedelegate] = useState(false);
+  const [durationMode, setDurationMode] = useState<AccessDurationMode>("UNTIL_REVOKED");
   const [effectiveFrom, setEffectiveFrom] = useState("");
   const [effectiveUntil, setEffectiveUntil] = useState("");
   const [reason, setReason] = useState("");
@@ -110,6 +168,11 @@ export function OrganizationDelegationPanel({
 
   const capabilityLabel = useCallback(
     (value: string): string => {
+      const responsibilityKey =
+        RESPONSIBILITY_KEYS[value as OrganizationSharedResponsibility];
+      if (responsibilityKey) {
+        return t(`delegation.responsibilities.${responsibilityKey}.title`);
+      }
       const key = CAPABILITY_KEYS[value as OrganizationDelegationCapability];
       if (key) {
         return t(`delegation.capabilities.${key}`);
@@ -123,6 +186,36 @@ export function OrganizationDelegationPanel({
     },
     [t],
   );
+
+  const selectedCandidate = useMemo(
+    () => context?.candidates.find((candidate) => candidate.accountId === granteeAccountId) ?? null,
+    [context?.candidates, granteeAccountId],
+  );
+
+  const selectedScope = useMemo(
+    () => activeUnits.find((unit) => unit.id === scopeOrgUnitId) ?? null,
+    [activeUnits, scopeOrgUnitId],
+  );
+
+  const responsibilityKey = capability
+    ? RESPONSIBILITY_KEYS[capability]
+    : null;
+
+  const responsibilityDetailKeys = capability
+    ? RESPONSIBILITY_DETAIL_KEYS[capability]
+    : null;
+  const responsibilityCan =
+    responsibilityKey && responsibilityDetailKeys
+      ? responsibilityDetailKeys.can.map((item) =>
+          t(`delegation.responsibilities.${responsibilityKey}.${item}`),
+        )
+      : [];
+  const responsibilityCannot =
+    responsibilityKey && responsibilityDetailKeys
+      ? responsibilityDetailKeys.cannot.map((item) =>
+          t(`delegation.responsibilities.${responsibilityKey}.${item}`),
+        )
+      : [];
 
   const normalizedSearch = searchTerm.trim().toLowerCase();
   const filteredRecords = useMemo(
@@ -162,6 +255,7 @@ export function OrganizationDelegationPanel({
     setCapability("");
     setGranteeAccountId("");
     setCanRedelegate(false);
+    setDurationMode("UNTIL_REVOKED");
     setEffectiveFrom("");
     setEffectiveUntil("");
     setReason("");
@@ -239,7 +333,7 @@ export function OrganizationDelegationPanel({
 
         setContext(response);
         setCapability((current) =>
-          current && response.availableCapabilities.includes(current)
+          current && response.availableResponsibilities.includes(current)
             ? current
             : "",
         );
@@ -280,13 +374,21 @@ export function OrganizationDelegationPanel({
       return;
     }
 
-    if (!context?.availableCapabilities.includes(capability)) {
+    if (!context?.availableResponsibilities.includes(capability)) {
       setFormError(t("delegation.errors.scope"));
       return;
     }
 
+    if (durationMode === "TEMPORARY" && !effectiveUntil) {
+      setFormError(t("delegation.errors.temporaryEnd"));
+      return;
+    }
+
     const fromIso = toOptionalOrganizationIso(effectiveFrom);
-    const untilIso = toOptionalOrganizationIso(effectiveUntil);
+    const untilIso =
+      durationMode === "TEMPORARY"
+        ? toOptionalOrganizationIso(effectiveUntil)
+        : undefined;
     if (
       fromIso &&
       untilIso &&
@@ -489,28 +591,49 @@ export function OrganizationDelegationPanel({
               <select
                 value={scopeOrgUnitId}
                 onChange={(event) => {
-                  setScopeOrgUnitId(event.target.value);
-                  setIncludeDescendants(false);
+                  const nextScopeOrgUnitId = event.target.value;
+                  setScopeOrgUnitId(nextScopeOrgUnitId);
+                  setIncludeDescendants(
+                    capability === "shared.work_type_management" &&
+                      Boolean(nextScopeOrgUnitId),
+                  );
                 }}
                 disabled={saving}
               >
                 <option value="">{office.name} — {t("delegation.officeScope")}</option>
-                {activeUnits.map((unit) => (
-                  <option key={unit.id} value={unit.id}>{unit.name} ({unit.code})</option>
-                ))}
+                {activeUnits
+                  .filter(
+                    (unit) =>
+                      capability !== "shared.work_type_management" ||
+                      unit.orgUnitType.code === "DIVISION",
+                  )
+                  .map((unit) => (
+                    <option key={unit.id} value={unit.id}>{unit.name} ({unit.code})</option>
+                  ))}
               </select>
             </label>
 
             <label>
-              <span>{t("delegation.capability")}</span>
+              <span>{t("delegation.responsibility")}</span>
               <select
                 value={capability}
-                onChange={(event) => setCapability(event.target.value as OrganizationDelegationCapability | "")}
-                disabled={saving || loadingContext || (context?.availableCapabilities.length ?? 0) === 0}
+                onChange={(event) => {
+                  const nextCapability = event.target.value as
+                    | OrganizationSharedResponsibility
+                    | "";
+                  setCapability(nextCapability);
+                  if (
+                    nextCapability === "shared.work_type_management" &&
+                    scopeOrgUnitId
+                  ) {
+                    setIncludeDescendants(true);
+                  }
+                }}
+                disabled={saving || loadingContext || (context?.availableResponsibilities.length ?? 0) === 0}
                 required
               >
-                <option value="">{loadingContext ? t("delegation.checkingScope") : t("delegation.selectCapability")}</option>
-                {context?.availableCapabilities.map((item) => (
+                <option value="">{loadingContext ? t("delegation.checkingScope") : t("delegation.selectResponsibility")}</option>
+                {context?.availableResponsibilities.map((item) => (
                   <option key={item} value={item}>{capabilityLabel(item)}</option>
                 ))}
               </select>
@@ -543,34 +666,56 @@ export function OrganizationDelegationPanel({
               />
             </label>
 
-            <label>
-              <span>{t("delegation.effectiveUntil")}</span>
-              <input
-                type="datetime-local"
-                value={effectiveUntil}
-                onChange={(event) => setEffectiveUntil(event.target.value)}
-                disabled={saving}
-              />
-            </label>
+            <fieldset className="organization-delegation-duration organization-form-wide">
+              <legend>{t("delegation.accessDuration")}</legend>
+              <label>
+                <input
+                  type="radio"
+                  name="access-duration"
+                  value="UNTIL_REVOKED"
+                  checked={durationMode === "UNTIL_REVOKED"}
+                  onChange={() => {
+                    setDurationMode("UNTIL_REVOKED");
+                    setEffectiveUntil("");
+                  }}
+                  disabled={saving}
+                />
+                <span>{t("delegation.untilRevoked")}</span>
+              </label>
+              <label>
+                <input
+                  type="radio"
+                  name="access-duration"
+                  value="TEMPORARY"
+                  checked={durationMode === "TEMPORARY"}
+                  onChange={() => setDurationMode("TEMPORARY")}
+                  disabled={saving}
+                />
+                <span>{t("delegation.temporaryCoverage")}</span>
+              </label>
+            </fieldset>
+
+            {durationMode === "TEMPORARY" && (
+              <label>
+                <span>{t("delegation.effectiveUntil")}</span>
+                <input
+                  type="datetime-local"
+                  value={effectiveUntil}
+                  onChange={(event) => setEffectiveUntil(event.target.value)}
+                  disabled={saving}
+                  required
+                />
+              </label>
+            )}
 
             <label className="organization-delegation-check">
               <input
                 type="checkbox"
                 checked={includeDescendants}
                 onChange={(event) => setIncludeDescendants(event.target.checked)}
-                disabled={saving || !scopeOrgUnitId}
+                disabled={saving || !scopeOrgUnitId || capability === "shared.work_type_management"}
               />
               <span>{t("delegation.includeDescendants")}</span>
-            </label>
-
-            <label className="organization-delegation-check">
-              <input
-                type="checkbox"
-                checked={canRedelegate}
-                onChange={(event) => setCanRedelegate(event.target.checked)}
-                disabled={saving}
-              />
-              <span>{t("delegation.allowRedelegation")}</span>
             </label>
 
             <label className="organization-form-wide">
@@ -584,15 +729,52 @@ export function OrganizationDelegationPanel({
               />
             </label>
 
-            {!loadingContext && context?.availableCapabilities.length === 0 && (
+            <details className="organization-delegation-advanced organization-form-wide">
+              <summary>{t("delegation.advancedOptions")}</summary>
+              <label className="organization-delegation-check">
+                <input
+                  type="checkbox"
+                  checked={canRedelegate}
+                  onChange={(event) => setCanRedelegate(event.target.checked)}
+                  disabled={saving}
+                />
+                <span>{t("delegation.allowRedelegation")}</span>
+              </label>
+              <p>{t("delegation.redelegationHelp")}</p>
+            </details>
+
+            {!loadingContext && context?.availableResponsibilities.length === 0 && (
               <div className="organization-editor-note organization-form-wide">
-                {t("delegation.noCapabilityForScope")}
+                {t("delegation.noResponsibilityForScope")}
               </div>
             )}
 
-            <div className="organization-editor-note organization-form-wide">
-              {t("delegation.periodNotice")}
-            </div>
+            {capability && granteeAccountId && (
+              <section className="organization-delegation-access-summary organization-form-wide" aria-label={t("delegation.accessSummary")}>
+                <div className="organization-delegation-access-summary__title">
+                  <span>{t("delegation.accessSummary")}</span>
+                  <strong>{capabilityLabel(capability)}</strong>
+                </div>
+                <dl>
+                  <div><dt>{t("delegation.employee")}</dt><dd>{selectedCandidate?.empName ?? "—"}</dd></div>
+                  <div><dt>{t("delegation.responsibility")}</dt><dd>{capabilityLabel(capability)}</dd></div>
+                  <div><dt>{t("delegation.scope")}</dt><dd>{selectedScope?.name ?? office.name}</dd></div>
+                  <div><dt>{t("delegation.coverage")}</dt><dd>{selectedScope ? (includeDescendants ? t("delegation.scopeWithDescendants", { scope: selectedScope.name }) : selectedScope.name) : office.name}</dd></div>
+                  <div><dt>{t("delegation.duration")}</dt><dd>{durationMode === "TEMPORARY" ? `${effectiveFrom ? formatOrganizationDate(effectiveFrom, locale, t("delegation.now")) : t("delegation.now")} → ${effectiveUntil ? formatOrganizationDate(effectiveUntil, locale, t("delegation.endRequired")) : t("delegation.endRequired")}` : t("delegation.untilRevoked")}</dd></div>
+                  <div><dt>{t("delegation.canRedelegate")}</dt><dd>{canRedelegate ? t("delegation.yes") : t("delegation.no")}</dd></div>
+                </dl>
+                <div className="organization-delegation-access-summary__permissions">
+                  <div>
+                    <strong>{t("delegation.canDo")}</strong>
+                    <ul>{responsibilityCan.map((item) => <li key={item}>{item}</li>)}</ul>
+                  </div>
+                  <div>
+                    <strong>{t("delegation.cannotDo")}</strong>
+                    <ul>{responsibilityCannot.map((item) => <li key={item}>{item}</li>)}</ul>
+                  </div>
+                </div>
+              </section>
+            )}
 
             <footer>
               <button type="button" className="organization-button organization-button--secondary" onClick={closeAction} disabled={saving}>
@@ -601,7 +783,7 @@ export function OrganizationDelegationPanel({
               <button
                 type="submit"
                 className="organization-button organization-button--primary"
-                disabled={saving || loadingContext || !capability || !granteeAccountId}
+                disabled={saving || loadingContext || !capability || !granteeAccountId || (durationMode === "TEMPORARY" && !effectiveUntil)}
               >
                 {saving ? t("delegation.saving") : t("delegation.grant")}
               </button>

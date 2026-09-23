@@ -5,6 +5,7 @@ import {
   IsInt,
   IsOptional,
   IsString,
+  IsUUID,
   Max,
   MaxLength,
   Min,
@@ -15,6 +16,10 @@ export class ListAccountRequestsQueryDto {
   @IsOptional()
   @IsEnum(AccountRequestStatus)
   status?: AccountRequestStatus;
+
+  @IsOptional()
+  @IsUUID('4')
+  officeId?: string;
 
   @IsOptional()
   @IsString()

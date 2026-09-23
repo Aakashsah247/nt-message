@@ -1,4 +1,4 @@
-import { IsEnum, IsUUID, ValidateIf } from 'class-validator';
+import { IsEnum, IsOptional, IsUUID, ValidateIf } from 'class-validator';
 
 export enum DutyShiftTargetScope {
   OFFICE = 'OFFICE',
@@ -6,6 +6,7 @@ export enum DutyShiftTargetScope {
 }
 
 export class DutyShiftTemplateQueryDto {
+  @IsOptional()
   @IsEnum(DutyShiftTargetScope)
   targetScope?: DutyShiftTargetScope;
 

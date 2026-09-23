@@ -53,6 +53,8 @@ export const CAPABILITIES = {
   OFFICIAL_GROUP_VIEW: 'official_group.view',
   OFFICIAL_GROUP_MANAGE: 'official_group.manage',
 
+  TEAM_MANAGE: 'team.manage',
+
   SYSTEM_SETTINGS: 'system.settings',
   SYSTEM_SECURITY: 'system.security',
   SYSTEM_AUDIT: 'system.audit',
@@ -67,6 +69,136 @@ const CAPABILITY_SET = new Set<string>(ALL_CAPABILITIES);
 export function isCapability(value: string): value is Capability {
   return CAPABILITY_SET.has(value);
 }
+
+export const SHARED_RESPONSIBILITIES = {
+  ORGANIZATION_DIRECTORY_VIEW: 'shared.organization_directory_view',
+  ORGANIZATION_MANAGEMENT: 'shared.organization_management',
+  WORK_MANAGEMENT: 'shared.work_management',
+  WORK_TYPE_MANAGEMENT: 'shared.work_type_management',
+  DUTY_ROSTER_MANAGEMENT: 'shared.duty_roster_management',
+  TEAM_MANAGEMENT: 'shared.team_management',
+  REPORTS_EXPORT: 'shared.reports_export',
+  ACCOUNT_REQUEST_COORDINATION: 'shared.account_request_coordination',
+  OFFICIAL_COMMUNICATION_MANAGEMENT: 'shared.official_communication_management',
+} as const;
+
+export type SharedResponsibility =
+  (typeof SHARED_RESPONSIBILITIES)[keyof typeof SHARED_RESPONSIBILITIES];
+
+export const ALL_SHARED_RESPONSIBILITIES = Object.values(
+  SHARED_RESPONSIBILITIES,
+) as SharedResponsibility[];
+
+const SHARED_RESPONSIBILITY_SET = new Set<string>(ALL_SHARED_RESPONSIBILITIES);
+
+export function isSharedResponsibility(
+  value: string,
+): value is SharedResponsibility {
+  return SHARED_RESPONSIBILITY_SET.has(value);
+}
+
+export const SHARED_RESPONSIBILITY_CAPABILITIES: Record<
+  SharedResponsibility,
+  readonly Capability[]
+> = {
+  [SHARED_RESPONSIBILITIES.ORGANIZATION_DIRECTORY_VIEW]: [
+    CAPABILITIES.ORGANIZATION_VIEW,
+    CAPABILITIES.MEMBERSHIP_VIEW,
+    CAPABILITIES.LEADERSHIP_VIEW,
+  ],
+  [SHARED_RESPONSIBILITIES.ORGANIZATION_MANAGEMENT]: [
+    CAPABILITIES.ORGANIZATION_VIEW,
+    CAPABILITIES.ORGANIZATION_CREATE_UNIT,
+    CAPABILITIES.ORGANIZATION_RENAME_UNIT,
+    CAPABILITIES.ORGANIZATION_MOVE_UNIT,
+    CAPABILITIES.ORGANIZATION_DEACTIVATE_UNIT,
+    CAPABILITIES.MEMBERSHIP_VIEW,
+    CAPABILITIES.MEMBERSHIP_TRANSFER_INTERNAL,
+    CAPABILITIES.MEMBERSHIP_ASSIGN_SECONDARY,
+    CAPABILITIES.LEADERSHIP_VIEW,
+  ],
+  [SHARED_RESPONSIBILITIES.WORK_MANAGEMENT]: [
+    CAPABILITIES.WORK_VIEW,
+    CAPABILITIES.WORK_CREATE,
+    CAPABILITIES.WORK_ASSIGN,
+    CAPABILITIES.WORK_REQUEST_PARTICIPANT,
+    CAPABILITIES.WORK_ACCEPT_PARTICIPANT,
+    CAPABILITIES.WORK_APPROVE_STAGE,
+    CAPABILITIES.WORK_RETURN_STAGE,
+    CAPABILITIES.WORK_CANCEL,
+    CAPABILITIES.WORK_REOPEN,
+  ],
+  [SHARED_RESPONSIBILITIES.WORK_TYPE_MANAGEMENT]: [
+    CAPABILITIES.WORK_TYPE_VIEW,
+    CAPABILITIES.WORK_TYPE_DRAFT,
+  ],
+  [SHARED_RESPONSIBILITIES.DUTY_ROSTER_MANAGEMENT]: [
+    CAPABILITIES.DUTY_VIEW,
+    CAPABILITIES.DUTY_CREATE,
+    CAPABILITIES.DUTY_ASSIGN,
+    CAPABILITIES.DUTY_MANAGE,
+  ],
+  [SHARED_RESPONSIBILITIES.TEAM_MANAGEMENT]: [CAPABILITIES.TEAM_MANAGE],
+  [SHARED_RESPONSIBILITIES.REPORTS_EXPORT]: [
+    CAPABILITIES.REPORTS_VIEW,
+    CAPABILITIES.REPORTS_EXPORT,
+  ],
+  [SHARED_RESPONSIBILITIES.ACCOUNT_REQUEST_COORDINATION]: [
+    CAPABILITIES.USERS_REQUEST_CREATE,
+  ],
+  [SHARED_RESPONSIBILITIES.OFFICIAL_COMMUNICATION_MANAGEMENT]: [
+    CAPABILITIES.ANNOUNCEMENT_VIEW,
+    CAPABILITIES.ANNOUNCEMENT_PUBLISH,
+    CAPABILITIES.OFFICIAL_GROUP_VIEW,
+    CAPABILITIES.OFFICIAL_GROUP_MANAGE,
+  ],
+};
+
+export function sharedResponsibilitiesForCapability(
+  capability: Capability,
+): SharedResponsibility[] {
+  return ALL_SHARED_RESPONSIBILITIES.filter((responsibility) =>
+    SHARED_RESPONSIBILITY_CAPABILITIES[responsibility].includes(capability),
+  );
+}
+
+export function delegationGrantKeysForCapability(
+  capability: Capability,
+): string[] {
+  return [capability, ...sharedResponsibilitiesForCapability(capability)];
+}
+
+export function grantKeyAllowsCapability(
+  grantKey: string,
+  capability: Capability,
+): boolean {
+  if (grantKey === capability) return true;
+  return (
+    isSharedResponsibility(grantKey) &&
+    SHARED_RESPONSIBILITY_CAPABILITIES[grantKey].includes(capability)
+  );
+}
+
+/**
+ * Delegated capabilities that require scoped access to Organization / People
+ * context in the Office workspace. Keep this list shared by workspace feature
+ * exposure and Directory authorization so navigation cannot advertise a page
+ * that the API then rejects for the same delegation.
+ */
+export const ORGANIZATION_ACCESS_CAPABILITIES = [
+  CAPABILITIES.ORGANIZATION_VIEW,
+  CAPABILITIES.ORGANIZATION_CREATE_UNIT,
+  CAPABILITIES.ORGANIZATION_RENAME_UNIT,
+  CAPABILITIES.ORGANIZATION_MOVE_UNIT,
+  CAPABILITIES.ORGANIZATION_DEACTIVATE_UNIT,
+  CAPABILITIES.MEMBERSHIP_VIEW,
+  CAPABILITIES.MEMBERSHIP_TRANSFER_INTERNAL,
+  CAPABILITIES.MEMBERSHIP_ASSIGN_SECONDARY,
+  CAPABILITIES.LEADERSHIP_VIEW,
+  CAPABILITIES.LEADERSHIP_ASSIGN,
+  CAPABILITIES.LEADERSHIP_ASSIGN_ACTING,
+  CAPABILITIES.LEADERSHIP_ASSIGN_DEPUTY,
+] as const satisfies readonly Capability[];
 
 export const DELEGABLE_CAPABILITIES = new Set<Capability>(
   ALL_CAPABILITIES.filter(

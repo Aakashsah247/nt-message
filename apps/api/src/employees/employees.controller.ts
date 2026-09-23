@@ -22,6 +22,8 @@ import { ArchiveEmployeeDto } from './dto/archive-employee.dto';
 import { CorrectEmployeeIdentityDto } from './dto/correct-employee-identity.dto';
 import { EndEmployeeEmploymentDto } from './dto/end-employee-employment.dto';
 import { ListEmployeesQueryDto } from './dto/list-employees-query.dto';
+import { TransferEmployeeOfficeDto } from './dto/transfer-employee-office.dto';
+import { TransferOfficeHeadDto } from './dto/transfer-office-head.dto';
 import { UpdateEmployeeStatusDto } from './dto/update-employee-status.dto';
 import { UpdateEmployeeDto } from './dto/update-employee.dto';
 import { EmployeeIdentityCorrectionService } from './employee-identity-correction.service';
@@ -92,6 +94,56 @@ export class EmployeesController {
     return this.employeesService.archiveEmployee(user, id, dto, {
       ipAddress: request.ip ?? request.socket.remoteAddress ?? null,
 
+      userAgent: request.get('user-agent') ?? null,
+    });
+  }
+
+  @Patch(':id/office-transfer')
+  transferEmployeeOffice(
+    @CurrentUser()
+    user: AuthenticatedUser,
+
+    @Param(
+      'id',
+      new ParseUUIDPipe({
+        version: '4',
+      }),
+    )
+    id: string,
+
+    @Body()
+    dto: TransferEmployeeOfficeDto,
+
+    @Req()
+    request: Request,
+  ) {
+    return this.employeesService.transferEmployeeOffice(user, id, dto, {
+      ipAddress: request.ip ?? request.socket.remoteAddress ?? null,
+      userAgent: request.get('user-agent') ?? null,
+    });
+  }
+
+  @Patch(':id/office-head-transfer')
+  transferOfficeHead(
+    @CurrentUser()
+    user: AuthenticatedUser,
+
+    @Param(
+      'id',
+      new ParseUUIDPipe({
+        version: '4',
+      }),
+    )
+    id: string,
+
+    @Body()
+    dto: TransferOfficeHeadDto,
+
+    @Req()
+    request: Request,
+  ) {
+    return this.employeesService.transferOfficeHead(user, id, dto, {
+      ipAddress: request.ip ?? request.socket.remoteAddress ?? null,
       userAgent: request.get('user-agent') ?? null,
     });
   }

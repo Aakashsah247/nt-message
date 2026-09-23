@@ -14,10 +14,12 @@ import { AccessTokenGuard } from '../auth/guards/access-token.guard';
 import type { AuthenticatedUser } from '../auth/types/auth.types';
 
 import { AssignOfficeHeadDto } from './dto/assign-office-head.dto';
+import { CreateOfficeHeadAccountDto } from './dto/create-office-head-account.dto';
 import { AssignOrgLeadershipDto } from './dto/assign-org-leadership.dto';
 import { AssignOrgMembershipDto } from './dto/assign-org-membership.dto';
 import { EndOrgLeadershipDto } from './dto/end-org-leadership.dto';
 import { EndOrgMembershipDto } from './dto/end-org-membership.dto';
+import { ReplaceOfficeHeadDto } from './dto/replace-office-head.dto';
 import { TransferPrimaryMembershipDto } from './dto/transfer-primary-membership.dto';
 import { OrganizationPeopleService } from './organization-people.service';
 
@@ -130,6 +132,19 @@ export class OrganizationPeopleController {
     return this.organizationPeopleService.listLeadership(user, officeId);
   }
 
+  @Post('leadership/office-head/account')
+  createOfficeHeadAccount(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('officeId', new ParseUUIDPipe({ version: '4' })) officeId: string,
+    @Body() dto: CreateOfficeHeadAccountDto,
+  ) {
+    return this.organizationPeopleService.createOfficeHeadAccount(
+      user,
+      officeId,
+      dto,
+    );
+  }
+
   @Post('leadership/office-head')
   assignOfficeHead(
     @CurrentUser() user: AuthenticatedUser,
@@ -138,6 +153,20 @@ export class OrganizationPeopleController {
     @Body() dto: AssignOfficeHeadDto,
   ) {
     return this.organizationPeopleService.assignOfficeHead(user, officeId, dto);
+  }
+
+  @Patch('leadership/office-head/replace')
+  replaceOfficeHead(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('officeId', new ParseUUIDPipe({ version: '4' }))
+    officeId: string,
+    @Body() dto: ReplaceOfficeHeadDto,
+  ) {
+    return this.organizationPeopleService.replaceOfficeHead(
+      user,
+      officeId,
+      dto,
+    );
   }
 
   @Post('leadership')

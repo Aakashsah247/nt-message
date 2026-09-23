@@ -16,7 +16,7 @@
   "filters": {
     "office": "Office",
     "search": "Search Work Types",
-    "searchPlaceholder": "Name, code, or legacy type"
+    "searchPlaceholder": "Name or code"
   },
   "list": {
     "aria": "Work Type list"
@@ -226,5 +226,272 @@
     "DRAFT": "Draft",
     "PUBLISHED": "Published",
     "RETIRED": "Retired"
+  },
+  "simple": {
+    "eyebrow": "Work Types",
+    "title": "Work Types",
+    "description": "Set up the types of Work used by your Office.",
+    "office": "Office",
+    "addWorkType": "+ Add Work Type",
+    "loading": "Loading Work Types…",
+    "search": "Search Work Types",
+    "searchPlaceholder": "Search by name",
+    "viewRemoved": "View removed",
+    "backToWorkTypes": "Back to Work Types",
+    "removedEmpty": "No removed Work Types",
+    "removedEmptyDescription": "Deleted Work Types will appear here and can be restored.",
+    "empty": "No Work Types found",
+    "emptyDescription": "Add a Work Type to get started.",
+    "open": "Open",
+    "restore": "Restore",
+    "cancel": "Cancel",
+    "save": "Save",
+    "remove": "Remove",
+    "delete": "Delete Work Type",
+    "deleteConfirm": "Confirm delete",
+    "discardChanges": "Discard changes",
+    "discardConfirm": "Confirm discard",
+    "setupNavigation": "Work Type setup",
+    "changeNeeded": "Start changes before editing this Work Type.",
+    "changeReasonPlaceholder": "What needs to change?",
+    "startChanges": "Start changes",
+    "noDescription": "No description added.",
+    "history": "Previous versions",
+    "historyReady": "Available",
+    "historyChanges": "Changes",
+    "historyOlder": "Older version",
+    "status": {
+      "ready": "Ready to use",
+      "setup": "Needs setup",
+      "changes": "Changes not active yet"
+    },
+    "new": {
+      "title": "Add Work Type",
+      "description": "Give the Work Type a clear name and short description. You can set up its form, steps and rules next.",
+      "name": "Work Type name",
+      "descriptionLabel": "Description",
+      "create": "Create Work Type"
+    },
+    "tabs": {
+      "details": "Details",
+      "assignment": "Assignment",
+      "information": "Information",
+      "workflow": "Workflow",
+      "rules": "Rules",
+      "review": "Review & Publish"
+    },
+    "details": {
+      "title": "Details",
+      "description": "Keep the name and description clear for the people who will use this Work Type.",
+      "name": "Name",
+      "descriptionLabel": "Description"
+    },
+    "makeAvailable": {
+      "title": "Make this Work Type available",
+      "description": "Changes affect new Work only. Existing Work keeps its original rules.",
+      "action": "Make available",
+      "confirm": "Confirm and make available",
+      "notReady": "Complete these items before making this Work Type available:"
+    },
+    "form": {
+      "title": "Form",
+      "description": "These are the questions shown when someone creates this Work Type.",
+      "add": "+ Add field",
+      "empty": "No questions yet",
+      "emptyDescription": "Add only the information people need to create this Work.",
+      "question": "Question",
+      "answerType": "Answer type",
+      "required": "Required",
+      "collectedDuring": "Collected during",
+      "whenCreated": "Work creation",
+      "options": "Choices",
+      "optionsPlaceholder": "Add choices one by one",
+      "minimum": "Minimum",
+      "maximum": "Maximum",
+      "maxLength": "Maximum length",
+      "attachmentOptional": "Required files and images are collected during a Work step.",
+      "addChoice": "+ Add choice",
+      "moveUp": "Move choice up",
+      "moveDown": "Move choice down",
+      "allowOther": "Allow Other / custom value",
+      "otherLabel": "Label for Other",
+      "whenCompleted": "Work completion",
+      "whenCreatedAndCompleted": "Work creation + completion",
+      "completionBehavior": "At completion",
+      "recallReadOnly": "Recall the saved value (read-only)",
+      "recallEditable": "Recall the saved value and allow correction",
+      "workStep": "Work step"
+    },
+    "steps": {
+      "title": "Work steps",
+      "description": "Set the steps people follow to finish this Work.",
+      "add": "+ Add step",
+      "name": "Step name",
+      "handledBy": "Handled by",
+      "assignedTo": "Assigned to",
+      "approvedBy": "Approved by",
+      "required": "Required step",
+      "executionName": "Work execution",
+      "executionBadge": "Execution step",
+      "organization": "Organization unit",
+      "approvalLeadership": "Approval leadership",
+      "executionApprovalHelp": "Execution uses no separate approval. The Responsible Reviewer performs the final Work review."
+    },
+    "rules": {
+      "title": "Rules",
+      "description": "Choose who owns this Work, who can create it and when it is complete.",
+      "owner": "Who handles this Work?",
+      "selectOwner": "Select organization unit",
+      "whoCanCreate": "Who can create this Work?",
+      "close": "When is the Work closed?",
+      "timeLimit": "Time limit (minutes)",
+      "optionalMinutes": "Optional",
+      "moreOptions": "More options",
+      "creatorScope": "Creator area",
+      "slaBasis": "Time calculation",
+      "finalReview": "Final review",
+      "responsibleReviewer": "Responsible Reviewer selected for each Work",
+      "responsibleReviewerHelp": "The reviewer must be an active Head in the Main Team or Primary Owner hierarchy and is selected when the Work is created.",
+      "creatorOrganizations": "Allowed organization units",
+      "includeDescendants": "Include child units"
+    },
+    "creator": {
+      "OFFICE_HEAD": "Office Head",
+      "ORG_UNIT_HEAD": "Division / Department / Section / Unit Heads",
+      "TEAM_LEAD": "Team Leads",
+      "EMPLOYEE": "Employees"
+    },
+    "creatorScope": {
+      "OFFICE_WIDE": "Whole Office",
+      "PRIMARY_OWNER_SUBTREE": "Owner's branch",
+      "SPECIFIC_ORG_UNITS": "Selected organization units"
+    },
+    "closure": {
+      "AUTO_AFTER_REQUIRED_STAGES": "After all required steps",
+      "PRIMARY_OWNER_HEAD": "Owner Head approval",
+      "SPECIFIC_LEADERSHIP": "Selected Head approval",
+      "OFFICE_HEAD": "Office Head approval"
+    },
+    "sla": {
+      "CALENDAR_DURATION": "Calendar time",
+      "OFFICE_WORKING_DURATION": "Office working time"
+    },
+    "responsibility": {
+      "PRIMARY_OWNER": "Primary owner",
+      "SPECIFIC_ORG_UNIT": "Selected organization unit",
+      "RUNTIME_REQUESTED_PARTICIPANT": "Selected when Work is created"
+    },
+    "assignment": {
+      "ORG_UNIT_QUEUE": "Organization queue",
+      "TEAM": "Team",
+      "INDIVIDUAL": "Person",
+      "ORG_UNIT_OR_TEAM": "Organization unit or team",
+      "ORG_UNIT_OR_USER": "Organization unit or person",
+      "RESPONSIBLE_ORG_UNIT_HEAD": "Organization Head",
+      "TEAM_OR_USER": "Team or Individual"
+    },
+    "approval": {
+      "NONE": "No approval",
+      "RESPONSIBLE_ORG_UNIT_HEAD": "Organization Head",
+      "TEAM_LEAD": "Team Lead",
+      "SPECIFIC_LEADERSHIP": "Selected Head",
+      "OFFICE_HEAD": "Office Head"
+    },
+    "fieldTypes": {
+      "TEXT": "Text",
+      "LONG_TEXT": "Long text",
+      "NUMBER": "Number",
+      "DECIMAL": "Decimal",
+      "DATE": "Date",
+      "DATETIME": "Date and time",
+      "BOOLEAN": "Yes / No",
+      "SELECT": "Single choice",
+      "MULTI_SELECT": "Multiple choice",
+      "USER": "Person",
+      "ORG_UNIT": "Organization unit",
+      "REFERENCE": "Reference",
+      "IMAGE": "Image",
+      "FILE": "File"
+    },
+    "errors": {
+      "create": "Could not create the Work Type.",
+      "remove": "Could not delete the Work Type.",
+      "restore": "Could not restore the Work Type."
+    },
+    "messages": {
+      "restored": "Work Type restored."
+    },
+    "assignmentSection": {
+      "title": "Assignment",
+      "description": "Choose the owning organization and how the main Work is performed.",
+      "owner": "Owning organization",
+      "selectOwner": "Select organization unit",
+      "performer": "Who performs the main Work?",
+      "performerHelp": "Choose the execution model people will use when this Work is created.",
+      "executionMissing": "Add a required Work execution step before configuring assignment.",
+      "supportTitle": "Support and cross-organization help are included automatically",
+      "supportHelp": "Support Members, Need Help and additional participating organizations use the common Work foundation and are not configured again for each Work Type.",
+      "help": {
+        "ORG_UNIT_QUEUE": "Work starts in the owning organization queue.",
+        "TEAM": "A Main Team is selected when Work is created.",
+        "ORG_UNIT_OR_TEAM": "Work can use an organization queue or a Main Team.",
+        "ORG_UNIT_OR_USER": "Work can be assigned to an organization or an individual person.",
+        "TEAM_OR_USER": "Choose either a Main Team or one individual employee when the Work is created."
+      }
+    },
+    "information": {
+      "title": "Information",
+      "description": "Configure only the business information that is different for this Work Type. Choose when each field is collected.",
+      "creationForm": "Creation Form",
+      "executionForm": "Work Execution Form",
+      "stageForms": "Additional stage forms",
+      "foundationNote": "Start Work, Need Help, Support Members, notes, evidence and final review are already provided by the common Work foundation.",
+      "commonCompletionEyebrow": "COMMON COMPLETION",
+      "commonCompletionTitle": "Included automatically in every Work Type",
+      "commonCompletionDescription": "These required completion questions are part of the Work foundation. They are shown to the worker when finishing Work and cannot be removed from an individual Work Type.",
+      "alwaysIncluded": "Always included",
+      "workResultTitle": "Work result *",
+      "workResultValues": "Work finished / Temporary work done / Could not finish",
+      "summaryTitle": "What did you do? *",
+      "summaryRequired": "The worker must describe the work completed before submitting for review.",
+      "moreWorkTitle": "More work is still required? *",
+      "moreWorkValues": "Yes / No",
+      "creationAndCompletionForm": "Creation + Completion"
+    },
+    "workflow": {
+      "title": "Workflow",
+      "description": "Set additional organization steps and the order they must follow. The main execution step is always part of the Work foundation.",
+      "presets": "Quick workflow setup",
+      "presetsHelp": "Use a preset as a starting point, then adjust only what this Work Type needs.",
+      "currentSetup": "Current setup:",
+      "customSetup": "Custom workflow",
+      "preset": {
+        "STANDARD_TEAM": "Standard Team Work",
+        "TEAM_SALES": "Team + Sales",
+        "ADMINISTRATIVE": "Administrative Team / Individual"
+      },
+      "additionalStep": "Additional step",
+      "dependencies": "Step order",
+      "dependenciesHelp": "Define which step must finish before another step can proceed.",
+      "addDependency": "+ Add dependency",
+      "noDependencies": "No step dependency is configured.",
+      "waitsFor": "waits for"
+    },
+    "review": {
+      "title": "Review & Publish",
+      "description": "Check the Work Type in business language before making it available. Existing Work keeps the version it was created with.",
+      "owner": "Owning organization",
+      "performer": "Main execution",
+      "creationFields": "Creation fields",
+      "steps": "Work steps",
+      "creators": "Who may create",
+      "sla": "Due-time rule",
+      "minutes": "minutes",
+      "defaultSla": "Default: 4 hours",
+      "notSet": "Not set",
+      "foundationTitle": "Common Work controls are included automatically",
+      "foundationHelp": "Start Work, Need Help, Support Members, notes, evidence, completion controls, Responsible Reviewer, Return for Correction, Approve & Complete, history, automatic Registered/Due time and AD/BS are platform-owned and are not recreated here.",
+      "ready": "This Work Type is ready to publish."
+    }
   }
 }

@@ -27,12 +27,18 @@ function createService(
     detail?: unknown;
     orgUnits?: unknown[];
     memberships?: unknown[];
+    leadership?: unknown[];
+    visibleOrgUnitIds?: string[];
     assertCanError?: Error;
     draft?: boolean;
     publish?: boolean;
   } = {},
 ) {
   const prisma = {
+    $transaction: jest.fn().mockResolvedValue({
+      createdDefinitions: 0,
+      createdDrafts: 0,
+    }),
     office: {
       findUnique: jest
         .fn()
@@ -46,6 +52,23 @@ function createService(
     },
     workTypeVersion: {
       findMany: jest.fn().mockResolvedValue(overrides.versions ?? []),
+      findFirst: jest
+        .fn()
+        .mockResolvedValue({ creatorOrgUnits: [{ orgUnitId: 'division-1' }] }),
+    },
+    account: {
+      findUnique: jest
+        .fn()
+        .mockResolvedValue({ employeeId: 'employee-manager-1' }),
+    },
+    orgLeadershipAssignment: {
+      findMany: jest
+        .fn()
+        .mockResolvedValue(
+          overrides.leadership ?? [
+            { leadershipType: 'OFFICE_HEAD', orgUnitId: null, orgUnit: null },
+          ],
+        ),
     },
     orgUnit: {
       findMany: jest.fn().mockResolvedValue(overrides.orgUnits ?? []),
@@ -69,6 +92,9 @@ function createService(
               ? (overrides.publish ?? false)
               : false,
       ),
+    visibleOrgUnitIds: jest
+      .fn()
+      .mockResolvedValue(overrides.visibleOrgUnitIds ?? []),
   } as unknown as OrganizationAuthorizationService;
 
   const sla = {
@@ -98,12 +124,31 @@ describe('WorkTypeV3Service', () => {
       },
     });
 
-    expect(authorization.assertCan).toHaveBeenCalledWith(
+    expect(authorization.can).toHaveBeenCalledWith(
       user,
       CAPABILITIES.WORK_TYPE_VIEW,
       office.id,
       null,
     );
+  });
+
+  it('returns draft-only Work Type actions for an explicit Division-scoped delegation', async () => {
+    const { service } = createService({
+      draft: false,
+      publish: false,
+      leadership: [],
+      visibleOrgUnitIds: ['division-1'],
+      orgUnits: [{ id: 'division-1' }],
+    });
+
+    await expect(service.getActionContext(user, office.id)).resolves.toEqual({
+      office,
+      availableActions: {
+        view: true,
+        draft: true,
+        publish: false,
+      },
+    });
   });
 
   it('returns Work Type configuration options without requiring organization-management APIs', async () => {
@@ -158,6 +203,8 @@ describe('WorkTypeV3Service', () => {
           primaryOrgUnitId: 'unit-1',
         },
       ],
+      officeWideManagement: true,
+      manageableDivisionOrgUnitIds: [],
     });
 
     expect(prisma.orgMembership.findMany).toHaveBeenCalledTimes(1);
@@ -184,6 +231,8 @@ describe('WorkTypeV3Service', () => {
       office,
       orgUnits: [],
       creatorAccounts: [],
+      officeWideManagement: false,
+      manageableDivisionOrgUnitIds: [],
     });
 
     expect(prisma.orgMembership.findMany).not.toHaveBeenCalled();
@@ -237,7 +286,10 @@ describe('WorkTypeV3Service', () => {
 
   it('does not expose work types without view authority', async () => {
     const { service } = createService({
-      assertCanError: new ForbiddenException(),
+      leadership: [],
+      visibleOrgUnitIds: [],
+      draft: false,
+      publish: false,
     });
 
     await expect(service.list(user, office.id)).rejects.toBeInstanceOf(

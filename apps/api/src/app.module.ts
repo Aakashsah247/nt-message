@@ -17,6 +17,8 @@ import { EmergencyAlertsModule } from './emergency-alerts/emergency-alerts.modul
 import { MonitoringModule } from './monitoring/monitoring.module';
 import { OrganizationModule } from './organization/organization.module';
 import { WorkManagementModule } from './work-management/work-management.module';
+import { TeamManagementModule } from './team-management/team-management.module';
+import { SecurityModule } from './security/security.module';
 
 @Module({
   imports: [
@@ -26,6 +28,7 @@ import { WorkManagementModule } from './work-management/work-management.module';
     }),
 
     PrismaModule,
+    SecurityModule,
     ConversationsModule,
     AnnouncementsModule,
     DirectoryModule,
@@ -38,6 +41,7 @@ import { WorkManagementModule } from './work-management/work-management.module';
     AccountRequestsModule,
     AccountSettingsModule,
     WorkManagementModule,
+    TeamManagementModule,
   ],
 
   controllers: [AppController],

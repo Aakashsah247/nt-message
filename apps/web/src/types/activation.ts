@@ -16,8 +16,8 @@ export interface ActivationInvitationPreview {
   organization: {
     officeId: string;
     officeName: string;
-    orgUnitId: string;
-    orgUnitName: string;
+    orgUnitId: string | null;
+    orgUnitName: string | null;
   };
 
   requestedRole: Exclude<AccountRole, "SUPER_ADMIN">;

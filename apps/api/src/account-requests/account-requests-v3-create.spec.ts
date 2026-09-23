@@ -1,5 +1,9 @@
 import type { AuthenticatedUser } from '../auth/types/auth.types';
-import { AccountClass, AccountRole } from '../generated/prisma/client';
+import {
+  AccountClass,
+  AccountRequestOrganizationRole,
+  AccountRole,
+} from '../generated/prisma/client';
 import { AccountRequestsService } from './account-requests.service';
 
 const user: AuthenticatedUser = {
@@ -23,6 +27,7 @@ describe('AccountRequestsService V3 create flow', () => {
           id: 'request-1',
           empId: 'NTC-2001',
           requestedRole: AccountRole.EMPLOYEE,
+          requestedOrganizationRole: AccountRequestOrganizationRole.EMPLOYEE,
           lifecycleState: 'REQUESTED',
           officeId: 'office-1',
           intendedOrgUnitId: 'org-unit-1',
@@ -56,6 +61,7 @@ describe('AccountRequestsService V3 create flow', () => {
           code: 'PATAN',
           name: 'Patan Telecom Office',
         },
+        requestedOrganizationRole: AccountRequestOrganizationRole.EMPLOYEE,
         intendedOrgUnit: {
           id: 'org-unit-1',
           code: 'TECH',
@@ -76,6 +82,7 @@ describe('AccountRequestsService V3 create flow', () => {
       {
         officeId: 'office-1',
         intendedOrgUnitId: 'org-unit-1',
+        requestedOrganizationRole: AccountRequestOrganizationRole.EMPLOYEE,
         empId: 'NTC-2001',
         empName: 'New Employee',
         phoneNumber: '9812345678',
@@ -91,12 +98,14 @@ describe('AccountRequestsService V3 create flow', () => {
     expect(requestAuthority.resolveCreateTarget).toHaveBeenCalledWith(user, {
       officeId: 'office-1',
       intendedOrgUnitId: 'org-unit-1',
+      requestedOrganizationRole: AccountRequestOrganizationRole.EMPLOYEE,
     });
 
     expect(transaction.accountRequest.create).toHaveBeenCalledWith(
       expect.objectContaining({
         data: expect.objectContaining({
           requestedRole: AccountRole.EMPLOYEE,
+          requestedOrganizationRole: AccountRequestOrganizationRole.EMPLOYEE,
           lifecycleState: 'REQUESTED',
           officeId: 'office-1',
           intendedOrgUnitId: 'org-unit-1',

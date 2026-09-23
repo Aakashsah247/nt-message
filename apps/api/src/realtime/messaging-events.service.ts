@@ -130,11 +130,15 @@ export type WorkItemRealtimeAction =
   | 'V3_WORK_REOPENED';
 
 export interface WorkItemRealtimePayload {
+  eventId: string;
   workItemId: string;
   ticketNumber: string;
   status: string;
   action: WorkItemRealtimeAction;
   actorAccountId: string | null;
+  title: string;
+  body: string;
+  audible: boolean;
   occurredAt: string;
 }
 
@@ -199,6 +203,11 @@ export interface MessagingTypingUpdatedPayload {
   occurredAt: string;
 }
 
+export interface DirectoryChangedRealtimePayload {
+  reason: string;
+  occurredAt: string;
+}
+
 export interface MessagingServerToClientEvents {
   'messaging:ready': (payload: MessagingReadyPayload) => void;
   'messaging:error': (payload: MessagingErrorPayload) => void;
@@ -234,6 +243,7 @@ export interface MessagingServerToClientEvents {
   ) => void;
   'messaging:presence-updated': (payload: MessagingPresenceState) => void;
   'messaging:typing-updated': (payload: MessagingTypingUpdatedPayload) => void;
+  'directory:changed': (payload: DirectoryChangedRealtimePayload) => void;
 }
 
 export interface MessagingClientToServerEvents {
@@ -357,17 +367,23 @@ export class MessagingEventsService {
 
   emitWorkItemUpdated(
     accountIds: string[],
-    payload: WorkItemRealtimePayload,
+    payload: Omit<WorkItemRealtimePayload, 'audible'>,
+    audibleAccountIds: string[] = [],
   ): void {
     if (!this.server) {
       return;
     }
 
+    const audibleAccounts = new Set(audibleAccountIds);
+
     // Work updates are delivered only to accounts already authorized by the work service.
+    // The audible flag is personalized per recipient so the actor and unrelated viewers
+    // never hear an attention sound for a state change they do not need to act on.
     for (const accountId of new Set(accountIds)) {
-      this.server
-        .to(this.accountRoom(accountId))
-        .emit('work:item-updated', payload);
+      this.server.to(this.accountRoom(accountId)).emit('work:item-updated', {
+        ...payload,
+        audible: audibleAccounts.has(accountId),
+      });
     }
   }
 
@@ -466,6 +482,12 @@ export class MessagingEventsService {
     for (const accountId of new Set(accountIds)) {
       emitter.to(this.accountRoom(accountId)).emit(event, payload);
     }
+  }
+
+  emitDirectoryChanged(payload: DirectoryChangedRealtimePayload): void {
+    // Directory payloads intentionally contain no employee data. Connected clients
+    // refetch through the normal authorized Directory API for their current scope.
+    this.server?.emit('directory:changed', payload);
   }
 
   private accountRoom(accountId: string): string {

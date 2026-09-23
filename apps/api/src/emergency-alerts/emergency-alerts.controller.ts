@@ -5,9 +5,11 @@ import { AccessTokenGuard } from '../auth/guards/access-token.guard';
 import type { AuthenticatedUser } from '../auth/types/auth.types';
 import { SendEmergencyAlertDto } from './dto/send-emergency-alert.dto';
 import { EmergencyAlertsService } from './emergency-alerts.service';
+import { RateLimit } from '../security/rate-limit.decorator';
+import { RateLimitGuard } from '../security/rate-limit.guard';
 
 @Controller('emergency-alerts')
-@UseGuards(AccessTokenGuard)
+@UseGuards(AccessTokenGuard, RateLimitGuard)
 export class EmergencyAlertsController {
   constructor(
     private readonly emergencyAlertsService: EmergencyAlertsService,
@@ -26,6 +28,12 @@ export class EmergencyAlertsController {
   }
 
   @Post()
+  @RateLimit({
+    scope: 'emergency-sms-send',
+    limit: 10,
+    windowMs: 10 * 60_000,
+    keys: ['account', 'ip'],
+  })
   sendEmergencyAlert(
     @CurrentUser() user: AuthenticatedUser,
     @Body() dto: SendEmergencyAlertDto,

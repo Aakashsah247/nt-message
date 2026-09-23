@@ -31,7 +31,9 @@
     "workType": "Work Type",
     "workStatus": "Work status",
     "stageStatus": "Stage status",
-    "sla": "SLA state"
+    "sla": "SLA state",
+    "operationalTeam": "Operational Team",
+    "status": "Status"
   },
   "scope": {
     "PERSONAL": "Personal scope",
@@ -85,7 +87,16 @@
     "organizationDescription": "Primary ownership, participation and stage responsibility are shown separately to prevent double counting.",
     "teamTitle": "Operational Team execution",
     "teamDescription": "Team activity is an execution drill-down under the formal OrgUnit structure.",
-    "teamExecutionOnly": "Execution dimension only"
+    "teamExecutionOnly": "Execution dimension only",
+    "workflowTitle": "Workflow status",
+    "newWork": "New work",
+    "inProgress": "In progress",
+    "waitingForSales": "Waiting for Sales",
+    "waitingForApproval": "Need review",
+    "returnedForCorrection": "Returned for correction",
+    "completedDuring": "Completed during period",
+    "activeWork": "Active",
+    "noTeams": "No team report rows are available for this scope and period."
   },
   "records": {
     "title": "Work Records",

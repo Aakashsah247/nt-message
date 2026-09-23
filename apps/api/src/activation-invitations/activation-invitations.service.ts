@@ -78,8 +78,8 @@ export interface ActivationInvitationPreview {
   organization: {
     officeId: string;
     officeName: string;
-    orgUnitId: string;
-    orgUnitName: string;
+    orgUnitId: string | null;
+    orgUnitName: string | null;
   };
   requestedRole: AccountRole;
   expiresAt: Date;
@@ -363,10 +363,11 @@ export class ActivationInvitationsService {
       isCanonicalOfficeActivationRequest(invitation.request) &&
       invitation.request.office &&
       invitation.request.office.isActive &&
-      invitation.request.intendedOrgUnit &&
-      invitation.request.intendedOrgUnit.isActive &&
-      invitation.request.intendedOrgUnit.officeId ===
-        invitation.request.officeId &&
+      (invitation.request.intendedOrgUnitId === null ||
+        (invitation.request.intendedOrgUnit &&
+          invitation.request.intendedOrgUnit.isActive &&
+          invitation.request.intendedOrgUnit.officeId ===
+            invitation.request.officeId)) &&
       primaryMembershipMatchesActivationScope(
         invitation.request,
         invitation.employee.orgMemberships[0],
@@ -407,8 +408,8 @@ export class ActivationInvitationsService {
       organization: {
         officeId: invitation.request.officeId!,
         officeName: invitation.request.office!.name,
-        orgUnitId: invitation.request.intendedOrgUnitId!,
-        orgUnitName: invitation.request.intendedOrgUnit!.name,
+        orgUnitId: invitation.request.intendedOrgUnitId,
+        orgUnitName: invitation.request.intendedOrgUnit?.name ?? null,
       },
       requestedRole: invitation.request.requestedRole,
       expiresAt: invitation.expiresAt,

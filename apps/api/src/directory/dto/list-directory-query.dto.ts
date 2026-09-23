@@ -4,6 +4,7 @@ import {
   IsInt,
   IsOptional,
   IsString,
+  IsUUID,
   Max,
   MaxLength,
   Min,
@@ -55,6 +56,14 @@ export class ListDirectoryQueryDto {
   @IsOptional()
   @IsEnum(DirectoryActivationStatus)
   activationStatus?: DirectoryActivationStatus;
+
+  @IsOptional()
+  @IsUUID('4')
+  officeId?: string;
+
+  @IsOptional()
+  @IsUUID('4')
+  orgUnitId?: string;
 
   @IsOptional()
   @Type(() => Number)

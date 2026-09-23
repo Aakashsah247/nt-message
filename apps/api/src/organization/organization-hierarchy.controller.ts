@@ -1,6 +1,7 @@
 import {
   Body,
   Controller,
+  Delete,
   Get,
   Param,
   ParseUUIDPipe,
@@ -42,9 +43,19 @@ export class OrganizationHierarchyController {
     return this.hierarchyService.listOffices(user);
   }
 
+  @Get('workspace-context')
+  getWorkspaceContext(@CurrentUser() user: AuthenticatedUser) {
+    return this.hierarchyService.getWorkspaceContext(user);
+  }
+
   @Get('navigation-context')
   getNavigationContext(@CurrentUser() user: AuthenticatedUser) {
     return this.hierarchyService.getNavigationContext(user);
+  }
+
+  @Get('office-head-context')
+  getOfficeHeadContext(@CurrentUser() user: AuthenticatedUser) {
+    return this.hierarchyService.getOfficeHeadContext(user);
   }
 
   @Get('offices/:officeId')
@@ -151,5 +162,16 @@ export class OrganizationHierarchyController {
     @Body() dto: SetOrgUnitStatusDto,
   ) {
     return this.hierarchyService.setOrgUnitStatus(user, officeId, unitId, dto);
+  }
+
+  @Delete('offices/:officeId/units/:unitId')
+  deleteOrgUnit(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('officeId', new ParseUUIDPipe({ version: '4' }))
+    officeId: string,
+    @Param('unitId', new ParseUUIDPipe({ version: '4' }))
+    unitId: string,
+  ) {
+    return this.hierarchyService.deleteOrgUnit(user, officeId, unitId);
   }
 }

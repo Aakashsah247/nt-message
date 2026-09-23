@@ -94,6 +94,7 @@ describe('DutyScheduleService M20 Phase 5', () => {
       createMany: jest.fn(),
     },
     orgUnit: { findFirst: jest.fn() },
+    orgUnitClosure: { findMany: jest.fn(), findUnique: jest.fn() },
     account: { findMany: jest.fn() },
   } as unknown as PrismaService;
   const scope = {
@@ -148,6 +149,11 @@ describe('DutyScheduleService M20 Phase 5', () => {
         ],
       );
     jest.mocked(prisma.dutyAssignment.findMany).mockResolvedValue([] as never);
+    jest
+      .mocked(prisma.orgUnitClosure.findMany)
+      .mockResolvedValue([
+        { descendantOrgUnitId: 'org-unit-a', ancestorOrgUnitId: 'org-unit-a' },
+      ] as never);
     jest.mocked(prisma.dutyException.findMany).mockResolvedValue([] as never);
     jest.mocked(prisma.dutyHoliday.findMany).mockResolvedValue([] as never);
     jest

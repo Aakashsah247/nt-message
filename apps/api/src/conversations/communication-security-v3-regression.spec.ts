@@ -148,13 +148,9 @@ describe('P12-L communication V3 security boundaries', () => {
           accountId: 'super-admin',
           role: AccountRole.SUPER_ADMIN,
           isOfficeHead: false,
-          divisionId: null,
-          departmentId: null,
         },
         {
           audienceType: AnnouncementAudienceType.OFFICE,
-          divisionId: null,
-          departmentId: null,
           officeId: 'office-1',
         },
       ),
@@ -166,13 +162,9 @@ describe('P12-L communication V3 security boundaries', () => {
           accountId: 'employee-1',
           role: AccountRole.EMPLOYEE,
           isOfficeHead: false,
-          divisionId: null,
-          departmentId: null,
         },
         {
           audienceType: AnnouncementAudienceType.OFFICIAL_GROUP,
-          divisionId: null,
-          departmentId: null,
           officeId: 'office-1',
           officialParticipantRole: ConversationParticipantRole.MEMBER,
         },
@@ -245,11 +237,13 @@ describe('P12-L communication V3 security boundaries', () => {
       'account.accountClass === AccountClass.SUPER_ADMIN',
     );
     expect(directorySource).toContain(
-      '(employee?.orgLeadershipAssignments.length ?? 0) > 0',
+      'const officeHead = employee.orgLeadershipAssignments.some(',
     );
+    expect(directorySource).toContain('if (headedOrgUnitIds.length > 0)');
     expect(directorySource).toContain(
-      '(employee?.operationalTeamLeadAssignments.length ?? 0) > 0',
+      'const delegatedPermissions = await this.prisma.delegatedPermission.findMany',
     );
+    expect(directorySource).not.toContain('operationalTeamLeadAssignments');
     expect(directorySource).not.toContain('AccountRole.EMPLOYEE');
     expect(directorySource).toContain('officeId: viewer.officeId');
   });

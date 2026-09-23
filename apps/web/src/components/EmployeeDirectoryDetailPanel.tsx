@@ -1,30 +1,32 @@
 import { useEffect, useState } from "react";
+import type { FormEvent } from "react";
 import type { TFunction } from "i18next";
 import { useTranslation } from "react-i18next";
+import { Link } from "react-router";
 
 import { ProtectedAvatar } from "./ProtectedAvatar";
-
-import type {
-  FormEvent,
-} from "react";
-
 import {
   archiveDirectoryEmployee,
+  correctAdminEmployeeIdentity,
   endDirectoryEmployeeEmployment,
   getDirectoryEmployee,
   getDirectoryEmployeeLifecycleHistory,
+  transferDirectoryEmployeeOffice,
+  updateAdminEmployeeDesignation,
   updateDirectoryEmployeeStatus,
 } from "../services/directory.service";
-import type {
-  AccountClass,
-} from "../types/auth";
-
+import {
+  getOrganizationOffices,
+  getOrganizationTree,
+} from "../services/organization-v3.service";
+import type { AccountClass } from "../types/auth";
 import type {
   DirectoryEmployeeDetailResponse,
   DirectoryEmployeeStatus,
   DirectoryEmploymentStatus,
   DirectoryLifecycleHistoryResponse,
 } from "../types/directory";
+import type { OrganizationOfficeSummary, OrganizationUnitNode } from "../types/organization-v3";
 
 interface EmployeeDirectoryDetailPanelProps {
   accessToken: string;
@@ -36,120 +38,60 @@ interface EmployeeDirectoryDetailPanelProps {
 
 const BRANCH_TIME_ZONE = "Asia/Kathmandu";
 const BRANCH_UTC_OFFSET = "+05:45";
+const FORMAL_TYPES = new Set(["DIVISION", "DEPARTMENT", "SECTION", "UNIT"]);
 
-function getBranchDateInputValue(
-  value: Date = new Date(),
-): string {
-  const parts = new Intl.DateTimeFormat(
-    "en-CA",
-    {
-      timeZone: BRANCH_TIME_ZONE,
-      year: "numeric",
-      month: "2-digit",
-      day: "2-digit",
-    },
-  ).formatToParts(value);
-
-  const year = parts.find(
-    (part) => part.type === "year",
-  )?.value;
-
-  const month = parts.find(
-    (part) => part.type === "month",
-  )?.value;
-
-  const day = parts.find(
-    (part) => part.type === "day",
-  )?.value;
-
-  if (!year || !month || !day) {
-    return value.toISOString().slice(0, 10);
-  }
-
-  return `${year}-${month}-${day}`;
+function getBranchDateInputValue(value: Date = new Date()): string {
+  const parts = new Intl.DateTimeFormat("en-CA", { timeZone: BRANCH_TIME_ZONE, year: "numeric", month: "2-digit", day: "2-digit" }).formatToParts(value);
+  const year = parts.find((part) => part.type === "year")?.value;
+  const month = parts.find((part) => part.type === "month")?.value;
+  const day = parts.find((part) => part.type === "day")?.value;
+  return year && month && day ? `${year}-${month}-${day}` : value.toISOString().slice(0, 10);
 }
 
-function getEmploymentEffectiveAt(
-  value: string,
-): string | undefined {
-  if (!value) {
-    return undefined;
-  }
-
-  if (value === getBranchDateInputValue()) {
-    return new Date().toISOString();
-  }
-
-  return new Date(
-    `${value}T23:59:59.999${BRANCH_UTC_OFFSET}`,
-  ).toISOString();
+function getEffectiveAt(value: string): string | undefined {
+  if (!value) return undefined;
+  if (value === getBranchDateInputValue()) return new Date().toISOString();
+  return new Date(`${value}T23:59:59.999${BRANCH_UTC_OFFSET}`).toISOString();
 }
 
-function getErrorMessage(
-  error: unknown,
-  t: TFunction<"directory">,
-): string {
-  return error instanceof Error
-    ? error.message
-    : t("detail.errorFallback", { ns: "directory" });
+function getErrorMessage(error: unknown, t: TFunction<"directory">): string {
+  return error instanceof Error ? error.message : t("detail.errorFallback");
 }
 
 function fallbackFormatValue(value: string): string {
-  return value
-    .toLowerCase()
-    .split("_")
-    .map(
-      (part) =>
-        part.charAt(0).toUpperCase() +
-        part.slice(1),
-    )
-    .join(" ");
+  return value.toLowerCase().split("_").map((part) => part.charAt(0).toUpperCase() + part.slice(1)).join(" ");
 }
 
-function formatValue(
-  value: string,
-  t: TFunction<"directory">,
-): string {
-  return t(`values.${value}`, {
-    ns: "directory",
-    defaultValue: fallbackFormatValue(value),
-  });
+function formatValue(value: string, t: TFunction<"directory">): string {
+  return t(`values.${value}`, { defaultValue: fallbackFormatValue(value) });
 }
 
-function formatDate(
-  value: string | null,
-  locale: string,
-  t: TFunction<"directory">,
-): string {
-  if (!value) {
-    return t("common.notAvailable", { ns: "directory" });
-  }
-
+function formatDate(value: string | null, locale: string, t: TFunction<"directory">): string {
+  if (!value) return t("common.notAvailable");
   const date = new Date(value);
-
-  if (Number.isNaN(date.getTime())) {
-    return t("common.notAvailable", { ns: "directory" });
-  }
-
-  return new Intl.DateTimeFormat(locale === "ne" ? "ne-NP" : "en-GB", {
-    dateStyle: "medium",
-    timeStyle: "short",
-  }).format(date);
-}
-
-function getMetadataString(
-  metadata: Record<string, unknown> | null,
-  key: string,
-): string | null {
-  const value = metadata?.[key];
-
-  return typeof value === "string" ? value : null;
+  if (Number.isNaN(date.getTime())) return t("common.notAvailable");
+  return new Intl.DateTimeFormat(locale === "ne" ? "ne-NP" : "en-GB", { dateStyle: "medium", timeStyle: "short" }).format(date);
 }
 
 function getStatusClass(value: string): string {
-  return value
-    .toLowerCase()
-    .replaceAll("_", "-");
+  return value.toLowerCase().replaceAll("_", "-");
+}
+
+function flattenTree(nodes: OrganizationUnitNode[], prefix: string[] = []): Array<{ node: OrganizationUnitNode; path: string }> {
+  return nodes.flatMap((node) => {
+    const path = [...prefix, node.name];
+    return [{ node, path: path.join(" → ") }, ...flattenTree(node.children, path)];
+  });
+}
+
+function leadershipLabel(
+  assignment: NonNullable<DirectoryEmployeeDetailResponse["employee"]>["leadership"][number],
+  t: TFunction<"directory">,
+): string {
+  if (assignment.type === "OFFICE_HEAD") return t("leadership.officeHead", { unit: assignment.office.name });
+  const type = assignment.orgUnit?.typeCode;
+  const key = type === "DIVISION" ? "divisionHead" : type === "DEPARTMENT" ? "departmentHead" : type === "SECTION" ? "sectionHead" : "unitHead";
+  return t(`leadership.${key}`, { unit: assignment.orgUnit?.name ?? assignment.office.name });
 }
 
 export function EmployeeDirectoryDetailPanel({
@@ -160,1323 +102,290 @@ export function EmployeeDirectoryDetailPanel({
   onClose,
 }: EmployeeDirectoryDetailPanelProps) {
   const { t, i18n } = useTranslation("directory");
-  const [response, setResponse] =
-    useState<DirectoryEmployeeDetailResponse | null>(null);
-
+  const [response, setResponse] = useState<DirectoryEmployeeDetailResponse | null>(null);
   const [error, setError] = useState("");
-
   const [retryKey, setRetryKey] = useState(0);
+  const [actionError, setActionError] = useState("");
+  const [actionMessage, setActionMessage] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [pendingStatus, setPendingStatus] = useState<DirectoryEmployeeStatus | null>(null);
+  const [pendingEmploymentStatus, setPendingEmploymentStatus] = useState<Exclude<DirectoryEmploymentStatus, "ACTIVE" | "TRANSFERRED"> | null>(null);
+  const [employmentReason, setEmploymentReason] = useState("");
+  const [employmentEffectiveDate, setEmploymentEffectiveDate] = useState("");
+  const [showArchiveForm, setShowArchiveForm] = useState(false);
+  const [archiveReason, setArchiveReason] = useState("");
+  const [lifecycleHistory, setLifecycleHistory] = useState<DirectoryLifecycleHistoryResponse | null>(null);
 
-  const [
-    pendingStatus,
-    setPendingStatus,
-  ] =
-    useState<DirectoryEmployeeStatus | null>(
-      null,
-    );
+  const [showCorrection, setShowCorrection] = useState(false);
+  const [correctionEmpId, setCorrectionEmpId] = useState("");
+  const [correctionName, setCorrectionName] = useState("");
+  const [correctionPhone, setCorrectionPhone] = useState("");
+  const [correctionEmail, setCorrectionEmail] = useState("");
+  const [correctionDesignation, setCorrectionDesignation] = useState("");
+  const [correctionReason, setCorrectionReason] = useState("");
 
-  const [
-    changingStatus,
-    setChangingStatus,
-  ] = useState(false);
-
-  const [
-    actionError,
-    setActionError,
-  ] = useState("");
-
-  const [
-    actionMessage,
-    setActionMessage,
-  ] = useState("");
-
-  const [
-    pendingEmploymentStatus,
-    setPendingEmploymentStatus,
-  ] =
-    useState<
-      Exclude<
-        DirectoryEmploymentStatus,
-        "ACTIVE"
-      > | null
-    >(null);
-
-  const [
-    employmentReason,
-    setEmploymentReason,
-  ] = useState("");
-
-  const [
-    employmentEffectiveDate,
-    setEmploymentEffectiveDate,
-  ] = useState("");
-
-  const [
-    endingEmployment,
-    setEndingEmployment,
-  ] = useState(false);
-
-
-  const [
-    showArchiveForm,
-    setShowArchiveForm,
-  ] = useState(false);
-
-  const [
-    archiveReason,
-    setArchiveReason,
-  ] = useState("");
-
-  const [
-    archiving,
-    setArchiving,
-  ] = useState(false);
-
-
-  const [
-    lifecycleHistory,
-    setLifecycleHistory,
-  ] =
-    useState<DirectoryLifecycleHistoryResponse | null>(
-      null,
-    );
-
-  const [
-    lifecycleLoading,
-    setLifecycleLoading,
-  ] = useState(
-    viewerAccountClass === "SUPER_ADMIN",
-  );
-
-  const [
-    lifecycleError,
-    setLifecycleError,
-  ] = useState("");
-
+  const [showTransfer, setShowTransfer] = useState(false);
+  const [offices, setOffices] = useState<OrganizationOfficeSummary[]>([]);
+  const [targetOfficeId, setTargetOfficeId] = useState("");
+  const [targetTree, setTargetTree] = useState<OrganizationUnitNode[]>([]);
+  const [targetTreeOfficeId, setTargetTreeOfficeId] = useState("");
+  const [targetOrgUnitId, setTargetOrgUnitId] = useState("");
+  const [transferDate, setTransferDate] = useState("");
+  const [transferReason, setTransferReason] = useState("");
 
   useEffect(() => {
     let active = true;
-
-    // The backend confirms that the employee is inside the viewer's scope.
-    getDirectoryEmployee(
-      accessToken,
-      employeeId,
-    )
-      .then((detailResponse) => {
-        if (!active) {
-          return;
-        }
-
-        setResponse(detailResponse);
+    getDirectoryEmployee(accessToken, employeeId)
+      .then((detail) => {
+        if (!active) return;
+        setResponse(detail);
         setError("");
+        setCorrectionEmpId(detail.employee.empId);
+        setCorrectionName(detail.employee.empName);
+        setCorrectionPhone(detail.employee.phoneNumber ?? "");
+        setCorrectionEmail(detail.employee.officialEmail ?? "");
+        setCorrectionDesignation(detail.employee.designation ?? "");
       })
-      .catch((requestError: unknown) => {
-        if (!active) {
-          return;
-        }
-
-        setResponse(null);
-        setError(getErrorMessage(requestError, t));
-      });
-
-    return () => {
-      active = false;
-    };
-  }, [
-    accessToken,
-    employeeId,
-    retryKey,
-    t,
-  ]);
+      .catch((requestError: unknown) => { if (active) setError(getErrorMessage(requestError, t)); });
+    return () => { active = false; };
+  }, [accessToken, employeeId, retryKey, t]);
 
   useEffect(() => {
-    if (viewerAccountClass !== "SUPER_ADMIN") {
-      return;
-    }
-
+    if (viewerAccountClass !== "SUPER_ADMIN") return;
     let active = true;
-
-    getDirectoryEmployeeLifecycleHistory(
-      accessToken,
-      employeeId,
-    )
-      .then((historyResponse) => {
-        if (!active) {
-          return;
-        }
-
-        setLifecycleHistory(historyResponse);
-        setLifecycleError("");
-      })
-      .catch((requestError: unknown) => {
-        if (!active) {
-          return;
-        }
-
-        setLifecycleHistory(null);
-        setLifecycleError(
-          getErrorMessage(requestError, t),
-        );
-      })
-      .finally(() => {
-        if (active) {
-          setLifecycleLoading(false);
-        }
-      });
-
-    return () => {
-      active = false;
-    };
-  }, [
-    accessToken,
-    employeeId,
-    retryKey,
-    viewerAccountClass,
-    t,
-  ]);
+    Promise.all([
+      getDirectoryEmployeeLifecycleHistory(accessToken, employeeId),
+      getOrganizationOffices(accessToken),
+    ]).then(([history, officeResult]) => {
+      if (!active) return;
+      setLifecycleHistory(history);
+      setOffices(officeResult.data.filter((office) => office.isActive));
+    }).catch(() => undefined);
+    return () => { active = false; };
+  }, [accessToken, employeeId, retryKey, viewerAccountClass]);
 
   useEffect(() => {
-    function handleKeyDown(event: KeyboardEvent): void {
-      if (event.key === "Escape") {
-        onClose();
-      }
-    }
+    if (!targetOfficeId) return;
+    let active = true;
+    getOrganizationTree(accessToken, targetOfficeId)
+      .then((result) => {
+        if (!active) return;
+        setTargetTree(result.tree);
+        setTargetTreeOfficeId(targetOfficeId);
+      })
+      .catch(() => {
+        if (!active) return;
+        setTargetTree([]);
+        setTargetTreeOfficeId(targetOfficeId);
+      });
+    return () => { active = false; };
+  }, [accessToken, targetOfficeId]);
 
-    window.addEventListener(
-      "keydown",
-      handleKeyDown,
-    );
-
-    return () => {
-      window.removeEventListener(
-        "keydown",
-        handleKeyDown,
-      );
-    };
+  useEffect(() => {
+    const close = (event: KeyboardEvent) => { if (event.key === "Escape") onClose(); };
+    window.addEventListener("keydown", close);
+    return () => window.removeEventListener("keydown", close);
   }, [onClose]);
 
-  function retryLoading(): void {
-    setResponse(null);
-    setError("");
-
-    setRetryKey(
-      (current) => current + 1,
-    );
-  }
-
   const employee = response?.employee;
+  const isSuperAdmin = viewerAccountClass === "SUPER_ADMIN";
+  const canAdminister = Boolean(employee) && isSuperAdmin && employee?.accountClass !== "SUPER_ADMIN";
+  const activeEmployment = employee?.employmentStatus === "ACTIVE";
+  const isCurrentPermanentOfficeHead = Boolean(
+    employee?.leadership.some(
+      (assignment) =>
+        assignment.type === "OFFICE_HEAD" &&
+        !assignment.isActing &&
+        assignment.effectiveUntil === null,
+    ),
+  );
+  const activeTargetTree = targetTreeOfficeId === targetOfficeId ? targetTree : [];
+  const transferUnits = flattenTree(activeTargetTree).filter(({ node }) => node.isActive && FORMAL_TYPES.has(node.orgUnitType.code));
 
-  const canManageAccount =
-    Boolean(employee) &&
-    viewerAccountClass === "SUPER_ADMIN" &&
-    employee?.accountClass !== "SUPER_ADMIN";
-
-  const employmentIsActive =
-    employee?.employmentStatus ===
-    "ACTIVE";
-
-  const canManageStatus =
-    canManageAccount &&
-    employmentIsActive;
-
-  const canEndEmployment =
-    canManageAccount &&
-    employmentIsActive;
-
-
-  const canArchiveFormerEmployee =
-    canManageAccount &&
-    !employmentIsActive &&
-    !employee?.archivedAt;
-
-
-  function openStatusConfirmation(
-    status: DirectoryEmployeeStatus,
-  ): void {
-    setPendingStatus(status);
-    setActionError("");
-    setActionMessage("");
+  function refresh(message?: string) {
+    if (message) setActionMessage(message);
+    setRetryKey((current) => current + 1);
+    onStatusChanged();
   }
 
-  function cancelStatusChange(): void {
-    if (changingStatus) {
-      return;
-    }
-
-    setPendingStatus(null);
-    setActionError("");
-  }
-
-  async function changeEmployeeStatus():
-    Promise<void> {
-    if (
-      !employee ||
-      !pendingStatus ||
-      changingStatus
-    ) {
-      return;
-    }
-
-    setChangingStatus(true);
-    setActionError("");
-    setActionMessage("");
-
+  async function submitStatus() {
+    if (!employee || !pendingStatus || busy) return;
+    setBusy(true); setActionError("");
     try {
-      await updateDirectoryEmployeeStatus(
-        accessToken,
-        employee.id,
-        pendingStatus,
-      );
-
-      setActionMessage(
-        pendingStatus === "INACTIVE"
-          ? t("detail.accountAccess.suspendedMessage")
-          : t("detail.accountAccess.reactivatedMessage"),
-      );
-
+      await updateDirectoryEmployeeStatus(accessToken, employee.id, pendingStatus);
       setPendingStatus(null);
-
-      // Reload both the profile and the directory list.
-      setRetryKey(
-        (current) =>
-          current + 1,
-      );
-
-      onStatusChanged();
-    } catch (
-      requestError: unknown
-    ) {
-      setActionError(
-        getErrorMessage(
-          requestError,
-          t,
-        ),
-      );
-    } finally {
-      setChangingStatus(false);
-    }
+      refresh(pendingStatus === "INACTIVE" ? t("detail.accountAccess.suspendedMessage") : t("detail.accountAccess.reactivatedMessage"));
+    } catch (requestError) { setActionError(getErrorMessage(requestError, t)); } finally { setBusy(false); }
   }
 
-  function openEmploymentEnd(
-    status: Exclude<
-      DirectoryEmploymentStatus,
-      "ACTIVE"
-    >,
-  ): void {
-    setPendingEmploymentStatus(
-      status,
-    );
-
-    setEmploymentReason("");
-    setEmploymentEffectiveDate(
-      getBranchDateInputValue(),
-    );
-    setActionError("");
-    setActionMessage("");
-  }
-
-  function cancelEmploymentEnd():
-    void {
-    if (endingEmployment) {
-      return;
-    }
-
-    setPendingEmploymentStatus(
-      null,
-    );
-
-    setEmploymentReason("");
-    setEmploymentEffectiveDate("");
-    setActionError("");
-  }
-
-  async function submitEmploymentEnd(
-    event:
-      FormEvent<HTMLFormElement>,
-  ): Promise<void> {
+  async function submitEmploymentEnd(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-
-    if (
-      !employee ||
-      !pendingEmploymentStatus ||
-      endingEmployment
-    ) {
-      return;
-    }
-
-    const reason =
-      employmentReason
-        .trim()
-        .replace(/\s+/g, " ");
-
-    if (reason.length < 3) {
-      setActionError(
-        t("detail.lifecycle.reasonError"),
-      );
-
-      return;
-    }
-
-    setEndingEmployment(true);
-    setActionError("");
-    setActionMessage("");
-
+    if (!employee || !pendingEmploymentStatus || busy) return;
+    const reason = employmentReason.trim().replace(/\s+/g, " ");
+    if (reason.length < 3) { setActionError(t("detail.lifecycle.reasonError")); return; }
+    setBusy(true); setActionError("");
     try {
-      const result =
-        await endDirectoryEmployeeEmployment(
-          accessToken,
-          employee.id,
-          {
-            employmentStatus:
-              pendingEmploymentStatus,
-
-            reason,
-
-            effectiveAt:
-              getEmploymentEffectiveAt(
-                employmentEffectiveDate,
-              ),
-          },
-        );
-
-      setActionMessage(
-        t("detail.lifecycle.success", {
-          count: result.revokedSessions,
-          status: formatValue(pendingEmploymentStatus, t),
-        }),
-      );
-
-      setPendingEmploymentStatus(
-        null,
-      );
-
-      setEmploymentReason("");
-      setEmploymentEffectiveDate("");
-
-      // Reload the profile and directory after access is disabled.
-      setRetryKey(
-        (current) =>
-          current + 1,
-      );
-
-      onStatusChanged();
-    } catch (
-      requestError: unknown
-    ) {
-      setActionError(
-        getErrorMessage(
-          requestError,
-          t,
-        ),
-      );
-    } finally {
-      setEndingEmployment(false);
-    }
+      const result = await endDirectoryEmployeeEmployment(accessToken, employee.id, { employmentStatus: pendingEmploymentStatus, reason, effectiveAt: getEffectiveAt(employmentEffectiveDate) });
+      setPendingEmploymentStatus(null); setEmploymentReason("");
+      refresh(t("detail.lifecycle.success", { count: result.revokedSessions, status: formatValue(pendingEmploymentStatus, t) }));
+    } catch (requestError) { setActionError(getErrorMessage(requestError, t)); } finally { setBusy(false); }
   }
 
-
-  function cancelArchiveEmployee():
-    void {
-    if (archiving) {
-      return;
-    }
-
-    setShowArchiveForm(false);
-    setArchiveReason("");
-    setActionError("");
-  }
-
-  async function submitArchiveEmployee(
-    event:
-      FormEvent<HTMLFormElement>,
-  ): Promise<void> {
+  async function submitArchive(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-
-    if (
-      !employee ||
-      archiving
-    ) {
-      return;
-    }
-
-    const reason =
-      archiveReason
-        .trim()
-        .replace(/\s+/g, " ");
-
-    if (reason.length < 3) {
-      setActionError(
-        t("detail.archive.reasonError"),
-      );
-
-      return;
-    }
-
-    setArchiving(true);
-    setActionError("");
-    setActionMessage("");
-
+    if (!employee || busy) return;
+    const reason = archiveReason.trim().replace(/\s+/g, " ");
+    if (reason.length < 3) { setActionError(t("detail.archive.reasonError")); return; }
+    setBusy(true); setActionError("");
     try {
-      const result =
-        await archiveDirectoryEmployee(
-          accessToken,
-          employee.id,
-          {
-            reason,
-          },
-        );
-
-      setActionMessage(
-        t("detail.archive.success", {
-          count: result.revokedSessions,
-        }),
-      );
-
-      setShowArchiveForm(false);
-      setArchiveReason("");
-
-      // Refresh both the profile and directory list.
-      setRetryKey(
-        (current) =>
-          current + 1,
-      );
-
-      onStatusChanged();
-    } catch (
-      requestError: unknown
-    ) {
-      setActionError(
-        getErrorMessage(
-          requestError,
-          t,
-        ),
-      );
-    } finally {
-      setArchiving(false);
-    }
+      const result = await archiveDirectoryEmployee(accessToken, employee.id, { reason });
+      setShowArchiveForm(false); setArchiveReason("");
+      refresh(t("detail.archive.success", { count: result.revokedSessions }));
+    } catch (requestError) { setActionError(getErrorMessage(requestError, t)); } finally { setBusy(false); }
   }
 
+  async function submitCorrection(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!employee || busy) return;
+
+    const reason = correctionReason.trim().replace(/\s+/g, " ");
+    const identity: { empId?: string; empName?: string; phoneNumber?: string; officialEmail?: string; reason: string } = { reason };
+    if (correctionEmpId.trim() !== employee.empId) identity.empId = correctionEmpId.trim();
+    if (correctionName.trim() !== employee.empName) identity.empName = correctionName.trim();
+    if (correctionPhone.trim() !== (employee.phoneNumber ?? "")) identity.phoneNumber = correctionPhone.trim();
+    if (correctionEmail.trim() !== (employee.officialEmail ?? "")) identity.officialEmail = correctionEmail.trim();
+
+    const identityChanged = Object.keys(identity).length > 1;
+    const designationChanged = correctionDesignation.trim() !== (employee.designation ?? "");
+
+    if (!identityChanged && !designationChanged) {
+      setActionError(t("detail.correction.noChanges"));
+      return;
+    }
+    if (reason.length < 3) { setActionError(t("detail.correction.reasonError")); return; }
+
+    setBusy(true); setActionError("");
+    try {
+      if (identityChanged) await correctAdminEmployeeIdentity(accessToken, employee.id, identity);
+      if (designationChanged) await updateAdminEmployeeDesignation(accessToken, employee.id, correctionDesignation.trim());
+      setShowCorrection(false); setCorrectionReason("");
+      refresh(t("detail.correction.success"));
+    } catch (requestError) { setActionError(getErrorMessage(requestError, t)); } finally { setBusy(false); }
+  }
+
+  async function submitTransfer(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!employee || busy || !targetOfficeId || !targetOrgUnitId) return;
+    const reason = transferReason.trim().replace(/\s+/g, " ");
+    if (reason.length < 3) { setActionError(t("detail.transfer.reasonError")); return; }
+    setBusy(true); setActionError("");
+    try {
+      const result = await transferDirectoryEmployeeOffice(accessToken, employee.id, { targetOfficeId, targetOrgUnitId, reason, effectiveAt: getEffectiveAt(transferDate) });
+      setShowTransfer(false); setTargetOfficeId(""); setTargetOrgUnitId(""); setTransferReason("");
+      refresh(t("detail.transfer.success", { office: result.transfer.targetOffice.name }));
+    } catch (requestError) { setActionError(getErrorMessage(requestError, t)); } finally { setBusy(false); }
+  }
 
   return (
-    <div
-      className="directory-detail-backdrop"
-      onMouseDown={onClose}
-    >
-      <aside
-        className="directory-detail-panel"
-        role="dialog"
-        aria-modal="true"
-        aria-label={t("detail.dialogAria")}
-        onMouseDown={(event) =>
-          event.stopPropagation()
-        }
-      >
-        <header className="directory-detail-topbar">
-          <div>
-            <span>{t("detail.eyebrow")}</span>
-
-            <strong>{t("detail.title")}</strong>
-          </div>
-
-          <button
-            type="button"
-            onClick={onClose}
-            aria-label={t("detail.closeAria")}
-          >
-            ×
-          </button>
-        </header>
-
-        {!employee && !error && (
-          <div className="directory-detail-loading">
-            <div className="spinner" />
-
-            <p>{t("detail.loading")}</p>
-          </div>
-        )}
-
-        {error && (
-          <div
-            className="directory-detail-error"
-            role="alert"
-          >
-            <strong>{t("detail.errorTitle")}</strong>
-
-            <p>{error}</p>
-
-            <button
-              type="button"
-              onClick={retryLoading}
-            >{t("common.tryAgain")}</button>
-          </div>
-        )}
+    <div className="directory-detail-backdrop" onMouseDown={onClose}>
+      <aside className="directory-detail-panel" role="dialog" aria-modal="true" aria-label={t("detail.dialogAria")} onMouseDown={(event) => event.stopPropagation()}>
+        <header className="directory-detail-topbar"><div><span>{t("detail.eyebrow")}</span><strong>{t("detail.title")}</strong></div><button type="button" onClick={onClose} aria-label={t("detail.closeAria")}>×</button></header>
+        {!employee && !error && <div className="directory-detail-loading"><div className="spinner" /><p>{t("detail.loading")}</p></div>}
+        {error && <div className="directory-detail-error" role="alert"><strong>{t("detail.errorTitle")}</strong><p>{error}</p><button type="button" onClick={() => setRetryKey((current) => current + 1)}>{t("common.tryAgain")}</button></div>}
 
         {employee && (
           <div className="directory-detail-content">
             <section className="directory-detail-profile">
-              <ProtectedAvatar
-                employeeId={employee.id}
-                photoKey={employee.profilePhotoKey}
-                displayName={employee.empName}
-                className="directory-detail-avatar"
-                ariaLabel={t("list.avatarAria", { name: employee.empName })}
-              />
-
-              <div>
-                <span>
-                  {employee.empId}
-                </span>
-
-                <h2>
-                  {employee.empName}
-                </h2>
-
-                <p>
-                  {employee.designation ??
-                    t("detail.noDesignation")}
-                </p>
-              </div>
+              <ProtectedAvatar employeeId={employee.id} photoKey={employee.profilePhotoKey} displayName={employee.empName} className="directory-detail-avatar" ariaLabel={t("list.avatarAria", { name: employee.empName })} />
+              <div><span>{employee.empId}</span><h2>{employee.empName}</h2>{employee.designation?.trim() ? <p>{employee.designation}</p> : null}</div>
             </section>
 
             <section className="directory-detail-badges">
-
-              <span
-                className={`directory-badge ${getStatusClass(
-                  employee.accountStatus,
-                )}`}
-              >
-                {formatValue(employee.accountStatus, t)}
-              </span>
-
-              <span
-                className={`directory-badge ${getStatusClass(
-                  employee.activationStatus,
-                )}`}
-              >
-                {formatValue(employee.activationStatus, t)}
-              </span>
-
-              <span
-                className={`directory-badge ${getStatusClass(
-                  employee.status,
-                )}`}
-              >
-                {formatValue(employee.status, t)}
-              </span>
-
-              <span
-                className={`directory-badge ${getStatusClass(
-                  employee.employmentStatus,
-                )}`}
-              >
-                {formatValue(employee.employmentStatus, t)}
-              </span>
+              <span className={`directory-badge ${getStatusClass(employee.accountStatus)}`}>{formatValue(employee.accountStatus, t)}</span>
+              <span className={`directory-badge ${getStatusClass(employee.activationStatus)}`}>{formatValue(employee.activationStatus, t)}</span>
+              <span className={`directory-badge ${getStatusClass(employee.employmentStatus)}`}>{formatValue(employee.employmentStatus, t)}</span>
             </section>
 
-            <section className="directory-detail-section">
-              <h3>{t("detail.organization.title")}</h3>
+            <section className="directory-detail-section"><h3>{t("detail.organization.title")}</h3><dl className="directory-detail-list">
+              <div><dt>{t("detail.organization.office")}</dt><dd>{employee.office?.name ?? t("common.notAssigned")}</dd></div>
+              <div><dt>{t("detail.organization.primaryOrgUnit")}</dt><dd>{employee.primaryOrgUnit?.name ?? t("common.notAssigned")}</dd></div>
+              <div><dt>{t("detail.organization.breadcrumb")}</dt><dd>{employee.orgUnitBreadcrumb.length > 0 ? employee.orgUnitBreadcrumb.map((unit) => unit.name).join(" → ") : t("common.notAvailable")}</dd></div>
+              <div><dt>{t("detail.organization.leadership")}</dt><dd>{employee.leadership.length > 0 ? employee.leadership.map((assignment) => leadershipLabel(assignment, t)).join(", ") : t("leadership.none")}</dd></div>
+            </dl></section>
 
-              <dl className="directory-detail-list">
-                <div>
-                  <dt>{t("detail.organization.office")}</dt>
-                  <dd>{employee.office?.name ?? t("common.notAssigned")}</dd>
-                </div>
+            <section className="directory-detail-section"><h3>{t("detail.contact.title")}</h3><dl className="directory-detail-list"><div><dt>{t("detail.contact.officialEmail")}</dt><dd>{employee.officialEmail ?? t("common.hidden")}</dd></div><div><dt>{t("detail.contact.phone")}</dt><dd>{employee.phoneNumber ?? t("common.hidden")}</dd></div></dl></section>
 
-                <div>
-                  <dt>{t("detail.organization.primaryOrgUnit")}</dt>
-                  <dd>
-                    {employee.primaryOrgUnit?.name ?? t("common.notAssigned")}
-                  </dd>
-                </div>
+            <section className="directory-detail-section"><h3>{t("detail.employment.title")}</h3><dl className="directory-detail-list"><div><dt>{t("detail.employment.status")}</dt><dd>{formatValue(employee.employmentStatus, t)}</dd></div>{employee.employmentStatus !== "ACTIVE" && <><div><dt>{t("detail.employment.ended")}</dt><dd>{formatDate(employee.employmentEndedAt, i18n.language, t)}</dd></div><div><dt>{t("detail.employment.endReason")}</dt><dd>{employee.employmentEndReason ?? t("common.notApplicable")}</dd></div></>}</dl></section>
 
-                <div>
-                  <dt>{t("detail.organization.breadcrumb")}</dt>
-                  <dd>
-                    {employee.orgUnitBreadcrumb.length > 0
-                      ? employee.orgUnitBreadcrumb
-                          .map((unit) => unit.name)
-                          .join(" → ")
-                      : t("common.notAvailable")}
-                  </dd>
-                </div>
+            <section className="directory-detail-section"><h3>{t("detail.account.title")}</h3><dl className="directory-detail-list"><div><dt>{t("detail.account.accountClass")}</dt><dd>{employee.accountClass ? formatValue(employee.accountClass, t) : t("common.noAccount")}</dd></div><div><dt>{t("detail.account.status")}</dt><dd>{formatValue(employee.accountStatus, t)}</dd></div><div><dt>{t("detail.account.activationStatus")}</dt><dd>{formatValue(employee.activationStatus, t)}</dd></div>{isSuperAdmin && <div><dt>{t("detail.account.lastLogin")}</dt><dd>{formatDate(employee.lastLoginAt, i18n.language, t)}</dd></div>}</dl></section>
 
-                <div>
-                  <dt>{t("detail.organization.position")}</dt>
-                  <dd>{employee.designation ?? t("common.notAssigned")}</dd>
-                </div>
+            {actionMessage && <div className="dir-status-ok">{actionMessage}</div>}
+            {actionError && <div className="dir-status-err" role="alert">{actionError}</div>}
 
-                <div>
-                  <dt>{t("detail.organization.leadership")}</dt>
-                  <dd>
-                    {employee.leadership.length > 0
-                      ? employee.leadership
-                          .map((assignment) =>
-                            t(`leadership.${assignment.type}`, {
-                              acting: assignment.isActing
-                                ? t("leadership.actingSuffix")
-                                : "",
-                              unit:
-                                assignment.orgUnit?.name ??
-                                assignment.office.name,
-                            }),
-                          )
-                          .join(", ")
-                      : t("leadership.none")}
-                  </dd>
-                </div>
-              </dl>
-            </section>
-
-            <section className="directory-detail-section">
-              <h3>{t("detail.employment.title")}</h3>
-
-              <dl className="directory-detail-list">
-                <div>
-                  <dt>{t("detail.employment.status")}</dt>
-
-                  <dd>
-                    {formatValue(employee.employmentStatus, t)}
-                  </dd>
-                </div>
-
-                <div>
-                  <dt>{t("detail.employment.ended")}</dt>
-
-                  <dd>
-                    {employee.employmentStatus ===
-                    "ACTIVE"
-                      ? t("detail.employment.stillEmployed")
-                      : formatDate(employee.employmentEndedAt, i18n.language, t)}
-                  </dd>
-                </div>
-
-                <div>
-                  <dt>{t("detail.employment.endReason")}</dt>
-
-                  <dd>
-                    {employee.employmentEndReason ??
-                      t("common.notApplicable")}
-                  </dd>
-                </div>
-
-                <div>
-                  <dt>{t("detail.employment.archiveStatus")}</dt>
-
-                  <dd>
-                    {employee.archivedAt
-                      ? t("detail.employment.archived", {
-                          date: formatDate(employee.archivedAt, i18n.language, t),
-                        })
-                      : t("detail.employment.notArchived")}
-                  </dd>
-                </div>
-              </dl>
-            </section>
-
-            <section className="directory-detail-section">
-              <h3>{t("detail.contact.title")}</h3>
-
-              {employee.officialEmail ||
-              employee.phoneNumber ? (
-                <dl className="directory-detail-list">
-                  <div>
-                    <dt>{t("detail.contact.officialEmail")}</dt>
-
-                    <dd>
-                      {employee.officialEmail ??
-                        t("common.hidden")}
-                    </dd>
-                  </div>
-
-                  <div>
-                    <dt>{t("detail.contact.phone")}</dt>
-
-                    <dd>
-                      {employee.phoneNumber ??
-                        t("common.hidden")}
-                    </dd>
-                  </div>
-                </dl>
-              ) : (
-                <div className="directory-contact-limited">
-                  <strong>{t("detail.contact.limitedTitle")}</strong>
-
-                  <p>{t("detail.contact.limitedDescription")}</p>
-                </div>
-              )}
-            </section>
-
-            <section className="directory-detail-section">
-              <h3>{t("detail.account.title")}</h3>
-
-              <dl className="directory-detail-list">
-                <div>
-                  <dt>{t("detail.account.accountClass")}</dt>
-
-                  <dd>
-                    {employee.accountClass
-                      ? formatValue(employee.accountClass, t)
-                      : t("common.noAccount")}
-                  </dd>
-                </div>
-
-                <div>
-                  <dt>{t("detail.account.status")}</dt>
-
-                  <dd>
-                    {formatValue(employee.accountStatus, t)}
-                  </dd>
-                </div>
-
-                <div>
-                  <dt>{t("detail.account.activationStatus")}</dt>
-
-                  <dd>
-                    {formatValue(employee.activationStatus, t)}
-                  </dd>
-                </div>
-
-                <div>
-                  <dt>{t("detail.account.lastLogin")}</dt>
-
-                  <dd>
-                    {formatDate(employee.lastLoginAt, i18n.language, t)}
-                  </dd>
-                </div>
-              </dl>
-            </section>
-
-            {canManageStatus && (
+            {canAdminister && (
               <section className="dir-status-box">
-                <div className="dir-status-head">
-                  <span>{t("detail.accountAccess.eyebrow")}</span>
-
-                  <strong>
-                    {employee.status ===
-                    "ACTIVE"
-                      ? t("detail.accountAccess.active")
-                      : t("detail.accountAccess.suspended")}
-                  </strong>
-
-                  <p>
-                    {t("detail.accountAccess.description")}
-                  </p>
-                </div>
-
-                <div
-                  aria-live="polite"
-                >
-                  {actionMessage && (
-                    <div className="dir-status-ok">
-                      {actionMessage}
-                    </div>
-                  )}
-
-                  {actionError && (
-                    <div
-                      className="dir-status-err"
-                      role="alert"
-                    >
-                      {actionError}
-                    </div>
-                  )}
-                </div>
-
-                {!pendingStatus && (
-                  <button
-                    type="button"
-                    className={`dir-status-btn ${
-                      employee.status ===
-                      "ACTIVE"
-                        ? "suspend"
-                        : "reactivate"
-                    }`}
-                    onClick={() =>
-                      openStatusConfirmation(
-                        employee.status ===
-                        "ACTIVE"
-                          ? "INACTIVE"
-                          : "ACTIVE",
-                      )
-                    }
-                    disabled={
-                      changingStatus
-                    }
-                  >
-                    {employee.status ===
-                    "ACTIVE"
-                      ? t("detail.accountAccess.suspend")
-                      : t("detail.accountAccess.reactivate")}
-                  </button>
-                )}
-
-                {pendingStatus && (
-                  <div className="dir-status-confirm">
-                    <strong>
-                      {pendingStatus ===
-                      "INACTIVE"
-                        ? t("detail.accountAccess.confirmSuspend")
-                        : t("detail.accountAccess.confirmReactivate")}
-                    </strong>
-
-                    <p>
-                      {pendingStatus ===
-                      "INACTIVE"
-                        ? t("detail.accountAccess.suspendDescription")
-                        : t("detail.accountAccess.reactivateDescription")}
-                    </p>
-
-                    <div className="dir-status-actions">
-                      <button
-                        type="button"
-                        className={`dir-status-btn ${
-                          pendingStatus ===
-                          "INACTIVE"
-                            ? "suspend"
-                            : "reactivate"
-                        }`}
-                        onClick={
-                          changeEmployeeStatus
-                        }
-                        disabled={
-                          changingStatus
-                        }
-                      >
-                        {changingStatus
-                          ? t("detail.accountAccess.updating")
-                          : pendingStatus ===
-                              "INACTIVE"
-                            ? t("detail.accountAccess.yesSuspend")
-                            : t("detail.accountAccess.yesReactivate")}
-                      </button>
-
-                      <button
-                        type="button"
-                        className="dir-status-cancel"
-                        onClick={
-                          cancelStatusChange
-                        }
-                        disabled={
-                          changingStatus
-                        }
-                      >{t("common.cancel")}</button>
-                    </div>
-                  </div>
-                )}
-              </section>
-            )}
-
-            {canEndEmployment && (
-              <section className="dir-life-box">
-                <div className="dir-life-head">
-                  <span>{t("detail.lifecycle.eyebrow")}</span>
-
-                  <strong>{t("detail.lifecycle.title")}</strong>
-
-                  <p>{t("detail.lifecycle.description")}</p>
-                </div>
-
-                {actionMessage && (
-                  <div className="dir-status-ok">
-                    {actionMessage}
-                  </div>
-                )}
-
-                {actionError && (
-                  <div
-                    className="dir-status-err"
-                    role="alert"
-                  >
-                    {actionError}
-                  </div>
-                )}
-
-                {!pendingEmploymentStatus && (
-                  <div className="dir-life-options">
-                    <button
-                      type="button"
-                      onClick={() =>
-                        openEmploymentEnd(
-                          "RESIGNED",
-                        )
-                      }
-                    >{t("detail.lifecycle.resigned")}</button>
-
-                    <button
-                      type="button"
-                      onClick={() =>
-                        openEmploymentEnd(
-                          "RETIRED",
-                        )
-                      }
-                    >{t("detail.lifecycle.retired")}</button>
-
-                    <button
-                      type="button"
-                      className="danger"
-                      onClick={() =>
-                        openEmploymentEnd(
-                          "TERMINATED",
-                        )
-                      }
-                    >{t("detail.lifecycle.terminated")}</button>
-
-                    <button
-                      type="button"
-                      onClick={() =>
-                        openEmploymentEnd(
-                          "TRANSFERRED",
-                        )
-                      }
-                    >{t("detail.lifecycle.transferred")}</button>
-                  </div>
-                )}
-
-                {pendingEmploymentStatus && (
-                  <form
-                    className="dir-life-form"
-                    onSubmit={
-                      submitEmploymentEnd
-                    }
-                  >
-                    <div className="dir-life-selected">
-                      <span>{t("detail.lifecycle.selectedAction")}</span>
-
-                      <strong>
-                        {formatValue(pendingEmploymentStatus, t)}
-                      </strong>
-                    </div>
-
-                    <label>
-                      <span>{t("detail.lifecycle.effectiveDate")}</span>
-
-                      <input
-                        type="date"
-                        value={
-                          employmentEffectiveDate
-                        }
-                        max={
-                          getBranchDateInputValue()
-                        }
-                        onChange={(
-                          event,
-                        ) =>
-                          setEmploymentEffectiveDate(
-                            event.target.value,
-                          )
-                        }
-                        disabled={
-                          endingEmployment
-                        }
-                      />
-                    </label>
-
-                    <label>
-                      <span>{t("detail.lifecycle.reason")}</span>
-
-                      <textarea
-                        value={
-                          employmentReason
-                        }
-                        onChange={(
-                          event,
-                        ) =>
-                          setEmploymentReason(
-                            event.target.value,
-                          )
-                        }
-                        minLength={3}
-                        maxLength={500}
-                        placeholder={t("detail.lifecycle.reasonPlaceholder")}
-                        disabled={
-                          endingEmployment
-                        }
-                        required
-                      />
-                    </label>
-
-                    <div className="dir-life-actions">
-                      <button
-                        type="submit"
-                        className="dir-life-confirm"
-                        disabled={
-                          endingEmployment
-                        }
-                      >
-                        {endingEmployment
-                          ? t("detail.lifecycle.processing")
-                          : t("detail.lifecycle.confirm", {
-                              status: formatValue(pendingEmploymentStatus, t),
-                            })}
-                      </button>
-
-                      <button
-                        type="button"
-                        className="dir-status-cancel"
-                        onClick={
-                          cancelEmploymentEnd
-                        }
-                        disabled={
-                          endingEmployment
-                        }
-                      >{t("common.cancel")}</button>
-                    </div>
+                <div className="dir-status-head"><span>{t("detail.correction.eyebrow")}</span><strong>{t("detail.correction.title")}</strong><p>{t("detail.correction.description")}</p></div>
+                {!showCorrection ? <button type="button" className="dir-status-cancel" onClick={() => setShowCorrection(true)}>{t("detail.correction.open")}</button> : (
+                  <form className="dir-life-form" onSubmit={submitCorrection}>
+                    <label><span>{t("detail.correction.employeeId")}</span><input value={correctionEmpId} onChange={(event) => setCorrectionEmpId(event.target.value)} /></label>
+                    <label><span>{t("detail.correction.fullName")}</span><input value={correctionName} onChange={(event) => setCorrectionName(event.target.value)} /></label>
+                    <label><span>{t("detail.contact.phone")}</span><input value={correctionPhone} onChange={(event) => setCorrectionPhone(event.target.value)} /></label>
+                    <label><span>{t("detail.contact.officialEmail")}</span><input type="email" value={correctionEmail} onChange={(event) => setCorrectionEmail(event.target.value)} /></label>
+                    <label><span>{t("detail.correction.designation")}</span><input value={correctionDesignation} onChange={(event) => setCorrectionDesignation(event.target.value)} /></label>
+                    <label><span>{t("detail.correction.reason")}</span><textarea value={correctionReason} onChange={(event) => setCorrectionReason(event.target.value)} minLength={3} required /></label>
+                    <div className="dir-status-actions"><button type="submit" className="dir-status-btn reactivate" disabled={busy}>{t("detail.correction.save")}</button><button type="button" className="dir-status-cancel" onClick={() => setShowCorrection(false)} disabled={busy}>{t("common.cancel")}</button></div>
                   </form>
                 )}
               </section>
             )}
 
-            {viewerAccountClass ===
-              "SUPER_ADMIN" && (
-              <section className="dir-history-box">
-                <div className="dir-history-head">
-                  <span>{t("detail.history.eyebrow")}</span>
-
-                  <strong>{t("detail.history.title")}</strong>
-
-                  <p>{t("detail.history.description")}</p>
-                </div>
-
-                {lifecycleLoading && (
-                  <div className="dir-history-loading">
-                    <div className="spinner" />
-
-                    <span>{t("detail.history.loading")}</span>
-                  </div>
-                )}
-
-                {lifecycleError && (
-                  <div
-                    className="dir-status-err"
-                    role="alert"
-                  >
-                    {lifecycleError}
-                  </div>
-                )}
-
-                {!lifecycleLoading &&
-                  !lifecycleError &&
-                  (
-                    lifecycleHistory?.data
-                      .length ?? 0
-                  ) === 0 && (
-                    <div className="dir-history-empty">{t("detail.history.empty")}</div>
-                  )}
-
-                {!lifecycleLoading &&
-                  lifecycleHistory &&
-                  lifecycleHistory.data
-                    .length > 0 && (
-                    <div className="dir-history-list">
-                      {lifecycleHistory.data.map(
-                        (
-                          action,
-                        ) => {
-                          const actorName =
-                            action.actor
-                              .employee
-                              ?.empName ??
-                            action.actor
-                              .username ??
-                            formatValue(
-                              action.actor.role,
-                              t,
-                            );
-
-                          const previousRole =
-                            getMetadataString(
-                              action.metadata,
-                              "previousRole",
-                            );
-
-                          const newRole =
-                            getMetadataString(
-                              action.metadata,
-                              "newRole",
-                            );
-
-                          return (
-                            <article
-                              key={
-                                action.id
-                              }
-                            >
-                              <div className="dir-history-marker" />
-
-                              <div>
-                                <header>
-                                  <strong>
-                                    {formatValue(action.action, t)}
-                                  </strong>
-
-                                  <time>
-                                    {formatDate(action.effectiveAt ?? action.createdAt, i18n.language, t)}
-                                  </time>
-                                </header>
-
-                                <p>{t("detail.history.performedBy", { name: actorName })}</p>
-
-                                {action.previousEmployeeStatus &&
-                                  action.newEmployeeStatus && (
-                                    <small>{t("detail.history.account", {
-                                      from: formatValue(action.previousEmployeeStatus, t),
-                                      to: formatValue(action.newEmployeeStatus, t),
-                                    })}</small>
-                                  )}
-
-                                {action.previousEmploymentStatus &&
-                                  action.newEmploymentStatus && (
-                                    <small>{t("detail.history.employment", {
-                                      from: formatValue(action.previousEmploymentStatus, t),
-                                      to: formatValue(action.newEmploymentStatus, t),
-                                    })}</small>
-                                  )}
-
-                                {previousRole &&
-                                  newRole && (
-                                    <small>{t("detail.history.role", {
-                                      from: formatValue(previousRole, t),
-                                      to: formatValue(newRole, t),
-                                    })}</small>
-                                  )}
-
-                                {action.reason && (
-                                  <blockquote>
-                                    {action.reason}
-                                  </blockquote>
-                                )}
-                              </div>
-                            </article>
-                          );
-                        },
-                      )}
-                    </div>
-                  )}
+            {canAdminister && activeEmployment && (
+              <section className="dir-status-box"><div className="dir-status-head"><span>{t("detail.accountAccess.eyebrow")}</span><strong>{employee.status === "ACTIVE" ? t("detail.accountAccess.active") : t("detail.accountAccess.suspended")}</strong><p>{t("detail.accountAccess.description")}</p></div>
+                {!pendingStatus ? <button type="button" className={`dir-status-btn ${employee.status === "ACTIVE" ? "suspend" : "reactivate"}`} onClick={() => setPendingStatus(employee.status === "ACTIVE" ? "INACTIVE" : "ACTIVE")}>{employee.status === "ACTIVE" ? t("detail.accountAccess.suspend") : t("detail.accountAccess.reactivate")}</button> : <div className="dir-status-actions"><button type="button" className={`dir-status-btn ${pendingStatus === "INACTIVE" ? "suspend" : "reactivate"}`} onClick={() => void submitStatus()} disabled={busy}>{pendingStatus === "INACTIVE" ? t("detail.accountAccess.yesSuspend") : t("detail.accountAccess.yesReactivate")}</button><button type="button" className="dir-status-cancel" onClick={() => setPendingStatus(null)}>{t("common.cancel")}</button></div>}
               </section>
             )}
 
-            {canArchiveFormerEmployee && (
-              <section className="dir-archive-box">
-                <div className="dir-archive-head">
-                  <span>{t("detail.archive.eyebrow")}</span>
-
-                  <strong>{t("detail.archive.title")}</strong>
-
-                  <p>{t("detail.archive.description")}</p>
-                </div>
-
-                {!showArchiveForm && (
-                  <button
-                    type="button"
-                    className="dir-archive-open"
-                    onClick={() => {
-                      setShowArchiveForm(
-                        true,
-                      );
-
-                      setActionError("");
-                      setActionMessage("");
-                    }}
-                  >{t("detail.archive.open")}</button>
-                )}
-
-                {showArchiveForm && (
-                  <form
-                    className="dir-archive-form"
-                    onSubmit={
-                      submitArchiveEmployee
-                    }
+            {canAdminister && activeEmployment && (
+              <section className="dir-life-box"><div className="dir-life-head"><span>{t("detail.transfer.eyebrow")}</span><strong>{t("detail.transfer.title")}</strong><p>{isCurrentPermanentOfficeHead ? t("detail.transfer.officeHeadDescription") : t("detail.transfer.description")}</p></div>
+                {isCurrentPermanentOfficeHead ? (
+                  <Link
+                    className="dir-status-cancel"
+                    to={employee.office?.id ? `/super-admin/office-heads?officeId=${encodeURIComponent(employee.office.id)}` : "/super-admin/office-heads"}
                   >
-                    <label>
-                      <span>{t("detail.archive.reason")}</span>
-
-                      <textarea
-                        value={
-                          archiveReason
-                        }
-                        onChange={(
-                          event,
-                        ) =>
-                          setArchiveReason(
-                            event.target.value,
-                          )
-                        }
-                        minLength={3}
-                        maxLength={500}
-                        placeholder={t("detail.archive.reasonPlaceholder")}
-                        disabled={
-                          archiving
-                        }
-                        required
-                      />
-                    </label>
-
-                    {actionError && (
-                      <div
-                        className="dir-status-err"
-                        role="alert"
-                      >
-                        {actionError}
-                      </div>
-                    )}
-
-                    <div className="dir-archive-actions">
-                      <button
-                        type="submit"
-                        className="dir-archive-confirm"
-                        disabled={
-                          archiving
-                        }
-                      >
-                        {archiving
-                          ? t("detail.archive.archiving")
-                          : t("detail.archive.confirm")}
-                      </button>
-
-                      <button
-                        type="button"
-                        className="dir-status-cancel"
-                        onClick={
-                          cancelArchiveEmployee
-                        }
-                        disabled={
-                          archiving
-                        }
-                      >{t("common.cancel")}</button>
-                    </div>
+                    {t("detail.transfer.manageOfficeHead")}
+                  </Link>
+                ) : !showTransfer ? <button type="button" className="dir-status-cancel" onClick={() => { setShowTransfer(true); setTransferDate(getBranchDateInputValue()); }}>{t("detail.transfer.open")}</button> : (
+                  <form className="dir-life-form" onSubmit={submitTransfer}>
+                    <label><span>{t("detail.transfer.targetOffice")}</span><select value={targetOfficeId} onChange={(event) => { setTargetOfficeId(event.target.value); setTargetOrgUnitId(""); }} required><option value="">{t("detail.transfer.selectOffice")}</option>{offices.filter((office) => office.id !== employee.office?.id).map((office) => <option key={office.id} value={office.id}>{office.name}</option>)}</select></label>
+                    {targetOfficeId && <label><span>{t("detail.transfer.targetUnit")}</span><select value={targetOrgUnitId} onChange={(event) => setTargetOrgUnitId(event.target.value)} required><option value="">{t("detail.transfer.selectUnit")}</option>{transferUnits.map(({ node, path }) => <option key={node.id} value={node.id}>{path}</option>)}</select></label>}
+                    <label><span>{t("detail.transfer.effectiveDate")}</span><input type="date" max={getBranchDateInputValue()} value={transferDate} onChange={(event) => setTransferDate(event.target.value)} /></label>
+                    <label><span>{t("detail.transfer.reason")}</span><textarea value={transferReason} onChange={(event) => setTransferReason(event.target.value)} minLength={3} required /></label>
+                    <div className="dir-status-actions"><button type="submit" className="dir-status-btn reactivate" disabled={busy || !targetOrgUnitId}>{t("detail.transfer.confirm")}</button><button type="button" className="dir-status-cancel" onClick={() => setShowTransfer(false)}>{t("common.cancel")}</button></div>
                   </form>
                 )}
               </section>
             )}
 
-            <section className="directory-detail-section">
-              <h3>{t("detail.record.title")}</h3>
+            {canAdminister && activeEmployment && (
+              <section className="dir-life-box"><div className="dir-life-head"><span>{t("detail.lifecycle.eyebrow")}</span><strong>{t("detail.lifecycle.title")}</strong><p>{t("detail.lifecycle.description")}</p></div>
+                {!pendingEmploymentStatus ? <div className="dir-life-options"><button type="button" onClick={() => { setPendingEmploymentStatus("RESIGNED"); setEmploymentEffectiveDate(getBranchDateInputValue()); }}>{t("detail.lifecycle.resigned")}</button><button type="button" onClick={() => { setPendingEmploymentStatus("RETIRED"); setEmploymentEffectiveDate(getBranchDateInputValue()); }}>{t("detail.lifecycle.retired")}</button><button type="button" className="danger" onClick={() => { setPendingEmploymentStatus("TERMINATED"); setEmploymentEffectiveDate(getBranchDateInputValue()); }}>{t("detail.lifecycle.terminated")}</button></div> : (
+                  <form className="dir-life-form" onSubmit={submitEmploymentEnd}><label><span>{t("detail.lifecycle.effectiveDate")}</span><input type="date" max={getBranchDateInputValue()} value={employmentEffectiveDate} onChange={(event) => setEmploymentEffectiveDate(event.target.value)} /></label><label><span>{t("detail.lifecycle.reason")}</span><textarea value={employmentReason} onChange={(event) => setEmploymentReason(event.target.value)} minLength={3} required /></label><div className="dir-status-actions"><button type="submit" className="dir-life-confirm" disabled={busy}>{t("detail.lifecycle.confirm", { status: formatValue(pendingEmploymentStatus, t) })}</button><button type="button" className="dir-status-cancel" onClick={() => setPendingEmploymentStatus(null)}>{t("common.cancel")}</button></div></form>
+                )}
+              </section>
+            )}
 
-              <dl className="directory-detail-list">
-                <div>
-                  <dt>{t("detail.record.created")}</dt>
+            {isSuperAdmin && lifecycleHistory && (
+              <section className="dir-history-box"><div className="dir-history-head"><span>{t("detail.history.eyebrow")}</span><strong>{t("detail.history.title")}</strong><p>{t("detail.history.description")}</p></div>
+                {lifecycleHistory.data.length === 0 ? <div className="dir-history-empty">{t("detail.history.empty")}</div> : <div className="dir-history-list">{lifecycleHistory.data.map((action) => <article key={action.id}><div className="dir-history-marker" /><div><header><strong>{formatValue(action.action, t)}</strong><time>{formatDate(action.effectiveAt ?? action.createdAt, i18n.language, t)}</time></header>{action.reason && <blockquote>{action.reason}</blockquote>}</div></article>)}</div>}
+              </section>
+            )}
 
-                  <dd>
-                    {formatDate(employee.createdAt, i18n.language, t)}
-                  </dd>
-                </div>
+            {canAdminister && !activeEmployment && !employee.archivedAt && (
+              <section className="dir-archive-box"><div className="dir-archive-head"><span>{t("detail.archive.eyebrow")}</span><strong>{t("detail.archive.title")}</strong><p>{t("detail.archive.description")}</p></div>{!showArchiveForm ? <button type="button" className="dir-archive-open" onClick={() => setShowArchiveForm(true)}>{t("detail.archive.open")}</button> : <form className="dir-archive-form" onSubmit={submitArchive}><label><span>{t("detail.archive.reason")}</span><textarea value={archiveReason} onChange={(event) => setArchiveReason(event.target.value)} minLength={3} required /></label><div className="dir-archive-actions"><button type="submit" className="dir-archive-confirm" disabled={busy}>{t("detail.archive.confirm")}</button><button type="button" className="dir-status-cancel" onClick={() => setShowArchiveForm(false)}>{t("common.cancel")}</button></div></form>}</section>
+            )}
 
-                <div>
-                  <dt>{t("detail.record.updated")}</dt>
-
-                  <dd>
-                    {formatDate(employee.updatedAt, i18n.language, t)}
-                  </dd>
-                </div>
-              </dl>
-            </section>
-
-            <footer className="directory-detail-footer">
-              <button
-                type="button"
-                onClick={onClose}
-              >{t("common.close")}</button>
-            </footer>
+            {isSuperAdmin && <section className="directory-detail-section"><h3>{t("detail.record.title")}</h3><dl className="directory-detail-list"><div><dt>{t("detail.record.created")}</dt><dd>{formatDate(employee.createdAt, i18n.language, t)}</dd></div><div><dt>{t("detail.record.updated")}</dt><dd>{formatDate(employee.updatedAt, i18n.language, t)}</dd></div></dl></section>}
+            <footer className="directory-detail-footer"><button type="button" onClick={onClose}>{t("common.close")}</button></footer>
           </div>
         )}
       </aside>

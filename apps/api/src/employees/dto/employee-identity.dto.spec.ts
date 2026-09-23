@@ -18,6 +18,17 @@ describe('employee identity DTO validation', () => {
     expect(errors.some((error) => error.property === 'reason')).toBe(true);
   });
 
+  it('rejects a nine-digit phone during protected identity correction', () => {
+    const dto = Object.assign(new CorrectEmployeeIdentityDto(), {
+      phoneNumber: '986666661',
+      reason: 'Correct malformed phone',
+    });
+
+    const errors = validateSync(dto);
+
+    expect(errors.some((error) => error.property === 'phoneNumber')).toBe(true);
+  });
+
   it('accepts a protected identity correction without organization fields', () => {
     const dto = Object.assign(new CorrectEmployeeIdentityDto(), {
       empId: 'NTC-2001',

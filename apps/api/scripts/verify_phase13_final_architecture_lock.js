@@ -27,6 +27,8 @@ const dutyAuthorizationSpecPath =
   'apps/api/src/work-management/duty-authorization.service.spec.ts';
 const communicationLockSpecPath =
   'apps/api/src/conversations/communication-v3-architecture-lock.spec.ts';
+const workNavigationSpecPath = 'apps/web/tests/work-navigation-v3.test.mjs';
+const workReportsUiSpecPath = 'apps/web/tests/work-reports-v3-ui.test.mjs';
 
 for (const relativePath of [
   finalReportPath,
@@ -38,6 +40,8 @@ for (const relativePath of [
   workScopeSpecPath,
   dutyAuthorizationSpecPath,
   communicationLockSpecPath,
+  workNavigationSpecPath,
+  workReportsUiSpecPath,
 ]) {
   assert(
     fs.existsSync(path.join(repoRoot, relativePath)),
@@ -54,6 +58,8 @@ const organizationDelegationSpec = read(organizationDelegationSpecPath);
 const workScopeSpec = read(workScopeSpecPath);
 const dutyAuthorizationSpec = read(dutyAuthorizationSpecPath);
 const communicationLockSpec = read(communicationLockSpecPath);
+const workNavigationSpec = read(workNavigationSpecPath);
+const workReportsUiSpec = read(workReportsUiSpecPath);
 
 assert(
   report.includes('PHASE 13 — COMPLETE / FINAL ARCHITECTURE LOCK — 23/23'),
@@ -64,12 +70,17 @@ assert(
   'Final architecture report must record the locked migration count.',
 );
 assert(
-  report.includes('114 / 114') && report.includes('674 / 674'),
+  report.includes('114 / 114') && report.includes('675 / 675'),
   'Final architecture report must record the final API regression evidence.',
 );
 assert(
   report.includes('109 / 109') && report.includes('3066 / 3066'),
   'Final architecture report must record the final Web/i18n evidence.',
+);
+assert(
+  report.includes('Super Admin Work Oversight') &&
+    report.includes('branch/Office selection'),
+  'Final architecture report must record the locked Super Admin Work Oversight model.',
 );
 assert(
   runbook.includes('20260913032500_remove_phase13_legacy_schema'),
@@ -115,6 +126,23 @@ assert(
 assert(
   communicationLockSpec.includes('P12-M communication V3 architecture lock'),
   'Missing communication V3 architecture-lock regression.',
+);
+assert(
+  workNavigationSpec.includes(
+    'Super Admin keeps read-only Work Oversight and Reports only',
+  ) &&
+    workNavigationSpec.includes('/work-oversight') &&
+    workNavigationSpec.includes('/work-reports') &&
+    workNavigationSpec.includes('obsolete V3 runtime pages are physically removed'),
+  'Missing canonical Super Admin read-only Work navigation regression.',
+);
+assert(
+  workReportsUiSpec.includes(
+    'Reports stays backend-scoped while Super Admin has read-only oversight',
+  ) &&
+    workReportsUiSpec.includes('WorkspaceFeatureRoute feature="reports"') &&
+    workReportsUiSpec.includes('reports: true'),
+  'Missing canonical backend-scoped Super Admin Reports regression.',
 );
 
 for (const legacyModel of [

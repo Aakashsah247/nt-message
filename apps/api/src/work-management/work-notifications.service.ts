@@ -4,6 +4,7 @@ import {
   OnModuleDestroy,
   OnModuleInit,
 } from '@nestjs/common';
+import { randomUUID } from 'node:crypto';
 
 import { PrismaService } from '../database/prisma.service';
 import {
@@ -131,9 +132,23 @@ export class WorkNotificationsService implements OnModuleInit, OnModuleDestroy {
   }
 
   async publishWorkUpdate(input: PublishWorkUpdateInput): Promise<void> {
-    const relationshipRecipients = this.resolveRelationshipRecipients(
-      input.workItem,
-    );
+    let relationshipRecipients: string[] = [];
+    try {
+      relationshipRecipients = await this.resolveRelationshipRecipients(
+        input.workItem.id,
+        input.workItem.salesMemberAccountId,
+      );
+    } catch (error) {
+      // The Work mutation is already committed when most callers reach this service.
+      // Realtime enrichment must therefore degrade to explicit recipients instead of
+      // turning a successful Work action into a false API failure.
+      this.logger.warn(
+        `Unable to resolve Work realtime relationships for ${input.workItem.id}: ${this.safeErrorMessage(error)}`,
+      );
+      relationshipRecipients = input.workItem.salesMemberAccountId
+        ? [input.workItem.salesMemberAccountId]
+        : [];
+    }
     const realtimeRecipients = [
       ...new Set([...input.recipientAccountIds, ...relationshipRecipients]),
     ];
@@ -192,14 +207,21 @@ export class WorkNotificationsService implements OnModuleInit, OnModuleDestroy {
       }
     }
 
-    this.messagingEventsService.emitWorkItemUpdated(realtimeRecipients, {
-      workItemId: input.workItem.id,
-      ticketNumber: input.workItem.ticketNumber,
-      status: input.workItem.status,
-      action: input.action,
-      actorAccountId: input.actorAccountId,
-      occurredAt: occurredAt.toISOString(),
-    });
+    this.messagingEventsService.emitWorkItemUpdated(
+      realtimeRecipients,
+      {
+        eventId: randomUUID(),
+        workItemId: input.workItem.id,
+        ticketNumber: input.workItem.ticketNumber,
+        status: input.workItem.status,
+        action: input.action,
+        actorAccountId: input.actorAccountId,
+        title: input.title,
+        body: input.body,
+        occurredAt: occurredAt.toISOString(),
+      },
+      notificationRecipients,
+    );
   }
 
   async processDeadlineNotifications(): Promise<void> {
@@ -214,12 +236,7 @@ export class WorkNotificationsService implements OnModuleInit, OnModuleDestroy {
       const dueSoonBoundary = new Date(now.getTime() + 60 * 60 * 1000);
       const candidates = await this.prisma.workItem.findMany({
         where: {
-          // Migration 87 gives legacy WM-V2 rows an Office binding. Exclude
-          // native V3 Work by its runtime marker; V3 notifications are emitted
-          // by the V3 runtime engine.
-          status: {
-            notIn: [...TERMINAL_WORK_STATUSES, WorkItemStatus.V3_RUNTIME],
-          },
+          status: { notIn: [...TERMINAL_WORK_STATUSES] },
           OR: [
             {
               dueSoonNotifiedAt: null,
@@ -326,10 +343,62 @@ export class WorkNotificationsService implements OnModuleInit, OnModuleDestroy {
     }
   }
 
-  private resolveRelationshipRecipients(workItem: {
-    salesMemberAccountId?: string | null;
-  }): string[] {
-    return workItem.salesMemberAccountId ? [workItem.salesMemberAccountId] : [];
+  private async resolveRelationshipRecipients(
+    workItemId: string,
+    fallbackSalesMemberAccountId?: string | null,
+  ): Promise<string[]> {
+    const now = new Date();
+    const workItem = await this.prisma.workItem.findUnique({
+      where: { id: workItemId },
+      select: {
+        createdByAccountId: true,
+        responsibleReviewerAccountId: true,
+        salesMemberAccountId: true,
+        assignments: {
+          where: { endedAt: null },
+          select: { assigneeAccountId: true },
+        },
+        assignedOperationalTeam: {
+          select: {
+            members: {
+              where: {
+                startsAt: { lte: now },
+                OR: [{ endsAt: null }, { endsAt: { gt: now } }],
+              },
+              select: {
+                employee: {
+                  select: {
+                    account: {
+                      select: { id: true, isEnabled: true },
+                    },
+                  },
+                },
+              },
+            },
+          },
+        },
+      },
+    });
+
+    if (!workItem) {
+      return fallbackSalesMemberAccountId ? [fallbackSalesMemberAccountId] : [];
+    }
+
+    return [
+      workItem.createdByAccountId,
+      ...(workItem.responsibleReviewerAccountId
+        ? [workItem.responsibleReviewerAccountId]
+        : []),
+      ...(workItem.salesMemberAccountId
+        ? [workItem.salesMemberAccountId]
+        : fallbackSalesMemberAccountId
+          ? [fallbackSalesMemberAccountId]
+          : []),
+      ...workItem.assignments.map((assignment) => assignment.assigneeAccountId),
+      ...(workItem.assignedOperationalTeam?.members.flatMap((member) =>
+        member.employee.account?.isEnabled ? [member.employee.account.id] : [],
+      ) ?? []),
+    ];
   }
 
   private serializeNotification(notification: WorkNotificationRecord) {

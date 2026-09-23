@@ -16,7 +16,7 @@ describe('P13 Directory final OrgUnit runtime', () => {
     expect(service).toContain('OrgMembershipType.PRIMARY');
     expect(service).toContain('orgUnitBreadcrumb');
     expect(service).toContain('orgLeadershipAssignments');
-    expect(service).toContain('operationalTeamLeadAssignments');
+    expect(service).not.toContain('operationalTeamLeadAssignments');
     expect(service).toContain("scopeType: 'OFFICE'");
     expect(service).not.toContain('managementAssignments');
     expect(service).not.toContain('ManagementPositionType');
@@ -32,5 +32,11 @@ describe('P13 Directory final OrgUnit runtime', () => {
     expect(service).not.toContain('AccountRole.EMPLOYEE');
     expect(controller).not.toContain('@Roles(');
     expect(queryDto).not.toContain('role?: AccountRole');
+  });
+
+  it('keeps delegated Directory access aligned with organization workspace capabilities', () => {
+    expect(service).toContain('ORGANIZATION_ACCESS_CAPABILITIES');
+    expect(service).toContain('delegationGrantKeysForCapability');
+    expect(service).toContain('ORGANIZATION_ACCESS_CAPABILITIES.flatMap');
   });
 });

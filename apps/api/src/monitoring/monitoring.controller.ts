@@ -20,15 +20,18 @@ export class MonitoringController {
     @CurrentUser() user: AuthenticatedUser,
     @Body() dto: RecordActivityEventDto,
   ) {
-    // Every authenticated role can record privacy-safe activity metadata.
+    // Every authenticated account class can record privacy-safe activity metadata.
     return this.monitoringService.recordActivity(user, dto);
   }
 
   @Get('superadmin')
   @AccountClasses(AccountClass.SUPER_ADMIN)
-  getSuperAdminMonitoring() {
+  getSuperAdminMonitoring(@Query('days') days?: string) {
     // Only Super Admin can view cross-employee monitoring summaries.
-    return this.monitoringService.getSuperAdminDashboard();
+    const parsedDays = Number(days);
+    return this.monitoringService.getSuperAdminDashboard(
+      [1, 7, 30].includes(parsedDays) ? parsedDays : 1,
+    );
   }
 
   @Get('superadmin/activity-logs')

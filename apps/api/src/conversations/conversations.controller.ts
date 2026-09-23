@@ -66,6 +66,8 @@ import { ManageFolderItemDto } from './dto/manage-folder-item.dto';
 import { ReactMessageDto } from './dto/react-message.dto';
 import type { UploadedMessageAttachmentFile } from './types/uploaded-message-attachment-file';
 import { AttachmentTempCleanupInterceptor } from '../attachments/attachment-temp-cleanup.interceptor';
+import { RateLimit } from '../security/rate-limit.decorator';
+import { RateLimitGuard } from '../security/rate-limit.guard';
 import { createBoundedAttachmentTempStorage } from '../attachments/attachment-upload-temp-storage';
 import {
   MAX_MESSAGE_ATTACHMENT_FILE_BYTES,
@@ -74,7 +76,7 @@ import {
 } from './message-attachment-upload.constants';
 
 @Controller('conversations')
-@UseGuards(AccessTokenGuard)
+@UseGuards(AccessTokenGuard, RateLimitGuard)
 export class ConversationsController {
   constructor(
     private readonly conversationsService: ConversationsService,
@@ -1138,6 +1140,12 @@ export class ConversationsController {
   }
 
   @Post(':id/messages')
+  @RateLimit({
+    scope: 'message-send',
+    limit: 90,
+    windowMs: 60_000,
+    keys: ['account', 'ip'],
+  })
   sendTextMessage(
     @CurrentUser()
     user: AuthenticatedUser,
@@ -1157,6 +1165,12 @@ export class ConversationsController {
   }
 
   @Post(':id/location')
+  @RateLimit({
+    scope: 'message-location-send',
+    limit: 30,
+    windowMs: 60_000,
+    keys: ['account', 'ip'],
+  })
   sendLocationMessage(
     @CurrentUser()
     user: AuthenticatedUser,
@@ -1240,6 +1254,12 @@ export class ConversationsController {
   }
 
   @Post(':id/attachments')
+  @RateLimit({
+    scope: 'message-attachment-send',
+    limit: 20,
+    windowMs: 5 * 60_000,
+    keys: ['account', 'ip'],
+  })
   @UseInterceptors(
     FileFieldsInterceptor(
       [
@@ -1416,7 +1436,7 @@ export class ConversationsController {
       `${disposition}; filename="${safeFileName}"; filename*=UTF-8''${encodedFileName}`,
     );
 
-    return new StreamableFile(createReadStream(attachment.absolutePath));
+    return new StreamableFile(attachment.data);
   }
 
   @Get(':conversationId/messages/:messageId/info')

@@ -9,6 +9,10 @@ import type { AuthenticatedUser } from '../auth/types/auth.types';
 import { PrismaService } from '../database/prisma.service';
 import {
   ActivityEventType,
+  EmergencyAlertRecipientStatus,
+  EmployeeStatus,
+  EmploymentStatus,
+  OrgLeadershipType,
   OrgMembershipType,
 } from '../generated/prisma/client';
 import type { Prisma } from '../generated/prisma/client';
@@ -40,12 +44,14 @@ const accountMonitoringSelect = {
   accountClass: true,
   isEnabled: true,
   lastLoginAt: true,
+  profilePhotoKey: true,
 
   employee: {
     select: {
       empName: true,
       officialEmail: true,
       designation: true,
+      profilePhotoKey: true,
 
       orgMemberships: {
         where: {
@@ -59,12 +65,22 @@ const accountMonitoringSelect = {
         select: {
           office: {
             select: {
+              id: true,
+              code: true,
               name: true,
             },
           },
           orgUnit: {
             select: {
+              id: true,
               name: true,
+              orgUnitType: {
+                select: {
+                  id: true,
+                  code: true,
+                  name: true,
+                },
+              },
             },
           },
         },
@@ -118,12 +134,22 @@ const activityLogSelect = {
             select: {
               office: {
                 select: {
+                  id: true,
+                  code: true,
                   name: true,
                 },
               },
               orgUnit: {
                 select: {
+                  id: true,
                   name: true,
+                  orgUnitType: {
+                    select: {
+                      id: true,
+                      code: true,
+                      name: true,
+                    },
+                  },
                 },
               },
             },
@@ -265,28 +291,142 @@ export class MonitoringService implements OnModuleInit, OnModuleDestroy {
     };
   }
 
-  async getSuperAdminDashboard() {
-    const today = this.getKathmanduDateOnly(new Date());
-    const accounts = await this.prisma.account.findMany({
-      where: {
-        isEnabled: true,
-      },
-      orderBy: [
-        {
-          role: 'asc',
-        },
-        {
-          createdAt: 'asc',
-        },
-      ],
-      select: accountMonitoringSelect,
-    });
-
-    const rows = accounts.map((account) =>
-      this.toMonitoringRow(account, today, new Date()),
+  async getSuperAdminDashboard(days = 1) {
+    const rangeDays = [1, 7, 30].includes(days) ? days : 1;
+    const now = new Date();
+    const today = this.getKathmanduDateOnly(now);
+    const periodStartDate = new Date(
+      today.getTime() - (rangeDays - 1) * 24 * 60 * 60 * 1000,
+    );
+    const periodStart = this.getKathmanduDateTime(
+      periodStartDate.toISOString().slice(0, 10),
+      '00:00',
     );
 
-    const totals = rows.reduce(
+    const activeEmployeeWhere: Prisma.EmployeeWhereInput = {
+      status: EmployeeStatus.ACTIVE,
+      employmentStatus: EmploymentStatus.ACTIVE,
+      archivedAt: null,
+    };
+
+    const [
+      accounts,
+      totalAccounts,
+      enabledAccountCount,
+      disabledAccountCount,
+      activeEmployeeCount,
+      inactiveEmployeeCount,
+      unactivatedEmployeeCount,
+      offices,
+      dailySummaries,
+      requestsInPeriod,
+      emergencyRows,
+    ] = await this.prisma.$transaction([
+      this.prisma.account.findMany({
+        where: { isEnabled: true },
+        orderBy: [{ accountClass: 'asc' }, { createdAt: 'asc' }],
+        select: accountMonitoringSelect,
+      }),
+      this.prisma.account.count(),
+      this.prisma.account.count({ where: { isEnabled: true } }),
+      this.prisma.account.count({ where: { isEnabled: false } }),
+      this.prisma.employee.count({ where: activeEmployeeWhere }),
+      this.prisma.employee.count({
+        where: {
+          OR: [
+            { status: EmployeeStatus.INACTIVE },
+            { employmentStatus: { not: EmploymentStatus.ACTIVE } },
+            { archivedAt: { not: null } },
+          ],
+        },
+      }),
+      this.prisma.employee.count({
+        where: { ...activeEmployeeWhere, isActivated: false },
+      }),
+      this.prisma.office.findMany({
+        orderBy: [{ sortOrder: 'asc' }, { name: 'asc' }],
+        select: {
+          id: true,
+          name: true,
+          isActive: true,
+          memberships: {
+            where: {
+              membershipType: OrgMembershipType.PRIMARY,
+              endsAt: null,
+              employee: { is: activeEmployeeWhere },
+            },
+            select: {
+              id: true,
+              employeeId: true,
+              orgUnitId: true,
+              orgUnit: { select: { id: true, code: true, isActive: true } },
+            },
+          },
+          orgUnits: {
+            select: {
+              id: true,
+              code: true,
+              isActive: true,
+              orgUnitType: {
+                select: { code: true, isTeam: true },
+              },
+              memberships: {
+                where: {
+                  membershipType: OrgMembershipType.PRIMARY,
+                  endsAt: null,
+                  employee: { is: activeEmployeeWhere },
+                },
+                select: { id: true },
+              },
+              leadershipAssignments: {
+                where: {
+                  leadershipType: OrgLeadershipType.ORG_UNIT_HEAD,
+                  effectiveUntil: null,
+                  employee: { is: activeEmployeeWhere },
+                },
+                select: { id: true },
+              },
+            },
+          },
+          leadershipAssignments: {
+            where: {
+              leadershipType: OrgLeadershipType.OFFICE_HEAD,
+              effectiveUntil: null,
+              employee: { is: activeEmployeeWhere },
+            },
+            select: { id: true },
+          },
+          _count: { select: { memberships: true, orgUnits: true } },
+        },
+      }),
+      this.prisma.dailyActivitySummary.findMany({
+        where: {
+          activityDate: { gte: periodStartDate, lte: today },
+        },
+        select: {
+          accountId: true,
+          activityDate: true,
+          activeMinutes: true,
+          idleMinutes: true,
+          actionsCount: true,
+          emergencyAlertsCount: true,
+        },
+      }),
+      this.prisma.accountRequest.findMany({
+        where: { createdAt: { gte: periodStart, lte: now } },
+        select: { createdAt: true },
+      }),
+      this.prisma.emergencyAlertRecipient.findMany({
+        where: { createdAt: { gte: periodStart, lte: now } },
+        select: { status: true, createdAt: true },
+      }),
+    ]);
+
+    const rows = accounts.map((account) =>
+      this.toMonitoringRow(account, today, now),
+    );
+
+    const liveTotals = rows.reduce(
       (current, row) => ({
         active: current.active + (row.status === 'ACTIVE' ? 1 : 0),
         idle: current.idle + (row.status === 'IDLE' ? 1 : 0),
@@ -307,15 +447,244 @@ export class MonitoringService implements OnModuleInit, OnModuleDestroy {
       },
     );
 
+    const periodTotals = dailySummaries.reduce(
+      (current, summary) => ({
+        activeMinutes: current.activeMinutes + summary.activeMinutes,
+        idleMinutes: current.idleMinutes + summary.idleMinutes,
+        actions: current.actions + summary.actionsCount,
+        emergencyAlerts: current.emergencyAlerts + summary.emergencyAlertsCount,
+      }),
+      { activeMinutes: 0, idleMinutes: 0, actions: 0, emergencyAlerts: 0 },
+    );
+
+    const trendByDate = new Map<
+      string,
+      {
+        activeAccounts: Set<string>;
+        actions: number;
+        activeMinutes: number;
+        emergencyAlerts: number;
+        accountRequests: number;
+      }
+    >();
+
+    for (let index = 0; index < rangeDays; index += 1) {
+      const date = new Date(
+        periodStartDate.getTime() + index * 24 * 60 * 60 * 1000,
+      )
+        .toISOString()
+        .slice(0, 10);
+      trendByDate.set(date, {
+        activeAccounts: new Set<string>(),
+        actions: 0,
+        activeMinutes: 0,
+        emergencyAlerts: 0,
+        accountRequests: 0,
+      });
+    }
+
+    dailySummaries.forEach((summary) => {
+      const date = summary.activityDate.toISOString().slice(0, 10);
+      const bucket = trendByDate.get(date);
+      if (!bucket) return;
+      if (summary.activeMinutes > 0 || summary.actionsCount > 0) {
+        bucket.activeAccounts.add(summary.accountId);
+      }
+      bucket.actions += summary.actionsCount;
+      bucket.activeMinutes += summary.activeMinutes;
+      bucket.emergencyAlerts += summary.emergencyAlertsCount;
+    });
+
+    requestsInPeriod.forEach((request) => {
+      const date = this.getKathmanduDateString(request.createdAt);
+      const bucket = trendByDate.get(date);
+      if (bucket) bucket.accountRequests += 1;
+    });
+
+    const emergencyDelivery = {
+      total: emergencyRows.length,
+      sent: 0,
+      failed: 0,
+      pending: 0,
+      skippedNoPhone: 0,
+      deliveryRate: null as number | null,
+    };
+
+    emergencyRows.forEach((row) => {
+      if (row.status === EmergencyAlertRecipientStatus.SENT)
+        emergencyDelivery.sent += 1;
+      else if (row.status === EmergencyAlertRecipientStatus.FAILED)
+        emergencyDelivery.failed += 1;
+      else if (row.status === EmergencyAlertRecipientStatus.PENDING)
+        emergencyDelivery.pending += 1;
+      else if (row.status === EmergencyAlertRecipientStatus.SKIPPED_NO_PHONE)
+        emergencyDelivery.skippedNoPhone += 1;
+    });
+    if (emergencyDelivery.total > 0) {
+      emergencyDelivery.deliveryRate = Math.round(
+        (emergencyDelivery.sent / emergencyDelivery.total) * 100,
+      );
+    }
+
+    const officeHealth = offices.map((office) => {
+      const activeUnits = office.orgUnits.filter((unit) => unit.isActive);
+      const inactiveUnits = office.orgUnits.length - activeUnits.length;
+      const formalUnits = activeUnits.filter(
+        (unit) =>
+          !unit.orgUnitType.isTeam &&
+          unit.orgUnitType.code !== 'PLACEMENT_PENDING',
+      );
+      const headedFormalUnits = formalUnits.filter(
+        (unit) => unit.leadershipAssignments.length > 0,
+      ).length;
+      const validActivePlacements = office.memberships.filter(
+        (membership) =>
+          membership.orgUnit === null || membership.orgUnit.isActive,
+      );
+      const placementPending = office.memberships.filter(
+        (membership) => membership.orgUnit?.code === 'UNASSIGNED',
+      ).length;
+      const activeUnitsWithoutPeople = formalUnits.filter(
+        (unit) => unit.memberships.length === 0,
+      ).length;
+      const officeHeadAssigned = office.leadershipAssignments.length > 0;
+      const setupComplete = formalUnits.length > 0 && officeHeadAssigned;
+
+      return {
+        officeId: office.id,
+        name: office.name,
+        isActive: office.isActive,
+        activePeople: validActivePlacements.length,
+        historicalPlacementRecords: office._count.memberships,
+        activeUnits: activeUnits.length,
+        inactiveUnits,
+        formalUnits: formalUnits.length,
+        headedFormalUnits,
+        officeHeadAssigned,
+        placementPending,
+        activeUnitsWithoutPeople,
+        setupStatus: !office.isActive
+          ? 'INACTIVE'
+          : setupComplete
+            ? 'HEALTHY'
+            : 'SETUP_INCOMPLETE',
+      } as const;
+    });
+
+    const activeOffices = officeHealth.filter((office) => office.isActive);
+    const activeFormalUnits = activeOffices.reduce(
+      (sum, office) => sum + office.formalUnits,
+      0,
+    );
+    const headedFormalUnits = activeOffices.reduce(
+      (sum, office) => sum + office.headedFormalUnits,
+      0,
+    );
+    const activeUnits = activeOffices.reduce(
+      (sum, office) => sum + office.activeUnits,
+      0,
+    );
+    const inactiveUnits = officeHealth.reduce(
+      (sum, office) => sum + office.inactiveUnits,
+      0,
+    );
+    const activePrimaryPlacements = activeOffices.reduce(
+      (sum, office) => sum + office.activePeople,
+      0,
+    );
+    const historicalPlacementRecords = officeHealth.reduce(
+      (sum, office) => sum + office.historicalPlacementRecords,
+      0,
+    );
+    const placementPending = activeOffices.reduce(
+      (sum, office) => sum + office.placementPending,
+      0,
+    );
+    const activeUnitsWithoutPeople = activeOffices.reduce(
+      (sum, office) => sum + office.activeUnitsWithoutPeople,
+      0,
+    );
+    const officesWithoutStructure = activeOffices.filter(
+      (office) => office.formalUnits === 0,
+    ).length;
+    const officesWithoutHead = activeOffices.filter(
+      (office) => !office.officeHeadAssigned,
+    ).length;
+
+    const activeEmployeeIds = new Set(
+      offices
+        .filter((office) => office.isActive)
+        .flatMap((office) =>
+          office.memberships
+            .filter(
+              (membership) =>
+                membership.orgUnit === null || membership.orgUnit.isActive,
+            )
+            .map((membership) => membership.employeeId),
+        ),
+    );
+    const employeesWithoutPlacement = Math.max(
+      activeEmployeeCount - activeEmployeeIds.size,
+      0,
+    );
+
     return {
-      generatedAt: new Date().toISOString(),
+      generatedAt: now.toISOString(),
       retention: {
         detailedActivityDays: ACTIVITY_EVENT_RETENTION_DAYS,
         dailySummaryDays: DAILY_SUMMARY_RETENTION_DAYS,
       },
       privacyNotice:
         'Monitoring stores activity metadata only. Message text, private recipients and private chat content are never recorded.',
-      totals,
+      period: {
+        days: rangeDays,
+        startDate: periodStartDate.toISOString().slice(0, 10),
+        endDate: today.toISOString().slice(0, 10),
+        timezone: 'Asia/Kathmandu' as const,
+      },
+      totals: {
+        ...liveTotals,
+        periodActions: periodTotals.actions,
+        periodActiveMinutes: periodTotals.activeMinutes,
+        periodIdleMinutes: periodTotals.idleMinutes,
+        periodEmergencyAlerts: periodTotals.emergencyAlerts,
+        periodAccountRequests: requestsInPeriod.length,
+      },
+      accountHealth: {
+        totalAccounts,
+        enabledAccounts: enabledAccountCount,
+        disabledAccounts: disabledAccountCount,
+        activeEmployees: activeEmployeeCount,
+        inactiveEmployees: inactiveEmployeeCount,
+        unactivatedEmployees: unactivatedEmployeeCount,
+      },
+      organizationHealth: {
+        activeOffices: activeOffices.length,
+        inactiveOffices: officeHealth.length - activeOffices.length,
+        activeUnits,
+        inactiveUnits,
+        activeFormalUnits,
+        officeHeadsAssigned: activeOffices.length - officesWithoutHead,
+        officesWithoutHead,
+        orgUnitHeadsAssigned: headedFormalUnits,
+        orgUnitsWithoutHead: Math.max(activeFormalUnits - headedFormalUnits, 0),
+        activePrimaryPlacements,
+        historicalPlacementRecords,
+        employeesWithoutPlacement,
+        placementPending,
+        activeUnitsWithoutPeople,
+        officesWithoutStructure,
+      },
+      emergencyDelivery,
+      officeHealth,
+      trend: [...trendByDate.entries()].map(([date, value]) => ({
+        date,
+        activeAccounts: value.activeAccounts.size,
+        actions: value.actions,
+        activeMinutes: value.activeMinutes,
+        emergencyAlerts: value.emergencyAlerts,
+        accountRequests: value.accountRequests,
+      })),
       employees: rows,
     };
   }
@@ -331,7 +700,7 @@ export class MonitoringService implements OnModuleInit, OnModuleDestroy {
       this.prisma.activityEvent.findMany({
         where,
         orderBy: {
-          occurredAt: 'asc',
+          occurredAt: 'desc',
         },
         skip: (page - 1) * limit,
         take: limit,
@@ -388,15 +757,15 @@ export class MonitoringService implements OnModuleInit, OnModuleDestroy {
       });
     }
 
-    if (query.role) {
+    if (query.accountClass) {
       and.push({
         account: {
-          role: query.role,
+          accountClass: query.accountClass,
         },
       });
     }
 
-    if (query.department) {
+    if (query.officeId) {
       and.push({
         account: {
           employee: {
@@ -405,24 +774,25 @@ export class MonitoringService implements OnModuleInit, OnModuleDestroy {
                 some: {
                   membershipType: OrgMembershipType.PRIMARY,
                   endsAt: null,
-                  OR: [
-                    {
-                      orgUnit: {
-                        name: {
-                          contains: query.department,
-                          mode: 'insensitive',
-                        },
-                      },
-                    },
-                    {
-                      office: {
-                        name: {
-                          contains: query.department,
-                          mode: 'insensitive',
-                        },
-                      },
-                    },
-                  ],
+                  officeId: query.officeId,
+                },
+              },
+            },
+          },
+        },
+      });
+    }
+
+    if (query.orgUnitId) {
+      and.push({
+        account: {
+          employee: {
+            is: {
+              orgMemberships: {
+                some: {
+                  membershipType: OrgMembershipType.PRIMARY,
+                  endsAt: null,
+                  orgUnitId: query.orgUnitId,
                 },
               },
             },
@@ -490,12 +860,20 @@ export class MonitoringService implements OnModuleInit, OnModuleDestroy {
         record.account.employee?.empName ??
         record.account.username ??
         'Unknown account',
-      role: record.account.accountClass,
+      accountClass: record.account.accountClass,
       designation: record.account.employee?.designation ?? null,
-      department:
-        record.account.employee?.orgMemberships[0]?.orgUnit?.name ??
-        record.account.employee?.orgMemberships[0]?.office?.name ??
-        null,
+      officeId: record.account.employee?.orgMemberships[0]?.office?.id ?? null,
+      officeCode:
+        record.account.employee?.orgMemberships[0]?.office?.code ?? null,
+      officeName:
+        record.account.employee?.orgMemberships[0]?.office?.name ?? null,
+      orgUnitId:
+        record.account.employee?.orgMemberships[0]?.orgUnit?.id ?? null,
+      orgUnitName:
+        record.account.employee?.orgMemberships[0]?.orgUnit?.name ?? null,
+      orgUnitType:
+        record.account.employee?.orgMemberships[0]?.orgUnit?.orgUnitType
+          ?.name ?? null,
       pageName,
       eventType: record.eventType,
       actionLabel: this.toEventActionLabel(record.eventType),
@@ -530,10 +908,17 @@ export class MonitoringService implements OnModuleInit, OnModuleDestroy {
       accountId: account.id,
       employeeName:
         account.employee?.empName ?? account.username ?? 'Unknown account',
-      role: account.accountClass,
+      accountClass: account.accountClass,
       designation: account.employee?.designation ?? null,
-      division: account.employee?.orgMemberships[0]?.office?.name ?? null,
-      department: account.employee?.orgMemberships[0]?.orgUnit?.name ?? null,
+      profilePhotoKey:
+        account.profilePhotoKey ?? account.employee?.profilePhotoKey ?? null,
+      officeId: account.employee?.orgMemberships[0]?.office?.id ?? null,
+      officeCode: account.employee?.orgMemberships[0]?.office?.code ?? null,
+      officeName: account.employee?.orgMemberships[0]?.office?.name ?? null,
+      orgUnitId: account.employee?.orgMemberships[0]?.orgUnit?.id ?? null,
+      orgUnitName: account.employee?.orgMemberships[0]?.orgUnit?.name ?? null,
+      orgUnitType:
+        account.employee?.orgMemberships[0]?.orgUnit?.orgUnitType?.name ?? null,
       status,
       currentPage: latestPageEvent?.pagePath ?? null,
       lastActiveAt:

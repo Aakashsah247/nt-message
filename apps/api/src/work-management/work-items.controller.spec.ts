@@ -1,6 +1,6 @@
 import { WorkItemsController } from './work-items.controller';
 
-describe('WorkItemsController WM-V2 write cutover', () => {
+describe('WorkItemsController classic Work write cutover', () => {
   const controller = new WorkItemsController(
     {} as never,
     {} as never,
@@ -8,7 +8,7 @@ describe('WorkItemsController WM-V2 write cutover', () => {
     {} as never,
   );
 
-  it('does not expose the retired WM-V2 create mutation', () => {
-    expect('create' in controller).toBe(false);
+  it('exposes the restored classic Work create mutation', () => {
+    expect('create' in controller).toBe(true);
   });
 });

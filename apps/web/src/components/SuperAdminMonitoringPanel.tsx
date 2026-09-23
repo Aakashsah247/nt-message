@@ -3,6 +3,9 @@ import { useTranslation } from "react-i18next";
 import type { FormEvent } from "react";
 
 import {
+  createMessagingProfilePhotoObjectUrl,
+} from "../services/messaging.service";
+import {
   getSuperAdminActivityLogs,
   getSuperAdminMonitoring,
 } from "../services/monitoring.service";
@@ -38,8 +41,9 @@ interface MonitoringFilterState {
   fromTime: string;
   toTime: string;
   accountId: string;
-  role: string;
-  department: string;
+  accountClass: string;
+  officeId: string;
+  orgUnitId: string;
   eventType: ActivityEventType | "ALL";
   search: string;
 }
@@ -74,8 +78,9 @@ function createDefaultFilters(): MonitoringFilterState {
     fromTime: DEFAULT_FROM_TIME,
     toTime: DEFAULT_TO_TIME,
     accountId: "ALL",
-    role: "ALL",
-    department: "ALL",
+    accountClass: "ALL",
+    officeId: "ALL",
+    orgUnitId: "ALL",
     eventType: "ALL",
     search: "",
   };
@@ -142,18 +147,43 @@ function getEmployeeInitials(name: string): string {
   return initials || "NT";
 }
 
+function MonitoringAvatar({
+  employee,
+  photoUrl,
+  large = false,
+}: {
+  employee: MonitoringEmployeeRow;
+  photoUrl?: string;
+  large?: boolean;
+}) {
+  const className = `monitoring-avatar${large ? " large" : ""}${
+    photoUrl ? " has-photo" : ""
+  }`;
+  const displayName = getEmployeeDisplayName(employee);
+
+  return (
+    <span className={className} aria-hidden="true">
+      {photoUrl ? (
+        <img src={photoUrl} alt="" draggable={false} />
+      ) : (
+        <span>{getEmployeeInitials(displayName)}</span>
+      )}
+    </span>
+  );
+}
+
 function isEmailIdentity(value: string): boolean {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value.trim());
 }
 
 function getEmployeeDisplayName(
   employee: MonitoringEmployeeRow,
-  roleLabel?: string,
+  accountClassLabel?: string,
 ): string {
   // System-created identities can fall back to an email address. Present the
-  // localized role as the readable heading while keeping the exact email visible below.
+  // account class as the readable heading while keeping the exact email visible below.
   return isEmailIdentity(employee.employeeName)
-    ? roleLabel ?? formatLabel(employee.role)
+    ? accountClassLabel ?? formatLabel(employee.accountClass)
     : employee.employeeName;
 }
 
@@ -163,6 +193,23 @@ function getEmployeeContactLine(employee: MonitoringEmployeeRow): string | null 
   }
 
   return employee.designation;
+}
+
+function getOrgScopeLine(
+  scope: Pick<
+    MonitoringEmployeeRow | MonitoringActivityLogRow,
+    "accountClass" | "officeName" | "orgUnitName" | "orgUnitType"
+  >,
+  labels: { noOffice: string; noUnit: string; systemScope: string },
+): string {
+  const officeName =
+    scope.officeName ??
+    (scope.accountClass === "SUPER_ADMIN" ? labels.systemScope : labels.noOffice);
+  const orgUnitName = scope.orgUnitName
+    ? `${scope.orgUnitType ? `${scope.orgUnitType}: ` : ""}${scope.orgUnitName}`
+    : labels.noUnit;
+
+  return `${officeName} · ${orgUnitName}`;
 }
 
 function maskSessionLabel(value: string, fallback: string): string {
@@ -184,8 +231,9 @@ function getActiveFilterCount(filters: MonitoringFilterState): number {
   if (filters.fromTime !== DEFAULT_FROM_TIME) count += 1;
   if (filters.toTime !== DEFAULT_TO_TIME) count += 1;
   if (filters.accountId !== "ALL") count += 1;
-  if (filters.role !== "ALL") count += 1;
-  if (filters.department !== "ALL") count += 1;
+  if (filters.accountClass !== "ALL") count += 1;
+  if (filters.officeId !== "ALL") count += 1;
+  if (filters.orgUnitId !== "ALL") count += 1;
   if (filters.eventType !== "ALL") count += 1;
   if (filters.search.trim()) count += 1;
 
@@ -218,6 +266,11 @@ export function SuperAdminMonitoringPanel({
   const [logsRefreshKey, setLogsRefreshKey] = useState(0);
   const [autoRefresh, setAutoRefresh] = useState(true);
   const hasLoadedMonitoring = useRef(false);
+  const [profilePhotoUrls, setProfilePhotoUrls] = useState<
+    Record<string, string>
+  >({});
+  const profilePhotoKeysRef = useRef<Record<string, string | null>>({});
+  const profilePhotoUrlsRef = useRef<Record<string, string>>({});
 
   useEffect(() => {
     let active = true;
@@ -288,6 +341,124 @@ export function SuperAdminMonitoringPanel({
     };
   }, [accessToken, autoRefresh, refreshKey, t]);
 
+  useEffect(() => {
+    profilePhotoUrlsRef.current = profilePhotoUrls;
+  }, [profilePhotoUrls]);
+
+  useEffect(() => {
+    return () => {
+      Object.values(profilePhotoUrlsRef.current).forEach((url) =>
+        URL.revokeObjectURL(url),
+      );
+    };
+  }, []);
+
+  useEffect(() => {
+    const employees = monitoring?.employees ?? [];
+    let active = true;
+
+    const liveAccountIds = new Set(
+      employees.map((employee) => employee.accountId),
+    );
+    const removedUrls = Object.entries(profilePhotoUrlsRef.current).filter(
+      ([accountId]) => !liveAccountIds.has(accountId),
+    );
+
+    if (removedUrls.length > 0) {
+      removedUrls.forEach(([, url]) => URL.revokeObjectURL(url));
+      setProfilePhotoUrls((current) => {
+        const next = { ...current };
+        removedUrls.forEach(([accountId]) => delete next[accountId]);
+        return next;
+      });
+      removedUrls.forEach(([accountId]) => {
+        delete profilePhotoKeysRef.current[accountId];
+      });
+    }
+
+    const withoutPhoto = employees.filter(
+      (employee) =>
+        !employee.profilePhotoKey &&
+        (profilePhotoKeysRef.current[employee.accountId] !== null ||
+          profilePhotoUrlsRef.current[employee.accountId]),
+    );
+
+    if (withoutPhoto.length > 0) {
+      setProfilePhotoUrls((current) => {
+        const next = { ...current };
+        withoutPhoto.forEach((employee) => {
+          const existingUrl = next[employee.accountId];
+          if (existingUrl) {
+            URL.revokeObjectURL(existingUrl);
+            delete next[employee.accountId];
+          }
+          profilePhotoKeysRef.current[employee.accountId] = null;
+        });
+        return next;
+      });
+    }
+
+    const candidates = employees.filter(
+      (employee) =>
+        employee.profilePhotoKey &&
+        profilePhotoKeysRef.current[employee.accountId] !==
+          employee.profilePhotoKey,
+    );
+
+    if (!accessToken || candidates.length === 0) {
+      return () => {
+        active = false;
+      };
+    }
+
+    void Promise.all(
+      candidates.map(async (employee) => {
+        try {
+          const url = await createMessagingProfilePhotoObjectUrl(
+            accessToken,
+            employee.accountId,
+          );
+          return { employee, url };
+        } catch {
+          return { employee, url: null };
+        }
+      }),
+    ).then((results) => {
+      if (!active) {
+        results.forEach(({ url }) => {
+          if (url) URL.revokeObjectURL(url);
+        });
+        return;
+      }
+
+      setProfilePhotoUrls((current) => {
+        const next = { ...current };
+
+        results.forEach(({ employee, url }) => {
+          const existingUrl = next[employee.accountId];
+          if (existingUrl && existingUrl !== url) {
+            URL.revokeObjectURL(existingUrl);
+          }
+
+          if (url) {
+            next[employee.accountId] = url;
+          } else {
+            delete next[employee.accountId];
+          }
+
+          profilePhotoKeysRef.current[employee.accountId] =
+            employee.profilePhotoKey;
+        });
+
+        return next;
+      });
+    });
+
+    return () => {
+      active = false;
+    };
+  }, [accessToken, monitoring?.employees]);
+
   const activityQuery = useMemo<MonitoringActivityLogQuery>(
     () => ({
       date: appliedFilters.date,
@@ -297,11 +468,14 @@ export function SuperAdminMonitoringPanel({
         appliedFilters.accountId === "ALL"
           ? undefined
           : appliedFilters.accountId,
-      role: appliedFilters.role === "ALL" ? undefined : appliedFilters.role,
-      department:
-        appliedFilters.department === "ALL"
+      accountClass:
+        appliedFilters.accountClass === "ALL"
           ? undefined
-          : appliedFilters.department,
+          : (appliedFilters.accountClass as MonitoringActivityLogQuery["accountClass"]),
+      officeId:
+        appliedFilters.officeId === "ALL" ? undefined : appliedFilters.officeId,
+      orgUnitId:
+        appliedFilters.orgUnitId === "ALL" ? undefined : appliedFilters.orgUnitId,
       eventType: appliedFilters.eventType,
       search: appliedFilters.search.trim() || undefined,
       page,
@@ -377,25 +551,56 @@ export function SuperAdminMonitoringPanel({
     return [...rows].sort(compareMonitoringRows);
   }, [monitoring]);
 
-  const roles = useMemo(
+  const accountClasses = useMemo(
     () =>
-      Array.from(new Set(sortedEmployees.map((employee) => employee.role))).sort(),
+      Array.from(
+        new Set(sortedEmployees.map((employee) => employee.accountClass)),
+      ).sort(),
     [sortedEmployees],
   );
 
-  const departments = useMemo(
+  const offices = useMemo(
     () =>
       Array.from(
-        new Set(
+        new Map(
           sortedEmployees
-            .map(
+            .filter((employee) => employee.officeId && employee.officeName)
+            .map((employee) => [
+              employee.officeId as string,
+              {
+                id: employee.officeId as string,
+                code: employee.officeCode,
+                name: employee.officeName as string,
+              },
+            ]),
+        ).values(),
+      ).sort((left, right) => left.name.localeCompare(right.name)),
+    [sortedEmployees],
+  );
+
+  const orgUnits = useMemo(
+    () =>
+      Array.from(
+        new Map(
+          sortedEmployees
+            .filter(
               (employee) =>
-                employee.department ?? employee.division ?? t("common.noUnit"),
+                employee.orgUnitId &&
+                employee.orgUnitName &&
+                (draftFilters.officeId === "ALL" ||
+                  employee.officeId === draftFilters.officeId),
             )
-            .filter(Boolean),
-        ),
-      ).sort(),
-    [sortedEmployees, t],
+            .map((employee) => [
+              employee.orgUnitId as string,
+              {
+                id: employee.orgUnitId as string,
+                name: employee.orgUnitName as string,
+                type: employee.orgUnitType,
+              },
+            ]),
+        ).values(),
+      ).sort((left, right) => left.name.localeCompare(right.name)),
+    [draftFilters.officeId, sortedEmployees],
   );
 
   const selectedEmployee = useMemo(
@@ -639,6 +844,7 @@ export function SuperAdminMonitoringPanel({
         <OverviewTable
           monitoring={monitoring}
           employees={sortedEmployees}
+          profilePhotoUrls={profilePhotoUrls}
           onOpenEmployee={openEmployeeDetail}
         />
       ) : (
@@ -713,33 +919,52 @@ export function SuperAdminMonitoringPanel({
                 </select>
               </label>
               <label>
-                {t("filters.role")}
+                {t("filters.accountClass")}
                 <select
-                  value={draftFilters.role}
+                  value={draftFilters.accountClass}
                   onChange={(event) =>
-                    updateDraftFilter("role", event.target.value)
+                    updateDraftFilter("accountClass", event.target.value)
                   }
                 >
-                  <option value="ALL">{t("filters.allRoles")}</option>
-                  {roles.map((roleOption) => (
-                    <option key={roleOption} value={roleOption}>
-                      {t(`role.${roleOption}`, { defaultValue: formatLabel(roleOption) })}
+                  <option value="ALL">{t("filters.allAccountClasses")}</option>
+                  {accountClasses.map((accountClassOption) => (
+                    <option key={accountClassOption} value={accountClassOption}>
+                      {t(`accountClass.${accountClassOption}`, {
+                        defaultValue: formatLabel(accountClassOption),
+                      })}
                     </option>
                   ))}
                 </select>
               </label>
               <label>
-                {t("filters.department")}
+                {t("filters.office")}
                 <select
-                  value={draftFilters.department}
+                  value={draftFilters.officeId}
+                  onChange={(event) => {
+                    updateDraftFilter("officeId", event.target.value);
+                    updateDraftFilter("orgUnitId", "ALL");
+                  }}
+                >
+                  <option value="ALL">{t("filters.allOffices")}</option>
+                  {offices.map((office) => (
+                    <option key={office.id} value={office.id}>
+                      {office.code ? `${office.name} (${office.code})` : office.name}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label>
+                {t("filters.orgUnit")}
+                <select
+                  value={draftFilters.orgUnitId}
                   onChange={(event) =>
-                    updateDraftFilter("department", event.target.value)
+                    updateDraftFilter("orgUnitId", event.target.value)
                   }
                 >
-                  <option value="ALL">{t("filters.allDepartments")}</option>
-                  {departments.map((departmentOption) => (
-                    <option key={departmentOption} value={departmentOption}>
-                      {departmentOption}
+                  <option value="ALL">{t("filters.allOrgUnits")}</option>
+                  {orgUnits.map((orgUnit) => (
+                    <option key={orgUnit.id} value={orgUnit.id}>
+                      {orgUnit.type ? `${orgUnit.name} · ${orgUnit.type}` : orgUnit.name}
                     </option>
                   ))}
                 </select>
@@ -808,6 +1033,11 @@ export function SuperAdminMonitoringPanel({
           {view === "EMPLOYEE" && (
             <EmployeeDetailCard
               employee={selectedEmployee}
+              photoUrl={
+                selectedEmployee
+                  ? profilePhotoUrls[selectedEmployee.accountId]
+                  : undefined
+              }
               logs={activityLogs?.records ?? []}
             />
           )}
@@ -865,10 +1095,12 @@ function MonitoringMetric({
 function OverviewTable({
   monitoring,
   employees,
+  profilePhotoUrls,
   onOpenEmployee,
 }: {
   monitoring: SuperAdminMonitoringResponse;
   employees: MonitoringEmployeeRow[];
+  profilePhotoUrls: Record<string, string>;
   onOpenEmployee: (accountId: string) => void;
 }) {
   const { t, i18n } = useTranslation("monitoring");
@@ -914,6 +1146,7 @@ function OverviewTable({
                   <MonitoringRow
                     key={employee.accountId}
                     employee={employee}
+                    photoUrl={profilePhotoUrls[employee.accountId]}
                     onOpen={() => onOpenEmployee(employee.accountId)}
                   />
                 ))}
@@ -926,6 +1159,7 @@ function OverviewTable({
               <MonitoringEmployeeCard
                 key={employee.accountId}
                 employee={employee}
+                photoUrl={profilePhotoUrls[employee.accountId]}
                 onOpen={() => onOpenEmployee(employee.accountId)}
               />
             ))}
@@ -938,9 +1172,11 @@ function OverviewTable({
 
 function MonitoringRow({
   employee,
+  photoUrl,
   onOpen,
 }: {
   employee: MonitoringEmployeeRow;
+  photoUrl?: string;
   onOpen: () => void;
 }) {
   const { t, i18n } = useTranslation("monitoring");
@@ -949,18 +1185,16 @@ function MonitoringRow({
     <tr>
       <td>
         <div className="monitoring-employee-identity">
-          <span className="monitoring-avatar">
-            {getEmployeeInitials(employee.employeeName)}
-          </span>
+          <MonitoringAvatar employee={employee} photoUrl={photoUrl} />
           <span>
-            <strong>{getEmployeeDisplayName(employee, t(`role.${employee.role}`, { defaultValue: formatLabel(employee.role) }))}</strong>
+            <strong>{getEmployeeDisplayName(employee, t(`accountClass.${employee.accountClass}`, { defaultValue: formatLabel(employee.accountClass) }))}</strong>
             {getEmployeeContactLine(employee) && (
               <small>{getEmployeeContactLine(employee)}</small>
             )}
             {!isEmailIdentity(employee.employeeName) && (
-              <small>{t(`role.${employee.role}`, { defaultValue: formatLabel(employee.role) })}</small>
+              <small>{t(`accountClass.${employee.accountClass}`, { defaultValue: formatLabel(employee.accountClass) })}</small>
             )}
-            <small>{employee.department ?? employee.division ?? t("common.noUnit")}</small>
+            <small>{getOrgScopeLine(employee, { noOffice: t("common.noOffice"), noUnit: t("common.noUnit"), systemScope: t("common.systemScope") })}</small>
           </span>
         </div>
       </td>
@@ -1005,9 +1239,11 @@ function MonitoringRow({
 
 function MonitoringEmployeeCard({
   employee,
+  photoUrl,
   onOpen,
 }: {
   employee: MonitoringEmployeeRow;
+  photoUrl?: string;
   onOpen: () => void;
 }) {
   const { t, i18n } = useTranslation("monitoring");
@@ -1016,18 +1252,16 @@ function MonitoringEmployeeCard({
     <article className="monitoring-employee-card">
       <header>
         <div className="monitoring-employee-identity">
-          <span className="monitoring-avatar">
-            {getEmployeeInitials(employee.employeeName)}
-          </span>
+          <MonitoringAvatar employee={employee} photoUrl={photoUrl} />
           <span>
-            <strong>{getEmployeeDisplayName(employee, t(`role.${employee.role}`, { defaultValue: formatLabel(employee.role) }))}</strong>
+            <strong>{getEmployeeDisplayName(employee, t(`accountClass.${employee.accountClass}`, { defaultValue: formatLabel(employee.accountClass) }))}</strong>
             {getEmployeeContactLine(employee) && (
               <small>{getEmployeeContactLine(employee)}</small>
             )}
             {!isEmailIdentity(employee.employeeName) && (
-              <small>{t(`role.${employee.role}`, { defaultValue: formatLabel(employee.role) })}</small>
+              <small>{t(`accountClass.${employee.accountClass}`, { defaultValue: formatLabel(employee.accountClass) })}</small>
             )}
-            <small>{employee.department ?? employee.division ?? t("common.noUnit")}</small>
+            <small>{getOrgScopeLine(employee, { noOffice: t("common.noOffice"), noUnit: t("common.noUnit"), systemScope: t("common.systemScope") })}</small>
           </span>
         </div>
         <span className={`monitoring-status ${employee.status.toLowerCase()}`}>
@@ -1191,8 +1425,8 @@ function ActivityLogRow({ record }: { record: MonitoringActivityLogRow }) {
         <small>{record.designation ?? t("common.noDesignation")}</small>
       </td>
       <td>
-        <strong>{t(`role.${record.role}`, { defaultValue: formatLabel(record.role) })}</strong>
-        <small>{record.department ?? t("common.noUnit")}</small>
+        <strong>{t(`accountClass.${record.accountClass}`, { defaultValue: formatLabel(record.accountClass) })}</strong>
+        <small>{getOrgScopeLine(record, { noOffice: t("common.noOffice"), noUnit: t("common.noUnit"), systemScope: t("common.systemScope") })}</small>
       </td>
       <td>
         <span className={`monitoring-action-badge ${record.eventType.toLowerCase()}`}>
@@ -1237,12 +1471,12 @@ function ActivityLogCard({ record }: { record: MonitoringActivityLogRow }) {
 
       <dl>
         <div>
-          <dt>{t("common.role")}</dt>
-          <dd>{t(`role.${record.role}`, { defaultValue: formatLabel(record.role) })}</dd>
+          <dt>{t("common.accountClass")}</dt>
+          <dd>{t(`accountClass.${record.accountClass}`, { defaultValue: formatLabel(record.accountClass) })}</dd>
         </div>
         <div>
-          <dt>{t("common.department")}</dt>
-          <dd>{record.department ?? t("common.noUnit")}</dd>
+          <dt>{t("common.orgUnit")}</dt>
+          <dd>{record.orgUnitName ?? record.officeName ?? t("common.noUnit")}</dd>
         </div>
         <div>
           <dt>{t("common.session")}</dt>
@@ -1255,9 +1489,11 @@ function ActivityLogCard({ record }: { record: MonitoringActivityLogRow }) {
 
 function EmployeeDetailCard({
   employee,
+  photoUrl,
   logs,
 }: {
   employee: MonitoringEmployeeRow | null;
+  photoUrl?: string;
   logs: MonitoringActivityLogRow[];
 }) {
   const { t, i18n } = useTranslation("monitoring");
@@ -1281,19 +1517,17 @@ function EmployeeDetailCard({
     >
       <header className="monitoring-employee-detail-header">
         <div className="monitoring-employee-identity">
-          <span className="monitoring-avatar large">
-            {getEmployeeInitials(employee.employeeName)}
-          </span>
+          <MonitoringAvatar employee={employee} photoUrl={photoUrl} large />
           <span>
             <span className="monitoring-section-eyebrow">{t("employee.eyebrow")}</span>
-            <h3>{getEmployeeDisplayName(employee, t(`role.${employee.role}`, { defaultValue: formatLabel(employee.role) }))}</h3>
+            <h3>{getEmployeeDisplayName(employee, t(`accountClass.${employee.accountClass}`, { defaultValue: formatLabel(employee.accountClass) }))}</h3>
             {isEmailIdentity(employee.employeeName) && (
               <small className="monitoring-employee-contact">
                 {employee.employeeName}
               </small>
             )}
             <p>
-              {employee.department ?? employee.division ?? t("common.noUnit")} · {t(`role.${employee.role}`, { defaultValue: formatLabel(employee.role) })}
+              {getOrgScopeLine(employee, { noOffice: t("common.noOffice"), noUnit: t("common.noUnit"), systemScope: t("common.systemScope") })} · {t(`accountClass.${employee.accountClass}`, { defaultValue: formatLabel(employee.accountClass) })}
             </p>
           </span>
         </div>

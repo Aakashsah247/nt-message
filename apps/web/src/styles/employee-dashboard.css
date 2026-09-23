@@ -65,8 +65,7 @@
 }
 
 .employee-dashboard__hero > div:first-child > span,
-.employee-dashboard__panel header span,
-.my-account-status__header > div > span {
+.employee-dashboard__panel header span {
   display: inline-flex;
   margin-bottom: 8px;
   color: var(--nt-gold);
@@ -534,421 +533,6 @@
   scroll-margin-top: 92px;
 }
 
-/* Shared own-account status panel */
-.my-account-status {
-  overflow: hidden;
-  border: 1px solid var(--nt-line, #dce5f0);
-  border-radius: 19px;
-  background: #fff;
-  box-shadow: 0 10px 28px rgba(15, 35, 65, 0.055);
-  animation: employee-rise 430ms both;
-}
-
-.my-account-status--state {
-  display: flex;
-  min-height: 150px;
-  align-items: center;
-  justify-content: center;
-  gap: 14px;
-  padding: 26px;
-}
-
-.my-account-status--state > div:not(.spinner) {
-  display: grid;
-  gap: 5px;
-}
-
-.my-account-status--state p {
-  margin: 0;
-  color: #667085;
-}
-
-.my-account-status--state button {
-  min-height: 40px;
-  margin-left: auto;
-  padding: 0 15px;
-  border: 1px solid #c9d6e6;
-  border-radius: 10px;
-  color: #0b4ea2;
-  font: inherit;
-  font-weight: 800;
-  background: #fff;
-  cursor: pointer;
-}
-
-.my-account-status__header {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 22px;
-  padding: 24px 26px;
-  border-bottom: 1px solid #eaf0f6;
-  background: linear-gradient(180deg, #fbfdff, #fff);
-}
-
-.my-account-status__header h2 {
-  margin: 0;
-  color: var(--nt-ink, #152033);
-  font-size: 1.28rem;
-}
-
-.my-account-status__header p {
-  max-width: 760px;
-  margin: 7px 0 0;
-  color: var(--nt-muted, #667085);
-  font-size: 0.86rem;
-  line-height: 1.55;
-}
-
-.my-account-status__badge {
-  display: inline-flex;
-  flex: 0 0 auto;
-  align-items: center;
-  gap: 8px;
-  padding: 9px 12px;
-  border: 1px solid #bdd8c6;
-  border-radius: 999px;
-  color: #166534;
-  font-size: 0.78rem;
-  font-weight: 850;
-  background: #effaf2;
-}
-
-.my-account-status__badge > span {
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  background: currentColor;
-  box-shadow: 0 0 0 4px color-mix(in srgb, currentColor 13%, transparent);
-}
-
-.my-account-status__badge--disabled,
-.my-account-status__badge--rejected {
-  border-color: #fecaca;
-  color: #b42318;
-  background: #fff1f2;
-}
-
-.my-account-status__badge--pending-approval,
-.my-account-status__badge--activation-pending,
-.my-account-status__badge--approved {
-  border-color: #f6d98c;
-  color: #8a5a00;
-  background: #fff9e8;
-}
-
-.my-account-status__identity {
-  display: grid;
-  grid-template-columns: auto minmax(0, 1fr) minmax(280px, auto);
-  align-items: center;
-  gap: 17px;
-  padding: 23px 26px;
-}
-
-.my-account-status__avatar {
-  display: grid;
-  width: 58px;
-  height: 58px;
-  place-items: center;
-  border-radius: 17px;
-  color: #fff;
-  font-size: 1.25rem;
-  font-weight: 900;
-  background: linear-gradient(135deg, #0b4ea2, #3d86d7);
-  box-shadow: 0 9px 18px rgba(11, 78, 162, 0.2);
-}
-
-.my-account-status__identity > div:nth-child(2) {
-  min-width: 0;
-}
-
-.my-account-status__identity > div:nth-child(2) > span {
-  color: #0b4ea2;
-  font-size: 0.74rem;
-  font-weight: 800;
-  letter-spacing: 0.07em;
-  text-transform: uppercase;
-}
-
-.my-account-status__identity h3 {
-  margin: 4px 0 3px;
-  color: #152033;
-  font-size: 1.18rem;
-}
-
-.my-account-status__identity p {
-  overflow: hidden;
-  margin: 0;
-  color: #667085;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.my-account-status__identity dl {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(120px, 1fr));
-  gap: 12px;
-  margin: 0;
-}
-
-.my-account-status__identity dl > div {
-  padding: 11px 13px;
-  border: 1px solid #e5ebf2;
-  border-radius: 11px;
-  background: #f8fafc;
-}
-
-.my-account-status__identity dt,
-.my-account-status__facts span,
-.my-account-status__request-summary span {
-  color: #7a8699;
-  font-size: 0.7rem;
-  font-weight: 800;
-  letter-spacing: 0.055em;
-  text-transform: uppercase;
-}
-
-.my-account-status__identity dd {
-  margin: 4px 0 0;
-  color: #152033;
-  font-size: 0.84rem;
-  font-weight: 800;
-}
-
-.my-account-status__facts,
-.my-account-status__request-summary {
-  display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 12px;
-  padding: 0 26px 23px;
-}
-
-.my-account-status__facts > div,
-.my-account-status__request-summary > div {
-  display: grid;
-  min-width: 0;
-  gap: 5px;
-  padding: 14px;
-  border: 1px solid #e4ebf3;
-  border-radius: 12px;
-  background: #fff;
-}
-
-.my-account-status__facts strong,
-.my-account-status__request-summary strong {
-  overflow: hidden;
-  color: #152033;
-  font-size: 0.86rem;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.my-account-status__facts small,
-.my-account-status__request-summary small {
-  overflow: hidden;
-  color: #7b8798;
-  font-size: 0.74rem;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.my-account-status__request-summary {
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  padding-top: 20px;
-  border-top: 1px solid #edf1f6;
-  background: #fbfdff;
-}
-
-.my-account-status__timeline {
-  display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 0;
-  margin: 0;
-  padding: 5px 30px 28px;
-  list-style: none;
-  background: #fbfdff;
-}
-
-.my-account-status__timeline li {
-  position: relative;
-  display: grid;
-  justify-items: center;
-  gap: 8px;
-  color: #9aa5b5;
-  text-align: center;
-}
-
-.my-account-status__timeline li::before {
-  position: absolute;
-  top: 14px;
-  left: 0;
-  z-index: 0;
-  width: 100%;
-  height: 2px;
-  background: #dde5ee;
-  content: "";
-}
-
-.my-account-status__timeline li:first-child::before {
-  left: 50%;
-  width: 50%;
-}
-
-.my-account-status__timeline li:last-child::before {
-  width: 50%;
-}
-
-.my-account-status__timeline li > span {
-  position: relative;
-  z-index: 1;
-  display: grid;
-  width: 29px;
-  height: 29px;
-  place-items: center;
-  border: 2px solid #d6dfe9;
-  border-radius: 50%;
-  color: #fff;
-  font-size: 0.72rem;
-  background: #fff;
-}
-
-.my-account-status__timeline li.complete,
-.my-account-status__timeline li.current {
-  color: #0b4ea2;
-}
-
-.my-account-status__timeline li.complete::before,
-.my-account-status__timeline li.current::before {
-  background: #78a9df;
-}
-
-.my-account-status__timeline li.complete > span {
-  border-color: #0b4ea2;
-  background: #0b4ea2;
-}
-
-.my-account-status__timeline li.current > span {
-  border-color: #0b4ea2;
-  background: #fff;
-  box-shadow: 0 0 0 5px rgba(11, 78, 162, 0.1);
-}
-
-.my-account-status__timeline li.current > span::after {
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  background: #0b4ea2;
-  content: "";
-}
-
-.my-account-status__timeline strong {
-  font-size: 0.73rem;
-}
-
-.my-account-status__notice,
-.my-account-status__rejection {
-  margin: 0 26px 24px;
-  padding: 14px 16px;
-  border: 1px solid #dbe5ef;
-  border-radius: 12px;
-  background: #f8fafc;
-}
-
-.my-account-status__rejection {
-  border-color: #fecaca;
-  color: #991b1b;
-  background: #fff5f5;
-}
-
-.my-account-status__notice p,
-.my-account-status__rejection p {
-  margin: 5px 0 0;
-  color: inherit;
-  font-size: 0.82rem;
-  line-height: 1.55;
-}
-
-/* Manager account-request hierarchy tabs and filters */
-.manager-requests-page__tabs {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 12px;
-  margin: 18px 0;
-}
-
-.manager-requests-page__tabs > button {
-  display: grid;
-  grid-template-columns: auto minmax(0, 1fr);
-  align-items: center;
-  gap: 12px;
-  min-width: 0;
-  padding: 15px 16px;
-  border: 1px solid #dce5ef;
-  border-radius: 14px;
-  color: #455468;
-  font: inherit;
-  text-align: left;
-  background: #fff;
-  cursor: pointer;
-  box-shadow: 0 7px 18px rgba(15, 35, 65, 0.035);
-  transition: border-color 160ms ease, background 160ms ease, transform 160ms ease, box-shadow 160ms ease;
-}
-
-.manager-requests-page__tabs > button:hover {
-  border-color: #a7c5e8;
-  transform: translateY(-1px);
-}
-
-.manager-requests-page__tabs > button.active {
-  border-color: #0b4ea2;
-  color: #0b4ea2;
-  background: #eef6ff;
-  box-shadow: 0 10px 24px rgba(11, 78, 162, 0.09);
-}
-
-.manager-requests-page__tabs > button > span {
-  display: grid;
-  width: 35px;
-  height: 35px;
-  place-items: center;
-  border-radius: 10px;
-  color: #fff;
-  font-size: 0.73rem;
-  font-weight: 900;
-  background: #8290a5;
-}
-
-.manager-requests-page__tabs > button.active > span {
-  background: #0b4ea2;
-}
-
-.manager-requests-page__tabs div {
-  display: grid;
-  min-width: 0;
-  gap: 3px;
-}
-
-.manager-requests-page__tabs strong,
-.manager-requests-page__tabs small {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.manager-requests-page__tabs strong {
-  font-size: 0.84rem;
-}
-
-.manager-requests-page__tabs small {
-  color: #7c889a;
-  font-size: 0.72rem;
-}
-
-.manager-requests-page__single-panel {
-  display: grid;
-  gap: 18px;
-}
-
 .manager-request-history__advanced {
   display: grid;
   grid-template-columns: minmax(220px, 1.5fr) repeat(3, minmax(145px, 0.65fr)) auto;
@@ -1110,21 +694,6 @@
     flex: 1;
   }
 
-  .my-account-status__identity {
-    grid-template-columns: auto minmax(0, 1fr);
-  }
-
-  .my-account-status__identity dl {
-    grid-column: 1 / -1;
-  }
-
-  .my-account-status__facts {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-
-  .manager-requests-page__tabs {
-    grid-template-columns: minmax(0, 1fr);
-  }
 }
 
 @media (max-width: 680px) {
@@ -1147,13 +716,11 @@
     grid-template-columns: minmax(0, 1fr);
   }
 
-  .employee-dashboard__panel > header,
-  .my-account-status__header {
+.employee-dashboard__panel > header {
     flex-direction: column;
   }
 
-  .employee-dashboard__panel > header > a,
-  .my-account-status__badge {
+.employee-dashboard__panel > header > a {
     align-self: flex-start;
   }
 
@@ -1168,58 +735,6 @@
     justify-self: start;
   }
 
-  .my-account-status__identity,
-  .my-account-status__facts,
-  .my-account-status__request-summary {
-    grid-template-columns: minmax(0, 1fr);
-  }
-
-  .my-account-status__identity {
-    text-align: center;
-  }
-
-  .my-account-status__avatar {
-    justify-self: center;
-  }
-
-  .my-account-status__identity dl {
-    grid-template-columns: minmax(0, 1fr);
-  }
-
-  .my-account-status__timeline {
-    grid-template-columns: minmax(0, 1fr);
-    gap: 12px;
-    padding: 5px 24px 24px;
-  }
-
-  .my-account-status__timeline li {
-    grid-template-columns: auto minmax(0, 1fr);
-    justify-items: start;
-    text-align: left;
-  }
-
-  .my-account-status__timeline li::before {
-    top: 0;
-    bottom: -12px;
-    left: 14px;
-    width: 2px;
-    height: auto;
-  }
-
-  .my-account-status__timeline li:first-child::before,
-  .my-account-status__timeline li:last-child::before {
-    left: 14px;
-    width: 2px;
-  }
-
-  .my-account-status__timeline li:last-child::before {
-    display: none;
-  }
-
-  .my-account-status__timeline strong {
-    align-self: center;
-  }
-
   .manager-request-history__advanced {
     grid-template-columns: minmax(0, 1fr);
   }
@@ -1231,15 +746,13 @@
 
 @media (prefers-reduced-motion: reduce) {
   .employee-metric,
-  .employee-conversation,
-  .my-account-status {
+  .employee-conversation {
     animation: none !important;
   }
 
   .employee-metric,
   .employee-conversation,
-  .employee-dashboard__quick-actions > a,
-  .manager-requests-page__tabs > button {
+  .employee-dashboard__quick-actions > a {
     transition: none !important;
   }
 }

@@ -3,7 +3,7 @@ import { useSearchParams } from "react-router";
 
 import { AdminOrganizationPanel } from "../components/AdminOrganizationPanel";
 import { getDefaultAdminView } from "../components/layout/management-navigation";
-import { MessagingAnalyticsPanel } from "../components/MessagingAnalyticsPanel";
+import { SuperAdminSystemAnalyticsPanel } from "../components/SuperAdminSystemAnalyticsPanel";
 import { SuperAdminDashboardOverview } from "../components/SuperAdminDashboardOverview";
 import { SuperAdminMonitoringPanel } from "../components/SuperAdminMonitoringPanel";
 import { SuperAdminProfilePanel } from "../components/SuperAdminProfilePanel";
@@ -12,10 +12,10 @@ import { useAuth } from "../context/AuthContext";
 export function AdminDashboardPage() {
   const { t } = useTranslation("admin");
   const [searchParams] = useSearchParams();
-  const { accessToken } = useAuth();
+  const { accessToken, account } = useAuth();
   const view = getDefaultAdminView(searchParams.get("view"));
 
-  if (!accessToken) {
+  if (!accessToken || !account) {
     return (
       <main className="management-page">
         <div className="admin-request-error" role="alert">
@@ -28,7 +28,7 @@ export function AdminDashboardPage() {
   // Account Requests has its own route. Query-based views are retained for
   // existing governance pages so completed functionality is not disrupted.
   if (view === "analytics") {
-    return <MessagingAnalyticsPanel accessToken={accessToken} />;
+    return <SuperAdminSystemAnalyticsPanel accessToken={accessToken} />;
   }
 
   if (view === "monitoring") {
@@ -40,7 +40,12 @@ export function AdminDashboardPage() {
   }
 
   if (view === "organization") {
-    return <AdminOrganizationPanel accessToken={accessToken} />;
+    return (
+      <AdminOrganizationPanel
+        accessToken={accessToken}
+        viewerAccountClass={account.accountClass}
+      />
+    );
   }
 
   return <SuperAdminDashboardOverview accessToken={accessToken} />;

@@ -40,8 +40,14 @@ export class AdminAccountRequestsController {
   }
 
   @Get('dashboard/summary')
-  getSummary(@CurrentUser() user: AuthenticatedUser) {
-    return this.accountRequestsService.getAdminRequestSummary(user);
+  getSummary(
+    @CurrentUser() user: AuthenticatedUser,
+    @Query() query: ListAccountRequestsQueryDto,
+  ) {
+    return this.accountRequestsService.getAdminRequestSummary(
+      user,
+      query.officeId,
+    );
   }
 
   @Get(':id')

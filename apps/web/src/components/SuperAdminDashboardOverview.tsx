@@ -1,5 +1,4 @@
 import { useEffect, useMemo, useState } from "react";
-import type { CSSProperties } from "react";
 import { useTranslation } from "react-i18next";
 import { Link } from "react-router";
 
@@ -50,14 +49,6 @@ const STATUS_META: Record<
   },
 };
 
-const LIFECYCLE_STATUSES: AccountRequestStatus[] = [
-  "PENDING_APPROVAL",
-  "APPROVED",
-  "ACTIVATION_PENDING",
-  "ACTIVATED",
-  "REJECTED",
-  "DRAFT",
-];
 
 function formatDate(value: string, locale: string): string {
   const date = new Date(value);
@@ -141,10 +132,7 @@ export function SuperAdminDashboardOverview({
     [summary?.counts],
   );
 
-  const lifecycleMaximum = useMemo(
-    () => Math.max(1, ...LIFECYCLE_STATUSES.map((status) => counts[status])),
-    [counts],
-  );
+
 
   const metricCards = [
     {
@@ -218,11 +206,10 @@ export function SuperAdminDashboardOverview({
         className="super-admin-overview__metrics"
         aria-label={t("dashboard.governanceSummary")}
       >
-        {metricCards.map((metric, index) => (
+        {metricCards.map((metric) => (
           <Link
             key={metric.label}
             className={`super-admin-overview__metric super-admin-overview__metric--${metric.tone}`}
-            style={{ "--metric-order": index } as CSSProperties}
             to={metric.href}
           >
             <span className="super-admin-overview__metric-icon" aria-hidden="true">
@@ -272,7 +259,7 @@ export function SuperAdminDashboardOverview({
                   <span className="super-admin-overview__request-copy">
                     <strong>{request.empName}</strong>
                     <small>
-                      {request.empId} · {t(`roles.${request.requestedRole}`, { defaultValue: request.requestedRole })} ·{" "}
+                      {request.empId} · {request.requestedOrganizationRole === "ORG_UNIT_HEAD" ? (request.intendedOrgUnit?.orgUnitType?.name ? `${request.intendedOrgUnit.orgUnitType.name} Head` : t("requests:form.v3.unitHeadRole")) : t("requests:form.v3.employeeRole")} ·{" "}
                       {request.requestedBy.employee?.empName ?? request.requestedBy.username ?? t("dashboard.unknownRequester")}
                     </small>
                   </span>
@@ -334,77 +321,6 @@ export function SuperAdminDashboardOverview({
               </span>
             </Link>
           </div>
-        </article>
-      </section>
-
-      <section className="super-admin-overview__secondary-grid">
-        <article className="super-admin-overview__panel super-admin-overview__lifecycle">
-          <header>
-            <div>
-              <span>{t("dashboard.lifecycle.eyebrow")}</span>
-              <h2>{t("dashboard.lifecycle.title")}</h2>
-              <p>{t("dashboard.lifecycle.total", { count: summary?.totalRequests ?? 0 })}</p>
-            </div>
-          </header>
-
-          <div className="super-admin-overview__lifecycle-list">
-            {LIFECYCLE_STATUSES.map((status) => (
-              <Link
-                key={status}
-                to={`/super-admin/account-requests?status=${status}`}
-              >
-                <span>{t(STATUS_META[status].labelKey)}</span>
-                <span className="super-admin-overview__lifecycle-track" aria-hidden="true">
-                  <span
-                    style={{
-                      width: `${Math.max(
-                        counts[status] > 0 ? 8 : 0,
-                        (counts[status] / lifecycleMaximum) * 100,
-                      )}%`,
-                    }}
-                  />
-                </span>
-                <strong>{counts[status]}</strong>
-              </Link>
-            ))}
-          </div>
-        </article>
-
-        <article className="super-admin-overview__panel super-admin-overview__activity">
-          <header>
-            <div>
-              <span>{t("dashboard.activity.eyebrow")}</span>
-              <h2>{t("dashboard.activity.title")}</h2>
-              <p>{t("dashboard.activity.description")}</p>
-            </div>
-          </header>
-
-          {summary?.recentActivity.length ? (
-            <div className="super-admin-overview__activity-list">
-              {summary.recentActivity.map((request) => (
-                <Link
-                  key={request.id}
-                  to={`/super-admin/account-requests?status=${request.status}&request=${request.id}`}
-                >
-                  <span
-                    className={`super-admin-overview__activity-dot super-admin-overview__activity-dot--${STATUS_META[request.status].tone}`}
-                    aria-hidden="true"
-                  />
-                  <span>
-                    <strong>{request.empName}</strong>
-                    <small>
-                      {t(STATUS_META[request.status].labelKey)} · {request.empId}
-                    </small>
-                  </span>
-                  <time>{formatDate(request.updatedAt, i18n.language) || t("dashboard.timeUnavailable")}</time>
-                </Link>
-              ))}
-            </div>
-          ) : (
-            <div className="super-admin-overview__compact-empty">
-              {t("dashboard.activity.empty")}
-            </div>
-          )}
         </article>
       </section>
 

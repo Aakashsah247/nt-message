@@ -3,6 +3,7 @@ import { JwtModule } from '@nestjs/jwt';
 import { PassportModule } from '@nestjs/passport';
 
 import { MailModule } from '../mail/mail.module';
+import { SecurityModule } from '../security/security.module';
 import { AuthController } from './auth.controller';
 import { AuthService } from './auth.service';
 import { AccountClassesGuard } from './guards/account-classes.guard';
@@ -22,6 +23,7 @@ import { AccessTokenStrategy } from './strategies/access-token.strategy';
 
     JwtModule.register({}),
     MailModule,
+    SecurityModule,
   ],
 
   controllers: [AuthController],

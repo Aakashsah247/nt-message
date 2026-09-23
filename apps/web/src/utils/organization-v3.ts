@@ -76,7 +76,11 @@ export function filterTree(
       (statusFilter === "ACTIVE" && node.isActive) ||
       (statusFilter === "INACTIVE" && !node.isActive);
 
-    if ((searchMatches && statusMatches) || children.length > 0) {
+    if (!statusMatches) {
+      return children;
+    }
+
+    if (searchMatches || children.length > 0) {
       return [{ ...node, children }];
     }
 

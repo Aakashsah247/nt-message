@@ -15,16 +15,19 @@ import {
   normalizeNepalPhoneNumber,
   normalizeOfficialEmailForLookup,
   sanitizeOfficialEmail,
+  tryNormalizeNepalPhoneNumber,
 } from '../common/normalization/account-identity-normalization';
 import { PrismaService } from '../database/prisma.service';
 import {
   AccountRequestStatus,
   AccountClass,
+  EmploymentStatus,
   IdentityCorrectionField,
   OtpPurpose,
 } from '../generated/prisma/client';
 import type { Prisma } from '../generated/prisma/client';
 import { MailService } from '../mail/mail.service';
+import { MessagingEventsService } from '../realtime/messaging-events.service';
 import { CorrectEmployeeIdentityDto } from './dto/correct-employee-identity.dto';
 
 interface IdentityCorrectionMetadata {
@@ -43,6 +46,7 @@ export class EmployeeIdentityCorrectionService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly mailService: MailService,
+    private readonly messagingEvents?: MessagingEventsService,
   ) {}
 
   private assertSuperAdmin(user: AuthenticatedUser): void {
@@ -181,7 +185,8 @@ export class EmployeeIdentityCorrectionService {
 
       if (
         requestedPhoneNumber !== undefined &&
-        requestedPhoneNumber !== normalizeNepalPhoneNumber(employee.phoneNumber)
+        requestedPhoneNumber !==
+          tryNormalizeNepalPhoneNumber(employee.phoneNumber)
       ) {
         changes.push({
           field: IdentityCorrectionField.PHONE_NUMBER,
@@ -237,6 +242,7 @@ export class EmployeeIdentityCorrectionService {
 
       if (phoneChange) {
         duplicateEmployeeConditions.push({
+          employmentStatus: EmploymentStatus.ACTIVE,
           phoneNumber: {
             in: getNepalPhoneLookupVariants(phoneChange.newValue),
           },
@@ -521,6 +527,11 @@ export class EmployeeIdentityCorrectionService {
         notificationSent = false;
       }
     }
+
+    this.messagingEvents?.emitDirectoryChanged({
+      reason: 'EMPLOYEE_IDENTITY_CORRECTED',
+      occurredAt: correctedAt.toISOString(),
+    });
 
     return {
       message: 'Protected employee identity corrected successfully.',

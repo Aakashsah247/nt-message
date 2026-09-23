@@ -1,6 +1,7 @@
 import {
   BadRequestException,
   ConflictException,
+  ForbiddenException,
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
@@ -17,22 +18,33 @@ import {
   WorkFieldType,
   WorkFinalClosureMode,
   WorkSlaBasis,
-  WorkStageActivationMode,
-  WorkStageApprovalMode,
-  WorkStageAssignmentMode,
-  WorkStageResponsibleOrgUnitRule,
+  WorkTypeCreatorCategory,
   WorkTypeCreatorScope,
   WorkTypeVersionStatus,
 } from '../generated/prisma/client';
 import { CAPABILITIES } from '../organization/organization-capabilities';
 import { OrganizationAuthorizationService } from '../organization/organization-authorization.service';
-import { WorkRuntimeV3SlaService } from './work-runtime-v3-sla.service';
+import {
+  isWorkFoundationCompletionFieldCode,
+  WORK_FOUNDATION_COMPLETION_FIELD_CODES,
+  WORK_SYSTEM_CONTROLLED_FIELD_CODES,
+} from './work-foundation.constants';
+import { WorkSlaService } from './work-sla.service';
+import {
+  DEFAULT_WORK_TYPE_CODES,
+  ensureDefaultWorkTypeCatalog,
+} from './default-work-type-catalog';
+import type { CreateWorkTypeDefinitionDto } from './dto/create-work-type-definition.dto';
 import type { CreateWorkTypeDraftDto } from './dto/create-work-type-draft.dto';
 import type {
   ReplaceWorkTypeDraftConfigurationDto,
   WorkFieldDefinitionDto,
 } from './dto/replace-work-type-draft-configuration.dto';
 import type { UpdateWorkTypeDraftDto } from './dto/update-work-type-draft.dto';
+import {
+  assertWorkTypeTemplate,
+  WorkTypeTemplate,
+} from './fixed-work-type-template';
 
 const VERSION_SUMMARY_SELECT = {
   id: true,
@@ -41,6 +53,8 @@ const VERSION_SUMMARY_SELECT = {
   status: true,
   name: true,
   description: true,
+  salesDisplayLabel: true,
+  template: true,
   changeReason: true,
   createdByAccountId: true,
   publishedByAccountId: true,
@@ -51,6 +65,8 @@ const VERSION_SUMMARY_SELECT = {
   updatedAt: true,
 } as const;
 const VERSION_CONFIGURATION_SELECT = {
+  template: true,
+  salesDisplayLabel: true,
   primaryOwnerOrgUnitId: true,
   creatorCategories: true,
   creatorScope: true,
@@ -74,6 +90,7 @@ const VERSION_CONFIGURATION_SELECT = {
     },
   },
   fields: {
+    where: { code: { notIn: [...WORK_SYSTEM_CONTROLLED_FIELD_CODES] } },
     orderBy: [{ sortOrder: 'asc' }, { code: 'asc' }],
     select: {
       id: true,
@@ -83,46 +100,289 @@ const VERSION_CONFIGURATION_SELECT = {
       isRequired: true,
       sortOrder: true,
       config: true,
-      stageDefinitionId: true,
-    },
-  },
-  stages: {
-    orderBy: [{ sortOrder: 'asc' }, { code: 'asc' }],
-    select: {
-      id: true,
-      code: true,
-      name: true,
-      description: true,
-      sortOrder: true,
-      isRequired: true,
-      responsibleOrgUnitRule: true,
-      responsibleOrgUnitId: true,
-      assignmentMode: true,
-      approvalMode: true,
-      approvalLeadershipType: true,
-      activationMode: true,
-      activationFieldDefinitionId: true,
-      activationExpectedValue: true,
-      slaMinutes: true,
-    },
-  },
-  stageDependencies: {
-    orderBy: { createdAt: 'asc' },
-    select: {
-      id: true,
-      stageDefinitionId: true,
-      prerequisiteStageId: true,
     },
   },
 } satisfies Prisma.WorkTypeVersionSelect;
+
+const WORK_FIELD_COLLECTION_MODES = new Set<string>([
+  'CREATION_ONLY',
+  'COMPLETION_ONLY',
+  'CREATION_AND_COMPLETION',
+  'STAGE_ONLY',
+]);
+const WORK_FIELD_COMPLETION_MODES = new Set<string>(['READ_ONLY', 'EDITABLE']);
 
 @Injectable()
 export class WorkTypeV3Service {
   constructor(
     private readonly prisma: PrismaService,
     private readonly authorization: OrganizationAuthorizationService,
-    private readonly sla: WorkRuntimeV3SlaService,
+    private readonly sla: WorkSlaService,
   ) {}
+
+  private async getWorkTypeManagerScope(
+    user: AuthenticatedUser,
+    officeId: string,
+  ) {
+    const account = await this.prisma.account.findUnique({
+      where: { id: user.accountId },
+      select: { employeeId: true },
+    });
+    if (!account?.employeeId) {
+      return {
+        isOfficeHead: false,
+        officeWideManagement: false,
+        divisionOrgUnitIds: [] as string[],
+        delegatedOnly: false,
+      };
+    }
+
+    const now = new Date();
+    const assignments = await this.prisma.orgLeadershipAssignment.findMany({
+      where: {
+        employeeId: account.employeeId,
+        officeId,
+        effectiveFrom: { lte: now },
+        OR: [{ effectiveUntil: null }, { effectiveUntil: { gt: now } }],
+        leadershipType: {
+          in: [OrgLeadershipType.OFFICE_HEAD, OrgLeadershipType.ORG_UNIT_HEAD],
+        },
+      },
+      select: {
+        leadershipType: true,
+        orgUnitId: true,
+        orgUnit: { select: { orgUnitType: { select: { code: true } } } },
+      },
+    });
+
+    const isOfficeHead = assignments.some(
+      (item) => item.leadershipType === OrgLeadershipType.OFFICE_HEAD,
+    );
+    const formalDivisionOrgUnitIds = assignments
+      .filter(
+        (item) =>
+          item.leadershipType === OrgLeadershipType.ORG_UNIT_HEAD &&
+          item.orgUnit?.orgUnitType.code === 'DIVISION' &&
+          item.orgUnitId,
+      )
+      .map((item) => item.orgUnitId as string);
+
+    if (isOfficeHead) {
+      return {
+        isOfficeHead: true,
+        officeWideManagement: true,
+        divisionOrgUnitIds: formalDivisionOrgUnitIds,
+        delegatedOnly: false,
+      };
+    }
+
+    if (formalDivisionOrgUnitIds.length > 0) {
+      return {
+        isOfficeHead: false,
+        officeWideManagement: false,
+        divisionOrgUnitIds: formalDivisionOrgUnitIds,
+        delegatedOnly: false,
+      };
+    }
+
+    const hasOfficeWideDraft = await this.authorization.can(
+      user,
+      CAPABILITIES.WORK_TYPE_DRAFT,
+      officeId,
+      null,
+    );
+    if (hasOfficeWideDraft) {
+      return {
+        isOfficeHead: false,
+        officeWideManagement: true,
+        divisionOrgUnitIds: [] as string[],
+        delegatedOnly: true,
+      };
+    }
+
+    const visibleOrgUnitIds = await this.authorization.visibleOrgUnitIds(
+      user,
+      CAPABILITIES.WORK_TYPE_DRAFT,
+      officeId,
+    );
+    if (visibleOrgUnitIds.length === 0) {
+      return {
+        isOfficeHead: false,
+        officeWideManagement: false,
+        divisionOrgUnitIds: [] as string[],
+        delegatedOnly: false,
+      };
+    }
+
+    const delegatedDivisions = await this.prisma.orgUnit.findMany({
+      where: {
+        id: { in: visibleOrgUnitIds },
+        officeId,
+        isActive: true,
+        orgUnitType: { code: 'DIVISION', isTeam: false },
+      },
+      select: { id: true },
+    });
+
+    return {
+      isOfficeHead: false,
+      officeWideManagement: false,
+      divisionOrgUnitIds: delegatedDivisions.map((item) => item.id),
+      delegatedOnly: delegatedDivisions.length > 0,
+    };
+  }
+
+  private async assertCanViewWorkTypeCatalog(
+    user: AuthenticatedUser,
+    officeId: string,
+  ) {
+    if (
+      await this.authorization.can(
+        user,
+        CAPABILITIES.WORK_TYPE_VIEW,
+        officeId,
+        null,
+      )
+    ) {
+      return;
+    }
+
+    const managerScope = await this.getWorkTypeManagerScope(user, officeId);
+    if (
+      managerScope.officeWideManagement ||
+      managerScope.divisionOrgUnitIds.length > 0
+    ) {
+      return;
+    }
+
+    throw new ForbiddenException(
+      'You do not have permission to view Work Types in this organizational scope.',
+    );
+  }
+
+  private async assertCanManageDefinition(
+    user: AuthenticatedUser,
+    officeId: string,
+    workTypeDefinitionId: string,
+    capability:
+      | typeof CAPABILITIES.WORK_TYPE_DRAFT
+      | typeof CAPABILITIES.WORK_TYPE_PUBLISH = CAPABILITIES.WORK_TYPE_DRAFT,
+  ) {
+    if (capability === CAPABILITIES.WORK_TYPE_PUBLISH) {
+      await this.authorization.assertCan(user, capability, officeId, null);
+    }
+
+    const scope = await this.getWorkTypeManagerScope(user, officeId);
+    if (!scope.officeWideManagement && scope.divisionOrgUnitIds.length === 0) {
+      throw new ForbiddenException(
+        'Work Type Management access is required for this action.',
+      );
+    }
+    if (scope.officeWideManagement) return scope;
+
+    const version = await this.prisma.workTypeVersion.findFirst({
+      where: {
+        workTypeDefinitionId,
+        workTypeDefinition: { officeId },
+        status: {
+          in: [WorkTypeVersionStatus.DRAFT, WorkTypeVersionStatus.PUBLISHED],
+        },
+      },
+      orderBy: [{ status: 'asc' }, { version: 'desc' }],
+      select: { creatorOrgUnits: { select: { orgUnitId: true } } },
+    });
+    if (
+      !version ||
+      !version.creatorOrgUnits.some((item) =>
+        scope.divisionOrgUnitIds.includes(item.orgUnitId),
+      )
+    ) {
+      throw new ForbiddenException(
+        'You can manage only Work Types owned by your authorized Division scope.',
+      );
+    }
+    return scope;
+  }
+
+  private async assertDelegatedSystemInformationBoundary(
+    tx: Prisma.TransactionClient,
+    officeId: string,
+    workTypeDefinitionId: string,
+    versionId: string,
+    delegatedOnly: boolean,
+    configuration: ReplaceWorkTypeDraftConfigurationDto,
+  ): Promise<boolean> {
+    if (!delegatedOnly) return false;
+
+    const definition = await tx.workTypeDefinition.findFirst({
+      where: { id: workTypeDefinitionId, officeId },
+      select: { code: true },
+    });
+    if (!definition || !DEFAULT_WORK_TYPE_CODES.includes(definition.code)) {
+      return false;
+    }
+
+    const current = await tx.workTypeVersion.findUnique({
+      where: { id: versionId },
+      select: {
+        template: true,
+        salesDisplayLabel: true,
+        primaryOwnerOrgUnitId: true,
+        creatorCategories: true,
+        creatorScope: true,
+        finalClosureMode: true,
+        finalClosureLeadershipType: true,
+        slaBasis: true,
+        overallSlaMinutes: true,
+        creatorOrgUnits: {
+          select: { orgUnitId: true, includeDescendants: true },
+        },
+        creatorAccounts: { select: { accountId: true } },
+      },
+    });
+    if (!current) {
+      throw new NotFoundException('Work type version was not found.');
+    }
+
+    const normalize = (values: readonly string[]) =>
+      [...values].sort().join('|');
+    const normalizeOwners = (
+      values: Array<{ orgUnitId: string; includeDescendants?: boolean }>,
+    ) =>
+      values
+        .map((item) => `${item.orgUnitId}:${item.includeDescendants === true}`)
+        .sort()
+        .join('|');
+
+    const currentTemplate = assertWorkTypeTemplate(current.template);
+
+    const structuralChange =
+      configuration.template !== currentTemplate ||
+      (configuration.salesDisplayLabel?.trim() || null) !==
+        (current.salesDisplayLabel?.trim() || null) ||
+      (configuration.primaryOwnerOrgUnitId ?? null) !==
+        current.primaryOwnerOrgUnitId ||
+      normalize(configuration.creatorCategories) !==
+        normalize(current.creatorCategories) ||
+      configuration.creatorScope !== current.creatorScope ||
+      normalizeOwners(configuration.creatorOrgUnits) !==
+        normalizeOwners(current.creatorOrgUnits) ||
+      normalize(configuration.creatorAccounts.map((item) => item.accountId)) !==
+        normalize(current.creatorAccounts.map((item) => item.accountId)) ||
+      configuration.finalClosureMode !== current.finalClosureMode ||
+      (configuration.finalClosureLeadershipType ?? null) !==
+        current.finalClosureLeadershipType ||
+      configuration.slaBasis !== current.slaBasis ||
+      (configuration.overallSlaMinutes ?? null) !== current.overallSlaMinutes;
+
+    if (structuralChange) {
+      throw new ForbiddenException(
+        'Delegated Work Type Management may change only Information fields on the eight permanent Work Types.',
+      );
+    }
+
+    return true;
+  }
 
   private async getOffice(officeId: string) {
     const office = await this.prisma.office.findUnique({
@@ -189,6 +449,8 @@ export class WorkTypeV3Service {
   private validateConfigurationShape(
     dto: ReplaceWorkTypeDraftConfigurationDto,
   ): void {
+    assertWorkTypeTemplate(dto.template);
+
     const creatorOrgUnitIds = dto.creatorOrgUnits.map((item) => item.orgUnitId);
     if (new Set(creatorOrgUnitIds).size !== creatorOrgUnitIds.length) {
       throw new BadRequestException('Creator OrgUnits must be unique.');
@@ -197,6 +459,12 @@ export class WorkTypeV3Service {
     const creatorAccountIds = dto.creatorAccounts.map((item) => item.accountId);
     if (new Set(creatorAccountIds).size !== creatorAccountIds.length) {
       throw new BadRequestException('Creator accounts must be unique.');
+    }
+
+    if (dto.creatorCategories.includes(WorkTypeCreatorCategory.TEAM_LEAD)) {
+      throw new BadRequestException(
+        'Team Lead is an employee responsibility and cannot grant Work creation authority.',
+      );
     }
 
     if (
@@ -217,27 +485,15 @@ export class WorkTypeV3Service {
       );
     }
 
-    if (
-      dto.finalClosureMode === WorkFinalClosureMode.SPECIFIC_LEADERSHIP &&
-      !dto.finalClosureLeadershipType
-    ) {
+    if (dto.finalClosureMode !== WorkFinalClosureMode.PRIMARY_OWNER_HEAD) {
       throw new BadRequestException(
-        'Specific-leadership final closure requires a leadership type.',
+        'New Work uses an explicit Responsible Reviewer. Keep final closure on the Primary Owner Head fallback.',
       );
     }
 
-    if (
-      dto.finalClosureMode !== WorkFinalClosureMode.SPECIFIC_LEADERSHIP &&
-      dto.finalClosureLeadershipType
-    ) {
+    if (dto.finalClosureLeadershipType) {
       throw new BadRequestException(
-        'Final-closure leadership type is only valid with SPECIFIC_LEADERSHIP.',
-      );
-    }
-
-    if (dto.finalClosureLeadershipType === OrgLeadershipType.TEAM_LEAD) {
-      throw new BadRequestException(
-        'Operational Team Lead cannot be configured as a Work-level final-closure leadership type.',
+        'Fixed Work templates do not use configurable final-closure leadership.',
       );
     }
 
@@ -248,215 +504,50 @@ export class WorkTypeV3Service {
       throw new BadRequestException('Work field codes must be unique.');
     }
 
-    const stagesByCode = new Map(
-      dto.stages.map((stage) => [stage.code, stage]),
+    const reportReferenceFields = dto.fields.filter(
+      (field) => field.config?.reportReference === true,
     );
-    if (stagesByCode.size !== dto.stages.length) {
-      throw new BadRequestException('Work stage codes must be unique.');
+    if (reportReferenceFields.length > 1) {
+      throw new BadRequestException(
+        'A Work Type can use only one Work Details field as its Report Reference.',
+      );
     }
 
     for (const field of dto.fields) {
+      if (isWorkFoundationCompletionFieldCode(field.code)) {
+        throw new BadRequestException(
+          `Field ${field.code} is system controlled and cannot be configured as Information.`,
+        );
+      }
       this.validateFieldConfiguration(field);
-
-      if (field.stageCode && !stagesByCode.has(field.stageCode)) {
+      if (field.config?.collectionMode === 'STAGE_ONLY') {
         throw new BadRequestException(
-          `Field ${field.code} references an unknown stage ${field.stageCode}.`,
+          `Field ${field.code} cannot use stage-only collection because Work uses the fixed classic lifecycle.`,
         );
       }
-    }
-
-    for (const stage of dto.stages) {
-      const approvalMode = stage.approvalMode ?? WorkStageApprovalMode.NONE;
-      const activationMode =
-        stage.activationMode ?? WorkStageActivationMode.ALWAYS;
-
-      if (
-        stage.activationExpectedValue !== undefined &&
-        !['string', 'number', 'boolean'].includes(
-          typeof stage.activationExpectedValue,
-        )
-      ) {
-        throw new BadRequestException(
-          `Stage ${stage.code} activation expected value must be a string, number or boolean.`,
-        );
-      }
-
-      if (
-        stage.responsibleOrgUnitRule ===
-          WorkStageResponsibleOrgUnitRule.SPECIFIC_ORG_UNIT &&
-        !stage.responsibleOrgUnitId
-      ) {
-        throw new BadRequestException(
-          `Stage ${stage.code} requires a responsible OrgUnit.`,
-        );
-      }
-
-      if (
-        stage.responsibleOrgUnitRule !==
-          WorkStageResponsibleOrgUnitRule.SPECIFIC_ORG_UNIT &&
-        stage.responsibleOrgUnitId
-      ) {
-        throw new BadRequestException(
-          `Stage ${stage.code} may only set a responsible OrgUnit when its rule is SPECIFIC_ORG_UNIT.`,
-        );
-      }
-      if (
-        approvalMode === WorkStageApprovalMode.SPECIFIC_LEADERSHIP &&
-        !stage.approvalLeadershipType
-      ) {
-        throw new BadRequestException(
-          `Stage ${stage.code} requires an approval leadership type.`,
-        );
-      }
-
-      if (
-        approvalMode === WorkStageApprovalMode.SPECIFIC_LEADERSHIP &&
-        stage.approvalLeadershipType === OrgLeadershipType.TEAM_LEAD
-      ) {
-        throw new BadRequestException(
-          `Stage ${stage.code} must use TEAM_LEAD approval mode for Operational Team Lead approval.`,
-        );
-      }
-
-      if (
-        approvalMode !== WorkStageApprovalMode.SPECIFIC_LEADERSHIP &&
-        stage.approvalLeadershipType
-      ) {
-        throw new BadRequestException(
-          `Stage ${stage.code} may only set approval leadership with SPECIFIC_LEADERSHIP approval.`,
-        );
-      }
-
-      if (
-        activationMode === WorkStageActivationMode.ALWAYS ||
-        activationMode === WorkStageActivationMode.MANUAL_WHEN_REQUIRED
-      ) {
-        if (
-          stage.activationFieldCode ||
-          stage.activationExpectedValue !== undefined
-        ) {
-          throw new BadRequestException(
-            `Stage ${stage.code} cannot define an activation field/value for ${activationMode}.`,
-          );
-        }
-      }
-
-      if (activationMode === WorkStageActivationMode.FIELD_TRUE) {
-        if (!stage.activationFieldCode) {
-          throw new BadRequestException(
-            `Stage ${stage.code} requires an activation field.`,
-          );
-        }
-        if (stage.activationExpectedValue !== undefined) {
-          throw new BadRequestException(
-            `Stage ${stage.code} must not define an expected value for FIELD_TRUE.`,
-          );
-        }
-        const field = fieldsByCode.get(stage.activationFieldCode);
-        if (!field) {
-          throw new BadRequestException(
-            `Stage ${stage.code} references an unknown activation field ${stage.activationFieldCode}.`,
-          );
-        }
-        if (field.fieldType !== WorkFieldType.BOOLEAN) {
-          throw new BadRequestException(
-            `Stage ${stage.code} FIELD_TRUE activation requires a BOOLEAN field.`,
-          );
-        }
-      }
-
-      if (activationMode === WorkStageActivationMode.FIELD_EQUALS) {
-        if (!stage.activationFieldCode) {
-          throw new BadRequestException(
-            `Stage ${stage.code} requires an activation field.`,
-          );
-        }
-        if (stage.activationExpectedValue === undefined) {
-          throw new BadRequestException(
-            `Stage ${stage.code} requires an expected activation value.`,
-          );
-        }
-        if (!fieldsByCode.has(stage.activationFieldCode)) {
-          throw new BadRequestException(
-            `Stage ${stage.code} references an unknown activation field ${stage.activationFieldCode}.`,
-          );
-        }
-      }
-    }
-
-    const dependencyKeys = new Set<string>();
-    const prerequisitesByStage = new Map<string, string[]>();
-
-    for (const dependency of dto.dependencies) {
-      if (!stagesByCode.has(dependency.stageCode)) {
-        throw new BadRequestException(
-          `Dependency references an unknown stage ${dependency.stageCode}.`,
-        );
-      }
-      if (!stagesByCode.has(dependency.prerequisiteStageCode)) {
-        throw new BadRequestException(
-          `Dependency references an unknown prerequisite stage ${dependency.prerequisiteStageCode}.`,
-        );
-      }
-      if (dependency.stageCode === dependency.prerequisiteStageCode) {
-        throw new BadRequestException(
-          `Stage ${dependency.stageCode} cannot depend on itself.`,
-        );
-      }
-
-      const key = `${dependency.stageCode}:${dependency.prerequisiteStageCode}`;
-      if (dependencyKeys.has(key)) {
-        throw new BadRequestException('Stage dependencies must be unique.');
-      }
-      dependencyKeys.add(key);
-
-      const prerequisites =
-        prerequisitesByStage.get(dependency.stageCode) ?? [];
-      prerequisites.push(dependency.prerequisiteStageCode);
-      prerequisitesByStage.set(dependency.stageCode, prerequisites);
-    }
-
-    const visitState = new Map<string, 'visiting' | 'done'>();
-    const visit = (stageCode: string): void => {
-      const state = visitState.get(stageCode);
-      if (state === 'visiting') {
-        throw new BadRequestException(
-          'Work stage dependencies contain a cycle.',
-        );
-      }
-      if (state === 'done') {
-        return;
-      }
-
-      visitState.set(stageCode, 'visiting');
-      for (const prerequisite of prerequisitesByStage.get(stageCode) ?? []) {
-        visit(prerequisite);
-      }
-      visitState.set(stageCode, 'done');
-    };
-
-    for (const stageCode of stagesByCode.keys()) {
-      visit(stageCode);
     }
   }
 
   private validateFieldConfiguration(field: WorkFieldDefinitionDto): void {
     const config = field.config;
-    if (!config) {
-      if (
-        field.fieldType === WorkFieldType.SELECT ||
-        field.fieldType === WorkFieldType.MULTI_SELECT
-      ) {
-        throw new BadRequestException(
-          `Field ${field.code} requires configured options.`,
-        );
-      }
-      return;
+    if (!config || config.collectionMode === undefined) {
+      throw new BadRequestException(
+        `Field ${field.code} must define when it is collected.`,
+      );
     }
 
-    const keys = Object.keys(config);
+    const sharedFieldConfigKeys = new Set([
+      'collectionMode',
+      'completionMode',
+      'reportReference',
+    ]);
+    const fieldSpecificKeys = Object.keys(config).filter(
+      (key) => !sharedFieldConfigKeys.has(key),
+    );
     const assertAllowedKeys = (allowed: string[]) => {
-      const unexpected = keys.filter((key) => !allowed.includes(key));
+      const unexpected = fieldSpecificKeys.filter(
+        (key) => !allowed.includes(key),
+      );
       if (unexpected.length > 0) {
         throw new BadRequestException(
           `Field ${field.code} has unsupported configuration: ${unexpected.join(', ')}.`,
@@ -505,6 +596,51 @@ export class WorkTypeV3Service {
         );
       }
     };
+
+    const collectionMode = config.collectionMode;
+    if (
+      collectionMode !== undefined &&
+      (typeof collectionMode !== 'string' ||
+        !WORK_FIELD_COLLECTION_MODES.has(collectionMode))
+    ) {
+      throw new BadRequestException(
+        `Field ${field.code} collectionMode is not supported.`,
+      );
+    }
+    const reportReference = config.reportReference;
+    if (reportReference !== undefined && typeof reportReference !== 'boolean') {
+      throw new BadRequestException(
+        `Field ${field.code} reportReference must be true or false.`,
+      );
+    }
+
+    const completionMode = config.completionMode;
+    if (
+      completionMode !== undefined &&
+      (typeof completionMode !== 'string' ||
+        !WORK_FIELD_COMPLETION_MODES.has(completionMode))
+    ) {
+      throw new BadRequestException(
+        `Field ${field.code} completionMode is not supported.`,
+      );
+    }
+    if (
+      completionMode !== undefined &&
+      collectionMode !== 'CREATION_AND_COMPLETION'
+    ) {
+      throw new BadRequestException(
+        `Field ${field.code} completionMode is only valid for Creation + Completion fields.`,
+      );
+    }
+    if (
+      collectionMode === 'CREATION_AND_COMPLETION' &&
+      (field.fieldType === WorkFieldType.IMAGE ||
+        field.fieldType === WorkFieldType.FILE)
+    ) {
+      throw new BadRequestException(
+        `Field ${field.code} cannot use Creation + Completion for File or Image.`,
+      );
+    }
 
     const validateOptions = (): string[] => {
       const rawOptions = config.options;
@@ -560,12 +696,54 @@ export class WorkTypeV3Service {
         validateNumericRange();
         return;
       case WorkFieldType.SELECT:
-        assertAllowedKeys(['options']);
+        assertAllowedKeys(['options', 'allowOther', 'otherLabel']);
         validateOptions();
+        if (
+          config.allowOther !== undefined &&
+          typeof config.allowOther !== 'boolean'
+        ) {
+          throw new BadRequestException(
+            `Field ${field.code} allowOther must be true or false.`,
+          );
+        }
+        if (
+          config.otherLabel !== undefined &&
+          (typeof config.otherLabel !== 'string' ||
+            config.otherLabel.trim().length === 0 ||
+            config.otherLabel.length > 120)
+        ) {
+          throw new BadRequestException(
+            `Field ${field.code} otherLabel must be a non-empty string up to 120 characters.`,
+          );
+        }
         return;
       case WorkFieldType.MULTI_SELECT: {
-        assertAllowedKeys(['options', 'minSelections', 'maxSelections']);
+        assertAllowedKeys([
+          'options',
+          'minSelections',
+          'maxSelections',
+          'allowOther',
+          'otherLabel',
+        ]);
         const options = validateOptions();
+        if (
+          config.allowOther !== undefined &&
+          typeof config.allowOther !== 'boolean'
+        ) {
+          throw new BadRequestException(
+            `Field ${field.code} allowOther must be true or false.`,
+          );
+        }
+        if (
+          config.otherLabel !== undefined &&
+          (typeof config.otherLabel !== 'string' ||
+            config.otherLabel.trim().length === 0 ||
+            config.otherLabel.length > 120)
+        ) {
+          throw new BadRequestException(
+            `Field ${field.code} otherLabel must be a non-empty string up to 120 characters.`,
+          );
+        }
         const minSelections = config.minSelections;
         const maxSelections = config.maxSelections;
 
@@ -603,11 +781,8 @@ export class WorkTypeV3Service {
         return;
       }
       default:
-        if (keys.length > 0) {
-          throw new BadRequestException(
-            `Field ${field.code} does not support configuration in Work Type V3.`,
-          );
-        }
+        assertAllowedKeys([]);
+        return;
     }
   }
 
@@ -703,21 +878,13 @@ export class WorkTypeV3Service {
   private async clonePublishedConfiguration(
     tx: Prisma.TransactionClient,
     source: {
-      primaryOwnerOrgUnitId: string | null;
-      creatorCategories: Array<unknown>;
-      creatorScope: WorkTypeCreatorScope;
-      finalClosureMode: WorkFinalClosureMode;
-      finalClosureLeadershipType: OrgLeadershipType | null;
-      slaBasis: WorkSlaBasis;
-      overallSlaMinutes: number | null;
+      template: string;
       creatorOrgUnits: Array<{
         orgUnitId: string;
         includeDescendants: boolean;
       }>;
       creatorAccounts: Array<{ accountId: string }>;
       fields: Array<{
-        id: string;
-        stageDefinitionId: string | null;
         code: string;
         label: string;
         fieldType: WorkFieldType;
@@ -725,30 +892,11 @@ export class WorkTypeV3Service {
         sortOrder: number;
         config: unknown;
       }>;
-      stages: Array<{
-        id: string;
-        code: string;
-        name: string;
-        description: string | null;
-        sortOrder: number;
-        isRequired: boolean;
-        responsibleOrgUnitRule: WorkStageResponsibleOrgUnitRule;
-        responsibleOrgUnitId: string | null;
-        assignmentMode: WorkStageAssignmentMode;
-        approvalMode: WorkStageApprovalMode;
-        approvalLeadershipType: OrgLeadershipType | null;
-        activationMode: WorkStageActivationMode;
-        activationFieldDefinitionId: string | null;
-        activationExpectedValue: unknown;
-        slaMinutes: number | null;
-      }>;
-      stageDependencies: Array<{
-        stageDefinitionId: string;
-        prerequisiteStageId: string;
-      }>;
     },
     draftVersionId: string,
   ): Promise<void> {
+    assertWorkTypeTemplate(source.template);
+
     if (source.creatorOrgUnits.length > 0) {
       await tx.workTypeCreatorOrgUnit.createMany({
         data: source.creatorOrgUnits.map((item) => ({
@@ -768,39 +916,13 @@ export class WorkTypeV3Service {
       });
     }
 
-    const stageIdMap = new Map<string, string>();
-    for (const stage of source.stages) {
-      const created = await tx.workStageDefinition.create({
+    for (const field of source.fields.filter(
+      (candidate) => !isWorkFoundationCompletionFieldCode(candidate.code),
+    )) {
+      await tx.workFieldDefinition.create({
         data: {
           workTypeVersionId: draftVersionId,
-          code: stage.code,
-          name: stage.name,
-          description: stage.description,
-          sortOrder: stage.sortOrder,
-          isRequired: stage.isRequired,
-          responsibleOrgUnitRule: stage.responsibleOrgUnitRule,
-          responsibleOrgUnitId: stage.responsibleOrgUnitId,
-          assignmentMode: stage.assignmentMode,
-          approvalMode: stage.approvalMode,
-          approvalLeadershipType: stage.approvalLeadershipType,
-          activationMode: WorkStageActivationMode.ALWAYS,
-          activationFieldDefinitionId: null,
-          activationExpectedValue: undefined,
-          slaMinutes: stage.slaMinutes,
-        },
-        select: { id: true },
-      });
-      stageIdMap.set(stage.id, created.id);
-    }
-
-    const fieldIdMap = new Map<string, string>();
-    for (const field of source.fields) {
-      const created = await tx.workFieldDefinition.create({
-        data: {
-          workTypeVersionId: draftVersionId,
-          stageDefinitionId: field.stageDefinitionId
-            ? stageIdMap.get(field.stageDefinitionId)
-            : null,
+          stageDefinitionId: null,
           code: field.code,
           label: field.label,
           fieldType: field.fieldType,
@@ -811,41 +933,6 @@ export class WorkTypeV3Service {
               ? undefined
               : (field.config as Prisma.InputJsonValue),
         },
-        select: { id: true },
-      });
-      fieldIdMap.set(field.id, created.id);
-    }
-
-    for (const stage of source.stages) {
-      const newStageId = stageIdMap.get(stage.id);
-      if (!newStageId) {
-        throw new ConflictException(
-          'Failed to clone work stage configuration.',
-        );
-      }
-
-      await tx.workStageDefinition.update({
-        where: { id: newStageId },
-        data: {
-          activationMode: stage.activationMode,
-          activationFieldDefinitionId: stage.activationFieldDefinitionId
-            ? fieldIdMap.get(stage.activationFieldDefinitionId)
-            : null,
-          activationExpectedValue:
-            stage.activationExpectedValue === null
-              ? undefined
-              : (stage.activationExpectedValue as Prisma.InputJsonValue),
-        },
-      });
-    }
-
-    if (source.stageDependencies.length > 0) {
-      await tx.workStageDependency.createMany({
-        data: source.stageDependencies.map((dependency) => ({
-          workTypeVersionId: draftVersionId,
-          stageDefinitionId: stageIdMap.get(dependency.stageDefinitionId)!,
-          prerequisiteStageId: stageIdMap.get(dependency.prerequisiteStageId)!,
-        })),
       });
     }
   }
@@ -866,54 +953,68 @@ export class WorkTypeV3Service {
       throw new NotFoundException('Work type version was not found.');
     }
 
-    if (!configuration.primaryOwnerOrgUnitId) {
-      throw new BadRequestException(
-        'A Primary Owner OrgUnit is required before publishing.',
-      );
-    }
-
+    assertWorkTypeTemplate(configuration.template);
     if (
-      configuration.creatorCategories.length === 0 &&
-      configuration.creatorAccounts.length === 0
+      configuration.finalClosureMode !== WorkFinalClosureMode.PRIMARY_OWNER_HEAD
     ) {
       throw new BadRequestException(
-        'At least one creator category or explicit creator account is required before publishing.',
+        'Work Type final closure must remain on the fixed Responsible Reviewer lifecycle.',
       );
     }
 
-    if (
-      configuration.creatorScope === WorkTypeCreatorScope.SPECIFIC_ORG_UNITS &&
-      configuration.creatorOrgUnits.length === 0
-    ) {
-      throw new BadRequestException(
-        'Specific OrgUnit creator scope requires at least one creator OrgUnit before publishing.',
+    if (configuration.creatorOrgUnits.length === 0) {
+      if (
+        !configuration.creatorCategories.includes(
+          WorkTypeCreatorCategory.OFFICE_HEAD,
+        )
+      ) {
+        throw new BadRequestException(
+          'A Work Type without Primary Owner Divisions must remain creatable by the Office Head.',
+        );
+      }
+    } else {
+      if (
+        configuration.creatorScope !== WorkTypeCreatorScope.SPECIFIC_ORG_UNITS
+      ) {
+        throw new BadRequestException(
+          'Primary Owner Divisions must use the specific OrgUnit creation scope.',
+        );
+      }
+      const ownerIds = configuration.creatorOrgUnits.map(
+        (item) => item.orgUnitId,
       );
-    }
-
-    if (configuration.stages.length === 0) {
-      throw new BadRequestException(
-        'At least one Work stage is required before publishing.',
-      );
-    }
-
-    if (!configuration.stages.some((stage) => stage.isRequired)) {
-      throw new BadRequestException(
-        'At least one required Work stage is required before publishing.',
-      );
+      const ownerDivisions = await tx.orgUnit.findMany({
+        where: {
+          id: { in: ownerIds },
+          officeId,
+          isActive: true,
+          orgUnitType: { code: 'DIVISION', isTeam: false },
+        },
+        select: { id: true },
+      });
+      if (ownerDivisions.length !== new Set(ownerIds).size) {
+        throw new BadRequestException(
+          'Primary Owners must be active Division OrgUnits in this Office.',
+        );
+      }
+      if (
+        configuration.creatorOrgUnits.some((item) => !item.includeDescendants)
+      ) {
+        throw new BadRequestException(
+          'Primary Owner Divisions must include their descendant OrgUnits for Work creation access.',
+        );
+      }
     }
 
     if (configuration.slaBasis === WorkSlaBasis.OFFICE_WORKING_DURATION) {
       await this.sla.assertUsableOfficeCalendar(tx, officeId);
     }
 
-    const orgUnitIds = [
-      configuration.primaryOwnerOrgUnitId,
-      ...configuration.creatorOrgUnits.map((item) => item.orgUnitId),
-      ...configuration.stages
-        .map((stage) => stage.responsibleOrgUnitId)
-        .filter((id): id is string => Boolean(id)),
-    ];
-    await this.assertOrgUnitsInOffice(tx, officeId, orgUnitIds);
+    await this.assertOrgUnitsInOffice(
+      tx,
+      officeId,
+      configuration.creatorOrgUnits.map((item) => item.orgUnitId),
+    );
     await this.assertCreatorAccountsInOffice(
       tx,
       officeId,
@@ -924,27 +1025,26 @@ export class WorkTypeV3Service {
   async getActionContext(user: AuthenticatedUser, officeId: string) {
     const office = await this.getOffice(officeId);
 
-    await this.authorization.assertCan(
+    await this.assertCanViewWorkTypeCatalog(user, officeId);
+
+    const managerScope = await this.getWorkTypeManagerScope(user, officeId);
+    const directDraft = await this.authorization.can(
       user,
-      CAPABILITIES.WORK_TYPE_VIEW,
+      CAPABILITIES.WORK_TYPE_DRAFT,
       officeId,
       null,
     );
-
-    const [draft, publish] = await Promise.all([
-      this.authorization.can(
-        user,
-        CAPABILITIES.WORK_TYPE_DRAFT,
-        officeId,
-        null,
-      ),
-      this.authorization.can(
-        user,
-        CAPABILITIES.WORK_TYPE_PUBLISH,
-        officeId,
-        null,
-      ),
-    ]);
+    const draft =
+      directDraft ||
+      (managerScope.delegatedOnly &&
+        (managerScope.officeWideManagement ||
+          managerScope.divisionOrgUnitIds.length > 0));
+    const publish = await this.authorization.can(
+      user,
+      CAPABILITIES.WORK_TYPE_PUBLISH,
+      officeId,
+      null,
+    );
 
     return {
       office,
@@ -959,19 +1059,20 @@ export class WorkTypeV3Service {
   async getConfigurationContext(user: AuthenticatedUser, officeId: string) {
     const office = await this.getOffice(officeId);
 
-    await this.authorization.assertCan(
-      user,
-      CAPABILITIES.WORK_TYPE_VIEW,
-      officeId,
-      null,
-    );
+    await this.assertCanViewWorkTypeCatalog(user, officeId);
 
-    const canDraft = await this.authorization.can(
+    const managerScope = await this.getWorkTypeManagerScope(user, officeId);
+    const directDraft = await this.authorization.can(
       user,
       CAPABILITIES.WORK_TYPE_DRAFT,
       officeId,
       null,
     );
+    const canDraft =
+      directDraft ||
+      (managerScope.delegatedOnly &&
+        (managerScope.officeWideManagement ||
+          managerScope.divisionOrgUnitIds.length > 0));
 
     const orgUnits = await this.prisma.orgUnit.findMany({
       where: { officeId, orgUnitType: { isTeam: false } },
@@ -997,6 +1098,8 @@ export class WorkTypeV3Service {
         office,
         orgUnits,
         creatorAccounts: [],
+        officeWideManagement: false,
+        manageableDivisionOrgUnitIds: [],
       };
     }
 
@@ -1047,6 +1150,8 @@ export class WorkTypeV3Service {
     return {
       office,
       orgUnits,
+      officeWideManagement: managerScope.officeWideManagement,
+      manageableDivisionOrgUnitIds: managerScope.divisionOrgUnitIds,
       creatorAccounts: memberships.flatMap((membership) =>
         membership.employee.account
           ? [
@@ -1066,15 +1171,287 @@ export class WorkTypeV3Service {
     };
   }
 
+  private makeDefinitionCode(name: string): string {
+    const normalized = name
+      .trim()
+      .toUpperCase()
+      .replace(/[^A-Z0-9]+/g, '_')
+      .replace(/^_+|_+$/g, '')
+      .slice(0, 70);
+    return normalized || 'WORK_TYPE';
+  }
+
+  async createDefinition(
+    user: AuthenticatedUser,
+    officeId: string,
+    dto: CreateWorkTypeDefinitionDto,
+  ) {
+    const office = await this.getOffice(officeId);
+    const managerScope = await this.getWorkTypeManagerScope(user, officeId);
+    if (
+      !managerScope.officeWideManagement &&
+      managerScope.divisionOrgUnitIds.length === 0
+    ) {
+      throw new ForbiddenException(
+        'Work Type Management access is required to create a Work Type.',
+      );
+    }
+
+    const created = await this.prisma.$transaction(async (tx) => {
+      const baseCode = this.makeDefinitionCode(dto.name);
+      let code = baseCode;
+      let suffix = 2;
+
+      while (
+        await tx.workTypeDefinition.findUnique({
+          where: { officeId_code: { officeId, code } },
+          select: { id: true },
+        })
+      ) {
+        const tail = `_${suffix++}`;
+        code = `${baseCode.slice(0, 80 - tail.length)}${tail}`;
+      }
+
+      const definition = await tx.workTypeDefinition.create({
+        data: {
+          officeId,
+          code,
+          isActive: true,
+          sortOrder: 1000,
+          createdByAccountId: user.accountId,
+        },
+        select: {
+          id: true,
+          officeId: true,
+          code: true,
+          isActive: true,
+          sortOrder: true,
+          createdAt: true,
+          updatedAt: true,
+        },
+      });
+
+      const draft = await tx.workTypeVersion.create({
+        data: {
+          workTypeDefinitionId: definition.id,
+          version: 1,
+          status: WorkTypeVersionStatus.DRAFT,
+          name: dto.name,
+          description: dto.description ?? null,
+          template: dto.template,
+          salesDisplayLabel:
+            dto.template === WorkTypeTemplate.TEAM_SALES ? 'Sales' : null,
+          changeReason: 'New Work Type',
+          creatorCategories: [
+            WorkTypeCreatorCategory.OFFICE_HEAD,
+            WorkTypeCreatorCategory.ORG_UNIT_HEAD,
+          ],
+          creatorScope: WorkTypeCreatorScope.PRIMARY_OWNER_SUBTREE,
+          finalClosureMode: WorkFinalClosureMode.PRIMARY_OWNER_HEAD,
+          slaBasis: WorkSlaBasis.CALENDAR_DURATION,
+          createdByAccountId: user.accountId,
+        },
+        select: VERSION_SUMMARY_SELECT,
+      });
+
+      if (
+        !managerScope.officeWideManagement &&
+        managerScope.divisionOrgUnitIds.length > 0
+      ) {
+        await tx.workTypeCreatorOrgUnit.createMany({
+          data: managerScope.divisionOrgUnitIds.map((orgUnitId) => ({
+            workTypeVersionId: draft.id,
+            orgUnitId,
+            includeDescendants: true,
+          })),
+        });
+      }
+
+      return { definition, draft };
+    });
+
+    return { office, ...created };
+  }
+
+  async removeDefinition(
+    user: AuthenticatedUser,
+    officeId: string,
+    workTypeDefinitionId: string,
+  ) {
+    const office = await this.getOffice(officeId);
+    const managerScope = await this.assertCanManageDefinition(
+      user,
+      officeId,
+      workTypeDefinitionId,
+      CAPABILITIES.WORK_TYPE_DRAFT,
+    );
+
+    if (managerScope.delegatedOnly) {
+      throw new ForbiddenException(
+        'Shared Work Type Management can prepare drafts, but catalog activation and deactivation remain Head-controlled.',
+      );
+    }
+
+    const definition = await this.prisma.workTypeDefinition.findFirst({
+      where: { id: workTypeDefinitionId, officeId },
+      select: { id: true, isActive: true },
+    });
+    if (!definition) throw new NotFoundException('Work type was not found.');
+
+    await this.prisma.workTypeDefinition.update({
+      where: { id: definition.id },
+      data: { isActive: false },
+    });
+
+    return {
+      office,
+      removedWorkType: { id: definition.id },
+      message: 'Work Type removed. Existing Work and history are unchanged.',
+    };
+  }
+
+  async permanentlyDeleteDefinition(
+    user: AuthenticatedUser,
+    officeId: string,
+    workTypeDefinitionId: string,
+  ) {
+    const office = await this.getOffice(officeId);
+    const managerScope = await this.assertCanManageDefinition(
+      user,
+      officeId,
+      workTypeDefinitionId,
+      CAPABILITIES.WORK_TYPE_DRAFT,
+    );
+    if (managerScope.delegatedOnly) {
+      throw new ForbiddenException(
+        'Shared Work Type Management can prepare drafts, but permanent catalog deletion remains Head-controlled.',
+      );
+    }
+
+    const result = await this.prisma.$transaction(async (tx) => {
+      await this.lockWorkTypeDefinition(tx, officeId, workTypeDefinitionId);
+      const definition = await tx.workTypeDefinition.findFirst({
+        where: { id: workTypeDefinitionId, officeId },
+        select: { id: true, code: true },
+      });
+      if (!definition) throw new NotFoundException('Work type was not found.');
+      if (DEFAULT_WORK_TYPE_CODES.includes(definition.code)) {
+        throw new BadRequestException(
+          'The eight system Work Types cannot be permanently deleted. Deactivate them instead.',
+        );
+      }
+
+      const now = new Date();
+      await tx.workTypeVersion.deleteMany({
+        where: { workTypeDefinitionId, status: WorkTypeVersionStatus.DRAFT },
+      });
+      await tx.workTypeVersion.updateMany({
+        where: {
+          workTypeDefinitionId,
+          status: WorkTypeVersionStatus.PUBLISHED,
+        },
+        data: {
+          status: WorkTypeVersionStatus.RETIRED,
+          retiredByAccountId: user.accountId,
+          retiredAt: now,
+        },
+      });
+      await tx.workTypeDefinition.update({
+        where: { id: workTypeDefinitionId },
+        data: { isActive: false },
+      });
+      return definition;
+    });
+
+    return {
+      office,
+      permanentlyDeletedWorkType: { id: result.id },
+      message:
+        'Custom Work Type permanently removed from the catalog. Historical Work and retired versions are preserved.',
+    };
+  }
+
+  async restoreDefinition(
+    user: AuthenticatedUser,
+    officeId: string,
+    workTypeDefinitionId: string,
+  ) {
+    const office = await this.getOffice(officeId);
+    const managerScope = await this.assertCanManageDefinition(
+      user,
+      officeId,
+      workTypeDefinitionId,
+      CAPABILITIES.WORK_TYPE_DRAFT,
+    );
+
+    if (managerScope.delegatedOnly) {
+      throw new ForbiddenException(
+        'Shared Work Type Management can prepare drafts, but catalog restoration remains Head-controlled.',
+      );
+    }
+
+    const definition = await this.prisma.workTypeDefinition.findFirst({
+      where: { id: workTypeDefinitionId, officeId },
+      select: {
+        id: true,
+        versions: {
+          where: {
+            status: {
+              in: [
+                WorkTypeVersionStatus.DRAFT,
+                WorkTypeVersionStatus.PUBLISHED,
+              ],
+            },
+          },
+          select: { id: true },
+          take: 1,
+        },
+      },
+    });
+    if (!definition) throw new NotFoundException('Work type was not found.');
+    if (definition.versions.length === 0) {
+      throw new BadRequestException(
+        'A permanently deleted custom Work Type cannot be restored.',
+      );
+    }
+
+    await this.prisma.workTypeDefinition.update({
+      where: { id: definition.id },
+      data: { isActive: true },
+    });
+
+    return {
+      office,
+      restoredWorkType: { id: definition.id },
+      message: 'Work Type restored.',
+    };
+  }
+
   async list(user: AuthenticatedUser, officeId: string) {
     const office = await this.getOffice(officeId);
 
-    await this.authorization.assertCan(
-      user,
-      CAPABILITIES.WORK_TYPE_VIEW,
-      officeId,
-      null,
-    );
+    await this.assertCanViewWorkTypeCatalog(user, officeId);
+
+    const existingDefaults = await this.prisma.workTypeDefinition.findMany({
+      where: { officeId, code: { in: DEFAULT_WORK_TYPE_CODES } },
+      select: {
+        id: true,
+        code: true,
+        versions: {
+          where: { version: 1 },
+          select: { id: true },
+          take: 1,
+        },
+      },
+    });
+    if (
+      existingDefaults.length !== DEFAULT_WORK_TYPE_CODES.length ||
+      existingDefaults.some((definition) => definition.versions.length === 0)
+    ) {
+      await this.prisma.$transaction((tx) =>
+        ensureDefaultWorkTypeCatalog(tx, officeId),
+      );
+    }
 
     const definitions = await this.prisma.workTypeDefinition.findMany({
       where: { officeId },
@@ -1118,8 +1495,11 @@ export class WorkTypeV3Service {
         publishedAt: true,
         createdAt: true,
         updatedAt: true,
+        creatorOrgUnits: { select: { orgUnitId: true } },
       },
     });
+
+    const managerScope = await this.getWorkTypeManagerScope(user, officeId);
 
     const currentByDefinition = new Map<
       string,
@@ -1154,13 +1534,36 @@ export class WorkTypeV3Service {
 
     return {
       office,
-      data: definitions.map((definition) => ({
-        ...definition,
-        currentPublishedVersion:
-          currentByDefinition.get(definition.id)?.published ?? null,
-        currentDraftVersion:
-          currentByDefinition.get(definition.id)?.draft ?? null,
-      })),
+      data: definitions
+        .filter((definition) => {
+          const current = currentByDefinition.get(definition.id);
+          if (!current?.draft && !current?.published) return false;
+          if (
+            managerScope.officeWideManagement ||
+            managerScope.divisionOrgUnitIds.length === 0
+          ) {
+            return true;
+          }
+          return [current.draft, current.published].some((version) =>
+            version?.creatorOrgUnits.some((owner) =>
+              managerScope.divisionOrgUnitIds.includes(owner.orgUnitId),
+            ),
+          );
+        })
+        .map((definition) => {
+          const current = currentByDefinition.get(definition.id);
+          const summarize = (version: (typeof versions)[number] | null) => {
+            if (!version) return null;
+            const { creatorOrgUnits, ...summary } = version;
+            void creatorOrgUnits;
+            return summary;
+          };
+          return {
+            ...definition,
+            currentPublishedVersion: summarize(current?.published ?? null),
+            currentDraftVersion: summarize(current?.draft ?? null),
+          };
+        }),
     };
   }
 
@@ -1172,11 +1575,11 @@ export class WorkTypeV3Service {
   ) {
     const office = await this.getOffice(officeId);
 
-    await this.authorization.assertCan(
+    await this.assertCanManageDefinition(
       user,
-      CAPABILITIES.WORK_TYPE_DRAFT,
       officeId,
-      null,
+      workTypeDefinitionId,
+      CAPABILITIES.WORK_TYPE_DRAFT,
     );
 
     const draft = await this.prisma.$transaction(async (tx) => {
@@ -1239,6 +1642,8 @@ export class WorkTypeV3Service {
           status: WorkTypeVersionStatus.DRAFT,
           name: published.name,
           description: published.description,
+          template: published.template,
+          salesDisplayLabel: published.salesDisplayLabel,
           changeReason: dto.changeReason ?? null,
           primaryOwnerOrgUnitId: published.primaryOwnerOrgUnitId,
           creatorCategories: published.creatorCategories,
@@ -1272,12 +1677,27 @@ export class WorkTypeV3Service {
   ) {
     const office = await this.getOffice(officeId);
 
-    await this.authorization.assertCan(
+    const managerScope = await this.assertCanManageDefinition(
       user,
-      CAPABILITIES.WORK_TYPE_DRAFT,
       officeId,
-      null,
+      workTypeDefinitionId,
+      CAPABILITIES.WORK_TYPE_DRAFT,
     );
+
+    if (
+      managerScope.delegatedOnly &&
+      (dto.name !== undefined || dto.description !== undefined)
+    ) {
+      const definition = await this.prisma.workTypeDefinition.findFirst({
+        where: { id: workTypeDefinitionId, officeId },
+        select: { code: true },
+      });
+      if (definition && DEFAULT_WORK_TYPE_CODES.includes(definition.code)) {
+        throw new ForbiddenException(
+          'Delegated Work Type Management may change only Information fields on the eight permanent Work Types.',
+        );
+      }
+    }
 
     const data: {
       name?: string;
@@ -1331,169 +1751,141 @@ export class WorkTypeV3Service {
     dto: ReplaceWorkTypeDraftConfigurationDto,
   ) {
     const office = await this.getOffice(officeId);
+    const configurationDto: ReplaceWorkTypeDraftConfigurationDto = {
+      ...dto,
+      fields: dto.fields.filter(
+        (field) => !isWorkFoundationCompletionFieldCode(field.code),
+      ),
+    };
 
-    await this.authorization.assertCan(
+    const managerScope = await this.assertCanManageDefinition(
       user,
-      CAPABILITIES.WORK_TYPE_DRAFT,
       officeId,
-      null,
+      workTypeDefinitionId,
+      CAPABILITIES.WORK_TYPE_DRAFT,
     );
-
-    this.validateConfigurationShape(dto);
+    this.validateConfigurationShape(configurationDto);
+    if (!managerScope.officeWideManagement) {
+      const current = await this.prisma.workTypeVersion.findUnique({
+        where: { id: versionId },
+        select: { creatorOrgUnits: { select: { orgUnitId: true } } },
+      });
+      const currentOutsideOwn = new Set(
+        (current?.creatorOrgUnits ?? [])
+          .map((item) => item.orgUnitId)
+          .filter((id) => !managerScope.divisionOrgUnitIds.includes(id)),
+      );
+      const requestedOutsideOwn = new Set(
+        configurationDto.creatorOrgUnits
+          .map((item) => item.orgUnitId)
+          .filter((id) => !managerScope.divisionOrgUnitIds.includes(id)),
+      );
+      if (
+        currentOutsideOwn.size !== requestedOutsideOwn.size ||
+        [...currentOutsideOwn].some((id) => !requestedOutsideOwn.has(id))
+      ) {
+        throw new ForbiddenException(
+          'Primary Owner access can be changed only within your authorized Division scope.',
+        );
+      }
+    }
 
     const configuration = await this.prisma.$transaction(async (tx) => {
       await this.lockWorkTypeDefinition(tx, officeId, workTypeDefinitionId);
-
       await this.requireDraft(tx, workTypeDefinitionId, versionId);
 
-      const referencedOrgUnitIds = [
-        ...(dto.primaryOwnerOrgUnitId ? [dto.primaryOwnerOrgUnitId] : []),
-        ...dto.creatorOrgUnits.map((item) => item.orgUnitId),
-        ...dto.stages
-          .map((stage) => stage.responsibleOrgUnitId)
-          .filter((id): id is string => Boolean(id)),
-      ];
+      const informationOnly =
+        await this.assertDelegatedSystemInformationBoundary(
+          tx,
+          officeId,
+          workTypeDefinitionId,
+          versionId,
+          managerScope.delegatedOnly,
+          configurationDto,
+        );
 
-      await this.assertOrgUnitsInOffice(tx, officeId, referencedOrgUnitIds);
-      await this.assertCreatorAccountsInOffice(
-        tx,
-        officeId,
-        dto.creatorAccounts.map((item) => item.accountId),
-      );
-
-      await this.clearStageActivationReferences(tx, versionId);
-      await tx.workStageDependency.deleteMany({
-        where: { workTypeVersionId: versionId },
-      });
+      // Historical stage definitions are not rewritten. Active configuration is
+      // canonical template + Information fields only. A delegated editor of a
+      // permanent Work Type can replace only those Information fields; every
+      // structural setting remains untouched inside the same locked transaction.
       await tx.workFieldDefinition.deleteMany({
-        where: { workTypeVersionId: versionId },
-      });
-      await tx.workStageDefinition.deleteMany({
-        where: { workTypeVersionId: versionId },
-      });
-      await tx.workTypeCreatorOrgUnit.deleteMany({
-        where: { workTypeVersionId: versionId },
-      });
-      await tx.workTypeCreatorAccount.deleteMany({
-        where: { workTypeVersionId: versionId },
-      });
-
-      await tx.workTypeVersion.update({
-        where: { id: versionId },
-        data: {
-          primaryOwnerOrgUnitId: dto.primaryOwnerOrgUnitId ?? null,
-          creatorCategories: dto.creatorCategories,
-          creatorScope: dto.creatorScope,
-          finalClosureMode: dto.finalClosureMode,
-          finalClosureLeadershipType: dto.finalClosureLeadershipType ?? null,
-          slaBasis: dto.slaBasis,
-          overallSlaMinutes: dto.overallSlaMinutes ?? null,
+        where: {
+          workTypeVersionId: versionId,
+          code: { notIn: [...WORK_FOUNDATION_COMPLETION_FIELD_CODES] },
         },
       });
 
-      if (dto.creatorOrgUnits.length > 0) {
-        await tx.workTypeCreatorOrgUnit.createMany({
-          data: dto.creatorOrgUnits.map((item) => ({
-            workTypeVersionId: versionId,
-            orgUnitId: item.orgUnitId,
-            includeDescendants: item.includeDescendants ?? false,
-          })),
-        });
-      }
+      if (!informationOnly) {
+        const referencedOrgUnitIds = [
+          ...(configurationDto.primaryOwnerOrgUnitId
+            ? [configurationDto.primaryOwnerOrgUnitId]
+            : []),
+          ...configurationDto.creatorOrgUnits.map((item) => item.orgUnitId),
+        ];
+        await this.assertOrgUnitsInOffice(tx, officeId, referencedOrgUnitIds);
+        await this.assertCreatorAccountsInOffice(
+          tx,
+          officeId,
+          configurationDto.creatorAccounts.map((item) => item.accountId),
+        );
 
-      if (dto.creatorAccounts.length > 0) {
-        await tx.workTypeCreatorAccount.createMany({
-          data: dto.creatorAccounts.map((item) => ({
-            workTypeVersionId: versionId,
-            accountId: item.accountId,
-          })),
+        await tx.workTypeCreatorOrgUnit.deleteMany({
+          where: { workTypeVersionId: versionId },
         });
-      }
+        await tx.workTypeCreatorAccount.deleteMany({
+          where: { workTypeVersionId: versionId },
+        });
 
-      const stageIdByCode = new Map<string, string>();
-      for (const stage of dto.stages) {
-        const created = await tx.workStageDefinition.create({
+        await tx.workTypeVersion.update({
+          where: { id: versionId },
           data: {
-            workTypeVersionId: versionId,
-            code: stage.code,
-            name: stage.name,
-            description: stage.description ?? null,
-            sortOrder: stage.sortOrder ?? 0,
-            isRequired: stage.isRequired ?? true,
-            responsibleOrgUnitRule: stage.responsibleOrgUnitRule,
-            responsibleOrgUnitId: stage.responsibleOrgUnitId ?? null,
-            assignmentMode: stage.assignmentMode,
-            approvalMode: stage.approvalMode ?? WorkStageApprovalMode.NONE,
-            approvalLeadershipType: stage.approvalLeadershipType ?? null,
-            activationMode: WorkStageActivationMode.ALWAYS,
-            activationFieldDefinitionId: null,
-            activationExpectedValue: undefined,
-            slaMinutes: stage.slaMinutes ?? null,
+            template: configurationDto.template,
+            salesDisplayLabel:
+              configurationDto.template === WorkTypeTemplate.TEAM_SALES
+                ? configurationDto.salesDisplayLabel?.trim() || 'Sales'
+                : null,
+            primaryOwnerOrgUnitId:
+              configurationDto.primaryOwnerOrgUnitId ?? null,
+            creatorCategories: configurationDto.creatorCategories,
+            creatorScope: configurationDto.creatorScope,
+            finalClosureMode: WorkFinalClosureMode.PRIMARY_OWNER_HEAD,
+            finalClosureLeadershipType: null,
+            slaBasis: configurationDto.slaBasis,
+            overallSlaMinutes: configurationDto.overallSlaMinutes ?? null,
           },
-          select: { id: true },
         });
-        stageIdByCode.set(stage.code, created.id);
+
+        if (configurationDto.creatorOrgUnits.length > 0) {
+          await tx.workTypeCreatorOrgUnit.createMany({
+            data: configurationDto.creatorOrgUnits.map((item) => ({
+              workTypeVersionId: versionId,
+              orgUnitId: item.orgUnitId,
+              includeDescendants: item.includeDescendants ?? false,
+            })),
+          });
+        }
+
+        if (configurationDto.creatorAccounts.length > 0) {
+          await tx.workTypeCreatorAccount.createMany({
+            data: configurationDto.creatorAccounts.map((item) => ({
+              workTypeVersionId: versionId,
+              accountId: item.accountId,
+            })),
+          });
+        }
       }
 
-      const fieldIdByCode = new Map<string, string>();
-      for (const field of dto.fields) {
-        const created = await tx.workFieldDefinition.create({
-          data: {
+      if (configurationDto.fields.length > 0) {
+        await tx.workFieldDefinition.createMany({
+          data: configurationDto.fields.map((field) => ({
             workTypeVersionId: versionId,
-            stageDefinitionId: field.stageCode
-              ? stageIdByCode.get(field.stageCode)
-              : null,
+            stageDefinitionId: null,
             code: field.code,
             label: field.label,
             fieldType: field.fieldType,
             isRequired: field.isRequired ?? false,
             sortOrder: field.sortOrder ?? 0,
             config: field.config as Prisma.InputJsonValue | undefined,
-          },
-          select: { id: true },
-        });
-        fieldIdByCode.set(field.code, created.id);
-      }
-
-      for (const stage of dto.stages) {
-        const stageId = stageIdByCode.get(stage.code);
-        if (!stageId) {
-          throw new ConflictException(`Failed to save stage ${stage.code}.`);
-        }
-
-        const activationMode =
-          stage.activationMode ?? WorkStageActivationMode.ALWAYS;
-        const activationFieldDefinitionId = stage.activationFieldCode
-          ? fieldIdByCode.get(stage.activationFieldCode)
-          : null;
-
-        if (stage.activationFieldCode && !activationFieldDefinitionId) {
-          throw new ConflictException(
-            `Failed to resolve activation field ${stage.activationFieldCode}.`,
-          );
-        }
-
-        await tx.workStageDefinition.update({
-          where: { id: stageId },
-          data: {
-            activationMode,
-            activationFieldDefinitionId,
-            activationExpectedValue:
-              stage.activationExpectedValue === undefined
-                ? undefined
-                : (stage.activationExpectedValue as Prisma.InputJsonValue),
-          },
-        });
-      }
-
-      if (dto.dependencies.length > 0) {
-        await tx.workStageDependency.createMany({
-          data: dto.dependencies.map((dependency) => ({
-            workTypeVersionId: versionId,
-            stageDefinitionId: stageIdByCode.get(dependency.stageCode)!,
-            prerequisiteStageId: stageIdByCode.get(
-              dependency.prerequisiteStageCode,
-            )!,
           })),
         });
       }
@@ -1510,11 +1902,7 @@ export class WorkTypeV3Service {
     if (!configuration) {
       throw new NotFoundException('Work type version was not found.');
     }
-
-    return {
-      office,
-      draft: configuration,
-    };
+    return { office, draft: configuration };
   }
 
   async discardDraft(
@@ -1525,11 +1913,11 @@ export class WorkTypeV3Service {
   ) {
     const office = await this.getOffice(officeId);
 
-    await this.authorization.assertCan(
+    await this.assertCanManageDefinition(
       user,
-      CAPABILITIES.WORK_TYPE_DRAFT,
       officeId,
-      null,
+      workTypeDefinitionId,
+      CAPABILITIES.WORK_TYPE_DRAFT,
     );
 
     const discarded = await this.prisma.$transaction(async (tx) => {
@@ -1569,11 +1957,11 @@ export class WorkTypeV3Service {
   ) {
     const office = await this.getOffice(officeId);
 
-    await this.authorization.assertCan(
+    await this.assertCanManageDefinition(
       user,
-      CAPABILITIES.WORK_TYPE_PUBLISH,
       officeId,
-      null,
+      workTypeDefinitionId,
+      CAPABILITIES.WORK_TYPE_PUBLISH,
     );
 
     const publishedVersion = await this.prisma.$transaction(async (tx) => {
@@ -1645,12 +2033,7 @@ export class WorkTypeV3Service {
   ) {
     const office = await this.getOffice(officeId);
 
-    await this.authorization.assertCan(
-      user,
-      CAPABILITIES.WORK_TYPE_VIEW,
-      officeId,
-      null,
-    );
+    await this.assertCanViewWorkTypeCatalog(user, officeId);
 
     const definition = await this.prisma.workTypeDefinition.findFirst({
       where: {
@@ -1709,6 +2092,26 @@ export class WorkTypeV3Service {
 
     if (!definition) {
       throw new NotFoundException('Work type was not found in this office.');
+    }
+
+    const managerScope = await this.getWorkTypeManagerScope(user, officeId);
+    if (
+      !managerScope.officeWideManagement &&
+      managerScope.divisionOrgUnitIds.length > 0
+    ) {
+      const ownsDefinition = definition.versions.some(
+        (version) =>
+          (version.status === WorkTypeVersionStatus.DRAFT ||
+            version.status === WorkTypeVersionStatus.PUBLISHED) &&
+          version.creatorOrgUnits.some((owner) =>
+            managerScope.divisionOrgUnitIds.includes(owner.orgUnitId),
+          ),
+      );
+      if (!ownsDefinition) {
+        throw new ForbiddenException(
+          'You can view only Work Types owned by your authorized Division scope.',
+        );
+      }
     }
 
     return {

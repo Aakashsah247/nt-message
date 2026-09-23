@@ -267,7 +267,13 @@ describe('ConversationsService conversation-list scalability', () => {
     expect(result.data[0]?.participantsComplete).toBe(false);
 
     const listQuery = jest.mocked(prisma.conversationParticipant.findMany).mock
-      .calls[0]?.[0];
+      .calls[0]?.[0] as
+      | {
+          select?: {
+            conversation?: { select?: Record<string, unknown> };
+          };
+        }
+      | undefined;
     expect(listQuery?.select?.conversation?.select).not.toHaveProperty(
       'participants',
     );

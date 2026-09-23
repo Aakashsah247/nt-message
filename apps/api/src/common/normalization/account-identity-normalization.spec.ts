@@ -9,6 +9,7 @@ import {
   normalizeNepalPhoneNumber,
   normalizeOfficialEmailForLookup,
   sanitizeOfficialEmail,
+  tryNormalizeNepalPhoneNumber,
 } from './account-identity-normalization';
 
 describe('account identity normalization', () => {
@@ -41,6 +42,16 @@ describe('account identity normalization', () => {
       expect(normalizeOfficialEmailForLookup(' AakashSAH123@GMAIL.COM ')).toBe(
         'aakashsah123@gmail.com',
       );
+    });
+  });
+
+  describe('tryNormalizeNepalPhoneNumber', () => {
+    it('returns null for malformed historical values instead of throwing', () => {
+      expect(tryNormalizeNepalPhoneNumber('986666661')).toBeNull();
+    });
+
+    it('returns canonical E.164 for an approved Nepal mobile value', () => {
+      expect(tryNormalizeNepalPhoneNumber('9817879609')).toBe('+9779817879609');
     });
   });
 

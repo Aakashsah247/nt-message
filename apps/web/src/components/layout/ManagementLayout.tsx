@@ -15,13 +15,7 @@ import {
 import { EmergencyAlertButton } from "../EmergencyAlertButton";
 import { ProtectedAvatar } from "../ProtectedAvatar";
 import { useAuth } from "../../context/AuthContext";
-import {
-  getOrganizationNavigationContext,
-  getOrganizationOffices,
-} from "../../services/organization-v3.service";
-import { getWorkTypeActions } from "../../services/work-type-v3.service";
-import type { OrganizationNavigationMode } from "../../types/organization-v3";
-import type { WorkTypeNavigationMode } from "../../types/work-type-v3";
+import { useOrganizationWorkspace } from "../../context/organization-workspace-context";
 import { getAccountHomePath } from "../../utils/get-account-home-path";
 import { ManagementIcon } from "./ManagementIcon";
 import {
@@ -67,6 +61,7 @@ function isItemActive(
       pathname.startsWith("/work/")) ||
     (item.path === "/work-management" &&
       pathname.startsWith("/work-management/")) ||
+    (item.path === "/work-types" && pathname.startsWith("/work-types/")) ||
     (item.path === "/settings" && pathname.startsWith("/settings/"));
 
   if (!pathMatches) {
@@ -87,23 +82,18 @@ export function ManagementLayout({
 }: ManagementLayoutProps) {
   const {
     account,
-    accessToken,
     logout,
   } = useAuth();
+  const { context: workspaceContext } = useOrganizationWorkspace();
   const { t } = useTranslation("workspace");
   const location = useLocation();
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
-  const accountId = account?.id ?? null;
   const accountClass = account?.accountClass ?? null;
   const currentRouteKey = `${location.pathname}${location.search}`;
   const [mobileOpenRoute, setMobileOpenRoute] = useState<string | null>(null);
   const mobileOpen = mobileOpenRoute === currentRouteKey;
   const [loggingOut, setLoggingOut] = useState(false);
-  const [organizationNavigationResult, setOrganizationNavigationResult] =
-    useState<{ accountId: string; mode: OrganizationNavigationMode } | null>(null);
-  const [workTypeNavigationResult, setWorkTypeNavigationResult] =
-    useState<{ accountId: string; mode: WorkTypeNavigationMode } | null>(null);
   const storageKey = account
     ? `${SIDEBAR_STORAGE_PREFIX}:${account.id}`
     : SIDEBAR_STORAGE_PREFIX;
@@ -116,123 +106,17 @@ export function ManagementLayout({
   });
 
   const adminView = getDefaultAdminView(searchParams.get("view"));
-  const organizationFallbackMode: OrganizationNavigationMode =
-    accountClass === "SUPER_ADMIN" ? "VIEW" : "NONE";
-  const workTypeFallbackMode: WorkTypeNavigationMode =
-    accountClass === "SUPER_ADMIN" ? "VIEW" : "NONE";
-  const organizationNavigationMode: OrganizationNavigationMode =
-    accountId && accountClass
-      ? accessToken && organizationNavigationResult?.accountId === accountId
-        ? organizationNavigationResult.mode
-        : organizationFallbackMode
-      : "NONE";
-  const workTypeNavigationMode: WorkTypeNavigationMode =
-    accountId && accountClass
-      ? accessToken && workTypeNavigationResult?.accountId === accountId
-        ? workTypeNavigationResult.mode
-        : workTypeFallbackMode
-      : "NONE";
   const navigation = useMemo(
-    () => accountClass
-      ? getManagementNavigation(
-          accountClass,
-          organizationNavigationMode,
-          workTypeNavigationMode,
-        )
-      : [],
-    [accountClass, organizationNavigationMode, workTypeNavigationMode],
+    () =>
+      accountClass
+        ? getManagementNavigation(accountClass, workspaceContext)
+        : [],
+    [accountClass, workspaceContext],
   );
   const activeItem = navigation
     .flatMap((section) => section.items)
     .find((item) => isItemActive(item, location.pathname, adminView));
-
-  useEffect(() => {
-    let active = true;
-
-    if (!accountId || !accountClass || !accessToken) {
-      return () => {
-        active = false;
-      };
-    }
-
-    getOrganizationNavigationContext(accessToken)
-      .then((context) => {
-        if (active) {
-          setOrganizationNavigationResult({
-            accountId,
-            mode: context.mode,
-          });
-        }
-      })
-      .catch(() => {
-        if (active) {
-          setOrganizationNavigationResult({
-            accountId,
-            mode: organizationFallbackMode,
-          });
-        }
-      });
-
-    return () => {
-      active = false;
-    };
-  }, [accessToken, accountId, accountClass, organizationFallbackMode]);
-
-  useEffect(() => {
-    let active = true;
-
-    if (!accountId || !accountClass || !accessToken) {
-      return () => {
-        active = false;
-      };
-    }
-
-    getOrganizationOffices(accessToken)
-      .then(async (response) => {
-        const contexts = await Promise.allSettled(
-          response.data.map((office) =>
-            getWorkTypeActions(accessToken, office.id),
-          ),
-        );
-
-        if (!active) {
-          return;
-        }
-
-        let mode: WorkTypeNavigationMode = workTypeFallbackMode;
-        for (const result of contexts) {
-          if (result.status !== "fulfilled") {
-            continue;
-          }
-          const actions = result.value.availableActions;
-          if (actions.publish) {
-            mode = "PUBLISH";
-            break;
-          }
-          if (actions.draft) {
-            mode = "DRAFT";
-          } else if (actions.view && mode === "NONE") {
-            mode = "VIEW";
-          }
-        }
-        setWorkTypeNavigationResult({
-          accountId,
-          mode,
-        });
-      })
-      .catch(() => {
-        if (active) {
-          setWorkTypeNavigationResult({
-            accountId,
-            mode: workTypeFallbackMode,
-          });
-        }
-      });
-
-    return () => {
-      active = false;
-    };
-  }, [accessToken, accountId, accountClass, workTypeFallbackMode]);
+  const isEmergencyRoute = location.pathname === "/emergency-sms";
 
   useEffect(() => {
     window.localStorage.setItem(
@@ -263,7 +147,10 @@ export function ManagementLayout({
   }, [mobileOpen]);
 
   if (!account) {
-    return null;
+    // Route guards own the unauthenticated/loading state. Rendering the
+    // nested route here lets those guards redirect without mounting a second
+    // workspace shell.
+    return children;
   }
 
   const authorityLabel = t(getAccountClassTranslationKey(account.accountClass), {
@@ -379,13 +266,15 @@ export function ManagementLayout({
             </section>
           ))}
 
-          <section className="management-layout__navigation-section">
-            <span className="management-layout__section-label">
-              {t("navigation.sections.emergency")}
-            </span>
+          {workspaceContext?.features.emergency && (
+            <section className="management-layout__navigation-section">
+              <span className="management-layout__section-label">
+                {t("navigation.sections.emergency")}
+              </span>
 
-            <EmergencyAlertButton variant="sidebar" />
-          </section>
+              <EmergencyAlertButton variant="sidebar" />
+            </section>
+          )}
         </nav>
 
         <div className="management-layout__account">
@@ -430,9 +319,11 @@ export function ManagementLayout({
 
           <div className="management-layout__page-heading">
             <span>{t("topbar.workspace", { role: authorityLabel })}</span>
-            <strong>{activeItem
-              ? t(activeItem.labelKey, { defaultValue: activeItem.label })
-              : t("navigation.items.dashboard")}</strong>
+            <strong>{isEmergencyRoute
+              ? t("navigation.sections.emergency")
+              : activeItem
+                ? t(activeItem.labelKey, { defaultValue: activeItem.label })
+                : t("navigation.items.dashboard")}</strong>
           </div>
 
           <div className="management-layout__status">

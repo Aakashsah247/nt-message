@@ -8,6 +8,8 @@ export type AccountRequestStatus =
   | "ACTIVATION_PENDING"
   | "ACTIVATED";
 
+export type AccountRequestOrganizationRole = "EMPLOYEE" | "ORG_UNIT_HEAD";
+
 export type ActivationEmailDeliveryStatus =
   | "NOT_SENT"
   | "PENDING"
@@ -53,6 +55,7 @@ export interface AdminAccountRequestListItem {
   officialEmail: string;
   designation: string | null;
   requestedRole: AccountRole;
+  requestedOrganizationRole: AccountRequestOrganizationRole;
   office: AccountRequestOrgUnit | null;
   intendedOrgUnit: AccountRequestOrgUnit | null;
   employeeId?: string | null;
@@ -104,6 +107,7 @@ export interface AdminAccountRequestDetail {
   officialEmail: string;
   designation: string | null;
   requestedRole: AccountRole;
+  requestedOrganizationRole: AccountRequestOrganizationRole;
   office: AccountRequestOrgUnit | null;
   intendedOrgUnit: AccountRequestOrgUnit | null;
   employeeId: string | null;
@@ -135,7 +139,7 @@ export interface AdminAccountRequestListQuery {
   status: AccountRequestStatus;
   page?: number;
   limit?: number;
-  requestedRole?: AccountRole;
+  officeId?: string;
   search?: string;
   dateFrom?: string;
   dateTo?: string;
@@ -146,8 +150,8 @@ export interface AdminAccountRequestListResponse {
 
   filters: {
     status: AccountRequestStatus;
-    requestedRole?: AccountRole;
-        search?: string;
+    officeId?: string;
+    search?: string;
     dateFrom?: string;
     dateTo?: string;
   };
@@ -167,6 +171,7 @@ export interface AdminAccountRequestSummaryResponse {
   activationCompletionRate: number;
   attentionRequests: AdminAccountRequestListItem[];
   recentActivity: AdminAccountRequestListItem[];
+  officeId: string | null;
   generatedAt: string;
 }
 
@@ -176,13 +181,13 @@ export interface AdminAccountRequestDetailResponse {
 
 export interface ApproveAccountRequestResponse {
   message: string;
-
   accountRequest: {
     id: string;
     empId: string;
     empName: string;
     officialEmail: string;
     requestedRole: AccountRole;
+    requestedOrganizationRole: AccountRequestOrganizationRole;
     employeeId: string | null;
     revisionNumber: number;
     status: AccountRequestStatus;
@@ -194,31 +199,35 @@ export interface ApproveAccountRequestResponse {
     activationEmailLastAttemptAt: string | null;
     activationEmailSentAt: string | null;
     activationEmailFailureCategory: string | null;
-      };
-
+  };
   employee: {
     id: string;
     empId: string;
     empName: string;
     phoneNumber: string;
     officialEmail: string;
-        department: string | null;
+    department: string | null;
     designation: string | null;
     status: string;
     isActivated: boolean;
     createdAt: string;
   };
+  leadership?: {
+    id: string;
+    leadershipType: "ORG_UNIT_HEAD";
+    orgUnitId: string;
+  } | null;
 }
 
 export interface CloseAccountRequestResponse {
   message: string;
-
   accountRequest: {
     id: string;
     empId: string;
     empName: string;
     officialEmail: string;
     requestedRole: AccountRole;
+    requestedOrganizationRole: AccountRequestOrganizationRole;
     employeeId: string | null;
     revisionNumber: number;
     status: AccountRequestStatus;
@@ -230,18 +239,18 @@ export interface CloseAccountRequestResponse {
     activationEmailLastAttemptAt: string | null;
     activationEmailSentAt: string | null;
     activationEmailFailureCategory: string | null;
-      };
+  };
 }
 
 export interface RejectAccountRequestResponse {
   message: string;
-
   accountRequest: {
     id: string;
     empId: string;
     empName: string;
     officialEmail: string;
     requestedRole: AccountRole;
+    requestedOrganizationRole: AccountRequestOrganizationRole;
     employeeId: string | null;
     revisionNumber: number;
     status: AccountRequestStatus;
@@ -253,30 +262,28 @@ export interface RejectAccountRequestResponse {
     activationEmailLastAttemptAt: string | null;
     activationEmailSentAt: string | null;
     activationEmailFailureCategory: string | null;
-        reviewedBy: AccountRequestActor | null;
+    reviewedBy: AccountRequestActor | null;
   };
 }
 
 export interface ResendActivationEmailResponse {
   message: string;
-
   accountRequest: {
     id: string;
     status: AccountRequestStatus;
     requestedRole: AccountRole;
+    requestedOrganizationRole: AccountRequestOrganizationRole;
     activationEmailStatus: ActivationEmailDeliveryStatus;
     activationEmailLastAttemptAt: string;
     activationEmailSentAt: string | null;
     activationEmailFailureCategory: string | null;
   };
-
   activationEmailDelivery: {
     status: ActivationEmailDeliveryStatus;
     attemptedAt: string;
     sentAt: string | null;
     failureCategory: string | null;
   };
-
   resendAvailableAt: string;
 }
 
@@ -287,18 +294,29 @@ export interface AccountRequestOrgUnit {
   code: string;
   name: string;
   isActive?: boolean;
+  parentOrgUnitId?: string | null;
+  orgUnitType?: {
+    code: string;
+    name: string;
+  };
+  headTitle?: string;
+  hasCurrentHead?: boolean;
+  canRequestHead?: boolean;
 }
 
 export interface ManagerRequestContextResponse {
   accountClass: "OFFICE_USER";
-  requestedRole: "EMPLOYEE";
+  authority: {
+    kind: "OFFICE_HEAD" | "ORG_UNIT_HEAD";
+    headOrgUnitIds: string[];
+  };
   office: {
     id: string;
     code: string;
     name: string;
     isActive?: boolean;
   };
-  primaryOrgUnit: AccountRequestOrgUnit;
+  primaryOrgUnit: AccountRequestOrgUnit | null;
   orgUnits: AccountRequestOrgUnit[];
   scope: {
     office: {
@@ -307,13 +325,14 @@ export interface ManagerRequestContextResponse {
       name: string;
       isActive?: boolean;
     };
-    orgUnit: AccountRequestOrgUnit;
+    orgUnit: AccountRequestOrgUnit | null;
   };
 }
 
 export interface CreateMyAccountRequestInput {
   officeId: string;
   intendedOrgUnitId: string;
+  requestedOrganizationRole: AccountRequestOrganizationRole;
   empId: string;
   empName: string;
   phoneNumber: string;
@@ -323,6 +342,7 @@ export interface CreateMyAccountRequestInput {
 
 export interface ResubmitMyAccountRequestInput {
   intendedOrgUnitId?: string;
+  requestedOrganizationRole?: AccountRequestOrganizationRole;
   empId?: string;
   empName?: string;
   phoneNumber?: string;
@@ -338,6 +358,7 @@ export interface SubmittedAccountRequest {
   officialEmail: string;
   designation: string | null;
   requestedRole: AccountRole;
+  requestedOrganizationRole: AccountRequestOrganizationRole;
   officeId?: string | null;
   intendedOrgUnitId?: string | null;
   requestedByAccountId: string;
@@ -370,6 +391,7 @@ export interface MyAccountRequestListItem {
   officialEmail: string;
   designation: string | null;
   requestedRole: AccountRole;
+  requestedOrganizationRole: AccountRequestOrganizationRole;
   office: AccountRequestOrgUnit | null;
   intendedOrgUnit: AccountRequestOrgUnit | null;
   officeId?: string | null;
@@ -403,6 +425,7 @@ export interface MyAccountRequestDetail {
   officialEmail: string;
   designation: string | null;
   requestedRole: AccountRole;
+  requestedOrganizationRole: AccountRequestOrganizationRole;
   office: AccountRequestOrgUnit | null;
   intendedOrgUnit: AccountRequestOrgUnit | null;
   officeId?: string | null;
@@ -437,33 +460,5 @@ export interface MyAccountRequestListResponse {
 export interface MyAccountRequestDetailResponse {
   accountRequest: MyAccountRequestDetail;
 }
-
-export interface OwnAccountStatusResponse {
-  account: {
-    id: string;
-    username: string | null;
-    role: AccountRole;
-    isEnabled: boolean;
-    lastLoginAt: string | null;
-    createdAt: string;
-    updatedAt: string;
-    employee: {
-      id: string;
-      empId: string;
-      empName: string;
-      officialEmail: string;
-      designation: string | null;
-      status: string;
-      employmentStatus: string;
-      isActivated: boolean;
-                } | null;
-  };
-  accountRequest:
-    | (MyAccountRequestDetail & {
-        requestedBy: AccountRequestRequester;
-      })
-    | null;
-}
-
 
 /* MANAGER ACCOUNT REQUEST TYPES END */

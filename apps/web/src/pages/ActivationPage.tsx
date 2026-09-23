@@ -451,7 +451,7 @@ export function ActivationPage() {
                     </div>
                     <div>
                       <span>{t("activation.identity.officialOrgUnit", { ns: "auth" })}</span>
-                      <strong>{invitation!.organization.orgUnitName}</strong>
+                      <strong>{invitation!.organization.orgUnitName ?? "Office-level leadership"}</strong>
                     </div>
                   </section>
                 )}
@@ -542,7 +542,7 @@ export function ActivationPage() {
                         <span>{t("activation.identity.officialOrgUnit", { ns: "auth" })}</span>
                         <input
                           type="text"
-                          value={invitation!.organization.orgUnitName}
+                          value={invitation!.organization.orgUnitName ?? "Office-level leadership"}
                           readOnly
                         />
                       </label>

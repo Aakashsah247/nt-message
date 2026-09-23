@@ -2,9 +2,31 @@ import type {
   ApiErrorResponse,
 } from "../types/auth";
 
-const API_URL =
+const configuredApiUrl =
   import.meta.env.VITE_API_URL ??
-  "http://localhost:4000/api/v1";
+  import.meta.env.VITE_API_BASE_URL;
+
+const isLocalLoopbackApi =
+  typeof configuredApiUrl === "string" &&
+  /^https?:\/\/(?:localhost|127\.0\.0\.1):4000\/api\/v1\/?$/i.test(
+    configuredApiUrl.trim(),
+  );
+
+export const API_URL =
+  import.meta.env.DEV && (!configuredApiUrl || isLocalLoopbackApi)
+    ? "/api/v1"
+    : configuredApiUrl ?? "http://localhost:4000/api/v1";
+
+export class ApiNetworkError extends Error {
+  constructor() {
+    super("Connection to NT Message was interrupted.");
+    this.name = "ApiNetworkError";
+  }
+}
+
+export function isApiNetworkError(error: unknown): error is ApiNetworkError {
+  return error instanceof ApiNetworkError;
+}
 
 export async function apiRequest<T>(
   path: string,
@@ -24,16 +46,26 @@ export async function apiRequest<T>(
     );
   }
 
-  const response = await fetch(
-    `${API_URL}${path}`,
-    {
-      ...options,
-      headers,
+  let response: Response;
 
-      // Sends the HttpOnly refresh cookie.
-      credentials: "include",
-    },
-  );
+  try {
+    response = await fetch(
+      `${API_URL}${path}`,
+      {
+        ...options,
+        headers,
+
+        // Sends the HttpOnly refresh cookie.
+        credentials: "include",
+      },
+    );
+  } catch (error) {
+    if (error instanceof DOMException && error.name === "AbortError") {
+      throw error;
+    }
+
+    throw new ApiNetworkError();
+  }
 
   const body = await response
     .json()

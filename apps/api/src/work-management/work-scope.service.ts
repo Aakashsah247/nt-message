@@ -16,7 +16,11 @@ import {
   WorkItemStatus,
 } from '../generated/prisma/client';
 import type { Prisma } from '../generated/prisma/client';
-import { CAPABILITIES } from '../organization/organization-capabilities';
+import {
+  CAPABILITIES,
+  delegationGrantKeysForCapability,
+  grantKeyAllowsCapability,
+} from '../organization/organization-capabilities';
 
 const workAccountSelect = {
   id: true,
@@ -254,12 +258,8 @@ export class WorkScopeService {
   }
 
   buildVisibleWorkWhere(actor: WorkActorContext): Prisma.WorkItemWhereInput {
-    const legacyOnly: Prisma.WorkItemWhereInput = {
-      status: { not: WorkItemStatus.V3_RUNTIME },
-    };
-
     if (actor.accountClass === AccountClass.SUPER_ADMIN) {
-      return legacyOnly;
+      return {};
     }
 
     const visibility: Prisma.WorkItemWhereInput[] = [
@@ -299,31 +299,18 @@ export class WorkScopeService {
     ];
     if (operationalTeamIds.length > 0) {
       visibility.push({
-        runtimeStages: {
-          some: {
-            assignments: {
-              some: {
-                targetOperationalTeamId: { in: operationalTeamIds },
-                endsAt: null,
-              },
-            },
-          },
-        },
+        assignedOperationalTeamId: { in: operationalTeamIds },
       });
     }
 
-    return { AND: [legacyOnly, { OR: visibility }] };
+    return { OR: visibility };
   }
 
   buildOrganizationHierarchyWorkWhere(
     actor: WorkActorContext,
   ): Prisma.WorkItemWhereInput {
-    const legacyOnly: Prisma.WorkItemWhereInput = {
-      status: { not: WorkItemStatus.V3_RUNTIME },
-    };
-
     if (actor.accountClass === AccountClass.SUPER_ADMIN) {
-      return legacyOnly;
+      return {};
     }
 
     const hierarchyScope: Prisma.WorkItemWhereInput[] = [];
@@ -339,29 +326,11 @@ export class WorkScopeService {
       );
     }
 
-    const ledTeamIds = actor.operationalTeamLeadIds ?? [];
-    if (ledTeamIds.length > 0) {
-      hierarchyScope.push({
-        runtimeStages: {
-          some: {
-            assignments: {
-              some: {
-                targetOperationalTeamId: { in: ledTeamIds },
-                endsAt: null,
-              },
-            },
-          },
-        },
-      });
-    }
-
     if (hierarchyScope.length === 0) {
-      return {
-        AND: [legacyOnly, { id: '__management_scope_unavailable__' }],
-      };
+      return { id: '__management_scope_unavailable__' };
     }
 
-    return { AND: [legacyOnly, { OR: hierarchyScope }] };
+    return { OR: hierarchyScope };
   }
 
   assertCanManageWork(actor: WorkActorContext): void {
@@ -435,15 +404,12 @@ export class WorkScopeService {
       );
     }
 
-    if (
-      (actor.operationalTeamLeadIds ?? []).includes(team.id) ||
-      (actor.assignableOrgUnitIds ?? []).includes(team.orgUnitId)
-    ) {
+    if ((actor.assignableOrgUnitIds ?? []).includes(team.orgUnitId)) {
       return;
     }
 
     throw new ForbiddenException(
-      'The selected team is outside your authorized V3 OrgUnit or Operational Team scope.',
+      'The selected team is outside your authorized V3 OrgUnit scope.',
     );
   }
 
@@ -553,18 +519,8 @@ export class WorkScopeService {
       return;
     }
 
-    const ledTeamIds = new Set(actor.operationalTeamLeadIds ?? []);
-    if (
-      ledTeamIds.size > 0 &&
-      this.activeOperationalTeamMembershipIds(target).some((teamId) =>
-        ledTeamIds.has(teamId),
-      )
-    ) {
-      return;
-    }
-
     throw new ForbiddenException(
-      'The selected employee is outside your authorized V3 OrgUnit or Operational Team scope.',
+      'The selected employee is outside your authorized V3 OrgUnit scope.',
     );
   }
 
@@ -578,11 +534,7 @@ export class WorkScopeService {
       );
     }
 
-    if (
-      !actor.officeId ||
-      ((actor.assignableOrgUnitIds?.length ?? 0) === 0 &&
-        (actor.operationalTeamLeadIds?.length ?? 0) === 0)
-    ) {
+    if (!actor.officeId || (actor.assignableOrgUnitIds?.length ?? 0) === 0) {
       throw new ForbiddenException(errorMessage);
     }
   }
@@ -598,26 +550,13 @@ export class WorkScopeService {
       return false;
     }
 
-    const hasLeadership = account.employee.orgLeadershipAssignments.some(
+    return account.employee.orgLeadershipAssignments.some(
       (assignment) =>
         assignment.effectiveFrom <= at &&
         (!assignment.effectiveUntil || assignment.effectiveUntil > at) &&
         (assignment.leadershipType === OrgLeadershipType.OFFICE_HEAD ||
-          assignment.leadershipType === OrgLeadershipType.ORG_UNIT_HEAD ||
-          assignment.leadershipType === OrgLeadershipType.TEAM_LEAD),
+          assignment.leadershipType === OrgLeadershipType.ORG_UNIT_HEAD),
     );
-
-    const leadsOperationalTeam =
-      account.employee.operationalTeamLeadAssignments.some(
-        (assignment) =>
-          assignment.effectiveFrom <= at &&
-          (!assignment.effectiveUntil || assignment.effectiveUntil > at) &&
-          assignment.team.isActive &&
-          assignment.team.archivedAt === null &&
-          assignment.team.orgUnit.isActive,
-      );
-
-    return hasLeadership || leadsOperationalTeam;
   }
 
   private async resolveV3WorkScope(
@@ -726,7 +665,13 @@ export class WorkScopeService {
         granteeAccountId: account.id,
         officeId,
         capability: {
-          in: [CAPABILITIES.WORK_VIEW, CAPABILITIES.WORK_ASSIGN],
+          in: [
+            ...new Set([
+              ...delegationGrantKeysForCapability(CAPABILITIES.WORK_VIEW),
+              ...delegationGrantKeysForCapability(CAPABILITIES.WORK_ASSIGN),
+              ...delegationGrantKeysForCapability(CAPABILITIES.REPORTS_VIEW),
+            ]),
+          ],
         },
         revokedAt: null,
         effectiveFrom: { lte: at },
@@ -740,10 +685,18 @@ export class WorkScopeService {
     });
 
     for (const grant of delegations) {
-      const targets =
-        grant.capability === CAPABILITIES.WORK_ASSIGN
-          ? [visibleOrgUnitIds, assignableOrgUnitIds]
-          : [visibleOrgUnitIds];
+      const canAssign = grantKeyAllowsCapability(
+        grant.capability,
+        CAPABILITIES.WORK_ASSIGN,
+      );
+      const canView =
+        grantKeyAllowsCapability(grant.capability, CAPABILITIES.WORK_VIEW) ||
+        grantKeyAllowsCapability(grant.capability, CAPABILITIES.REPORTS_VIEW);
+      const targets = canAssign
+        ? [visibleOrgUnitIds, assignableOrgUnitIds]
+        : canView
+          ? [visibleOrgUnitIds]
+          : [];
 
       if (!grant.orgUnitId) {
         const ids = await loadOfficeOrgUnitIds();

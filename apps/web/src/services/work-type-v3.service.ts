@@ -1,10 +1,12 @@
-import { apiRequest } from "../lib/api";
+import { apiRequest, isApiNetworkError } from "../lib/api";
 import type {
+  CreateWorkTypeDefinitionInput,
   CreateWorkTypeDraftInput,
   ReplaceWorkTypeConfigurationInput,
   UpdateWorkTypeDraftInput,
   WorkTypeActionContextResponse,
   WorkTypeConfigurationContextResponse,
+  WorkTypeDefinitionMutationResponse,
   WorkTypeDetailResponse,
   WorkTypeDiscardDraftResponse,
   WorkTypeDraftMutationResponse,
@@ -18,6 +20,21 @@ function authHeader(accessToken: string): HeadersInit {
   };
 }
 
+async function retryOnceOnNetworkError<T>(
+  request: () => Promise<T>,
+): Promise<T> {
+  try {
+    return await request();
+  } catch (error) {
+    if (!isApiNetworkError(error)) {
+      throw error;
+    }
+
+    await new Promise((resolve) => setTimeout(resolve, 400));
+    return request();
+  }
+}
+
 function officePath(officeId: string): string {
   return `/work-types/offices/${officeId}`;
 }
@@ -26,9 +43,11 @@ export function getWorkTypeActions(
   accessToken: string,
   officeId: string,
 ): Promise<WorkTypeActionContextResponse> {
-  return apiRequest<WorkTypeActionContextResponse>(
-    `${officePath(officeId)}/actions`,
-    { headers: authHeader(accessToken) },
+  return retryOnceOnNetworkError(() =>
+    apiRequest<WorkTypeActionContextResponse>(
+      `${officePath(officeId)}/actions`,
+      { headers: authHeader(accessToken) },
+    ),
   );
 }
 
@@ -36,9 +55,11 @@ export function getWorkTypeConfigurationContext(
   accessToken: string,
   officeId: string,
 ): Promise<WorkTypeConfigurationContextResponse> {
-  return apiRequest<WorkTypeConfigurationContextResponse>(
-    `${officePath(officeId)}/configuration-context`,
-    { headers: authHeader(accessToken) },
+  return retryOnceOnNetworkError(() =>
+    apiRequest<WorkTypeConfigurationContextResponse>(
+      `${officePath(officeId)}/configuration-context`,
+      { headers: authHeader(accessToken) },
+    ),
   );
 }
 
@@ -46,9 +67,11 @@ export function listWorkTypes(
   accessToken: string,
   officeId: string,
 ): Promise<WorkTypeListResponse> {
-  return apiRequest<WorkTypeListResponse>(officePath(officeId), {
-    headers: authHeader(accessToken),
-  });
+  return retryOnceOnNetworkError(() =>
+    apiRequest<WorkTypeListResponse>(officePath(officeId), {
+      headers: authHeader(accessToken),
+    }),
+  );
 }
 
 export function getWorkType(
@@ -56,9 +79,11 @@ export function getWorkType(
   officeId: string,
   workTypeDefinitionId: string,
 ): Promise<WorkTypeDetailResponse> {
-  return apiRequest<WorkTypeDetailResponse>(
-    `${officePath(officeId)}/${workTypeDefinitionId}`,
-    { headers: authHeader(accessToken) },
+  return retryOnceOnNetworkError(() =>
+    apiRequest<WorkTypeDetailResponse>(
+      `${officePath(officeId)}/${workTypeDefinitionId}`,
+      { headers: authHeader(accessToken) },
+    ),
   );
 }
 
@@ -85,13 +110,15 @@ export function updateWorkTypeDraft(
   versionId: string,
   input: UpdateWorkTypeDraftInput,
 ): Promise<WorkTypeDraftMutationResponse> {
-  return apiRequest<WorkTypeDraftMutationResponse>(
-    `${officePath(officeId)}/${workTypeDefinitionId}/drafts/${versionId}`,
-    {
-      method: "PATCH",
-      headers: authHeader(accessToken),
-      body: JSON.stringify(input),
-    },
+  return retryOnceOnNetworkError(() =>
+    apiRequest<WorkTypeDraftMutationResponse>(
+      `${officePath(officeId)}/${workTypeDefinitionId}/drafts/${versionId}`,
+      {
+        method: "PATCH",
+        headers: authHeader(accessToken),
+        body: JSON.stringify(input),
+      },
+    ),
   );
 }
 
@@ -102,13 +129,15 @@ export function replaceWorkTypeDraftConfiguration(
   versionId: string,
   input: ReplaceWorkTypeConfigurationInput,
 ): Promise<WorkTypeDraftMutationResponse> {
-  return apiRequest<WorkTypeDraftMutationResponse>(
-    `${officePath(officeId)}/${workTypeDefinitionId}/drafts/${versionId}/configuration`,
-    {
-      method: "PUT",
-      headers: authHeader(accessToken),
-      body: JSON.stringify(input),
-    },
+  return retryOnceOnNetworkError(() =>
+    apiRequest<WorkTypeDraftMutationResponse>(
+      `${officePath(officeId)}/${workTypeDefinitionId}/drafts/${versionId}/configuration`,
+      {
+        method: "PUT",
+        headers: authHeader(accessToken),
+        body: JSON.stringify(input),
+      },
+    ),
   );
 }
 
@@ -139,5 +168,50 @@ export function publishWorkTypeDraft(
       method: "POST",
       headers: authHeader(accessToken),
     },
+  );
+}
+
+export function createWorkTypeDefinition(
+  accessToken: string,
+  officeId: string,
+  input: CreateWorkTypeDefinitionInput,
+): Promise<WorkTypeDefinitionMutationResponse> {
+  return apiRequest<WorkTypeDefinitionMutationResponse>(officePath(officeId), {
+    method: "POST",
+    headers: authHeader(accessToken),
+    body: JSON.stringify(input),
+  });
+}
+
+export function removeWorkTypeDefinition(
+  accessToken: string,
+  officeId: string,
+  workTypeDefinitionId: string,
+): Promise<WorkTypeDefinitionMutationResponse> {
+  return apiRequest<WorkTypeDefinitionMutationResponse>(
+    `${officePath(officeId)}/${workTypeDefinitionId}`,
+    { method: "DELETE", headers: authHeader(accessToken) },
+  );
+}
+
+export function permanentlyDeleteWorkTypeDefinition(
+  accessToken: string,
+  officeId: string,
+  workTypeDefinitionId: string,
+): Promise<WorkTypeDefinitionMutationResponse> {
+  return apiRequest<WorkTypeDefinitionMutationResponse>(
+    `${officePath(officeId)}/${workTypeDefinitionId}/permanent`,
+    { method: "DELETE", headers: authHeader(accessToken) },
+  );
+}
+
+export function restoreWorkTypeDefinition(
+  accessToken: string,
+  officeId: string,
+  workTypeDefinitionId: string,
+): Promise<WorkTypeDefinitionMutationResponse> {
+  return apiRequest<WorkTypeDefinitionMutationResponse>(
+    `${officePath(officeId)}/${workTypeDefinitionId}/restore`,
+    { method: "POST", headers: authHeader(accessToken) },
   );
 }

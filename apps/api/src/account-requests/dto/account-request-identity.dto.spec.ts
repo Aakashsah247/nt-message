@@ -1,5 +1,6 @@
 import { validateSync } from 'class-validator';
 
+import { AccountRequestOrganizationRole } from '../../generated/prisma/client';
 import { CreateAccountRequestDto } from './create-account-request.dto';
 import { ResubmitAccountRequestDto } from './resubmit-account-request.dto';
 
@@ -14,6 +15,7 @@ function buildCreateDto(
     officialEmail,
     officeId: '11111111-1111-4111-8111-111111111111',
     intendedOrgUnitId: '22222222-2222-4222-8222-222222222222',
+    requestedOrganizationRole: AccountRequestOrganizationRole.EMPLOYEE,
   });
 }
 
@@ -25,16 +27,16 @@ describe('account request identity DTO validation', () => {
     },
   );
 
-  it.each(['009779801234567', '+977 980-123-4567', '+977 (980) 123-4567'])(
-    'rejects the unsupported Nepal phone format %s',
-    (phoneNumber: string) => {
-      const errors = validateSync(buildCreateDto(phoneNumber));
+  it.each([
+    '980123456',
+    '009779801234567',
+    '+977 980-123-4567',
+    '+977 (980) 123-4567',
+  ])('rejects the unsupported Nepal phone format %s', (phoneNumber: string) => {
+    const errors = validateSync(buildCreateDto(phoneNumber));
 
-      expect(errors.some((error) => error.property === 'phoneNumber')).toBe(
-        true,
-      );
-    },
-  );
+    expect(errors.some((error) => error.property === 'phoneNumber')).toBe(true);
+  });
 
   it('accepts a valid mixed-case email address', () => {
     expect(

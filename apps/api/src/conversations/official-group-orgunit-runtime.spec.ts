@@ -99,7 +99,7 @@ describe('ConversationsService official-group OrgUnit runtime', () => {
 
   function group(
     membershipMode: OfficialGroupMembershipMode,
-    scopeType = OfficialGroupScopeType.ORG_UNIT,
+    scopeType: OfficialGroupScopeType = OfficialGroupScopeType.ORG_UNIT,
   ) {
     return {
       id: 'official-group-1',
@@ -122,7 +122,9 @@ describe('ConversationsService official-group OrgUnit runtime', () => {
     jest
       .mocked(prisma.$transaction)
       .mockImplementation(async (callback) =>
-        (callback as (tx: typeof transaction) => Promise<unknown>)(transaction),
+        (callback as unknown as (tx: typeof transaction) => Promise<unknown>)(
+          transaction,
+        ),
       );
   });
 

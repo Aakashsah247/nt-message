@@ -12,16 +12,13 @@ import {
   WorkFieldType,
   WorkFinalClosureMode,
   WorkSlaBasis,
-  WorkStageActivationMode,
-  WorkStageApprovalMode,
-  WorkStageAssignmentMode,
-  WorkStageResponsibleOrgUnitRule,
   WorkTypeCreatorCategory,
   WorkTypeCreatorScope,
   WorkTypeVersionStatus,
 } from '../generated/prisma/client';
 import { CAPABILITIES } from '../organization/organization-capabilities';
 import { OrganizationAuthorizationService } from '../organization/organization-authorization.service';
+import { WorkTypeTemplate } from './fixed-work-type-template';
 import { WorkTypeV3Service } from './work-type-v3.service';
 
 const user = {
@@ -40,18 +37,17 @@ const definitionId = 'definition-1';
 const draftId = 'draft-2';
 function emptyPublishedConfiguration() {
   return {
+    template: WorkTypeTemplate.STANDARD,
     primaryOwnerOrgUnitId: null,
     creatorCategories: [],
     creatorScope: WorkTypeCreatorScope.PRIMARY_OWNER_SUBTREE,
-    finalClosureMode: WorkFinalClosureMode.AUTO_AFTER_REQUIRED_STAGES,
+    finalClosureMode: WorkFinalClosureMode.PRIMARY_OWNER_HEAD,
     finalClosureLeadershipType: null,
     slaBasis: WorkSlaBasis.CALENDAR_DURATION,
     overallSlaMinutes: null,
     creatorOrgUnits: [],
     creatorAccounts: [],
     fields: [],
-    stages: [],
-    stageDependencies: [],
   };
 }
 
@@ -60,25 +56,6 @@ function publishableConfiguration() {
     ...emptyPublishedConfiguration(),
     primaryOwnerOrgUnitId: 'org-1',
     creatorCategories: [WorkTypeCreatorCategory.OFFICE_HEAD],
-    stages: [
-      {
-        id: 'stage-1',
-        code: 'EXECUTE',
-        name: 'Execute',
-        description: null,
-        sortOrder: 0,
-        isRequired: true,
-        responsibleOrgUnitRule: WorkStageResponsibleOrgUnitRule.PRIMARY_OWNER,
-        responsibleOrgUnitId: null,
-        assignmentMode: WorkStageAssignmentMode.ORG_UNIT_QUEUE,
-        approvalMode: WorkStageApprovalMode.NONE,
-        approvalLeadershipType: null,
-        activationMode: WorkStageActivationMode.ALWAYS,
-        activationFieldDefinitionId: null,
-        activationExpectedValue: null,
-        slaMinutes: null,
-      },
-    ],
   };
 }
 
@@ -90,6 +67,7 @@ function draftVersion(overrides: Record<string, unknown> = {}) {
     status: WorkTypeVersionStatus.DRAFT,
     name: 'Routine Work',
     description: 'Draft description',
+    template: WorkTypeTemplate.STANDARD,
     changeReason: 'Update wording',
     createdByAccountId: user.accountId,
     publishedByAccountId: null,
@@ -106,6 +84,9 @@ function createHarness(
   options: {
     lockRows?: Array<{ id: string }>;
     assertCanError?: Error;
+    leadership?: unknown[];
+    draft?: boolean;
+    visibleOrgUnitIds?: string[];
   } = {},
 ) {
   const tx = {
@@ -149,6 +130,30 @@ function createHarness(
     orgUnit: {
       findMany: jest.fn().mockResolvedValue([{ id: 'org-1' }]),
     },
+    orgUnitClosure: {
+      findMany: jest.fn().mockResolvedValue([]),
+    },
+    orgLeadershipAssignment: {
+      count: jest.fn().mockResolvedValue(1),
+      findMany: jest.fn().mockResolvedValue([
+        {
+          employeeId: 'reviewer-1',
+          leadershipType: 'OFFICE_HEAD',
+          orgUnitId: null,
+        },
+      ]),
+    },
+    operationalTeam: {
+      findMany: jest
+        .fn()
+        .mockResolvedValue([{ id: 'team-1', orgUnitId: 'org-1' }]),
+    },
+    operationalTeamMember: {
+      findMany: jest.fn().mockResolvedValue([]),
+    },
+    operationalTeamLeadAssignment: {
+      findMany: jest.fn().mockResolvedValue([]),
+    },
     account: {
       findMany: jest.fn().mockResolvedValue([]),
     },
@@ -158,6 +163,23 @@ function createHarness(
     office: {
       findUnique: jest.fn().mockResolvedValue(office),
     },
+    account: {
+      findUnique: jest
+        .fn()
+        .mockResolvedValue({ employeeId: 'employee-manager-1' }),
+    },
+    orgLeadershipAssignment: {
+      findMany: jest.fn().mockResolvedValue(
+        options.leadership ?? [
+          {
+            leadershipType: 'OFFICE_HEAD',
+            orgUnitId: null,
+            orgUnit: null,
+          },
+        ],
+      ),
+    },
+    workTypeVersion: tx.workTypeVersion,
     $transaction: jest.fn(
       async (callback: (client: typeof tx) => Promise<unknown>) => callback(tx),
     ),
@@ -167,6 +189,17 @@ function createHarness(
     assertCan: options.assertCanError
       ? jest.fn().mockRejectedValue(options.assertCanError)
       : jest.fn().mockResolvedValue(undefined),
+    can: jest
+      .fn()
+      .mockImplementation(
+        async (_user: AuthenticatedUser, capability: string) =>
+          capability === CAPABILITIES.WORK_TYPE_DRAFT
+            ? (options.draft ?? false)
+            : false,
+      ),
+    visibleOrgUnitIds: jest
+      .fn()
+      .mockResolvedValue(options.visibleOrgUnitIds ?? []),
   } as unknown as OrganizationAuthorizationService;
 
   const sla = {
@@ -213,7 +246,7 @@ describe('WorkTypeV3Service lifecycle', () => {
       draft: created,
     });
 
-    expect(authorization.assertCan).toHaveBeenCalledWith(
+    expect(authorization.assertCan).not.toHaveBeenCalledWith(
       user,
       CAPABILITIES.WORK_TYPE_DRAFT,
       office.id,
@@ -235,7 +268,7 @@ describe('WorkTypeV3Service lifecycle', () => {
     );
   });
 
-  it('clones normalized configuration into a new draft without reusing source IDs', async () => {
+  it('clones the canonical template and Information fields into a new draft', async () => {
     const { service, tx } = createHarness();
 
     tx.workTypeVersion.findFirst
@@ -244,6 +277,7 @@ describe('WorkTypeV3Service lifecycle', () => {
         name: 'New Installation',
         description: 'Current configuration',
         ...emptyPublishedConfiguration(),
+        template: WorkTypeTemplate.TEAM_SALES,
         primaryOwnerOrgUnitId: 'org-1',
         creatorCategories: [WorkTypeCreatorCategory.OFFICE_HEAD],
         creatorOrgUnits: [
@@ -262,41 +296,28 @@ describe('WorkTypeV3Service lifecycle', () => {
             isRequired: false,
             sortOrder: 10,
             config: null,
-            stageDefinitionId: null,
-          },
-        ],
-        stages: [
-          {
-            id: 'stage-old',
-            code: 'MATERIAL_SUPPORT',
-            name: 'Material support',
-            description: null,
-            sortOrder: 20,
-            isRequired: false,
-            responsibleOrgUnitRule:
-              WorkStageResponsibleOrgUnitRule.PRIMARY_OWNER,
-            responsibleOrgUnitId: null,
-            assignmentMode: WorkStageAssignmentMode.ORG_UNIT_QUEUE,
-            approvalMode: WorkStageApprovalMode.NONE,
-            approvalLeadershipType: null,
-            activationMode: WorkStageActivationMode.FIELD_TRUE,
-            activationFieldDefinitionId: 'field-old',
-            activationExpectedValue: null,
-            slaMinutes: null,
           },
         ],
       })
       .mockResolvedValueOnce({ version: 1 });
 
     tx.workTypeVersion.create.mockResolvedValue(
-      draftVersion({ name: 'New Installation' }),
+      draftVersion({
+        name: 'New Installation',
+        template: WorkTypeTemplate.TEAM_SALES,
+      }),
     );
-    tx.workStageDefinition.create.mockResolvedValue({ id: 'stage-new' });
     tx.workFieldDefinition.create.mockResolvedValue({ id: 'field-new' });
-    tx.workStageDefinition.update.mockResolvedValue({ id: 'stage-new' });
 
     await service.createDraft(user, office.id, definitionId, {});
 
+    expect(tx.workTypeVersion.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          template: WorkTypeTemplate.TEAM_SALES,
+        }),
+      }),
+    );
     expect(tx.workTypeCreatorOrgUnit.createMany).toHaveBeenCalledWith({
       data: [
         {
@@ -306,32 +327,18 @@ describe('WorkTypeV3Service lifecycle', () => {
         },
       ],
     });
-    expect(tx.workStageDefinition.create).toHaveBeenCalledWith(
-      expect.objectContaining({
-        data: expect.objectContaining({
-          workTypeVersionId: draftId,
-          code: 'MATERIAL_SUPPORT',
-          activationMode: WorkStageActivationMode.ALWAYS,
-        }),
-      }),
-    );
     expect(tx.workFieldDefinition.create).toHaveBeenCalledWith(
       expect.objectContaining({
         data: expect.objectContaining({
           workTypeVersionId: draftId,
+          stageDefinitionId: null,
           code: 'MATERIAL_REQUIRED',
         }),
       }),
     );
-    expect(tx.workStageDefinition.update).toHaveBeenCalledWith({
-      where: { id: 'stage-new' },
-      data: {
-        activationMode: WorkStageActivationMode.FIELD_TRUE,
-        activationFieldDefinitionId: 'field-new',
-        activationExpectedValue: undefined,
-      },
-    });
+    expect(tx.workStageDefinition.create).not.toHaveBeenCalled();
   });
+
   it('rejects creation when an open draft already exists', async () => {
     const { service, tx } = createHarness();
 
@@ -464,6 +471,48 @@ describe('WorkTypeV3Service lifecycle', () => {
     expect(tx.workTypeVersion.update).not.toHaveBeenCalled();
   });
 
+  it('allows Office-Head-only creation when no Primary Owner Division is selected', async () => {
+    const { service, tx } = createHarness();
+    const draft = draftVersion();
+    tx.workTypeVersion.findFirst.mockResolvedValueOnce(draft);
+    tx.workTypeVersion.findUnique.mockResolvedValueOnce({
+      ...emptyPublishedConfiguration(),
+      creatorCategories: [WorkTypeCreatorCategory.OFFICE_HEAD],
+      creatorScope: WorkTypeCreatorScope.OFFICE_WIDE,
+    });
+    tx.workTypeVersion.findMany.mockResolvedValue([]);
+    tx.workTypeVersion.update.mockResolvedValueOnce({
+      ...draft,
+      status: WorkTypeVersionStatus.PUBLISHED,
+    });
+
+    await expect(
+      service.publishDraft(user, office.id, definitionId, draftId),
+    ).resolves.toEqual(expect.objectContaining({ office }));
+  });
+
+  it('requires every Primary Owner Division to include descendant creation access', async () => {
+    const { service, tx } = createHarness();
+    tx.workTypeVersion.findFirst.mockResolvedValueOnce(draftVersion());
+    tx.workTypeVersion.findUnique.mockResolvedValueOnce({
+      ...publishableConfiguration(),
+      creatorCategories: [
+        WorkTypeCreatorCategory.OFFICE_HEAD,
+        WorkTypeCreatorCategory.ORG_UNIT_HEAD,
+      ],
+      creatorScope: WorkTypeCreatorScope.SPECIFIC_ORG_UNITS,
+      creatorOrgUnits: [
+        { id: 'owner-1', orgUnitId: 'org-1', includeDescendants: false },
+      ],
+    });
+
+    await expect(
+      service.publishDraft(user, office.id, definitionId, draftId),
+    ).rejects.toBeInstanceOf(BadRequestException);
+
+    expect(tx.workTypeVersion.update).not.toHaveBeenCalled();
+  });
+
   it('requires a usable Office working calendar before publishing Office-working SLA', async () => {
     const { service, tx, sla } = createHarness();
     const draft = draftVersion();
@@ -584,9 +633,11 @@ describe('WorkTypeV3Service lifecycle', () => {
     expect(tx.workTypeVersion.findFirst).not.toHaveBeenCalled();
   });
 
-  it('does not enter a transaction when authorization rejects the mutation', async () => {
+  it('does not enter a transaction when the actor has no Work Type authority', async () => {
     const { service, prisma } = createHarness({
-      assertCanError: new ForbiddenException(),
+      leadership: [],
+      draft: false,
+      visibleOrgUnitIds: [],
     });
 
     await expect(

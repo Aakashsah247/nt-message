@@ -1,0 +1,14 @@
+apps/web/tests/message-app-runtime-source.mjs
+apps/web/tests/messaging-collection-welcome-ui.test.mjs
+apps/web/tests/messaging-conversation-gold-surface.test.mjs
+apps/web/tests/messaging-i18n-shell.test.mjs
+apps/web/tests/messaging-profile-message-action.test.mjs
+apps/web/tests/p12-communication-historical-compatibility.test.mjs
+apps/web/tests/p12-communication-security-boundaries.test.mjs
+apps/web/tests/p12-communication-v3-ui-cutover.test.mjs
+apps/web/tests/p12-final-ui-cutover.test.mjs
+apps/web/tests/p12-messaging-orgunit-scope.test.mjs
+apps/web/tests/p12-official-group-orgunit-runtime.test.mjs
+apps/web/tests/p13-directory-messaging-runtime-cutover.test.mjs
+apps/web/tests/work-realtime-notification.test.mjs
+apps/web/tests/work-reports-v3-ui.test.mjs

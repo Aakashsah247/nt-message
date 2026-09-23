@@ -169,6 +169,157 @@ describe('ConversationsService group governance', () => {
     );
   });
 
+  it('releases the previous official-group OWNER before promoting a new Office Head', async () => {
+    const conversationId = 'official-group-owner-handover';
+    const previousOwnerId = 'head-a';
+    const nextOwnerId = 'head-b';
+    let activeOwnerId: string | null = previousOwnerId;
+    const callOrder: string[] = [];
+
+    const transaction = {
+      conversationParticipant: {
+        updateMany: jest.fn(async () => {
+          callOrder.push('release-owner');
+          activeOwnerId = null;
+          return { count: 1 };
+        }),
+        upsert: jest.fn(
+          async (args: {
+            where: {
+              conversationId_accountId: {
+                accountId: string;
+              };
+            };
+            update: { role: ConversationParticipantRole };
+          }) => {
+            const accountId = args.where.conversationId_accountId.accountId;
+            const role = args.update.role;
+            callOrder.push(`upsert:${accountId}:${role}`);
+
+            if (
+              role === ConversationParticipantRole.OWNER &&
+              activeOwnerId !== null &&
+              activeOwnerId !== accountId
+            ) {
+              throw new Error('simulated active-owner unique constraint');
+            }
+
+            if (role === ConversationParticipantRole.OWNER) {
+              activeOwnerId = accountId;
+            } else if (activeOwnerId === accountId) {
+              activeOwnerId = null;
+            }
+
+            return {};
+          },
+        ),
+      },
+      officialGroupReceiptInterval: {
+        createMany: jest.fn(),
+      },
+      conversation: {
+        update: jest.fn().mockResolvedValue({}),
+      },
+      officialGroupAuditLog: {
+        create: jest.fn().mockResolvedValue({}),
+      },
+    };
+
+    const syncPrisma = {
+      conversation: {
+        findUnique: jest.fn().mockResolvedValue({
+          id: conversationId,
+          type: ConversationType.GROUP,
+          groupKind: 'OFFICIAL',
+          createdByAccountId: previousOwnerId,
+          officialScopeType: 'OFFICE',
+          officialOfficeId: 'office-1',
+          officialOrgUnitId: null,
+          officialMembershipMode: 'DIRECT_ONLY',
+          participants: [
+            {
+              accountId: previousOwnerId,
+              joinedAt: new Date('2026-01-01T00:00:00.000Z'),
+              leftAt: null,
+              role: ConversationParticipantRole.OWNER,
+              deliveredThroughMessageId: null,
+              deliveredThroughSentAt: null,
+              deliveredThroughAt: null,
+              readThroughMessageId: null,
+              readThroughSentAt: null,
+              readThroughAt: null,
+            },
+            {
+              accountId: nextOwnerId,
+              joinedAt: new Date('2026-01-01T00:00:00.000Z'),
+              leftAt: null,
+              role: ConversationParticipantRole.MEMBER,
+              deliveredThroughMessageId: null,
+              deliveredThroughSentAt: null,
+              deliveredThroughAt: null,
+              readThroughMessageId: null,
+              readThroughSentAt: null,
+              readThroughAt: null,
+            },
+          ],
+        }),
+      },
+      $transaction: jest.fn(
+        async (callback: (value: typeof transaction) => Promise<void>) =>
+          callback(transaction),
+      ),
+    };
+    const messagingEvents = {
+      emitConversationUpdated: jest.fn(),
+    };
+    const syncService = new ConversationsService(
+      syncPrisma as never,
+      messagingEvents as never,
+      {} as never,
+    );
+
+    jest
+      .spyOn(
+        syncService as unknown as {
+          getDesiredOfficialGroupMembership: () => Promise<unknown>;
+        },
+        'getDesiredOfficialGroupMembership',
+      )
+      .mockResolvedValue({
+        // Put the new OWNER first so the old implementation reproduces the
+        // database unique-constraint failure deterministically.
+        accounts: [{ id: nextOwnerId }, { id: previousOwnerId }],
+        officeHeadAccountIds: new Set([nextOwnerId]),
+        managerAccountIds: new Set([previousOwnerId]),
+      });
+
+    await (
+      syncService as unknown as {
+        synchronizeOfficialGroup: (
+          conversationId: string,
+          actorAccountId: string | null,
+          reason: string,
+        ) => Promise<unknown>;
+      }
+    ).synchronizeOfficialGroup(conversationId, nextOwnerId, 'TEST_HANDOVER');
+
+    expect(callOrder[0]).toBe('release-owner');
+    expect(activeOwnerId).toBe(nextOwnerId);
+    expect(transaction.conversationParticipant.updateMany).toHaveBeenCalledWith(
+      {
+        where: {
+          conversationId,
+          leftAt: null,
+          role: ConversationParticipantRole.OWNER,
+          accountId: { not: nextOwnerId },
+        },
+        data: {
+          role: ConversationParticipantRole.MEMBER,
+        },
+      },
+    );
+  });
+
   it('assigns an active Office Head as ADMIN when explicitly added to a personal group', () => {
     const role = (
       service as unknown as {

@@ -854,6 +854,7 @@
     "membershipSource": "Membership source",
     "searchEligibleEmployees": "Search eligible employees",
     "searchPlaceholder": "Search name, employee ID or designation",
+    "searchForMoreEmployees": "Showing a small selection. Search to find other employees.",
     "selectedMembersAria": "Selected group members",
     "identityAndType": "Identity and type",
     "identityHint": "Keep the name clear and the description brief.",

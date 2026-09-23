@@ -9,7 +9,6 @@ const checks = [
   ["../src/components/ManagerAccountRequestForm.tsx", "requests"],
   ["../src/components/ManagerRequestDetailPanel.tsx", "requests"],
   ["../src/components/ManagerRequestHistory.tsx", "requests"],
-  ["../src/components/MyAccountStatusPanel.tsx", "requests"],
 ];
 
 test("account-request governance workspaces use dedicated bilingual namespaces", async () => {
@@ -49,4 +48,10 @@ test("I18N-5B does not reintroduce known hard-coded English controls", async () 
       `Hard-coded I18N-5B UI text remains: ${text}`,
     );
   }
+});
+
+
+test("Account Requests removes the duplicate My Account Status workspace", async () => {
+  const page = await readFile(new URL("../src/pages/ManagerAccountRequestsPage.tsx", import.meta.url), "utf8");
+  assert.doesNotMatch(page, /MyAccountStatusPanel|MY_ACCOUNT_STATUS|own-status/);
 });

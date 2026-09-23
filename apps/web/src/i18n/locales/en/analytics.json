@@ -2,134 +2,161 @@
   "common": {
     "noActivity": "No activity yet",
     "refresh": "Refresh",
-    "tryAgain": "Try again"
+    "refreshing": "Refreshing...",
+    "tryAgain": "Try again",
+    "review": "Review",
+    "openQueue": "Open queue",
+    "openOrganization": "Open organization"
   },
   "errors": {
-    "session": "Your secure session is not available. Sign in again.",
-    "load": "Analytics could not be loaded."
+    "load": "System analytics could not be loaded.",
+    "monitoring": "System monitoring data is temporarily unavailable.",
+    "requests": "Account-request data is temporarily unavailable."
   },
   "state": {
-    "loadingTitle": "Preparing organization analytics",
-    "loadingDescription": "Loading scoped workforce data and your personal communication totals...",
-    "unavailable": "Analytics unavailable"
+    "loadingTitle": "Preparing system analytics",
+    "loadingDescription": "Loading governance, organization and system-health indicators...",
+    "unavailable": "System analytics unavailable",
+    "partial": "Some analytics sources are temporarily unavailable."
+  },
+  "period": {
+    "aria": "Analytics period",
+    "days1": "Today",
+    "days7": "7 days",
+    "days30": "30 days"
   },
   "hero": {
-    "aria": "Organization analytics dashboard",
-    "eyebrow": "Analytics report",
-    "title": "Governance scope + personal communication",
-    "description": "Privacy-safe workforce totals for your authorized scope alongside communication activity belonging only to your account.",
-    "scope": "Analytics scope",
-    "authorizedScope": "Authorized scope",
-    "generated": "Generated {{date}}",
-    "assuranceDescription": "Workforce totals follow your role scope. Message, attachment and notification totals belong only to your account.",
-    "refreshData": "Refresh data"
+    "aria": "Super Admin system analytics",
+    "eyebrow": "System analytics",
+    "title": "System governance overview",
+    "description": "A concise, privacy-safe view of NT Message health, accounts, organization structure and governance across all Offices.",
+    "superAdmin": "Super Admin · All Offices",
+    "generated": "Updated {{date}}"
   },
-  "scope": {
-    "authorizedOrgUnits": "Authorized Office / OrgUnit scope",
-    "allUnits": "All authorized OrgUnits"
-  },
-  "account": {
-    "aria": "Account overview",
-    "totalUsers": "Total users",
-    "totalUsersHint": "{{enabled}} enabled · {{disabled}} disabled",
-    "enabledMeta": "{{percent}} enabled",
-    "activeEmployees": "Active employees",
-    "activeEmployeesHint": "Activated, employed and enabled users",
-    "ofUsers": "{{percent}} of users",
+  "overview": {
+    "aria": "System analytics overview",
+    "systemHealth": "System health",
+    "healthy": "Healthy",
+    "attention": "Attention",
+    "healthyHint": "Core analytics sources are available and no governance gaps need action.",
+    "attentionHint": "{{count}} governance item(s) need review.",
+    "attentionHint_one": "{{count}} governance item needs review.",
+    "attentionHint_other": "{{count}} governance items need review.",
+    "coreServices": "Core services",
     "enabledAccounts": "Enabled accounts",
-    "enabledAccountsHint": "Accounts currently permitted to sign in",
-    "accessRate": "{{percent}} access rate",
-    "disabledAccounts": "Disabled accounts",
-    "disabledAccountsHint": "Accounts currently blocked from access"
+    "enabledAccountsHint": "{{total}} total accounts · {{disabled}} disabled",
+    "systemAccess": "System access",
+    "needsAction": "Needs action",
+    "needsActionHint": "Pending approvals and activation work that require follow-up.",
+    "requestsUnavailable": "Account-request source is temporarily unavailable.",
+    "governanceQueue": "Governance queue",
+    "organizationHealth": "Organization health",
+    "organizationHealthyHint": "V3 leadership and placement checks are clear.",
+    "organizationAttentionHint": "Review V3 leadership, placement or Office-setup gaps.",
+    "v3Structure": "V3 structure",
+    "offices": "Active Offices",
+    "onlineNow": "Online now",
+    "needsAttention": "Needs attention"
   },
-  "personal": {
-    "eyebrow": "My communication activity",
-    "title": "Personal account snapshot",
-    "description": "Only communication records belonging to your authenticated account.",
-    "badge": "Current snapshot",
-    "conversations": "Conversations",
-    "conversationsHint": "Conversations where your account is a participant",
-    "messages": "Messages",
-    "messagesHint": "Messages sent by your account without exposing content",
-    "attachments": "Attachments",
-    "attachmentsHint": "{{size}} used by attachments you uploaded",
-    "notifications": "Notifications",
-    "notificationsHint": "{{value}} unread for your account"
+  "accounts": {
+    "eyebrow": "Account & presence",
+    "title": "Access health",
+    "description": "Current account availability and live presence without exposing personal communication data.",
+    "access": "Account status",
+    "enabled": "Enabled",
+    "disabled": "Disabled",
+    "notActivated": "Not activated",
+    "empty": "No account-health data is available."
   },
-  "workforce": {
-    "eyebrow": "Workforce distribution",
-    "title": "Users by role",
-    "description": "Account distribution inside the authorized scope.",
-    "empty": "No role distribution data is available."
+  "presence": {
+    "title": "Live presence",
+    "current": "Live snapshot",
+    "active": "Active",
+    "idle": "Idle",
+    "offline": "Offline",
+    "empty": "No account-presence data is available."
+  },
+  "governance": {
+    "eyebrow": "Account governance",
+    "title": "Account request pipeline",
+    "description": "Current request lifecycle and activation workload managed by Super Admin.",
+    "completion": "{{percent}}% activation completion",
+    "noRequests": "No activation requests",
+    "pendingApproval": "Pending approval",
+    "approved": "Approved",
+    "activationPending": "Activation pending",
+    "activated": "Activated",
+    "rejected": "Rejected / returned",
+    "periodCreated": "{{count}} request(s) created in the selected period",
+    "periodCreated_one": "{{count}} request created in the selected period",
+    "periodCreated_other": "{{count}} requests created in the selected period",
+    "empty": "Account-request data is unavailable.",
+    "unavailable": "Request data unavailable"
   },
   "organization": {
-    "eyebrow": "Organization coverage",
-    "title": "OrgUnit distribution",
-    "description": "Top OrgUnits by account count inside your authorized Office scope.",
-    "orgUnits": "OrgUnits",
-    "noOrgUnits": "No OrgUnit data is available.",
-    "shown_one": "{{count}} shown",
-    "shown_other": "{{count}} shown"
+    "eyebrow": "V3 organization health",
+    "title": "Leadership & placement integrity",
+    "description": "Checks the active Office hierarchy for leadership coverage, valid placement and structural readiness.",
+    "unitSummary": "{{active}} active · {{inactive}} inactive units",
+    "officeHeadCoverage": "Office Head coverage",
+    "unitHeadCoverage": "Org Unit Head coverage",
+    "currentPlacements": "Current placements",
+    "historicalPlacements": "{{count}} historical records preserved",
+    "historicalPlacements_one": "{{count}} historical record preserved",
+    "historicalPlacements_other": "{{count}} historical records preserved",
+    "officeHeadGaps": "Offices without Office Head",
+    "unitHeadGaps": "Formal units without Org Unit Head",
+    "withoutPlacement": "Active employees without placement",
+    "placementPending": "Employees in Placement Pending",
+    "emptyUnits": "Active formal units with no people",
+    "noStructure": "Active Offices without structure",
+    "empty": "No organization-health data is available."
   },
-  "mix": {
-    "eyebrow": "My communication mix",
-    "title": "My conversation and message types",
-    "description": "Personal distribution by system-defined content category.",
-    "conversations": "Conversations",
-    "messages": "Messages",
-    "noConversations": "No conversation data is available.",
-    "noMessages": "No message-type data is available.",
-    "total": "{{value}} total"
-  },
-  "storage": {
-    "eyebrow": "My storage footprint",
-    "title": "My attachments by type",
-    "description": "Files uploaded by your account and their current retained size.",
-    "empty": "No attachment data is available.",
-    "total": "{{size}} total",
-    "files_one": "{{count}} file",
-    "files_other": "{{count}} files"
+  "offices": {
+    "eyebrow": "Office comparison",
+    "title": "Operational readiness by Office",
+    "description": "Current people, active structure and leadership readiness. Historical placement totals are not treated as current people.",
+    "office": "Office",
+    "people": "People",
+    "units": "Units",
+    "headCoverage": "Leadership",
+    "status": "Status",
+    "complete": "Covered",
+    "incomplete": "Gap",
+    "healthy": "Healthy",
+    "setupIncomplete": "Setup incomplete",
+    "inactive": "Inactive"
   },
   "activity": {
-    "eyebrow": "Recent activity",
-    "title": "Workforce access and my communication",
-    "description": "Active-user counts follow your role scope; communication counts are personal.",
-    "secure": "Privacy-safe",
-    "activeToday": "Active today",
-    "activeWeek": "Active this week",
-    "messagesToday": "My messages today",
-    "messagesWeek": "My messages this week",
-    "attachmentsToday": "My attachments today",
-    "notificationsToday": "My notifications today",
-    "latest": "My latest recorded message activity",
-    "latestDescription": "Timestamp only; message content is never included.",
-    "privacyProtected": "Privacy protected"
+    "eyebrow": "System activity",
+    "title": "Operational trend",
+    "description": "Privacy-safe activity metadata for the selected {{days}}-day period.",
+    "privacyProtected": "Privacy protected",
+    "actions": "Recorded actions",
+    "activeTime": "Active time",
+    "accountRequests": "Account requests",
+    "trendAria": "Recorded action trend",
+    "trendTooltip": "{{date}} · {{actions}} actions · {{active}} active accounts",
+    "emergencySms": "Emergency SMS"
+  },
+  "emergency": {
+    "eyebrow": "Emergency SMS health",
+    "title": "Delivery status",
+    "description": "Aggregate delivery outcomes only. Message text, recipients and phone numbers are not shown.",
+    "deliveryRate": "{{percent}}% delivered",
+    "noDelivery": "No SMS in period",
+    "total": "Total",
+    "sent": "Sent",
+    "failed": "Failed",
+    "pending": "Pending",
+    "noPhone": "No valid phone"
   },
   "about": {
-    "title": "About this report",
-    "description": "This page shows current aggregate snapshots from the existing analytics API. Historical trend charts and date-range comparisons should be added only after the backend provides verified time-series aggregates."
+    "title": "Privacy-safe system analytics",
+    "description": "This page uses system, organization, account and monitoring metadata only. It does not expose message text, private recipients, private conversation names, attachments or personal communication analytics."
   },
-  "role": {
-    "SUPER_ADMIN": "Super Admin",
-    "SENIOR_MANAGEMENT": "Senior Management",
-    "TEAM_MANAGER": "Team Manager",
-    "EMPLOYEE": "Employee"
-  },
-  "category": {
-    "conversation": {
-      "PRIVATE": "Private",
-      "PERSONAL_GROUP": "Personal group",
-      "OFFICIAL_GROUP": "Official group",
-      "ANNOUNCEMENT": "Announcement"
-    },
-    "content": {
-      "TEXT": "Text",
-      "IMAGE": "Image",
-      "VIDEO": "Video",
-      "AUDIO": "Audio",
-      "FILE": "File",
-      "LOCATION": "Location",
-      "SYSTEM": "System"
-    }
+  "coverage": {
+    "memberships": "Placement records by Office",
+    "units": "Organization units by Office"
   }
 }

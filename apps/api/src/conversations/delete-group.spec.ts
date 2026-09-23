@@ -150,7 +150,9 @@ describe('ConversationsService group deletion governance', () => {
     jest
       .mocked(prisma.$transaction)
       .mockImplementation(async (callback) =>
-        (callback as (tx: typeof transaction) => Promise<unknown>)(transaction),
+        (callback as unknown as (tx: typeof transaction) => Promise<unknown>)(
+          transaction,
+        ),
       );
     jest
       .mocked(conversationStorageService.findUnreferencedStorageKeys)

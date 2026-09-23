@@ -39,6 +39,16 @@ describe('MonitoringService retention cleanup', () => {
 
   it('contains a temporary database failure and permits the next cleanup retry', async () => {
     const { prisma, service } = createService();
+    const warningLog = jest
+      .spyOn(
+        (
+          service as unknown as {
+            logger: { warn: (...args: unknown[]) => void };
+          }
+        ).logger,
+        'warn',
+      )
+      .mockImplementation(() => undefined);
     const activityDeleteMany = jest.mocked(prisma.activityEvent.deleteMany);
     const summaryDeleteMany = jest
       .mocked(prisma.dailyActivitySummary.deleteMany)
@@ -57,11 +67,18 @@ describe('MonitoringService retention cleanup', () => {
         }
       ).cleanupOldMonitoringRecords();
 
-    await expect(cleanup()).resolves.toBeUndefined();
-    await expect(cleanup()).resolves.toBeUndefined();
+    try {
+      await expect(cleanup()).resolves.toBeUndefined();
+      await expect(cleanup()).resolves.toBeUndefined();
 
-    expect(activityDeleteMany).toHaveBeenCalledTimes(2);
-    expect(summaryDeleteMany).toHaveBeenCalledTimes(1);
+      expect(activityDeleteMany).toHaveBeenCalledTimes(2);
+      expect(summaryDeleteMany).toHaveBeenCalledTimes(1);
+      expect(warningLog).toHaveBeenCalledWith(
+        expect.stringContaining('Monitoring retention cleanup was skipped:'),
+      );
+    } finally {
+      warningLog.mockRestore();
+    }
   });
 
   it('does not start overlapping cleanup runs', async () => {

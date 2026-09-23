@@ -7,6 +7,7 @@ import {
   Post,
   Query,
   Req,
+  UseGuards,
 } from '@nestjs/common';
 import type { Request } from 'express';
 
@@ -22,8 +23,11 @@ import {
 import { CompleteActivationDto } from './dto/complete-activation.dto';
 import { RequestActivationOtpDto } from './dto/request-activation-otp.dto';
 import { VerifyActivationOtpDto } from './dto/verify-activation-otp.dto';
+import { RateLimit } from '../security/rate-limit.decorator';
+import { RateLimitGuard } from '../security/rate-limit.guard';
 
 @Controller('activation')
+@UseGuards(RateLimitGuard)
 export class ActivationController {
   constructor(
     private readonly activationService: ActivationService,
@@ -36,6 +40,12 @@ export class ActivationController {
   }
 
   @Post('request-otp')
+  @RateLimit({
+    scope: 'activation-otp-request',
+    limit: 5,
+    windowMs: 10 * 60_000,
+    keys: ['ip', 'identity'],
+  })
   @HttpCode(HttpStatus.OK)
   requestOtp(
     @Body()
@@ -52,6 +62,12 @@ export class ActivationController {
   }
 
   @Post('verify-otp')
+  @RateLimit({
+    scope: 'activation-otp-verify',
+    limit: 10,
+    windowMs: 10 * 60_000,
+    keys: ['ip', 'identity'],
+  })
   @HttpCode(HttpStatus.OK)
   verifyOtp(
     @Body()
@@ -61,6 +77,12 @@ export class ActivationController {
   }
 
   @Post('complete')
+  @RateLimit({
+    scope: 'activation-complete',
+    limit: 5,
+    windowMs: 15 * 60_000,
+    keys: ['ip', 'identity'],
+  })
   @HttpCode(HttpStatus.CREATED)
   completeActivation(
     @Body()

@@ -1,5 +1,6 @@
 import {
   IsEmail,
+  IsIn,
   IsOptional,
   IsString,
   IsUUID,
@@ -7,6 +8,14 @@ import {
   MaxLength,
   MinLength,
 } from 'class-validator';
+
+export const ACCOUNT_REQUEST_ORGANIZATION_ROLES = [
+  'EMPLOYEE',
+  'ORG_UNIT_HEAD',
+] as const;
+
+export type AccountRequestOrganizationRoleInput =
+  (typeof ACCOUNT_REQUEST_ORGANIZATION_ROLES)[number];
 
 export class CreateAccountRequestDto {
   @IsUUID('4', {
@@ -18,6 +27,11 @@ export class CreateAccountRequestDto {
     message: 'Intended OrgUnit ID must be a valid UUID.',
   })
   intendedOrgUnitId!: string;
+
+  @IsIn(ACCOUNT_REQUEST_ORGANIZATION_ROLES, {
+    message: 'Organization role must be EMPLOYEE or ORG_UNIT_HEAD.',
+  })
+  requestedOrganizationRole!: AccountRequestOrganizationRoleInput;
 
   @IsString()
   @MinLength(2)

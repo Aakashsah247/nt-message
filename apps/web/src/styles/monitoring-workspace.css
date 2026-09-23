@@ -548,17 +548,17 @@
 }
 
 .monitoring-overview-table {
-  min-width: 1220px;
+  min-width: 1120px;
 }
 
-.monitoring-overview-table th:nth-child(1) { width: 19%; }
-.monitoring-overview-table th:nth-child(2) { width: 8%; }
+.monitoring-overview-table th:nth-child(1) { width: 20%; }
+.monitoring-overview-table th:nth-child(2) { width: 9%; }
 .monitoring-overview-table th:nth-child(3) { width: 15%; }
 .monitoring-overview-table th:nth-child(4) { width: 12%; }
 .monitoring-overview-table th:nth-child(5) { width: 13%; }
 .monitoring-overview-table th:nth-child(6) { width: 8%; }
-.monitoring-overview-table th:nth-child(7) { width: 16%; }
-.monitoring-overview-table th:nth-child(8) { width: 9%; }
+.monitoring-overview-table th:nth-child(7) { width: 15%; }
+.monitoring-overview-table th:nth-child(8) { width: 10%; }
 
 .monitoring-log-table {
   min-width: 1160px;
@@ -627,7 +627,7 @@
 
 .monitoring-employee-identity {
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   gap: 0.7rem;
   min-width: 0;
 }
@@ -652,51 +652,96 @@
 }
 
 .monitoring-avatar {
+  position: relative;
   display: grid;
   flex: 0 0 auto;
   place-items: center;
-  width: 2.65rem;
-  height: 2.65rem;
-  border-radius: 0.9rem;
-  color: #0878bd;
-  background: linear-gradient(135deg, #e6f5fc, #d9edf8);
-  font-size: 0.77rem;
-  font-weight: 900;
+  width: 2.85rem;
+  height: 2.85rem;
+  overflow: hidden;
+  border: 1px solid #cfe2ed;
+  border-radius: 50%;
+  color: #17658f;
+  background: linear-gradient(145deg, #f2f9fd 0%, #dceef7 100%);
+  box-shadow: 0 4px 12px rgba(18, 76, 112, 0.08);
+  font-size: 0.72rem;
+  font-weight: 850;
+  letter-spacing: 0.02em;
+}
+
+.monitoring-avatar::after {
+  position: absolute;
+  inset: 0;
+  border: 2px solid rgba(255, 255, 255, 0.78);
+  border-radius: inherit;
+  pointer-events: none;
+  content: "";
+}
+
+.monitoring-avatar img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  object-position: center;
+}
+
+.monitoring-avatar.has-photo {
+  background: #eaf3f8;
 }
 
 .monitoring-avatar.large {
-  width: 3.6rem;
-  height: 3.6rem;
-  border-radius: 1.1rem;
+  width: 4rem;
+  height: 4rem;
   font-size: 0.92rem;
 }
 
 .monitoring-panel.monitoring-console .monitoring-status {
   display: inline-flex !important;
   align-items: center;
-  justify-content: center;
-  width: fit-content;
+  justify-content: flex-start;
+  gap: 0.42rem;
+  width: max-content;
+  min-width: 5.35rem;
+  max-width: none !important;
+  border: 1px solid transparent;
   border-radius: 999px;
-  padding: 0.38rem 0.65rem;
-  font-size: 0.65rem !important;
-  font-weight: 900 !important;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
+  padding: 0.42rem 0.7rem;
+  font-size: 0.69rem !important;
+  font-weight: 800 !important;
+  line-height: 1 !important;
+  letter-spacing: 0;
+  text-transform: none;
+  white-space: nowrap;
+  overflow-wrap: normal !important;
+  word-break: keep-all;
+}
+
+.monitoring-panel.monitoring-console .monitoring-status::before {
+  width: 0.48rem;
+  height: 0.48rem;
+  flex: 0 0 auto;
+  border-radius: 50%;
+  background: currentColor;
+  content: "";
 }
 
 .monitoring-panel.monitoring-console .monitoring-status.active {
+  border-color: #bcebd6;
   color: #087b50 !important;
-  background: #ddf6ea;
+  background: #eefaf4;
 }
 
 .monitoring-panel.monitoring-console .monitoring-status.idle {
-  color: #a46c00 !important;
-  background: #fff3d4;
+  border-color: #f3deb0;
+  color: #9b6808 !important;
+  background: #fff9e9;
 }
 
 .monitoring-panel.monitoring-console .monitoring-status.offline {
-  color: #627b8d !important;
-  background: #eaf0f4;
+  border-color: #d9e4eb;
+  color: #60788a !important;
+  background: #f4f7f9;
 }
 
 .monitoring-row-action {
@@ -777,6 +822,7 @@
 .monitoring-filter-grid > label:nth-child(6),
 .monitoring-filter-grid > label:nth-child(7),
 .monitoring-filter-grid > label:nth-child(8) { grid-column: span 3; }
+.monitoring-filter-grid > label:nth-child(9) { grid-column: 1 / -1; }
 
 .monitoring-filter-grid label {
   display: grid;
@@ -809,7 +855,7 @@
 }
 
 .monitoring-search-filter {
-  grid-column: span 3;
+  grid-column: 1 / -1;
 }
 
 .monitoring-filter-error {
@@ -1448,7 +1494,11 @@
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
-  .monitoring-search-filter {
+  .monitoring-panel.monitoring-console .monitoring-filter-grid > label {
+    grid-column: span 1;
+  }
+
+  .monitoring-panel.monitoring-console .monitoring-search-filter {
     grid-column: 1 / -1;
   }
 
@@ -1549,4 +1599,10 @@
     animation-iteration-count: 1 !important;
     transition-duration: 0.01ms !important;
   }
+}
+
+
+.monitoring-overview-table td:last-child {
+  text-align: right;
+  vertical-align: middle;
 }

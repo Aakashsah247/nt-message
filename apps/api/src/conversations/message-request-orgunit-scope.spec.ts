@@ -33,7 +33,10 @@ describe('P12-G generic message request OrgUnit scope', () => {
       relatedOrgUnitPairs: related,
     });
 
-  const viewer = (employeeId: string | null, role = AccountRole.EMPLOYEE) => ({
+  const viewer = (
+    employeeId: string | null,
+    role: AccountRole = AccountRole.EMPLOYEE,
+  ) => ({
     accountId: `${employeeId ?? 'system'}-account`,
     employeeId,
     role,

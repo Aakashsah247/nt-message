@@ -219,7 +219,11 @@ export class DutyScheduleService {
     user: AuthenticatedUser,
     dto: CreateDutyShiftTemplateDto,
   ) {
-    const context = await this.assertDutyOfficeConfiguration(user);
+    const context = await this.assertDutyConfigurationScope(
+      user,
+      dto.scope,
+      dto.orgUnitId,
+    );
     const actor = await this.resolveManager(user);
     const startMinute = this.parseTime(dto.startTime, 'Start time');
     const endMinute = this.parseTime(dto.endTime, 'End time');
@@ -274,9 +278,13 @@ export class DutyScheduleService {
     templateId: string,
     dto: UpdateDutyShiftTemplateDto,
   ) {
-    await this.assertDutyOfficeConfiguration(user);
     const actor = await this.resolveManager(user);
-    const current = await this.findManageableTemplate(actor, templateId);
+    const current = await this.findVisibleTemplate(actor, templateId);
+    await this.assertDutyConfigurationScope(
+      user,
+      current.orgUnitId ? DutyShiftScope.ORG_UNIT : DutyShiftScope.OFFICE,
+      current.orgUnitId ?? undefined,
+    );
     const startMinute =
       dto.startTime === undefined
         ? current.startMinute
@@ -332,26 +340,40 @@ export class DutyScheduleService {
     user: AuthenticatedUser,
     query: DutyShiftTemplateQueryDto = {},
   ) {
-    const actor = await this.workScopeService.resolveActorContext(user);
     const visibleWhere = await this.visibleV3TemplateWhere(user, query);
     const templates = await this.prisma.dutyShiftTemplate.findMany({
       where: visibleWhere,
       orderBy: [{ isActive: 'desc' }, { name: 'asc' }],
       select: shiftTemplateSelect,
     });
+    const dutyContext = this.dutyAuthorizationService
+      ? await this.dutyAuthorizationService.getContext(user)
+      : null;
+    const manageableOrgUnitIds =
+      dutyContext?.officeId && !dutyContext.readOnlyOversight
+        ? await this.dutyAuthorizationService!.visibleManageOrgUnitIds(user)
+        : [];
 
     return {
       data: templates.map((template) => ({
         ...this.serializeTemplate(template),
-        canManage: this.canManageTemplate(actor, template),
+        canManage: dutyContext
+          ? template.orgUnitId
+            ? manageableOrgUnitIds.includes(template.orgUnitId)
+            : dutyContext.canManageOfficeConfiguration
+          : false,
       })),
     };
   }
 
   async deleteShiftTemplate(user: AuthenticatedUser, templateId: string) {
-    await this.assertDutyManagement(user, CAPABILITIES.DUTY_MANAGE);
     const actor = await this.resolveManager(user);
-    const template = await this.findManageableTemplate(actor, templateId);
+    const template = await this.findVisibleTemplate(actor, templateId);
+    await this.assertDutyConfigurationScope(
+      user,
+      template.orgUnitId ? DutyShiftScope.ORG_UNIT : DutyShiftScope.OFFICE,
+      template.orgUnitId ?? undefined,
+    );
     const now = new Date();
 
     const [currentOrUpcoming, requirementCount] = await Promise.all([
@@ -819,6 +841,14 @@ export class DutyScheduleService {
       query.orgUnitId,
       query.operationalTeamId,
     );
+    const selectedOrgUnitIds = query.orgUnitId
+      ? (
+          await this.prisma.orgUnitClosure.findMany({
+            where: { ancestorOrgUnitId: query.orgUnitId },
+            select: { descendantOrgUnitId: true },
+          })
+        ).map((row) => row.descendantOrgUnitId)
+      : [];
     const search = query.search?.trim();
     const organizationFilters: Prisma.EmployeeWhereInput[] = [];
     if (search) {
@@ -833,7 +863,11 @@ export class DutyScheduleService {
 
     const people = await this.prisma.account.findMany({
       where: {
-        id: { in: rosterAccountIds },
+        id: query.employeeAccountId
+          ? rosterAccountIds.includes(query.employeeAccountId)
+            ? query.employeeAccountId
+            : '__outside_duty_scope__'
+          : { in: rosterAccountIds },
         isEnabled: true,
         employee: {
           is: {
@@ -861,7 +895,9 @@ export class DutyScheduleService {
           employeeAccountId: { in: accountIds },
           dutyDate: { gte: from, lte: to },
           cancelledAt: null,
-          ...(query.orgUnitId ? { orgUnitId: query.orgUnitId } : {}),
+          ...(selectedOrgUnitIds.length
+            ? { orgUnitId: { in: selectedOrgUnitIds } }
+            : {}),
         },
       ],
     };
@@ -871,12 +907,18 @@ export class DutyScheduleService {
         {
           employeeAccountId: { in: accountIds },
           exceptionDate: { gte: from, lte: to },
-          ...(query.orgUnitId ? { orgUnitId: query.orgUnitId } : {}),
+          ...(selectedOrgUnitIds.length
+            ? { orgUnitId: { in: selectedOrgUnitIds } }
+            : {}),
           type: DutyExceptionType.LEAVE,
         },
       ],
     };
-    const [assignments, exceptions] = await Promise.all([
+    const holidayScope = await this.visibleV3HolidayWhere(
+      user,
+      query.orgUnitId,
+    );
+    const [assignments, exceptions, holidays] = await Promise.all([
       this.prisma.dutyAssignment.findMany({
         where: assignmentWhere,
         orderBy: [{ startsAt: 'asc' }],
@@ -886,6 +928,16 @@ export class DutyScheduleService {
         where: exceptionWhere,
         orderBy: [{ exceptionDate: 'asc' }],
         select: dutyExceptionSelect,
+      }),
+      this.prisma.dutyHoliday.findMany({
+        where: {
+          AND: [
+            holidayScope,
+            { cancelledAt: null },
+            { startDate: { lte: to }, endDate: { gte: from } },
+          ],
+        },
+        select: { id: true, startDate: true, endDate: true },
       }),
     ]);
 
@@ -982,7 +1034,11 @@ export class DutyScheduleService {
         leaveCount: dateExceptions.filter(
           (exception) => exception.type === DutyExceptionType.LEAVE,
         ).length,
-        holidayCount: 0,
+        holidayCount: holidays.filter(
+          (holiday) =>
+            this.dateOnlyString(holiday.startDate) <= date &&
+            this.dateOnlyString(holiday.endDate) >= date,
+        ).length,
         overrideAssignments: dateAssignments.filter(
           (assignment) =>
             assignment.authority ===
@@ -1011,7 +1067,7 @@ export class DutyScheduleService {
         leave: exceptions.filter(
           (exception) => exception.type === DutyExceptionType.LEAVE,
         ).length,
-        holiday: 0,
+        holiday: holidays.length,
         overrideAssignments: assignments.filter(
           (assignment) =>
             assignment.authority ===
@@ -1048,13 +1104,23 @@ export class DutyScheduleService {
     }
 
     const visibleWhere = await this.dutyScopeV3.visibleAssignmentWhere(user);
+    const selectedOrgUnitIds = query.orgUnitId
+      ? (
+          await this.prisma.orgUnitClosure.findMany({
+            where: { ancestorOrgUnitId: query.orgUnitId },
+            select: { descendantOrgUnitId: true },
+          })
+        ).map((row) => row.descendantOrgUnitId)
+      : [];
     const where: Prisma.DutyAssignmentWhereInput = {
       AND: [
         visibleWhere,
         {
           dutyDate: { gte: from, lte: to },
           cancelledAt: query.includeCancelled ? undefined : null,
-          ...(query.orgUnitId ? { orgUnitId: query.orgUnitId } : {}),
+          ...(selectedOrgUnitIds.length
+            ? { orgUnitId: { in: selectedOrgUnitIds } }
+            : {}),
         },
       ],
     };
@@ -1133,6 +1199,9 @@ export class DutyScheduleService {
   // Duty counters describe planned schedules only and must never be presented as attendance totals.
   async getManagementSummary(user: AuthenticatedUser) {
     const actor = await this.resolveManager(user);
+    const dutyContext = this.dutyAuthorizationService
+      ? await this.dutyAuthorizationService.getContext(user)
+      : null;
     const now = new Date();
     const todayText = this.localDateString(now);
     const today = this.parseDateOnly(todayText, 'Today');
@@ -1206,10 +1275,17 @@ export class DutyScheduleService {
         orderBy: { name: 'asc' },
         select: dutyHolidaySelect,
       }),
-      this.prisma.dutyWeeklyOffSetting.findUnique({
-        where: { dayOfWeek: weekday },
-        select: { dayOfWeek: true },
-      }),
+      dutyContext?.officeId
+        ? this.prisma.dutyWeeklyOffSetting.findUnique({
+            where: {
+              officeId_dayOfWeek: {
+                officeId: dutyContext.officeId,
+                dayOfWeek: weekday,
+              },
+            },
+            select: { dayOfWeek: true },
+          })
+        : Promise.resolve(null),
     ]);
 
     return {
@@ -1681,10 +1757,13 @@ export class DutyScheduleService {
       take: 500,
       select: dutyHolidaySelect,
     });
-    const weeklyOff = await this.prisma.dutyWeeklyOffSetting.findMany({
-      orderBy: { dayOfWeek: 'asc' },
-      select: { dayOfWeek: true, updatedAt: true },
-    });
+    const weeklyOff = dutyAccess?.officeId
+      ? await this.prisma.dutyWeeklyOffSetting.findMany({
+          where: { officeId: dutyAccess.officeId },
+          orderBy: { dayOfWeek: 'asc' },
+          select: { dayOfWeek: true, updatedAt: true },
+        })
+      : [];
 
     return {
       timezone: 'Asia/Kathmandu' as const,
@@ -1696,7 +1775,11 @@ export class DutyScheduleService {
   }
 
   async createHoliday(user: AuthenticatedUser, dto: CreateDutyHolidayDto) {
-    const context = await this.assertDutyOfficeConfiguration(user);
+    const context = await this.assertDutyConfigurationScope(
+      user,
+      dto.scope,
+      dto.orgUnitId,
+    );
     const actor = await this.resolveManager(user);
     const startDate = this.parseDateOnly(dto.startDate, 'Holiday start date');
     const endDate = this.parseDateOnly(dto.endDate, 'Holiday end date');
@@ -1752,7 +1835,6 @@ export class DutyScheduleService {
     holidayId: string,
     dto: UpdateDutyHolidayDto,
   ) {
-    const context = await this.assertDutyOfficeConfiguration(user);
     const actor = await this.resolveManager(user);
     const current = await this.prisma.dutyHoliday.findUnique({
       where: { id: holidayId },
@@ -1762,6 +1844,11 @@ export class DutyScheduleService {
     if (current.cancelledAt) {
       throw new ConflictException('A cancelled holiday cannot be edited.');
     }
+    const context = await this.assertDutyConfigurationScope(
+      user,
+      current.orgUnitId ? DutyHolidayScope.ORG_UNIT : DutyHolidayScope.OFFICE,
+      current.orgUnitId ?? undefined,
+    );
     if (current.officeId !== context.officeId) {
       throw new ForbiddenException(
         'The selected holiday is outside your Office.',
@@ -1772,6 +1859,11 @@ export class DutyScheduleService {
       ? DutyHolidayScope.ORG_UNIT
       : DutyHolidayScope.OFFICE;
     const nextScope = dto.scope ?? currentScope;
+    await this.assertDutyConfigurationScope(
+      user,
+      nextScope,
+      dto.scope ? dto.orgUnitId : (current.orgUnitId ?? undefined),
+    );
     const scope = await this.resolveV3ConfigurationScope(
       context.officeId,
       nextScope,
@@ -1811,13 +1903,22 @@ export class DutyScheduleService {
   }
 
   async cancelHoliday(user: AuthenticatedUser, holidayId: string) {
-    await this.assertDutyOfficeConfiguration(user);
     const actor = await this.resolveManager(user);
     const current = await this.prisma.dutyHoliday.findUnique({
       where: { id: holidayId },
-      select: { id: true, cancelledAt: true },
+      select: { id: true, officeId: true, orgUnitId: true, cancelledAt: true },
     });
     if (!current) throw new NotFoundException('Holiday was not found.');
+    const context = await this.assertDutyConfigurationScope(
+      user,
+      current.orgUnitId ? DutyHolidayScope.ORG_UNIT : DutyHolidayScope.OFFICE,
+      current.orgUnitId ?? undefined,
+    );
+    if (current.officeId !== context.officeId) {
+      throw new ForbiddenException(
+        'The selected holiday is outside your Office.',
+      );
+    }
     if (current.cancelledAt) {
       throw new ConflictException('This holiday is already cancelled.');
     }
@@ -1841,10 +1942,13 @@ export class DutyScheduleService {
     const dutyAccess = this.dutyAuthorizationService
       ? await this.dutyAuthorizationService.getContext(user)
       : null;
-    const rows = await this.prisma.dutyWeeklyOffSetting.findMany({
-      orderBy: { dayOfWeek: 'asc' },
-      select: { dayOfWeek: true, updatedAt: true },
-    });
+    const rows = dutyAccess?.officeId
+      ? await this.prisma.dutyWeeklyOffSetting.findMany({
+          where: { officeId: dutyAccess.officeId },
+          orderBy: { dayOfWeek: 'asc' },
+          select: { dayOfWeek: true, updatedAt: true },
+        })
+      : [];
     return {
       days: rows.map((row) => row.dayOfWeek),
       canManage: dutyAccess?.canManage ?? false,
@@ -1860,15 +1964,18 @@ export class DutyScheduleService {
   }
 
   async updateWeeklyOff(user: AuthenticatedUser, dto: UpdateDutyWeeklyOffDto) {
-    await this.assertDutyOfficeConfiguration(user);
+    const context = await this.assertDutyOfficeConfiguration(user);
     const actor = await this.resolveManager(user);
     const days = [...new Set(dto.days)].sort((left, right) => left - right);
     await this.prisma.$transaction(
       async (transaction: Prisma.TransactionClient) => {
-        await transaction.dutyWeeklyOffSetting.deleteMany({});
+        await transaction.dutyWeeklyOffSetting.deleteMany({
+          where: { officeId: context.officeId },
+        });
         if (days.length > 0) {
           await transaction.dutyWeeklyOffSetting.createMany({
             data: days.map((dayOfWeek) => ({
+              officeId: context.officeId,
               dayOfWeek,
               updatedByAccountId: actor.accountId,
             })),
@@ -1926,10 +2033,50 @@ export class DutyScheduleService {
     return { officeId: actor.officeId };
   }
 
+  private async assertDutyConfigurationScope(
+    user: AuthenticatedUser,
+    scope: DutyShiftScope | DutyHolidayScope,
+    orgUnitId?: string,
+  ): Promise<{ officeId: string }> {
+    if (user.accountClass === AccountClass.SUPER_ADMIN) {
+      throw new ForbiddenException(
+        'Super Admin has read-only Duty oversight and cannot change Duty configuration.',
+      );
+    }
+    if (!this.dutyAuthorizationService) {
+      return this.assertDutyOfficeConfiguration(user);
+    }
+
+    const targetOrgUnitId =
+      scope === DutyShiftScope.OFFICE || scope === DutyHolidayScope.OFFICE
+        ? null
+        : (orgUnitId ?? null);
+    if (
+      targetOrgUnitId === null &&
+      scope !== DutyShiftScope.OFFICE &&
+      scope !== DutyHolidayScope.OFFICE
+    ) {
+      throw new BadRequestException(
+        'Select an Org Unit for this Duty configuration.',
+      );
+    }
+    const context =
+      await this.dutyAuthorizationService.assertCanManageConfigurationScope(
+        user,
+        targetOrgUnitId,
+      );
+    if (!context.officeId) {
+      throw new ForbiddenException(
+        'Duty configuration requires an active Office scope.',
+      );
+    }
+    return { officeId: context.officeId };
+  }
+
   private async resolveManager(user: AuthenticatedUser) {
-    const actor = await this.workScopeService.resolveActorContext(user);
-    this.workScopeService.assertCanManageWork(actor);
-    return actor;
+    // Duty authorization is intentionally independent from Work Management.
+    // The Work actor is retained only as identity/Office metadata for existing serializers and audit rows.
+    return this.workScopeService.resolveActorContext(user);
   }
 
   private async resolveV3ConfigurationScope(
@@ -2007,9 +2154,16 @@ export class DutyScheduleService {
           'The target Org Unit is outside your Duty visibility.',
         );
       }
+      const ancestry = await this.prisma.orgUnitClosure.findMany({
+        where: { descendantOrgUnitId: query.orgUnitId },
+        select: { ancestorOrgUnitId: true },
+      });
       return {
         officeId: context.officeId,
-        OR: [{ orgUnitId: null }, { orgUnitId: query.orgUnitId }],
+        OR: [
+          { orgUnitId: null },
+          { orgUnitId: { in: ancestry.map((row) => row.ancestorOrgUnitId) } },
+        ],
       };
     }
 
@@ -2076,9 +2230,16 @@ export class DutyScheduleService {
           'The selected Org Unit is outside your Duty visibility.',
         );
       }
+      const ancestry = await this.prisma.orgUnitClosure.findMany({
+        where: { descendantOrgUnitId: requestedOrgUnitId },
+        select: { ancestorOrgUnitId: true },
+      });
       return {
         officeId: context.officeId,
-        OR: [{ orgUnitId: null }, { orgUnitId: requestedOrgUnitId }],
+        OR: [
+          { orgUnitId: null },
+          { orgUnitId: { in: ancestry.map((row) => row.ancestorOrgUnitId) } },
+        ],
       };
     }
     return {
@@ -2283,6 +2444,7 @@ export class DutyScheduleService {
           select: dutyHolidaySelect,
         }),
         this.prisma.dutyWeeklyOffSetting.findMany({
+          where: { officeId: accounts[0]?.officeId ?? '__no_office__' },
           select: { dayOfWeek: true },
         }),
       ]);

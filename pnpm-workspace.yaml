@@ -9,3 +9,11 @@ allowBuilds:
   esbuild: true
   prisma: true
   unrs-resolver: true
+
+# Security pins required by Phase 5G dependency audit.
+overrides:
+  multer: '2.3.0'
+  socket.io-parser: '4.2.7'
+  fast-uri: '3.1.6'
+  deepmerge-ts: '8.0.1'
+  mysql2: '3.24.4'

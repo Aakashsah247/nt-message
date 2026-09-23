@@ -5,7 +5,9 @@ import {
   Get,
   Param,
   ParseUUIDPipe,
+  Patch,
   Post,
+  Query,
   Res,
   StreamableFile,
   UploadedFiles,
@@ -25,11 +27,21 @@ import { AccountClassesGuard } from '../auth/guards/account-classes.guard';
 import type { AuthenticatedUser } from '../auth/types/auth.types';
 import type { UploadedMessageAttachmentFile } from '../conversations/types/uploaded-message-attachment-file';
 import { AccountClass } from '../generated/prisma/client';
-import { CoordinateWorkHelpDto } from './dto/coordinate-work-help.dto';
+import { CancelWorkItemDto } from './dto/cancel-work-item.dto';
+import { CompleteSalesWorkDto } from './dto/complete-sales-work.dto';
+import { CreateWorkItemDto } from './dto/create-work-item.dto';
+import { ListWorkItemsQueryDto } from './dto/list-work-items-query.dto';
+import { ManageWorkSupportDto } from './dto/manage-work-support.dto';
+import { ReassignWorkDto } from './dto/reassign-work.dto';
+import { ReviewWorkCompletionDto } from './dto/review-work-completion.dto';
+import { SendWorkToSalesDto } from './dto/send-work-to-sales.dto';
+import { SubmitWorkCompletionDto } from './dto/submit-work-completion.dto';
+import { UpdateWorkItemDto } from './dto/update-work-item.dto';
 import { CreateWorkSalesMessageDto } from './dto/create-work-sales-message.dto';
 import { ManageWorkRetentionDto } from './dto/manage-work-retention.dto';
 import { RequestWorkHelpDto } from './dto/request-work-help.dto';
 import { RespondWorkHelpDto } from './dto/respond-work-help.dto';
+import { WorkItemsService } from './work-items.service';
 import { WorkLifecycleService } from './work-lifecycle.service';
 import { WorkRetentionService } from './work-retention.service';
 import { WorkSalesCommunicationService } from './work-sales-communication.service';
@@ -38,6 +50,11 @@ import {
   MAX_WORK_SALES_ATTACHMENT_FILE_BYTES,
   MAX_WORK_SALES_ATTACHMENT_TOTAL_BYTES,
 } from './work-sales-attachment.constants';
+import {
+  MAX_WORK_COMPLETION_ATTACHMENT_FILES,
+  MAX_WORK_COMPLETION_ATTACHMENT_FILE_BYTES,
+  MAX_WORK_COMPLETION_ATTACHMENT_TOTAL_BYTES,
+} from './work-completion-attachment.constants';
 
 const ALL_ACCOUNT_CLASSES = [
   AccountClass.SUPER_ADMIN,
@@ -51,10 +68,248 @@ const SYSTEM_ADMIN_ONLY = [AccountClass.SUPER_ADMIN] as const;
 @UseGuards(AccessTokenGuard, AccountClassesGuard)
 export class WorkItemsController {
   constructor(
+    private readonly workItemsService: WorkItemsService,
     private readonly workLifecycleService: WorkLifecycleService,
     private readonly workRetentionService: WorkRetentionService,
     private readonly workSalesCommunicationService: WorkSalesCommunicationService,
   ) {}
+
+  @Get('offices/:officeId/create-context')
+  @AccountClasses(...OFFICE_USER_ONLY)
+  getCreateContext(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('officeId', new ParseUUIDPipe({ version: '4' })) officeId: string,
+  ) {
+    return this.workItemsService.getCreateContext(user, officeId);
+  }
+
+  @Post('offices/:officeId')
+  @AccountClasses(...OFFICE_USER_ONLY)
+  create(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('officeId', new ParseUUIDPipe({ version: '4' })) officeId: string,
+    @Body() dto: CreateWorkItemDto,
+  ) {
+    return this.workItemsService.create(user, officeId, dto);
+  }
+
+  @Get()
+  @AccountClasses(...ALL_ACCOUNT_CLASSES)
+  list(
+    @CurrentUser() user: AuthenticatedUser,
+    @Query() query: ListWorkItemsQueryDto,
+  ) {
+    return this.workItemsService.list(user, query);
+  }
+
+  @Patch(':workItemId')
+  @AccountClasses(...OFFICE_USER_ONLY)
+  update(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('workItemId', new ParseUUIDPipe({ version: '4' }))
+    workItemId: string,
+    @Body() dto: UpdateWorkItemDto,
+  ) {
+    return this.workItemsService.updateDetails(user, workItemId, dto);
+  }
+
+  @Post(':workItemId/acknowledge')
+  @AccountClasses(...OFFICE_USER_ONLY)
+  acknowledge(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('workItemId', new ParseUUIDPipe({ version: '4' }))
+    workItemId: string,
+  ) {
+    return this.workItemsService.acknowledge(user, workItemId);
+  }
+
+  @Post(':workItemId/start')
+  @AccountClasses(...OFFICE_USER_ONLY)
+  start(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('workItemId', new ParseUUIDPipe({ version: '4' }))
+    workItemId: string,
+  ) {
+    return this.workItemsService.start(user, workItemId);
+  }
+
+  @Post(':workItemId/completion-reports')
+  @AccountClasses(...OFFICE_USER_ONLY)
+  @UseInterceptors(
+    FileFieldsInterceptor(
+      [
+        { name: 'files', maxCount: MAX_WORK_COMPLETION_ATTACHMENT_FILES },
+        { name: 'file', maxCount: 1 },
+      ],
+      {
+        storage: createBoundedAttachmentTempStorage(
+          MAX_WORK_COMPLETION_ATTACHMENT_TOTAL_BYTES,
+          'Completion evidence must total 50 MB or smaller.',
+        ),
+        limits: {
+          fileSize: MAX_WORK_COMPLETION_ATTACHMENT_FILE_BYTES,
+          files: MAX_WORK_COMPLETION_ATTACHMENT_FILES,
+        },
+      },
+    ),
+    AttachmentTempCleanupInterceptor,
+  )
+  submitCompletion(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('workItemId', new ParseUUIDPipe({ version: '4' }))
+    workItemId: string,
+    @UploadedFiles()
+    uploadedFiles:
+      | {
+          files?: UploadedMessageAttachmentFile[];
+          file?: UploadedMessageAttachmentFile[];
+        }
+      | undefined,
+    @Body() dto: SubmitWorkCompletionDto,
+  ) {
+    const files = [
+      ...(uploadedFiles?.files ?? []),
+      ...(uploadedFiles?.file ?? []),
+    ];
+    return this.workLifecycleService.submitCompletion(
+      user,
+      workItemId,
+      dto,
+      files,
+    );
+  }
+
+  @Get(':workItemId/completion-reports/:reportId/evidence/:evidenceId')
+  @AccountClasses(...ALL_ACCOUNT_CLASSES)
+  async downloadCompletionEvidence(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('workItemId', new ParseUUIDPipe({ version: '4' }))
+    workItemId: string,
+    @Param('reportId', new ParseUUIDPipe({ version: '4' })) reportId: string,
+    @Param('evidenceId', new ParseUUIDPipe({ version: '4' }))
+    evidenceId: string,
+    @Res({ passthrough: true }) response: Response,
+  ) {
+    const evidence =
+      await this.workLifecycleService.getCompletionEvidenceDownload(
+        user,
+        workItemId,
+        reportId,
+        evidenceId,
+      );
+    const safeFileName = evidence.originalFileName.replace(/[\r\n"]/g, '_');
+    const encodedFileName = encodeURIComponent(evidence.originalFileName);
+    response.setHeader('Content-Type', evidence.mimeType);
+    response.setHeader('Content-Length', String(evidence.fileSizeBytes));
+    response.setHeader(
+      'Content-Disposition',
+      `inline; filename="${safeFileName}"; filename*=UTF-8''${encodedFileName}`,
+    );
+    return new StreamableFile(createReadStream(evidence.absolutePath));
+  }
+
+  @Post(':workItemId/review/request-information')
+  @AccountClasses(...OFFICE_USER_ONLY)
+  requestInformation(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('workItemId', new ParseUUIDPipe({ version: '4' }))
+    workItemId: string,
+    @Body() dto: ReviewWorkCompletionDto,
+  ) {
+    return this.workLifecycleService.requestMoreInformation(
+      user,
+      workItemId,
+      dto,
+    );
+  }
+
+  @Post(':workItemId/review/close')
+  @AccountClasses(...OFFICE_USER_ONLY)
+  close(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('workItemId', new ParseUUIDPipe({ version: '4' }))
+    workItemId: string,
+    @Body() dto: ReviewWorkCompletionDto,
+  ) {
+    return this.workLifecycleService.close(user, workItemId, dto);
+  }
+
+  @Post(':workItemId/review/reopen')
+  @AccountClasses(...OFFICE_USER_ONLY)
+  reopen(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('workItemId', new ParseUUIDPipe({ version: '4' }))
+    workItemId: string,
+    @Body() dto: ReviewWorkCompletionDto,
+  ) {
+    return this.workLifecycleService.reopen(user, workItemId, dto);
+  }
+
+  @Post(':workItemId/cancel')
+  @AccountClasses(...OFFICE_USER_ONLY)
+  cancel(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('workItemId', new ParseUUIDPipe({ version: '4' }))
+    workItemId: string,
+    @Body() dto: CancelWorkItemDto,
+  ) {
+    return this.workLifecycleService.cancel(user, workItemId, dto);
+  }
+
+  @Post(':workItemId/reassign')
+  @AccountClasses(...OFFICE_USER_ONLY)
+  reassign(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('workItemId', new ParseUUIDPipe({ version: '4' }))
+    workItemId: string,
+    @Body() dto: ReassignWorkDto,
+  ) {
+    return this.workLifecycleService.reassign(user, workItemId, dto);
+  }
+
+  @Post(':workItemId/support/add')
+  @AccountClasses(...OFFICE_USER_ONLY)
+  addSupport(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('workItemId', new ParseUUIDPipe({ version: '4' }))
+    workItemId: string,
+    @Body() dto: ManageWorkSupportDto,
+  ) {
+    return this.workLifecycleService.addSupport(user, workItemId, dto);
+  }
+
+  @Post(':workItemId/support/remove')
+  @AccountClasses(...OFFICE_USER_ONLY)
+  removeSupport(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('workItemId', new ParseUUIDPipe({ version: '4' }))
+    workItemId: string,
+    @Body() dto: ManageWorkSupportDto,
+  ) {
+    return this.workLifecycleService.removeSupport(user, workItemId, dto);
+  }
+
+  @Post(':workItemId/sales/send')
+  @AccountClasses(...OFFICE_USER_ONLY)
+  sendToSales(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('workItemId', new ParseUUIDPipe({ version: '4' }))
+    workItemId: string,
+    @Body() dto: SendWorkToSalesDto,
+  ) {
+    return this.workLifecycleService.sendToSales(user, workItemId, dto);
+  }
+
+  @Post(':workItemId/sales/complete')
+  @AccountClasses(...OFFICE_USER_ONLY)
+  completeSales(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('workItemId', new ParseUUIDPipe({ version: '4' }))
+    workItemId: string,
+    @Body() dto: CompleteSalesWorkDto,
+  ) {
+    return this.workLifecycleService.completeSalesWork(user, workItemId, dto);
+  }
 
   @Get('help-requests/pending')
   @AccountClasses(...ALL_ACCOUNT_CLASSES)
@@ -71,21 +326,6 @@ export class WorkItemsController {
     @Body() dto: RespondWorkHelpDto,
   ) {
     return this.workLifecycleService.respondToHelpRequest(
-      user,
-      helpRequestId,
-      dto,
-    );
-  }
-
-  @Post('help-requests/:helpRequestId/coordinate')
-  @AccountClasses(...OFFICE_USER_ONLY)
-  coordinateHelpRequest(
-    @CurrentUser() user: AuthenticatedUser,
-    @Param('helpRequestId', new ParseUUIDPipe({ version: '4' }))
-    helpRequestId: string,
-    @Body() dto: CoordinateWorkHelpDto,
-  ) {
-    return this.workLifecycleService.coordinateHelpRequest(
       user,
       helpRequestId,
       dto,
@@ -261,5 +501,14 @@ export class WorkItemsController {
     );
 
     return new StreamableFile(createReadStream(attachment.absolutePath));
+  }
+  @Get(':workItemId')
+  @AccountClasses(...ALL_ACCOUNT_CLASSES)
+  getById(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('workItemId', new ParseUUIDPipe({ version: '4' }))
+    workItemId: string,
+  ) {
+    return this.workItemsService.getById(user, workItemId);
   }
 }

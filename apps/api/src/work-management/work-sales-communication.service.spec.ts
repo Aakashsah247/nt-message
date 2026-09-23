@@ -46,7 +46,6 @@ function workItem(
     primaryOwnerOrgUnitId: 'org-a',
     salesMemberAccountId: 'sales-member',
     orgUnitParticipants: [{ orgUnitId: 'org-a' }],
-    runtimeStages: [],
     salesCoordinationStatus: status,
     assignments: [
       {
@@ -101,8 +100,6 @@ describe('WorkSalesCommunicationService WM-V2-4B1', () => {
     jest.mocked(scope.resolveActorContext).mockResolvedValue({
       accountId: 'team-member',
       role: AccountRole.EMPLOYEE,
-      divisionId: 'division-1',
-      departmentId: 'department-1',
       visibleOrgUnitIds: [],
       operationalTeamMemberIds: [],
     });
@@ -124,7 +121,7 @@ describe('WorkSalesCommunicationService WM-V2-4B1', () => {
     };
     jest.mocked(storage.writeUploadedFile).mockResolvedValue();
     jest.mocked(prisma.workSalesMessage.create).mockImplementation(
-      async ({ data }: { data: Record<string, unknown> }) =>
+      (async ({ data }: { data: Record<string, unknown> }) =>
         ({
           id: data.id,
           workItemId: 'work-1',
@@ -147,7 +144,7 @@ describe('WorkSalesCommunicationService WM-V2-4B1', () => {
               createdAt: new Date(),
             },
           ],
-        }) as never,
+        }) as never) as never,
     );
 
     const result = await service.createMessage(
@@ -179,8 +176,6 @@ describe('WorkSalesCommunicationService WM-V2-4B1', () => {
     jest.mocked(scope.resolveActorContext).mockResolvedValue({
       accountId: 'sales-member',
       role: AccountRole.EMPLOYEE,
-      divisionId: 'division-1',
-      departmentId: 'sales-department',
       visibleOrgUnitIds: [],
       operationalTeamMemberIds: [],
     });
@@ -218,8 +213,6 @@ describe('WorkSalesCommunicationService WM-V2-4B1', () => {
     jest.mocked(scope.resolveActorContext).mockResolvedValue({
       accountId: 'sales-member',
       role: AccountRole.EMPLOYEE,
-      divisionId: 'division-1',
-      departmentId: 'sales-department',
       visibleOrgUnitIds: [],
       operationalTeamMemberIds: [],
     });
@@ -239,8 +232,6 @@ describe('WorkSalesCommunicationService WM-V2-4B1', () => {
     jest.mocked(scope.resolveActorContext).mockResolvedValue({
       accountId: 'outsider',
       role: AccountRole.EMPLOYEE,
-      divisionId: 'division-1',
-      departmentId: 'department-1',
       visibleOrgUnitIds: [],
       operationalTeamMemberIds: [],
     });
@@ -292,8 +283,6 @@ describe('WorkSalesCommunicationService WM-V2-4B1', () => {
     jest.mocked(scope.resolveActorContext).mockResolvedValue({
       accountId: 'support-member',
       role: AccountRole.EMPLOYEE,
-      divisionId: 'division-1',
-      departmentId: 'support-department',
       visibleOrgUnitIds: [],
       operationalTeamMemberIds: [],
     });

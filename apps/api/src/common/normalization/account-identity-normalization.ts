@@ -26,13 +26,14 @@ export function normalizeOfficialEmailForLookup(value: string): string {
   return sanitizeOfficialEmail(value).toLowerCase();
 }
 
-export function normalizeNepalPhoneNumber(value: string): string {
+export function tryNormalizeNepalPhoneNumber(value: string): string | null {
   const phoneNumber = value.trim();
 
   /*
    * NT Message accepts the three approved Nepal mobile forms below and
-   * stores all of them as +9779XXXXXXXXX. The international 00-prefix form
-   * is intentionally rejected because it is outside the approved UI format.
+   * stores all of them as +9779XXXXXXXXX. This non-throwing variant is used
+   * only when reading historical data so malformed legacy rows can be repaired
+   * through the protected identity-correction workflow.
    */
   if (NEPAL_LOCAL_MOBILE_PATTERN.test(phoneNumber)) {
     return `+${NEPAL_COUNTRY_CODE}${phoneNumber}`;
@@ -43,6 +44,16 @@ export function normalizeNepalPhoneNumber(value: string): string {
   }
 
   if (NEPAL_CANONICAL_MOBILE_PATTERN.test(phoneNumber)) {
+    return phoneNumber;
+  }
+
+  return null;
+}
+
+export function normalizeNepalPhoneNumber(value: string): string {
+  const phoneNumber = tryNormalizeNepalPhoneNumber(value);
+
+  if (phoneNumber) {
     return phoneNumber;
   }
 

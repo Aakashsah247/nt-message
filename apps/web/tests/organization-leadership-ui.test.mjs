@@ -8,12 +8,12 @@ async function source(path) {
   return readFile(new URL(path, root), "utf8");
 }
 
-test("organization workspace exposes leadership as a third inline section", async () => {
+test("organization workspace keeps leadership as a dedicated inline section", async () => {
   const panel = await source("components/AdminOrganizationPanel.tsx");
   const leadership = await source("components/organization/OrganizationLeadershipPanel.tsx");
   const css = await source("styles/organization-workspace.css");
 
-  assert.match(panel, /"STRUCTURE" \| "PEOPLE" \| "LEADERSHIP"/);
+  assert.match(panel, /"STRUCTURE" \| "LEADERSHIP" \| "DELEGATION"/);
   assert.match(panel, /<OrganizationLeadershipPanel/);
   assert.match(leadership, /ACTING_OFFICE_HEAD/);
   assert.match(leadership, /ACTING_ORG_UNIT_HEAD/);
@@ -21,6 +21,8 @@ test("organization workspace exposes leadership as a third inline section", asyn
   assert.match(leadership, /DEPUTY/);
   assert.match(leadership, /actingEnd/);
   assert.match(leadership, /protectedOfficeHead/);
+  assert.match(leadership, /headPlacementNotice/);
+  assert.match(leadership, /primaryMembership\.orgUnit/);
   assert.match(leadership, /getOrganizationPeopleActions/);
   assert.doesNotMatch(leadership, /leadership\/office-head/);
   assert.doesNotMatch(leadership, /dialog|drawer|aria-modal|backdrop-filter/i);

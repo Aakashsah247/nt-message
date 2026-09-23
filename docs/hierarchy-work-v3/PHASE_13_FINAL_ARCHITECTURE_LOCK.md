@@ -17,6 +17,8 @@ The locked operational model is:
 - **OrgMembership** is effective-dated and provides the employee's current official placement.
 - **OrgLeadershipAssignment**, Operational Team leadership and delegated capabilities provide scoped authority.
 - **Super Admin** is a platform/system and identity administrator outside the Office hierarchy. Super Admin may use operational oversight/read surfaces but may not perform operational Work or Duty mutations.
+- **Super Admin Work Oversight** is the canonical read-only Work surface. It supports branch/Office selection, Nepal-time creation-date filtering, status/search filtering and server-side pagination without exposing operational mutation actions.
+- **Super Admin operational navigation is limited to Work Oversight.** Duty Roster, Work Reports and Work Type configuration are Office-user surfaces and are not available to Super Admin routes or navigation.
 - **Office Head** is the highest operational authority inside the Office.
 - **Org Unit Head** authority remains within the authorized subtree.
 - **Deputy, Acting and delegated authority** are capability/scope/effective-time bounded and may not escalate beyond the source authority.
@@ -70,7 +72,7 @@ The development database was preserved throughout Phase 13. No database reset wa
 ### API
 
 - Full API Jest regression: **114 / 114 suites PASS**.
-- Full API assertions: **674 / 674 tests PASS**.
+- Full API assertions: **675 / 675 tests PASS**.
 - API E2E: **1 / 1 PASS**.
 - E2E open-handle diagnostic (`--detectOpenHandles --runInBand`): **PASS; no reproducible open handle**.
 - API ESLint: **PASS**.

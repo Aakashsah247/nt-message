@@ -107,6 +107,11 @@ export interface MessagingTypingUpdatedPayload {
   occurredAt: string;
 }
 
+export interface DirectoryChangedRealtimePayload {
+  reason: string;
+  occurredAt: string;
+}
+
 interface ServerToClientEvents {
   "messaging:ready": (payload: MessagingReadyPayload) => void;
   "messaging:error": (payload: MessagingSocketErrorPayload) => void;
@@ -148,6 +153,7 @@ interface ServerToClientEvents {
   "messaging:typing-updated": (
     payload: MessagingTypingUpdatedPayload,
   ) => void;
+  "directory:changed": (payload: DirectoryChangedRealtimePayload) => void;
 }
 
 interface ClientToServerEvents {

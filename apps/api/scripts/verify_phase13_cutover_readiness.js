@@ -28,11 +28,15 @@ async function main() {
     .map((entry) => entry.name)
     .sort();
 
-  if (localMigrations.at(-1) !== FINAL_DESTRUCTIVE_MIGRATION) {
+  const destructiveBoundaryIndex = localMigrations.indexOf(
+    FINAL_DESTRUCTIVE_MIGRATION,
+  );
+  if (destructiveBoundaryIndex < 0) {
     throw new Error(
-      `Expected ${FINAL_DESTRUCTIVE_MIGRATION} to be the Phase 13 cutover boundary, but latest local migration is ${localMigrations.at(-1) || '(none)'}.`,
+      `Required Phase 13 cutover boundary migration ${FINAL_DESTRUCTIVE_MIGRATION} is missing locally.`,
     );
   }
+  const postBoundaryMigrations = localMigrations.slice(destructiveBoundaryIndex + 1);
 
   const client = new Client({ connectionString: databaseUrl });
   await client.connect();
@@ -95,7 +99,6 @@ async function main() {
             WHERE office_id IS NULL
                OR work_type_version_id IS NULL
                OR primary_owner_org_unit_id IS NULL
-               OR runtime_status IS NULL
           )::bigint AS work_v3_context_gaps,
           (
             SELECT COUNT(*)
@@ -144,6 +147,7 @@ async function main() {
 
     console.log('Phase 13 production cutover readiness');
     console.log(`Local migration directories: ${localMigrations.length}`);
+    console.log(`Post-Phase-13 migrations: ${postBoundaryMigrations.length}`);
     console.table(migrationCounts);
     console.table(readinessCounts);
 

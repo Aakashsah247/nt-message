@@ -1033,4 +1033,3 @@ export interface UpdateChatFolderInput {
   conversationIds?: string[];
   targetAccountIds?: string[];
 }
-

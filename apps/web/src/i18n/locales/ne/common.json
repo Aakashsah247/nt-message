@@ -43,19 +43,29 @@
     "errorFallback": "आपतकालीन सूचना प्रक्रिया पूरा गर्न सकिएन।",
     "dialog": {
       "eyebrow": "आपतकालीन SMS",
-      "title": "निर्धारित ढाँचाको सूचना पठाउनुहोस्",
+      "title": "आपतकालीन SMS पठाउनुहोस्",
+      "subtitle": "कार्यालय सम्पर्क वा प्रणाली सहायतामा सिधै मोबाइल SMS पठाउनुहोस्।",
       "closeAria": "आपतकालीन सूचना प्यानल बन्द गर्नुहोस्",
-      "contact": "आपतकालीन सम्पर्क",
+      "contact": "प्राप्तकर्ता",
+      "contactHint": "उही कार्यालयका सम्पर्क र प्रणाली सहायता",
+      "searchContacts": "प्राप्तकर्ता खोज्नुहोस्...",
       "loadingContacts": "सम्पर्कहरू लोड हुँदैछन्...",
       "noContacts": "कुनै सम्पर्क उपलब्ध छैन",
+      "noMatchingContacts": "मिल्ने प्राप्तकर्ता भेटिएन",
       "noPhone": "फोन उपलब्ध छैन",
-      "superAdminProfile": "सुपर एडमिन प्रोफाइल",
-      "employeeProfile": "कर्मचारी प्रोफाइल",
-      "previewLabel": "सुरक्षित गरिने विस्तृत ढाँचा",
-      "resultTitle": "सूचना सुरक्षित गरी प्रक्रिया पूरा भयो",
-      "statusProvider": "स्थिति: {{status}} · प्रदायक: {{provider}}",
+      "previewLabel": "SMS पूर्वावलोकन",
+      "resultTitle": "SMS प्रक्रिया पूरा भयो",
       "sending": "पठाइँदैछ...",
-      "send": "सूचना पठाउनुहोस्"
+      "send": "SMS पठाउनुहोस्",
+      "systemSupport": "प्रणाली सहायता",
+      "officeContacts": "कार्यालय सम्पर्कहरू",
+      "systemSupportHint": "NT Message प्रणाली प्रशासक",
+      "language": "SMS भाषा",
+      "messageType": "सन्देश",
+      "quick": "द्रुत",
+      "custom": "आफ्नै",
+      "customMessage": "तपाईंको सन्देश",
+      "status": "स्थिति: {{status}}"
     }
   }
 }

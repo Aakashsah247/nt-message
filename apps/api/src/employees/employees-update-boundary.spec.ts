@@ -1,8 +1,8 @@
 import { BadRequestException, ForbiddenException } from '@nestjs/common';
 
 import type { PrismaService } from '../database/prisma.service';
-import type { ActivationInvitationsService } from '../activation-invitations/activation-invitations.service';
 import type { ConversationsService } from '../conversations/conversations.service';
+import type { MessagingEventsService } from '../realtime/messaging-events.service';
 import { EmployeesService } from './employees.service';
 
 jest.mock('../database/prisma.service', () => ({
@@ -18,7 +18,7 @@ describe('EmployeesService legacy update boundary', () => {
     return new EmployeesService(
       prisma,
       {} as ConversationsService,
-      {} as ActivationInvitationsService,
+      {} as MessagingEventsService,
     );
   }
 
@@ -49,7 +49,7 @@ describe('EmployeesService legacy update boundary', () => {
       createService(prisma).updateEmployee('employee-1', {
         divisionId: '11111111-1111-4111-8111-111111111111',
         departmentId: '22222222-2222-4222-8222-222222222222',
-      }),
+      } as never),
     ).rejects.toBeInstanceOf(BadRequestException);
 
     expect(prisma.employee.findUnique).not.toHaveBeenCalled();

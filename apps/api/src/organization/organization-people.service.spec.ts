@@ -68,6 +68,7 @@ describe('OrganizationPeopleService', () => {
       },
       orgLeadershipAssignment: {
         findFirst: jest.fn().mockResolvedValue(null),
+        updateMany: jest.fn().mockResolvedValue({ count: 0 }),
         create: jest.fn().mockResolvedValue({
           id: 'leadership-1',
           leadershipType: OrgLeadershipType.OFFICE_HEAD,
@@ -100,6 +101,7 @@ describe('OrganizationPeopleService', () => {
       prisma,
       authority,
       authorization,
+      {} as never,
     );
 
     const result = await service.assignOfficeHead(superAdmin, 'office-1', {
@@ -164,6 +166,7 @@ describe('OrganizationPeopleService', () => {
       prisma,
       authority,
       authorization,
+      {} as never,
     );
 
     await expect(
@@ -195,6 +198,7 @@ describe('OrganizationPeopleService', () => {
       prisma,
       authority,
       authorization,
+      {} as never,
     );
 
     await expect(
@@ -230,6 +234,7 @@ describe('OrganizationPeopleService', () => {
       prisma,
       authority,
       authorization,
+      {} as never,
     );
 
     await service.listLeadership(officeHeadUser, 'office-1');
@@ -286,6 +291,7 @@ describe('OrganizationPeopleService', () => {
       prisma,
       authority,
       authorization,
+      {} as never,
     );
 
     await expect(
@@ -335,6 +341,7 @@ describe('OrganizationPeopleService', () => {
       prisma,
       authority,
       authorization,
+      {} as never,
     );
 
     await expect(
@@ -367,6 +374,7 @@ describe('OrganizationPeopleService', () => {
       prisma,
       authority,
       authorization,
+      {} as never,
     );
 
     await expect(
@@ -407,6 +415,7 @@ describe('OrganizationPeopleService', () => {
       prisma,
       authority,
       authorization,
+      {} as never,
     );
 
     await expect(
@@ -496,6 +505,7 @@ describe('OrganizationPeopleService', () => {
       prisma,
       authority,
       authorization,
+      {} as never,
     );
 
     await service.transferPrimaryMembership(officeHeadUser, 'office-1', {
@@ -541,5 +551,363 @@ describe('OrganizationPeopleService', () => {
         assignedByAccountId: 'office-head-account',
       }),
     });
+  });
+
+  it('moves a permanent Org Unit Head out of Placement Pending in the same transaction', async () => {
+    const currentStart = new Date('2026-09-15T00:00:00.000Z');
+    const effectiveFrom = '2026-09-16T08:30:00.000Z';
+
+    const transaction = {
+      orgMembership: {
+        findFirst: jest.fn().mockResolvedValue({
+          id: 'pending-membership',
+          orgUnitId: 'pending-unit',
+          startsAt: currentStart,
+          orgUnit: {
+            code: 'UNASSIGNED',
+            orgUnitType: { code: 'PLACEMENT_PENDING' },
+          },
+        }),
+        update: jest.fn().mockResolvedValue({ id: 'pending-membership' }),
+        create: jest.fn().mockResolvedValue({
+          id: 'target-membership',
+          orgUnitId: 'unit-1',
+        }),
+      },
+      orgLeadershipAssignment: {
+        updateMany: jest.fn().mockResolvedValue({ count: 0 }),
+        create: jest.fn().mockResolvedValue({
+          id: 'leadership-1',
+          employeeId: 'employee-1',
+          orgUnitId: 'unit-1',
+          leadershipType: OrgLeadershipType.ORG_UNIT_HEAD,
+        }),
+      },
+    };
+
+    const prisma = {
+      office: {
+        findUnique: jest.fn().mockResolvedValue(activeOffice()),
+      },
+      employee: {
+        findUnique: jest.fn().mockResolvedValue(activeEmployee),
+      },
+      orgUnit: {
+        findFirst: jest.fn().mockResolvedValue({
+          id: 'unit-1',
+          officeId: 'office-1',
+          code: 'TECHOUT',
+          name: 'Technician outside',
+          isActive: true,
+          orgUnitType: {
+            id: 'type-department',
+            code: 'DEPARTMENT',
+            name: 'Department',
+            isTeam: false,
+            isActive: true,
+          },
+        }),
+      },
+      orgMembership: {
+        findFirst: jest.fn().mockResolvedValue({
+          id: 'pending-membership',
+          orgUnitId: 'pending-unit',
+          orgUnit: {
+            code: 'UNASSIGNED',
+            orgUnitType: { code: 'PLACEMENT_PENDING' },
+          },
+        }),
+      },
+      orgLeadershipAssignment: {
+        findFirst: jest.fn().mockResolvedValue(null),
+      },
+      $transaction: jest.fn(
+        async (callback: (tx: typeof transaction) => Promise<unknown>) =>
+          callback(transaction),
+      ),
+    } as unknown as PrismaService;
+
+    const authority = {} as OrganizationAuthorityService;
+    const authorization = {
+      assertCan: jest.fn().mockResolvedValue(undefined),
+    } as unknown as OrganizationAuthorizationService;
+
+    const service = new OrganizationPeopleService(
+      prisma,
+      authority,
+      authorization,
+      {} as never,
+    );
+
+    const result = await service.assignLeadership(officeHeadUser, 'office-1', {
+      employeeId: 'employee-1',
+      orgUnitId: 'unit-1',
+      leadershipType: OrgLeadershipType.ORG_UNIT_HEAD,
+      effectiveFrom,
+      reason: 'Promoted to department head',
+    });
+
+    expect(authorization.assertCan).toHaveBeenCalledWith(
+      officeHeadUser,
+      CAPABILITIES.LEADERSHIP_ASSIGN,
+      'office-1',
+      'unit-1',
+    );
+    expect(authorization.assertCan).toHaveBeenCalledWith(
+      officeHeadUser,
+      CAPABILITIES.MEMBERSHIP_TRANSFER_INTERNAL,
+      'office-1',
+      'pending-unit',
+    );
+    expect(authorization.assertCan).toHaveBeenCalledWith(
+      officeHeadUser,
+      CAPABILITIES.MEMBERSHIP_TRANSFER_INTERNAL,
+      'office-1',
+      'unit-1',
+    );
+
+    expect(transaction.orgMembership.update).toHaveBeenCalledWith({
+      where: { id: 'pending-membership' },
+      data: expect.objectContaining({
+        endsAt: new Date(effectiveFrom),
+        endedByAccountId: 'office-head-account',
+      }),
+    });
+    expect(transaction.orgMembership.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        employeeId: 'employee-1',
+        officeId: 'office-1',
+        orgUnitId: 'unit-1',
+        membershipType: OrgMembershipType.PRIMARY,
+        assignmentSource: OrgAssignmentSource.TRANSFER,
+        startsAt: new Date(effectiveFrom),
+        assignedByAccountId: 'office-head-account',
+      }),
+    });
+    expect(transaction.orgLeadershipAssignment.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        employeeId: 'employee-1',
+        officeId: 'office-1',
+        orgUnitId: 'unit-1',
+        leadershipType: OrgLeadershipType.ORG_UNIT_HEAD,
+        isActing: false,
+      }),
+    });
+    expect(result.primaryPlacementMoved).toBe(true);
+  });
+
+  it('ends the employee previous permanent Org Unit Head when reassigned to another unit', async () => {
+    const currentStart = new Date('2026-09-15T00:00:00.000Z');
+    const effectiveFrom = '2026-09-16T09:30:00.000Z';
+
+    const transaction = {
+      orgMembership: {
+        findFirst: jest.fn().mockResolvedValue({
+          id: 'old-membership',
+          orgUnitId: 'old-unit',
+          startsAt: currentStart,
+          orgUnit: {
+            code: 'TECHIN',
+            orgUnitType: { code: 'DEPARTMENT' },
+          },
+        }),
+        update: jest.fn().mockResolvedValue({ id: 'old-membership' }),
+        create: jest.fn().mockResolvedValue({
+          id: 'target-membership',
+          orgUnitId: 'unit-1',
+        }),
+      },
+      orgLeadershipAssignment: {
+        updateMany: jest.fn().mockResolvedValue({ count: 1 }),
+        create: jest.fn().mockResolvedValue({
+          id: 'leadership-new',
+          employeeId: 'employee-1',
+          orgUnitId: 'unit-1',
+          leadershipType: OrgLeadershipType.ORG_UNIT_HEAD,
+        }),
+      },
+    };
+
+    const prisma = {
+      office: {
+        findUnique: jest.fn().mockResolvedValue(activeOffice()),
+      },
+      employee: {
+        findUnique: jest.fn().mockResolvedValue(activeEmployee),
+      },
+      orgUnit: {
+        findFirst: jest.fn().mockResolvedValue({
+          id: 'unit-1',
+          officeId: 'office-1',
+          code: 'TECHOUT',
+          name: 'Technician outside',
+          isActive: true,
+          orgUnitType: {
+            id: 'type-department',
+            code: 'DEPARTMENT',
+            name: 'Department',
+            isTeam: false,
+            isActive: true,
+          },
+        }),
+      },
+      orgMembership: {
+        findFirst: jest.fn().mockResolvedValue({
+          id: 'old-membership',
+          orgUnitId: 'old-unit',
+          orgUnit: {
+            code: 'TECHIN',
+            orgUnitType: { code: 'DEPARTMENT' },
+          },
+        }),
+      },
+      orgLeadershipAssignment: {
+        findFirst: jest.fn().mockResolvedValue(null),
+      },
+      $transaction: jest.fn(
+        async (callback: (tx: typeof transaction) => Promise<unknown>) =>
+          callback(transaction),
+      ),
+    } as unknown as PrismaService;
+
+    const authority = {} as OrganizationAuthorityService;
+    const authorization = {
+      assertCan: jest.fn().mockResolvedValue(undefined),
+    } as unknown as OrganizationAuthorizationService;
+
+    const service = new OrganizationPeopleService(
+      prisma,
+      authority,
+      authorization,
+      {} as never,
+    );
+
+    const result = await service.assignLeadership(officeHeadUser, 'office-1', {
+      employeeId: 'employee-1',
+      orgUnitId: 'unit-1',
+      leadershipType: OrgLeadershipType.ORG_UNIT_HEAD,
+      effectiveFrom,
+      reason: 'Transferred to new department head responsibility',
+    });
+
+    expect(transaction.orgLeadershipAssignment.updateMany).toHaveBeenCalledWith(
+      {
+        where: expect.objectContaining({
+          employeeId: 'employee-1',
+          officeId: 'office-1',
+          leadershipType: OrgLeadershipType.ORG_UNIT_HEAD,
+          isActing: false,
+          orgUnitId: { not: 'unit-1' },
+        }),
+        data: expect.objectContaining({
+          effectiveUntil: new Date(effectiveFrom),
+          endedByAccountId: 'office-head-account',
+        }),
+      },
+    );
+    expect(transaction.orgMembership.update).toHaveBeenCalledWith({
+      where: { id: 'old-membership' },
+      data: expect.objectContaining({
+        endsAt: new Date(effectiveFrom),
+        endedByAccountId: 'office-head-account',
+      }),
+    });
+    expect(transaction.orgMembership.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        employeeId: 'employee-1',
+        officeId: 'office-1',
+        orgUnitId: 'unit-1',
+        membershipType: OrgMembershipType.PRIMARY,
+        assignmentSource: OrgAssignmentSource.TRANSFER,
+      }),
+    });
+    expect(result.previousPermanentHeadsEnded).toBe(1);
+    expect(result.primaryPlacementMoved).toBe(true);
+  });
+
+  it('does not move Placement Pending membership for Acting Org Unit Head', async () => {
+    const transaction = {
+      orgLeadershipAssignment: {
+        create: jest.fn().mockResolvedValue({
+          id: 'acting-leadership-1',
+          employeeId: 'employee-1',
+          orgUnitId: 'unit-1',
+          leadershipType: OrgLeadershipType.ORG_UNIT_HEAD,
+          isActing: true,
+        }),
+      },
+    };
+
+    const prisma = {
+      office: {
+        findUnique: jest.fn().mockResolvedValue(activeOffice()),
+      },
+      employee: {
+        findUnique: jest.fn().mockResolvedValue(activeEmployee),
+      },
+      orgUnit: {
+        findFirst: jest.fn().mockResolvedValue({
+          id: 'unit-1',
+          officeId: 'office-1',
+          code: 'TECHOUT',
+          name: 'Technician outside',
+          isActive: true,
+          orgUnitType: {
+            id: 'type-department',
+            code: 'DEPARTMENT',
+            name: 'Department',
+            isTeam: false,
+            isActive: true,
+          },
+        }),
+      },
+      orgMembership: {
+        findFirst: jest.fn().mockResolvedValue({
+          id: 'pending-membership',
+          orgUnitId: 'pending-unit',
+          orgUnit: {
+            code: 'UNASSIGNED',
+            orgUnitType: { code: 'PLACEMENT_PENDING' },
+          },
+        }),
+      },
+      orgLeadershipAssignment: {
+        findFirst: jest.fn().mockResolvedValue(null),
+      },
+      $transaction: jest.fn(
+        async (callback: (tx: typeof transaction) => Promise<unknown>) =>
+          callback(transaction),
+      ),
+    } as unknown as PrismaService;
+
+    const authority = {} as OrganizationAuthorityService;
+    const authorization = {
+      assertCan: jest.fn().mockResolvedValue(undefined),
+    } as unknown as OrganizationAuthorizationService;
+
+    const service = new OrganizationPeopleService(
+      prisma,
+      authority,
+      authorization,
+      {} as never,
+    );
+
+    const result = await service.assignLeadership(officeHeadUser, 'office-1', {
+      employeeId: 'employee-1',
+      orgUnitId: 'unit-1',
+      leadershipType: OrgLeadershipType.ORG_UNIT_HEAD,
+      isActing: true,
+      effectiveUntil: '2099-01-01T00:00:00.000Z',
+      reason: 'Temporary coverage',
+    });
+
+    expect(authorization.assertCan).toHaveBeenCalledTimes(1);
+    expect(authorization.assertCan).toHaveBeenCalledWith(
+      officeHeadUser,
+      CAPABILITIES.LEADERSHIP_ASSIGN_ACTING,
+      'office-1',
+      'unit-1',
+    );
+    expect(result.primaryPlacementMoved).toBe(false);
   });
 });

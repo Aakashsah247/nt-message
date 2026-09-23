@@ -4,7 +4,10 @@ import type { AuthenticatedUser } from '../auth/types/auth.types';
 import { PrismaService } from '../database/prisma.service';
 import { AccountClass, AccountRole } from '../generated/prisma/client';
 
-import { CAPABILITIES } from './organization-capabilities';
+import {
+  CAPABILITIES,
+  SHARED_RESPONSIBILITIES,
+} from './organization-capabilities';
 import { OrganizationAuthorizationService } from './organization-authorization.service';
 import { OrganizationDelegationService } from './organization-delegation.service';
 
@@ -20,6 +23,7 @@ function createAuthorization() {
     visibleOrgUnitIds: jest.fn().mockResolvedValue([]),
     isOfficeHead: jest.fn().mockResolvedValue(false),
     canRedelegate: jest.fn().mockResolvedValue(false),
+    canRedelegateResponsibility: jest.fn().mockResolvedValue(false),
   } as unknown as OrganizationAuthorizationService;
 }
 
@@ -51,7 +55,7 @@ describe('OrganizationDelegationService UI context', () => {
     ).rejects.toBeInstanceOf(ForbiddenException);
   });
 
-  it('returns only server-authorized current-phase capabilities and excludes the actor from candidates', async () => {
+  it('returns only server-authorized shared responsibilities and excludes the actor from candidates', async () => {
     const prisma = {
       delegatedPermission: {
         findFirst: jest.fn().mockResolvedValue({ id: 'grant-1' }),
@@ -99,8 +103,9 @@ describe('OrganizationDelegationService UI context', () => {
     } as unknown as PrismaService;
 
     const authorization = createAuthorization();
-    authorization.canRedelegate = jest.fn(
-      async (_user, capability) => capability === CAPABILITIES.MEMBERSHIP_VIEW,
+    authorization.canRedelegateResponsibility = jest.fn(
+      async (_user, responsibility) =>
+        responsibility === SHARED_RESPONSIBILITIES.ORGANIZATION_DIRECTORY_VIEW,
     );
 
     const service = new OrganizationDelegationService(prisma, authorization);
@@ -108,8 +113,8 @@ describe('OrganizationDelegationService UI context', () => {
     const result = await service.getUiContext(user, 'office-1', {});
 
     expect(result.hasDelegationAuthority).toBe(true);
-    expect(result.availableCapabilities).toEqual([
-      CAPABILITIES.MEMBERSHIP_VIEW,
+    expect(result.availableResponsibilities).toEqual([
+      SHARED_RESPONSIBILITIES.ORGANIZATION_DIRECTORY_VIEW,
     ]);
     expect(result.candidates).toEqual([
       expect.objectContaining({
@@ -118,9 +123,85 @@ describe('OrganizationDelegationService UI context', () => {
         empName: 'Eligible User',
       }),
     ]);
-    expect(result.availableCapabilities).not.toContain(
-      CAPABILITIES.WORK_ASSIGN,
+    expect(result.availableResponsibilities).not.toContain(
+      SHARED_RESPONSIBILITIES.WORK_MANAGEMENT,
     );
+  });
+
+  it('keeps Work Type Management at Office or Division scope only', async () => {
+    const prisma = {
+      delegatedPermission: {
+        findFirst: jest.fn().mockResolvedValue({ id: 'grant-1' }),
+      },
+      orgUnit: {
+        findFirst: jest.fn().mockResolvedValue({
+          id: 'section-1',
+          orgUnitType: { code: 'SECTION' },
+        }),
+      },
+      orgMembership: {
+        findMany: jest.fn().mockResolvedValue([]),
+      },
+    } as unknown as PrismaService;
+
+    const authorization = createAuthorization();
+    authorization.canRedelegateResponsibility = jest
+      .fn()
+      .mockResolvedValue(true);
+
+    const service = new OrganizationDelegationService(prisma, authorization);
+    const context = await service.getUiContext(user, 'office-1', {
+      orgUnitId: 'section-1',
+      includeDescendants: 'true',
+    });
+
+    expect(context.availableResponsibilities).not.toContain(
+      SHARED_RESPONSIBILITIES.WORK_TYPE_MANAGEMENT,
+    );
+    expect(context.availableResponsibilities).toContain(
+      SHARED_RESPONSIBILITIES.WORK_MANAGEMENT,
+    );
+  });
+
+  it('rejects Work Type Management below Division scope or without descendant coverage', async () => {
+    const findFirst = jest
+      .fn()
+      .mockResolvedValueOnce({
+        id: 'section-1',
+        orgUnitType: { code: 'SECTION' },
+      })
+      .mockResolvedValueOnce({
+        id: 'division-1',
+        orgUnitType: { code: 'DIVISION' },
+      });
+    const prisma = {
+      orgUnit: { findFirst },
+    } as unknown as PrismaService;
+    const authorization = createAuthorization();
+    authorization.canRedelegateResponsibility = jest
+      .fn()
+      .mockResolvedValue(true);
+    const service = new OrganizationDelegationService(prisma, authorization);
+
+    await expect(
+      service.create(user, 'office-1', {
+        granteeAccountId: 'account-2',
+        capability: SHARED_RESPONSIBILITIES.WORK_TYPE_MANAGEMENT,
+        orgUnitId: 'section-1',
+        includeDescendants: true,
+        reason: 'Work Type subject expert',
+      }),
+    ).rejects.toBeInstanceOf(BadRequestException);
+
+    await expect(
+      service.create(user, 'office-1', {
+        granteeAccountId: 'account-2',
+        capability: SHARED_RESPONSIBILITIES.WORK_TYPE_MANAGEMENT,
+        orgUnitId: 'division-1',
+        includeDescendants: false,
+        reason: 'Work Type subject expert',
+      }),
+    ).rejects.toBeInstanceOf(BadRequestException);
   });
 
   it('lets a non-leadership grantor see and revoke their own delegation history', async () => {

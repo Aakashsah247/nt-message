@@ -17,8 +17,16 @@ import { OrganizationAuthorizationService } from '../organization/organization-a
 export interface DutyAuthorizationContext {
   officeId: string | null;
   primaryOrgUnitId: string | null;
+  office: { id: string; code: string; name: string } | null;
   operationalTeamLeadIds: string[];
-  orgUnits: Array<{ id: string; code: string; name: string }>;
+  assignableOrgUnitIds: string[];
+  manageableOrgUnitIds: string[];
+  orgUnits: Array<{
+    id: string;
+    code: string;
+    name: string;
+    parentOrgUnitId: string | null;
+  }>;
   operationalTeams: Array<{
     id: string;
     code: string;
@@ -29,6 +37,7 @@ export interface DutyAuthorizationContext {
   canCreate: boolean;
   canAssign: boolean;
   canManage: boolean;
+  canManageOfficeConfiguration: boolean;
   readOnlyOversight: boolean;
 }
 
@@ -89,7 +98,11 @@ export class DutyAuthorizationService {
         OR: [{ endsAt: null }, { endsAt: { gt: at } }],
       },
       orderBy: { startsAt: 'desc' },
-      select: { officeId: true, orgUnitId: true },
+      select: {
+        officeId: true,
+        orgUnitId: true,
+        office: { select: { id: true, code: true, name: true } },
+      },
     });
 
     if (!membership) {
@@ -109,7 +122,7 @@ export class DutyAuthorizationService {
           },
         },
       },
-      select: { teamId: true },
+      select: { teamId: true, team: { select: { orgUnitId: true } } },
     });
 
     const [canView, canCreate, canAssign, canManage] = await Promise.all([
@@ -144,12 +157,39 @@ export class DutyAuthorizationService {
     ]);
 
     const isOperationalTeamLead = teamLeads.length > 0;
-    const visibleOrgUnitIds =
-      await this.organizationAuthorization.visibleOrgUnitIds(
+    const canManageOfficeConfiguration =
+      await this.organizationAuthorization.can(
         user,
-        CAPABILITIES.DUTY_VIEW,
+        CAPABILITIES.DUTY_MANAGE,
         membership.officeId,
+        null,
+        at,
       );
+    const [dutyViewOrgUnitIds, dutyAssignOrgUnitIds, manageableOrgUnitIds] =
+      await Promise.all([
+        this.organizationAuthorization.visibleOrgUnitIds(
+          user,
+          CAPABILITIES.DUTY_VIEW,
+          membership.officeId,
+        ),
+        this.organizationAuthorization.visibleOrgUnitIds(
+          user,
+          CAPABILITIES.DUTY_ASSIGN,
+          membership.officeId,
+        ),
+        this.organizationAuthorization.visibleOrgUnitIds(
+          user,
+          CAPABILITIES.DUTY_MANAGE,
+          membership.officeId,
+        ),
+      ]);
+    const teamLeadOrgUnitIds = teamLeads.map((row) => row.team.orgUnitId);
+    const visibleOrgUnitIds = [
+      ...new Set([...dutyViewOrgUnitIds, ...teamLeadOrgUnitIds]),
+    ];
+    const assignableOrgUnitIds = [
+      ...new Set([...dutyAssignOrgUnitIds, ...teamLeadOrgUnitIds]),
+    ];
     const [orgUnits, operationalTeams] = await Promise.all([
       this.prisma.orgUnit.findMany({
         where: {
@@ -158,7 +198,7 @@ export class DutyAuthorizationService {
           isActive: true,
         },
         orderBy: [{ name: 'asc' }],
-        select: { id: true, code: true, name: true },
+        select: { id: true, code: true, name: true, parentOrgUnitId: true },
       }),
       this.prisma.operationalTeam.findMany({
         where: {
@@ -182,13 +222,23 @@ export class DutyAuthorizationService {
     return {
       officeId: membership.officeId,
       primaryOrgUnitId: membership.orgUnitId,
+      office: membership.office,
       operationalTeamLeadIds: teamLeads.map((row) => row.teamId),
+      assignableOrgUnitIds,
+      manageableOrgUnitIds,
       orgUnits,
       operationalTeams,
-      canView: canView || isOperationalTeamLead,
+      canView: canView || visibleOrgUnitIds.length > 0 || isOperationalTeamLead,
       canCreate,
-      canAssign: canAssign || isOperationalTeamLead,
-      canManage: canManage || isOperationalTeamLead,
+      canAssign:
+        canAssign || assignableOrgUnitIds.length > 0 || isOperationalTeamLead,
+      // Operational Team Lead authority is team-scoped assignment authority only.
+      // It must never grant structural Duty configuration authority.
+      canManage:
+        canManage ||
+        manageableOrgUnitIds.length > 0 ||
+        canManageOfficeConfiguration,
+      canManageOfficeConfiguration,
       readOnlyOversight: false,
     };
   }
@@ -218,6 +268,34 @@ export class DutyAuthorizationService {
     return context;
   }
 
+  async visibleManageOrgUnitIds(user: AuthenticatedUser): Promise<string[]> {
+    const context = await this.getContext(user);
+    if (!context.officeId || context.readOnlyOversight) return [];
+    return context.manageableOrgUnitIds;
+  }
+
+  async assertCanManageConfigurationScope(
+    user: AuthenticatedUser,
+    orgUnitId: string | null,
+  ): Promise<DutyAuthorizationContext> {
+    const context = await this.getContext(user);
+    if (!context.officeId || context.readOnlyOversight) {
+      throw new ForbiddenException(
+        context.readOnlyOversight
+          ? 'Super Admin has read-only Duty oversight and cannot change Duty configuration.'
+          : 'Duty configuration requires an active Office scope.',
+      );
+    }
+
+    await this.organizationAuthorization.assertCan(
+      user,
+      CAPABILITIES.DUTY_MANAGE,
+      context.officeId,
+      orgUnitId,
+    );
+    return context;
+  }
+
   async assertCanManageOfficeConfiguration(
     user: AuthenticatedUser,
   ): Promise<DutyAuthorizationContext> {
@@ -243,13 +321,17 @@ export class DutyAuthorizationService {
     return {
       officeId: null,
       primaryOrgUnitId: null,
+      office: null,
       operationalTeamLeadIds: [],
+      assignableOrgUnitIds: [],
+      manageableOrgUnitIds: [],
       orgUnits: [],
       operationalTeams: [],
       canView: false,
       canCreate: false,
       canAssign: false,
       canManage: false,
+      canManageOfficeConfiguration: false,
       readOnlyOversight,
     };
   }

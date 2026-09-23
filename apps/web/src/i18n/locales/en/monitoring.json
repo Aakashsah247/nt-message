@@ -7,14 +7,18 @@
     "noDesignation": "No designation",
     "officeHours": "Office hours",
     "afterHours": "After hours",
-    "role": "Role",
-    "department": "Department",
     "session": "Session",
     "previous": "Previous",
     "next": "Next",
     "page": "Page {{page}}",
     "ofPages": "of {{total}}",
-    "maskedSession": "Masked session identifier"
+    "maskedSession": "Masked session identifier",
+    "noOffice": "No office",
+    "accountClass": "Account class",
+    "office": "Office",
+    "orgUnit": "Org unit",
+    "orgUnitType": "Org unit type",
+    "systemScope": "System scope"
   },
   "errors": {
     "session": "Your secure session is not available. Sign in again.",
@@ -28,12 +32,12 @@
     "tryAgain": "Try again"
   },
   "hero": {
-    "aria": "Privacy-safe employee monitoring",
-    "eyebrow": "Privacy-safe monitoring",
-    "title": "Employee activity monitoring",
-    "description": "Review workforce activity metadata without exposing private communication content.",
+    "aria": "Privacy-safe V3 office monitoring and audit",
+    "eyebrow": "System monitoring · V3",
+    "title": "Monitoring & audit",
+    "description": "Review privacy-safe activity across offices and organizational units without exposing communication content.",
     "metadataOnly": "Metadata only",
-    "metadataDescription": "Private message text, attachments and conversation content are not collected here.",
+    "metadataDescription": "Only safe activity metadata is recorded. Message text, attachments, recipients and private conversation content remain outside monitoring.",
     "retention": "Retention policy",
     "updated": "Updated {{date}}",
     "retentionDetailed": "{{value}} days detailed logs",
@@ -51,7 +55,7 @@
   "summary": {
     "aria": "Monitoring summary",
     "active": "Active now",
-    "activeDescription": "Employees with recent activity",
+    "activeDescription": "Accounts with recent monitored activity",
     "idle": "Idle",
     "idleDescription": "No interaction during the idle interval",
     "offline": "Offline",
@@ -64,9 +68,9 @@
   "views": {
     "aria": "Monitoring views",
     "overview": "Overview",
-    "overviewDescription": "Live workforce status",
+    "overviewDescription": "Live office-wide status",
     "logs": "Activity logs",
-    "logsDescription": "Search the audit trail",
+    "logsDescription": "Search the V3 audit trail",
     "employee": "Employee detail",
     "employeeDescription": "Review one employee"
   },
@@ -83,28 +87,30 @@
     "employee": "Employee",
     "chooseEmployee": "Choose employee",
     "allEmployees": "All employees",
-    "role": "Role",
-    "allRoles": "All roles",
-    "department": "Department",
-    "allDepartments": "All departments",
     "activity": "Activity",
     "allActivities": "All activities",
     "search": "Search",
-    "placeholder": "Employee, page or activity description",
+    "placeholder": "Employee, page or safe activity description",
     "timezone": "Asia/Kathmandu",
     "officeDefault": "Office-hours default: 09:00–18:00",
     "apply": "Apply filters",
     "reset": "Reset filters",
     "invalidTime": "The “To” time must be later than the “From” time.",
-    "description": "Filters are applied only after confirmation to avoid unnecessary repeated database queries.",
-    "searchSafe": "Search safe metadata"
+    "description": "Filter by V3 account class, office, org unit, employee and activity. Filters run only after confirmation.",
+    "searchSafe": "Search safe metadata",
+    "accountClass": "Account class",
+    "allAccountClasses": "All account classes",
+    "office": "Office",
+    "allOffices": "All offices",
+    "orgUnit": "Org unit",
+    "allOrgUnits": "All org units"
   },
   "overview": {
-    "eyebrow": "Live workforce status",
-    "title": "Real-time employee activity",
+    "eyebrow": "Live office status",
+    "title": "Current account activity",
     "snapshot": "Snapshot generated",
-    "emptyTitle": "No monitored employees",
-    "emptyDescription": "Employee activity will appear after an authorized account starts a monitored session.",
+    "emptyTitle": "No monitored accounts",
+    "emptyDescription": "Activity appears after an enabled account records a monitored session.",
     "tableAria": "Employee actions",
     "cardsAria": "Employee activity cards",
     "employee": "Employee",
@@ -132,7 +138,7 @@
     "titleSelected": "Selected employee audit trail",
     "titleSystem": "System activity log",
     "descriptionSelected": "Privacy-safe activity metadata for the selected employee and applied time range.",
-    "descriptionSystem": "Organization-wide activity metadata for the applied filters. Private message content remains hidden.",
+    "descriptionSystem": "System-wide activity metadata filtered by V3 office and org-unit scope. Private message content remains hidden.",
     "refreshing": "Refreshing",
     "unavailable": "Activity logs unavailable",
     "loading": "Loading activity logs",
@@ -167,12 +173,13 @@
     "latestEvents": "Latest {{value}} privacy-safe events",
     "noActivity": "No activity records found for this employee and time range.",
     "minutes": "{{value}}m",
-    "unitLine": "{{unit}} · {{role}}"
+    "unitLine": "{{office}} · {{unit}} · {{accountClass}}"
   },
   "status": {
     "ACTIVE": "Active",
     "IDLE": "Idle",
-    "OFFLINE": "Offline"
+    "OFFLINE": "Offline",
+    "SUCCESS": "Success"
   },
   "event": {
     "ALL": "All activities",
@@ -187,10 +194,8 @@
     "EMERGENCY_ALERT_SENT": "Emergency alert sent",
     "SESSION_POLICY_LOGOUT": "Session policy logout"
   },
-  "role": {
+  "accountClass": {
     "SUPER_ADMIN": "Super Admin",
-    "SENIOR_MANAGEMENT": "Senior Management",
-    "TEAM_MANAGER": "Team Manager",
-    "EMPLOYEE": "Employee"
+    "OFFICE_USER": "Office User"
   }
 }

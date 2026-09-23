@@ -12,7 +12,7 @@ import {
   Min,
 } from 'class-validator';
 
-import { AccountRole, ActivityEventType } from '../../generated/prisma/client';
+import { AccountClass, ActivityEventType } from '../../generated/prisma/client';
 
 export class SuperAdminActivityLogQueryDto {
   @IsOptional()
@@ -41,13 +41,16 @@ export class SuperAdminActivityLogQueryDto {
   accountId?: string;
 
   @IsOptional()
-  @IsEnum(AccountRole)
-  role?: AccountRole;
+  @IsEnum(AccountClass)
+  accountClass?: AccountClass;
 
   @IsOptional()
-  @IsString()
-  @MaxLength(100)
-  department?: string;
+  @IsUUID('4')
+  officeId?: string;
+
+  @IsOptional()
+  @IsUUID('4')
+  orgUnitId?: string;
 
   @IsOptional()
   @IsEnum(ActivityEventType)

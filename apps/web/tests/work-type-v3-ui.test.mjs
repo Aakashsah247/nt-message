@@ -6,62 +6,77 @@ async function source(relativePath) {
   return readFile(new URL(`../src/${relativePath}`, import.meta.url), "utf8");
 }
 
-test("P5-G exposes a full-page Work Type configuration workspace", async () => {
-  const [app, page, service, navigation, layout] = await Promise.all([
+test("Work Type management feeds published Information into the classic Work lifecycle", async () => {
+  const [app, controller, service, page] = await Promise.all([
     source("App.tsx"),
+    readFile(new URL("../../api/src/work-management/work-type-v3.controller.ts", import.meta.url), "utf8"),
+    readFile(new URL("../../api/src/work-management/work-items.service.ts", import.meta.url), "utf8"),
     source("pages/WorkTypeManagementPage.tsx"),
-    source("services/work-type-v3.service.ts"),
-    source("components/layout/management-navigation.ts"),
-    source("components/layout/ManagementLayout.tsx"),
   ]);
 
-  assert.match(app, /path="\/work-types"/);
-  assert.match(app, /<WorkTypeManagementPage \/>/);
-  assert.match(navigation, /label: "Work Types"/);
-  assert.match(navigation, /path: "\/work-types"/);
-
-  assert.match(page, /getWorkTypeActions/);
-  assert.match(page, /getWorkTypeConfigurationContext/);
-  assert.match(page, /listWorkTypes/);
-  assert.match(page, /getWorkType/);
-  assert.match(page, /createWorkTypeDraft/);
-  assert.match(page, /replaceWorkTypeDraftConfiguration/);
-  assert.match(page, /publishWorkTypeDraft/);
-  assert.match(page, /actions\.publish/);
-  assert.match(page, /actions\.draft/);
-
-  assert.match(service, /\/work-types\/offices\/\$\{officeId\}/);
-  assert.match(service, /\/configuration-context/);
-  assert.match(service, /\/configuration/);
-  assert.match(service, /\/publish/);
-
-  assert.doesNotMatch(page, /<dialog\b/i);
-  assert.doesNotMatch(page, /role=["']dialog["']/i);
-  assert.match(layout, /workTypeNavigationMode/);
-  assert.match(layout, /getWorkTypeActions/);
-  assert.match(navigation, /withWorkTypeNavigation/);
+  assert.match(app, /path="\/work-types\/\*"[\s\S]{0,300}<WorkTypeManagementPage \/>/);
+  assert.doesNotMatch(controller, /WORK_TYPE_CONFIGURATION_FROZEN_MESSAGE/);
+  assert.doesNotMatch(controller, /assertWorkTypeConfigurationOpen/);
+  assert.doesNotMatch(service, /DEFAULT_WORK_TYPE_TEMPLATES/);
+  assert.doesNotMatch(service, /fixedRuntimeWorkType/);
+  assert.match(service, /status: WorkTypeVersionStatus\.PUBLISHED/);
+  assert.match(service, /const template = version\.template as WorkTypeTemplate/);
+  assert.doesNotMatch(service, /CLASSIC_RUNTIME_INTAKE_FIELD_CODES/);
+  assert.match(service, /isWorkFieldCollectedAtCreation/);
+  assert.match(service, /version\.fields\.filter/);
+  assert.match(page, /Primary owners control who may create this Work Type only/);
+  assert.match(page, /Protected Contact Details control/);
 });
 
-test("P5-G keeps Super Admin and delegated users backend-authoritative", async () => {
+test("working-calendar configuration remains independent from Work Type configuration", async () => {
+  const controller = await readFile(
+    new URL("../../api/src/work-management/work-type-v3.controller.ts", import.meta.url),
+    "utf8",
+  );
+  const method = controller.slice(
+    controller.indexOf("replaceWorkingCalendar("),
+    controller.indexOf("@Get('actions')"),
+  );
+  assert.doesNotMatch(method, /permanentlyDeleteDefinition/);
+});
+test("Work Type wildcard route resolves the definition id before loading detail", async () => {
   const page = await source("pages/WorkTypeManagementPage.tsx");
-
-  assert.match(page, /actions\.publish \? t\("access\.publish"\)/);
-  assert.match(page, /actions\.draft \? t\("access\.draft"\)/);
-  assert.match(page, /t\("access\.readOnly"\)/);
-  assert.match(page, /!actions\.draft/);
-  assert.match(page, /actions\.publish \? <button/);
-  assert.doesNotMatch(page, /account\.role\s*===\s*["']SUPER_ADMIN["']/);
+  assert.match(page, /const routeParams = useParams\(\)/);
+  assert.match(page, /routeParams\["\*"\]/);
+  assert.match(page, /const wildcardDefinitionId = wildcardSegments\[0\]/);
+  assert.match(page, /workTypeDefinitionId[\s\S]{0,240}decodeURIComponent\(wildcardDefinitionId\)/);
+  assert.match(page, /getWorkType\(accessToken, officeId, workTypeDefinitionId\)/);
 });
 
-test("P5-G uses the Work Type i18n namespace instead of hard-coded workspace copy", async () => {
-  const [page, i18n] = await Promise.all([
-    source("pages/WorkTypeManagementPage.tsx"),
-    source("i18n/index.ts"),
+test("Primary Owner limits Division Head catalog visibility and Create Work choices only", async () => {
+  const [managementService, workItemsService, workPage] = await Promise.all([
+    readFile(new URL("../../api/src/work-management/work-type-v3.service.ts", import.meta.url), "utf8"),
+    readFile(new URL("../../api/src/work-management/work-items.service.ts", import.meta.url), "utf8"),
+    source("pages/ManagementWorkPage.tsx"),
   ]);
 
-  assert.match(page, /useTranslation\("workTypes"\)/);
-  assert.match(i18n, /workTypesEn/);
-  assert.match(i18n, /workTypesNe/);
-  assert.match(i18n, /workTypes: workTypesEn/);
-  assert.match(i18n, /workTypes: workTypesNe/);
+  assert.match(
+    managementService,
+    /const scope = await this\.getWorkTypeManagerScope\(user, officeId\)/,
+  );
+  assert.match(managementService, /if \(scope\.officeWideManagement\) return scope/);
+  assert.match(
+    managementService,
+    /!scope\.officeWideManagement[\s\S]{0,100}scope\.divisionOrgUnitIds\.length === 0/,
+  );
+  assert.match(managementService, /!version\s*\|\|[\s\S]{0,120}!version\.creatorOrgUnits\.some\(\(item\) =>[\s\S]{0,180}scope\.divisionOrgUnitIds\.includes\(item\.orgUnitId\)/);
+  assert.match(workItemsService, /resolveWorkTypeCreationScope/);
+  assert.match(workItemsService, /canCreateWorkTypeVersion/);
+  assert.match(workItemsService, /creatorOrgUnits:[\s\S]{0,120}includeDescendants: true/);
+  assert.match(workItemsService, /This Work Type is not owned by your Division and cannot be created from your organization branch/);
+  assert.match(workPage, /const creatableWorkTypes = useMemo/);
+  assert.match(workPage, /return options\?\.workTypes \?\? \[\]/);
+  assert.match(workPage, /value=\{createForm\.workTypeVersionId\}/);
+  assert.match(workPage, /\{type\.name\}/);
+  assert.match(workPage, /No Work Types available for your Division/);
+
+  // Existing assignment independence stays intact: the selected Primary Execution
+  // OrgUnit still comes from the normal Office-wide V3 assignment picker.
+  assert.match(workPage, /const availableAssignedDepartments = availableDepartments/);
+  assert.match(workPage, /Browse all Office/);
 });

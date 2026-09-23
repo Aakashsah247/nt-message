@@ -715,24 +715,6 @@ export class DutyScopeV3Service {
     }
     if (!context.officeId) return [user.accountId];
 
-    if (operationalTeamId) {
-      if (
-        !context.operationalTeamLeadIds.includes(operationalTeamId) &&
-        !(await this.organizationAuthorization.can(
-          user,
-          CAPABILITIES.DUTY_VIEW,
-          context.officeId,
-          orgUnitId ?? context.primaryOrgUnitId,
-          at,
-        ))
-      ) {
-        throw new ForbiddenException(
-          'The selected Operational Team is outside your Duty scope.',
-        );
-      }
-      return this.accountIdsForTeams([operationalTeamId], at);
-    }
-
     const visibleOrgUnitIds =
       await this.organizationAuthorization.visibleOrgUnitIds(
         user,
@@ -740,10 +722,35 @@ export class DutyScopeV3Service {
         context.officeId,
       );
     const scopedOrgUnitIds = orgUnitId
-      ? visibleOrgUnitIds.includes(orgUnitId)
-        ? [orgUnitId]
-        : []
+      ? await this.visibleDescendantOrgUnitIds(
+          context.officeId,
+          orgUnitId,
+          visibleOrgUnitIds,
+        )
       : visibleOrgUnitIds;
+
+    if (operationalTeamId) {
+      const team = await this.prisma.operationalTeam.findFirst({
+        where: {
+          id: operationalTeamId,
+          isActive: true,
+          archivedAt: null,
+          orgUnit: { is: { officeId: context.officeId, isActive: true } },
+        },
+        select: { id: true, orgUnitId: true },
+      });
+      if (
+        !team ||
+        (orgUnitId && !scopedOrgUnitIds.includes(team.orgUnitId)) ||
+        (!context.operationalTeamLeadIds.includes(operationalTeamId) &&
+          !visibleOrgUnitIds.includes(team.orgUnitId))
+      ) {
+        throw new ForbiddenException(
+          'The selected Operational Team is outside your Duty scope.',
+        );
+      }
+      return this.accountIdsForTeams([operationalTeamId], at);
+    }
     const rows = scopedOrgUnitIds.length
       ? await this.prisma.orgMembership.findMany({
           where: {
@@ -771,6 +778,24 @@ export class DutyScopeV3Service {
       ids.add(id);
     ids.add(user.accountId);
     return [...ids];
+  }
+
+  private async visibleDescendantOrgUnitIds(
+    officeId: string,
+    orgUnitId: string,
+    visibleOrgUnitIds: string[],
+  ): Promise<string[]> {
+    if (!visibleOrgUnitIds.includes(orgUnitId)) return [];
+    const rows = await this.prisma.orgUnitClosure.findMany({
+      where: {
+        ancestorOrgUnitId: orgUnitId,
+        descendantOrgUnitId: { in: visibleOrgUnitIds },
+        descendantOrgUnit: { is: { officeId, isActive: true } },
+      },
+      select: { descendantOrgUnitId: true },
+    });
+    const ids = rows.map((row) => row.descendantOrgUnitId);
+    return ids.length ? ids : [orgUnitId];
   }
 
   async notificationRecipientIds(

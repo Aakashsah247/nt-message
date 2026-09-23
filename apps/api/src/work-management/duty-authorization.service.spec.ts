@@ -42,17 +42,21 @@ describe('DutyAuthorizationService', () => {
         findFirst: jest.fn().mockResolvedValue({
           officeId: 'office-1',
           orgUnitId: 'unit-1',
+          office: { id: 'office-1', code: 'PATAN', name: 'Patan Office' },
         }),
       },
       operationalTeamLeadAssignment: {
         findMany: jest.fn().mockResolvedValue([]),
       },
       orgUnit: {
-        findMany: jest
-          .fn()
-          .mockResolvedValue([
-            { id: 'unit-1', code: 'UNIT', name: 'Unit One' },
-          ]),
+        findMany: jest.fn().mockResolvedValue([
+          {
+            id: 'unit-1',
+            code: 'UNIT',
+            name: 'Unit One',
+            parentOrgUnitId: null,
+          },
+        ]),
       },
       operationalTeam: {
         findMany: jest.fn().mockResolvedValue([]),
@@ -61,7 +65,11 @@ describe('DutyAuthorizationService', () => {
     const organizationAuthorization = {
       can: jest.fn().mockResolvedValue(false),
       assertCan: jest.fn().mockResolvedValue(undefined),
-      visibleOrgUnitIds: jest.fn().mockResolvedValue(['unit-1']),
+      visibleOrgUnitIds: jest
+        .fn()
+        .mockImplementation(async (_user, capability: string) =>
+          capability === 'duty.manage' ? [] : ['unit-1'],
+        ),
     };
     return {
       prisma,
@@ -106,7 +114,14 @@ describe('DutyAuthorizationService', () => {
       expect.objectContaining({
         officeId: 'office-1',
         primaryOrgUnitId: 'unit-1',
-        orgUnits: [{ id: 'unit-1', code: 'UNIT', name: 'Unit One' }],
+        orgUnits: [
+          {
+            id: 'unit-1',
+            code: 'UNIT',
+            name: 'Unit One',
+            parentOrgUnitId: null,
+          },
+        ],
         operationalTeams: [],
         canView: true,
         canCreate: false,
@@ -117,10 +132,10 @@ describe('DutyAuthorizationService', () => {
     );
   });
 
-  it('grants Team Lead only Team-scoped Duty assignment/management entry', async () => {
+  it('grants Team Lead only Team-scoped Duty assignment entry without configuration management', async () => {
     const h = harness();
     h.prisma.operationalTeamLeadAssignment.findMany.mockResolvedValue([
-      { teamId: 'team-1' },
+      { teamId: 'team-1', team: { orgUnitId: 'unit-1' } },
     ]);
     h.prisma.operationalTeam.findMany.mockResolvedValue([
       { id: 'team-1', code: 'TEAM', name: 'Team One', orgUnitId: 'unit-1' },
@@ -133,7 +148,7 @@ describe('DutyAuthorizationService', () => {
     ]);
     expect(context.canView).toBe(true);
     expect(context.canAssign).toBe(true);
-    expect(context.canManage).toBe(true);
+    expect(context.canManage).toBe(false);
     expect(context.canCreate).toBe(false);
   });
 });

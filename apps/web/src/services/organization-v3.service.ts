@@ -1,7 +1,15 @@
-import { apiRequest } from "../lib/api";
+import { apiRequest, isApiNetworkError } from "../lib/api";
 
 import type {
+  OrganizationWorkspaceContext,
   CreateOrganizationDelegationInput,
+  CreateOrganizationOfficeInput,
+  CreateOrganizationOfficeResponse,
+  AssignOfficeHeadInput,
+  ReplaceOfficeHeadInput,
+  ReplaceOfficeHeadResponse,
+  CreateOfficeHeadAccountInput,
+  CreateOfficeHeadAccountResponse,
   CreateOrganizationUnitInput,
   AssignOrganizationMembershipInput,
   AssignOrganizationLeadershipInput,
@@ -10,6 +18,7 @@ import type {
   OrganizationDelegationListResponse,
   OrganizationDelegationMutationResponse,
   EndOrganizationLeadershipInput,
+  DeleteOrganizationUnitResponse,
   MoveOrganizationUnitInput,
   OrganizationActionContext,
   OrganizationEmployeeMembershipsResponse,
@@ -20,6 +29,7 @@ import type {
   OrganizationPeopleResponse,
   OrganizationNavigationContextResponse,
   OrganizationOfficeListResponse,
+  OrganizationOfficeHeadContextResponse,
   OrganizationOfficeResponse,
   OrganizationTreeResponse,
   OrganizationUnitMutationResponse,
@@ -43,11 +53,49 @@ export function getOrganizationOffices(
   });
 }
 
+const workspaceContextRequests = new Map<
+  string,
+  Promise<OrganizationWorkspaceContext>
+>();
+
+export function getOrganizationWorkspaceContext(
+  accessToken: string,
+): Promise<OrganizationWorkspaceContext> {
+  const inFlightRequest = workspaceContextRequests.get(accessToken);
+
+  if (inFlightRequest) {
+    return inFlightRequest;
+  }
+
+  const request = apiRequest<OrganizationWorkspaceContext>(
+    "/organization/workspace-context",
+    { headers: authHeader(accessToken) },
+  ).finally(() => {
+    if (workspaceContextRequests.get(accessToken) === request) {
+      workspaceContextRequests.delete(accessToken);
+    }
+  });
+
+  workspaceContextRequests.set(accessToken, request);
+  return request;
+}
+
 export function getOrganizationNavigationContext(
   accessToken: string,
 ): Promise<OrganizationNavigationContextResponse> {
   return apiRequest<OrganizationNavigationContextResponse>(
     "/organization/navigation-context",
+    {
+      headers: authHeader(accessToken),
+    },
+  );
+}
+
+export function getOrganizationOfficeHeadContext(
+  accessToken: string,
+): Promise<OrganizationOfficeHeadContextResponse> {
+  return apiRequest<OrganizationOfficeHeadContextResponse>(
+    "/organization/office-head-context",
     {
       headers: authHeader(accessToken),
     },
@@ -139,7 +187,7 @@ export function moveOrganizationUnit(
   );
 }
 
-export function setOrganizationUnitStatus(
+function requestOrganizationUnitStatus(
   accessToken: string,
   officeId: string,
   unitId: string,
@@ -151,6 +199,51 @@ export function setOrganizationUnitStatus(
       method: "PATCH",
       headers: authHeader(accessToken),
       body: JSON.stringify(input),
+    },
+  );
+}
+
+export async function setOrganizationUnitStatus(
+  accessToken: string,
+  officeId: string,
+  unitId: string,
+  input: SetOrganizationUnitStatusInput,
+): Promise<OrganizationUnitMutationResponse> {
+  try {
+    return await requestOrganizationUnitStatus(
+      accessToken,
+      officeId,
+      unitId,
+      input,
+    );
+  } catch (error) {
+    if (!isApiNetworkError(error)) {
+      throw error;
+    }
+
+    // Setting an explicit active state is idempotent. A single retry is safe even
+    // when the first request reached the API but its response was interrupted.
+    await new Promise((resolve) => setTimeout(resolve, 400));
+
+    return requestOrganizationUnitStatus(
+      accessToken,
+      officeId,
+      unitId,
+      input,
+    );
+  }
+}
+
+export function deleteOrganizationUnit(
+  accessToken: string,
+  officeId: string,
+  unitId: string,
+): Promise<DeleteOrganizationUnitResponse> {
+  return apiRequest<DeleteOrganizationUnitResponse>(
+    `/organization/offices/${officeId}/units/${unitId}`,
+    {
+      method: "DELETE",
+      headers: authHeader(accessToken),
     },
   );
 }
@@ -347,3 +440,8 @@ export function revokeOrganizationDelegation(
     },
   );
 }
+
+export function createOrganizationOffice(accessToken: string, input: CreateOrganizationOfficeInput): Promise<CreateOrganizationOfficeResponse> { return apiRequest('/organization/offices', { method: 'POST', headers: authHeader(accessToken), body: JSON.stringify(input) }); }
+export function assignOfficeHead(accessToken: string, officeId: string, input: AssignOfficeHeadInput) { return apiRequest(`/organization/offices/${officeId}/leadership/office-head`, { method: 'POST', headers: authHeader(accessToken), body: JSON.stringify(input) }); }
+export function replaceOfficeHead(accessToken: string, officeId: string, input: ReplaceOfficeHeadInput): Promise<ReplaceOfficeHeadResponse> { return apiRequest<ReplaceOfficeHeadResponse>(`/organization/offices/${officeId}/leadership/office-head/replace`, { method: 'PATCH', headers: authHeader(accessToken), body: JSON.stringify(input) }); }
+export function createOfficeHeadAccount(accessToken: string, officeId: string, input: CreateOfficeHeadAccountInput): Promise<CreateOfficeHeadAccountResponse> { return apiRequest<CreateOfficeHeadAccountResponse>(`/organization/offices/${officeId}/leadership/office-head/account`, { method: 'POST', headers: authHeader(accessToken), body: JSON.stringify(input) }); }

@@ -1,11 +1,9 @@
+import { readMessageAppRuntimeSourceSync } from "./message-app-runtime-source.mjs";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
 
-const page = readFileSync(
-  new URL("../src/pages/MessageAppPage.tsx", import.meta.url),
-  "utf8",
-);
+const page = readMessageAppRuntimeSourceSync();
 const messagingService = readFileSync(
   new URL("../src/services/messaging.service.ts", import.meta.url),
   "utf8",
@@ -43,10 +41,7 @@ test("P12-K removes legacy hierarchy targets from new communication writes", () 
   assert.doesNotMatch(createGroupHandler, /scopeType === "DIVISION"/);
   assert.doesNotMatch(createGroupHandler, /scopeType === "DEPARTMENT"/);
 
-  assert.match(
-    announcementTypes,
-    /"OFFICE" \| "ORG_UNIT" \| "OFFICIAL_GROUP"/,
-  );
+  assert.match(announcementTypes, /"OFFICE" \| "ORG_UNIT" \| "OFFICIAL_GROUP"/);
   const createAnnouncement = announcementTypes.slice(
     announcementTypes.indexOf("export interface CreateAnnouncementInput"),
     announcementTypes.indexOf("export interface AnnouncementListResponse"),

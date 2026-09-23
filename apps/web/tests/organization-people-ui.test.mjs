@@ -27,32 +27,28 @@ const ne = JSON.parse(readFileSync(
   "utf8",
 ));
 
-test("organization people workspace uses only V3 membership contracts", () => {
+test("organization placement actions reuse V3 membership contracts", () => {
   assert.match(service, /\/organization\/offices\/\$\{officeId\}\/people/);
   assert.match(service, /memberships\/transfer-primary/);
-  assert.match(service, /memberships\/\$\{membershipId\}\/end/);
-  assert.match(panel, /getEmployeeOrganizationMemberships/);
   assert.match(panel, /getOrganizationPeopleActions/);
+  assert.match(panel, /transferPrimaryOrganizationMembership/);
+  assert.match(panel, /assignOrganizationMembership/);
   assert.doesNotMatch(panel, /directory\/employees/);
   assert.doesNotMatch(panel, /organization\/divisions/);
   assert.doesNotMatch(panel, /organization\/departments/);
   assert.doesNotMatch(panel, /ManagementPosition|SENIOR_MANAGEMENT|TEAM_MANAGER/);
 });
 
-test("people placement actions stay inline and translated", () => {
+test("duplicate People workspace is removed and placement stays inside Structure", () => {
   assert.match(adminPanel, /OrganizationPeoplePanel/);
-  assert.match(adminPanel, /workspaceView === "PEOPLE"/);
-  assert.match(panel, /organization-inline-editor organization-people-editor/);
-  assert.doesNotMatch(panel, /dialog|backdrop|aria-modal/i);
-  assert.match(css, /\.organization-people-layout/);
+  assert.doesNotMatch(adminPanel, /workspaceView === "PEOPLE"/);
+  assert.doesNotMatch(adminPanel, /tabs\.people/);
+  assert.match(adminPanel, /unit=\{selectedUnit\}/);
+  assert.match(adminPanel, /people=\{structurePeople\}/);
+  assert.match(panel, /organization-unit-placement-editor/);
+  assert.doesNotMatch(panel, /Person details|Past and current assignments|organization-person-detail-panel/);
+  assert.match(css, /\.organization-unit-person-actions/);
   assert.deepEqual(Object.keys(en.tabs), Object.keys(ne.tabs));
   assert.deepEqual(Object.keys(en.people), Object.keys(ne.people));
-  assert.deepEqual(
-    Object.keys(en.people.membershipTypes),
-    Object.keys(ne.people.membershipTypes),
-  );
-  assert.deepEqual(
-    Object.keys(en.people.errors),
-    Object.keys(ne.people.errors),
-  );
+  assert.deepEqual(Object.keys(en.people.errors), Object.keys(ne.people.errors));
 });

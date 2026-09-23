@@ -1,6 +1,4 @@
-import type {
-  AccountRole,
-} from "./auth";
+import type { AccountRole } from "./auth";
 
 export type EmergencyAlertRecipientStatus =
   | "PENDING"
@@ -11,6 +9,10 @@ export type EmergencyAlertRecipientStatus =
 export type EmergencyAlertProfileSource =
   | "EMPLOYEE_PROFILE"
   | "SUPER_ADMIN_PROFILE";
+
+export type EmergencyAlertRecipientKind = "OFFICE_USER" | "SYSTEM_SUPPORT";
+export type EmergencySmsLanguage = "EN" | "NE";
+export type EmergencySmsMessageMode = "QUICK" | "CUSTOM";
 
 export type SuperAdminProfileSource =
   | "SYSTEM_CONFIG"
@@ -42,14 +44,24 @@ export interface EmergencyAlertContact {
   accountId: string;
   displayName: string;
   role: AccountRole;
+  recipientKind: EmergencyAlertRecipientKind;
+  authorityLabel: string;
   designation: string | null;
+  officeId: string | null;
+  officeName: string | null;
+  orgUnitId: string | null;
+  orgUnitName: string | null;
+  orgUnitType: string | null;
+  teamName: string | null;
   profileSource: EmergencyAlertProfileSource;
   phoneAvailable: boolean;
+  phoneDisplay: string | null;
   phoneStatus: SuperAdminProfileStatus | "READY";
   phoneStatusMessage: string;
 }
 
 export interface EmergencyAlertContactsResponse {
+  office: { id: string; name: string };
   data: EmergencyAlertContact[];
 }
 
@@ -83,5 +95,6 @@ export interface SendEmergencyAlertResponse {
     createdAt: string;
   };
   recipient: EmergencyAlertRecipientDelivery;
-  architectureNote: string;
+  language: EmergencySmsLanguage;
+  messageMode: EmergencySmsMessageMode;
 }

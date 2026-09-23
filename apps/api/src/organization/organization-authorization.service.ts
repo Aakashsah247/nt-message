@@ -13,6 +13,11 @@ import {
 import {
   CAPABILITIES,
   DELEGABLE_CAPABILITIES,
+  ORGANIZATION_ACCESS_CAPABILITIES,
+  SHARED_RESPONSIBILITY_CAPABILITIES,
+  delegationGrantKeysForCapability,
+  isSharedResponsibility,
+  type SharedResponsibility,
   type Capability,
 } from './organization-capabilities';
 
@@ -60,10 +65,12 @@ const OFFICE_HEAD_CAPABILITIES = new Set<Capability>([
   CAPABILITIES.ANNOUNCEMENT_PUBLISH,
   CAPABILITIES.OFFICIAL_GROUP_VIEW,
   CAPABILITIES.OFFICIAL_GROUP_MANAGE,
+  CAPABILITIES.TEAM_MANAGE,
 ]);
 
 const ORG_UNIT_HEAD_CAPABILITIES = new Set<Capability>([
   CAPABILITIES.ORGANIZATION_VIEW,
+  CAPABILITIES.USERS_REQUEST_CREATE,
   CAPABILITIES.MEMBERSHIP_VIEW,
   CAPABILITIES.LEADERSHIP_VIEW,
   CAPABILITIES.WORK_VIEW,
@@ -86,6 +93,7 @@ const ORG_UNIT_HEAD_CAPABILITIES = new Set<Capability>([
   CAPABILITIES.ANNOUNCEMENT_PUBLISH,
   CAPABILITIES.OFFICIAL_GROUP_VIEW,
   CAPABILITIES.OFFICIAL_GROUP_MANAGE,
+  CAPABILITIES.TEAM_MANAGE,
 ]);
 
 const SUPER_ADMIN_CAPABILITIES = new Set<Capability>([
@@ -115,6 +123,44 @@ const SUPER_ADMIN_CAPABILITIES = new Set<Capability>([
 @Injectable()
 export class OrganizationAuthorizationService {
   constructor(private readonly prisma: PrismaService) {}
+
+  /**
+   * A delegated mutation must carry the read context required to perform that
+   * mutation. For example, someone who may assign an Acting Head must be able
+   * to see the delegated organization branch, eligible people, and current
+   * leadership in that same scope. This does not grant any additional write
+   * capability; it only prevents the workspace from advertising an action
+   * whose supporting read APIs then reject the same delegated user.
+   */
+  private delegatedSourcesForReadCapability(
+    capability: Capability,
+  ): Capability[] {
+    if (capability === CAPABILITIES.ORGANIZATION_VIEW) {
+      return [...ORGANIZATION_ACCESS_CAPABILITIES];
+    }
+
+    if (capability === CAPABILITIES.MEMBERSHIP_VIEW) {
+      return [
+        CAPABILITIES.MEMBERSHIP_VIEW,
+        CAPABILITIES.MEMBERSHIP_TRANSFER_INTERNAL,
+        CAPABILITIES.MEMBERSHIP_ASSIGN_SECONDARY,
+        CAPABILITIES.LEADERSHIP_ASSIGN,
+        CAPABILITIES.LEADERSHIP_ASSIGN_ACTING,
+        CAPABILITIES.LEADERSHIP_ASSIGN_DEPUTY,
+      ];
+    }
+
+    if (capability === CAPABILITIES.LEADERSHIP_VIEW) {
+      return [
+        CAPABILITIES.LEADERSHIP_VIEW,
+        CAPABILITIES.LEADERSHIP_ASSIGN,
+        CAPABILITIES.LEADERSHIP_ASSIGN_ACTING,
+        CAPABILITIES.LEADERSHIP_ASSIGN_DEPUTY,
+      ];
+    }
+
+    return [capability];
+  }
 
   async can(
     user: AuthenticatedUser,
@@ -211,6 +257,11 @@ export class OrganizationAuthorizationService {
       select: {
         leadershipType: true,
         orgUnitId: true,
+        orgUnit: {
+          select: {
+            orgUnitType: { select: { code: true } },
+          },
+        },
       },
     });
 
@@ -222,12 +273,24 @@ export class OrganizationAuthorizationService {
         return true;
       }
 
-      if (
-        assignment.leadershipType === OrgLeadershipType.ORG_UNIT_HEAD &&
-        ORG_UNIT_HEAD_CAPABILITIES.has(capability) &&
-        (await this.orgUnitScopeCovers(assignment.orgUnitId, orgUnitId, true))
-      ) {
-        return true;
+      if (assignment.leadershipType === OrgLeadershipType.ORG_UNIT_HEAD) {
+        const isDivisionHead =
+          assignment.orgUnit?.orgUnitType.code === 'DIVISION';
+        const isDivisionWorkTypeCapability =
+          capability === CAPABILITIES.WORK_TYPE_VIEW ||
+          capability === CAPABILITIES.WORK_TYPE_DRAFT ||
+          capability === CAPABILITIES.WORK_TYPE_PUBLISH;
+
+        if (isDivisionHead && isDivisionWorkTypeCapability) {
+          return true;
+        }
+
+        if (
+          ORG_UNIT_HEAD_CAPABILITIES.has(capability) &&
+          (await this.orgUnitScopeCovers(assignment.orgUnitId, orgUnitId, true))
+        ) {
+          return true;
+        }
       }
 
       /*
@@ -270,11 +333,20 @@ export class OrganizationAuthorizationService {
       }
     }
 
+    const delegationSourceCapabilities = [
+      ...new Set(
+        this.delegatedSourcesForReadCapability(capability).flatMap(
+          delegationGrantKeysForCapability,
+        ),
+      ),
+    ];
     const delegations = await this.prisma.delegatedPermission.findMany({
       where: {
         granteeAccountId: user.accountId,
         officeId,
-        capability,
+        capability: {
+          in: delegationSourceCapabilities,
+        },
         revokedAt: null,
         effectiveFrom: {
           lte: at,
@@ -472,6 +544,110 @@ export class OrganizationAuthorizationService {
     return false;
   }
 
+  async canRedelegateResponsibility(
+    user: AuthenticatedUser,
+    responsibility: SharedResponsibility,
+    officeId: string,
+    orgUnitId: string | null,
+    requestedIncludeDescendants = false,
+    requestedEffectiveFrom = new Date(),
+    requestedEffectiveUntil: Date | null = null,
+  ): Promise<boolean> {
+    if (!isSharedResponsibility(responsibility)) return false;
+
+    if (
+      requestedEffectiveUntil &&
+      requestedEffectiveUntil.getTime() <= requestedEffectiveFrom.getTime()
+    ) {
+      return false;
+    }
+
+    const officeHead = await this.resolveActiveOfficeHeadAssignment(
+      user,
+      officeId,
+      requestedEffectiveFrom,
+    );
+
+    if (officeHead) {
+      if (
+        officeHead.effectiveUntil &&
+        (!requestedEffectiveUntil ||
+          requestedEffectiveUntil.getTime() >
+            officeHead.effectiveUntil.getTime())
+      ) {
+        return false;
+      }
+
+      return SHARED_RESPONSIBILITY_CAPABILITIES[responsibility].every(
+        (capability) =>
+          OFFICE_HEAD_CAPABILITIES.has(capability) ||
+          capability === CAPABILITIES.WORK_CREATE,
+      );
+    }
+
+    if (user.accountClass === AccountClass.SUPER_ADMIN) return false;
+
+    const matchingBundle = await this.prisma.delegatedPermission.findFirst({
+      where: {
+        granteeAccountId: user.accountId,
+        officeId,
+        capability: responsibility,
+        canRedelegate: true,
+        revokedAt: null,
+        effectiveFrom: { lte: requestedEffectiveFrom },
+        OR: [
+          { effectiveUntil: null },
+          { effectiveUntil: { gt: requestedEffectiveFrom } },
+        ],
+      },
+      select: {
+        orgUnitId: true,
+        includeDescendants: true,
+        effectiveUntil: true,
+      },
+    });
+
+    if (matchingBundle) {
+      const scopeCovered = await this.orgUnitScopeCovers(
+        matchingBundle.orgUnitId,
+        orgUnitId,
+        matchingBundle.includeDescendants,
+      );
+      if (!scopeCovered) return false;
+      if (
+        requestedIncludeDescendants &&
+        matchingBundle.orgUnitId !== null &&
+        !matchingBundle.includeDescendants
+      ) {
+        return false;
+      }
+      if (
+        matchingBundle.effectiveUntil &&
+        (!requestedEffectiveUntil ||
+          requestedEffectiveUntil.getTime() >
+            matchingBundle.effectiveUntil.getTime())
+      ) {
+        return false;
+      }
+      return true;
+    }
+
+    const atomicResults = await Promise.all(
+      SHARED_RESPONSIBILITY_CAPABILITIES[responsibility].map((capability) =>
+        this.canRedelegate(
+          user,
+          capability,
+          officeId,
+          orgUnitId,
+          requestedIncludeDescendants,
+          requestedEffectiveFrom,
+          requestedEffectiveUntil,
+        ),
+      ),
+    );
+    return atomicResults.every(Boolean);
+  }
+
   async visibleOrgUnitIds(
     user: AuthenticatedUser,
     capability: Capability,
@@ -554,6 +730,11 @@ export class OrganizationAuthorizationService {
       select: {
         leadershipType: true,
         orgUnitId: true,
+        orgUnit: {
+          select: {
+            orgUnitType: { select: { code: true } },
+          },
+        },
       },
     });
 
@@ -612,11 +793,20 @@ export class OrganizationAuthorizationService {
       );
     }
 
+    const delegationSourceCapabilities = [
+      ...new Set(
+        this.delegatedSourcesForReadCapability(capability).flatMap(
+          delegationGrantKeysForCapability,
+        ),
+      ),
+    ];
     const delegated = await this.prisma.delegatedPermission.findMany({
       where: {
         granteeAccountId: user.accountId,
         officeId,
-        capability,
+        capability: {
+          in: delegationSourceCapabilities,
+        },
         revokedAt: null,
         effectiveFrom: {
           lte: now,

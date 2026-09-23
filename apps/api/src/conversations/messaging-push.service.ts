@@ -246,10 +246,14 @@ export class MessagingPushService {
             return;
           }
 
+          const reason =
+            error instanceof Error
+              ? error.message
+              : typeof error === 'string'
+                ? error
+                : 'Unknown push delivery error';
           this.logger.warn(
-            `Background notification delivery failed for subscription ${subscription.id}: ${
-              error instanceof Error ? error.message : String(error)
-            }`,
+            `Background notification delivery failed for subscription ${subscription.id}: ${reason}`,
           );
         }
       }),
