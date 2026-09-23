@@ -4,6 +4,7 @@ import type { PrismaService } from '../database/prisma.service';
 import {
   AccountRole,
   WorkAssignmentRole,
+  WorkCompletionReviewStatus,
   WorkHelpReason,
   WorkHelpRequestStatus,
   WorkItemStatus,
@@ -96,6 +97,7 @@ describe('WorkLifecycleService M20 Phase 2', () => {
   const transaction = {
     workItem: {
       findFirst: jest.fn(),
+      update: jest.fn(),
       updateMany: jest.fn(),
       findUniqueOrThrow: jest.fn(),
     },
@@ -116,6 +118,10 @@ describe('WorkLifecycleService M20 Phase 2', () => {
     },
     workEvidence: {
       createMany: jest.fn(),
+      updateMany: jest.fn(),
+    },
+    workSalesAttachment: {
+      updateMany: jest.fn(),
     },
     workAssignment: {
       create: jest.fn(),
@@ -271,6 +277,91 @@ describe('WorkLifecycleService M20 Phase 2', () => {
     );
     expect(result.helpRequest).toEqual(
       expect.objectContaining({ id: 'help-1' }),
+    );
+  });
+
+  it('lists only actionable pending help requests addressed to the signed-in employee', async () => {
+    jest.mocked(scope.resolveActorContext).mockResolvedValue({
+      accountId: 'employee',
+      role: AccountRole.EMPLOYEE,
+      officeId: 'office-a',
+      primaryOrgUnitId: 'org-unit-a',
+      visibleOrgUnitIds: ['org-unit-a'],
+      assignableOrgUnitIds: ['org-unit-a'],
+      operationalTeamLeadIds: ['team-a'],
+    });
+    jest.mocked(prisma.workHelpRequest.findMany).mockResolvedValue([] as never);
+
+    await service.listPendingHelpRequests(employeeUser);
+
+    expect(scope.buildVisibleWorkWhere).not.toHaveBeenCalled();
+    expect(prisma.workHelpRequest.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: {
+          requestedHelperAccountId: 'employee',
+          status: WorkHelpRequestStatus.PENDING,
+          workItem: {
+            is: {
+              status: {
+                in: [
+                  WorkItemStatus.IN_PROGRESS,
+                  WorkItemStatus.HELP_REQUESTED,
+                  WorkItemStatus.BLOCKED,
+                ],
+              },
+            },
+          },
+        },
+      }),
+    );
+  });
+
+  it('retires unanswered help requests when completed Work is approved and closed', async () => {
+    const current = {
+      ...currentWork(WorkItemStatus.COMPLETED_PENDING_REVIEW),
+      responsibleReviewerAccountId: 'manager',
+      completionReports: [
+        {
+          id: 'report-1',
+          reviewStatus: WorkCompletionReviewStatus.PENDING_REVIEW,
+          customerId: null,
+          rxLevelDbm: null,
+        },
+      ],
+    };
+    const final = detailWork(WorkItemStatus.CLOSED);
+    jest.mocked(scope.resolveActorContext).mockResolvedValue({
+      accountId: 'manager',
+      role: AccountRole.EMPLOYEE,
+      officeId: 'office-a',
+      primaryOrgUnitId: 'org-unit-a',
+      visibleOrgUnitIds: ['org-unit-a'],
+      assignableOrgUnitIds: ['org-unit-a'],
+      operationalTeamLeadIds: [],
+    });
+    transaction.workItem.findFirst.mockResolvedValue(current);
+    transaction.workItem.findUniqueOrThrow.mockResolvedValue(final);
+    transaction.workCompletionReport.update.mockResolvedValue({} as never);
+    transaction.workEvidence.updateMany.mockResolvedValue({ count: 0 });
+    transaction.workHelpRequest.updateMany.mockResolvedValue({ count: 1 });
+    transaction.workItem.update.mockResolvedValue({} as never);
+    transaction.workActivity.create.mockResolvedValue({} as never);
+
+    await service.close({ ...employeeUser, accountId: 'manager' }, 'work-1', {
+      note: 'Approved.',
+    });
+
+    expect(transaction.workHelpRequest.updateMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: {
+          workItemId: 'work-1',
+          status: WorkHelpRequestStatus.PENDING,
+        },
+        data: expect.objectContaining({
+          status: WorkHelpRequestStatus.CANCELLED,
+          respondedAt: expect.any(Date),
+        }),
+      }),
     );
   });
 

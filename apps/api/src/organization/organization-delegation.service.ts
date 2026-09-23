@@ -46,6 +46,35 @@ export class OrganizationDelegationService {
     return value.trim().replace(/\s+/g, ' ');
   }
 
+  private async resolveScopedOrgUnitIds(
+    orgUnitId: string | null,
+    includeDescendants: boolean,
+  ): Promise<string[] | null> {
+    if (!orgUnitId) {
+      return null;
+    }
+
+    if (!includeDescendants) {
+      return [orgUnitId];
+    }
+
+    const descendants = await this.prisma.orgUnitClosure.findMany({
+      where: {
+        ancestorOrgUnitId: orgUnitId,
+      },
+      select: {
+        descendantOrgUnitId: true,
+      },
+    });
+
+    return [
+      ...new Set([
+        orgUnitId,
+        ...descendants.map((item) => item.descendantOrgUnitId),
+      ]),
+    ];
+  }
+
   private parseDate(
     value: string | undefined,
     label: string,
@@ -97,6 +126,11 @@ export class OrganizationDelegationService {
       }
       selectedOrgUnitTypeCode = orgUnit.orgUnitType.code;
     }
+
+    const scopedCandidateOrgUnitIds = await this.resolveScopedOrgUnitIds(
+      orgUnitId,
+      includeDescendants,
+    );
 
     const officeHead = await this.authorization.isOfficeHead(
       user,
@@ -159,6 +193,9 @@ export class OrganizationDelegationService {
       ? await this.prisma.orgMembership.findMany({
           where: {
             officeId,
+            ...(scopedCandidateOrgUnitIds
+              ? { orgUnitId: { in: scopedCandidateOrgUnitIds } }
+              : {}),
             membershipType: OrgMembershipType.PRIMARY,
             startsAt: { lte: now },
             OR: [{ endsAt: null }, { endsAt: { gt: now } }],
@@ -433,6 +470,11 @@ export class OrganizationDelegationService {
       );
     }
 
+    const scopedGranteeOrgUnitIds = await this.resolveScopedOrgUnitIds(
+      orgUnitId,
+      includeDescendants,
+    );
+
     const grantee = await this.prisma.account.findUnique({
       where: {
         id: dto.granteeAccountId,
@@ -465,6 +507,9 @@ export class OrganizationDelegationService {
       where: {
         employeeId: grantee.employeeId,
         officeId,
+        ...(scopedGranteeOrgUnitIds
+          ? { orgUnitId: { in: scopedGranteeOrgUnitIds } }
+          : {}),
         membershipType: OrgMembershipType.PRIMARY,
         startsAt: {
           lte: effectiveFrom,
@@ -487,7 +532,9 @@ export class OrganizationDelegationService {
 
     if (!membership) {
       throw new ConflictException(
-        'The employee must have an active primary membership in this office.',
+        orgUnitId
+          ? 'The employee must have an active primary membership inside the delegated organizational scope.'
+          : 'The employee must have an active primary membership in this office.',
       );
     }
 

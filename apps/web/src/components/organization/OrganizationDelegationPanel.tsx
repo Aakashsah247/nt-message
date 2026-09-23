@@ -337,6 +337,14 @@ export function OrganizationDelegationPanel({
             ? current
             : "",
         );
+        setGranteeAccountId((current) =>
+          current &&
+          response.candidates.some(
+            (candidate) => candidate.accountId === current,
+          )
+            ? current
+            : "",
+        );
       })
       .catch((requestError: unknown) => {
         if (active) {

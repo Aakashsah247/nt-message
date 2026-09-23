@@ -176,6 +176,12 @@ type WorkItemDetail = WorkItemDetailPayload;
 
 type WorkDatabaseClient = Pick<Prisma.TransactionClient, 'workItem'>;
 
+const HELP_REQUEST_ACTIONABLE_WORK_STATUSES = [
+  WorkItemStatus.IN_PROGRESS,
+  WorkItemStatus.HELP_REQUESTED,
+  WorkItemStatus.BLOCKED,
+] as const;
+
 const completionReportSelect = {
   id: true,
   result: true,
@@ -971,6 +977,12 @@ export class WorkLifecycleService {
           },
         );
         const completedAt = new Date();
+        await this.retirePendingHelpRequests(
+          transaction,
+          current.id,
+          completedAt,
+          'Automatically cancelled because the Work was submitted for completion review.',
+        );
         await transaction.workItem.update({
           where: { id: current.id },
           data: {
@@ -1124,15 +1136,22 @@ export class WorkLifecycleService {
         throw new ConflictException(
           'No completion report is waiting for review.',
         );
+      const reopenedAt = new Date();
       await transaction.workCompletionReport.update({
         where: { id: latest.id },
         data: {
           reviewStatus: WorkCompletionReviewStatus.INFORMATION_REQUESTED,
           managerNote: dto.note.trim(),
           reviewedByAccountId: actor.accountId,
-          reviewedAt: new Date(),
+          reviewedAt: reopenedAt,
         },
       });
+      await this.retirePendingHelpRequests(
+        transaction,
+        current.id,
+        reopenedAt,
+        'Automatically cancelled because the Work was returned for correction.',
+      );
       await transaction.workItem.update({
         where: { id: current.id },
         data: {
@@ -1201,6 +1220,12 @@ export class WorkLifecycleService {
           expiredAt: null,
         },
       });
+      await this.retirePendingHelpRequests(
+        transaction,
+        current.id,
+        closedAt,
+        'Automatically cancelled because the Work was closed.',
+      );
       await transaction.workItem.update({
         where: { id: current.id },
         data: {
@@ -1248,6 +1273,7 @@ export class WorkLifecycleService {
     );
     this.assertResponsibleReviewer(current, actor.accountId);
     this.statusTransitions.assertCanReopen(current.status);
+    const reopenedAt = new Date();
     await this.prisma.$transaction([
       this.prisma.workItem.update({
         where: { id: current.id },
@@ -1269,6 +1295,12 @@ export class WorkLifecycleService {
         },
         data: { expiresAt: null, expiredAt: null },
       }),
+      this.retirePendingHelpRequests(
+        this.prisma,
+        current.id,
+        reopenedAt,
+        'Automatically cancelled because the Work was reopened.',
+      ),
       this.prisma.workActivity.create({
         data: {
           workItemId: current.id,
@@ -1338,6 +1370,12 @@ export class WorkLifecycleService {
         },
         data: { expiresAt: workAttachmentExpiresAt(cancelledAt) },
       }),
+      this.retirePendingHelpRequests(
+        this.prisma,
+        current.id,
+        cancelledAt,
+        'Automatically cancelled because the Work was cancelled.',
+      ),
       this.prisma.workActivity.create({
         data: {
           workItemId: current.id,
@@ -1724,28 +1762,40 @@ export class WorkLifecycleService {
 
   async listPendingHelpRequests(user: AuthenticatedUser) {
     const actor = await this.workScopeService.resolveActorContext(user);
-    const hasScopedOversight =
-      actor.accountClass === AccountClass.SUPER_ADMIN ||
-      (actor.visibleOrgUnitIds?.length ?? 0) > 0 ||
-      (actor.operationalTeamLeadIds?.length ?? 0) > 0;
-    const where: Prisma.WorkHelpRequestWhereInput = hasScopedOversight
-      ? {
-          status: WorkHelpRequestStatus.PENDING,
-          workItem: {
-            is: this.workScopeService.buildVisibleWorkWhere(actor),
-          },
-        }
-      : {
-          requestedHelperAccountId: actor.accountId,
-          status: WorkHelpRequestStatus.PENDING,
-        };
     const requests = await this.prisma.workHelpRequest.findMany({
-      where,
+      where: {
+        requestedHelperAccountId: actor.accountId,
+        status: WorkHelpRequestStatus.PENDING,
+        workItem: {
+          is: {
+            status: { in: [...HELP_REQUEST_ACTIONABLE_WORK_STATUSES] },
+          },
+        },
+      },
       orderBy: { createdAt: 'asc' },
       take: 100,
       select: helpRequestSelect,
     });
     return { data: requests };
+  }
+
+  private retirePendingHelpRequests(
+    transaction: Pick<Prisma.TransactionClient, 'workHelpRequest'>,
+    workItemId: string,
+    at: Date,
+    responseNote: string,
+  ) {
+    return transaction.workHelpRequest.updateMany({
+      where: {
+        workItemId,
+        status: WorkHelpRequestStatus.PENDING,
+      },
+      data: {
+        status: WorkHelpRequestStatus.CANCELLED,
+        responseNote,
+        respondedAt: at,
+      },
+    });
   }
 
   private validateCompletionFiles(files: UploadedMessageAttachmentFile[]) {

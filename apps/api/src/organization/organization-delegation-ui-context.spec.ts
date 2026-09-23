@@ -139,6 +139,11 @@ describe('OrganizationDelegationService UI context', () => {
           orgUnitType: { code: 'SECTION' },
         }),
       },
+      orgUnitClosure: {
+        findMany: jest
+          .fn()
+          .mockResolvedValue([{ descendantOrgUnitId: 'section-1' }]),
+      },
       orgMembership: {
         findMany: jest.fn().mockResolvedValue([]),
       },

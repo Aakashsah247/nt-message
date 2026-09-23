@@ -488,12 +488,41 @@ async function fetchAllVisible(accessToken: string, view: "ACTIVE" | "HISTORY", 
   return data;
 }
 
+function rangeBoundaryTime(value: string, endOfDay: boolean): number {
+  const normalized = value.trim();
+  const dateOnly = /^\d{4}-\d{2}-\d{2}$/.test(normalized);
+  return new Date(
+    dateOnly
+      ? `${normalized}T${endOfDay ? "23:59:59.999" : "00:00:00"}`
+      : normalized,
+  ).getTime();
+}
+
 function dateInRange(value: string | null | undefined, from?: string, to?: string): boolean {
   if (!value) return !from && !to;
+
   const time = new Date(value).getTime();
-  if (from && time < new Date(`${from}T00:00:00`).getTime()) return false;
-  if (to && time > new Date(`${to}T23:59:59.999`).getTime()) return false;
+  if (!Number.isFinite(time)) return false;
+
+  if (from) {
+    const fromTime = rangeBoundaryTime(from, false);
+    if (!Number.isFinite(fromTime) || time < fromTime) return false;
+  }
+  if (to) {
+    const toTime = rangeBoundaryTime(to, true);
+    if (!Number.isFinite(toTime) || time > toTime) return false;
+  }
   return true;
+}
+
+function historyTimestamp(raw: any): string | null | undefined {
+  if (raw.status === "CLOSED") {
+    return raw.closedAt ?? raw.completedAt ?? raw.updatedAt;
+  }
+  if (raw.status === "CANCELLED") {
+    return raw.cancelledAt ?? raw.updatedAt;
+  }
+  return raw.updatedAt;
 }
 
 export async function listWorkItems(accessToken: string, query: MainWorkListQuery = {}): Promise<WorkItemListResponse> {
@@ -537,7 +566,7 @@ export async function listWorkItems(accessToken: string, query: MainWorkListQuer
     if (!dateInRange(raw.dueAt, query.dueFrom, query.dueTo)) return false;
     if (!dateInRange(raw.plannedStartAt, query.plannedFrom, query.plannedTo)) return false;
     if (query.historyFrom || query.historyTo) {
-      if (!dateInRange(raw.updatedAt, query.historyFrom, query.historyTo)) return false;
+      if (!dateInRange(historyTimestamp(raw), query.historyFrom, query.historyTo)) return false;
     }
     if (query.view === "DELETION_REVIEW" && !raw.deletionRequestedAt) return false;
     if (query.view === "ARCHIVE" && !raw.archiveEligibleAt) return false;

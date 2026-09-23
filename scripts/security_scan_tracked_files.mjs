@@ -21,7 +21,7 @@ const placeholderPattern =
 // also consume newlines, so an empty value such as `SMTP_PASSWORD=` could
 // accidentally capture the value from the following environment variable.
 const sensitiveAssignmentPattern =
-  /\b(JWT_ACCESS_SECRET|JWT_REFRESH_SECRET|OTP_HASH_SECRET|ACTIVATION_TOKEN_SECRET|SMTP_PASSWORD|SUPABASE_SECRET_KEY|WEB_PUSH_VAPID_PRIVATE_KEY|MESSAGE_ENCRYPTION_KEY_V\d+_B64|MESSAGE_SEARCH_INDEX_KEY_V\d+_B64|MESSAGE_SIGNING_PRIVATE_KEY_V\d+_DER_B64)\b[ \t]*[:=][ \t]*["']?([^"'\s#]{20,})/gi;
+  /\b(JWT_ACCESS_SECRET|JWT_REFRESH_SECRET|OTP_HASH_SECRET|ACTIVATION_TOKEN_SECRET|SMTP_PASSWORD|SUPABASE_SECRET_KEY|WEB_PUSH_VAPID_PRIVATE_KEY|MESSAGE_ENCRYPTION_KEY_V\d+_B64|MESSAGE_SEARCH_INDEX_KEY_V\d+_B64|MESSAGE_SIGNING_PRIVATE_KEY_V\d+_DER_B64)\b[ \t]*([:=])[ \t]*(?:(["'])([^"'\r\n]{20,})\3|([A-Za-z0-9_+./=-]{20,})(?=[ \t,}\]#;\r\n]|$))/gi;
 const tokenPatterns = [
   { name: 'GitHub token', pattern: /\bgh[pousr]_[A-Za-z0-9]{30,}\b/g },
   {
@@ -78,7 +78,13 @@ for (const path of tracked) {
 
   sensitiveAssignmentPattern.lastIndex = 0;
   for (const match of source.matchAll(sensitiveAssignmentPattern)) {
-    const value = match[2] ?? '';
+    const value = match[4] ?? match[5] ?? '';
+
+    // Runtime-generated values and constant references are not committed
+    // credentials. Only complete quoted literals or complete bare tokens are
+    // candidates, and the redaction marker is an explicit safe test constant.
+    if (value === 'SECRET_REDACTION_MARKER') continue;
+
     if (!placeholderPattern.test(value)) {
       report(path, `contains a non-placeholder assignment for ${match[1]}`);
     }
