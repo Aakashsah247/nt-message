@@ -48,5 +48,10 @@ jobs:
       - name: Audit production dependencies
         run: pnpm audit --prod --audit-level high
 
+      - name: Generate Prisma client
+        run: pnpm --filter api exec prisma generate
+        env:
+          DATABASE_URL: postgresql://ci:ci@127.0.0.1:5432/nt_message_ci
+
       - name: Run security regression and API build
         run: node scripts/run_security_gate.mjs
