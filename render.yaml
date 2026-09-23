@@ -5,7 +5,7 @@ services:
     plan: free
     region: singapore
     buildCommand: corepack enable && pnpm install --frozen-lockfile && pnpm --filter api exec prisma generate && pnpm --filter api build
-    startCommand: pnpm --filter api exec prisma migrate deploy --schema prisma/schema.prisma && pnpm --filter api db:seed && pnpm --filter api start:prod
+    startCommand: pnpm --filter api exec prisma migrate deploy --schema prisma/schema.prisma && pnpm --filter api start:prod
     healthCheckPath: /api/v1/health/database
     envVars:
       - key: NODE_VERSION
