@@ -1,11 +1,11 @@
 services:
   - type: web
-    name: nt-message-aakash-test-api
+    name: nt-message-api
     runtime: node
-    plan: free
+    plan: starter
     region: singapore
     buildCommand: corepack enable && pnpm install --frozen-lockfile && pnpm --filter api exec prisma generate && pnpm --filter api build
-    startCommand: pnpm --filter api exec prisma migrate deploy --schema prisma/schema.prisma && pnpm --filter api db:seed && pnpm --filter api start:prod
+    startCommand: pnpm --filter api exec prisma migrate deploy --schema prisma/schema.prisma && pnpm --filter api start:prod
     healthCheckPath: /api/v1/health/database
     envVars:
       - key: NODE_VERSION
@@ -13,9 +13,7 @@ services:
       - key: NODE_ENV
         value: production
       - key: DEPLOYMENT_PROFILE
-        value: temporary_external_staging
-      - key: ALLOW_UNSCANNED_STAGING_ATTACHMENTS
-        value: "true"
+        value: production
       - key: API_HOST
         value: 0.0.0.0
       - key: TRUST_PROXY_MODE
@@ -67,7 +65,7 @@ services:
       - key: REFRESH_TOKEN_TTL_SECONDS
         value: "604800"
       - key: AUTH_COOKIE_NAME
-        value: nt_message_render_staging_refresh
+        value: nt_message_refresh
       - key: LOGIN_MAX_ATTEMPTS
         value: "5"
       - key: LOGIN_LOCK_MINUTES
@@ -103,7 +101,7 @@ services:
       - key: SUPABASE_SECRET_KEY
         sync: false
       - key: SUPABASE_STORAGE_BUCKET
-        value: nt-message-staging
+        value: nt-message-production
       - key: SUPABASE_SIGNED_URL_TTL_SECONDS
         value: "300"
       - key: MESSAGE_PRIVATE_ATTACHMENT_RETENTION_DAYS
@@ -115,7 +113,13 @@ services:
       - key: ANNOUNCEMENT_ATTACHMENT_RETENTION_DAYS
         value: "90"
       - key: ATTACHMENT_SCAN_MODE
-        value: disabled
+        value: clamav
+      - key: CLAMAV_HOST
+        sync: false
+      - key: CLAMAV_PORT
+        value: "3310"
+      - key: CLAMAV_TIMEOUT_MS
+        value: "30000"
       - key: WEB_PUSH_VAPID_PUBLIC_KEY
         sync: false
       - key: WEB_PUSH_VAPID_PRIVATE_KEY
@@ -128,9 +132,11 @@ services:
         value: "10000"
       - key: WEB_PUSH_MAX_SUBSCRIPTIONS_PER_ACCOUNT
         value: "10"
+      - key: WEB_PUSH_ALLOWED_HOST_SUFFIXES
+        value: fcm.googleapis.com,push.services.mozilla.com,web.push.apple.com,notify.windows.com
 
   - type: web
-    name: nt-message-aakash-test-web
+    name: nt-message-web
     runtime: static
     buildCommand: corepack enable && pnpm install --frozen-lockfile && pnpm --filter web build
     staticPublishPath: ./apps/web/dist

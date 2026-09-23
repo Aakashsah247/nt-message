@@ -8,7 +8,6 @@ import {
 } from '@nestjs/common';
 import { randomBytes, randomUUID } from 'node:crypto';
 import { promises as fs } from 'node:fs';
-import path from 'node:path';
 
 import { assertAttachmentFileMatchesDeclaredType } from '../attachments/attachment-file-validation';
 import { AttachmentSecurityService } from '../attachments/attachment-security.service';
@@ -281,15 +280,6 @@ const MAX_DOCUMENT_ATTACHMENT_BYTES = 50 * 1024 * 1024;
 const MAX_AUDIO_ATTACHMENT_BYTES = 25 * 1024 * 1024;
 const MAX_VIDEO_ATTACHMENT_BYTES = 200 * 1024 * 1024;
 const MAX_PROFILE_PHOTO_BYTES = 5 * 1024 * 1024;
-const PROFILE_PHOTO_STORAGE_DIR = path.resolve(
-  process.env.PROFILE_PHOTO_STORAGE_DIR ??
-    path.join(process.cwd(), 'storage', 'profile-photos'),
-);
-const GROUP_PHOTO_STORAGE_DIR = path.resolve(
-  process.env.GROUP_PHOTO_STORAGE_DIR ??
-    path.join(process.cwd(), 'storage', 'group-photos'),
-);
-
 const IMAGE_ATTACHMENT_MIME_TYPES = new Set([
   'image/jpeg',
   'image/png',
@@ -2092,16 +2082,6 @@ export class ConversationsService {
     };
   }
 
-  private resolveProfilePhotoPath(storageKey: string): string {
-    const absolutePath = path.resolve(PROFILE_PHOTO_STORAGE_DIR, storageKey);
-
-    if (!absolutePath.startsWith(`${PROFILE_PHOTO_STORAGE_DIR}${path.sep}`)) {
-      throw new BadRequestException('Profile photo storage key is invalid.');
-    }
-
-    return absolutePath;
-  }
-
   private validateProfilePhoto(file?: UploadedMessageAttachmentFile): {
     originalFileName: string;
   } {
@@ -2121,6 +2101,8 @@ export class ConversationsService {
       throw new BadRequestException('Profile photo must be 5 MB or smaller.');
     }
 
+    assertAttachmentFileMatchesDeclaredType(file);
+
     return {
       originalFileName: this.normalizeAttachmentFileName(file.originalname),
     };
@@ -2130,13 +2112,11 @@ export class ConversationsService {
     storageKey: string,
     file: UploadedMessageAttachmentFile,
   ): Promise<void> {
-    const absolutePath = this.resolveProfilePhotoPath(storageKey);
-
-    await fs.mkdir(path.dirname(absolutePath), {
-      recursive: true,
-    });
-
-    await fs.writeFile(absolutePath, file.buffer);
+    await this.attachmentStorageService.writeUploadedFile(
+      'profile-photos',
+      storageKey,
+      file,
+    );
   }
 
   private async deleteProfilePhotoIfExists(
@@ -2146,21 +2126,9 @@ export class ConversationsService {
       return;
     }
 
-    try {
-      await fs.unlink(this.resolveProfilePhotoPath(storageKey));
-    } catch {
-      // Profile-photo cleanup is best-effort because the database is the source of truth.
-    }
-  }
-
-  private resolveGroupPhotoPath(storageKey: string): string {
-    const absolutePath = path.resolve(GROUP_PHOTO_STORAGE_DIR, storageKey);
-
-    if (!absolutePath.startsWith(`${GROUP_PHOTO_STORAGE_DIR}${path.sep}`)) {
-      throw new BadRequestException('Group photo storage key is invalid.');
-    }
-
-    return absolutePath;
+    await this.attachmentStorageService
+      .deleteFile('profile-photos', storageKey)
+      .catch(() => undefined);
   }
 
   private validateGroupPhoto(file?: UploadedMessageAttachmentFile): {
@@ -2182,6 +2150,8 @@ export class ConversationsService {
       throw new BadRequestException('Group photo must be 5 MB or smaller.');
     }
 
+    assertAttachmentFileMatchesDeclaredType(file);
+
     return {
       originalFileName: this.normalizeAttachmentFileName(file.originalname),
     };
@@ -2191,13 +2161,11 @@ export class ConversationsService {
     storageKey: string,
     file: UploadedMessageAttachmentFile,
   ): Promise<void> {
-    const absolutePath = this.resolveGroupPhotoPath(storageKey);
-
-    await fs.mkdir(path.dirname(absolutePath), {
-      recursive: true,
-    });
-
-    await fs.writeFile(absolutePath, file.buffer);
+    await this.attachmentStorageService.writeUploadedFile(
+      'group-photos',
+      storageKey,
+      file,
+    );
   }
 
   private async deleteGroupPhotoIfExists(
@@ -2207,11 +2175,9 @@ export class ConversationsService {
       return;
     }
 
-    try {
-      await fs.unlink(this.resolveGroupPhotoPath(storageKey));
-    } catch {
-      // Group-photo cleanup is best-effort because the database is the source of truth.
-    }
+    await this.attachmentStorageService
+      .deleteFile('group-photos', storageKey)
+      .catch(() => undefined);
   }
 
   private getPhotoMimeType(storageKey: string): string {
@@ -7907,6 +7873,10 @@ export class ConversationsService {
 
     const storageKey = `${viewer.accountId}/${randomUUID()}-${photo.originalFileName}`;
 
+    await this.attachmentSecurityService.scanValidatedUpload(
+      file as UploadedMessageAttachmentFile,
+    );
+
     await this.writeProfilePhotoFile(
       storageKey,
       file as UploadedMessageAttachmentFile,
@@ -8029,18 +7999,22 @@ export class ConversationsService {
     }
 
     // Any active messaging user may view another active profile photo, but only through this protected route.
-    const absolutePath = this.resolveProfilePhotoPath(profilePhotoKey);
-
-    try {
-      await fs.access(absolutePath);
-    } catch {
+    if (
+      !(await this.attachmentStorageService.exists(
+        'profile-photos',
+        profilePhotoKey,
+      ))
+    ) {
       throw new NotFoundException(
         'Profile photo file was not found in storage.',
       );
     }
 
     return {
-      absolutePath,
+      stream: await this.attachmentStorageService.openReadStream(
+        'profile-photos',
+        profilePhotoKey,
+      ),
       mimeType: this.getPhotoMimeType(profilePhotoKey),
     };
   }
@@ -9033,6 +9007,10 @@ export class ConversationsService {
     const photo = this.validateGroupPhoto(file);
     const storageKey = `${conversationId}/${randomUUID()}-${photo.originalFileName}`;
 
+    await this.attachmentSecurityService.scanValidatedUpload(
+      file as UploadedMessageAttachmentFile,
+    );
+
     await this.writeGroupPhotoFile(
       storageKey,
       file as UploadedMessageAttachmentFile,
@@ -9130,16 +9108,20 @@ export class ConversationsService {
       throw new NotFoundException('Group photo was not found.');
     }
 
-    const absolutePath = this.resolveGroupPhotoPath(conversation.groupPhotoKey);
-
-    try {
-      await fs.access(absolutePath);
-    } catch {
+    if (
+      !(await this.attachmentStorageService.exists(
+        'group-photos',
+        conversation.groupPhotoKey,
+      ))
+    ) {
       throw new NotFoundException('Group photo file was not found in storage.');
     }
 
     return {
-      absolutePath,
+      stream: await this.attachmentStorageService.openReadStream(
+        'group-photos',
+        conversation.groupPhotoKey,
+      ),
       mimeType: this.getPhotoMimeType(conversation.groupPhotoKey),
     };
   }

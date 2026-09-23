@@ -1,4 +1,4 @@
-import { createContext, useContext, useEffect, useState } from "react";
+import { createContext, useContext, useEffect, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import { loginUser, logoutAuth, refreshAuth } from "../services/auth.service";
 import { updateAccountLanguage } from "../services/account-settings.service";
@@ -63,6 +63,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
   const [accessTokenExpiresIn, setAccessTokenExpiresIn] = useState<number | null>(null);
 
   const [loading, setLoading] = useState(true);
+  const sessionGenerationRef = useRef(0);
 
   function saveSession(result: AuthResponse): AuthAccount {
     const normalizedAccount: AuthAccount = {
@@ -83,6 +84,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
   }
 
   function clearSession(): void {
+    sessionGenerationRef.current += 1;
     setAccount(null);
     setAccessToken(null);
     setAccessTokenExpiresIn(null);
@@ -90,15 +92,22 @@ export function AuthProvider({ children }: AuthProviderProps) {
 
   useEffect(() => {
     let active = true;
+    const refreshGeneration = sessionGenerationRef.current;
 
     refreshAuth()
       .then((result) => {
-        if (active) {
+        if (
+          active &&
+          refreshGeneration === sessionGenerationRef.current
+        ) {
           saveSession(result);
         }
       })
       .catch(() => {
-        if (active) {
+        if (
+          active &&
+          refreshGeneration === sessionGenerationRef.current
+        ) {
           clearSession();
         }
       })
@@ -151,10 +160,18 @@ export function AuthProvider({ children }: AuthProviderProps) {
 
     // Keep long-open dashboards authenticated without waiting for a manual browser refresh.
     const timeoutId = window.setTimeout(() => {
+      const refreshGeneration = sessionGenerationRef.current;
+
       refreshAuth()
-        .then(saveSession)
+        .then((result) => {
+          if (refreshGeneration === sessionGenerationRef.current) {
+            saveSession(result);
+          }
+        })
         .catch(() => {
-          clearSession();
+          if (refreshGeneration === sessionGenerationRef.current) {
+            clearSession();
+          }
         });
     }, refreshDelayMs);
 
@@ -229,11 +246,17 @@ export function AuthProvider({ children }: AuthProviderProps) {
   }
 
   async function logout(): Promise<void> {
+    const token = accessToken;
+
+    // Invalidate this tab before the network call so an in-flight refresh cannot
+    // restore stale authenticated state after the user has chosen to log out.
+    clearSession();
+    recordSessionActivity(token, "LOGOUT");
+
     try {
-      recordSessionActivity(accessToken, "LOGOUT");
       await logoutAuth();
-    } finally {
-      clearSession();
+    } catch {
+      // The local logout remains authoritative even if the server call fails.
     }
   }
 

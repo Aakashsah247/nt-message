@@ -326,11 +326,13 @@ export class EmergencyAlertsService {
       occurredAt,
     });
 
-    await this.monitoringService.recordActivity(user, {
-      eventType: ActivityEventType.EMERGENCY_ALERT_SENT,
-      pagePath: 'Emergency Alert',
-      elementLabel: 'Send emergency SMS alert',
-    });
+    if (delivery.status === 'SENT') {
+      await this.monitoringService.recordActivity(user, {
+        eventType: ActivityEventType.EMERGENCY_ALERT_SENT,
+        pagePath: 'Emergency Alert',
+        elementLabel: 'Send emergency SMS alert',
+      });
+    }
 
     return {
       alert: {
@@ -530,10 +532,21 @@ export class EmergencyAlertsService {
       };
     }
 
-    const providerResult = await this.smsProvider.send({
-      to: input.phoneNumber,
-      message: input.shortMessage,
-    });
+    let providerResult: Awaited<ReturnType<SmsProvider['send']>>;
+
+    try {
+      providerResult = await this.smsProvider.send({
+        to: input.phoneNumber,
+        message: input.shortMessage,
+      });
+    } catch {
+      providerResult = {
+        status: 'FAILED',
+        providerMessageId: null,
+        error: 'SMS delivery provider is temporarily unavailable.',
+      };
+    }
+
     const sentAt = providerResult.status === 'SENT' ? new Date() : null;
 
     await this.updateRecipientStatus({

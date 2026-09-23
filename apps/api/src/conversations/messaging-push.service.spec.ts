@@ -36,7 +36,7 @@ describe('MessagingPushService', () => {
         findMany: jest.fn().mockResolvedValue([
           {
             id: 'sub-1',
-            endpoint: 'https://push.example/subscription',
+            endpoint: 'https://fcm.googleapis.com/fcm/send/subscription',
             p256dh: 'p256dh-key',
             auth: 'auth-key',
             showPreview: false,
@@ -71,13 +71,54 @@ describe('MessagingPushService', () => {
 
     expect(webPush.sendNotification).toHaveBeenCalledWith(
       expect.objectContaining({
-        endpoint: 'https://push.example/subscription',
+        endpoint: 'https://fcm.googleapis.com/fcm/send/subscription',
       }),
       expect.stringContaining('Open NT Message to view this notification.'),
-      expect.objectContaining({ urgency: 'high' }),
+      expect.objectContaining({ urgency: 'high', timeout: 10_000 }),
     );
     expect(prisma.messagingPushSubscription.deleteMany).toHaveBeenCalledWith({
       where: { id: 'sub-1' },
+    });
+  });
+
+  it('removes a previously stored untrusted endpoint without contacting it', async () => {
+    const prisma = {
+      messagingPushSubscription: {
+        findMany: jest.fn().mockResolvedValue([
+          {
+            id: 'sub-internal',
+            endpoint: 'https://127.0.0.1:8443/private',
+            p256dh: 'p256dh-key',
+            auth: 'auth-key',
+            showPreview: true,
+          },
+        ]),
+        updateMany: jest.fn(),
+        deleteMany: jest.fn().mockResolvedValue({ count: 1 }),
+      },
+    };
+
+    const service = new MessagingPushService(
+      prisma as never,
+      makeConfig({
+        WEB_PUSH_VAPID_PUBLIC_KEY: 'public-key',
+        WEB_PUSH_VAPID_PRIVATE_KEY: 'private-key',
+        WEB_PUSH_VAPID_SUBJECT: 'mailto:ops@example.com',
+      }) as never,
+    );
+
+    await service.sendNotification('account-1', {
+      id: 'notification-1',
+      title: 'Aakash sent a message',
+      body: 'Sensitive preview text',
+      conversationId: 'conversation-1',
+      messageId: 'message-1',
+      announcementId: null,
+    });
+
+    expect(webPush.sendNotification).not.toHaveBeenCalled();
+    expect(prisma.messagingPushSubscription.deleteMany).toHaveBeenCalledWith({
+      where: { id: 'sub-internal' },
     });
   });
 });

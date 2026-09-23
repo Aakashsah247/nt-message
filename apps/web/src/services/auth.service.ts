@@ -8,8 +8,26 @@ import type {
   PasswordResetVerificationResponse,
 } from "../types/auth";
 
-let refreshPromise:
-  Promise<AuthResponse> | null = null;
+let refreshPromise: Promise<AuthResponse> | null = null;
+const AUTH_REFRESH_LOCK_NAME = "nt-message-auth-refresh";
+
+function refreshWithCurrentCookie(): Promise<AuthResponse> {
+  return apiRequest<AuthResponse>("/auth/refresh", {
+    method: "POST",
+  });
+}
+
+async function refreshWithCrossTabLock(): Promise<AuthResponse> {
+  if (typeof navigator === "undefined" || !navigator.locks?.request) {
+    return refreshWithCurrentCookie();
+  }
+
+  return navigator.locks.request(
+    AUTH_REFRESH_LOCK_NAME,
+    { mode: "exclusive" },
+    () => refreshWithCurrentCookie(),
+  );
+}
 
 export function loginUser(
   identifier: string,
@@ -28,33 +46,24 @@ export function loginUser(
   );
 }
 
-export function refreshAuth():
-  Promise<AuthResponse> {
-  // Prevent simultaneous token rotation.
+export function refreshAuth(): Promise<AuthResponse> {
+  // Deduplicate inside this tab and serialize refresh-cookie rotation across tabs.
   if (!refreshPromise) {
-    refreshPromise =
-      apiRequest<AuthResponse>(
-        "/auth/refresh",
-        {
-          method: "POST",
-        },
-      ).finally(() => {
-        refreshPromise = null;
-      });
+    refreshPromise = refreshWithCrossTabLock().finally(() => {
+      refreshPromise = null;
+    });
   }
 
   return refreshPromise;
 }
 
-export function logoutAuth():
-  Promise<{ message: string }> {
+export function logoutAuth(): Promise<{ message: string }> {
   return apiRequest<{
     message: string;
   }>("/auth/logout", {
     method: "POST",
   });
 }
-
 
 export function logoutAllAuth(
   accessToken: string,

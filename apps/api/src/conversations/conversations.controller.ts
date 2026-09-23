@@ -22,7 +22,6 @@ import {
   FileFieldsInterceptor,
   FileInterceptor,
 } from '@nestjs/platform-express';
-import { createReadStream } from 'node:fs';
 import type { Response } from 'express';
 
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
@@ -324,7 +323,7 @@ export class ConversationsController {
     response.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
     response.setHeader('Cache-Control', 'private, max-age=300');
 
-    return new StreamableFile(createReadStream(photo.absolutePath));
+    return new StreamableFile(photo.stream);
   }
 
   @Get('profiles/:accountId')
@@ -377,7 +376,7 @@ export class ConversationsController {
     response.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
     response.setHeader('Cache-Control', 'private, max-age=300');
 
-    return new StreamableFile(createReadStream(photo.absolutePath));
+    return new StreamableFile(photo.stream);
   }
 
   @Get('contacts')
@@ -821,7 +820,7 @@ export class ConversationsController {
     response.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
     response.setHeader('Cache-Control', 'private, max-age=300');
 
-    return new StreamableFile(createReadStream(photo.absolutePath));
+    return new StreamableFile(photo.stream);
   }
 
   @Get(':id/group/members')

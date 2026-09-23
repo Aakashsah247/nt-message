@@ -1,4 +1,10 @@
-import { Injectable, Logger, UnauthorizedException } from '@nestjs/common';
+import {
+  HttpException,
+  HttpStatus,
+  Injectable,
+  Logger,
+  UnauthorizedException,
+} from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { createHash } from 'node:crypto';
 import * as webPush from 'web-push';
@@ -8,6 +14,16 @@ import type { AuthenticatedUser } from '../auth/types/auth.types';
 import { PrismaService } from '../database/prisma.service';
 import type { DeleteMessagingPushSubscriptionDto } from './dto/delete-messaging-push-subscription.dto';
 import type { UpsertMessagingPushSubscriptionDto } from './dto/upsert-messaging-push-subscription.dto';
+import {
+  assertTrustedMessagingPushEndpoint,
+  resolveAllowedPushHostSuffixes,
+} from './messaging-push-endpoint.policy';
+
+type WebPushSendOptionsWithTimeout = NonNullable<
+  Parameters<typeof webPush.sendNotification>[2]
+> & {
+  timeout: number;
+};
 
 interface PushableMessagingNotification {
   id: string;
@@ -53,6 +69,9 @@ export class MessagingPushService {
   private readonly privateKey: string;
   private readonly subject: string;
   private readonly ttlSeconds: number;
+  private readonly requestTimeoutMs: number;
+  private readonly maxSubscriptionsPerAccount: number;
+  private readonly allowedHostSuffixes: string[];
 
   constructor(
     private readonly prisma: PrismaService,
@@ -69,6 +88,27 @@ export class MessagingPushService {
       Number.isFinite(configuredTtl) && configuredTtl > 0
         ? Math.min(Math.floor(configuredTtl), 86_400)
         : 300;
+
+    const configuredTimeout = Number(
+      config.get<string>('WEB_PUSH_REQUEST_TIMEOUT_MS'),
+    );
+    this.requestTimeoutMs =
+      Number.isFinite(configuredTimeout) && configuredTimeout > 0
+        ? Math.min(Math.floor(configuredTimeout), 30_000)
+        : 10_000;
+
+    const configuredMaxSubscriptions = Number(
+      config.get<string>('WEB_PUSH_MAX_SUBSCRIPTIONS_PER_ACCOUNT'),
+    );
+    this.maxSubscriptionsPerAccount =
+      Number.isInteger(configuredMaxSubscriptions) &&
+      configuredMaxSubscriptions > 0
+        ? Math.min(configuredMaxSubscriptions, 50)
+        : 10;
+
+    this.allowedHostSuffixes = resolveAllowedPushHostSuffixes(
+      config.get<string>('WEB_PUSH_ALLOWED_HOST_SUFFIXES'),
+    );
 
     if (process.env.NODE_ENV === 'production' && !this.isConfigured()) {
       this.logger.warn(
@@ -96,6 +136,8 @@ export class MessagingPushService {
       };
     }
 
+    assertTrustedMessagingPushEndpoint(dto.endpoint, this.allowedHostSuffixes);
+
     const now = new Date();
     const session = await this.prisma.authSession.findFirst({
       where: {
@@ -110,6 +152,26 @@ export class MessagingPushService {
     if (!session) {
       throw new UnauthorizedException(
         'The current session is no longer active.',
+      );
+    }
+
+    const [existingSubscription, subscriptionCount] = await Promise.all([
+      this.prisma.messagingPushSubscription.findUnique({
+        where: { endpoint: dto.endpoint },
+        select: { accountId: true },
+      }),
+      this.prisma.messagingPushSubscription.count({
+        where: { accountId: user.accountId },
+      }),
+    ]);
+
+    if (
+      existingSubscription?.accountId !== user.accountId &&
+      subscriptionCount >= this.maxSubscriptionsPerAccount
+    ) {
+      throw new HttpException(
+        'This account already has the maximum number of browser push subscriptions.',
+        HttpStatus.TOO_MANY_REQUESTS,
       );
     }
 
@@ -197,6 +259,21 @@ export class MessagingPushService {
 
     await Promise.allSettled(
       subscriptions.map(async (subscription) => {
+        try {
+          assertTrustedMessagingPushEndpoint(
+            subscription.endpoint,
+            this.allowedHostSuffixes,
+          );
+        } catch {
+          this.logger.warn(
+            `Removed untrusted background notification subscription ${subscription.id}.`,
+          );
+          await this.prisma.messagingPushSubscription.deleteMany({
+            where: { id: subscription.id },
+          });
+          return;
+        }
+
         const payload = JSON.stringify({
           notificationId: notification.id,
           title: notification.title,
@@ -207,6 +284,21 @@ export class MessagingPushService {
         });
 
         try {
+          const sendOptions: WebPushSendOptionsWithTimeout = {
+            TTL: this.ttlSeconds,
+            timeout: this.requestTimeoutMs,
+            urgency: 'high',
+            topic: createHash('sha256')
+              .update(notification.id)
+              .digest('base64url')
+              .slice(0, 32),
+            vapidDetails: {
+              subject: this.subject,
+              publicKey: this.publicKey,
+              privateKey: this.privateKey,
+            },
+          };
+
           await webPush.sendNotification(
             {
               endpoint: subscription.endpoint,
@@ -216,19 +308,7 @@ export class MessagingPushService {
               },
             },
             payload,
-            {
-              TTL: this.ttlSeconds,
-              urgency: 'high',
-              topic: createHash('sha256')
-                .update(notification.id)
-                .digest('base64url')
-                .slice(0, 32),
-              vapidDetails: {
-                subject: this.subject,
-                publicKey: this.publicKey,
-                privateKey: this.privateKey,
-              },
-            },
+            sendOptions,
           );
 
           await this.prisma.messagingPushSubscription.updateMany({

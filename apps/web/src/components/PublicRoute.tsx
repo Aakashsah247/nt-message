@@ -4,7 +4,6 @@ import {
 import type {
   ReactNode,
 } from "react";
-import { useTranslation } from "react-i18next";
 import { useAuth } from "../context/AuthContext";
 
 interface PublicRouteProps {
@@ -14,21 +13,11 @@ interface PublicRouteProps {
 export function PublicRoute({
   children,
 }: PublicRouteProps) {
-  const { t } = useTranslation("common");
   const {
     account,
-    loading,
   } = useAuth();
 
-  if (loading) {
-    return (
-      <div className="loading">
-        <div className="spinner" />
-        <p>{t("loading.loadingNtMessage")}</p>
-      </div>
-    );
-  }
-
+  // Public auth pages stay usable while refresh-cookie recovery runs in the background.
   if (account) {
     return (
       <Navigate
