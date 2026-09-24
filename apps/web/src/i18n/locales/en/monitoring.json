@@ -32,8 +32,8 @@
     "tryAgain": "Try again"
   },
   "hero": {
-    "aria": "Privacy-safe V3 office monitoring and audit",
-    "eyebrow": "System monitoring · V3",
+    "aria": "Privacy-safe office monitoring and audit",
+    "eyebrow": "System monitoring",
     "title": "Monitoring & audit",
     "description": "Review privacy-safe activity across offices and organizational units without exposing communication content.",
     "metadataOnly": "Metadata only",
@@ -70,7 +70,7 @@
     "overview": "Overview",
     "overviewDescription": "Live office-wide status",
     "logs": "Activity logs",
-    "logsDescription": "Search the V3 audit trail",
+    "logsDescription": "Search the audit trail",
     "employee": "Employee detail",
     "employeeDescription": "Review one employee"
   },
@@ -96,7 +96,7 @@
     "apply": "Apply filters",
     "reset": "Reset filters",
     "invalidTime": "The “To” time must be later than the “From” time.",
-    "description": "Filter by V3 account class, office, org unit, employee and activity. Filters run only after confirmation.",
+    "description": "Filter by account class, office, org unit, employee and activity. Filters run only after confirmation.",
     "searchSafe": "Search safe metadata",
     "accountClass": "Account class",
     "allAccountClasses": "All account classes",
@@ -138,7 +138,7 @@
     "titleSelected": "Selected employee audit trail",
     "titleSystem": "System activity log",
     "descriptionSelected": "Privacy-safe activity metadata for the selected employee and applied time range.",
-    "descriptionSystem": "System-wide activity metadata filtered by V3 office and org-unit scope. Private message content remains hidden.",
+    "descriptionSystem": "System-wide activity metadata filtered by office and org-unit scope. Private message content remains hidden.",
     "refreshing": "Refreshing",
     "unavailable": "Activity logs unavailable",
     "loading": "Loading activity logs",

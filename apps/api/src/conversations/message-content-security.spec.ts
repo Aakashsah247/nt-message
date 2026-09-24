@@ -52,11 +52,16 @@ describe('MessageContentSecurity', () => {
       context,
     );
 
+    const originalCiphertext = secured.textContent ?? '';
+    const lastCiphertextCharacter = originalCiphertext.at(-1);
+
     expect(() =>
       security.unprotectText(
         {
           ...secured,
-          textContent: `${secured.textContent?.slice(0, -1)}A`,
+          textContent: `${originalCiphertext.slice(0, -1)}${
+            lastCiphertextCharacter === 'A' ? 'B' : 'A'
+          }`,
         },
         context,
       ),

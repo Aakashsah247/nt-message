@@ -15,6 +15,7 @@ import type {
 
 interface SuperAdminSystemAnalyticsPanelProps {
   accessToken: string;
+  mode?: "analytics" | "dashboard";
 }
 
 type AnalyticsTone = "blue" | "green" | "gold" | "red";
@@ -171,16 +172,19 @@ function AnalyticsIcon({ name }: { name: AnalyticsIconName }): ReactNode {
 
 export function SuperAdminSystemAnalyticsPanel({
   accessToken,
+  mode = "analytics",
 }: SuperAdminSystemAnalyticsPanelProps) {
   const { t, i18n } = useTranslation("analytics");
   const navigate = useNavigate();
   const locale = i18n.resolvedLanguage === "ne" ? "ne-NP" : "en-GB";
+  const dashboardMode = mode === "dashboard";
 
   const [monitoring, setMonitoring] =
     useState<SuperAdminMonitoringResponse | null>(null);
   const [requests, setRequests] =
     useState<AdminAccountRequestSummaryResponse | null>(null);
-  const [rangeDays, setRangeDays] = useState<SystemAnalyticsRangeDays>(1);
+  const [rangeDays, setRangeDays] =
+    useState<SystemAnalyticsRangeDays>(dashboardMode ? 7 : 1);
   const [loading, setLoading] = useState(true);
   const [errors, setErrors] = useState<string[]>([]);
   const [refreshKey, setRefreshKey] = useState(0);
@@ -245,7 +249,13 @@ export function SuperAdminSystemAnalyticsPanel({
       monitoring.organizationHealth.employeesWithoutPlacement +
       monitoring.organizationHealth.placementPending +
       monitoring.organizationHealth.officesWithoutStructure;
-    const systemIssueCount = organizationIssueCount + (needsAction ?? 0);
+    const emergencyIssueCount =
+      monitoring.emergencyDelivery.failed +
+      monitoring.emergencyDelivery.skippedNoPhone;
+    const systemIssueCount =
+      organizationIssueCount +
+      (needsAction ?? 0) +
+      emergencyIssueCount;
     const systemHealthy = systemIssueCount === 0;
 
     const accountAvailability: AnalyticsCountItem[] = [
@@ -401,7 +411,7 @@ export function SuperAdminSystemAnalyticsPanel({
     );
   }
 
-  const primaryCards: OverviewCard[] = [
+  const analyticsPrimaryCards: OverviewCard[] = [
     {
       label: t("overview.systemHealth"),
       value: derived.systemHealthy
@@ -450,6 +460,78 @@ export function SuperAdminSystemAnalyticsPanel({
       actionPath: "/organization",
     },
   ];
+
+  const dashboardPrimaryCards: OverviewCard[] = [
+    {
+      label: t("dashboardOverview.activeOffices"),
+      value: monitoring.organizationHealth.activeOffices,
+      hint: t("dashboardOverview.activeOfficesHint", {
+        inactive: monitoring.organizationHealth.inactiveOffices,
+      }),
+      meta: t("dashboardOverview.officeGovernance"),
+      icon: "organization",
+      tone: "blue",
+      actionPath: "/super-admin/offices",
+    },
+    {
+      label: t("overview.enabledAccounts"),
+      value: monitoring.accountHealth.enabledAccounts,
+      hint: t("overview.enabledAccountsHint", {
+        total: monitoring.accountHealth.totalAccounts,
+        disabled: monitoring.accountHealth.disabledAccounts,
+      }),
+      meta: t("overview.systemAccess"),
+      icon: "users",
+      tone: "blue",
+    },
+    {
+      label: t("dashboardOverview.activeNow"),
+      value: monitoring.totals.active,
+      hint: t("dashboardOverview.activeNowHint", {
+        idle: monitoring.totals.idle,
+        offline: monitoring.totals.offline,
+      }),
+      meta: t("dashboardOverview.platformActivity"),
+      icon: "activity",
+      tone: "green",
+      actionPath: "/super-admin?view=monitoring",
+    },
+    {
+      label: t("dashboardOverview.needsAttention"),
+      value: derived.systemIssueCount,
+      hint: t("dashboardOverview.needsAttentionHint"),
+      meta: t("overview.governanceQueue"),
+      icon: "attention",
+      tone: derived.systemIssueCount > 0 ? "red" : "green",
+      actionPath: "/super-admin?view=analytics",
+    },
+    {
+      label: t("dashboardOverview.setupGaps"),
+      value: derived.organizationIssueCount,
+      hint: t("dashboardOverview.setupGapsHint"),
+      meta: t("dashboardOverview.organizationReadiness"),
+      icon: "organization",
+      tone: derived.organizationIssueCount > 0 ? "gold" : "green",
+      actionPath: "/organization",
+    },
+    {
+      label: t("overview.systemHealth"),
+      value: derived.systemHealthy
+        ? t("overview.healthy")
+        : t("overview.attention"),
+      hint: derived.systemHealthy
+        ? t("dashboardOverview.healthyHint")
+        : t("dashboardOverview.attentionHint"),
+      meta: t("overview.coreServices"),
+      icon: "health",
+      tone: derived.systemHealthy ? "green" : "gold",
+      actionPath: "/super-admin?view=monitoring",
+    },
+  ];
+
+  const primaryCards = dashboardMode
+    ? dashboardPrimaryCards
+    : analyticsPrimaryCards;
 
   function progressStyle(value: number, maximum: number): CSSProperties {
     const percent = value <= 0 ? 0 : Math.max(6, Math.round((value / maximum) * 100));
@@ -507,10 +589,884 @@ export function SuperAdminSystemAnalyticsPanel({
           percent: requests.activationCompletionRate,
         });
 
+  const dashboardAttentionItems = [
+    {
+      key: "office-setup",
+      label: t("dashboardAttention.officeSetup"),
+      detail: t("dashboardAttention.officeSetupDetail"),
+      count:
+        monitoring.organizationHealth.officesWithoutHead +
+        monitoring.organizationHealth.officesWithoutStructure,
+      tone: "red",
+      path: "/super-admin/offices",
+    },
+    {
+      key: "unit-head",
+      label: t("dashboardAttention.unitHead"),
+      detail: t("dashboardAttention.unitHeadDetail"),
+      count: monitoring.organizationHealth.orgUnitsWithoutHead,
+      tone: "gold",
+      path: "/organization",
+    },
+    {
+      key: "placement",
+      label: t("dashboardAttention.placement"),
+      detail: t("dashboardAttention.placementDetail"),
+      count:
+        monitoring.organizationHealth.placementPending +
+        monitoring.organizationHealth.employeesWithoutPlacement,
+      tone: "gold",
+      path: "/organization",
+    },
+    {
+      key: "approval",
+      label: t("dashboardAttention.approval"),
+      detail: t("dashboardAttention.approvalDetail"),
+      count: requests?.counts.PENDING_APPROVAL ?? 0,
+      tone: "gold",
+      path: "/super-admin/account-requests?status=PENDING_APPROVAL",
+    },
+    {
+      key: "activation",
+      label: t("dashboardAttention.activation"),
+      detail: t("dashboardAttention.activationDetail"),
+      count: requests?.counts.ACTIVATION_PENDING ?? 0,
+      tone: "gold",
+      path: "/super-admin/account-requests?status=ACTIVATION_PENDING",
+    },
+    {
+      key: "returned",
+      label: t("dashboardAttention.returned"),
+      detail: t("dashboardAttention.returnedDetail"),
+      count: requests?.counts.REJECTED ?? 0,
+      tone: "gold",
+      path: "/super-admin/account-requests?status=REJECTED",
+    },
+    {
+      key: "emergency",
+      label: t("dashboardAttention.emergency"),
+      detail: t("dashboardAttention.emergencyDetail"),
+      count:
+        monitoring.emergencyDelivery.failed +
+        monitoring.emergencyDelivery.skippedNoPhone,
+      tone: "red",
+      path: "/super-admin?view=monitoring",
+    },
+  ].filter((item) => item.count > 0);
+
+  const dashboardAttentionTotal = dashboardAttentionItems.reduce(
+    (total, item) => total + item.count,
+    0,
+  );
+
+  const dashboardCriticalTotal =
+    monitoring.organizationHealth.officesWithoutHead +
+    monitoring.organizationHealth.officesWithoutStructure +
+    monitoring.emergencyDelivery.failed +
+    monitoring.emergencyDelivery.skippedNoPhone;
+
+  if (dashboardMode) {
+    return (
+      <section
+        className="analytics-panel sa-dashboard"
+        aria-label={t("dashboardClean.aria")}
+      >
+        <header className="sa-dashboard__header">
+          <div className="sa-dashboard__identity">
+            <span className="sa-dashboard__brand-mark" aria-hidden="true">
+              <AnalyticsIcon name="scope" />
+            </span>
+
+            <div>
+              <span className="sa-dashboard__eyebrow">
+                {t("dashboardClean.eyebrow")}
+              </span>
+
+              <h2>{t("dashboardClean.title")}</h2>
+
+              <p>{t("dashboardClean.description")}</p>
+
+              <span className="sa-dashboard__privacy">
+                <AnalyticsIcon name="health" />
+                {t("dashboardClean.privacy")}
+              </span>
+            </div>
+          </div>
+
+          <div className="sa-dashboard__header-actions">
+            <div
+              className={
+                dashboardAttentionTotal > 0
+                  ? "sa-dashboard__governance-status is-attention"
+                  : "sa-dashboard__governance-status is-clear"
+              }
+            >
+              <span aria-hidden="true" />
+              {dashboardAttentionTotal > 0
+                ? t("dashboardClean.governanceAttention", {
+                    count: dashboardAttentionTotal,
+                  })
+                : t("dashboardClean.governanceClear")}
+            </div>
+
+            <small>
+              {t("dashboardClean.updated", {
+                date: formatDateTime(
+                  generatedAt,
+                  locale,
+                  t("common.noActivity"),
+                ),
+              })}
+            </small>
+
+            <button
+              className="sa-dashboard__refresh"
+              type="button"
+              onClick={() => setRefreshKey((current) => current + 1)}
+              disabled={loading}
+            >
+              {loading
+                ? t("common.refreshing")
+                : t("dashboardClean.refresh")}
+            </button>
+          </div>
+        </header>
+
+        {errors.length > 0 && (
+          <div className="analytics-inline-error" role="status">
+            <strong>{t("state.partial")}</strong>
+            <span>{errors.join(" · ")}</span>
+          </div>
+        )}
+
+        <section
+          className="sa-dashboard__kpis"
+          aria-label={t("dashboardClean.snapshot")}
+        >
+          <button
+            type="button"
+            className="sa-dashboard-kpi"
+            onClick={() => navigate("/super-admin/offices")}
+          >
+            <span className="sa-dashboard-kpi__icon">
+              <AnalyticsIcon name="organization" />
+            </span>
+            <span className="sa-dashboard-kpi__content">
+              <small>{t("dashboardClean.activeOffices")}</small>
+              <strong>
+                {formatNumber(
+                  monitoring.organizationHealth.activeOffices,
+                )}
+              </strong>
+              <span>
+                {t("dashboardClean.officeSummary", {
+                  active: monitoring.organizationHealth.activeOffices,
+                  inactive:
+                    monitoring.organizationHealth.inactiveOffices,
+                })}
+              </span>
+            </span>
+            <b aria-hidden="true">→</b>
+          </button>
+
+          <button
+            type="button"
+            className="sa-dashboard-kpi"
+            onClick={() => navigate("/directory")}
+          >
+            <span className="sa-dashboard-kpi__icon">
+              <AnalyticsIcon name="users" />
+            </span>
+            <span className="sa-dashboard-kpi__content">
+              <small>{t("dashboardClean.accounts")}</small>
+              <strong>
+                {formatNumber(
+                  monitoring.accountHealth.totalAccounts,
+                )}
+              </strong>
+              <span>
+                {t("dashboardClean.accountSummary", {
+                  enabled: monitoring.accountHealth.enabledAccounts,
+                  disabled:
+                    monitoring.accountHealth.disabledAccounts,
+                })}
+              </span>
+            </span>
+            <b aria-hidden="true">→</b>
+          </button>
+
+          <button
+            type="button"
+            className={
+              dashboardAttentionTotal > 0
+                ? "sa-dashboard-kpi sa-dashboard-kpi--attention"
+                : "sa-dashboard-kpi sa-dashboard-kpi--healthy"
+            }
+            onClick={() =>
+              navigate("/super-admin?view=analytics")
+            }
+          >
+            <span className="sa-dashboard-kpi__icon">
+              <AnalyticsIcon name="attention" />
+            </span>
+            <span className="sa-dashboard-kpi__content">
+              <small>{t("dashboardClean.needsAttention")}</small>
+              <strong>
+                {formatNumber(dashboardAttentionTotal)}
+              </strong>
+              <span>
+                {dashboardAttentionTotal > 0
+                  ? t("dashboardClean.attentionSummary", {
+                      critical: dashboardCriticalTotal,
+                    })
+                  : t("dashboardClean.noAttention")}
+              </span>
+            </span>
+            <b aria-hidden="true">→</b>
+          </button>
+
+          <button
+            type="button"
+            className="sa-dashboard-kpi"
+            onClick={() =>
+              navigate("/super-admin?view=monitoring")
+            }
+          >
+            <span className="sa-dashboard-kpi__icon">
+              <AnalyticsIcon name="activity" />
+            </span>
+            <span className="sa-dashboard-kpi__content">
+              <small>{t("dashboardClean.activeNow")}</small>
+              <strong>
+                {formatNumber(monitoring.totals.active)}
+              </strong>
+              <span>
+                {t("dashboardClean.presenceSummary", {
+                  idle: monitoring.totals.idle,
+                  offline: monitoring.totals.offline,
+                })}
+              </span>
+            </span>
+            <b aria-hidden="true">→</b>
+          </button>
+        </section>
+
+        <section className="sa-dashboard__priority-grid">
+          <article className="sa-dashboard-panel sa-dashboard-attention">
+            <header className="sa-dashboard-panel__header">
+              <div>
+                <span>{t("dashboardClean.attentionEyebrow")}</span>
+                <h3>{t("dashboardClean.attentionTitle")}</h3>
+                <p>
+                  {dashboardAttentionTotal > 0
+                    ? t("dashboardClean.attentionDescription", {
+                        count: dashboardAttentionTotal,
+                      })
+                    : t("dashboardClean.attentionClear")}
+                </p>
+              </div>
+
+              <button
+                type="button"
+                onClick={() =>
+                  navigate("/super-admin?view=analytics")
+                }
+              >
+                {t("dashboardClean.viewAnalysis")}
+              </button>
+            </header>
+
+            {dashboardAttentionItems.length === 0 ? (
+              <div className="sa-dashboard-attention__clear">
+                <AnalyticsIcon name="health" />
+                <div>
+                  <strong>
+                    {t("dashboardClean.allClear")}
+                  </strong>
+                  <span>
+                    {t("dashboardClean.allClearDescription")}
+                  </span>
+                </div>
+              </div>
+            ) : (
+              <div className="sa-dashboard-attention__list">
+                {dashboardAttentionItems
+                  .slice(0, 4)
+                  .map((item) => (
+                    <button
+                      type="button"
+                      key={item.key}
+                      className={`is-${item.tone}`}
+                      onClick={() => navigate(item.path)}
+                    >
+                      <span
+                        className="sa-dashboard-attention__indicator"
+                        aria-hidden="true"
+                      />
+
+                      <span className="sa-dashboard-attention__copy">
+                        <strong>{item.label}</strong>
+                        <small>{item.detail}</small>
+                      </span>
+
+                      <span className="sa-dashboard-attention__count">
+                        {formatNumber(item.count)}
+                      </span>
+
+                      <span
+                        className="sa-dashboard-attention__arrow"
+                        aria-hidden="true"
+                      >
+                        →
+                      </span>
+                    </button>
+                  ))}
+              </div>
+            )}
+
+            {dashboardAttentionItems.length > 4 && (
+              <footer className="sa-dashboard-panel__footer">
+                <span>
+                  {t("dashboardClean.moreIssues", {
+                    count:
+                      dashboardAttentionItems.length - 4,
+                  })}
+                </span>
+
+                <button
+                  type="button"
+                  onClick={() =>
+                    navigate("/super-admin?view=analytics")
+                  }
+                >
+                  {t("dashboardClean.reviewAll")}
+                </button>
+              </footer>
+            )}
+          </article>
+
+          <article className="sa-dashboard-panel sa-dashboard-offices">
+            <header className="sa-dashboard-panel__header">
+              <div>
+                <span>{t("dashboardClean.officeEyebrow")}</span>
+                <h3>{t("dashboardClean.officeTitle")}</h3>
+                <p>{t("dashboardClean.officeDescription")}</p>
+              </div>
+
+              <button
+                type="button"
+                onClick={() => navigate("/super-admin/offices")}
+              >
+                {t("dashboardClean.manageOffices")}
+              </button>
+            </header>
+
+            <div className="sa-dashboard-offices__list">
+              {monitoring.officeHealth
+                .slice(0, 4)
+                .map((office) => {
+                  const leadershipComplete =
+                    office.officeHeadAssigned &&
+                    office.headedFormalUnits >= office.formalUnits;
+
+                  const status =
+                    !office.isActive
+                      ? "inactive"
+                      : office.activeUnits === 0
+                        ? "setup"
+                        : leadershipComplete
+                          ? "ready"
+                          : "attention";
+
+                  return (
+                    <button
+                      type="button"
+                      key={office.officeId}
+                      onClick={() => navigate("/organization")}
+                    >
+                      <span className="sa-dashboard-offices__identity">
+                        <strong>{office.name}</strong>
+                        <small>
+                          {t("dashboardClean.officePeopleUnits", {
+                            people: office.activePeople,
+                            active: office.activeUnits,
+                            inactive: office.inactiveUnits,
+                          })}
+                        </small>
+                      </span>
+
+                      <span className="sa-dashboard-offices__leadership">
+                        {office.officeHeadAssigned
+                          ? t(
+                              "dashboardClean.officeLeadership",
+                              {
+                                covered:
+                                  office.headedFormalUnits,
+                                total: office.formalUnits,
+                              },
+                            )
+                          : t(
+                              "dashboardClean.officeHeadMissing",
+                            )}
+                      </span>
+
+                      <span
+                        className={`sa-dashboard-status is-${status}`}
+                      >
+                        {t(
+                          `dashboardClean.officeStatus.${status}`,
+                        )}
+                      </span>
+                    </button>
+                  );
+                })}
+            </div>
+
+            {monitoring.officeHealth.length === 0 && (
+              <div className="sa-dashboard-empty">
+                {t("dashboardClean.noOffices")}
+              </div>
+            )}
+          </article>
+        </section>
+
+        <section className="sa-dashboard__governance-grid">
+          <article className="sa-dashboard-panel">
+            <header className="sa-dashboard-panel__header">
+              <div>
+                <span>{t("dashboardClean.identityEyebrow")}</span>
+                <h3>{t("dashboardClean.identityTitle")}</h3>
+                <p>{t("dashboardClean.identityDescription")}</p>
+              </div>
+
+              <button
+                type="button"
+                onClick={() => navigate("/directory")}
+              >
+                {t("dashboardClean.openDirectory")}
+              </button>
+            </header>
+
+            <div className="sa-dashboard-stat-strip">
+              <div>
+                <strong>
+                  {formatNumber(
+                    monitoring.accountHealth.totalAccounts,
+                  )}
+                </strong>
+                <span>{t("dashboardClean.totalAccounts")}</span>
+              </div>
+
+              <div>
+                <strong>
+                  {formatNumber(
+                    monitoring.accountHealth.enabledAccounts,
+                  )}
+                </strong>
+                <span>{t("dashboardClean.enabled")}</span>
+              </div>
+
+              <div>
+                <strong>
+                  {formatNumber(
+                    monitoring.accountHealth.disabledAccounts,
+                  )}
+                </strong>
+                <span>{t("dashboardClean.disabled")}</span>
+              </div>
+
+              <div>
+                <strong>
+                  {formatNumber(
+                    monitoring.accountHealth.unactivatedEmployees,
+                  )}
+                </strong>
+                <span>{t("dashboardClean.notActivated")}</span>
+              </div>
+            </div>
+
+            <div className="sa-dashboard-presence">
+              <span>{t("dashboardClean.livePresence")}</span>
+
+              <div>
+                <strong className="is-active">
+                  {formatNumber(monitoring.totals.active)}
+                </strong>
+                {t("dashboardClean.active")}
+              </div>
+
+              <div>
+                <strong className="is-idle">
+                  {formatNumber(monitoring.totals.idle)}
+                </strong>
+                {t("dashboardClean.idle")}
+              </div>
+
+              <div>
+                <strong>
+                  {formatNumber(monitoring.totals.offline)}
+                </strong>
+                {t("dashboardClean.offline")}
+              </div>
+            </div>
+          </article>
+
+          <article className="sa-dashboard-panel">
+            <header className="sa-dashboard-panel__header">
+              <div>
+                <span>
+                  {t("dashboardClean.organizationEyebrow")}
+                </span>
+                <h3>{t("dashboardClean.organizationTitle")}</h3>
+                <p>
+                  {t("dashboardClean.organizationDescription")}
+                </p>
+              </div>
+
+              <button
+                type="button"
+                onClick={() => navigate("/organization")}
+              >
+                {t("dashboardClean.openOrganization")}
+              </button>
+            </header>
+
+            <div className="sa-dashboard-integrity">
+              <div>
+                <span>{t("organization.officeHeadCoverage")}</span>
+                <strong>{officeHeadCoverage}%</strong>
+                <small>
+                  {
+                    monitoring.organizationHealth
+                      .officeHeadsAssigned
+                  }
+                  /
+                  {monitoring.organizationHealth.activeOffices}
+                </small>
+              </div>
+
+              <div>
+                <span>{t("organization.unitHeadCoverage")}</span>
+                <strong>{orgUnitHeadCoverage}%</strong>
+                <small>
+                  {
+                    monitoring.organizationHealth
+                      .orgUnitHeadsAssigned
+                  }
+                  /
+                  {
+                    monitoring.organizationHealth
+                      .activeFormalUnits
+                  }
+                </small>
+              </div>
+
+              <div>
+                <span>{t("organization.currentPlacements")}</span>
+                <strong>
+                  {formatNumber(
+                    monitoring.organizationHealth
+                      .activePrimaryPlacements,
+                  )}
+                </strong>
+                <small>
+                  {t("dashboardClean.currentEmployees")}
+                </small>
+              </div>
+            </div>
+
+            <div className="sa-dashboard-integrity__issues">
+              <span>
+                <b>
+                  {
+                    monitoring.organizationHealth
+                      .officesWithoutHead
+                  }
+                </b>
+                {t("dashboardClean.officeHeadGap")}
+              </span>
+
+              <span>
+                <b>
+                  {
+                    monitoring.organizationHealth
+                      .orgUnitsWithoutHead
+                  }
+                </b>
+                {t("dashboardClean.unitHeadGap")}
+              </span>
+
+              <span>
+                <b>
+                  {
+                    monitoring.organizationHealth
+                      .placementPending
+                  }
+                </b>
+                {t("dashboardClean.placementPending")}
+              </span>
+            </div>
+          </article>
+        </section>
+
+        <section className="sa-dashboard__activity-grid">
+          <article className="sa-dashboard-panel sa-dashboard-activity">
+            <header className="sa-dashboard-panel__header sa-dashboard-activity__header">
+              <div>
+                <span>{t("dashboardClean.activityEyebrow")}</span>
+                <h3>{t("dashboardClean.activityTitle")}</h3>
+                <p>
+                  {t("dashboardClean.activityDescription", {
+                    days: rangeDays,
+                  })}
+                </p>
+              </div>
+
+              <div
+                className="sa-dashboard-period"
+                aria-label={t("period.aria")}
+              >
+                {(
+                  [1, 7, 30] as SystemAnalyticsRangeDays[]
+                ).map((days) => (
+                  <button
+                    key={days}
+                    type="button"
+                    className={
+                      rangeDays === days ? "is-active" : ""
+                    }
+                    aria-pressed={rangeDays === days}
+                    onClick={() => setRangeDays(days)}
+                  >
+                    {t(`period.days${days}`)}
+                  </button>
+                ))}
+              </div>
+            </header>
+
+            <div className="sa-dashboard-activity__summary">
+              <div>
+                <strong>
+                  {formatNumber(
+                    monitoring.totals.periodActions,
+                  )}
+                </strong>
+                <span>{t("activity.actions")}</span>
+              </div>
+
+              <div>
+                <strong>
+                  {formatDuration(
+                    monitoring.totals.periodActiveMinutes,
+                  )}
+                </strong>
+                <span>{t("activity.activeTime")}</span>
+              </div>
+
+              <div>
+                <strong>
+                  {formatNumber(
+                    monitoring.totals.periodAccountRequests,
+                  )}
+                </strong>
+                <span>{t("activity.accountRequests")}</span>
+              </div>
+            </div>
+
+            <div
+              className="sa-dashboard-chart"
+              aria-label={t("activity.trendAria")}
+            >
+              {monitoring.trend.map((point) => (
+                <div
+                  className="sa-dashboard-chart__item"
+                  key={point.date}
+                  title={t("activity.trendTooltip", {
+                    date: point.date,
+                    actions: point.actions,
+                    active: point.activeAccounts,
+                  })}
+                >
+                  <span className="sa-dashboard-chart__value">
+                    {formatNumber(point.actions)}
+                  </span>
+
+                  <div className="sa-dashboard-chart__track">
+                    <span
+                      style={{
+                        height: `${Math.max(
+                          point.actions > 0 ? 8 : 2,
+                          Math.round(
+                            (point.actions / maxTrendActions) *
+                              100,
+                          ),
+                        )}%`,
+                      }}
+                    />
+                  </div>
+
+                  <small>
+                    {new Intl.DateTimeFormat(locale, {
+                      day: "2-digit",
+                      month: "short",
+                    }).format(new Date(point.date))}
+                  </small>
+                </div>
+              ))}
+            </div>
+          </article>
+
+          <article className="sa-dashboard-panel sa-dashboard-emergency">
+            <header className="sa-dashboard-panel__header">
+              <div>
+                <span>{t("dashboardClean.emergencyEyebrow")}</span>
+                <h3>{t("dashboardClean.emergencyTitle")}</h3>
+                <p>
+                  {t("dashboardClean.emergencyDescription")}
+                </p>
+              </div>
+            </header>
+
+            <div className="sa-dashboard-emergency__rate">
+              <AnalyticsIcon name="emergency" />
+
+              <div>
+                <strong>
+                  {monitoring.emergencyDelivery.deliveryRate ===
+                  null
+                    ? "—"
+                    : `${monitoring.emergencyDelivery.deliveryRate}%`}
+                </strong>
+
+                <span>
+                  {t("dashboardClean.deliveryRate")}
+                </span>
+              </div>
+            </div>
+
+            <div className="sa-dashboard-emergency__stats">
+              <span>
+                <b className="is-success">
+                  {monitoring.emergencyDelivery.sent}
+                </b>
+                {t("emergency.sent")}
+              </span>
+
+              <span>
+                <b className="is-error">
+                  {monitoring.emergencyDelivery.failed}
+                </b>
+                {t("emergency.failed")}
+              </span>
+
+              <span>
+                <b className="is-warning">
+                  {monitoring.emergencyDelivery.pending}
+                </b>
+                {t("emergency.pending")}
+              </span>
+
+              <span>
+                <b>
+                  {
+                    monitoring.emergencyDelivery
+                      .skippedNoPhone
+                  }
+                </b>
+                {t("emergency.noPhone")}
+              </span>
+            </div>
+
+            <button
+              className="sa-dashboard-emergency__link"
+              type="button"
+              onClick={() =>
+                navigate("/super-admin?view=monitoring")
+              }
+            >
+              {t("dashboardClean.openMonitoring")} →
+            </button>
+          </article>
+        </section>
+
+        {requests && (
+          <section className="sa-dashboard-panel sa-dashboard-recent">
+            <header className="sa-dashboard-panel__header">
+              <div>
+                <span>{t("dashboardClean.recentEyebrow")}</span>
+                <h3>{t("dashboardClean.recentTitle")}</h3>
+                <p>{t("dashboardClean.recentDescription")}</p>
+              </div>
+
+              <button
+                type="button"
+                onClick={() =>
+                  navigate("/super-admin/account-requests")
+                }
+              >
+                {t("dashboardClean.openRequests")}
+              </button>
+            </header>
+
+            {requests.recentActivity.length === 0 ? (
+              <div className="sa-dashboard-empty">
+                {t("dashboardClean.noRecentActivity")}
+              </div>
+            ) : (
+              <div className="sa-dashboard-recent__list">
+                {requests.recentActivity
+                  .slice(0, 3)
+                  .map((request) => (
+                    <button
+                      type="button"
+                      key={request.id}
+                      onClick={() =>
+                        navigate(
+                          `/super-admin/account-requests?status=${request.status}&request=${request.id}`,
+                        )
+                      }
+                    >
+                      <span className="sa-dashboard-recent__action">
+                        {t(
+                          `dashboardRecent.status.${request.status}`,
+                        )}
+                      </span>
+
+                      <span className="sa-dashboard-recent__identity">
+                        <strong>{request.empName}</strong>
+                        <small>
+                          {request.empId}
+                          {request.office?.name
+                            ? ` · ${request.office.name}`
+                            : ""}
+                        </small>
+                      </span>
+
+                      <time>
+                        {formatDateTime(
+                          request.updatedAt,
+                          locale,
+                          t("common.noActivity"),
+                        )}
+                      </time>
+
+                      <span aria-hidden="true">→</span>
+                    </button>
+                  ))}
+              </div>
+            )}
+          </section>
+        )}
+      </section>
+    );
+  }
+
   return (
     <section
-      className="analytics-panel analytics-panel--professional analytics-panel--system"
-      aria-label={t("hero.aria")}
+      className={`analytics-panel analytics-panel--professional analytics-panel--system${
+        dashboardMode ? " analytics-panel--dashboard" : ""
+      }`}
+      aria-label={t(dashboardMode ? "dashboardHero.aria" : "hero.aria")}
     >
       <header className="analytics-commandbar">
         <div className="analytics-commandbar__identity">
@@ -518,9 +1474,19 @@ export function SuperAdminSystemAnalyticsPanel({
             <AnalyticsIcon name="scope" />
           </div>
           <div>
-            <span>{t("hero.eyebrow")}</span>
-            <h2>{t("hero.title")}</h2>
-            <p>{t("hero.description")}</p>
+            <span>
+              {t(dashboardMode ? "dashboardHero.eyebrow" : "hero.eyebrow")}
+            </span>
+            <h2>
+              {t(dashboardMode ? "dashboardHero.title" : "hero.title")}
+            </h2>
+            <p>
+              {t(
+                dashboardMode
+                  ? "dashboardHero.description"
+                  : "hero.description",
+              )}
+            </p>
           </div>
         </div>
 
@@ -600,6 +1566,81 @@ export function SuperAdminSystemAnalyticsPanel({
           </article>
         ))}
       </section>
+
+      {dashboardMode && monitoring.organizationHealth.activeOffices === 0 && (
+        <section className="analytics-dashboard-setup">
+          <div className="analytics-dashboard-setup__icon">
+            <AnalyticsIcon name="organization" />
+          </div>
+          <div>
+            <span>{t("dashboardSetup.eyebrow")}</span>
+            <h3>{t("dashboardSetup.title")}</h3>
+            <p>{t("dashboardSetup.description")}</p>
+          </div>
+          <button
+            type="button"
+            onClick={() => navigate("/super-admin/offices")}
+          >
+            {t("dashboardSetup.action")}
+          </button>
+        </section>
+      )}
+
+      {dashboardMode && (
+        <section className="analytics-section-card analytics-dashboard-attention">
+          <header>
+            <div>
+              <span>{t("dashboardAttention.eyebrow")}</span>
+              <h3>{t("dashboardAttention.title")}</h3>
+              <p>
+                {dashboardAttentionItems.length === 0
+                  ? t("dashboardAttention.clearDescription")
+                  : t("dashboardAttention.description", {
+                      count: dashboardAttentionItems.reduce(
+                        (total, item) => total + item.count,
+                        0,
+                      ),
+                    })}
+              </p>
+            </div>
+            <button
+              className="analytics-inline-link"
+              type="button"
+              onClick={() => navigate("/super-admin?view=analytics")}
+            >
+              {t("dashboardAttention.reviewAll")}
+            </button>
+          </header>
+
+          {dashboardAttentionItems.length === 0 ? (
+            <div className="analytics-dashboard-attention__clear">
+              <AnalyticsIcon name="health" />
+              <div>
+                <strong>{t("dashboardAttention.clearTitle")}</strong>
+                <span>{t("dashboardAttention.clearDescription")}</span>
+              </div>
+            </div>
+          ) : (
+            <div className="analytics-dashboard-attention__grid">
+              {dashboardAttentionItems.slice(0, 6).map((item) => (
+                <button
+                  key={item.key}
+                  className={`analytics-dashboard-attention__item is-${item.tone}`}
+                  type="button"
+                  onClick={() => navigate(item.path)}
+                >
+                  <span>
+                    <strong>{item.label}</strong>
+                    <small>{item.detail}</small>
+                  </span>
+                  <b>{formatNumber(item.count)}</b>
+                  <i aria-hidden="true">→</i>
+                </button>
+              ))}
+            </div>
+          )}
+        </section>
+      )}
 
       <section className="analytics-two-column analytics-two-column--balanced">
         <article className="analytics-section-card">
@@ -869,6 +1910,68 @@ export function SuperAdminSystemAnalyticsPanel({
           </div>
         </article>
       </section>
+
+      {dashboardMode && requests && (
+        <section className="analytics-section-card analytics-dashboard-recent">
+          <header>
+            <div>
+              <span>{t("dashboardRecent.eyebrow")}</span>
+              <h3>{t("dashboardRecent.title")}</h3>
+              <p>{t("dashboardRecent.description")}</p>
+            </div>
+            <button
+              className="analytics-inline-link"
+              type="button"
+              onClick={() => navigate("/super-admin/account-requests")}
+            >
+              {t("dashboardRecent.open")}
+            </button>
+          </header>
+
+          {requests.recentActivity.length === 0 ? (
+            <div className="analytics-dashboard-recent__empty">
+              {t("dashboardRecent.empty")}
+            </div>
+          ) : (
+            <div className="analytics-dashboard-recent__list">
+              {requests.recentActivity.slice(0, 5).map((request) => (
+                <button
+                  key={request.id}
+                  type="button"
+                  onClick={() =>
+                    navigate(
+                      `/super-admin/account-requests?status=${request.status}&request=${request.id}`,
+                    )
+                  }
+                >
+                  <span className="analytics-dashboard-recent__avatar">
+                    {request.empName.charAt(0).toUpperCase()}
+                  </span>
+                  <span className="analytics-dashboard-recent__identity">
+                    <strong>{request.empName}</strong>
+                    <small>
+                      {request.empId}
+                      {request.office?.name
+                        ? ` · ${request.office.name}`
+                        : ""}
+                    </small>
+                  </span>
+                  <span className="analytics-dashboard-recent__status">
+                    {t(`dashboardRecent.status.${request.status}`)}
+                  </span>
+                  <time>
+                    {formatDateTime(
+                      request.updatedAt,
+                      locale,
+                      t("common.noActivity"),
+                    )}
+                  </time>
+                </button>
+              ))}
+            </div>
+          )}
+        </section>
+      )}
 
       <footer className="analytics-privacy-note">
         <AnalyticsIcon name="health" />
